@@ -93,15 +93,24 @@ Bridge `packages/extension/src/` (78 files) = tight. `ExtensionAPI` usage counts
 
 ## 5. Option B mapping (ACP → dashboard protocol)
 
-| ACP shape | Dashboard effect |
-|---|---|
-| `session/new` | session register |
-| `session/prompt` | ← send prompt |
-| `session/update` `agent_message_chunk` | message streaming events |
-| `session/update` `tool_call` / `tool_call_update` | tool execution events |
-| `session/update` `plan` | plan/todo (maybe) |
-| `session/request_permission` | interactive dialog |
-| `session/cancel` | ← abort |
+ACP v1 = what shipping agents speak (querymt, `@agentclientprotocol/claude-agent-acp`, `codex-acp`). ACP v2 = Draft (spec https://agentclientprotocol.com/protocol/v2/migration; TS SDK `@agentclientprotocol/sdk` ≥1.3 experimental v2 API). Plan: normalise v1→v2 internally; v2 wire behind `acp.protocolV2` flag.
+
+| ACP v2 shape | Dashboard effect | pi analogue today |
+|---|---|---|
+| `initialize{protocolVersion}` | per-connection version negotiation | — |
+| `session/new{cwd}` | session register (`driver:"acp"`) | `session_register` |
+| `session/prompt` → result `{messageId}` (accept only) | `prompt_received{promptId}` ack | `send_prompt`/`prompt_received` |
+| `state_update running / requires_action / idle+stopReason` | agent_start / ui_prompt_start / turn_end+agent_end+agent_settled | `agent_start`, `ui_prompt_start/end`, `agent_settled` |
+| `agent_message[_chunk]`, `agent_thought[_chunk]`, `user_message` (upsert by `messageId`) | message_start/update(full snapshot)/end | bridge coalesced `message_update` snapshots + nonce/`entry_persisted` |
+| `tool_call_update` (single upsert by `toolCallId`) + `tool_call_content_chunk` | tool_execution_start/update/end | `tool_execution_*` |
+| `session/request_permission{title, subject, options}` | interactive select prompt | `extension_ui_request` |
+| `config_option_update` (model / thought_level / mode; modes API removed) | model + thinking controls | `model_select`, `thinking_level_select` |
+| `plan_update{planId}` | generic `acp_plan_update` card | none |
+| `terminal_update` / `terminal_output_chunk` (agent-owned, display-only) | generic card | `bash_output` |
+| `session/cancel` | ← abort | `abort` |
+| `session/resume{replayFrom:{type:"start"}}` (replaces `session/load`) | reattach + history replay after server restart | `transcript_request`/`replay_complete` |
+
+Removed in v2: client `fs/*`, `terminal/*`, `session/set_mode`, `session/load` → dashboard refuses fs/terminal with `-32601`.
 
 New `SessionDriver` seam in server. `PiDriver` = existing bridge WS. `AcpDriver` = spawn `qmtcode --stdio`.
 
@@ -111,13 +120,18 @@ flowchart LR
   S --> D{SessionDriver}
   D -- "PiDriver" --> B[bridge WS]
   B --> P[pi session]
-  D -- "AcpDriver" --> Q["qmtcode --stdio"]
-  Q -- ACP --> D
+  D -- "AcpDriver" --> N["normalizeV1 → v2 model → toEventForward"]
+  N --> S
+  N -- "rpc-keeper (duplex)" --> Q["ACP agent"]
+  Q -- ACP --> N
 ```
 
 - Works: chat streaming, tool cards, abort, permissions, spawn in cwd, model pick if exposed via ACP.
 - Lost/degraded: flows, subagents, `/commands`, extension UI panels, kb/memory/roles plugins, session tree/fork, `appendEntry` features, context-budget.
 - Bonus: `AcpDriver` generic → also Claude Code / Gemini CLI via ACP adapters.
+- Bonus: `pi-acp` (`svkozak/pi-acp` v0.0.34, ACP v1) spawns `pi --mode rpc` → bridge loads → editor-driven pi likely visible in dashboard (untested; double-controller risk).
+
+`See change: add-acp-session-driver` (`openspec/changes/add-acp-session-driver/`).
 
 ---
 
@@ -193,6 +207,7 @@ flowchart TB
 - Overlap with querymt own dashboard/scheduler/mesh — mirror or ignore?
 - ACP client control surface (mode/model switch, cancel, load session) vs need for querymt dashboard WS API.
 - Can dashboard inject its MCP server into querymt config at spawn? Likely yes via generated per-session TOML.
+- `rpc-keeper` today write-only — stdout discarded. ACP needs duplex keeper mode `PI_KEEPER_DUPLEX` (change add-acp-session-driver D5).
 
 ---
 
@@ -200,3 +215,4 @@ flowchart TB
 
 - Spike: spawn `qmtcode --stdio` with generated TOML (stub `mcp_tool` hook + one command hook), record ACP + hook traffic, diff vs mapping table.
 - Read querymt dashboard WebSocket API for prompt injection / streaming coverage.
+- Tracked in `openspec/changes/add-acp-session-driver/` (tasks 0.1 spike = record querymt ACP traffic).
