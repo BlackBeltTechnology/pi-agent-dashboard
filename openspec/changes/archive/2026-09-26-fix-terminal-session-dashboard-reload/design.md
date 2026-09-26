@@ -8,6 +8,18 @@ See proposal.md (Why). Current terminal-hosted path, `packages/extension/src/bri
 - `bridge.ts` ~L133 keeps cross-reload state on `process` (`BRIDGE_KEY`), not `globalThis`, "to survive jiti module cache invalidation AND to share state across isolated extension contexts (vm sandboxes)".
 - Server `dispatchReload` (`rpc-keeper/dispatch-reload.ts`) joins in-flight **respawns** only; the forward step has no in-flight guard.
 
+**Spike result (task 1.1, pi 0.87.1, tmux, real bridge `-e packages/extension/src/bridge.ts` + throwaway `__probe` extension, `-ne --no-session`).** Dispatch via `pi.sendUserMessage("/__probe x", {expandPromptTemplates:true})` from a timer:
+
+| Check | Result |
+|---|---|
+| (a) no user message / `agent_start` | ✅ no `input`, no user `message_start`, no `agent_start` |
+| (b) `session_start{reason:"reload"}` in the reloaded instance | ✅ order: handler start → `session_shutdown{reload}` (+108 ms) → new instance load → `session_start{reload}` → **then** the old handler's `ctx.reload()` resolves |
+| (c) second dispatch reloads again | ✅ instance 2 → instance 3, same sequence |
+| (d) `process` value set before reload readable after | ✅ |
+| (e) reloaded bridge passes the re-entry guard | ❌ `process.__pi_dashboard_bridge__.generation` stays `1` after both reloads; the dashboard marks the session `ended` after the first reload. **Latent bug confirmed** — every in-process reload (TUI `/reload` included) orphans the dashboard session today. D4's `prev.pi` clear on `session_shutdown{reload}` is required. |
+
+(a)–(d) hold: the design stands.
+
 pi 0.87.1 facts that shape the design (all read from `dist/`):
 
 | Fact | Where | Consequence |

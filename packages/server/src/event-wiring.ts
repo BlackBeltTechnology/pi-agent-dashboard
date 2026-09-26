@@ -29,6 +29,7 @@ import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
+import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -814,6 +815,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Legacy queue_state event no longer emitted (bridge removed PromptQueue).
       // See change: add-followup-edit-and-steer-cancel.
       if (msg.event.eventType === "queue_state") return;
+      // Forwarded-reload settle, BEFORE the replay-skip early return so a
+      // terminal `/reload` feedback inside a replay window still settles and
+      // still reaches the client. Late feedback after the server's own
+      // deadline error is dropped. See change: fix-terminal-session-dashboard-reload (D5).
+      const reloadRoute = routeReloadFeedback(sessionId, msg.event, {
+        inReplaySkipWindow: replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId),
+        persistAndBroadcast: () => {
+          const seq = eventStore.insertEvent(sessionId, msg.event);
+          browserGateway.broadcastEvent(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? msg.event);
+        },
+      });
+      if (reloadRoute === "handled") return;
       // When canSkipWipe was true, the event store already has all events —
       // don't insert replayed events again (would cause exponential duplication)
       if (replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId)) {
