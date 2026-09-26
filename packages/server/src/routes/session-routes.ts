@@ -10,7 +10,9 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
+import { scanAllSessions } from "../session/session-scanner.js";
 import { originOf } from "../session/session-origin.js";
+import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export function registerSessionRoutes(
@@ -29,8 +31,29 @@ export function registerSessionRoutes(
   // fix-session-diff-eventloop-block.
   const sessionDiffCache = new SessionDiffCache<SessionDiffResult>();
 
+  // Merge live (in-memory) sessions with disk-scanned historical/archived
+  // sessions. Live entries from sessionManager.listAll() win on id collision;
+  // disk-only entries are appended. Newest-first by startedAt. Live sessions
+  // without an id (or whose file hasn't been resolved yet) are still included
+  // — never dropped on a missing `sessionFile` field.
+  // See change: surface-historical-sessions (workaround for the dashboard not
+  // exposing piSessionsDir history to the sidebar).
   fastify.get("/api/sessions", async () => {
-    const sessions = sessionManager.listAll();
+    const liveSessions = sessionManager.listAll();
+    const scannedSessions = scanAllSessions().sessions;
+    const byId = new Map<string, DashboardSession>();
+    const orphans: DashboardSession[] = [];
+    for (const s of scannedSessions) {
+      if (s.id) byId.set(s.id, s);
+      else orphans.push(s);
+    }
+    for (const s of liveSessions) {
+      if (s.id) byId.set(s.id, s);
+      else orphans.push(s);
+    }
+    const sessions = [...byId.values(), ...orphans].sort(
+      (a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0),
+    );
     return { success: true, data: sessions } satisfies ApiResponse;
   });
 

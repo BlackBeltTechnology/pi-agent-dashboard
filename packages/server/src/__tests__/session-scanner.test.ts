@@ -363,4 +363,79 @@ describe("session-scanner", () => {
     const result = scanAllSessions(tmpDir);
     expect(result.sessions[0].hidden).toBe(true);
   });
+
+  // prime-agent writes a flat layout: <piSessionsDir>/<uuid>.jsonl directly,
+  // with no per-cwd subdirectory and no <ts>_ prefix on the filename. The
+  // scanner must (a) accept a bare UUID stem in extractSessionId and (b) walk
+  // top-level .jsonl files in addition to per-cwd subdirectories. See change:
+  // surface-historical-sessions.
+  it("discovers flat UUID-only .jsonl files at the sessions-dir root (prime-agent layout)", () => {
+    // No subdirectory — write directly under tmpDir.
+    const flatId = "01a0da14-78d1-4764-8197-dbf74fea8bf4";
+    const sf = createJsonl(tmpDir, `${flatId}.jsonl`, { id: flatId, cwd: "/prime/cwd" });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].id).toBe(flatId);
+    expect(result.sessions[0].cwd).toBe("/prime/cwd");
+    expect(result.sessions[0].sessionFile).toBe(sf);
+    // .meta.json was written by the fallback-parse arm.
+    expect(result.cacheUpdates).toBe(1);
+    expect(fs.existsSync(metaPath(sf))).toBe(true);
+  });
+
+  it("discovers flat .jsonl files alongside per-cwd subdirectories in the same dir", () => {
+    // pi-mono layout: one cwd subdir.
+    const dir = createSessionDir("--pi-cwd--");
+    createJsonl(dir, "2026-03-30T21-39-43-034Z_pi-mono-id.jsonl", {
+      id: "pi-mono-id",
+      cwd: "/pi/cwd",
+    });
+
+    // prime-agent flat layout: file directly under tmpDir.
+    const flatId = "01a0c90b-abcd-1234-5678-9abcdef01234";
+    createJsonl(tmpDir, `${flatId}.jsonl`, { id: flatId, cwd: "/prime/cwd" });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(2);
+    const ids = result.sessions.map((s) => s.id).sort();
+    expect(ids).toEqual([flatId, "pi-mono-id"]);
+  });
+
+  it("uses a bare UUID stem as session id when the filename has no underscore", () => {
+    const flatId = "01a0b8fb-ffff-eeee-dddd-cccc00001111";
+    createJsonl(tmpDir, `${flatId}.jsonl`, { id: flatId, cwd: "/u" });
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(1);
+    expect(result.sessions[0].id).toBe(flatId);
+  });
+
+  it("ignores non-.jsonl files at the sessions-dir root", () => {
+    // Files that don't match either layout should be silently skipped, not
+    // crash the scan.
+    fs.writeFileSync(path.join(tmpDir, "README.md"), "ignore me");
+    fs.writeFileSync(path.join(tmpDir, "01a0da14-not-a-uuid.meta.json"), "{}");
+    fs.writeFileSync(path.join(tmpDir, "stray.txt"), "x");
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(0);
+  });
+
+  it("derives startedAt from .jsonl mtime when the flat filename has no timestamp prefix", () => {
+    const flatId = "01a0dc8f-1111-2222-3333-444455556666";
+    const sf = createJsonl(tmpDir, `${flatId}.jsonl`, { id: flatId, cwd: "/x" });
+
+    // Pin mtime so we can assert startedAt falls back to it (extractTimestamp
+    // returns Date.now() when the stem has no underscore).
+    const knownMtime = new Date("2026-05-01T08:00:00.000Z");
+    fs.utimesSync(sf, knownMtime, knownMtime);
+
+    const result = scanAllSessions(tmpDir);
+    expect(result.sessions).toHaveLength(1);
+    // lastActivityAt is the seeded-from-mtime field; startedAt is allowed to
+    // be ~now because extractTimestamp has no ts to read.
+    expect(result.sessions[0].lastActivityAt).toBe(knownMtime.getTime());
+    expect(typeof result.sessions[0].startedAt).toBe("number");
+  });
 });

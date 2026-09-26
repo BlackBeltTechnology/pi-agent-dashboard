@@ -132,3 +132,58 @@ describe("GET /api/session-change/:sessionId/:toolCallId", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+// surface-historical-sessions: GET /api/sessions merges live + disk-scanned
+// sessions and orders them newest-first.
+describe("GET /api/sessions — live + disk merge", () => {
+  function managerWithList(list: any[]): any {
+    return { listAll: () => list, get: () => undefined };
+  }
+
+  async function buildWithList(list: any[]): Promise<FastifyInstance> {
+    const f = Fastify();
+    registerSessionRoutes(f, {
+      sessionManager: managerWithList(list),
+      eventStore: createMemoryEventStore(() => false),
+      networkGuard: PASSTHRU_GUARD,
+    });
+    await f.ready();
+    return f;
+  }
+
+  it("returns live sessions even when they have no sessionFile", async () => {
+    // A bridge-registered session with id but no resolved file must still
+    // appear in the listing — a filter on sessionFile would drop it.
+    const f = await buildWithList([
+      { id: "live-1", cwd: "/tmp", status: "active", startedAt: 1000 },
+    ]);
+    try {
+      const res = await f.inject({ method: "GET", url: "/api/sessions" });
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload);
+      expect(body.success).toBe(true);
+      expect(body.data).toHaveLength(1);
+      expect(body.data[0].id).toBe("live-1");
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("merges live and scanned sessions, live wins on id collision, sorted newest-first", async () => {
+    const f = await buildWithList([
+      // Live: id collision with disk — must win (newer startedAt).
+      { id: "shared", cwd: "/live", status: "active", startedAt: 2000, sessionFile: "/live/shared.jsonl" },
+      // Live: id only, no file — must still be included.
+      { id: "live-only", cwd: "/live-only", status: "active", startedAt: 500 },
+    ]);
+    try {
+      const res = await f.inject({ method: "GET", url: "/api/sessions" });
+      const body = JSON.parse(res.payload);
+      expect(body.data.map((s: any) => s.id)).toEqual(["shared", "live-only"]);
+      expect(body.data[0].cwd).toBe("/live"); // live overwrite
+      expect(body.data[0].status).toBe("active");
+    } finally {
+      await f.close();
+    }
+  });
+});

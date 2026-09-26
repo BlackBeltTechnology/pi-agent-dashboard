@@ -19,11 +19,16 @@ function getSessionsDir(): string {
 
 /** Extract session ID (UUID) from a filename like `<ts>_<uuid>.jsonl` */
 function extractSessionId(filename: string): string | null {
-  // Format: 2026-03-30T21-39-43-034Z_c7ab4be9-78d1-4764-8197-dbf74fea8bf4.jsonl
+  // pi-mono format: 2026-03-30T21-39-43-034Z_c7ab4be9-78d1-4764-8197-dbf74fea8bf4.jsonl
+  // prime-agent format: <uuid>.jsonl (no timestamp prefix).
+  // Strip .jsonl/.meta.json, then either take the segment after the first `_`
+  // or accept the bare stem when no underscore is present.
   const base = filename.replace(/\.jsonl$/, "").replace(/\.meta\.json$/, "");
   const underscoreIdx = base.indexOf("_");
-  if (underscoreIdx === -1) return null;
-  return base.slice(underscoreIdx + 1);
+  if (underscoreIdx !== -1) return base.slice(underscoreIdx + 1);
+  // No underscore → treat the entire stem as the session id (prime-agent's
+  // flat UUID-only filenames).
+  return base || null;
 }
 
 /** Extract startedAt from a filename timestamp like `2026-03-30T21-39-43-034Z` */
@@ -172,10 +177,23 @@ export function scanAllSessions(sessionsDir?: string): ScanResult {
   let cacheUpdates = 0;
 
   let cwdDirs: string[];
+  let topLevelFiles: string[] = [];
   try {
-    cwdDirs = readdirSync(dir).filter((d) => {
-      try { return statSync(join(dir, d)).isDirectory(); } catch { return false; }
-    });
+    const entries = readdirSync(dir);
+    cwdDirs = [];
+    topLevelFiles = [];
+    for (const e of entries) {
+      try {
+        const fullPath = join(dir, e);
+        if (statSync(fullPath).isDirectory()) {
+          cwdDirs.push(e);
+        } else if (e.endsWith(".jsonl")) {
+          // prime-agent's flat layout: sessions at piSessionsDir/<file>.jsonl
+          // (no per-cwd subdirectory). Treat the file itself as a session.
+          topLevelFiles.push(e);
+        }
+      } catch { /* ignore */ }
+    }
   } catch {
     return { sessions: [], cacheUpdates: 0 };
   }
@@ -283,6 +301,60 @@ export function scanAllSessions(sessionsDir?: string): ScanResult {
       cacheUpdates++;
       sessions.push(sessionFromMeta(sessionId, sessionFile, sessionDir, newMeta, startedAt));
     }
+  }
+
+  // prime-agent's flat layout: sessions at piSessionsDir/<file>.jsonl directly
+  // (no per-cwd subdirectory). The cwdDirs loop above only walks pi-mono's
+  // `~/.pi/agent/sessions/--<cwd>--/<file>.jsonl` layout. Walk the top-level
+  // .jsonl files too so prime-agent sessions are visible in the dashboard.
+  for (const jsonlFile of topLevelFiles) {
+    const sessionId = extractSessionId(jsonlFile);
+    if (!sessionId) continue;
+    const sessionFile = join(dir, jsonlFile);
+    const sessionDir = dir;
+    const startedAt = extractTimestamp(jsonlFile);
+
+    // Reuse the same meta-or-jsonl extraction as the per-cwd walk.
+    const meta = readSessionMeta(sessionFile);
+    if (meta && meta.cwd) {
+      let needsReExtract = false;
+      if (meta.cachedAt) {
+        try {
+          if (statSync(sessionFile).mtimeMs > meta.cachedAt) needsReExtract = true;
+        } catch { /* ignore */ }
+      }
+      if (!needsReExtract) {
+        sessions.push(sessionFromMeta(sessionId, sessionFile, sessionDir, meta, startedAt));
+        continue;
+      }
+    }
+    const header = readJsonlHeaderSync(sessionFile);
+    if (!header) continue;
+    const stats = extractSessionStats(sessionFile);
+    const newMeta: SessionMeta = {
+      ...(meta ?? {}),
+      cwd: header.cwd,
+      firstMessage: header.firstMessage,
+      name: meta?.name ?? header.name,
+      startedAt,
+      status: "ended",
+      endedAt: meta?.endedAt ?? readJsonlMtime(sessionFile) ?? startedAt,
+      ...(stats ? {
+        model: stats.model,
+        thinkingLevel: stats.thinkingLevel,
+        tokensIn: stats.tokensIn,
+        tokensOut: stats.tokensOut,
+        cacheRead: stats.cacheRead,
+        cacheWrite: stats.cacheWrite,
+        cost: stats.cost,
+        contextTokens: stats.lastTotalTokens,
+        contextWindow: stats.contextWindow,
+      } : {}),
+      cachedAt: Date.now(),
+    };
+    writeSessionMeta(sessionFile, newMeta);
+    cacheUpdates++;
+    sessions.push(sessionFromMeta(sessionId, sessionFile, sessionDir, newMeta, startedAt));
   }
 
   return { sessions, cacheUpdates };
