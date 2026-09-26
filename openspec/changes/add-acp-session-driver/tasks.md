@@ -18,10 +18,19 @@
 - [ ] 2.3 Spawn routing: WS `handleSpawnSession` + REST spawn validate `agent`; `SessionOptions.childCmd` path in `spawnHeadless` (skip pi resolution, `buildHeadlessArgs`, heap/runtime argv); forced headless; ACP preflight; agents `{id,name}` projection for the client
 - [ ] 2.4 Server pi-only-op guards for `driver:"acp"` (flows, dispatch, fork/tree, reload/retry, roles, stop-after-turn, terminal commands, file listing)
 
-## 3. acp-bridge adapter (`acp-agent-sessions`)
+## 2b. Gateway local connection + host A (`acp-agent-sessions`)
 
-- [ ] 3.1 `bin/acp-bridge.mjs` jiti launcher + `main.ts` arg parsing (`--agent`)
-- [ ] 3.2 `gateway-client.ts`: local gateway URL + local token header via shared helper, backoff reconnect, send buffering, 15 s heartbeat
+- [ ] 2b.1 Pure refactor in `pi/pi-gateway.ts`: extract the per-connection handler closure into a named function taking `(ws, req, transport)`; full existing gateway test suite green, no behaviour change
+- [ ] 2b.2 Add transport label `"local"` (origin = local, like `unix`) and `PiGateway.attachLocalConnection(socket)` feeding the extracted handler
+- [ ] 2b.3 `acp-bridge/local-bridge-socket.ts`: duck-typed WebSocket (`readyState`, `send`, `close`, `ping`→`pong`, `message`/`close`/`pong` events) bridging gateway ↔ core
+- [ ] 2b.4 `acp-bridge/local-host.ts` `startLocalAcpSession`: mint token + id, arm register watchdog, create core + socket, attach, record agent pid in headless PID registry; kill agent on server shutdown
+- [ ] 2b.5 Spawn routing by `durable` (false → host A, true → host B keeper path)
+
+## 3. acp-bridge core + host B (`acp-agent-sessions`)
+
+- [ ] 3.0 `acp-session-adapter.ts` core factory (`start`/`handle`/`reconnected`/`stop`, `send` callback) — no socket or host code; pi↔ACP construct table in one module
+- [ ] 3.1 Host B: `bin/acp-bridge.mjs` jiti launcher + `main.ts` arg parsing (`--agent`)
+- [ ] 3.2 Host B: `gateway-client.ts`: local gateway URL + local token header via shared helper, backoff reconnect, send buffering, 15 s heartbeat
 - [ ] 3.3 `child-env.ts` allowlist + configured-env forbidden-key filter; argv-only launch; Windows `.cmd`/`.bat` rejection
 - [ ] 3.4 `acp-connection.ts`: bounded line splitter, non-JSON skip, SDK JSON-RPC framing, version negotiation, `-32601` refusals, request timeouts
 - [ ] 3.5 Lifecycle: register first (minted UUID, full register fields) → launch agent → initialize → session/new → `models_list`/`commands_list`; startup failures shown as session error + `bridge_diagnostic` + exit non-zero; `acp.spawnTimeoutMs`
@@ -29,7 +38,7 @@
 - [ ] 3.7 Permission bridging: `prompt_request` shaped like `packages/extension/src/prompt-bus.ts` select prompts; `prompt_response` / `prompt_cancel` → outcome
 - [ ] 3.8 Config options ↔ `set_model` / `set_thinking_level`; `session_info_update` title → `session_name_update`
 - [ ] 3.9 `server-requests.ts`: exhaustive switch over the server→bridge union with deterministic replies
-- [ ] 3.10 `event-log.ts`: async batched append, cap with turn-boundary truncation + notice; reattach → register `reattach` (no `eventCount`) → lists + model state → replay → `replay_complete` → re-send pending permission
+- [ ] 3.10 `event-log.ts`: async batched append, cap with turn-boundary truncation + notice; host B reattach → register `reattach` (no `eventCount`) → lists + model state → replay → `replay_complete` → re-send pending permission
 - [ ] 3.11 Rate-limited counters + negotiated-version / failure-cause lines via `bridge_diagnostic` `"acp"`
 - [ ] 3.12 `security-hardening` pass on 2.1, 3.3, 3.4, 3.10 (path from minted id only); `nodejs-expert` checkpoint (new process + stream path); `packages/server/src/acp-bridge/AGENTS.md` + touched dir rows
 
@@ -109,6 +118,12 @@
 - [ ] 7.63 L1 vitest `packages/server/src/__tests__/acp-spawn-preflight.test.ts`: ACP preflight failure (see packages/server/src/__tests__/spawn-preflight.test.ts) — input: cwd missing / agent command not on PATH · trigger: spawn via WS · observable: spawn error via existing path; no keeper spawned (test-plan #X6)
 - [ ] 7.64 L2 qa smoke `qa/tests/12-acp-keeper-restart.sh + .ps1`: real spawn via keeper survives server restart (see qa/tests/03-websocket.sh and qa/tests/03-websocket.ps1) — input: headless ACP session (fake agent) on macOS/Linux/Windows VM · trigger: kill + restart dashboard server · observable: keeper, adapter, agent PIDs unchanged; '/api/sessions' lists session after restart; adapter reconnect logged (test-plan #X7)
 - [ ] 7.65 L1 vitest `packages/server/src/__tests__/spawn-register-watchdog.test.ts`: watchdog reclaim (see packages/server/src/__tests__/spawn-register-watchdog.test.ts) — input: adapter never registers (stub), register timeout 5 s · trigger: watchdog fires · observable: keeper pid killed (token probe miss tolerated); spawn error surfaced (test-plan #X8)
+- [ ] 7.66 L1 vitest `packages/server/src/__tests__/pi-gateway-local-connection.test.ts`: hosts: gateway local connection (see packages/server/src/__tests__/pi-gateway-duplicate-register.test.ts) — input: LocalBridgeSocket attached via attachLocalConnection, register with spawn token 'tok' · trigger: register, heartbeat, close · observable: registered once; watchdog 'tok' cleared; heartbeat_ack delivered; close → onDisconnect; existing WS gateway suite green (test-plan #E47)
+- [ ] 7.67 L1 vitest `packages/server/src/__tests__/acp-spawn-routing.test.ts`: spawn routing by durable (see packages/server/src/__tests__/process-manager-keeper-spawn.test.ts) — input: durable absent/false/true · trigger: WS spawn_session · observable: absent+false → no keeper, agent pid in headless PID registry; true → keeper with piCmd [node, bin/acp-bridge.mjs], piArgs ["--agent", id] (test-plan #E48)
+- [ ] 7.68 L1 vitest `packages/server/src/acp-bridge/__tests__/host-parity.test.ts`: hosts: behaviour parity (see packages/server/src/__tests__/faux-session.integration.test.ts) — input: same fake-agent script · trigger: run via host A and host B · observable: browser-visible sequences equal modulo ids/timestamps (test-plan #E49)
+- [ ] 7.69 L1 vitest `packages/server/src/__tests__/pi-gateway-local-connection.test.ts`: hosts: in-process origin local (see packages/server/src/__tests__/pi-gateway-duplicate-register.test.ts) — input: in-process ACP session registered · trigger: read session record · observable: origin local, no originDeviceId, local resume/stop capability (test-plan #E50)
+- [ ] 7.70 L1 vitest `packages/server/src/acp-bridge/__tests__/local-host-shutdown.test.ts`: hosts: in-process session on server stop (see packages/server/src/__tests__/faux-session.integration.test.ts) — input: running in-process session with fake agent · trigger: server shutdown hook then meta reload · observable: agent pid dead within 3 s; session ended with driver "acp" (test-plan #X9)
+- [ ] 7.71 L3 Playwright `tests/e2e/acp-session-local.spec.ts`: hosts: non-durable end-to-end (see tests/e2e/optimistic-prompt.spec.ts) — input: harness fake agent durable:false · trigger: spawn from dialog, send "hello" · observable: ACP badge; one user bubble; reply rendered; no keeper process (test-plan #F8)
 
 ## 8. Verification
 

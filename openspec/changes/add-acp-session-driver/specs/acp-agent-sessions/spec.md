@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: ACP agent registry and configuration
-The config loader SHALL parse `acpAgents` (`[{ id, name, command, args?, env? }]`) and `acp` (`{ protocolV2?, spawnTimeoutMs?, requestTimeoutMs?, maxLineBytes?, eventLogMaxBytes? }`) from `~/.pi/dashboard/config.json`, dropping malformed agent entries with a logged warning. When two entries share an `id`, the first SHALL win and later ones SHALL be dropped with a warning. Numeric `acp` values SHALL be clamped with a warning to `spawnTimeoutMs` 5 000–120 000, `requestTimeoutMs` 1 000–300 000, `maxLineBytes` 65 536–67 108 864, `eventLogMaxBytes` 1 048 576–1 073 741 824; non-numeric values SHALL fall back to the default with a warning. `GET /api/config` SHALL replace every `acpAgents[].env` value with `***`, and a config write carrying `***` for such a value SHALL preserve the stored value. The spawn picker SHALL receive agents only as `{ id, name }`. When `acpAgents` is absent or empty, no ACP spawn surface SHALL be exposed.
+The config loader SHALL parse `acpAgents` (`[{ id, name, command, args?, env?, durable? }]`, `durable` defaulting to `false`) and `acp` (`{ protocolV2?, spawnTimeoutMs?, requestTimeoutMs?, maxLineBytes?, eventLogMaxBytes? }`) from `~/.pi/dashboard/config.json`, dropping malformed agent entries with a logged warning. When two entries share an `id`, the first SHALL win and later ones SHALL be dropped with a warning. Numeric `acp` values SHALL be clamped with a warning to `spawnTimeoutMs` 5 000–120 000, `requestTimeoutMs` 1 000–300 000, `maxLineBytes` 65 536–67 108 864, `eventLogMaxBytes` 1 048 576–1 073 741 824; non-numeric values SHALL fall back to the default with a warning. `GET /api/config` SHALL replace every `acpAgents[].env` value with `***`, and a config write carrying `***` for such a value SHALL preserve the stored value. The spawn picker SHALL receive agents only as `{ id, name }`. When `acpAgents` is absent or empty, no ACP spawn surface SHALL be exposed.
 
 #### Scenario: No agents configured
 - **WHEN** `acpAgents` is absent
@@ -21,11 +21,36 @@ The config loader SHALL parse `acpAgents` (`[{ id, name, command, args?, env? }]
 - **THEN** `GET /api/config` SHALL NOT contain `sk-x`
 - **AND** saving the config back unchanged SHALL leave `sk-x` stored on disk
 
-### Requirement: ACP spawn routing
-A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before.
+### Requirement: Transport-agnostic adapter core and hosts
+ACP handling SHALL be implemented once, in an adapter core that exchanges only bridge-protocol messages (`ExtensionToServerMessage` out, `ServerToExtensionMessage` in) with its host and ACP JSON-RPC with the agent. The core SHALL be mounted by one of two hosts selected by the agent's `durable` flag: `false` → an in-process host attached to the pi gateway through a local virtual connection that runs the same per-connection handling (registration, contention, spawn-token watchdog clearing, heartbeat, disconnect) as a WebSocket bridge and is attributed as a local origin; `true` → an out-of-process adapter under the rpc-keeper connecting to the gateway over WebSocket. Behaviour observable by browsers SHALL be identical for both hosts except restart survival.
 
-#### Scenario: UI spawn with agent under tmux strategy on a machine without pi
-- **WHEN** the spawn strategy is `tmux`, pi is not installed, and the user spawns agent `qmt` from the spawn dialog
+#### Scenario: Same behaviour on both hosts
+- **WHEN** the same scripted agent conversation is run once with `durable: false` and once with `durable: true`
+- **THEN** browsers SHALL receive the same sequence of session events and messages (ignoring ids and timestamps)
+
+#### Scenario: In-process session is local
+- **WHEN** an in-process ACP session registers
+- **THEN** it SHALL be treated as a local session (resume/stop controls governed as for local pi sessions, not as remote)
+
+#### Scenario: In-process session ends on server restart
+- **WHEN** the server restarts while an in-process ACP session is running
+- **THEN** the agent process SHALL be terminated
+- **AND** after restart the session SHALL be shown as ended with `driver: "acp"`
+
+#### Scenario: Gateway refactor leaves WebSocket bridges unchanged
+- **WHEN** a pi bridge connects over WebSocket after the local-connection entry point is added
+- **THEN** registration, contention, heartbeat and disconnect handling SHALL behave exactly as before
+
+### Requirement: ACP spawn routing
+A spawn request via WS `spawn_session` or `POST /api/session/spawn` carrying a configured `agent` id SHALL start the in-process host when the agent is not durable. For a durable agent it SHALL spawn a headless keeper session (regardless of the configured spawn strategy) whose child is the acp-bridge adapter (`[<node binary>, <server>/bin/acp-bridge.mjs, "--agent", <id>]`), without resolving pi, without pi argv shaping, and using an ACP preflight (cwd valid, node and agent command resolvable) instead of the pi/tmux preflight. It SHALL reuse the existing spawn token, headless PID registry, register watchdog and spawn-error surfacing. Spawn requests without `agent` SHALL behave exactly as before.
+
+#### Scenario: Non-durable agent starts in-process
+- **WHEN** the user spawns agent `qmt` configured without `durable`
+- **THEN** no keeper or adapter process SHALL be spawned
+- **AND** only the agent process SHALL be started, as a child of the server
+
+#### Scenario: UI spawn of a durable agent under tmux strategy on a machine without pi
+- **WHEN** the spawn strategy is `tmux`, pi is not installed, and the user spawns agent `qmt` configured with `durable: true` from the spawn dialog
 - **THEN** the session SHALL be spawned via the headless keeper with the adapter as its child
 - **AND** no `PI_NOT_FOUND` error SHALL occur
 
@@ -147,10 +172,10 @@ The adapter SHALL split agent stdout into lines with a per-line cap of `acp.maxL
 - **THEN** that line SHALL be discarded and the following line SHALL be processed normally
 
 ### Requirement: Reattach after dashboard restart
-The adapter SHALL append every forwarded event to `~/.pi/dashboard/acp/<dashboardSessionId>.events.jsonl`, capped at `acp.eventLogMaxBytes`; on reaching the cap the adapter SHALL drop the oldest whole turns until the log is at most 50 % of the cap and record one notice event. When its gateway connection is re-established it SHALL register with `registerReason: "reattach"`, `driver: "acp"` and no `eventCount`, re-publish `models_list`, `commands_list` and the current model state, replay the event log as `event_forward` messages, send `replay_complete`, and re-send any pending permission request as a fresh interactive prompt. The agent process and its ACP session SHALL be unaffected by the dashboard restart.
+This requirement applies to durable (out-of-process) ACP sessions. The adapter SHALL append every forwarded event to `~/.pi/dashboard/acp/<dashboardSessionId>.events.jsonl`, capped at `acp.eventLogMaxBytes`; on reaching the cap the adapter SHALL drop the oldest whole turns until the log is at most 50 % of the cap and record one notice event. When its gateway connection is re-established it SHALL register with `registerReason: "reattach"`, `driver: "acp"` and no `eventCount`, re-publish `models_list`, `commands_list` and the current model state, replay the event log as `event_forward` messages, send `replay_complete`, and re-send any pending permission request as a fresh interactive prompt. The agent process and its ACP session SHALL be unaffected by the dashboard restart.
 
 #### Scenario: Dashboard restarts mid-session
-- **WHEN** the dashboard server restarts while an ACP session is idle after two turns
+- **WHEN** the dashboard server restarts while a durable ACP session is idle after two turns
 - **THEN** after restart the session SHALL reappear with both turns rendered and its model selector populated
 - **AND** a new prompt SHALL be delivered to the same ACP session
 
@@ -160,7 +185,7 @@ The adapter SHALL append every forwarded event to `~/.pi/dashboard/acp/<dashboar
 - **AND** a replay SHALL begin with a truncation notice followed by complete turns only
 
 #### Scenario: Dashboard restarts mid-turn
-- **WHEN** the dashboard restarts while the agent is streaming a reply
+- **WHEN** the dashboard restarts while a durable agent is streaming a reply
 - **THEN** after reattach the chat SHALL show the reply as one assistant message containing the text streamed before and after the restart
 
 ### Requirement: Driver persistence and degraded-feature contract

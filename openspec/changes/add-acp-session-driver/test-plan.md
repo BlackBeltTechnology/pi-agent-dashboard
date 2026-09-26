@@ -60,6 +60,10 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | E44 | spawn routing (WS + REST) | decision-table | L1 | automated | `spawnStrategy` tmux/headless × agent absent/known/unknown × `acpAgents` empty/non-empty; pi missing | `handleSpawnSession` and `POST /api/session/spawn` | known agent → headless keeper, `piCmd=[node, bin/acp-bridge.mjs]`, `piArgs=["--agent",id]`, no pi resolution, no `PI_NOT_FOUND`; unknown/none → error; absent agent → call args identical to baseline snapshot |
 | E45 | spawn picker | EP | L1 | automated | agents projection `[]` / `[{id:"qmt",name:"querymt"}]` | render spawn dialog | no picker / picker with "querymt" defaulting to pi; projection never includes command/env |
 | E46 | pi-only controls hidden | EP | L1 | automated | session `driver:"acp"` vs pi session | render session view | flows/fork/reload/terminal controls absent for ACP, present for pi; driver badge on ACP card |
+| E47 | hosts: gateway local connection | state-transition | L1 | automated | `LocalBridgeSocket` attached via `attachLocalConnection`; register frame with spawn token `tok` | register, heartbeat, close | session registered once; watchdog entry for `tok` cleared; `heartbeat_ack` delivered to socket; close → `onDisconnect(sessionId)`; existing WebSocket gateway suite unchanged and green |
+| E48 | spawn routing by durable | decision-table | L1 | automated | agent `durable` absent / `false` / `true` | spawn via WS `spawn_session` | absent+false → host A: no keeper spawned, agent pid in headless PID registry; true → keeper with `piCmd=[node, bin/acp-bridge.mjs]`, `piArgs=["--agent",id]` |
+| E49 | hosts: behaviour parity | invariant | L1 | automated | same fake-agent script (prompt, tool call, permission, idle) | run through host A (LocalBridgeSocket) and host B (fake WS gateway) | browser-visible message sequences equal after normalising ids/timestamps |
+| E50 | hosts: in-process origin local | EP | L1 | automated | in-process ACP session registered | read session record | origin local (no `originDeviceId`); resume/stop capability same as a local pi session |
 
 ### Performance
 
@@ -78,9 +82,10 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | F2 | queue UI | state-convergence | L3 | automated | fake agent turn delayed 3 s | send second prompt mid-turn | optimistic bubble replaced by queue chip (no double render); after idle, chip becomes one user bubble |
 | F3 | permission prompt UI | state-transition | L3 | automated | fake agent requests permission | click "Allow once" | prompt card disappears; tool card completes; agent log shows `optionId:"allow"` |
 | F4 | model selector | state-convergence | L3 | automated | fake agent advertises models a,b | select b | selector shows b after `config_option_update`; no pi provider list shown |
-| F5 | restart mid-turn | state-transition | L3 | automated | fake agent streaming slow reply | `POST /api/restart` mid-stream | after reconnect: one assistant bubble containing pre- and post-restart text; model selector populated; next prompt works |
+| F5 | restart mid-turn | state-transition | L3 | automated | durable fake agent streaming slow reply | `POST /api/restart` mid-stream | after reconnect: one assistant bubble containing pre- and post-restart text; model selector populated; next prompt works |
 | F6 | pi-only controls hidden | invariant | L3 | automated | ACP session open | inspect session header/menus | no flow/fork/reload/terminal entry points |
 | F7 | ACP UX overall | visual/subjective | — | manual-only | querymt real session | human uses it for a task | [judgment: badge, degraded-feature messaging and tool cards feel coherent] |
+| F8 | hosts: non-durable end-to-end | state-convergence | L3 | automated | harness with fake agent `durable:false` | spawn from dialog, send "hello" | card with ACP badge; one user bubble; reply rendered; no keeper process for the session |
 
 ### Error-handling
 
@@ -94,15 +99,16 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | X6 | ACP preflight failure | fault-injection (abort) | L1 | automated | cwd missing / agent command not on PATH | spawn via WS | spawn error via existing path; no keeper spawned |
 | X7 | real spawn via keeper survives server restart | fault-injection (abort) | L2 | automated | headless ACP session (fake agent) on macOS/Linux/Windows VM | kill + restart dashboard server | keeper, adapter, agent PIDs unchanged; `/api/sessions` lists session after restart; adapter reconnect logged |
 | X8 | watchdog reclaim | fault-injection (abort) | L1 | automated | adapter never registers (stub), register timeout 5 s | watchdog fires | keeper pid killed (token probe miss tolerated); spawn error surfaced |
+| X9 | hosts: in-process session on server stop | fault-injection (abort) | L1 | automated | running in-process ACP session (fake agent) | server shutdown hook runs, then meta reload | fake agent pid no longer alive within 3 s; reloaded session status ended with `driver:"acp"` |
 
 ---
 
 ## Coverage summary
 
-- Requirements covered: 17/17 (acp-agent-sessions 13, acp-update-model 4)
-- Scenarios by class: edge 46 · perf 4 · frontend 7 · error 8
-- Scenarios by level: L1 55 · L2 2 · L3 6
-- Scenarios by disposition: automated 64 · manual-only 1
+- Requirements covered: 18/18 (acp-agent-sessions 14, acp-update-model 4)
+- Scenarios by class: edge 50 · perf 4 · frontend 8 · error 9
+- Scenarios by level: L1 60 · L2 2 · L3 7
+- Scenarios by disposition: automated 70 · manual-only 1
 
 ## New infra needed
 
