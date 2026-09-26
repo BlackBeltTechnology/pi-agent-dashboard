@@ -846,7 +846,7 @@ describe("CommandHandler", () => {
     it("#X6 emits `error` and NO `completed` when no reload path exists", async () => {
       const pi = createMockPi();
       const eventSink = vi.fn();
-      // Terminal-hosted bridge with no captured RELOAD_KEY: `reload` is absent.
+      // No `reload` option wired: the handler must still report an error.
       const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
@@ -908,6 +908,32 @@ describe("CommandHandler", () => {
       expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
       expect(feedback[0].message).toContain("aborted mid-flight");
       expect(feedback.some((f: any) => f.status === "completed")).toBe(false);
+    });
+
+    // The reloaded bridge instance owns the terminal feedback on an in-process
+    // reload, so a `handedOff` outcome must emit nothing here.
+    // See change: fix-terminal-session-dashboard-reload (test-plan #E10).
+    it.each([
+      { name: "handedOff", outcome: { ok: true, handedOff: true } as const, expected: [] as object[] },
+      {
+        name: "error",
+        outcome: { ok: false, reason: "x" } as const,
+        expected: [{ command: "/reload", status: "error", message: "x" }],
+      },
+      { name: "ok", outcome: { ok: true } as const, expected: [{ command: "/reload", status: "completed" }] },
+    ])("#E10 reload outcome $name \u2192 matching terminal feedback count", async ({ outcome, expected }) => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      const reload = vi.fn(async () => outcome);
+      const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toEqual(expected);
     });
 
     it("should route /new to spawnNew callback", async () => {

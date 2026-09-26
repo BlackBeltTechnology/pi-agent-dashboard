@@ -38,13 +38,19 @@ import { registerCanvasTool } from "./canvas-tool.js";
 import {
   buildUserMessageContent,
   createCommandHandler,
-  NO_RELOAD_PATH_REASON,
-  type ReloadOutcome,
   tryExecSlashTemplate,
   validateImages,
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
+import {
+  consumePendingReloadOnSessionStart,
+  createTerminalReload,
+  isBridgeReentry,
+  RELOAD_COMMAND_NAME,
+  releaseBridgeOwnerOnShutdown,
+  reloadCompletedFeedback,
+} from "./terminal-reload.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
@@ -219,7 +225,10 @@ function initBridge(pi: ExtensionAPI) {
   // If bridge is already active for a different pi instance (e.g. a subagent
   // loading extensions in the same process), skip initialization to avoid
   // invalidating the parent session's bridge connection and event forwarding.
-  if (prev.generation && prev.generation > 0 && prev.pi && prev.pi !== pi) {
+  // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
+  // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
+  // See change: fix-terminal-session-dashboard-reload (D4).
+  if (isBridgeReentry(prev, pi)) {
     return;
   }
 
@@ -1616,6 +1625,9 @@ function initBridge(pi: ExtensionAPI) {
   // Track connection so future bridge incarnations can disconnect it
   getBridgeState().connections!.push(connection);
 
+  // See change: fix-terminal-session-dashboard-reload.
+  const terminalReload = createTerminalReload({ pi, getSessionId: () => sessionId });
+
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
     // Surface a session-id-mismatch drop server-side; the guard's own
@@ -1709,36 +1721,13 @@ function initBridge(pi: ExtensionAPI) {
         cachedCtx.compact(opts);
       }
     },
-    // Terminal-hosted fast path only. Dashboard-spawned headless sessions are
-    // reloaded by the SERVER writing `/__dashboard_reload` to their keeper UDS
-    // (`dispatchReload`), which needs no TUI bootstrap and no live bridge WS.
-    //
-    // The captured fn is single-use per process: it closes over the ctx of the
-    // invocation that captured it, and the first `ctx.reload()` invalidates
-    // that runner — so a SECOND call throws SYNCHRONOUSLY out of
-    // `assertActive()`, which a `.catch()` on the returned promise cannot
-    // catch. Hence the try/catch around BOTH the call and the await.
-    //
-    // Awaited, not fire-and-forget: returning `{ok:true}` before the promise
-    // settles means an async rejection lands AFTER `command_feedback
-    // {completed}` was already emitted — the exact false success this change
-    // removes.
-    // See change: fix-out-of-band-reload (design.md D5).
-    reload: async (): Promise<ReloadOutcome> => {
-      const reloadFn = (globalThis as any)[RELOAD_KEY] as (() => Promise<void>) | undefined;
-      if (!reloadFn) {
-        console.error("[dashboard] reload not available — type /__dashboard_reload in pi TUI once to bootstrap");
-        return { ok: false, reason: NO_RELOAD_PATH_REASON };
-      }
-      try {
-        await reloadFn();
-      } catch (err: any) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.error("[dashboard] reload failed:", err);
-        return { ok: false, reason: `Reload failed: ${reason}` };
-      }
-      return { ok: true };
-    },
+    // Terminal-hosted path only. Dashboard-spawned headless sessions are
+    // reloaded by the SERVER via kill-and-respawn (`dispatchReload`).
+    // Self-dispatches `/__dashboard_reload <token>` in-process (pi >= 0.84.2);
+    // resolves `handedOff` on success, because the RELOADED instance reports
+    // `completed` after re-registering. See `terminal-reload.ts`.
+    // See change: fix-terminal-session-dashboard-reload (D1/D3/D4).
+    reload: terminalReload.reload,
     spawnNew: () => {
       connection.send({ type: "spawn_new_session", sessionId, cwd: process.cwd() });
     },
@@ -1853,20 +1842,13 @@ function initBridge(pi: ExtensionAPI) {
     disarmRetryChain: () => retryTracker.noteExplicitRun(sessionId),
   });
 
-  // Reload support: extension events only provide ExtensionContext (no reload).
-  // ExtensionCommandContext (with reload()) is only available in command handlers.
-  // We register __dashboard_reload command; invoking /__dashboard_reload from pi TUI
-  // captures ctx.reload(). After first capture, dashboard-triggered reloads work.
-  // The captured fn is stored in globalThis to survive module reloads.
-  const RELOAD_KEY = "__pi_dashboard_reload_fn__";
-
-  pi.registerCommand("__dashboard_reload", {
-    handler: async (_args: string, ctx: any) => {
-      if (ctx?.reload) {
-        (globalThis as any)[RELOAD_KEY] = () => ctx.reload();
-        await ctx.reload();
-      }
-    },
+  // Reload support: only a command handler's ctx has `reload()`. The bridge
+  // self-dispatches this command (dashboard reload, token arg); a human may
+  // also type it in the TUI (no args, no dashboard feedback). Nothing callable
+  // is cached — every dispatch gets a fresh command ctx.
+  // See change: fix-terminal-session-dashboard-reload (D1/D3).
+  pi.registerCommand(RELOAD_COMMAND_NAME, {
+    handler: (args: string, ctx: any) => terminalReload.handleReloadCommand(args, ctx),
   });
 
   /**
@@ -2902,6 +2884,11 @@ function initBridge(pi: ExtensionAPI) {
     // On session switch/fork (0.65.0+: event.reason replaces session_switch/session_fork events),
     // unregister the old session before re-registering the new one.
     const reason = _event?.reason;
+    // Synchronous compare-and-set BEFORE any await: this instance was loaded
+    // by a dashboard-requested reload → it owns the `/reload` `completed`,
+    // emitted after `replay_complete` below.
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    const reloadDelivered = consumePendingReloadOnSessionStart(reason, newSessionId);
     if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
       // Clear any latched abort for the OUTGOING session id. Otherwise a
       // latched old session that is resumed later would have its first
@@ -3453,6 +3440,10 @@ function initBridge(pi: ExtensionAPI) {
     // Replay full session history so the dashboard has all messages
     replaySessionEntries();
     connection.send({ type: "replay_complete", sessionId });
+    // After replay_complete: inside the replay window the server may drop
+    // forwarded events without insert or broadcast (`skipReplayInsert`).
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    if (reloadDelivered) connection.send(reloadCompletedFeedback(sessionId));
     // If agent is mid-turn (e.g. reload during streaming), send synthetic agent_start
     if (getBridgeState().isAgentStreaming) {
       connection.send(mapEventToProtocol(sessionId, { type: "agent_start" }));
@@ -3830,8 +3821,11 @@ function initBridge(pi: ExtensionAPI) {
 
   }));
 
-  pi.on("session_shutdown", safe(async () => {
+  pi.on("session_shutdown", safe(async (event: any) => {
     if (!isActive()) return;
+    // Let the reloaded instance (fresh ExtensionAPI) pass the re-entry guard.
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    releaseBridgeOwnerOnShutdown(getBridgeState(), event?.reason);
     getBridgeState().isAgentStreaming = false;
     stopMetricsMonitor();
     if (heartbeatTimer) {

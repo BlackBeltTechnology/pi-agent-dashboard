@@ -119,6 +119,46 @@ export function _resetDispatchWarnings(): void {
   warnedReasons.clear();
 }
 
+/**
+ * True when the running pi honours `sendUserMessage({expandPromptTemplates:true})`
+ * command dispatch (pi >= 0.84.2). A pre-release of the floor counts as below it;
+ * a missing, unparseable or unreadable version warns once and is assumed new
+ * (same trade-off as user-typed extension slash dispatch).
+ *
+ * Shared by `tryDispatchExtensionCommand` and the bridge's in-process reload.
+ * See change: fix-terminal-session-dashboard-reload (D2).
+ */
+export function supportsInProcessCommandDispatch(
+  readVersion: () => string | undefined = readRunningPiVersion,
+): boolean {
+  let version: string | undefined;
+  try {
+    version = readVersion();
+  } catch (err) {
+    // A throwing reader degrades to `undefined` ("assume new") rather than
+    // becoming an unhandled rejection or a stuck pill.
+    console.warn("[dashboard] pi version read failed on slash-dispatch", err);
+    version = undefined;
+  }
+
+  if (version === undefined) {
+    warnOnce(
+      "missing",
+      "[dashboard] could not determine the running pi version on slash-dispatch; assuming expandPromptTemplates support",
+    );
+    return true;
+  }
+  const cmp = compareTriplet(version, MIN_DISPATCH_PI_VERSION);
+  if (cmp === undefined) {
+    warnOnce(
+      "unparseable",
+      `[dashboard] unrecognized pi version "${version}" on slash-dispatch; assuming expandPromptTemplates support`,
+    );
+    return true;
+  }
+  return cmp >= 0;
+}
+
 function emitFeedback(
   sink: FeedbackSink | undefined,
   sessionId: string,
@@ -174,32 +214,9 @@ export async function tryDispatchExtensionCommand(
 
   emitFeedback(sink, sessionId, text, "started");
   try {
-    let version: string | undefined;
-    try {
-      version = readVersion();
-    } catch (err) {
-      // A throwing reader degrades to `undefined` ("assume new") rather than
-      // becoming an unhandled rejection or a stuck pill.
-      console.warn("[dashboard] pi version read failed on slash-dispatch", err);
-      version = undefined;
-    }
-
-    if (version === undefined) {
-      warnOnce(
-        "missing",
-        "[dashboard] could not determine the running pi version on slash-dispatch; assuming expandPromptTemplates support",
-      );
-    } else {
-      const cmp = compareTriplet(version, MIN_DISPATCH_PI_VERSION);
-      if (cmp === undefined) {
-        warnOnce(
-          "unparseable",
-          `[dashboard] unrecognized pi version "${version}" on slash-dispatch; assuming expandPromptTemplates support`,
-        );
-      } else if (cmp < 0) {
-        emitFeedback(sink, sessionId, text, "error", OLD_PI_ERROR);
-        return true;
-      }
+    if (!supportsInProcessCommandDispatch(readVersion)) {
+      emitFeedback(sink, sessionId, text, "error", OLD_PI_ERROR);
+      return true;
     }
 
     // pi consults `streamingBehavior` only AFTER `_tryExecuteExtensionCommand`,
