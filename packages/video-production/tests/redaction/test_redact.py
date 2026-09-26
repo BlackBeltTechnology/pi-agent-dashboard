@@ -93,6 +93,7 @@ def test_e31_valid_boundaries_accepted(path, value):
     ("delogo.0.to", 1, "delogo[0]"),  # from == to
     ("speed", 0, "speed"),
     ("trim.to", float("nan"), "trim.to"),
+    ("crop.top", 1079, "crop"),  # leaves a 1 px frame
 ])
 def test_e31_invalid_values_rejected(path, value, field):
     with pytest.raises(redact.SpecError) as e:

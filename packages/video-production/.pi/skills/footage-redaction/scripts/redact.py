@@ -50,8 +50,14 @@ class SpecError(ValueError):
         self.field = field
 
 
+TIMEOUT_S = 3600  # one clip; a hung ffmpeg/ffprobe must not stall a batch
+
+
 def default_runner(argv: Sequence[str]):
-    return subprocess.run(list(argv), capture_output=True)  # argv list, never through a shell
+    try:
+        return subprocess.run(list(argv), capture_output=True, timeout=TIMEOUT_S)  # argv list, never through a shell
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"{argv[0]} timed out after {e.timeout:g}s") from e
 
 
 # ------------------------------------------------------------------ validation
@@ -108,8 +114,8 @@ def validate(spec: dict, W: int, H: int) -> None:
     for k in ("top", "bottom", "left", "right"):
         if k in crop:
             _num(crop[k], f"crop.{k}")
-    if crop.get("top", 0) + crop.get("bottom", 0) >= H or crop.get("left", 0) + crop.get("right", 0) >= W:
-        raise SpecError("crop", f"removes the whole {W}x{H} frame")
+    if H - crop.get("top", 0) - crop.get("bottom", 0) < 2 or W - crop.get("left", 0) - crop.get("right", 0) < 2:
+        raise SpecError("crop", f"must leave at least 2x2 px of the {W}x{H} frame")
     for i, d in enumerate(spec.get("delogo", [])):
         _box(d, f"delogo[{i}]", W, H)
         _window(d, f"delogo[{i}]")

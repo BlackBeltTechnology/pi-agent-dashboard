@@ -247,8 +247,14 @@ def classify_sections(sections: list[dict], drops: list[dict],
 Runner = Callable[[Sequence[str]], "subprocess.CompletedProcess"]
 
 
+FFMPEG_TIMEOUT_S = 600
+
+
 def default_runner(argv: Sequence[str]):
-    return subprocess.run(list(argv), capture_output=True)  # argv list, never a shell
+    try:
+        return subprocess.run(list(argv), capture_output=True, timeout=FFMPEG_TIMEOUT_S)  # argv list, never a shell
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"{argv[0]} timed out after {e.timeout:g}s") from e
 
 
 def run_ffmpeg(args: Sequence[str], runner: Runner | None = None, exe: str = "ffmpeg"):

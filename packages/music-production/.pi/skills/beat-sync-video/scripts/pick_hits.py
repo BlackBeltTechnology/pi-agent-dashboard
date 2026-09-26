@@ -191,7 +191,8 @@ def main(argv: list[str] | None = None) -> int:
     budget = max(1, round(float(edit["duration"]) / a.density))
     hits = deregularize(merge(manual, cands, a.min_gap * bar, budget), bar)
     for h in hits:
-        h.pop("_jump", None)
+        if h["source"] != "manual":  # manual hits are written back verbatim
+            h.pop("_jump", None)
     ml.write_json_atomic(out, {"schema": "music-hits/1", "edit": ml.rel_to(out, edit_path),
                                "hits": hits, "recipe": RECIPE})
     share, modal = regularity(hits, bar)

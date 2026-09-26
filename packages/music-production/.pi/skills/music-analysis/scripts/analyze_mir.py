@@ -175,20 +175,24 @@ def main(argv: list[str] | None = None) -> int:
         m["tags"] = tags(src)
     if not a.no_stems:
         m["stems"] = stems(src, device, map_path.parent / "stems", downbeats, map_path)
-        # stem-aware drop confidence (drum re-entry) and section classes
-        librosa = ml.require("librosa", REQ)
-        y, sr = librosa.load(str(src), sr=44100, mono=True)
-        S = np.abs(librosa.stft(y, n_fft=ml.N_FFT, hop_length=ml.HOP)) ** 2
-        freqs = librosa.fft_frequencies(sr=sr, n_fft=ml.N_FFT)
-        bar_rms, bar_low, _ = ml.bar_levels(librosa, y, sr, S, freqs, downbeats, len(y) / sr)
+    # Section levels, classes and (with stems) drop confidence follow the new grid.
+    librosa = ml.require("librosa", REQ)
+    y, sr = librosa.load(str(src), sr=44100, mono=True)
+    S = np.abs(librosa.stft(y, n_fft=ml.N_FFT, hop_length=ml.HOP)) ** 2
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=ml.N_FFT)
+    bar_rms, bar_low, _ = ml.bar_levels(librosa, y, sr, S, freqs, downbeats, len(y) / sr)
+    stem_bars = m["stems"]["bar_rms_db"] if "stems" in m else None
+    if stem_bars:
         starts = [s["start_bar"] for s in m["sections"]]
-        m["drops"] = analyze_music.drop_candidates(starts, bar_rms, bar_low, downbeats,
-                                                   m["stems"]["bar_rms_db"].get("drums"))
-        for sec in m["sections"]:  # level rise across the section separates build from breakdown
-            sec["rise_db"] = float(bar_rms[sec["end_bar"] - 2] - bar_rms[sec["start_bar"] - 1])
-        ml.classify_sections(m["sections"], m["drops"], m["stems"]["bar_rms_db"])
-        for sec in m["sections"]:
-            sec.pop("rise_db", None)
+        m["drops"] = analyze_music.drop_candidates(starts, bar_rms, bar_low, downbeats, stem_bars.get("drums"))
+    for sec in m["sections"]:
+        span = slice(sec["start_bar"] - 1, sec["end_bar"] - 1)
+        sec["rms_db"] = round(float(np.mean(bar_rms[span])), 1)
+        sec["bass_db"] = round(float(np.mean(bar_low[span])), 1)
+        sec["rise_db"] = float(bar_rms[sec["end_bar"] - 2] - bar_rms[sec["start_bar"] - 1])
+    ml.classify_sections(m["sections"], m["drops"], stem_bars)
+    for sec in m["sections"]:
+        sec.pop("rise_db", None)
     ml.write_json_atomic(map_path, m)
     print(f"{m['tempo']['bpm']} BPM  {meter}/4  {len(downbeats)} bars (beat_this)  key {key['label']}")
     for k_, v in m.get("tags", {}).items():

@@ -136,7 +136,8 @@ def test_e24b_all_manual_regular_grid_terminates(tmp_path):
 def test_e25_manual_hit_preserved_on_rerun(tmp_path):
     dv, dur, segs = _identity(24)
     ep = _case(tmp_path, dv=dv, low_amp={i: 0.8 for i in range(12, 24)}, duration=dur, segments=segs)
-    manual = {"t": 5.123, "tier": "big", "source": "manual", "why": "logo reveal", "note": {"by": "editor"}}
+    manual = {"t": 5.123, "tier": "big", "source": "manual", "why": "logo reveal", "note": {"by": "editor"},
+              "_jump": 99}  # even keys the picker uses internally survive verbatim
     out = ep.with_name("x_hits.json")
     out.write_text(json.dumps({"schema": "music-hits/1", "edit": "x_edit.json", "hits": [manual], "recipe": {}}))
     h, _ = _hits(ep)  # no --out: default path derived from x_edit.json
