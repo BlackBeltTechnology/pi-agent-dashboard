@@ -14,7 +14,7 @@ import { renderWithPlugin, SESSION } from "./test-utils.js";
 interface TabSpec {
 	tabId: number;
 	state?: "live" | "no-frames" | "detached" | "client-screencast-active";
-	reason?: "devtools";
+	reason?: "devtools" | "no-session";
 }
 
 function status(
@@ -187,6 +187,53 @@ describe("LiveViewTile", () => {
 		fireEvent.keyDown(tile, { key: "a" });
 		fireEvent.wheel(tile, { deltaY: 10 });
 		expect(send).not.toHaveBeenCalled();
+	});
+
+	it("no-session: renders the no-session overlay (not Waiting for frames) and blocks input", async () => {
+		const { getByTestId, queryByTestId, ws, send } = renderTile();
+		act(() =>
+			ws.emit(
+				status([
+					{ instanceId: "i1", tabs: [{ tabId: 1, state: "detached", reason: "no-session" }] },
+				]),
+			),
+		);
+		await waitFor(() => expect(getByTestId("browser-overlay-nosession-i1-1")).toBeTruthy());
+		expect(getByTestId("browser-overlay-nosession-i1-1").textContent).toContain("not attached");
+		expect(queryByTestId("browser-overlay-devtools-i1-1")).toBeNull();
+		expect(queryByTestId("browser-frame-waiting-i1-1")).toBeNull();
+		// A tile mounted detached/no-session never subscribes (D3).
+		expect(
+			send.mock.calls.some(([m]) => (m as { type: string }).type === "browser_relay_subscribe"),
+		).toBe(false);
+
+		send.mockClear();
+		const tile = getByTestId("browser-tile-i1-1");
+		tile.getBoundingClientRect = () => rect(320, 200);
+		fireEvent.click(tile, { clientX: 10, clientY: 10 });
+		fireEvent.keyDown(tile, { key: "a" });
+		fireEvent.wheel(tile, { deltaY: 10 });
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	it("detached/no-session → live sends exactly one new subscribe", async () => {
+		const { getByTestId, ws, send } = renderTile();
+		act(() =>
+			ws.emit(
+				status([
+					{ instanceId: "i1", tabs: [{ tabId: 1, state: "detached", reason: "no-session" }] },
+				]),
+			),
+		);
+		await waitFor(() => expect(getByTestId("browser-overlay-nosession-i1-1")).toBeTruthy());
+		send.mockClear();
+
+		act(() => ws.emit(status([{ instanceId: "i1", tabs: [{ tabId: 1, state: "live" }] }])));
+		await waitFor(() =>
+			expect(
+				send.mock.calls.filter(([m]) => (m as { type: string }).type === "browser_relay_subscribe"),
+			).toEqual([[{ type: "browser_relay_subscribe", instanceId: "i1", tabId: 1 }]]),
+		);
 	});
 
 	it("F8 (BVA): coordinates normalize to [0,1] of the rendered 320×200 box", async () => {

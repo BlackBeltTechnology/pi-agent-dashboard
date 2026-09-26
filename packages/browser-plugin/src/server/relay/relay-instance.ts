@@ -77,8 +77,8 @@ export interface RelayTabView {
   title: string;
   url: string;
   state: TapTabState | "detached";
-  /** Set when `state === "detached"`. */
-  reason?: "devtools";
+  /** Set when `state === "detached"`. `no-session` = no debugger session on the tab yet. */
+  reason?: "devtools" | "no-session";
 }
 
 // ── Vendored-internal access (see module doc) ────────────────────────────────
@@ -143,6 +143,8 @@ export class RelayInstance {
   private readonly ready = deferred<void>();
   private cdpAttachTimer?: unknown;
   private closedReason?: string;
+  /** Last `tabId:hasSession` signature; a change triggers `onStatusChange` (D2). */
+  private lastViewableSig?: string;
 
   constructor(private readonly deps: RelayInstanceDeps) {
     this.timers = deps.timers ?? REAL_TIMERS;
@@ -215,14 +217,18 @@ export class RelayInstance {
     const states = this.tap.tabStates();
     const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
     return ids.map((tabId) => {
-      // Precedence: an active tap view (live / no-frames / client-screencast-
-      // active) first; then DevTools take-over; then a client-run screencast;
-      // else `live`. `tap.tabStates()` only knows tabs with viewers, so the
-      // detached/client-screencast branches must come from the instance.
+      // Precedence: DevTools take-over; then no debugger session; then an
+      // active tap view (live / no-frames / client-screencast-active); then a
+      // client-run screencast; else `live`. `tap.tabStates()` only knows tabs
+      // with viewers, so the other branches must come from the instance.
       const sessionId = this.sessionIdForTab(tabId);
-      const detached = this.devtoolsDetachedTabs.has(tabId);
+      const reason: RelayTabView["reason"] = this.devtoolsDetachedTabs.has(tabId)
+        ? "devtools"
+        : sessionId === undefined
+          ? "no-session"
+          : undefined;
       const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
-      const state: RelayTabView["state"] = detached
+      const state: RelayTabView["state"] = reason
         ? "detached"
         : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
       return {
@@ -230,7 +236,7 @@ export class RelayInstance {
         title: known.get(tabId)?.title ?? "",
         url: known.get(tabId)?.url ?? "",
         state,
-        ...(state === "detached" ? { reason: "devtools" as const } : {}),
+        ...(reason ? { reason } : {}),
       };
     });
   }
@@ -319,6 +325,25 @@ export class RelayInstance {
     else if (method === "chrome.tabs.onCreated") this._captureTabCreated(params);
     else if (method === "chrome.tabs.onRemoved") this._captureTabRemoved(params);
     this.protocol.handleExtensionEvent(method, params);
+    this._checkViewability();
+  }
+
+  /**
+   * A tab's debugger session appears inside the vendored model as a side
+   * effect of CDP-client / extension traffic, so recompute the per-tab
+   * `hasSession` signature after each and broadcast only on a change (D2).
+   */
+  private _checkViewability(): void {
+    if (this.closedReason) return;
+    const known = modelOf(this.protocol)._knownTabs;
+    const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
+    const sig = ids
+      .map((tabId) => `${tabId}:${this.sessionIdForTab(tabId) !== undefined ? 1 : 0}`)
+      .sort()
+      .join(",");
+    if (sig === this.lastViewableSig) return;
+    this.lastViewableSig = sig;
+    this.deps.onStatusChange();
   }
 
   /**
@@ -408,6 +433,7 @@ export class RelayInstance {
     } catch (err) {
       this._sendToCdp({ id, sessionId, error: { message: (err as Error).message } });
     }
+    this._checkViewability();
   }
 
   /** Answer a policy-denied verb with a CDP error. Returns true when refused. */
@@ -506,6 +532,14 @@ export class RelayInstance {
 
   subscribe(viewer: RelaySocket, tabId: number): { ok: boolean; state?: TapTabState | "detached" } {
     const result = this.tap.subscribe(viewer, tabId);
+    if (!result.ok) {
+      this.deps.audit.append({
+        profileDirectory: this.deps.profileDirectory,
+        instanceId: this.deps.instanceId,
+        kind: "viewer-subscribe-refused",
+        detail: `tab:${tabId} reason:${result.reason}`,
+      });
+    }
     return result.ok ? { ok: true } : { ok: false, state: result.state };
   }
 

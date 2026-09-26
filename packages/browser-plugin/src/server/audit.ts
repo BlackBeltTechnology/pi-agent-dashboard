@@ -24,6 +24,7 @@ type AuditKind =
   | "createTarget"
   | "denied"
   | "viewer-subscribe"
+  | "viewer-subscribe-refused"
   | "viewer-input";
 
 export interface AuditEntry {

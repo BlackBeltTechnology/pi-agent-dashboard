@@ -12,7 +12,10 @@
  *    rendered frame (never CSS or device pixels — the relay scales by the last
  *    frame's `metadata.deviceWidth/Height`);
  *  - overlays the `no-frames` state with a `Bring to front` action, and STOPS
- *    forwarding input while the tab is `detached` (DevTools open).
+ *    forwarding input while the tab is `detached` (DevTools open, or
+ *    `no-session`: the agent has no debugger session on it);
+ *  - subscribes only while the tab is viewable (not `detached`), so leaving
+ *    `detached` re-subscribes (change: fix-browser-live-view-subscribe-and-reopen).
  *
  * The tile is self-sufficient: it feeds the module store from
  * `browser_relay_status` (idempotent alongside `BrowserRelayBadge`) and reads
@@ -128,17 +131,21 @@ function RelayTile({
     if (msg.instanceId === instanceId && msg.tabId === tab.tabId) setJpegBase64(msg.jpegBase64);
   });
 
-  // Subscribe for the tab's lifetime; unsubscribe on unmount (which is also
-  // what happens when the tab disappears from the status list).
+  // DevTools has taken the tab, or the agent has no debugger session on it:
+  // the overlay shows and input forwarding stops.
+  const detached = tab.state === "detached";
+  const viewable = !detached;
+
+  // Subscribe while the tab is viewable; unsubscribe on unmount (also when the
+  // tab disappears from the status list) and on entering `detached`. Leaving
+  // `detached` re-runs the effect → one fresh subscribe (D3).
   useEffect(() => {
+    if (!viewable) return;
     void send({ type: "browser_relay_subscribe", instanceId, tabId: tab.tabId });
     return () => {
       void send({ type: "browser_relay_unsubscribe", instanceId, tabId: tab.tabId });
     };
-  }, [send, instanceId, tab.tabId]);
-
-  // DevTools has taken the tab: the overlay shows and input forwarding stops.
-  const detached = tab.state === "detached";
+  }, [send, instanceId, tab.tabId, viewable]);
 
   const normalized = (clientX: number, clientY: number): NormalizedPoint | null => {
     const el = boxRef.current;
@@ -215,7 +222,7 @@ function RelayTile({
       <div data-testid={`browser-tile-title-${instanceId}-${tab.tabId}`} className="text-[10px] px-1 py-0.5 truncate text-[var(--text-tertiary)]">
         {tab.title || tab.url || t("untitledTab", undefined, "Untitled tab")}
       </div>
-      {jpegBase64 ? (
+      {jpegBase64 && (
         <img
           data-testid={`browser-frame-${instanceId}-${tab.tabId}`}
           alt={t("frameAlt", undefined, "Live browser frame")}
@@ -223,7 +230,8 @@ function RelayTile({
           className="block w-full h-auto select-none"
           draggable={false}
         />
-      ) : (
+      )}
+      {!jpegBase64 && !detached && (
         <div
           data-testid={`browser-frame-waiting-${instanceId}-${tab.tabId}`}
           className="p-3 text-[11px] text-[var(--text-tertiary)]"
@@ -259,7 +267,22 @@ function RelayTile({
         </div>
       )}
 
-      {detached && (
+      {detached && tab.reason === "no-session" && (
+        <div
+          data-testid={`browser-overlay-nosession-${instanceId}-${tab.tabId}`}
+          className="relative flex items-center justify-center min-h-16 bg-[var(--bg-primary)]/90 text-center p-2"
+        >
+          <p className="text-[11px] text-[var(--text-secondary)]">
+            {t(
+              "noSessionOverlay",
+              undefined,
+              "Tab not viewable yet — the agent has not attached to it (extension pages cannot be viewed)",
+            )}
+          </p>
+        </div>
+      )}
+
+      {detached && tab.reason !== "no-session" && (
         <div
           data-testid={`browser-overlay-devtools-${instanceId}-${tab.tabId}`}
           className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/90 text-center p-2"

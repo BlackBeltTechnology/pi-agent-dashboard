@@ -8,8 +8,11 @@
  * feeds the module-level relay store, whose `bumpSlotClaimsVersion()` call is
  * what re-evaluates the `content-view` predicate (`isLiveViewActive`).
  *
- * Purely presentational otherwise: the pill is hidden (`null`) until ≥1 live
- * instance has ≥1 tab. All store logic lives in `relay-store.ts`.
+ * The pill is hidden (`null`) until ≥1 live instance has ≥1 tab. It is a
+ * `<button>` that re-opens a dismissed live view (`reopenLiveView`); the click
+ * is NOT stopped, so the enclosing session card still selects its session
+ * (change: fix-browser-live-view-subscribe-and-reopen, D5). All store logic
+ * lives in `relay-store.ts`.
  *
  * Manifest claim: `{ "slot": "session-card-badge", "component": "BrowserRelayBadge" }`.
  *
@@ -24,7 +27,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import type React from "react";
 import { useEffect } from "react";
 import { getBrowserProfiles } from "./browser-api.js";
-import { getRelayStatus, setRelayStatus, useRelayStatus } from "./relay-store.js";
+import { getRelayStatus, reopenLiveView, setRelayStatus, useRelayStatus } from "./relay-store.js";
 
 export function BrowserRelayBadge(_props: {
   session: DashboardSession;
@@ -62,13 +65,18 @@ export function BrowserRelayBadge(_props: {
 
   const tabCount = (status?.instances ?? []).reduce((n, instance) => n + instance.tabs.length, 0);
   if (tabCount === 0) return null;
+  const countLabel = t("relayBadge", { n: tabCount }, `${tabCount} browser tabs`);
 
   return (
-    <span
+    <button
+      type="button"
       data-testid="browser-relay-badge"
+      // Accessible name keeps the visible label (WCAG 2.5.3) plus the action.
+      aria-label={`${countLabel} — ${t("reopenLiveView", undefined, "Show live browser view")}`}
+      onClick={reopenLiveView}
       className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--accent-soft)] text-[var(--accent-text)]"
     >
-      {t("relayBadge", { n: tabCount }, `${tabCount} browser tabs`)}
-    </span>
+      {countLabel}
+    </button>
   );
 }
