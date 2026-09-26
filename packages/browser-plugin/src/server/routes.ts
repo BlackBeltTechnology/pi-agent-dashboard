@@ -31,7 +31,7 @@ interface BrowserRouteTab {
   title: string;
   url: string;
   state: BrowserRelayTabState;
-  reason?: "devtools";
+  reason?: "devtools" | "no-session";
 }
 
 interface BrowserRouteInstance {
