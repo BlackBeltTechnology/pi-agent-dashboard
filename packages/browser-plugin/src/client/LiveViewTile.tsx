@@ -222,7 +222,7 @@ function RelayTile({
       <div data-testid={`browser-tile-title-${instanceId}-${tab.tabId}`} className="text-[10px] px-1 py-0.5 truncate text-[var(--text-tertiary)]">
         {tab.title || tab.url || t("untitledTab", undefined, "Untitled tab")}
       </div>
-      {jpegBase64 && (
+      {jpegBase64 && !detached && (
         <img
           data-testid={`browser-frame-${instanceId}-${tab.tabId}`}
           alt={t("frameAlt", undefined, "Live browser frame")}

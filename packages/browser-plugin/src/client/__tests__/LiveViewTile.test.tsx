@@ -216,6 +216,22 @@ describe("LiveViewTile", () => {
 		expect(send).not.toHaveBeenCalled();
 	});
 
+	it("hides a retained frame once the tab turns detached/no-session", async () => {
+		const { getByTestId, queryByTestId, ws } = renderTile();
+		act(() => ws.emit(status([{ instanceId: "i1", tabs: [{ tabId: 1, state: "live" }] }])));
+		act(() => ws.emit(frame(1)));
+		await waitFor(() => expect(getByTestId("browser-frame-i1-1")).toBeTruthy());
+		act(() =>
+			ws.emit(
+				status([
+					{ instanceId: "i1", tabs: [{ tabId: 1, state: "detached", reason: "no-session" }] },
+				]),
+			),
+		);
+		await waitFor(() => expect(getByTestId("browser-overlay-nosession-i1-1")).toBeTruthy());
+		expect(queryByTestId("browser-frame-i1-1")).toBeNull();
+	});
+
 	it("detached/no-session → live sends exactly one new subscribe", async () => {
 		const { getByTestId, ws, send } = renderTile();
 		act(() =>

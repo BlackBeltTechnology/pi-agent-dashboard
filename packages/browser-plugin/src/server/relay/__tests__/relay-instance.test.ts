@@ -467,6 +467,17 @@ describe("no-session tabs (fix-browser-live-view-subscribe-and-reopen)", () => {
     expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "devtools" });
   });
 
+  it("clears the DevTools marker once the tab gets a new debugger session", async () => {
+    const { instance, ext, cdpSide } = await boot();
+    ext.detach(7, "canceled_by_user");
+    await flush();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "devtools" });
+    cdpSide.send(JSON.stringify({ id: 2, method: "Target.setAutoAttach", params: { autoAttach: true } }));
+    await flush();
+    expect(instance.sessionIdForTab(7)).toBeDefined();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "live" });
+  });
+
   it("broadcasts exactly once when the agent attaches to a no-session tab (D2)", async () => {
     const onStatusChange = vi.fn();
     const { instance, cdpSide } = await boot({ autoAttach: false, onStatusChange });

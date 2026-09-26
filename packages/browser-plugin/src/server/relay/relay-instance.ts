@@ -335,6 +335,14 @@ export class RelayInstance {
    */
   private _checkViewability(): void {
     if (this.closedReason) return;
+    // A DevTools-detached tab that has since gained a NEW debugger session
+    // (not the dead one recorded at detach) is viewable again.
+    for (const tabId of this.devtoolsDetachedTabs) {
+      const sessionId = this.sessionIdForTab(tabId);
+      if (sessionId !== undefined && !this.devtoolsDetachedSessions.has(sessionId)) {
+        this.devtoolsDetachedTabs.delete(tabId);
+      }
+    }
     const known = modelOf(this.protocol)._knownTabs;
     const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
     const sig = ids
