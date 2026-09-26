@@ -58,7 +58,7 @@ Harness exemplars: `packages/server/src/__tests__/dispatch-reload-rollout.test.t
 - [x] 7.2 Update the stale `globalThis[RELOAD_KEY]` bootstrap wording in `packages/server/src/browser-handlers/session-action-handler.ts` (~L188 doc comment) and `packages/server/src/__tests__/session-action-handler-reload-predicate.test.ts` (~L104 comment). Verify: `grep -rn "RELOAD_KEY\|__pi_dashboard_reload_fn__" packages/` returns nothing.
 - [x] 7.3 Delegate to DocScribe (caveman style) the update of `docs/faq.md` (~L1155 reload path selection) and `docs/architecture.md` (reload section + `__dashboard_reload` row): self-dispatch, token handshake, completion from the reloaded bridge after `replay_complete`, server 75 s deadline + in-flight refusal. Verify: `grep -n "RELOAD_KEY\|__pi_dashboard_reload_fn__\|once in its TUI" docs/` returns nothing.
 - [x] 7.4 Update the rows (or sidecars) for `bridge.ts`, `command-handler.ts`, `slash-dispatch.ts` in `packages/extension/src/` AGENTS.md and for `dispatch-reload.ts`, `event-wiring.ts` in `packages/server/src/` AGENTS.md, plus a row for the new e2e spec in `tests/e2e/AGENTS.md`, each with `See change: fix-terminal-session-dashboard-reload`. Verify: `kb_search --doc-type agents "__dashboard_reload"` surfaces the updated rows.
-- [ ] 7.5 Comment on GitHub #725 with the root cause, noting the correction that headless reload is kill-and-respawn, not keeper dispatch. Link the change. Verify: the comment is visible on the issue.
+- [x] 7.5 Comment on GitHub #725 with the root cause, noting the correction that headless reload is kill-and-respawn, not keeper dispatch. Link the change. Verify: the comment is visible on the issue.
 
 ## 8. Manual QA
 
