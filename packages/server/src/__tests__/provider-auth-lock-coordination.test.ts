@@ -132,7 +132,7 @@ describe("auth.json lock staleness — aligned with pi's refresh lock", () => {
     const before = sha(AUTH_PATH);
 
     const release = await piHolder();
-    setTimeout(() => { void release(); }, 5_000);
+    setTimeout(() => release().catch(() => { /* released by finally */ }), 5_000);
     try {
       const started = Date.now();
       await expect(removeCredential("e5")).rejects.toMatchObject({ code: "ELOCKED" });

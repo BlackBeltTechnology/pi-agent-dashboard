@@ -10,17 +10,16 @@ import { describe, expect, it } from "vitest";
 import { withLock } from "../auth/provider-auth-storage.js";
 
 /** Never invoked — type-checked only, so no lock is taken. */
-function _typeChecks(): void {
-  // @ts-expect-error — an async callback would hold the lock across an await.
-  void withLock(async () => 1);
-  // A promise-returning sync callback is the same hazard.
-  // @ts-expect-error — returning a Promise is rejected too.
-  void withLock(() => Promise.resolve(1));
-  // Synchronous callbacks are accepted.
-  const n: Promise<number> = withLock(() => 1);
-  const v: Promise<void> = withLock(() => {});
-  void n;
-  void v;
+function _typeChecks(): unknown[] {
+  return [
+    // @ts-expect-error — an async callback would hold the lock across an await.
+    withLock(async () => 1),
+    // @ts-expect-error — a promise-returning sync callback is the same hazard.
+    withLock(() => Promise.resolve(1)),
+    // Synchronous callbacks are accepted, and the result type is preserved.
+    withLock(() => 1) satisfies Promise<number>,
+    withLock(() => {}) satisfies Promise<void>,
+  ];
 }
 
 describe("withLock type contract (E6)", () => {
