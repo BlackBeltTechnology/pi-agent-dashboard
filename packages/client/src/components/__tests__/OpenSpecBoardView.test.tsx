@@ -70,16 +70,34 @@ describe("OpenSpecBoardView", () => {
     expect(screen.getByTestId("board-column-__ungrouped__")).toBeTruthy();
   });
 
-  it("renders proposal cards with name + state pill", () => {
+  // Card = name + compact lifecycle bar; the bar's Tasks segment subsumes the
+  // old state pill + progress block. See change: compact-openspec-lifecycle-bar (E11).
+  it("renders proposal cards with name + compact lifecycle bar (no pill, no progress block)", () => {
     render(<OpenSpecBoardView {...props()} />);
-    expect(screen.getByTestId("board-card-add-auth")).toBeTruthy();
     expect(screen.getByTestId("board-card-fix-bug")).toBeTruthy();
-    const pill = screen.getByTestId("board-card-add-auth").querySelector('[data-testid="board-card-state"]');
-    // Pill carries a non-hue glyph prefix + the state label. Assert BOTH so a
-    // regression dropping the glyph fails.
-    // See change: extend-client-utils-state-feedback-primitives.
-    expect(pill?.textContent).toContain("implementing");
-    expect(pill?.textContent?.replace("implementing", "").trim()).not.toBe("");
+    const card = screen.getByTestId("board-card-add-auth");
+    const bar = card.querySelector<HTMLElement>('[data-testid="openspec-stepper"]');
+    expect(bar?.getAttribute("data-variant")).toBe("compact");
+    expect(bar?.querySelector('[data-testid="stepper-segment-tasks"]')?.textContent).toContain("3/8");
+    expect(card.querySelector('[data-testid="board-card-state"]')).toBeNull();
+    expect(card.querySelector('[data-testid="board-card-progress"]')).toBeNull();
+    expect(bar?.querySelector('[data-testid="openspec-overflow-btn"]')).toBeNull();
+    expect(bar?.querySelector('[data-testid="apply-btn"]')).toBeNull();
+  });
+
+  // Nested ⋯ inside the per-session OpenSpec panel: Detach fires for that
+  // session without navigating. See change: compact-openspec-lifecycle-bar (F8).
+  it("session-row panel ⋯ → Detach fires onDetachProposal, no navigation", () => {
+    const p = props();
+    render(<OpenSpecBoardView {...p} />);
+    fireEvent.click(screen.getByTestId("session-os-menu-s1"));
+    const panel = screen.getByTestId("session-os-menu-panel");
+    fireEvent.click(panel.querySelector('[data-testid="openspec-overflow-btn"]')!);
+    fireEvent.pointerDown(screen.getByTestId("detach-btn"));
+    fireEvent.click(screen.getByTestId("detach-btn"));
+    expect(p.onDetachProposal).toHaveBeenCalledWith("s1");
+    expect(p.onNavigateToSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId("board-card-add-auth").className).not.toContain("opacity-40");
   });
 
   it("navigates back via Back button", () => {

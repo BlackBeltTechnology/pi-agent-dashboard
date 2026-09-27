@@ -1866,3 +1866,36 @@ describe("SessionCard — archive affordance (archive-sessions-lazy-load)", () =
     expect(send).toHaveBeenCalledWith({ type: "unarchive_session", sessionId: "s1" });
   });
 });
+
+// Portal bubbling: React events from the body-portalled `⋯` Popover bubble
+// through the React tree to the card's `onClick={onSelect}`. Menu items stop
+// propagation. See change: compact-openspec-lifecycle-bar (test-plan F4).
+describe("SessionCard OpenSpec ⋯ menu", () => {
+  it("selecting Explore… opens the dialog without selecting the card (F4)", async () => {
+    const { makeRunConfig, RunConfigHarness } = await import("../../test-support/runConfigHarness.js");
+    const onSelect = vi.fn();
+    const session = makeSession({ attachedProposal: "add-auth", status: "idle" });
+    const changes = [{
+      name: "add-auth",
+      status: "in-progress" as const,
+      completedTasks: 12,
+      totalTasks: 39,
+      artifacts: [
+        { id: "proposal", status: "done" as const },
+        { id: "design", status: "done" as const },
+        { id: "specs", status: "done" as const },
+      ],
+    }];
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <SessionCard session={session} {...defaultProps} selectedId="other" onSelect={onSelect}
+          openspecChanges={changes} openspecInitialized
+          onSendPrompt={() => {}} onAttachProposal={() => {}} onDetachProposal={() => {}} />
+      </RunConfigHarness>,
+    );
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    fireEvent.click(screen.getByTestId("explore-menu-item"));
+    expect(screen.getByTestId("explore-textarea")).toBeTruthy();
+    expect(onSelect).toHaveBeenCalledTimes(0);
+  });
+});

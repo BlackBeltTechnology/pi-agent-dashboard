@@ -7,6 +7,7 @@ import {
   mdiCheckCircleOutline,
   mdiChevronRight,
   mdiCompassOutline,
+  mdiDotsHorizontal,
   mdiFastForward,
   mdiFormatListChecks,
   mdiLightbulbOnOutline,
@@ -16,7 +17,8 @@ import {
   mdiPlus,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useState } from "react";
+import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
+import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { ExploreDialog } from "./ExploreDialog.js";
@@ -28,7 +30,6 @@ import { NewChangeDialog } from "./NewChangeDialog.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
-import { StatePill } from "../session/StatePill.js";
 import { TasksPopover } from "../session/TasksPopover.js";
 
 /**
@@ -48,31 +49,109 @@ const SIDECARD_VARIANT_CLASSES: Record<BtnVariant, string> = {
   neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50",
 };
 
-function ActionButton({ label, icon, onClick, testId, disabled, title, variant = "neutral" }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; title?: string; variant?: BtnVariant }) {
+function ActionButton({ label, icon, onClick, testId, disabled, ariaDisabled, title, variant = "neutral" }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; /** Inert but focusable (keeps the tooltip keyboard-reachable). */ ariaDisabled?: boolean; title?: string; variant?: BtnVariant }) {
+  const inert = disabled || ariaDisabled;
   return (
     <button
-      onClick={(e) => { e.stopPropagation(); if (!disabled) onClick(); }}
+      type="button"
+      onClick={(e) => { e.stopPropagation(); if (!inert) onClick(); }}
       disabled={disabled}
+      aria-disabled={ariaDisabled ? "true" : undefined}
       title={title}
       data-testid={testId}
       data-variant={variant}
-      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}`}
+      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}`}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
     </button>
   );
 }
 
-// Exported helper so ComposerSessionActions can reuse a single source of truth
-// for OpenSpec action gating + tooltips.
-export function buildOpenSpecTooltips(args: { attached: string | null; state: ChangeState | null; streaming: boolean }): { explore?: string; archive?: string } {
-  const { attached, state, streaming } = args;
-  const explore = attached ? i18nT("openspec.detachToExplore", undefined, "Detach proposal to explore freely") : undefined;
-  let archive: string | undefined;
-  if (streaming) archive = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
-  else if (!attached) archive = i18nT("openspec.attachToArchive", undefined, "Attach a change to archive");
-  else if (state !== ChangeState.COMPLETE) archive = i18nT("openspec.completeTasksFirst", undefined, "Complete tasks first");
-  return { explore, archive };
+interface OverflowItem {
+  testId: string;
+  label: string;
+  icon: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  /** Render a divider above this item. */
+  dividerBefore?: boolean;
+}
+
+/**
+ * `⋯` overflow for the attached header. Uses the client-utils `Popover`
+ * (body portal — escapes the card's `isolate`). Popover gives no focus
+ * management: first enabled item is focused one frame after mount (Popover
+ * stays `visibility:hidden` until measured), focus returns to `⋯` on dismiss.
+ * Every handler stops propagation — React events bubble out of the portal to
+ * `SessionCard`'s `onClick={onSelect}` and the board's dnd listeners.
+ * See change: compact-openspec-lifecycle-bar (D4).
+ */
+function OverflowMenu({ items }: { items: OverflowItem[] }) {
+  const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const label = i18nT("openspec.moreActions", undefined, "More actions");
+  const close = (refocus: boolean) => {
+    setAnchorEl(null);
+    if (refocus) btnRef.current?.focus();
+  };
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        data-testid="openspec-overflow-btn"
+        aria-label={label}
+        title={label}
+        aria-haspopup="dialog"
+        aria-expanded={anchorEl ? "true" : "false"}
+        onClick={(e) => { e.stopPropagation(); setAnchorEl(anchorEl ? null : e.currentTarget); }}
+        className={`text-[10px] px-1 py-0.5 rounded border ${SIDECARD_VARIANT_CLASSES.neutral}`}
+      >
+        <Icon path={mdiDotsHorizontal} size={0.45} />
+      </button>
+      {anchorEl && (
+        <Popover anchorEl={anchorEl} onDismiss={() => close(true)}>
+          <OverflowMenuBody items={items} onPick={() => close(false)} stop={stop} />
+        </Popover>
+      )}
+    </>
+  );
+}
+
+function OverflowMenuBody({ items, onPick, stop }: { items: OverflowItem[]; onPick: () => void; stop: (e: React.SyntheticEvent) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      ref.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return (
+    <div
+      ref={ref}
+      data-testid="openspec-overflow-menu"
+      onClick={stop}
+      onPointerDown={stop}
+      className="min-w-[170px] p-1 rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] shadow-lg flex flex-col"
+    >
+      {items.map((item) => (
+        <React.Fragment key={item.testId}>
+          {item.dividerBefore && <hr className="my-1 mx-0.5 border-0 border-t border-[var(--border-primary)]" />}
+          <button
+            type="button"
+            data-testid={item.testId}
+            disabled={item.disabled}
+            onClick={(e) => { e.stopPropagation(); onPick(); item.onSelect(); }}
+            className="flex items-center gap-2 min-h-[26px] px-2 py-1 rounded text-[11px] text-left text-[var(--text-primary)] hover:bg-[var(--bg-surface)] focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Icon path={item.icon} size={0.5} />
+            {item.label}
+          </button>
+        </React.Fragment>
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -173,9 +252,6 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   const [proposeOpen, setProposeOpen] = useState(false);
   const [attachPickerOpen, setAttachPickerOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
-  // Overflow-menu plumbing removed — the only item ever rendered there was
-  // Archive anyway, which is now a plain button. See change:
-  // redesign-session-card-and-composer (cleanup-pass).
 
   const attached = session.attachedProposal;
   const isEnded = session.status === "ended";
@@ -346,6 +422,14 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   // Attached: find the change
   const change = changes.find((c) => c.name === attached);
+  // Detach is never workflow-gated and survives ended/streaming/not-found.
+  const detachItem: OverflowItem = {
+    testId: "detach-btn",
+    label: i18nT("common.detach", undefined, "Detach"),
+    icon: mdiLinkOff,
+    onSelect: onDetach,
+    dividerBefore: true,
+  };
 
   // Attached but change not found in data
   if (!change) {
@@ -354,7 +438,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-[var(--text-tertiary)]"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
           <span className="flex-1" />
-          <ActionButton label={i18nT("common.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
+          <OverflowMenu items={[detachItem]} />
         </div>
         {replaceDialog}
       </div>
@@ -369,87 +453,68 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     state === ChangeState.IMPLEMENTING && change.isComplete === true && allArtifactsDone;
   const uncheckedCount = Math.max(0, change.totalTasks - change.completedTasks);
 
-  const stepperHasAnyChanges = changes.length > 0;
+  const streaming = session.status === "streaming";
+  const streamingTip = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
+  const send = (skill: string) => () => onSendPrompt(`/skill:${skill} ${attached}`);
+
+  // One primary per ChangeState: first workflow-enabled candidate wins; the
+  // rest of the candidates move into ⋯. See change: compact-openspec-lifecycle-bar (D4b).
+  type Candidate = { wf: string; testId: string; label: string; icon: string; onSelect: () => void; variant: BtnVariant };
+  const C = {
+    continue: { wf: "continue", testId: "continue-btn", label: i18nT("common.continue", undefined, "Continue"), icon: mdiChevronRight, onSelect: send("openspec-continue-change"), variant: "primary" },
+    ff: { wf: "ff", testId: "ff-btn", label: i18nT("openspec.ff", undefined, "FF"), icon: mdiFastForward, onSelect: send("openspec-ff-change"), variant: "primary" },
+    apply: { wf: "apply", testId: "apply-btn", label: i18nT("common.apply", undefined, "Apply"), icon: mdiPlayCircleOutline, onSelect: send("openspec-apply-change"), variant: "primary" },
+    archive: { wf: "archive", testId: "archive-btn", label: i18nT("openspec.archive", undefined, "Archive"), icon: mdiArchiveOutline, onSelect: () => setArchiveConfirm(true), variant: "accent" },
+    verify: { wf: "verify", testId: "verify-btn", label: i18nT("common.verify", undefined, "Verify"), icon: mdiCheckCircleOutline, onSelect: send("openspec-verify-change"), variant: "success" },
+  } satisfies Record<string, Candidate>;
+  const candidatesByState: Record<ChangeState, Candidate[]> = {
+    [ChangeState.PLANNING]: [C.continue, C.ff],
+    [ChangeState.READY]: [C.apply],
+    [ChangeState.IMPLEMENTING]: [C.apply],
+    [ChangeState.COMPLETE]: [C.archive, C.verify],
+  };
+  const enabled = isEnded ? [] : candidatesByState[state].filter((c) => wf(c.wf));
+  const primary = enabled[0];
+  const menuItems: OverflowItem[] = isEnded
+    ? [{ ...detachItem, dividerBefore: false }]
+    : [
+        ...enabled.slice(1).map((c) => ({ testId: c.testId, label: c.label, icon: c.icon, onSelect: c.onSelect, disabled: streaming })),
+        ...(showArchiveAnyway && wf("archive")
+          ? [{ testId: "archive-anyway-btn", label: i18nT("openspec.archiveAnyway", undefined, "Archive anyway"), icon: mdiArchiveArrowUp, onSelect: () => setArchiveAnywayConfirm(true), disabled: streaming }]
+          : []),
+        ...(wf("explore")
+          ? [{ testId: "explore-menu-item", label: i18nT("openspec.exploreChange", undefined, "Explore…"), icon: mdiCompassOutline, onSelect: () => setExploreOpen(true), disabled: streaming }]
+          : []),
+        detachItem,
+      ];
+  // Archive segment mirrors the primary's gate (D6); Tasks locked while streaming (D4d).
+  const canArchive = state === ChangeState.COMPLETE && !streaming && !isEnded && wf("archive");
+
   return (
-    <div className="mt-1 space-y-1" data-testid="session-openspec-actions">
-      {/* Line 1: badge + state pill + detach + artifact letters right-aligned */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px]" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
-        <StatePill state={state} />
-        <ActionButton label={i18nT("common.detach", undefined, "Detach")} icon={mdiLinkOff} onClick={onDetach} testId="detach-btn" />
+    <div className="mt-1 space-y-0.5" data-testid="session-openspec-actions">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="text-[11px] truncate min-w-0" data-testid="attached-badge"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" /><span className="text-blue-400">{attached}</span></span>
         <span className="flex-1" />
+        {primary && (
+          <ActionButton
+            label={primary.label}
+            icon={primary.icon}
+            onClick={primary.onSelect}
+            testId={primary.testId}
+            ariaDisabled={streaming}
+            title={streaming ? streamingTip : undefined}
+            variant={primary.variant}
+          />
+        )}
+        <OverflowMenu items={menuItems} />
       </div>
-      {/* OpenSpec stepper — nodes are clickable for artifact + tasks open.
-          See change: redesign-session-card-and-composer (stepper-click-to-open). */}
       <OpenSpecStepper
         variant="sidebar"
         change={change}
-        attached={attached}
-        hasAnyChanges={stepperHasAnyChanges}
         onReadArtifact={onReadArtifact}
-        onOpenTasks={hasParseableTasks ? () => setTasksOpen(true) : undefined}
+        onOpenTasks={hasParseableTasks && !streaming ? () => setTasksOpen(true) : undefined}
+        onArchive={canArchive ? () => setArchiveConfirm(true) : undefined}
       />
-      {/* Line 2: action buttons driven by ChangeState */}
-      {!isEnded && (() => {
-        const actionsDisabled = session.status === "streaming";
-        const tips = buildOpenSpecTooltips({ attached, state, streaming: actionsDisabled });
-        const archiveEnabled = !actionsDisabled && state === ChangeState.COMPLETE;
-        return (
-          <div className="flex items-center gap-1 flex-wrap">
-            {wf("explore") && (
-              <ActionButton
-                label={i18nT("common.explore", undefined, "Explore")}
-                icon={mdiCompassOutline}
-                onClick={() => setExploreOpen(true)}
-                testId="explore-btn"
-                disabled={true /* attached path always disables Explore */}
-                title={actionsDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : tips.explore}
-                variant="info"
-              />
-            )}
-            {state === ChangeState.PLANNING && (
-              <>
-                {wf("continue") && <ActionButton label={i18nT("common.continue", undefined, "Continue")} icon={mdiChevronRight} onClick={() => onSendPrompt(`/skill:openspec-continue-change ${attached}`)} testId="continue-btn" disabled={actionsDisabled} variant="neutral" />}
-                {wf("ff") && <ActionButton label={i18nT("openspec.ff", undefined, "FF")} icon={mdiFastForward} onClick={() => onSendPrompt(`/skill:openspec-ff-change ${attached}`)} testId="ff-btn" disabled={actionsDisabled} variant="neutral" />}
-              </>
-            )}
-            {wf("apply") && (state === ChangeState.READY || state === ChangeState.IMPLEMENTING) && (
-              <ActionButton label={i18nT("common.apply", undefined, "Apply")} icon={mdiPlayCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-apply-change ${attached}`)} testId="apply-btn" disabled={actionsDisabled} variant="primary" />
-            )}
-            {wf("verify") && state === ChangeState.COMPLETE && (
-              <ActionButton label={i18nT("common.verify", undefined, "Verify")} icon={mdiCheckCircleOutline} onClick={() => onSendPrompt(`/skill:openspec-verify-change ${attached}`)} testId="verify-btn" disabled={actionsDisabled} variant="success" />
-            )}
-            {wf("archive") && (
-              <ActionButton
-                label={i18nT("openspec.archive", undefined, "Archive")}
-                icon={mdiArchiveOutline}
-                onClick={() => setArchiveConfirm(true)}
-                testId="archive-btn"
-                disabled={!archiveEnabled}
-                title={tips.archive}
-                variant="accent"
-              />
-            )}
-            {/* close Verify-only branch */}
-            {/* Standalone Tasks button removed — the stepper's Tasks node is
-                clickable and opens the same TasksPopover. Redundant button
-                deleted per user feedback. See change:
-                redesign-session-card-and-composer (cleanup-pass). */}
-            {/* Archive anyway promoted from single-item overflow menu to a
-                plain button. A menu with one item is meaningless. */}
-            {showArchiveAnyway && (
-              <ActionButton
-                label={i18nT("openspec.archiveAnyway", undefined, "Archive anyway")}
-                icon={mdiArchiveArrowUp}
-                onClick={() => setArchiveAnywayConfirm(true)}
-                testId="archive-anyway-btn"
-                disabled={actionsDisabled}
-                variant="accent"
-              />
-            )}
-          </div>
-        );
-      })()}
 
       {exploreOpen && (
         <DialogPortal><ExploreDialog
@@ -465,6 +530,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       {archiveConfirm && (
         <Confirm
           open
+          testId="archive-confirm"
           title={i18nT("openspec.archiveChange", undefined, "Archive change?")}
           message={i18nT("openspec.archiveConfirmMessage", { name: attached }, 'Archive "{name}"?')}
           confirmLabel={i18nT("openspec.archive", undefined, "Archive")}
@@ -497,7 +563,6 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         />
       )}
       {replaceDialog}
-      {/* Overflow portal removed — Archive anyway promoted to inline button. */}
     </div>
   );
 }

@@ -863,41 +863,83 @@ mark.markdown-search-highlight-active {
   .card-glow-fx::before { animation: none; }
 }
 
-/* ── OpenSpec stepper node opaque base ────────────────────────
-   See change: redesign-session-card-and-composer (1.6).
-   Two-layer background — the inner linear-gradient tint stacks
-   over an opaque var(--bg-tertiary) base so the connecting line
-   between nodes can never bleed through the node interior. */
-.openspec-stepper-node-base {
-  background:
-    linear-gradient(var(--bg-tertiary), var(--bg-tertiary)),
-    var(--bg-tertiary);
-  background-color: var(--bg-tertiary);
+/* ── OpenSpec lifecycle bar ──────────────────────────────────
+   5 segments (Proposal · Design · Specs · Tasks · Archive). Each segment =
+   6 px track + label, ≥24 px hit row. Colour comes from `--seg-color`, set
+   inline from `statusPresentation(kind).tokenVar` — no raw hex. Container
+   query swaps labels to letters below 250 px of bar width (strict `<`).
+   See change: compact-openspec-lifecycle-bar. */
+.openspec-lifecycle-bar {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  container-type: inline-size;
 }
-/* Opacity cross-fade of two pre-painted box-shadow rings instead of animating
-   box-shadow itself (non-composited — repaints every frame). Base ring painted
-   once on the node; a larger static ring on the ::after cross-fades in/out.
-   Reuses the chat-stream-glow-pulse pattern. See change:
-   reduce-chat-render-cpu-umbrella (Phase 1, task 2.4). */
-@keyframes openspec-stepper-pulse-current {
-  0%, 100% { opacity: 0; }
-  50%      { opacity: 1; }
+.openspec-seg {
+  all: unset;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 18px;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 3px;
+  border-radius: 4px;
+  cursor: pointer;
 }
-.openspec-stepper-node-current {
-  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+.openspec-seg-tasks { flex: 1 1 0; min-width: 44px; }
+.openspec-seg[data-inert] { cursor: default; }
+.openspec-seg:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.openspec-seg-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
 }
-.openspec-stepper-node-current::after {
-  content: "";
+.openspec-seg-fill {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.30);
-  opacity: 0;
-  animation: openspec-stepper-pulse-current 2.4s ease-in-out infinite;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--seg-color);
+}
+.openspec-seg-label {
+  font-size: 9px;
+  line-height: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.openspec-seg-count { font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; font-size: 10px; }
+.openspec-seg-short { display: none; }
+@container (width < 250px) {
+  .openspec-seg-full { display: none; }
+  .openspec-seg-short { display: inline; }
+}
+.openspec-seg[data-state="done"] .openspec-seg-track { background: var(--seg-color); }
+.openspec-seg[data-state="done"] .openspec-seg-label,
+.openspec-seg[data-state="skipped"] .openspec-seg-label { color: var(--seg-color); }
+.openspec-seg[data-state="current"] .openspec-seg-label { color: var(--seg-color); font-weight: 600; }
+.openspec-seg[data-state="current"] .openspec-seg-track { background: color-mix(in srgb, var(--seg-color) 30%, transparent); }
+.openspec-seg[data-state="current"]:not(.openspec-seg-tasks) .openspec-seg-track {
+  background: var(--seg-color);
+  animation: openspec-seg-pulse 1.6s ease-in-out infinite;
+}
+.openspec-seg[data-state="skipped"] .openspec-seg-track {
+  background: repeating-linear-gradient(135deg, var(--seg-color) 0 3px, transparent 3px 6px);
+}
+.openspec-seg:not([data-inert]):hover .openspec-seg-track { filter: brightness(1.35); }
+.openspec-seg:not([data-inert]):hover .openspec-seg-label { color: var(--text-primary); }
+@keyframes openspec-seg-pulse {
+  50% { opacity: 0.55; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .openspec-stepper-node-current::after { animation: none; opacity: 0; }
+  .openspec-seg .openspec-seg-track { animation: none !important; }
 }
 
 /* ── OpenSpec board responsive column layout ──────────────────

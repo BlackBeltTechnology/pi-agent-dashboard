@@ -112,6 +112,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on the OpenSpec board (test-plan… → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
+| `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment press opens artifact without drag (F9), 250 px container-query label collapse + no overflow (F10), ≥24 px segment hit targets (F11), reduced-motion stops Archive pulse (F12; ticks fixture tasks via toggle API, restores in `finally`). Fixture `sample-git` change `e2e-artifact-demo`. |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux… → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
