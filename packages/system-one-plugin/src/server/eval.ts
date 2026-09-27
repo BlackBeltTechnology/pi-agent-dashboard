@@ -10,9 +10,9 @@
 import { type ConsumerDeclaration, type LlmCaller, predict } from "@blackbelt-technology/pi-system-one";
 import type { Fixture } from "./consumers.js";
 
-export const MAX_CASES = 500;
+const MAX_CASES = 500;
 
-export interface QuestionReport {
+interface QuestionReport {
   type: string;
   cases: number;
   correct: number;
@@ -38,13 +38,13 @@ export interface EvalReport {
 const asBinary = (v: unknown): boolean | null =>
   v === true || v === 1 ? true : v === false || v === 0 ? false : null;
 
-export function percentile(sorted: number[], p: number): number | null {
+function percentile(sorted: number[], p: number): number | null {
   if (!sorted.length) return null;
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 }
 
 /** Mann–Whitney AUC; null without both classes. */
-export function auc(pairs: Array<{ score: number; label: boolean }>): number | null {
+function auc(pairs: Array<{ score: number; label: boolean }>): number | null {
   const pos = pairs.filter((p) => p.label).map((p) => p.score);
   const neg = pairs.filter((p) => !p.label).map((p) => p.score);
   if (!pos.length || !neg.length) return null;
@@ -54,7 +54,7 @@ export function auc(pairs: Array<{ score: number; label: boolean }>): number | n
 }
 
 /** Cut maximising accuracy of `score >= cut ⇒ true`; ties → closest to 0.5. */
-export function bestThreshold(pairs: Array<{ score: number; label: boolean }>): number | null {
+function bestThreshold(pairs: Array<{ score: number; label: boolean }>): number | null {
   if (!pairs.length) return null;
   const cuts = [...new Set([0.5, ...pairs.map((p) => p.score)])].sort((a, b) => a - b);
   let best = 0.5;

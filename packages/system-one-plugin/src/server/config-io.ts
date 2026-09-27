@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { atomicWrite0600, isObj, safeParse, userConfigPath } from "@blackbelt-technology/pi-system-one";
 
-export const ABSENT = "absent";
+const ABSENT = "absent";
 
 export interface RawConfig {
   /** File text, or null when absent. */
@@ -18,7 +18,7 @@ export interface RawConfig {
   revision: string;
 }
 
-export function revisionOf(text: string | null): string {
+function revisionOf(text: string | null): string {
   return text === null ? ABSENT : createHash("sha256").update(text).digest("hex");
 }
 

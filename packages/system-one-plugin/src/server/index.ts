@@ -11,7 +11,7 @@ import { createServerLlmCaller } from "./llm-caller.js";
 import { mountSystemOneRoutes } from "./routes.js";
 import { defaultDeps, Supervisor } from "./supervisor.js";
 
-export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const supervisor = new Supervisor(
     defaultDeps(() => (ctx.fastify.server.address() as AddressInfo | null)?.port),
   );
@@ -27,4 +27,3 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("system-one routes mounted (/api/system-one/*)");
 }
 
-export default registerPlugin;

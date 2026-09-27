@@ -18,7 +18,7 @@ import { atomicWrite0600, loadConfig, type ManagedBackend, stateDir } from "@bla
 import { mergeWrite } from "./config-io.js";
 import { checkpointFor, ENGINES } from "./engines.js";
 
-export type ManagedState = "stopped" | "installing" | "starting" | "ready" | "failed" | "unavailable" | "unsupported-platform";
+type ManagedState = "stopped" | "installing" | "starting" | "ready" | "failed" | "unavailable" | "unsupported-platform";
 
 export interface ManagedStatus {
   state: ManagedState;
@@ -41,7 +41,7 @@ export interface ManagedControl {
   hasLauncher(): boolean;
 }
 
-export interface ProcInfo {
+interface ProcInfo {
   startTime: string;
   command: string;
 }
@@ -73,7 +73,7 @@ const PORT_MIN = 18400;
 const PORT_MAX = 18499;
 const RESERVED = new Set([8000, 8080]);
 
-export const toolsDir = () => join(stateDir(), "tools");
+const toolsDir = () => join(stateDir(), "tools");
 export const toolDir = () => join(toolsDir(), "tools");
 export const binDir = () => join(toolsDir(), "bin");
 export const runDir = () => join(stateDir(), "run");

@@ -53,7 +53,7 @@ export interface ConsumerRow extends ConsumerDeclaration {
   test: { enabled: boolean; cases: number; reason?: string };
 }
 
-export interface QuestionReport {
+interface QuestionReport {
   type: string;
   cases: number;
   correct: number;

@@ -8,7 +8,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 
-export type Reply =
+type Reply =
   | { kind: "answer"; body: unknown; delayMs?: number; status?: number }
   | { kind: "delay"; ms: number; body?: unknown }
   | { kind: "destroy" }

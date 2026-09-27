@@ -31,7 +31,7 @@ export interface ServerLlmCaller extends LlmCaller {
 
 const defaultProvidersPath = () => join(homedir(), ".pi", "agent", "providers.json");
 
-export function resolveRoleRef(role: string, providersPath = defaultProvidersPath()): { provider: string; modelId: string } | null {
+function resolveRoleRef(role: string, providersPath = defaultProvidersPath()): { provider: string; modelId: string } | null {
   let roles: Record<string, string> = {};
   try {
     roles = parseRoleConfig(JSON.parse(readFileSync(providersPath, "utf8"))).roles;

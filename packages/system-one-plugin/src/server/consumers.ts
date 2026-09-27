@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ConsumerDeclaration, CONSUMER_ID, consumersDir, isObj, safeParse } from "@blackbelt-technology/pi-system-one";
 
-export const SELFTEST_ID = "system-one:selftest";
-export const SELFTEST_FIXTURES = fileURLToPath(new URL("./fixtures/selftest.json", import.meta.url));
+const SELFTEST_ID = "system-one:selftest";
+const SELFTEST_FIXTURES = fileURLToPath(new URL("./fixtures/selftest.json", import.meta.url));
 
-export const SELFTEST: ConsumerDeclaration = {
+const SELFTEST: ConsumerDeclaration = {
   id: SELFTEST_ID,
   label: "System-1 self-test",
   failurePolicy: "fail-closed",
