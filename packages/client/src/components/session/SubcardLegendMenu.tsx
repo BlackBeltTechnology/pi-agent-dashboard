@@ -11,6 +11,8 @@
  * See change: configurable-session-card-sections (design D8).
  */
 import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
+import { mdiDotsHorizontal } from "@mdi/js";
+import { Icon } from "@mdi/react";
 import React from "react";
 import { useLocation } from "wouter";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
@@ -127,7 +129,9 @@ export function SubcardLegendMenu({ target, label }: { target: SubcardMenuTarget
             : "max-w-0 opacity-0 group-hover/sub:max-w-4 group-hover/sub:opacity-100 group-focus-within/sub:max-w-4 group-focus-within/sub:opacity-100"
         }`}
       >
-        <span aria-hidden="true" className="pl-1">⋯</span>
+        {/* SVG, not a text glyph: the capsule's text content must stay exactly
+            the title (E2E specs match `getByText(title, {exact:true})`). */}
+        <Icon path={mdiDotsHorizontal} size={0.4} className="ml-0.5" aria-hidden="true" />
       </button>
       {open && (
         <LayerPortal>

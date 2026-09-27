@@ -261,6 +261,12 @@ describe("legend options menu", () => {
     return { send, showToast, ...utils };
   }
 
+  it("capsule text stays exactly the title when the menu renders", () => {
+    setup();
+    const btn = screen.getByTestId("subcard-menu-git");
+    expect(btn.parentElement?.textContent).toBe("GIT");
+  });
+
   it("no menu without a transport", () => {
     renderCard({});
     expect(screen.queryByTestId("subcard-menu-git")).toBeNull();
