@@ -108,6 +108,14 @@ flowchart LR
 - There are three writers: the settings save, the calibration save, and the supervisor's port persist. Each one re-reads inside its request and merges only the keys it owns. The two UI writers carry `baseRevision` (SHA-256 of the file bytes) and get 409 on mismatch. Unknown keys survive every write, as in blackhole's "writes preserve keys the plugin does not manage".
 - The settings section follows the blackhole precedent (`useSettingsDraftSource` plus its own route and file), so the `plugin-config-persistence` and `settings-panel` specs are unaffected.
 
+### D13. Settings UI shape follows the approved mockup
+- Mockup: `mockups/index.html`, plan and cited rules: `mockups/ui-plan.md`, scripted check: `mockups/ux-probe.cjs` (68/68, axe WCAG 2.2 AA in dark + light).
+- The server owns egress classification. `GET /config` returns `offMachine` per backend, `llm` included via `LlmCaller.isLocal`, so the client never re-implements D6.
+- A new consumer override starts from the preset chain minus incompatible backends, so the user never starts from a chain the filter would hide.
+- Test is refused for a `managed` backend that is not `ready`, in the UI and on the eval route.
+- Only the draft (`allowOffMachine`, `backends`, `presets`, `activePreset`) goes through the host Save Bar. Key entry, Start/Stop and calibration saves act immediately, and the UI says so next to each control.
+- Thresholds are shown read-only from the run; no editor in v1.
+
 ## Risks / Trade-offs
 
 - [Zero-shot local models are weak (§17)] → The default preset is `local-only` for privacy, but nothing enforces without calibration, and the Test view shows accuracy before anyone saves `enforce`.
@@ -126,5 +134,7 @@ flowchart LR
 - D11 amendment: an edit to the planning text only, with no code impact until the context-manager triage phase.
 
 ## Open Questions
+
+- How the eval runner derives `thresholds` from a run (e.g. per question, the score that maximises accuracy on the fixtures). The UI only displays what the run reports (D13); settle the method before 5.8.
 
 - Should `kev` have a managed engine entry? It's MLX-based on Mac, with a different launcher. Deferred; the catalog row exists and users can point an `http` backend at it.
