@@ -104,7 +104,8 @@ try {
     throw "[smoke] FAIL: installed root has no packages\ at $RootPkgs"
   }
   $Leaked = @(Get-ChildItem -LiteralPath $RootPkgs -Recurse -Force |
-    Where-Object { $_.Name -eq '__tests__' -or $_.Name -like '*.test.*' -or $_.Name -like '*.AGENTS.md' })
+    Where-Object { $_.Name -in @('__tests__', '__fixtures__', '__mocks__', 'AGENTS.md') -or
+      $_.Name -like '*.test.*' -or $_.Name -like '*.spec.*' -or $_.Name -like '*.AGENTS.md' })
   if ($Leaked.Count -gt 0) {
     $Leaked | Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }
     throw "[smoke] FAIL: installed root ships $($Leaked.Count) excluded file(s)"

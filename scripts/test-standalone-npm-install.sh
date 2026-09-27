@@ -95,7 +95,8 @@ if [[ ! -d "$ROOT_PKGS" ]]; then
   echo "[smoke] FAIL: installed root has no packages/ at $ROOT_PKGS" >&2
   exit 1
 fi
-LEAKED=$(find "$ROOT_PKGS" \( -name __tests__ -o -name '*.test.*' -o -name '*.AGENTS.md' \) -print)
+LEAKED=$(find "$ROOT_PKGS" \( -name __tests__ -o -name __fixtures__ -o -name __mocks__ \
+  -o -name '*.test.*' -o -name '*.spec.*' -o -name AGENTS.md -o -name '*.AGENTS.md' \) -print)
 if [[ -n "$LEAKED" ]]; then
   echo "[smoke] FAIL: installed root ships excluded files:" >&2
   echo "$LEAKED" | head -20 >&2
