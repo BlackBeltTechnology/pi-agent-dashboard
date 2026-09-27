@@ -8,7 +8,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ConsumerDeclaration, CONSUMER_ID, consumersDir, isObj, safeParse } from "@blackbelt-technology/pi-system-one";
+import { CONSUMER_ID, type ConsumerDeclaration, consumersDir, isObj, type Questions, safeParse } from "@blackbelt-technology/pi-system-one";
 
 const SELFTEST_ID = "system-one:selftest";
 const SELFTEST_FIXTURES = fileURLToPath(new URL("./fixtures/selftest.json", import.meta.url));
@@ -22,7 +22,7 @@ const SELFTEST: ConsumerDeclaration = {
 
 export interface Fixture {
   state: string;
-  questions: Record<string, any>;
+  questions: Questions;
   expected: Record<string, unknown>;
 }
 
@@ -62,6 +62,28 @@ function row(d: ConsumerDeclaration, lastSeen: string | null): ConsumerRow {
   };
 }
 
+const POLICIES = new Set(["fail-open", "fail-closed", "deterministic"]);
+
+/** Parse one registration file into a declaration + lastSeen; null when invalid or the reserved selftest id. */
+function readRegistration(path: string): { decl: ConsumerDeclaration; lastSeen: string | null } | null {
+  let v: unknown;
+  try {
+    v = safeParse(readFileSync(path, "utf8"), () => {});
+  } catch {
+    return null;
+  }
+  if (!isObj(v) || typeof v.id !== "string" || !CONSUMER_ID.test(v.id) || v.id === SELFTEST_ID) return null;
+  if (typeof v.failurePolicy !== "string" || !POLICIES.has(v.failurePolicy)) return null;
+  const decl: ConsumerDeclaration = {
+    id: v.id,
+    failurePolicy: v.failurePolicy as ConsumerDeclaration["failurePolicy"],
+    ...(typeof v.label === "string" ? { label: v.label } : {}),
+    ...(isObj(v.requires) ? { requires: { ...v.requires } } : {}),
+    ...(typeof v.fixtures === "string" ? { fixtures: v.fixtures } : {}),
+  };
+  return { decl, lastSeen: typeof v.lastSeen === "string" ? v.lastSeen : null };
+}
+
 export function listConsumers(dir = consumersDir()): ConsumerRow[] {
   const out = new Map<string, ConsumerRow>();
   out.set(SELFTEST_ID, row(SELFTEST, null));
@@ -72,22 +94,8 @@ export function listConsumers(dir = consumersDir()): ConsumerRow[] {
     names = [];
   }
   for (const n of names) {
-    try {
-      const v = safeParse(readFileSync(join(dir, n), "utf8"), () => {});
-      if (!isObj(v) || typeof v.id !== "string" || !CONSUMER_ID.test(v.id) || v.id === SELFTEST_ID) continue;
-      const policy = v.failurePolicy;
-      if (policy !== "fail-open" && policy !== "fail-closed" && policy !== "deterministic") continue;
-      const decl: ConsumerDeclaration = {
-        id: v.id,
-        failurePolicy: policy,
-        ...(typeof v.label === "string" ? { label: v.label } : {}),
-        ...(isObj(v.requires) ? { requires: { ...v.requires } } : {}),
-        ...(typeof v.fixtures === "string" ? { fixtures: v.fixtures } : {}),
-      };
-      out.set(v.id, row(decl, typeof v.lastSeen === "string" ? v.lastSeen : null));
-    } catch {
-      // invalid file → skipped
-    }
+    const reg = readRegistration(join(dir, n));
+    if (reg) out.set(reg.decl.id, row(reg.decl, reg.lastSeen));
   }
   return [...out.values()];
 }

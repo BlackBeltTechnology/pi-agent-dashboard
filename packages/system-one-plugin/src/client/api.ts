@@ -94,14 +94,14 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  let json: any = null;
+  let json: { error?: unknown } | null = null;
   try {
-    json = await res.json();
+    json = (await res.json()) as { error?: unknown } | null;
   } catch {
     json = null;
   }
   if (!res.ok) throw new ApiError(res.status, typeof json?.error === "string" ? json.error : `http-${res.status}`);
-  return json as T;
+  return json as unknown as T;
 }
 
 export const api = {

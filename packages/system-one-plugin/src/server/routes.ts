@@ -99,6 +99,45 @@ function validateIncoming(v: unknown): { ok: true; cfg: SystemOneConfig } | { ok
 /** Plain JSON (drop null prototypes) for serialization into the file. */
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
+/** Why a Test must not run on this backend (409 code), or null. Off-machine checks precede any request. */
+function evalRefusal(cfg: SystemOneConfig, backendId: string, deps: SystemOneRouteDeps): string | null {
+  const b = cfg.backends[backendId];
+  if (!cfg.allowOffMachine && isOffMachine(b, deps.llmCaller)) return "off-machine";
+  if (b.kind === "managed" && deps.managed?.status(backendId).state !== "ready") return "not-running";
+  return null;
+}
+
+type CalibrationInput =
+  | { ok: true; key: string; baseRevision: string; record: { mode: "shadow" | "enforce"; thresholds: Record<string, number>; model: string; measuredAt: string } }
+  | { ok: false; error: string };
+
+function finiteThresholds(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (isObj(v)) for (const [k, n] of Object.entries(v)) if (typeof n === "number" && Number.isFinite(n)) out[k] = n;
+  return out;
+}
+
+/** Validate a calibration POST body. `enforce` requires `confirm: true`. */
+function validateCalibration(body: Record<string, unknown>): CalibrationInput {
+  const { backendId, consumerId, mode, model, baseRevision, confirm } = body;
+  const checks: Array<[boolean, string]> = [
+    [typeof backendId === "string" && BACKEND_ID.test(backendId), "invalid-backend-id"],
+    [typeof consumerId === "string" && listConsumers().some((c) => c.id === consumerId), "unknown-consumer"],
+    [mode === "shadow" || mode === "enforce", "invalid-mode"],
+    [typeof model === "string" && model.length > 0, "model-required"],
+    [typeof baseRevision === "string", "base-revision-required"],
+    [mode !== "enforce" || confirm === true, "confirm-required"],
+  ];
+  const failed = checks.find(([ok]) => !ok);
+  if (failed) return { ok: false, error: failed[1] };
+  return {
+    ok: true,
+    key: `${backendId}::${consumerId}`,
+    baseRevision: baseRevision as string,
+    record: { mode: mode as "shadow" | "enforce", thresholds: finiteThresholds(body.thresholds), model: model as string, measuredAt: new Date().toISOString() },
+  };
+}
+
 export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteDeps): void {
   const guard = { preHandler: deps.networkGuard };
 
@@ -174,9 +213,8 @@ export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteD
       return reply.code(404).send({ error: "unknown-backend" });
     const b = cfg.backends[backendId];
     if (b.kind === "llm") await deps.llmCaller?.prepare([b.role]).catch(() => {});
-    if (!cfg.allowOffMachine && isOffMachine(b, deps.llmCaller)) return reply.code(409).send({ error: "off-machine" });
-    if (b.kind === "managed" && deps.managed?.status(backendId).state !== "ready")
-      return reply.code(409).send({ error: "not-running" });
+    const refusal = evalRefusal(cfg, backendId, deps);
+    if (refusal) return reply.code(409).send({ error: refusal });
 
     const ac = new AbortController();
     reply.raw.on("close", () => {
@@ -194,24 +232,14 @@ export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteD
   });
 
   app.post("/api/system-one/calibration", guard, async (req, reply) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const { backendId, consumerId, mode, model, baseRevision, confirm } = body;
-    if (typeof backendId !== "string" || !BACKEND_ID.test(backendId)) return reply.code(400).send({ error: "invalid-backend-id" });
-    if (typeof consumerId !== "string" || !listConsumers().some((c) => c.id === consumerId))
-      return reply.code(400).send({ error: "unknown-consumer" });
-    if (mode !== "shadow" && mode !== "enforce") return reply.code(400).send({ error: "invalid-mode" });
-    if (typeof model !== "string" || !model) return reply.code(400).send({ error: "model-required" });
-    if (typeof baseRevision !== "string") return reply.code(400).send({ error: "base-revision-required" });
-    if (mode === "enforce" && confirm !== true) return reply.code(400).send({ error: "confirm-required" });
-    const thresholds: Record<string, number> = {};
-    if (isObj(body.thresholds))
-      for (const [k, v] of Object.entries(body.thresholds)) if (typeof v === "number" && Number.isFinite(v)) thresholds[k] = v;
+    const v = validateCalibration((req.body ?? {}) as Record<string, unknown>);
+    if (!v.ok) return reply.code(400).send({ error: v.error });
     try {
       const revision = mergeWrite((doc) => {
         const cal = isObj(doc.calibration) ? { ...doc.calibration } : {};
-        cal[`${backendId}::${consumerId}`] = { mode, thresholds, model, measuredAt: new Date().toISOString() };
+        cal[v.key] = v.record;
         doc.calibration = cal;
-      }, baseRevision);
+      }, v.baseRevision);
       return { revision };
     } catch (err) {
       if (err instanceof StaleRevisionError) return reply.code(409).send({ error: "stale-revision", revision: err.current });
@@ -229,8 +257,9 @@ export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteD
   app.post("/api/system-one/managed/:id/:action", guard, async (req, reply) => {
     const { id, action } = req.params as { id: string; action: string };
     if (!deps.managed) return reply.code(503).send({ error: "no-supervisor" });
-    const b = Object.hasOwn(loadConfig().backends, id) ? loadConfig().backends[id] : undefined;
-    if (!b || b.kind !== "managed") return reply.code(404).send({ error: "unknown-backend" });
+    const backends = loadConfig().backends;
+    const b = Object.hasOwn(backends, id) ? backends[id] : undefined;
+    if (b?.kind !== "managed") return reply.code(404).send({ error: "unknown-backend" });
     if (action === "start") return deps.managed.start(id);
     if (action === "stop") return deps.managed.stop(id);
     return reply.code(404).send({ error: "unknown-action" });

@@ -84,6 +84,14 @@ export const toolDir = () => join(toolsDir(), "tools");
 export const binDir = () => join(toolsDir(), "bin");
 export const runDir = () => join(stateDir(), "run");
 
+function urlPort(url: string): number | undefined {
+  try {
+    return Number(new URL(url).port) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function which(cmd: string): string | null {
   for (const dir of (process.env.PATH ?? "").split(":")) {
     if (!dir) continue;
@@ -207,23 +215,21 @@ export class Supervisor implements ManagedControl {
     return b?.kind === "managed" ? b : null;
   }
 
-  async pickPort(id: string): Promise<number | null> {
-    const cfg = loadConfig();
+  /** Ports a new pick must avoid: 8000/8080, the dashboard's port, every other backend's port. */
+  private takenPorts(id: string): Set<number> {
     const taken = new Set<number>(RESERVED);
     const own = this.d.dashboardPort?.();
     if (own) taken.add(own);
-    for (const [other, b] of Object.entries(cfg.backends)) {
+    for (const [other, b] of Object.entries(loadConfig().backends)) {
       if (other === id) continue;
-      if (b.kind === "managed" && b.port) taken.add(b.port);
-      if (b.kind === "http") {
-        try {
-          const p = Number(new URL(b.url).port);
-          if (p) taken.add(p);
-        } catch {
-          // ignore
-        }
-      }
+      const p = b.kind === "managed" ? b.port : b.kind === "http" ? urlPort(b.url) : undefined;
+      if (p) taken.add(p);
     }
+    return taken;
+  }
+
+  async pickPort(id: string): Promise<number | null> {
+    const taken = this.takenPorts(id);
     for (let p = PORT_MIN; p <= PORT_MAX; p++) if (!taken.has(p) && (await this.d.portFree(p))) return p;
     return null;
   }
@@ -231,6 +237,19 @@ export class Supervisor implements ManagedControl {
   private fail(e: Entry, reason: string): ManagedStatus {
     e.status = { state: "failed", reason };
     return { ...e.status };
+  }
+
+  /** The configured port (must be free; never moved) or a fresh pick persisted to the config. */
+  private async resolvePort(id: string, b: ManagedBackend): Promise<number | string> {
+    if (b.port) return (await this.d.portFree(b.port)) ? b.port : "port-in-use";
+    const port = await this.pickPort(id);
+    if (!port) return "no-free-port";
+    mergeWrite((doc) => {
+      const backends = (doc.backends ?? {}) as Record<string, Record<string, unknown>>;
+      if (backends[id]) backends[id] = { ...backends[id], port };
+      doc.backends = backends;
+    });
+    return port;
   }
 
   async start(id: string): Promise<ManagedStatus> {
@@ -243,21 +262,8 @@ export class Supervisor implements ManagedControl {
     if (!b) return this.fail(e, "unknown-backend");
     const uv = this.d.findUv();
     if (!uv) return { state: "unavailable", reason: "uv-missing" };
-
-    let port = b.port;
-    if (port) {
-      if (!(await this.d.portFree(port))) return this.fail(e, "port-in-use");
-    } else {
-      const picked = await this.pickPort(id);
-      if (!picked) return this.fail(e, "no-free-port");
-      port = picked;
-      mergeWrite((doc) => {
-        const backends = (doc.backends ?? {}) as Record<string, Record<string, unknown>>;
-        if (backends[id]) backends[id] = { ...backends[id], port };
-        doc.backends = backends;
-      });
-    }
-
+    const port = await this.resolvePort(id, b);
+    if (typeof port === "string") return this.fail(e, port);
     const eng = ENGINES[b.engine];
     const bin = join(binDir(), eng.bin);
     if (!existsSync(bin)) {
@@ -265,6 +271,13 @@ export class Supervisor implements ManagedControl {
       const ok = await this.install(e, uv, eng.package);
       if (!ok || !existsSync(bin)) return this.fail(e, "install-failed");
     }
+    this.launch(id, e, b, bin, port);
+    return this.status(id);
+  }
+
+  /** Spawn the engine directly (argv array, no shell) and wire logs, PID file, exit and health. */
+  private launch(id: string, e: Entry, b: ManagedBackend, bin: string, port: number): void {
+    const eng = ENGINES[b.engine];
     const checkpoint = checkpointFor(b.engine, b.checkpoint);
     const argv = eng.argv(port, checkpoint);
     const child = this.d.spawn(bin, argv, {
@@ -279,23 +292,23 @@ export class Supervisor implements ManagedControl {
     child.stdout?.on("data", (c) => this.pushLog(e, String(c)));
     child.stderr?.on("data", (c) => this.pushLog(e, String(c)));
     child.once("spawn", () => {
-      if (!child.pid) return;
-      const info = this.d.procInfo(child.pid);
-      if (info) this.writePid(id, { pid: child.pid, ...info, argv: [bin, ...argv] });
+      const info = child.pid ? this.d.procInfo(child.pid) : null;
+      if (child.pid && info) this.writePid(id, { pid: child.pid, ...info, argv: [bin, ...argv] });
     });
     child.once("error", (err) => {
       this.pushLog(e, String(err));
       if (e.child === child) this.fail(e, "spawn-error");
     });
-    child.once("exit", (code, sig) => {
-      this.removePid(id);
-      if (e.child !== child) return;
-      e.child = undefined;
-      if (e.stopping) e.status = { state: "stopped" };
-      else if (e.status.state === "ready" || e.status.state === "starting") this.fail(e, `exited:${sig ?? code}`);
-    });
+    child.once("exit", (code, sig) => this.onExit(id, e, child, `exited:${sig ?? code}`));
     e.settled = this.health(id, e, child, port, startedAt);
-    return this.status(id);
+  }
+
+  private onExit(id: string, e: Entry, child: ChildProcess, reason: string): void {
+    this.removePid(id);
+    if (e.child !== child) return;
+    e.child = undefined;
+    if (e.stopping) e.status = { state: "stopped" };
+    else if (e.status.state === "ready" || e.status.state === "starting") this.fail(e, reason);
   }
 
   private install(e: Entry, uv: string, pkg: string): Promise<boolean> {
@@ -327,7 +340,7 @@ export class Supervisor implements ManagedControl {
         body: JSON.stringify({ state: "health check", questions: { ok: { type: "noul", instructions: "Is this a health check?" } } }),
       });
       if (!q.ok) return false;
-      const body: any = await q.json();
+      const body = (await q.json()) as { answers?: { ok?: { noul?: unknown } } } | null;
       const n = body?.answers?.ok?.noul;
       return typeof n === "number" && n >= 0 && n <= 1;
     } catch {
@@ -401,7 +414,6 @@ export class Supervisor implements ManagedControl {
       const child = e.child;
       if (!child?.pid) continue;
       e.stopping = true;
-      const pid = child.pid;
       try {
         this.d.signal(child, "SIGTERM");
       } catch {

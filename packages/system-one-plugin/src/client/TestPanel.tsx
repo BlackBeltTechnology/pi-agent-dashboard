@@ -86,8 +86,6 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
       setMsg(e instanceof ApiError && e.code === "stale-revision" ? t("staleCalibration", undefined, "The config changed on disk. Reload the page, then save again.") : "error");
     }
   };
-  const pct = (x: number) => x.toFixed(2);
-  const ms = (x: number | null) => (x == null ? "–" : `${Math.round(x)} ms`);
 
   return (
     <div className="flex flex-col gap-2">
@@ -126,51 +124,7 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
       </p>
       {report && (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[12px]" data-testid={`results-${consumer.id}`}>
-              <caption className="pb-1 text-left font-semibold text-[var(--text-secondary)]">
-                {t("resultsCaption", { id: report.backendId, model: report.model ?? "–" }, `Results · ${report.backendId} answered as ${report.model ?? "–"}`)}
-              </caption>
-              <thead>
-                <tr className="text-[var(--text-secondary)]">
-                  <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-left">{t("colQuestion", undefined, "Question")}</th>
-                  <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{t("colAccuracy", undefined, "Accuracy")}</th>
-                  <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">AUC</th>
-                  <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">p50</th>
-                  <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">p90</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(report.questions).map(([qid, q]) => (
-                  <tr key={qid}>
-                    <td className="border-b border-[var(--border-subtle)] px-2 py-1">
-                      {qid} ({q.type})
-                    </td>
-                    <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{pct(q.accuracy)}</td>
-                    <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{q.auc == null ? "–" : pct(q.auc)}</td>
-                    <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{ms(report.latencyMs.p50)}</td>
-                    <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{ms(report.latencyMs.p90)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={5} className="px-2 py-1 font-semibold">
-                    {t(
-                      "resultsFoot",
-                      {
-                        cases: report.cases,
-                        failures: report.failures,
-                        chars: report.inputChars.toLocaleString(),
-                        cost: report.estimatedCostUsd == null ? "–" : `$${report.estimatedCostUsd.toFixed(4)}`,
-                      },
-                      `${report.cases} cases · ${report.failures} failed · ${report.inputChars.toLocaleString()} input chars · estimated cost ${report.estimatedCostUsd == null ? "–" : `$${report.estimatedCostUsd.toFixed(4)}`}`,
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          <ResultsTable report={report} consumerId={consumer.id} />
           <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
             <legend className="text-[12px] font-semibold text-[var(--text-secondary)]">
               {t("saveCalibrationFor", { key: `${report.backendId}::${consumer.id}` }, `Save calibration for ${report.backendId}::${consumer.id}`)}
@@ -233,5 +187,61 @@ export function TestPanel({ consumer, draft, views, revision, onSaved }: TestPan
         />
       )}
     </div>
+  );
+}
+
+const pct = (x: number) => x.toFixed(2);
+const ms = (x: number | null) => (x == null ? "–" : `${Math.round(x)} ms`);
+
+/** Test results: per-question accuracy / AUC, latency p50 / p90, input chars, estimated cost. */
+function ResultsTable({ report, consumerId }: { report: EvalReport; consumerId: string }): React.ReactElement {
+  const t = useT();
+  const cost = report.estimatedCostUsd == null ? "–" : `$${report.estimatedCostUsd.toFixed(4)}`;
+  return (
+  <div className="overflow-x-auto">
+    <table className="w-full border-collapse text-[12px]" data-testid={`results-${consumerId}`}>
+      <caption className="pb-1 text-left font-semibold text-[var(--text-secondary)]">
+        {t("resultsCaption", { id: report.backendId, model: report.model ?? "–" }, `Results · ${report.backendId} answered as ${report.model ?? "–"}`)}
+      </caption>
+      <thead>
+        <tr className="text-[var(--text-secondary)]">
+          <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-left">{t("colQuestion", undefined, "Question")}</th>
+          <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{t("colAccuracy", undefined, "Accuracy")}</th>
+          <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">AUC</th>
+          <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">p50</th>
+          <th scope="col" className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">p90</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Object.entries(report.questions).map(([qid, q]) => (
+          <tr key={qid}>
+            <td className="border-b border-[var(--border-subtle)] px-2 py-1">
+              {qid} ({q.type})
+            </td>
+            <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{pct(q.accuracy)}</td>
+            <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{q.auc == null ? "–" : pct(q.auc)}</td>
+            <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{ms(report.latencyMs.p50)}</td>
+            <td className="border-b border-[var(--border-subtle)] px-2 py-1 text-right">{ms(report.latencyMs.p90)}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={5} className="px-2 py-1 font-semibold">
+            {t(
+              "resultsFoot",
+              {
+                cases: report.cases,
+                failures: report.failures,
+                chars: report.inputChars.toLocaleString(),
+                cost,
+              },
+              `${report.cases} cases · ${report.failures} failed · ${report.inputChars.toLocaleString()} input chars · estimated cost ${cost}`,
+            )}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
   );
 }

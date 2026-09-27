@@ -270,51 +270,72 @@ describe("E26 eval report and case cap (5.8)", () => {
 });
 
 describe("E27 eval egress + enforce confirmation (5.9)", () => {
-  for (const where of ["loopback", "off-machine"] as const)
-    for (const sw of [false, true])
-      for (const save of ["shadow", "enforce+confirm", "enforce-no-confirm"] as const) {
-        it(`${where} switch=${sw} save=${save}`, async () => {
-          const icpt = interceptOffMachine();
-          try {
-            const f = await fake();
-            f.respondWith((b) => autoAnswer(b, "m-run"));
-            registerConsumer("c", { fixtures: writeFixtures(4) });
-            const url = where === "loopback" ? f.url : "https://remote.example/v1/systemone";
-            writeUser({ allowOffMachine: sw, backends: { b: { kind: "http", url, model: "x" } }, presets: { p: { chain: ["b"] } }, activePreset: "p" });
-            const r = await req("POST", "/api/system-one/eval", { consumerId: "c", backendId: "b" });
-            if (where === "off-machine" && !sw) {
-              expect(r.status).toBe(409);
-              expect(r.body.error).toBe("off-machine");
-              expect(icpt.offMachine).toHaveLength(0);
-              return;
-            }
-            expect(r.status).toBe(200);
-            const rev = (await req("GET", "/api/system-one/config")).body.revision;
-            const mode = save === "shadow" ? "shadow" : "enforce";
-            const model = r.body.model ?? "m-run";
-            const s = await req("POST", "/api/system-one/calibration", {
-              backendId: "b",
-              consumerId: "c",
-              mode,
-              thresholds: r.body.thresholds,
-              model,
-              baseRevision: rev,
-              ...(save === "enforce+confirm" ? { confirm: true } : {}),
-            });
-            const file = JSON.parse(readFileSync(userConfigPath(), "utf8"));
-            if (save === "enforce-no-confirm") {
-              expect(s.status).toBe(400);
-              expect(file.calibration).toBeUndefined();
-            } else {
-              expect(s.status).toBe(200);
-              expect(file.calibration["b::c"]).toMatchObject({ mode, model });
-              if (where === "loopback") expect(file.calibration["b::c"].model).toBe("m-run");
-            }
-          } finally {
-            icpt.restore();
-          }
-        });
+  type Where = "loopback" | "off-machine";
+  type Save = "shadow" | "enforce+confirm" | "enforce-no-confirm";
+
+  /** Seed a consumer + one backend (loopback fake answering model `m-run`, or an intercepted remote) and run Test. */
+  async function runEvalCell(where: Where, sw: boolean) {
+    const f = await fake();
+    f.respondWith((b) => autoAnswer(b, "m-run"));
+    registerConsumer("c", { fixtures: writeFixtures(4) });
+    const url = where === "loopback" ? f.url : "https://remote.example/v1/systemone";
+    writeUser({ allowOffMachine: sw, backends: { b: { kind: "http", url, model: "x" } }, presets: { p: { chain: ["b"] } }, activePreset: "p" });
+    return req("POST", "/api/system-one/eval", { consumerId: "c", backendId: "b" });
+  }
+
+  /** Save the run's calibration; returns the response and the file afterwards. */
+  async function saveCell(save: Save, run: { body: any }) {
+    const rev = (await req("GET", "/api/system-one/config")).body.revision;
+    const mode = save === "shadow" ? "shadow" : "enforce";
+    const model = run.body.model ?? "m-run";
+    const res = await req("POST", "/api/system-one/calibration", {
+      backendId: "b",
+      consumerId: "c",
+      mode,
+      thresholds: run.body.thresholds,
+      model,
+      baseRevision: rev,
+      ...(save === "enforce+confirm" ? { confirm: true } : {}),
+    });
+    return { res, mode, model, file: JSON.parse(readFileSync(userConfigPath(), "utf8")) };
+  }
+
+  const cells = (["loopback", "off-machine"] as Where[]).flatMap((where) =>
+    [false, true].flatMap((sw) => (["shadow", "enforce+confirm", "enforce-no-confirm"] as Save[]).map((save) => ({ where, sw, save }))),
+  );
+
+  for (const { where, sw, save } of cells.filter((c) => c.where === "off-machine" && !c.sw)) {
+    it(`${where} switch=${sw} save=${save} → refused before any request`, async () => {
+      const icpt = interceptOffMachine();
+      try {
+        const r = await runEvalCell(where, sw);
+        expect(r.status).toBe(409);
+        expect(r.body.error).toBe("off-machine");
+        expect(icpt.offMachine).toHaveLength(0);
+      } finally {
+        icpt.restore();
       }
+    });
+  }
+
+  for (const { where, sw, save } of cells.filter((c) => !(c.where === "off-machine" && !c.sw))) {
+    it(`${where} switch=${sw} save=${save}`, async () => {
+      const icpt = interceptOffMachine();
+      try {
+        const r = await runEvalCell(where, sw);
+        expect(r.status).toBe(200);
+        const { res, mode, model, file } = await saveCell(save, r);
+        const written = save !== "enforce-no-confirm";
+        expect(res.status).toBe(written ? 200 : 400);
+        // Written: exactly the one record; refused: no calibration key at all.
+        expect(file.calibration).toEqual(written ? { "b::c": expect.objectContaining({ mode, model }) } : undefined);
+        // A loopback run records the model string the backend actually answered with.
+        if (written && where === "loopback") expect(file.calibration["b::c"].model).toBe("m-run");
+      } finally {
+        icpt.restore();
+      }
+    });
+  }
 
   it("refuses a managed backend that is not ready, sending nothing", async () => {
     const f = await fake();

@@ -7,7 +7,7 @@
  * accuracy on the fixtures, ties → closest to 0.5; none for `choice`/`score`.
  * See change: add-system-one-registry.
  */
-import { type ConsumerDeclaration, type LlmCaller, predict } from "@blackbelt-technology/pi-system-one";
+import { type ConsumerDeclaration, type LlmCaller, type PredictResult, predict } from "@blackbelt-technology/pi-system-one";
 import type { Fixture } from "./consumers.js";
 
 const MAX_CASES = 500;
@@ -79,9 +79,56 @@ export interface RunEvalOptions {
   signal?: AbortSignal;
 }
 
+interface QuestionTally {
+  type: string;
+  cases: number;
+  correct: number;
+  pairs: Array<{ score: number; label: boolean }>;
+}
+type AnswerLike = { choice?: string; score?: number; noul?: number } | undefined;
+
+/** 1 when `a` matches the expected value for this question type, else 0. Binary noul also records its pair. */
+function scoreAnswer(t: QuestionTally, type: string, a: AnswerLike, exp: unknown): number {
+  if (type === "choice") return a?.choice === exp ? 1 : 0;
+  if (type === "score") return typeof a?.score === "number" && Math.round(a.score) === exp ? 1 : 0;
+  const label = asBinary(exp);
+  if (label === null || typeof a?.noul !== "number") return 0;
+  t.pairs.push({ score: a.noul, label });
+  return a.noul >= 0.5 === label ? 1 : 0;
+}
+
+/** Fold one case's result into the per-question tallies. */
+function tally(perQ: Map<string, QuestionTally>, c: Fixture, r: PredictResult): void {
+  for (const [qid, q] of Object.entries(c.questions)) {
+    const t = perQ.get(qid) ?? { type: String(q.type), cases: 0, correct: 0, pairs: [] };
+    perQ.set(qid, t);
+    if (!Object.hasOwn(c.expected, qid)) continue;
+    t.cases++;
+    if (r.ok) t.correct += scoreAnswer(t, t.type, r.answers[qid] as AnswerLike, c.expected[qid]);
+  }
+}
+
+function summarize(perQ: Map<string, QuestionTally>): { questions: Record<string, QuestionReport>; thresholds: Record<string, number> } {
+  const questions: Record<string, QuestionReport> = {};
+  const thresholds: Record<string, number> = {};
+  for (const [qid, t] of perQ) {
+    const threshold = t.type === "noul" ? bestThreshold(t.pairs) : null;
+    if (threshold !== null) thresholds[qid] = threshold;
+    questions[qid] = {
+      type: t.type,
+      cases: t.cases,
+      correct: t.correct,
+      accuracy: t.cases ? t.correct / t.cases : 0,
+      auc: t.type === "noul" ? auc(t.pairs) : null,
+      threshold,
+    };
+  }
+  return { questions, thresholds };
+}
+
 export async function runEval(o: RunEvalOptions): Promise<EvalReport> {
   const cases = o.cases.slice(0, MAX_CASES);
-  const perQ = new Map<string, { type: string; cases: number; correct: number; pairs: Array<{ score: number; label: boolean }> }>();
+  const perQ = new Map<string, QuestionTally>();
   const latencies: number[] = [];
   let failures = 0;
   let inputChars = 0;
@@ -90,53 +137,16 @@ export async function runEval(o: RunEvalOptions): Promise<EvalReport> {
   for (const c of cases) {
     if (o.signal?.aborted) break;
     inputChars += c.state.length + JSON.stringify(c.questions).length;
-    const r = await predict({
-      consumer: o.consumer,
-      state: c.state,
-      questions: c.questions,
-      onlyBackend: o.backendId,
-      llmCaller: o.llmCaller,
-      signal: o.signal,
-    });
+    const r = await predict({ consumer: o.consumer, state: c.state, questions: c.questions, onlyBackend: o.backendId, llmCaller: o.llmCaller, signal: o.signal });
     done++;
-    for (const [qid, q] of Object.entries(c.questions)) {
-      const s = perQ.get(qid) ?? { type: String(q.type), cases: 0, correct: 0, pairs: [] };
-      perQ.set(qid, s);
-      if (!Object.hasOwn(c.expected, qid)) continue;
-      s.cases++;
-      if (!r.ok) continue;
-      const a: any = r.answers[qid];
-      const exp = c.expected[qid];
-      if (q.type === "choice") s.correct += a?.choice === exp ? 1 : 0;
-      else if (q.type === "score") s.correct += Math.round(a?.score) === exp ? 1 : 0;
-      else {
-        const label = asBinary(exp);
-        if (label !== null && typeof a?.noul === "number") {
-          s.pairs.push({ score: a.noul, label });
-          s.correct += a.noul >= 0.5 === label ? 1 : 0;
-        }
-      }
-    }
+    tally(perQ, c, r);
     if (r.ok) {
       model = r.model;
       latencies.push(r.attempts[r.attempts.length - 1].latencyMs);
     } else failures++;
   }
   latencies.sort((a, b) => a - b);
-  const questions: Record<string, QuestionReport> = {};
-  const thresholds: Record<string, number> = {};
-  for (const [qid, s] of perQ) {
-    const threshold = s.type === "noul" ? bestThreshold(s.pairs) : null;
-    if (threshold !== null) thresholds[qid] = threshold;
-    questions[qid] = {
-      type: s.type,
-      cases: s.cases,
-      correct: s.correct,
-      accuracy: s.cases ? s.correct / s.cases : 0,
-      auc: s.type === "noul" ? auc(s.pairs) : null,
-      threshold,
-    };
-  }
+  const { questions, thresholds } = summarize(perQ);
   return {
     backendId: o.backendId,
     consumerId: o.consumer.id,

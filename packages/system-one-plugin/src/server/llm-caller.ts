@@ -72,6 +72,30 @@ function extractJson(text: string): unknown {
   return JSON.parse(text.slice(a, b + 1));
 }
 
+type Registry = NonNullable<Awaited<ReturnType<PluginModelRuntime["getModelRegistry"]>>>;
+type StreamEvent = { type?: string; message?: unknown };
+
+/** On-machine only for a local inference runtime whose model base URL is loopback. */
+async function isLocalModel(registry: Registry | null, r: { provider: string; modelId: string }): Promise<boolean> {
+  if (!registry || !LOCAL_PROVIDERS.has(r.provider)) return false;
+  const model = (await registry.find(r.provider, r.modelId)) as { baseUrl?: string } | null;
+  try {
+    return !!model?.baseUrl && isLoopbackHost(new URL(model.baseUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Drain a streamSimple event stream to the final `done` message; an `error` event throws. */
+async function drainDone(events: AsyncIterable<StreamEvent>): Promise<unknown> {
+  let final: unknown;
+  for await (const ev of events) {
+    if (ev?.type === "error") throw new Error("provider-error");
+    if (ev?.type === "done") final = ev.message;
+  }
+  return final;
+}
+
 export function createServerLlmCaller(runtime: PluginModelRuntime | undefined, providersPath?: string): ServerLlmCaller {
   const cache = new Map<string, Resolved>();
   return {
@@ -80,20 +104,8 @@ export function createServerLlmCaller(runtime: PluginModelRuntime | undefined, p
       const registry = await runtime.getModelRegistry();
       for (const role of roles) {
         const r = resolveRoleRef(role, providersPath);
-        if (!r) {
-          cache.delete(role);
-          continue;
-        }
-        let local = false;
-        if (registry && LOCAL_PROVIDERS.has(r.provider)) {
-          const model = (await registry.find(r.provider, r.modelId)) as { baseUrl?: string } | null;
-          try {
-            local = !!model?.baseUrl && isLoopbackHost(new URL(model.baseUrl).hostname);
-          } catch {
-            local = false;
-          }
-        }
-        cache.set(role, { ...r, local });
+        if (r) cache.set(role, { ...r, local: await isLocalModel(registry, r) });
+        else cache.delete(role);
       }
     },
     isLocal(role) {
@@ -107,20 +119,18 @@ export function createServerLlmCaller(runtime: PluginModelRuntime | undefined, p
       const model = registry ? await registry.find(r.provider, r.modelId) : null;
       if (!registry || !model) throw new Error("model-unavailable");
       const creds = await registry.getApiKeyAndHeaders(model);
-      let final: unknown;
-      for await (const ev of runtime.streamSimple({
-        model,
-        system: SYSTEM,
-        messages: [{ role: "user", content: JSON.stringify({ state, questions }), timestamp: Date.now() }],
-        maxTokens: 1024,
-        temperature: 0,
-        apiKey: creds.apiKey,
-        headers: creds.headers,
-        signal,
-      })) {
-        if (ev?.type === "done") final = ev.message;
-        else if (ev?.type === "error") throw new Error("provider-error");
-      }
+      const final = await drainDone(
+        runtime.streamSimple({
+          model,
+          system: SYSTEM,
+          messages: [{ role: "user", content: JSON.stringify({ state, questions }), timestamp: Date.now() }],
+          maxTokens: 1024,
+          temperature: 0,
+          apiKey: creds.apiKey,
+          headers: creds.headers,
+          signal,
+        }),
+      );
       const parsed = extractJson(extractText(final)) as { answers?: unknown };
       return { answers: parsed?.answers, model: `${r.provider}/${r.modelId}` };
     },

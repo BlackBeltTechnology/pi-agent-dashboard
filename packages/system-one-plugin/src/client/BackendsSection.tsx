@@ -236,7 +236,7 @@ export function BackendsSection({ draft, views, keys, onDraft, onRefresh }: Back
       onRefresh();
     }
   };
-  const cap = (v: number | string | string[] | null | undefined, fmt: (x: any) => string) =>
+  const cap = <T,>(v: T | null | undefined, fmt: (x: T) => string) =>
     v == null ? <dd className="m-0 italic text-[var(--text-secondary)]">{t("unknown", undefined, "unknown")}</dd> : <dd className="m-0">{fmt(v)}</dd>;
   return (
     <section className="flex flex-col gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-4 py-3 shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)]" aria-labelledby="s1-h-backends">
@@ -320,7 +320,7 @@ export function BackendsSection({ draft, views, keys, onDraft, onRefresh }: Back
                   </div>
                   <div className="flex gap-1">
                     <dt>{t("capLanguage", undefined, "language")}</dt>
-                    {cap(v.languageLabel ?? v.capabilities.languages, (x: string | string[]) => (Array.isArray(x) ? x.join(", ") : x))}
+                    {cap<string | string[]>(v.languageLabel ?? v.capabilities.languages, (x) => (Array.isArray(x) ? x.join(", ") : x))}
                   </div>
                   {v.priceUsdPerMTok != null && (
                     <div className="flex gap-1">
