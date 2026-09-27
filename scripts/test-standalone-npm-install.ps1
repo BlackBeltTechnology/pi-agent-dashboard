@@ -97,6 +97,21 @@ try {
     throw "[smoke] FAIL: pi-dashboard.cmd not found at $Bin"
   }
 
+  # The root tarball excludes tests + DOX sidecars under packages/; the boot below
+  # then proves nothing at runtime needed them. See change: check-root-package-imports.
+  $RootPkgs = Join-Path $InstallDir "node_modules\@blackbelt-technology\pi-agent-dashboard\packages"
+  if (-not (Test-Path -LiteralPath $RootPkgs)) {
+    throw "[smoke] FAIL: installed root has no packages\ at $RootPkgs"
+  }
+  $Leaked = @(Get-ChildItem -LiteralPath $RootPkgs -Recurse -Force |
+    Where-Object { $_.Name -in @('__tests__', '__fixtures__', '__mocks__', 'AGENTS.md') -or
+      $_.Name -like '*.test.*' -or $_.Name -like '*.spec.*' -or $_.Name -like '*.AGENTS.md' })
+  if ($Leaked.Count -gt 0) {
+    $Leaked | Select-Object -First 20 | ForEach-Object { Write-Host $_.FullName }
+    throw "[smoke] FAIL: installed root ships $($Leaked.Count) excluded file(s)"
+  }
+  Write-Host "[smoke] OK installed root ships no tests or DOX sidecars"
+
   Write-Host "[smoke] launching pi-dashboard on port $Port..."
 
   # Override HOME and USERPROFILE so ~/.pi/dashboard/* lands in the temp tree.
