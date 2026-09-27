@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Composer action strip: grouping variants</title>
+<style>
+/* Tokens mirror packages/client/src/index.css (:root + [data-theme="light"]). */
+:root {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,.06);
+  --accent:#3b82f6; --accent-soft:#1d3a63; --accent-text:#60a5fa;
+  --ok:#4ade80; --warn:#fb923c; --err:#f87171; --info:#22d3ee; --pur:#c084fc;
+  /* proposed new group token, derived from existing ramp */
+  --group-bg:var(--bg-surface); --group-border:var(--border-subtle);
+}
+[data-theme="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,.05);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#8a8a8a;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.08);
+  --accent:#2563eb; --accent-soft:#dbeafe; --accent-text:#1d4ed8;
+  --ok:#15803d; --warn:#c2410c; --err:#b91c1c; --info:#0e7490; --pur:#7e22ce;
+  --group-bg:var(--bg-tertiary);
+}
+* { box-sizing:border-box; }
+body { margin:0; font:13px/1.4 -apple-system, system-ui, sans-serif; background:var(--bg-primary); color:var(--text-primary); }
+header { display:flex; gap:12px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--border-primary); position:sticky; top:0; background:var(--bg-primary); z-index:2; }
+header h1 { font-size:14px; margin:0 auto 0 0; font-weight:600; }
+header label { font-size:12px; color:var(--text-secondary); display:flex; gap:6px; align-items:center; }
+button.ctl { font:inherit; font-size:12px; padding:4px 10px; border-radius:6px; border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; }
+main { padding:20px; display:grid; gap:28px; }
+section h2 { font-size:13px; margin:0 0 4px; }
+section p.why { margin:0 0 10px; color:var(--text-tertiary); font-size:12px; max-width:90ch; }
+.frame { resize:horizontal; overflow:auto; min-width:320px; max-width:100%; width:var(--frame-w,100%);
+  background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:12px; padding:10px 12px; }
+.composer { margin-top:8px; background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:10px; padding:10px 12px; color:var(--text-muted); font-size:13px; height:64px; }
+.row { display:flex; flex-wrap:wrap; align-items:center; }
+.tick { color:var(--text-secondary); font-size:12px; display:inline-flex; gap:4px; align-items:center; padding:0 6px; }
+:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+
+/* ── BASELINE (current) ─────────────────────────────── */
+.v0 { gap:4px; }
+.v0 .lbl { font-size:9px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-muted); margin-right:2px; }
+.v0 .div { width:1px; height:12px; background:var(--border-secondary); margin:0 2px; }
+.v0 .b { font:inherit; font-size:10px; padding:2px 4px; border-radius:4px; border:1px solid; background:transparent; display:inline-flex; gap:2px; align-items:center; }
+.v0 .quota { font-size:10px; border:1px solid var(--accent); border-radius:4px; padding:1px 4px; color:var(--text-secondary); }
+
+/* ── shared item colors (state never color-only: glyphs kept) ── */
+.c-info{color:var(--info)} .c-ok{color:var(--ok)} .c-warn{color:var(--warn)} .c-err{color:var(--err)} .c-acc{color:var(--accent-text)} .c-pur{color:var(--pur)} .c-mut{color:var(--text-muted)}
+.v0 .c-info{border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.v0 .c-ok{border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.v0 .c-warn{border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.v0 .c-err{border-color:color-mix(in srgb,var(--err) 40%,transparent)}
+.v0 .c-acc{border-color:color-mix(in srgb,var(--accent) 50%,transparent)}
+.v0 .c-mut{border-color:var(--border-secondary)}
+
+/* ── VARIANT A: filled group pill, borderless items ───────────── */
+.va { gap:8px 10px; }
+.va .grp { display:inline-flex; align-items:center; gap:2px; flex-shrink:0; background:var(--group-bg);
+  border:1px solid var(--group-border); border-radius:999px; padding:2px 3px 2px 10px; min-height:28px; }
+.va .grp.info, .vb .grp.info { flex-wrap:wrap; flex-shrink:1; border-radius:14px; row-gap:2px; }
+.va .grp.info { background:transparent; border-style:dashed; border-color:var(--border-secondary); }
+.va .lbl { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--text-tertiary); margin-right:6px; }
+.va .b { font:inherit; font-size:11px; font-weight:500; padding:3px 8px; border-radius:999px; border:0; background:transparent;
+  display:inline-flex; gap:4px; align-items:center; cursor:pointer; min-height:24px; min-width:24px; justify-content:center; }
+.va .b:hover:not(:disabled) { background:var(--bg-hover); }
+.va .b:disabled { opacity:.45; cursor:not-allowed; }
+.va .b.primary { background:var(--accent-soft); color:var(--text-primary); }
+.va .sep { width:1px; height:14px; background:var(--border-secondary); margin:0 4px; }
+.va .icon { padding:3px 6px; }
+/* stepper replaces P/D/S/T chips */
+.step { display:inline-flex; align-items:center; gap:0; margin:0 4px; }
+.step .n { font-size:10px; font-weight:700; width:24px; height:24px; border-radius:50%; display:inline-grid; place-items:center; border:0; cursor:pointer; background:transparent; }
+.step .n.done { background:color-mix(in srgb,var(--ok) 18%,transparent); color:var(--ok); }
+.step .n.cur { background:color-mix(in srgb,var(--warn) 20%,transparent); color:var(--warn); box-shadow:inset 0 0 0 1px var(--warn); }
+.step .n.todo { color:var(--text-muted); box-shadow:inset 0 0 0 1px var(--border-secondary); }
+.step .ln { width:6px; height:2px; background:var(--border-secondary); }
+.step .ln.done { background:color-mix(in srgb,var(--ok) 50%,transparent); }
+.step .cnt { font-size:10px; color:var(--text-tertiary); margin-left:4px; font-variant-numeric:tabular-nums; }
+/* quota readouts */
+.q { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-secondary); padding:0 6px; font-variant-numeric:tabular-nums; }
+.q b { color:var(--text-primary); font-weight:600; }
+.q .dim { color:var(--text-muted); font-size:10px; }
+.bar { width:28px; height:4px; border-radius:2px; background:var(--border-secondary); position:relative; overflow:hidden; display:inline-block; }
+.bar i { position:absolute; inset:0 auto 0 0; background:var(--ok); }
+.bar i.w { background:var(--warn); } .bar i.e { background:var(--err); }
+
+/* ── VARIANT B: segmented groups (shared outline, inner dividers) ─ */
+.vb { gap:8px 12px; }
+.vb .grp { display:inline-flex; align-items:stretch; flex-shrink:0; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; background:var(--bg-tertiary); min-height:28px; }
+.vb .lbl { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--text-tertiary);
+  padding:0 8px; display:inline-flex; align-items:center; background:var(--bg-surface); border-right:1px solid var(--border-secondary); }
+.vb .b { font:inherit; font-size:11px; font-weight:500; padding:0 9px; border:0; border-right:1px solid var(--border-subtle); background:transparent; display:inline-flex; gap:4px; align-items:center; cursor:pointer; }
+.vb .b:last-child { border-right:0; }
+.vb .b:hover:not(:disabled) { background:var(--bg-hover); }
+.vb .b:disabled { opacity:.45; cursor:not-allowed; }
+.vb .b.primary { background:var(--accent-soft); color:var(--text-primary); }
+.vb .b.pr { text-decoration:none; background:color-mix(in srgb,currentColor 10%,transparent); font-variant-numeric:tabular-nums; }
+.vb .b.pr:hover { text-decoration:underline; }
+.vb .b.danger { margin-left:auto; border-left:1px solid var(--border-secondary); }
+.vb .step { padding:0 6px; border-right:1px solid var(--border-subtle); }
+.vb .q { border-right:1px solid var(--border-subtle); padding:0 9px; }
+.vb .q:last-child { border-right:0; }
+
+/* ── narrow mode demo (container query) ─ */
+.cq { container-type:inline-size; }
+@container (max-width: 560px) {
+  .va .b .t, .vb .b .t { display:none; }  /* icon-only; aria-label keeps name */
+  .va .q .dim, .vb .q .dim { display:none; }
+}
+.sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+.notes { font-size:12px; color:var(--text-secondary); margin:8px 0 0; padding-left:18px; }
+.notes li { margin:2px 0; }
+
+/* ── ported verbatim from PR #745 (index.css .openspec-seg*) ── */
+:root{--status-idle:#22c55e;--status-working:#eab308;--focus-ring:var(--accent)}
+[data-theme="light"]{--status-idle:#15803d;--status-working:#a16207}
+.openspec-lifecycle-bar{display:flex;gap:3px;width:150px;container-type:inline-size;margin:0 4px}
+.openspec-seg{all:unset;box-sizing:border-box;flex:0 1 auto;min-width:18px;min-height:24px;display:flex;flex-direction:column;justify-content:center;gap:2px;cursor:pointer}
+.openspec-seg-tasks{flex:1 1 0;min-width:44px}
+.openspec-seg[data-inert]{cursor:default}
+.openspec-seg:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+.openspec-seg-track{position:relative;display:block;height:6px;border-radius:3px;overflow:hidden;background:color-mix(in srgb,var(--text-muted) 35%,transparent)}
+.openspec-seg-fill{position:absolute;inset:0 auto 0 0;border-radius:3px;background:var(--seg-color)}
+.openspec-seg-label{font-size:9px;line-height:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);white-space:nowrap;text-align:center}
+.openspec-seg-count{font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0;font-size:10px}
+.openspec-seg-short{display:none}
+@container (width < 250px){.openspec-seg-full{display:none}.openspec-seg-short{display:inline}}
+.openspec-seg[data-state="done"] .openspec-seg-track{background:var(--seg-color)}
+.openspec-seg[data-state="done"] .openspec-seg-label,.openspec-seg[data-state="skipped"] .openspec-seg-label{color:var(--seg-color)}
+.openspec-seg[data-state="current"] .openspec-seg-label{color:var(--seg-color);font-weight:600}
+.openspec-seg[data-state="current"] .openspec-seg-track{background:color-mix(in srgb,var(--seg-color) 30%,transparent)}
+.openspec-seg[data-state="current"]:not(.openspec-seg-tasks) .openspec-seg-track{background:var(--seg-color);animation:openspec-seg-pulse 1.6s ease-in-out infinite}
+.openspec-seg[data-state="skipped"] .openspec-seg-track{background:repeating-linear-gradient(135deg,var(--seg-color) 0 3px,transparent 3px 6px)}
+.openspec-seg:not([data-inert]):hover .openspec-seg-track{filter:brightness(1.35)}
+.openspec-seg:not([data-inert]):hover .openspec-seg-label{color:var(--text-primary)}
+@keyframes openspec-seg-pulse{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.openspec-seg .openspec-seg-track{animation:none!important}}
+.hos .grp{border:1px solid var(--group-border)}
+.change-name{font-size:11px;color:var(--text-secondary);max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Composer action strip: grouping variants</h1>
+  <label><input type="checkbox" id="light"> Light theme</label>
+  <label><input type="checkbox" id="stream"> Streaming</label>
+  <label>Frame width <input type="range" id="w" min="320" max="1500" value="1500"></label>
+</header>
+<main>
+
+<!-- BASELINE -->
+<section>
+  <h2>0 · Current (baseline)</h2>
+  <p class="why">Every chip has its own border and group gaps equal item gaps (4px), so the bordered items read as the groups. The dividers and 9px labels are the weakest cue on the strip.</p>
+  <div class="frame cq"><div class="row v0" role="toolbar" aria-label="Session actions">
+    <span class="lbl">OpenSpec</span>
+    <button class="b c-info">◎ Explore</button>
+    <button class="b c-ok">✓ P</button><button class="b c-ok">✓ D</button><button class="b c-ok">✓ S</button>
+    <button class="b c-warn">• T <small>0/82</small></button>
+    <button class="b c-acc">▶ Apply</button>
+    <button class="b c-mut" disabled>Archive</button>
+    <span class="div"></span><span class="lbl">Git</span>
+    <button class="b c-warn">⇧ Push</button><button class="b c-warn">⇅ Open PR</button>
+    <button class="b c-ok">⑂ Merge</button><button class="b c-err">✕ Close</button>
+    <span class="div"></span><span class="lbl">Quota</span>
+    <span class="quota"><b>Anthropic</b> <span class="c-mut">not live</span> 5h ▁ 10% 7d ▅ 41%</span>
+    <span class="quota" style="border:0">OpenCode Go 5h ▁ 9% 7d ▃ 49% 30d █ 87%</span>
+    <span class="div"></span><span class="lbl">Status</span>
+  </div>
+  <div class="composer">Message, /command, !shell, or @file…</div></div>
+</section>
+
+<!-- VARIANT A -->
+<section>
+  <h2>A · Group pill (common region), borderless items</h2>
+  <p class="why">Each group is one filled pill and the items inside have no border. Spacing is 2px inside a group and 10px between groups. P/D/S/T becomes one stepper. Close sits behind an inner divider. Quota is read-only, so it gets a dashed, unfilled region with no hover. An empty STATUS group is not rendered.</p>
+  <div class="frame cq"><div class="row va" role="toolbar" aria-label="Session actions">
+    <div class="grp" role="group" aria-label="OpenSpec">
+      <span class="lbl" aria-hidden="true">OpenSpec</span>
+      <button class="b c-info" aria-label="Explore">◎ <span class="t">Explore</span></button>
+      <span class="step" role="group" aria-label="Artifacts">
+        <button class="n done" aria-label="Proposal, done">P</button><span class="ln done"></span>
+        <button class="n done" aria-label="Design, done">D</button><span class="ln done"></span>
+        <button class="n done" aria-label="Specs, done">S</button><span class="ln done"></span>
+        <button class="n cur" aria-label="Tasks, in progress, 0 of 82">T</button>
+        <span class="cnt">0/82</span>
+      </span>
+      <button class="b primary act" aria-label="Apply">▶ <span class="t">Apply</span></button>
+      <button class="b c-mut act" disabled aria-label="Archive">⌫ <span class="t">Archive</span></button>
+    </div>
+    <div class="grp" role="group" aria-label="Git">
+      <span class="lbl" aria-hidden="true">Git</span>
+      <button class="b c-warn act" aria-label="Push">⇧ <span class="t">Push</span></button>
+      <button class="b c-warn act" aria-label="Open PR">⇅ <span class="t">Open PR</span></button>
+      <button class="b c-ok act" aria-label="Merge">⑂ <span class="t">Merge</span></button>
+      <span class="sep" aria-hidden="true"></span>
+      <button class="b c-err icon act" aria-label="Close worktree" title="Close worktree">✕</button>
+    </div>
+    <div class="grp info" role="group" aria-label="Quota">
+      <span class="lbl" aria-hidden="true">Quota</span>
+      <span class="q"><b>Anthropic</b><span class="dim">not live</span> 5h <span class="bar"><i style="width:10%"></i></span> 10% · 7d <span class="bar"><i style="width:41%"></i></span> 41%</span>
+      <span class="q"><b>OpenCode</b> 5h <span class="bar"><i style="width:9%"></i></span> 9% · 7d <span class="bar"><i class="w" style="width:49%"></i></span> 49% · 30d <span class="bar"><i class="e" style="width:87%"></i></span> 87%</span>
+    </div>
+  </div>
+  <div class="composer">Message, /command, !shell, or @file…</div></div>
+  <ul class="notes">
+    <li>Gestalt common region (NN/g, <em>Common Region</em>): one container per group, never boxes inside boxes.</li>
+    <li>Proximity (NN/g): inner gap is smaller than outer gap.</li>
+    <li>Fluent 2 Toolbar: destructive actions are separated from the rest.</li>
+    <li>WAI-ARIA APG Toolbar: <code>role=toolbar</code> on the strip and <code>role=group</code> + <code>aria-label</code> on each pill.</li>
+  </ul>
+</section>
+
+<!-- VARIANT B -->
+<section>
+  <h2>B · Segmented groups (shared outline, label as the first segment)</h2>
+  <p class="why">Buttons are joined with a shared outline. The label is a tinted leading segment, and inner dividers separate the items. This reads more like a traditional toolbar and has stronger edges, but it is denser. It suits Git well and suits the quota readouts less well.</p>
+  <div class="frame cq"><div class="row vb" role="toolbar" aria-label="Session actions">
+    <div class="grp" role="group" aria-label="OpenSpec">
+      <span class="lbl" aria-hidden="true">OpenSpec</span>
+      <button class="b c-info" aria-label="Explore">◎ <span class="t">Explore</span></button>
+      <span class="step" role="group" aria-label="Artifacts">
+        <button class="n done" aria-label="Proposal, done">P</button><span class="ln done"></span>
+        <button class="n done" aria-label="Design, done">D</button><span class="ln done"></span>
+        <button class="n done" aria-label="Specs, done">S</button><span class="ln done"></span>
+        <button class="n cur" aria-label="Tasks, in progress, 0 of 82">T</button>
+        <span class="cnt">0/82</span>
+      </span>
+      <button class="b primary act" aria-label="Apply">▶ <span class="t">Apply</span></button>
+      <button class="b c-mut act" disabled aria-label="Archive">⌫ <span class="t">Archive</span></button>
+    </div>
+    <div class="grp" role="group" aria-label="Git">
+      <span class="lbl" aria-hidden="true">Git</span>
+      <button class="b c-warn act" aria-label="Push">⇧ <span class="t">Push</span></button>
+      <button class="b c-warn act" aria-label="Open PR">⇅ <span class="t">Open PR</span></button>
+      <button class="b c-ok act" aria-label="Merge">⑂ <span class="t">Merge</span></button>
+      <button class="b c-err danger act" aria-label="Close worktree" title="Close worktree">✕</button>
+    </div>
+    <div class="grp info" role="group" aria-label="Quota">
+      <span class="lbl" aria-hidden="true">Quota</span>
+      <span class="q"><b>Anthropic</b><span class="dim">not live</span> 5h <span class="bar"><i style="width:10%"></i></span> 10% · 7d <span class="bar"><i style="width:41%"></i></span> 41%</span>
+      <span class="q"><b>OpenCode</b> 5h <span class="bar"><i style="width:9%"></i></span> 9% · 7d <span class="bar"><i class="w" style="width:49%"></i></span> 49% · 30d <span class="bar"><i class="e" style="width:87%"></i></span> 87%</span>
+    </div>
+  </div>
+  <div class="composer">Message, /command, !shell, or @file…</div></div>
+</section>
+
+<!-- HYBRID -->
+<section>
+  <h2>H · Hybrid: B-style segmented Git with a PR segment, A-style OpenSpec pill, dashed quota</h2>
+  <p class="why">The PR is a status segment in the Git group, not just an "Open PR" button. It shows the number, state and CI result, and links to GitHub. The actions after it depend on the PR state. The OpenSpec pill reuses the 5-segment lifecycle bar from PR #745 in its letters mode (the bar is 150px, under the 250px cutoff), with one primary action and a <code>⋯</code> menu, the same model as the session card. Change state: <select id="osstate" class="ctl"><option value="none">no change attached</option><option value="planning">PLANNING</option><option value="implementing" selected>IMPLEMENTING 12/39</option><option value="complete">COMPLETE</option></select> · PR state: <select id="prstate" class="ctl"><option value="none">no PR (branch not pushed)</option><option value="pushed">pushed, no PR</option><option value="draft">draft #748</option><option value="open" selected>open #747 · checks ✓</option><option value="failing">open #742 · checks ✕</option><option value="merged">merged #745</option></select></p>
+  <div class="frame cq"><div class="row vb" role="toolbar" aria-label="Session actions">
+    <div class="row va hos" style="gap:0"><div class="grp" role="group" aria-label="OpenSpec" id="hos"></div></div>
+    <div class="grp" role="group" aria-label="Git" id="hgit"></div>
+    <div class="row va" style="gap:0"><div class="grp info" role="group" aria-label="Quota">
+      <span class="lbl" aria-hidden="true">Quota</span>
+      <span class="q"><b>Anthropic</b> 5h <span class="bar"><i style="width:10%"></i></span> 10% · 7d <span class="bar"><i style="width:41%"></i></span> 41%</span>
+      <span class="q"><b>OpenCode</b> 7d <span class="bar"><i class="w" style="width:49%"></i></span> 49% · 30d <span class="bar"><i class="e" style="width:87%"></i></span> 87%</span>
+    </div></div>
+  </div>
+  <div class="composer">Message, /command, !shell, or @file…</div></div>
+  <ul class="notes">
+    <li>Nielsen #1, visibility of system status: the PR number, state and CI result are shown, not hidden behind a button label.</li>
+    <li>Nielsen #5, error prevention: Merge is only offered when the PR is open and checks are green. With failing checks it is disabled and says why.</li>
+    <li>State is never color-only: each state has its own glyph and word (draft ◌, open ●, merged ⑂, checks ✓/✕).</li>
+  </ul>
+</section>
+
+<p class="why" style="color:var(--text-tertiary);font-size:12px">Tip: drag a frame's bottom-right corner, or use the width slider. Below 560px, action labels fold to icons, and each group wraps as one unit.</p>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+if (new URLSearchParams(location.search).get('theme')==='light'){document.documentElement.dataset.theme='light';$('#light').checked=true;}
+$('#light').onchange = (e) => document.documentElement.dataset.theme = e.target.checked ? 'light' : 'dark';
+$('#w').oninput = (e) => document.querySelectorAll('.frame').forEach(f => f.style.width = e.target.value + 'px');
+const PR = {
+  none:    { seg: '', acts: `<button class="b c-warn act">⇧ <span class="t">Push</span></button>` },
+  pushed:  { seg: '', acts: `<button class="b c-acc act">⇅ <span class="t">Open PR</span></button>` },
+  draft:   { seg: `<a class="b c-mut pr" href="#" aria-label="Pull request 748, draft">◌ #748 <span class="t">draft</span></a>`, acts: `<button class="b c-warn act">⇧ <span class="t">Push</span></button><button class="b c-acc act">✓ <span class="t">Ready</span></button>` },
+  open:    { seg: `<a class="b c-ok pr" href="#" aria-label="Pull request 747, open, checks passing">● #747 <span class="t">open · ✓ checks</span></a>`, acts: `<button class="b c-warn act">⇧ <span class="t">Push</span></button><button class="b primary act">⑂ <span class="t">Merge</span></button>` },
+  failing: { seg: `<a class="b c-err pr" href="#" aria-label="Pull request 742, open, checks failing">● #742 <span class="t">open · ✕ 2 checks</span></a>`, acts: `<button class="b c-warn act">⇧ <span class="t">Push</span></button><button class="b c-mut act" disabled title="Checks failing">⑂ <span class="t">Merge</span></button>` },
+  merged:  { seg: `<a class="b c-pur pr" href="#" aria-label="Pull request 745, merged">⑂ #745 <span class="t">merged</span></a>`, acts: '' },
+};
+function renderGit(k){ const p = PR[k];
+  $('#hgit').innerHTML = `<span class="lbl" aria-hidden="true">Git</span>${p.seg}${p.acts}<button class="b c-err danger act" aria-label="Close worktree" title="Close worktree">✕</button>`; }
+
+const SEGC = {done:'var(--status-idle)', current:'var(--status-working)', todo:'var(--text-muted)', skipped:'var(--status-idle)'};
+function seg(letter,name,state,opts={}){ const inert = opts.inert ? ' data-inert' : '';
+  const tag = opts.inert ? 'div' : 'button';
+  const fill = opts.fill!=null ? `<span class="openspec-seg-fill" style="width:${opts.fill}%"></span>` : '';
+  const lbl = opts.count ? `<span class="openspec-seg-short openspec-seg-count">${opts.count}</span><span class="openspec-seg-full">${name} <span class="openspec-seg-count">${opts.count}</span></span>` : `<span class="openspec-seg-full">${name}</span><span class="openspec-seg-short">${letter}</span>`;
+  return `<${tag} class="openspec-seg${opts.tasks?' openspec-seg-tasks':''}" data-state="${state}"${inert} style="--seg-color:${SEGC[state]}" aria-label="${name}, ${state}${opts.count?', '+opts.count:''}"><span class="openspec-seg-track" aria-hidden="true">${fill}</span><span class="openspec-seg-label" aria-hidden="true">${lbl}</span></${tag}>`; }
+const OS = {
+  none: () => `<span class="lbl" aria-hidden="true">OpenSpec</span><button class="b c-info act">◎ <span class="t">Explore</span></button>`,
+  planning: () => bar(['done','current','todo','todo','todo'],null) + `<button class="b primary act">› <span class="t">Continue</span></button>` + more(),
+  implementing: () => bar(['done','skipped','done','current','todo'],{c:12,t:39}) + `<button class="b primary act">▶ <span class="t">Apply</span></button>` + more(),
+  complete: () => bar(['done','done','done','done','current'],{c:39,t:39}) + `<button class="b primary act">⌫ <span class="t">Archive</span></button>` + more(),
+};
+function more(){ return `<button class="b icon act" aria-label="More OpenSpec actions" aria-haspopup="dialog" title="FF · Verify · Archive anyway… · Explore… · Detach">⋯</button>`; }
+function bar(st,tk){ return `<span class="lbl" aria-hidden="true">OpenSpec</span><span class="change-name" title="compact-openspec-lifecycle-bar">compact-openspec…</span><span class="openspec-lifecycle-bar" role="group" aria-label="OpenSpec lifecycle">`
+  + seg('P','Proposal',st[0]) + seg('D','Design',st[1]) + seg('S','Specs',st[2])
+  + seg('T','Tasks',st[3],{tasks:true,fill: tk? Math.round(tk.c/tk.t*100):0, count: tk? `${tk.c}/${tk.t}`:null, inert:!tk})
+  + seg('A','Archive',st[4],{inert: st[4]!=='current'}) + `</span>`; }
+function renderOS(k){ $('#hos').innerHTML = OS[k](); }
+renderOS('implementing'); $('#osstate').onchange = (e) => renderOS(e.target.value);
+
+renderGit('open'); $('#prstate').onchange = (e) => renderGit(e.target.value);
+$('#stream').onchange = (e) => document.querySelectorAll('.va .act, .vb .act').forEach(b => {
+  if (e.target.checked) { b.dataset.was = b.disabled; b.disabled = true; } else { b.disabled = b.dataset.was === 'true'; }
+});
+</script>
+</body>
+</html>
