@@ -19,7 +19,7 @@ export interface CardSectionMeta {
   description: () => string;
 }
 
-export const CARD_SECTION_META: readonly CardSectionMeta[] = [
+const CARD_SECTION_META: readonly CardSectionMeta[] = [
   {
     id: "openspec",
     group: "builtin",
