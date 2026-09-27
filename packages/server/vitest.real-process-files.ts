@@ -35,6 +35,8 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   "src/__tests__/session-kill-e2e.test.ts",
   // signal — real detached children exercising the SIGTERM → SIGKILL ladder.
   "src/__tests__/shutdown-terminates-any-strategy.test.ts",
+  // loader — spawns node with the real jiti-register loader to exercise jsdom/DOMPurify loading.
+  "src/lib/__tests__/purify-jiti.test.ts",
   // keeper — real keeper + SIGTERM-trapping mock-pi, observed via the process table.
   "src/rpc-keeper/__tests__/keeper-shutdown-kills-pi.test.ts",
   // keeper — real keeper + mock-pi; E5 polls the rotated child log file.

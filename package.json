@@ -34,6 +34,7 @@
   "files": [
     "scripts/maybe-patch-package.cjs",
     "scripts/fix-pty-permissions.cjs",
+    "tsconfig.base.json",
     "packages/server/src/",
     "packages/server/scripts/",
     "packages/server/package.json",

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACP agent sessions: mockup (add-acp-session-driver)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<header class="topbar">
+  <h1 class="title">ACP agent sessions</h1>
+  <div class="controls" role="group" aria-label="Mockup controls">
+    <label class="toggle"><input type="checkbox" id="agentsToggle" checked> Agents configured</label>
+    <button type="button" class="btn-secondary" id="themeBtn" aria-pressed="false">Light theme</button>
+  </div>
+</header>
+
+<main class="grid">
+
+<!-- S1 ─────────────────────────────────────────────── -->
+<section class="panel" aria-labelledby="s1h">
+  <h2 id="s1h" class="panel-title">S1 · Folder new-session tray</h2>
+  <p class="panel-note">Split button remembers the agent per folder. With no agents configured it is today's single button.</p>
+
+  <div class="card folder-card">
+    <div class="folder-head">
+      <span class="folder-name">pi-agent-dashboard</span>
+      <span class="folder-path">~/Project/pi-agent-dashboard</span>
+    </div>
+  </div>
+  <div class="tray">
+    <div class="split" data-split>
+      <button type="button" class="split-main" id="spawnMain" data-testid="folder-spawn-session-btn">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/></svg>
+        <span>New Session</span><span class="agent-label" id="agentLabel">· querymt</span>
+      </button>
+      <button type="button" class="split-toggle" id="spawnMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="spawnMenu" aria-label="Choose agent for new session">
+        <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/></svg>
+      </button>
+      <ul class="menu" id="spawnMenu" role="menu" aria-label="Agent" hidden>
+        <li role="menuitemradio" aria-checked="false" tabindex="-1" data-agent="pi" data-name="pi">
+          <svg class="ic check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+          <span class="mi-text"><span class="mi-name">pi</span><span class="mi-meta">Default · flows, subagents, extensions</span></span>
+        </li>
+        <li role="menuitemradio" aria-checked="true" tabindex="-1" data-agent="qmt" data-name="querymt">
+          <svg class="ic check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+          <span class="mi-text"><span class="mi-name">querymt</span><span class="mi-meta">ACP · ends when the dashboard restarts</span></span>
+        </li>
+        <li role="menuitemradio" aria-checked="false" tabindex="-1" data-agent="claude" data-name="Claude Agent">
+          <svg class="ic check" viewBox="0 0 24 24" aria-hidden="true"><path d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>
+          <span class="mi-text"><span class="mi-name">Claude Agent</span><span class="mi-meta">ACP · survives dashboard restart</span></span>
+        </li>
+      </ul>
+    </div>
+    <button type="button" class="tray-btn worktree" id="worktreeBtn" aria-controls="s7">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.2,9.42 18,9.83C17.71,11.37 16.5,14 13,14Z"/></svg>
+      New Worktree
+    </button>
+  </div>
+  <p class="status-line" id="spawnStatus" role="status" aria-live="polite"></p>
+</section>
+
+<!-- S2 ─────────────────────────────────────────────── -->
+<section class="panel" aria-labelledby="s2h">
+  <h2 id="s2h" class="panel-title">S2 · Session cards</h2>
+  <p class="panel-note">Driver chip is icon plus text. Ended ACP sessions offer no Resume, Fork, Reload or Retry.</p>
+
+  <article class="card session" aria-label="Session: refactor event log cap">
+    <div class="row">
+      <span class="status-badge working"><span class="shape diamond" aria-hidden="true"></span>working</span>
+      <span class="chip driver"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M16,7V3H14V7H10V3H8V7C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></svg>ACP · querymt</span>
+    </div>
+    <h3 class="session-name">refactor event-log cap</h3>
+    <p class="meta">gpt-5.6-sol · 4 turns · 2 min ago</p>
+  </article>
+
+  <article class="card session" aria-label="Session: review keeper duplex">
+    <div class="row">
+      <span class="status-badge idle"><span class="shape circle" aria-hidden="true"></span>idle</span>
+      <span class="chip driver"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M16,7V3H14V7H10V3H8V7C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></svg>ACP · Claude Agent</span>
+      <span class="chip plain">durable</span>
+    </div>
+    <h3 class="session-name">review keeper duplex</h3>
+    <p class="meta">claude-opus-5-5 · 11 turns · 9 min ago</p>
+  </article>
+
+  <article class="card session ended" aria-label="Session: spike querymt traffic, ended">
+    <div class="row">
+      <span class="status-badge ended"><span class="shape square" aria-hidden="true"></span>ended</span>
+      <span class="chip driver"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M16,7V3H14V7H10V3H8V7C7,7 6,8 6,9V14.5L9.5,18V21H14.5V18L18,14.5V9C18,8 17,7 16,7Z"/></svg>ACP · querymt</span>
+      <button type="button" class="kebab" id="cardMenuBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="cardMenu" aria-label="Session actions">⋯</button>
+      <ul class="menu card-menu" id="cardMenu" role="menu" aria-label="Session actions" hidden>
+        <li role="menuitem" tabindex="-1">Rename</li>
+        <li role="menuitem" tabindex="-1">New querymt session here</li>
+        <li role="menuitem" tabindex="-1">Hide</li>
+      </ul>
+    </div>
+    <h3 class="session-name">spike querymt traffic</h3>
+    <p class="meta">Ended when the dashboard restarted · 1 h ago</p>
+  </article>
+</section>
+
+<!-- S3 + S4 ─────────────────────────────────────────── -->
+<section class="panel" aria-labelledby="s3h">
+  <h2 id="s3h" class="panel-title">S3 · Ended session composer &nbsp;·&nbsp; S4 · Startup failure</h2>
+
+  <div class="callout info" role="status">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"/></svg>
+    <div>
+      <p class="callout-title">This querymt session has ended</p>
+      <p class="callout-body">ACP sessions can't be resumed. Start a new querymt session in this folder to continue.</p>
+      <button type="button" class="btn-secondary">New querymt session</button>
+    </div>
+  </div>
+  <div class="composer" aria-disabled="true">
+    <label for="endedInput" class="sr-only">Message</label>
+    <textarea id="endedInput" disabled placeholder="Session ended"></textarea>
+  </div>
+
+  <div class="callout error" role="alert">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z"/></svg>
+    <div>
+      <p class="callout-title">querymt failed to start</p>
+      <p class="callout-body">The agent answered with ACP protocol version 2, but version 1 was requested. Set <code>acp.protocolV2: true</code> or update the agent.</p>
+      <button type="button" class="btn-secondary">Open agent settings</button>
+    </div>
+  </div>
+</section>
+
+<!-- S5 ─────────────────────────────────────────────── -->
+<section class="panel" aria-labelledby="s5h">
+  <h2 id="s5h" class="panel-title">S5 · Permission request</h2>
+  <div class="card prompt-card" role="group" aria-labelledby="permQ">
+    <p class="prompt-kicker">querymt needs permission</p>
+    <p id="permQ" class="prompt-q">Run this script: <code>scripts/setup.sh</code></p>
+    <p class="meta">Tool call: Execute scripts/setup.sh in ~/Project/pi-agent-dashboard</p>
+    <div class="prompt-actions">
+      <button type="button" class="btn-primary">Allow once</button>
+      <button type="button" class="btn-secondary">Always allow</button>
+      <button type="button" class="btn-secondary">Deny</button>
+    </div>
+  </div>
+</section>
+
+<!-- S6 ─────────────────────────────────────────────── -->
+<section class="panel wide" aria-labelledby="s6h">
+  <h2 id="s6h" class="panel-title">S6 · Automation editor</h2>
+  <form class="card form" onsubmit="return false">
+    <div class="field">
+      <label for="autoName">Name</label>
+      <input id="autoName" value="nightly dependency audit">
+    </div>
+    <div class="field">
+      <label for="autoAgent">Agent</label>
+      <select id="autoAgent" aria-describedby="autoAgentHelp">
+        <option value="pi">pi (default)</option>
+        <option value="qmt" selected>querymt</option>
+        <option value="claude">Claude Agent</option>
+      </select>
+      <p id="autoAgentHelp" class="help">ACP agents run prompt actions only.</p>
+    </div>
+    <div class="field" id="modelField">
+      <span class="label-like" id="modelLabel">Model</span>
+      <p class="note" id="modelNote" aria-labelledby="modelLabel">Chosen by the agent's own settings.</p>
+    </div>
+    <fieldset class="field">
+      <legend>Action</legend>
+      <label class="radio"><input type="radio" name="kind" checked> Prompt</label>
+      <label class="radio disabled"><input type="radio" name="kind" id="kindSkill" disabled aria-describedby="skillWhy"> Skill</label>
+      <p id="skillWhy" class="help">Skills need pi. Choose pi as the agent to use a skill.</p>
+    </fieldset>
+    <div class="field">
+      <label for="autoPrompt">Prompt</label>
+      <textarea id="autoPrompt">Run pnpm audit and summarise high-severity findings with a fix plan.</textarea>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-secondary">Cancel</button>
+      <button type="button" class="btn-primary">Save automation</button>
+    </div>
+  </form>
+</section>
+
+<!-- S7 ─────────────────────────────────────────────── -->
+<section class="panel wide" id="s7" aria-labelledby="s7h">
+  <h2 id="s7h" class="panel-title" tabindex="-1">S7 · +Worktree dialog</h2>
+  <p class="panel-note">One Agent field covers both actions (new session in an existing worktree, or create a new one). Preselected from the parent folder's remembered agent; absent when no agents are configured.</p>
+  <div class="card dialog" role="dialog" aria-labelledby="wtTitle">
+    <div class="dialog-head"><h3 id="wtTitle" class="dialog-title">+Worktree Session</h3><span class="meta">~/Project/pi-agent-dashboard</span></div>
+
+    <div class="field agent-field" id="wtAgentField">
+      <label for="wtAgent">Agent</label>
+      <select id="wtAgent">
+        <option value="pi">pi (default)</option>
+        <option value="qmt">querymt · ends when the dashboard restarts</option>
+        <option value="claude">Claude Agent · survives dashboard restart</option>
+      </select>
+      <p class="help" id="wtAgentHelp">Used for both an existing worktree and a new one.</p>
+    </div>
+
+    <h4 class="dialog-sub">Existing worktrees of this repo</h4>
+    <ul class="wt-list">
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/add-acp-session-driver</span><span class="meta">.worktrees/os-add-acp-session-driver · clean</span></div>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-add-acp-session-driver">New <span class="wt-agent"></span> session →</button></li>
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch">os/fix-ship-tsconfig-base</span><span class="meta">.worktrees/os-fix-ship-tsconfig-base · 2 modified</span></div>
+        <button type="button" class="btn-secondary wt-spawn" data-path=".worktrees/os-fix-ship-tsconfig-base">New <span class="wt-agent"></span> session →</button></li>
+    </ul>
+
+    <h4 class="dialog-sub">Create a new worktree</h4>
+    <div class="seg" role="group" aria-label="Source">
+      <button type="button" class="seg-btn" aria-pressed="true">Fork to new branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">Check out existing branch</button>
+      <button type="button" class="seg-btn" aria-pressed="false">From a pull request</button>
+    </div>
+    <div class="form">
+      <div class="field"><label for="wtBase">Base branch</label><input id="wtBase" value="develop" class="mono"></div>
+      <div class="field"><label for="wtBranch">New branch name</label><input id="wtBranch" value="os/add-acp-session-driver-ui" class="mono"></div>
+      <div class="field"><label for="wtPath">Path</label><input id="wtPath" value=".worktrees/os-add-acp-session-driver-ui" class="mono"></div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-secondary">Cancel</button>
+      <button type="button" class="btn-primary" id="wtSubmit">Create + session →</button>
+    </div>
+    <p class="note">New worktrees start clean. Copy <code>.env</code> and run install steps manually.</p>
+    <p class="status-line" id="wtStatus" role="status" aria-live="polite"></p>
+  </div>
+</section>
+
+<!-- S8 ─────────────────────────────────────────────── -->
+<section class="panel wide" id="s8" aria-labelledby="s8h">
+  <h2 id="s8h" class="panel-title">S8 · Goal detail — linked sessions</h2>
+  <p class="panel-note">Goals run on pi (pi-goal-hermes). New session under a goal is always pi, even when the folder remembers an ACP agent. ACP sessions are left out of "Link existing…", with a count and the reason.</p>
+  <div class="card goal">
+    <div class="goal-head"><span class="chip plain">pursuing</span><h3 class="dialog-title">Ship ACP session driver with green e2e</h3></div>
+    <div class="goal-bar">
+      <h4 class="dialog-sub" id="linkedH">Linked sessions (1)</h4>
+      <span class="spacer"></span>
+      <button type="button" class="btn-secondary" id="goalNew">+ <span id="goalNewLabel">New pi session</span></button>
+      <button type="button" class="btn-secondary" id="goalLinkBtn" aria-expanded="false" aria-controls="goalLinkList">Link existing…</button>
+    </div>
+    <div id="goalLinkList" class="link-list" hidden>
+      <ul aria-label="Running sessions you can link">
+        <li><button type="button" class="link-item">review keeper duplex (pi)</button></li>
+      </ul>
+      <p class="note" id="goalOmitted"><svg class="ic sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M13,9H11V7H13M13,17H11V11H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/></svg> 1 ACP session hidden — goals need pi.</p>
+    </div>
+    <ul class="wt-list">
+      <li class="wt-row"><div class="wt-text"><span class="wt-branch"><span aria-label="driver" title="driver">⚑</span> pursue: ship ACP session driver</span><span class="meta">pi · turn 14 / 40 · $1.82</span></div>
+        <button type="button" class="btn-secondary">Open chat</button></li>
+    </ul>
+    <p class="status-line" id="goalStatus" role="status" aria-live="polite"></p>
+  </div>
+</section>
+
+</main>
+<script src="mockup.js"></script>
+</body>
+</html>

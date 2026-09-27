@@ -154,7 +154,7 @@ The pane SHALL dispatch the active tab to a viewer via a kind-based registry. Th
 
 The Monaco editor SHALL be configured with `readOnly: true`. The pane SHALL display no save button, no dirty indicator, and no "+" affordance for creating new files in v1.
 
-The shared `fileKind` classifier SHALL return `editable: false` for every file EXCEPT the writable markdown subset (`.md`/`.mdx`), which returns `editable: true`. Only the markdown viewer's Edit mode (see "Markdown tabs SHALL offer a Preview/Edit toggle") exposes a save path; all other viewers (Monaco text/code, media, pdf, html) remain read-only.
+The shared `fileKind` classifier SHALL return `editable: false` for every file EXCEPT the editable text kinds — the writable markdown subset (`.md`/`.mdx`), `.csv`, and AsciiDoc (`.adoc`/`.asciidoc`) — which return `editable: true`. Only the Preview/Edit tabs of those kinds (see "Markdown tabs SHALL offer a Preview/Edit toggle") expose a save path; all other viewers (Monaco text/code, media, pdf, html) remain read-only.
 
 When the agent edits a file that the user has open, the pane SHALL NOT auto-refresh. A manual refresh button in the pane header SHALL re-fetch the active file's content from `/api/file`. (Auto-refresh on agent edits is deferred to v4.)
 
@@ -224,7 +224,7 @@ The lazy chunk gzipped size SHALL be ≤ 2 MB (warn budget) and SHALL be ≤ 3 M
 
 ### Requirement: Server SHALL extend `/api/file` and add `/api/file/raw`
 
-`GET /api/file?cwd=<cwd>&path=<relPath>` SHALL return `{ type: "file", kind, mimeType, size, mtime, content? }` for file entries. `content` SHALL be present when the classified `viewer ∈ { "monaco", "markdown" }` OR when `editable === true` (so an editable non-markdown tab such as `.csv` can load its text into Monaco). `content` SHALL be omitted for all other kinds, including `image`, `pdf`, `binary`, `docx`, `pptx`, `xlsx` spreadsheets, `asciidoc`, and `email`.
+`GET /api/file?cwd=<cwd>&path=<relPath>` SHALL return `{ type: "file", kind, mimeType, size, mtime, content? }` for file entries. `content` SHALL be present when the classified `viewer ∈ { "monaco", "markdown" }` OR when `editable === true` (so an editable non-markdown tab such as `.csv` or `.adoc` can load its text into Monaco). `content` SHALL be omitted for all other kinds, including `image`, `pdf`, `binary`, `docx`, `pptx`, `xlsx` spreadsheets, and `email`.
 
 `mtime` SHALL be the file's modification time in milliseconds at full filesystem precision (not rounded or truncated). It is the optimistic-concurrency token for `POST /api/file/write`. Echoing it back unchanged for an unmodified file SHALL pass the write-side conflict check.
 
@@ -247,6 +247,11 @@ The file-kind discrimination SHALL invoke the shared `fileKind` module with the 
 - **WHEN** `GET /api/file?cwd=/Users/u/proj&path=report.docx` (or `mail.eml`) succeeds
 - **THEN** the response does NOT include `content`
 - **AND** the client renders it via the rich viewer, not Monaco raw text
+
+#### Scenario: Editable AsciiDoc returns content
+
+- **WHEN** `GET /api/file?cwd=/Users/u/proj&path=guide.adoc` succeeds
+- **THEN** the response includes `content` (`editable === true`), `kind: "asciidoc"`
 
 #### Scenario: Fractional mtime round-trips through save
 
@@ -357,7 +362,7 @@ The highlight SHALL track the active tab's path.
 
 ### Requirement: Markdown tabs SHALL offer a Preview/Edit toggle
 
-An `editable` tab SHALL offer a per-tab **Preview / Edit** toggle. For `.md`/`.mdx`, Edit mode SHALL mount the controlled `MarkdownEditor`. For an editable non-markdown kind — currently `.csv` — Preview SHALL render the kind's rich viewer (`SpreadsheetPreview` for `.csv`) and Edit SHALL mount a plain Monaco text buffer over the raw file text. Saving SHALL `POST /api/file/write` with the buffer's loaded `mtime`; a `409` (changed on disk) SHALL surface the existing changed-on-disk banner and leave the file untouched. Non-editable kinds (`.markdown`, `.xlsx`, `.docx`, `.eml`, …) SHALL remain preview-only with no Edit affordance.
+An `editable` tab SHALL offer a per-tab **Preview / Edit** toggle. For `.md`/`.mdx`, Edit mode SHALL mount the controlled `MarkdownEditor`. For an editable non-markdown kind — `.csv` and AsciiDoc (`.adoc`/`.asciidoc`) — Preview SHALL render the kind's rich viewer (`SpreadsheetPreview` for `.csv`, `AsciiDocPreview` for AsciiDoc) and Edit SHALL mount a plain Monaco text buffer over the raw file text. The tab body below the toggle toolbar SHALL be the scroll container, since the editor pane supplies none. Saving SHALL `POST /api/file/write` with the buffer's loaded `mtime`; a `409` (changed on disk) SHALL surface the existing changed-on-disk banner and leave the file untouched. Non-editable kinds (`.markdown`, `.xlsx`, `.docx`, `.eml`, …) SHALL remain preview-only with no Edit affordance.
 
 #### Scenario: Edit and save a markdown file
 
@@ -372,6 +377,14 @@ An `editable` tab SHALL offer a per-tab **Preview / Edit** toggle. For `.md`/`.m
 - **THEN** Preview shows the `SpreadsheetPreview` grid and an Edit toggle is available
 - **WHEN** the user switches to Edit
 - **THEN** a Monaco text buffer over the raw CSV is mounted, saved via `/api/file/write` with `mtime`
+
+#### Scenario: AsciiDoc offers a rendered Preview and a Monaco Edit
+
+- **GIVEN** an `.adoc` file open in the pane
+- **WHEN** the tab renders
+- **THEN** Preview shows the rendered AsciiDoc inside a scrollable body and an Edit toggle is available
+- **WHEN** the user switches to Edit, changes text, and clicks Save
+- **THEN** the raw source is saved via `/api/file/write` with `mtime`, and returning to Preview re-renders the saved file
 
 #### Scenario: Non-editable kinds have no Edit affordance
 

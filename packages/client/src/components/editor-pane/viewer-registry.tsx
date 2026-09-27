@@ -38,6 +38,7 @@ import { PptxPreview } from "../preview/PptxPreview.js";
 import { SpreadsheetPreview } from "../preview/SpreadsheetPreview.js";
 import { VideoPreview } from "../preview/VideoPreview.js";
 import BinaryWarn from "./BinaryWarn.js";
+import { EditablePreviewTab } from "./EditablePreviewTab.js";
 import EditableSpreadsheetTab from "./EditableSpreadsheetTab.js";
 import MarkdownViewer from "./MarkdownViewer.js";
 import MermaidViewer from "./MermaidViewer.js";
@@ -84,7 +85,20 @@ const SpreadsheetViewer = (p: ViewerProps) =>
   ) : (
     <SpreadsheetPreview target={asTarget(p)} />
   );
-const AsciiDocViewer = (p: ViewerProps) => <AsciiDocPreview target={asTarget(p)} />;
+// Preview/Edit over the raw `.adoc` source. `EditablePreviewTab`'s body is the
+// scroll container the editor pane itself does not supply.
+const AsciiDocViewer = (p: ViewerProps) => (
+  <EditablePreviewTab
+    cwd={p.cwd}
+    path={p.path}
+    testIdPrefix="adoc"
+    preview={
+      <div className="p-4">
+        <AsciiDocPreview target={asTarget(p)} />
+      </div>
+    }
+  />
+);
 const EmlViewer = (p: ViewerProps) => <EmlPreview target={asTarget(p)} />;
 
 export const viewerRegistry: Record<OpenPathViewer, ComponentType<ViewerProps>> = {

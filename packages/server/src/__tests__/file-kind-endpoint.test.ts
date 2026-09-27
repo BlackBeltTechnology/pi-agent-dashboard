@@ -77,6 +77,22 @@ describe("GET /api/file — file-kind extension", () => {
     expect(body.data.size).toBe(20);
   });
 
+  it("GET mtime round-trips into POST /api/file/write (no false 409 on a fractional mtime)", async () => {
+    const f = path.join(tmp, "doc.adoc");
+    await fsp.writeFile(f, "= Title\n");
+    // Sub-millisecond mtime, as APFS/ext4 routinely produce.
+    await fsp.utimes(f, new Date(1_700_000_000_123.456), new Date(1_700_000_000_123.456));
+    const got = (await app.inject({ method: "GET", url: fileUrl(tmp, "doc.adoc") })).json();
+    expect(got.data.content).toBe("= Title\n");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/file/write",
+      payload: { cwd: tmp, path: "doc.adoc", content: "= New\n", mtime: got.data.mtime },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(await fsp.readFile(f, "utf8")).toBe("= New\n");
+  });
+
   it("returns metadata only (no content) for an image file", async () => {
     await fsp.writeFile(path.join(tmp, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]));
     const res = await app.inject({ method: "GET", url: fileUrl(tmp, "logo.png") });
