@@ -323,6 +323,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-quota-plugin"
             "@blackbelt-technology/pi-dashboard-grammar-plugin"
             "@blackbelt-technology/pi-image-fit-extension"
+            "@blackbelt-technology/pi-untrusted-content-guard"
             "@blackbelt-technology/pi-dashboard-nano-banana"
             "@blackbelt-technology/pi-dashboard-video-production"
             "@blackbelt-technology/pi-dashboard-music-production"

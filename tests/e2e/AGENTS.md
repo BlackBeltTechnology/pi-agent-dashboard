@@ -188,6 +188,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
+| `untrusted-content-guard.spec.ts` | L3 #F1 (change: add-untrusted-content-guard): `[[faux:guard-confirm]]` → `stub_fetch` untrusted HTML → guard confirm card before `bash` (title `Untrusted content guard`, names `stub_fetch`); Yes → bash output `guard-42`; result shows `[guard] 1 hidden span removed`, hidden payload never rendered. Expands the `2 tool calls` group + both cards. Needs `PI_E2E_SEED=1`. |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
