@@ -1,6 +1,6 @@
 /**
  * "Decision models (System 1)" settings section (spec: system-one-settings-ui;
- * approved mockup openspec/changes/add-system-one-registry/mockups/, design D13).
+ * approved mockup openspec/changes/archive/2026-09-27-add-system-one-registry/mockups/, design D13).
  *
  * The UI-managed keys (`allowOffMachine`, `backends`, `presets`,
  * `activePreset`) are a draft registered with the host Save Bar via

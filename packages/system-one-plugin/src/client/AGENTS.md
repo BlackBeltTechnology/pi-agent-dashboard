@@ -1,6 +1,6 @@
 # DOX — packages/system-one-plugin/src/client
 
-Settings section "Decision models (System 1)". Spec: system-one-settings-ui. Approved mockup: `openspec/changes/add-system-one-registry/mockups/` (design D13). Theme-token classes only. See change: add-system-one-registry.
+Settings section "Decision models (System 1)". Spec: system-one-settings-ui. Approved mockup: `openspec/changes/archive/2026-09-27-add-system-one-registry/mockups/` (design D13). Theme-token classes only. See change: add-system-one-registry.
 
 | File | Purpose |
 |------|---------|
