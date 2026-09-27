@@ -181,15 +181,18 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
     };
   }, [open, onOpenChange]);
 
+  // Keyed on presence, not identity: the host rebuilds `radioGroup` every
+  // render, which must not steal focus from roving navigation.
+  const hasRadioGroup = radioGroup != null;
   // Open with focus on the checked radio (session-list-group-by). Re-runs when
   // the desktop panel's first measure lands — a `visibility:hidden` node
   // cannot take focus.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus once the panel is visible.
   React.useEffect(() => {
-    if (!open || !radioGroup) return;
+    if (!open || !hasRadioGroup) return;
     const checked = panelRef.current?.querySelector<HTMLElement>("[role='menuitemradio'][aria-checked='true']");
     checked?.focus();
-  }, [open, radioGroup, triggerRect, isMobile]);
+  }, [open, hasRadioGroup, triggerRect, isMobile]);
 
   /** Roving focus across the rendered `role="menuitem"` / `menuitemradio` nodes. */
   function onPanelKeyDown(e: React.KeyboardEvent) {
