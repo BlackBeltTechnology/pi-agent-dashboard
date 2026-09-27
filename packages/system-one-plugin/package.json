@@ -1,0 +1,68 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-system-one-plugin",
+  "version": "0.8.0",
+  "description": "Dashboard surface for System-1 decision models — settings section (backends, presets, per-consumer overrides, Test/calibration, key entry), /api/system-one/* routes, and the managed local Von/Laya supervisor.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/system-one-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./client": {
+      "types": "./src/client/index.tsx",
+      "default": "./src/client/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "system-one",
+    "displayName": "Decision models",
+    "i18nCatalog": "catalog",
+    "priority": 200,
+    "client": "./src/client/index.tsx",
+    "server": "./src/server/index.ts",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "SystemOneSettings",
+        "tab": "general"
+      }
+    ]
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/pi-system-one": "^0.8.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
