@@ -468,9 +468,10 @@ export function registerFileRoutes(
             mimeType: kindResult.mimeType,
             size: stat.size,
             // mtime drives the editor's optimistic-concurrency check on write.
-            // Full precision: the write side compares `mtimeMs` exactly, so a
-            // rounded token 409s on every sub-ms mtime (APFS/ext4).
-            // See change: directory-settings-page-and-scoped-md-editing.
+            // Full precision: `/api/file/write` compares against raw `mtimeMs`,
+            // so a rounded token 409s on every save on sub-ms filesystems.
+            // See change: directory-settings-page-and-scoped-md-editing,
+            // fix-editor-mtime-token-precision.
             mtime: stat.mtimeMs,
             ...(content !== undefined ? { content } : {}),
           },

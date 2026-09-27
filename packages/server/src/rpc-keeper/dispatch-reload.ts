@@ -16,8 +16,10 @@
  *   2. Headless PID → kill-and-respawn. This is the only mechanism that
  *      actually reloads a headless session (see below).
  *   3. No PID but a live bridge → forward `/reload` (terminal-hosted case).
- *      The bridge reloads in-process IF a human once typed
- *      `/__dashboard_reload` in its TUI, and reports an honest error if not.
+ *      The bridge reloads in-process by self-dispatching its
+ *      `/__dashboard_reload` command (pi >= 0.84.2). At most one forwarded
+ *      reload is in flight per session; a server deadline backstops the
+ *      bridge's feedback (see "Forwarded-reload watch" below).
  *   4. Neither → a terminal `error`. A session with NO registered PID is NEVER
  *      respawned: that would start a second pi process against a
  *      terminal-hosted session's file.
@@ -60,6 +62,16 @@ export const RELOAD_COMPACTING_MESSAGE =
 const RELOAD_NO_PATH_MESSAGE =
   "No reload path available for this session (no headless process, no bridge connection).";
 const RELOAD_SESSION_NOT_FOUND_MESSAGE = "Session not found";
+export const RELOAD_IN_PROGRESS_MESSAGE = "A reload is already in progress for this session.";
+
+/**
+ * Deadline for the bridge's terminal `/reload` feedback after a forward. Above
+ * the bridge's own 60 s finish timeout plus reconnect slack, so the two never
+ * race into a double feedback.
+ */
+export const FORWARDED_RELOAD_DEADLINE_MS = 75_000;
+export const RELOAD_DEADLINE_MESSAGE =
+  "Reload did not report completion within 75 s — check the pi terminal.";
 
 /** What `dispatchReload` actually did. Returned for fan-out accounting. */
 export type ReloadOutcome =
@@ -143,6 +155,107 @@ function isReloadBusy(
  */
 const inFlightRespawns = new Map<string, Promise<void>>();
 
+/**
+ * Forwarded-reload watch (design D5). One entry per session with a forwarded
+ * `/reload` whose terminal feedback has not arrived. Independent of connection
+ * state: the reload itself unregisters and re-registers the session. Cleared
+ * only by `settleForwardedReload` or the deadline. In-memory by design — a
+ * server restart drops pending watches and emits nothing.
+ */
+const forwardedReloads = new Map<string, { timer: ReturnType<typeof setTimeout>; armedAt: number }>();
+
+/**
+ * Sessions whose deadline expired: the bridge's late terminal feedback is
+ * dropped (the server already reported `error`). TTL-bounded; cleared by the
+ * next arm, so a retry's truthful feedback is never eaten.
+ */
+const expiredForwardedReloads = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearExpiredMark(sessionId: string): void {
+  const t = expiredForwardedReloads.get(sessionId);
+  if (t !== undefined) {
+    clearTimeout(t);
+    expiredForwardedReloads.delete(sessionId);
+  }
+}
+
+function armForwardedReload(
+  sessionId: string,
+  emitCommandFeedback: DispatchReloadContext["emitCommandFeedback"],
+): void {
+  clearExpiredMark(sessionId);
+  const timer = setTimeout(() => {
+    if (forwardedReloads.get(sessionId)?.timer !== timer) return;
+    forwardedReloads.delete(sessionId);
+    console.warn(`[reload] forwarded reload deadline expired for session ${sessionId}`);
+    emitCommandFeedback(sessionId, RELOAD_COMMAND, "error", RELOAD_DEADLINE_MESSAGE);
+    const ttl = setTimeout(() => expiredForwardedReloads.delete(sessionId), FORWARDED_RELOAD_DEADLINE_MS);
+    ttl.unref?.();
+    expiredForwardedReloads.set(sessionId, ttl);
+  }, FORWARDED_RELOAD_DEADLINE_MS);
+  timer.unref?.();
+  forwardedReloads.set(sessionId, { timer, armedAt: Date.now() });
+  console.log(`[reload] forwarded reload armed for session ${sessionId}`);
+}
+
+/**
+ * Called for every terminal `/reload` `command_feedback` from a bridge.
+ *   - `"settled"`: a live watch was cleared; pass the event through.
+ *   - `"drop"`: the deadline already reported for this session; drop it.
+ *   - `"none"`: no watch; pass the event through.
+ */
+export function settleForwardedReload(sessionId: string): "settled" | "drop" | "none" {
+  const watch = forwardedReloads.get(sessionId);
+  if (watch) {
+    clearTimeout(watch.timer);
+    forwardedReloads.delete(sessionId);
+    console.log(`[reload] forwarded reload settled for session ${sessionId}`);
+    return "settled";
+  }
+  if (expiredForwardedReloads.has(sessionId)) {
+    clearExpiredMark(sessionId);
+    console.warn(`[reload] dropped late reload feedback for session ${sessionId}`);
+    return "drop";
+  }
+  return "none";
+}
+
+/** True when `data` is a terminal `/reload` `command_feedback` payload. */
+export function isTerminalReloadFeedback(data: unknown): boolean {
+  const d = data as { command?: unknown; status?: unknown } | null | undefined;
+  return d?.command === RELOAD_COMMAND && (d.status === "completed" || d.status === "error");
+}
+
+/**
+ * Event-wiring hook for an inbound bridge `event_forward`, run BEFORE the
+ * replay-skip early return. Returns `"handled"` when the caller must stop:
+ * the event was a late terminal `/reload` feedback (dropped), or it arrived
+ * inside a replay-skip window and was persisted + broadcast here, since the
+ * skip path would otherwise discard it. `"continue"` otherwise.
+ * See change: fix-terminal-session-dashboard-reload (D5).
+ */
+export function routeReloadFeedback(
+  sessionId: string,
+  event: { eventType: string; data?: unknown },
+  opts: { inReplaySkipWindow: boolean; persistAndBroadcast: () => void },
+): "handled" | "continue" {
+  if (event.eventType !== "command_feedback" || !isTerminalReloadFeedback(event.data)) return "continue";
+  if (settleForwardedReload(sessionId) === "drop") return "handled";
+  if (opts.inReplaySkipWindow) {
+    opts.persistAndBroadcast();
+    return "handled";
+  }
+  return "continue";
+}
+
+/** Test-only: drop every watch and expired mark. */
+export function _resetForwardedReloads(): void {
+  for (const w of forwardedReloads.values()) clearTimeout(w.timer);
+  forwardedReloads.clear();
+  for (const t of expiredForwardedReloads.values()) clearTimeout(t);
+  expiredForwardedReloads.clear();
+}
+
 export function reloadTargetSessionIds(
   connectedIds: readonly string[],
   registry: Pick<HeadlessPidRegistry, "listSessions">,
@@ -199,10 +312,19 @@ export async function dispatchReload(
     return "respawn";
   }
 
+  // ── At most one forwarded reload in flight per session. Checked before the
+  // connection probe: the reload itself briefly unregisters the session.
+  // See change: fix-terminal-session-dashboard-reload (D5).
+  if (forwardedReloads.has(sessionId)) {
+    ctx.emitCommandFeedback(sessionId, RELOAD_COMMAND, "error", RELOAD_IN_PROGRESS_MESSAGE);
+    return "refused";
+  }
+
   // ── Ladder step 3: forward to the bridge (terminal-hosted). Gated on
   // `sendToSession`'s RETURN VALUE, not the connection probe alone: the socket
   // can close between the two.
   if (connected && ctx.sendToSession(sessionId, RELOAD_COMMAND)) {
+    armForwardedReload(sessionId, ctx.emitCommandFeedback);
     return "forwarded";
   }
 

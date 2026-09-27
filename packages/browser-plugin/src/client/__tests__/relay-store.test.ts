@@ -11,6 +11,7 @@ import {
   __resetRelayStoreForTests,
   dismissLiveView,
   hasLiveInstance,
+  reopenLiveView,
   setRelayStatus,
 } from "../relay-store.js";
 
@@ -58,6 +59,14 @@ describe("relay store gate", () => {
 
     // A new tab is a material change → the view re-arms.
     setRelayStatus(status([1, 2]));
+    expect(hasLiveInstance()).toBe(true);
+  });
+
+  it("reopenLiveView re-arms a dismissed view without a material change", () => {
+    setRelayStatus(status([1]));
+    dismissLiveView();
+    expect(hasLiveInstance()).toBe(false);
+    reopenLiveView();
     expect(hasLiveInstance()).toBe(true);
   });
 });

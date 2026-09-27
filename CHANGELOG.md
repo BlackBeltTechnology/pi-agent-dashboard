@@ -43,6 +43,16 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **`pi-dashboard start` / `restart` no longer crash on a fresh npm install.**
+  The 0.8.0 tarball shipped `packages/{server,shared,extension}/tsconfig.json`,
+  which extend `../../tsconfig.base.json`, but not `tsconfig.base.json` itself,
+  so jiti died with `File '../../tsconfig.base.json' not found`. The root `files`
+  list now ships it. `scripts/verify-published-imports.mjs` now fails CI on any
+  packed tsconfig whose relative `extends` is not in the tarball
+  (`dangling-tsconfig-extends`), checks the root package's tsconfigs, and reads
+  the keyed `npm pack --json` payload npm emits at a workspace root (previously
+  read as zero files). See change: fix-ship-tsconfig-base.
+
 - **The browser relay plugin now loads in npm, managed and Electron installs.** The vendored playwright-core relay imported playwright-internal bare specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`, `@isomorphic/timeoutRunner`, `@utils/wsServer`) that only resolved through `tsconfig.base.json` `paths`, a vitest `resolve.alias`, and the `JITI_TSCONFIG_PATHS` environment variable. None of the three exists in an npm global / managed `~/.pi-dashboard` / Electron bundled-server install, so plugin discovery reported `Failed to load plugin "browser": Cannot find module '@isomorphic/manualPromise'` and the whole relay was dead there. A committed idempotent script (`scripts/patch-vendor-specifiers.mjs`) rewrites the 5 import lines to package-relative `shims/*.js` paths, so resolution depends only on files inside the published package. All three alias layers are deleted (the tsconfig `paths`, the vitest aliases, the `verify-published-imports.mjs` waiver, and the `JITI_TSCONFIG_PATHS` stamp in `bin/pi-dashboard.mjs`), and the integrity manifest is restructured around provenance kinds (`upstream-verbatim` vs `authored`) with `shims/**` now covered. New gates that no alias layer can satisfy: a specifier guard, a `refresh-vendor.mjs` upstream-fidelity check, and an out-of-repo pack → install → import check (`scripts/verify-plugin-install-load.mjs`, run per-PR for changed plugins and nightly for all).
 
   **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.

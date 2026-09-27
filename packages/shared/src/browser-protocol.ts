@@ -2246,7 +2246,10 @@ export interface BrowserRelayFrameMessage {
  * Tab state as the tile renders it. `no-frames` means "no repaint for 2 s" —
  * which a hidden tab AND a visible idle tab both produce, hence the neutral
  * tile wording; `detached` + `reason: "devtools"` means the user opened
- * DevTools and input must stop; `client-screencast-active` is the refusal
+ * DevTools and input must stop; `detached` + `reason: "no-session"` means the
+ * agent has no debugger session on the tab yet (extension pages never get one)
+ * — see change: fix-browser-live-view-subscribe-and-reopen;
+ * `client-screencast-active` is the refusal
  * state when the agent already screenshots that tab.
  */
 export type BrowserRelayTabState =
@@ -2261,7 +2264,7 @@ export interface BrowserRelayTabStatus {
   url: string;
   state: BrowserRelayTabState;
   /** Set when `state === "detached"`. */
-  reason?: "devtools";
+  reason?: "devtools" | "no-session";
 }
 
 export interface BrowserRelayInstanceStatus {

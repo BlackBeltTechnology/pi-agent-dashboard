@@ -224,9 +224,9 @@ The lazy chunk gzipped size SHALL be ≤ 2 MB (warn budget) and SHALL be ≤ 3 M
 
 ### Requirement: Server SHALL extend `/api/file` and add `/api/file/raw`
 
-`GET /api/file?cwd=<cwd>&path=<relPath>` SHALL return `{ type: "file", kind, mimeType, size, content? }` for file entries. `content` SHALL be present when the classified `viewer ∈ { "monaco", "markdown" }` OR when `editable === true` (so an editable non-markdown tab such as `.csv` or `.adoc` can load its text into Monaco). `content` SHALL be omitted for all other kinds, including `image`, `pdf`, `binary`, `docx`, `pptx`, `xlsx` spreadsheets, and `email`.
+`GET /api/file?cwd=<cwd>&path=<relPath>` SHALL return `{ type: "file", kind, mimeType, size, mtime, content? }` for file entries. `content` SHALL be present when the classified `viewer ∈ { "monaco", "markdown" }` OR when `editable === true` (so an editable non-markdown tab such as `.csv` or `.adoc` can load its text into Monaco). `content` SHALL be omitted for all other kinds, including `image`, `pdf`, `binary`, `docx`, `pptx`, `xlsx` spreadsheets, and `email`.
 
-The response SHALL carry `mtime` as the full-precision `stat.mtimeMs` (no rounding), identical to the token `POST /api/file/write` compares, so an unchanged file never produces a false `409`.
+`mtime` SHALL be the file's modification time in milliseconds at full filesystem precision (not rounded or truncated). It is the optimistic-concurrency token for `POST /api/file/write`. Echoing it back unchanged for an unmodified file SHALL pass the write-side conflict check.
 
 `GET /api/file/raw?cwd=<cwd>&path=<relPath>` SHALL stream raw file bytes with the resolved `Content-Type` header. Both endpoints SHALL apply the existing security gates: `cwd` matched against a known session path; resolved path SHALL start with `cwd + path.sep` (path-traversal prevention).
 
@@ -253,11 +253,17 @@ The file-kind discrimination SHALL invoke the shared `fileKind` module with the 
 - **WHEN** `GET /api/file?cwd=/Users/u/proj&path=guide.adoc` succeeds
 - **THEN** the response includes `content` (`editable === true`), `kind: "asciidoc"`
 
-#### Scenario: mtime round-trips into a save without a false conflict
+#### Scenario: Fractional mtime round-trips through save
 
-- **GIVEN** a file whose on-disk `mtimeMs` has a sub-millisecond fraction
-- **WHEN** the client saves via `POST /api/file/write` with the `mtime` returned by `GET /api/file`, and the file has not changed on disk
-- **THEN** the write succeeds with `200` (not `409`)
+- **GIVEN** an editable `.md` file whose on-disk mtime has a sub-millisecond fraction (e.g. `1700000000000.5`)
+- **WHEN** the client loads it via `GET /api/file` and POSTs `/api/file/write` with the returned `mtime` and new content, with no intervening disk change
+- **THEN** the server responds `200` and the file holds the new content
+
+#### Scenario: Genuine external change still conflicts
+
+- **GIVEN** a file loaded via `GET /api/file` at token T
+- **WHEN** the file is modified on disk and the client POSTs `/api/file/write` with T
+- **THEN** the server responds `409` and the file is left untouched
 
 ### Requirement: Shared `fileKind` classifier SHALL be the single source of viewer discrimination
 

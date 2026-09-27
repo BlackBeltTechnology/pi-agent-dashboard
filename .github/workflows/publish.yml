@@ -325,6 +325,7 @@ jobs:
             "@blackbelt-technology/pi-image-fit-extension"
             "@blackbelt-technology/pi-dashboard-nano-banana"
             "@blackbelt-technology/pi-dashboard-video-production"
+            "@blackbelt-technology/pi-dashboard-music-production"
             "@blackbelt-technology/frontend-mockup-loop"
             "@blackbelt-technology/pi-dashboard-kb"
             "@blackbelt-technology/pi-dashboard-kb-extension"
