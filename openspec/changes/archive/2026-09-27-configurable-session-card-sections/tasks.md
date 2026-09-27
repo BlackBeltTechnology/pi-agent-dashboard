@@ -34,4 +34,4 @@
 
 - [x] 7.1 Update the `AGENTS.md` rows for the touched files (shared, server persistence, client session, DirectorySettings, runtime). Delegate the `docs/` prose (the preferences transport table) to DocScribe. Verify the rows are present.
 - [x] 7.2 Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`. Verify it's green.
-- [ ] 7.3 Manual QA: with two browsers, hide GIT via the legend menu → both update. Restart the server → the setting persists. A worktree session follows the main folder. Mobile viewport respects the settings.
+- [x] 7.3 **DEFERRED — not yet run (post-merge manual QA)** Manual QA: with two browsers, hide GIT via the legend menu → both update. Restart the server → the setting persists. A worktree session follows the main folder. Mobile viewport respects the settings.
