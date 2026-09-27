@@ -182,7 +182,7 @@ describe("E31 argv (6.4)", () => {
     it(engine, async () => {
       writeUser({ m: { kind: "managed", engine, port: 18410, checkpoint: "typed-decisions" } });
       const { calls, spawn } = recordingSpawn();
-      const s = new Supervisor(deps({ spawn: spawn as any, portFree: async () => true, healthBudgetMs: 1, clock: virtualClock(), kill: () => {} }));
+      const s = new Supervisor(deps({ spawn: spawn as any, portFree: async () => true, healthBudgetMs: 1, clock: virtualClock(), signal: (c: any) => c.emit("exit", null, "SIGTERM") }));
       await s.start("m");
       const [install, run] = calls;
       expect(install.args).toEqual(["tool", "install", engine === "von" ? "von-sdk==1.2.3" : "laya[serve]==0.3.20"]);
@@ -271,9 +271,9 @@ describe("X12 stop escalation (6.7)", () => {
     const s = new Supervisor(
       deps({
         clock,
-        kill: (pid, sig) => {
-          if (sig !== 0) signals.push({ sig: String(sig), at: clock.t });
-          process.kill(pid, sig);
+        signal: (child, sig) => {
+          signals.push({ sig: String(sig), at: clock.t });
+          child.kill(sig);
         },
       }),
     );
@@ -305,7 +305,7 @@ describe("X13 orphan cleanup (6.8)", () => {
     atomicWrite0600(join(runDir(), "a.json"), JSON.stringify({ pid: orphan.pid, ...o, argv: [] }));
     atomicWrite0600(join(runDir(), "b.json"), JSON.stringify({ pid: unrelated.pid, startTime: "Mon Jan  1 00:00:00 2001", command: u.command, argv: [] }));
     const s = new Supervisor(deps());
-    expect(s.cleanupOrphans()).toBe(1);
+    expect(await s.cleanupOrphans()).toBe(1);
     expect(await waitGone(orphan.pid!)).toBe(true);
     expect(alive(unrelated.pid!)).toBe(true);
     expect(readdirSync(runDir())).toHaveLength(0);

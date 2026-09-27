@@ -10,10 +10,11 @@
  * dashboard port/another backend's port; a busy configured port fails
  * `port-in-use` without moving. See change: add-system-one-registry.
  */
-import { type ChildProcess, execFileSync, spawn as nodeSpawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
+import { type ChildProcess, execFileSync, spawn as nodeSpawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { killProcess, signalZero } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { atomicWrite0600, loadConfig, type ManagedBackend, stateDir } from "@blackbelt-technology/pi-system-one";
 import { mergeWrite } from "./config-io.js";
 import { checkpointFor, ENGINES } from "./engines.js";
@@ -60,7 +61,12 @@ export interface SupervisorDeps {
   portFree(port: number): Promise<boolean>;
   procInfo(pid: number): ProcInfo | null;
   rssKb(pid: number): number | undefined;
-  kill(pid: number, signal: NodeJS.Signals | 0): void;
+  /** Signal one of OUR children (ChildProcess#kill). */
+  signal(child: ChildProcess, sig: NodeJS.Signals): void;
+  /** Liveness of an arbitrary pid (shared `signalZero`). */
+  alive(pid: number): boolean;
+  /** Terminate a non-child (orphan) pid (shared `killProcess`: SIGTERM → SIGKILL). */
+  killOrphan(pid: number): Promise<void>;
   /** The dashboard's own listen port (known only after listen). */
   dashboardPort?: () => number | undefined;
   healthBudgetMs: number;
@@ -117,7 +123,13 @@ export function defaultDeps(dashboardPort?: () => number | undefined): Superviso
       const v = Number(ps("rss", pid));
       return Number.isFinite(v) ? v : undefined;
     },
-    kill: (pid, sig) => process.kill(pid, sig),
+    signal: (child, sig) => {
+      child.kill(sig);
+    },
+    alive: (pid) => signalZero(pid) !== "esrch",
+    killOrphan: async (pid) => {
+      await killProcess(pid, { timeoutMs: 10_000 });
+    },
     dashboardPort,
     healthBudgetMs: 120_000,
     stopGraceMs: 10_000,
@@ -141,6 +153,8 @@ interface PidRecord {
 
 export class Supervisor implements ManagedControl {
   private readonly entries = new Map<string, Entry>();
+  /** Orphan cleanup barrier; every start waits for it. */
+  private boot: Promise<number> = Promise.resolve(0);
 
   constructor(private readonly d: SupervisorDeps) {}
 
@@ -220,6 +234,7 @@ export class Supervisor implements ManagedControl {
   }
 
   async start(id: string): Promise<ManagedStatus> {
+    await this.boot;
     const pre = this.status(id);
     if (pre.state === "unsupported-platform" || pre.state === "unavailable") return pre;
     const e = this.entry(id);
@@ -338,15 +353,6 @@ export class Supervisor implements ManagedControl {
     return this.status(id);
   }
 
-  private alive(pid: number): boolean {
-    try {
-      this.d.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   private async terminate(e: Entry, child: ChildProcess): Promise<void> {
     const pid = child.pid;
     if (!pid || child.exitCode !== null || child.signalCode !== null) return;
@@ -358,7 +364,7 @@ export class Supervisor implements ManagedControl {
       }),
     );
     try {
-      this.d.kill(pid, "SIGTERM");
+      this.d.signal(child, "SIGTERM");
     } catch {
       return;
     }
@@ -366,7 +372,7 @@ export class Supervisor implements ManagedControl {
     while (!gone && this.d.clock.now() < deadline) await this.d.clock.sleep(100);
     if (!gone) {
       try {
-        this.d.kill(pid, "SIGKILL");
+        this.d.signal(child, "SIGKILL");
       } catch {
         // already gone
       }
@@ -397,14 +403,14 @@ export class Supervisor implements ManagedControl {
       e.stopping = true;
       const pid = child.pid;
       try {
-        this.d.kill(pid, "SIGTERM");
+        this.d.signal(child, "SIGTERM");
       } catch {
         continue;
       }
       const t = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           try {
-            this.d.kill(pid, "SIGKILL");
+            this.d.signal(child, "SIGKILL");
           } catch {
             // gone
           }
@@ -437,8 +443,14 @@ export class Supervisor implements ManagedControl {
   /**
    * Plugin start: terminate a recorded process only when it is alive AND its
    * start time AND command still match; remove every PID file either way.
+   * `start()` waits for this, so an orphan is gone before any new start.
    */
-  cleanupOrphans(): number {
+  cleanupOrphans(): Promise<number> {
+    this.boot = this.runCleanup();
+    return this.boot;
+  }
+
+  private async runCleanup(): Promise<number> {
     let killed = 0;
     let names: string[] = [];
     try {
@@ -450,10 +462,10 @@ export class Supervisor implements ManagedControl {
       const path = join(runDir(), n);
       try {
         const rec = JSON.parse(readFileSync(path, "utf8")) as PidRecord;
-        if (Number.isInteger(rec.pid) && rec.pid > 1 && this.alive(rec.pid)) {
+        if (Number.isInteger(rec.pid) && rec.pid > 1 && this.d.alive(rec.pid)) {
           const info = this.d.procInfo(rec.pid);
           if (info && info.startTime === rec.startTime && info.command === rec.command) {
-            this.d.kill(rec.pid, "SIGTERM");
+            await this.d.killOrphan(rec.pid);
             killed++;
           }
         }

@@ -15,15 +15,19 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   const supervisor = new Supervisor(
     defaultDeps(() => (ctx.fastify.server.address() as AddressInfo | null)?.port),
   );
-  const killed = supervisor.cleanupOrphans();
-  if (killed) ctx.logger.info(`system-one: terminated ${killed} orphaned managed backend(s)`);
   mountSystemOneRoutes(ctx.fastify, {
     networkGuard: ctx.networkGuard,
     llmCaller: createServerLlmCaller(ctx.modelRuntime),
     managed: supervisor,
   });
   ctx.onShutdown(() => supervisor.stopAllSync());
-  supervisor.autostart().catch((err) => ctx.logger.warn(`system-one: autostart failed: ${String(err)}`));
+  supervisor
+    .cleanupOrphans()
+    .then((killed) => {
+      if (killed) ctx.logger.info(`system-one: terminated ${killed} orphaned managed backend(s)`);
+      return supervisor.autostart();
+    })
+    .catch((err) => ctx.logger.warn(`system-one: orphan cleanup / autostart failed: ${String(err)}`));
   ctx.logger.info("system-one routes mounted (/api/system-one/*)");
 }
 

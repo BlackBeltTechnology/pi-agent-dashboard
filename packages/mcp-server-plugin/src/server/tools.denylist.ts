@@ -35,6 +35,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
+  { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },

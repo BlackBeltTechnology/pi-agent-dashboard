@@ -137,4 +137,7 @@ const consumer = (id) => `details.consumer[data-id="${id}"]`;
   for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.id}${r.ok || !r.detail ? "" : "  → " + r.detail}`);
   console.log(`\nSCORE ${pass}/${results.length}`);
   process.exit(pass === results.length ? 0 : 1);
-})();
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
