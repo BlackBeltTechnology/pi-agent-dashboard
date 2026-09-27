@@ -45,6 +45,7 @@ export default defineConfig({
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",
+      "packages/untrusted-content-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
       "packages/video-production",

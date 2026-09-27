@@ -368,6 +368,16 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/untrusted-content-guard": {
+      "entry": [
+        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/kb": {
       "entry": [
         "src/index.ts",

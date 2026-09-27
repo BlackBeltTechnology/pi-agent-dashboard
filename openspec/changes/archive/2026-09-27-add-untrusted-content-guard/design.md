@@ -39,11 +39,12 @@ Prior art surveyed:
 1. Size cap.
 2. HTML layer (when HTML):
    - removes hidden elements by source range;
-   - then hands each remaining **text node** (decoded by the parser, with its source range) to steps 3–4.
+   - then hands each remaining **text node** (decoded by the parser, with its source range) to steps 3–5;
+   - and runs the URL checks of step 5 on **decoded** data the markup carries: URL-bearing attributes (`href`, `src`, `action`, `formaction`, `poster`, `background`, `cite`, `data`, `xlink:href`) and the descendant text of `<a>` elements. A `data:` attribute value is rewritten in place (only that value's source range, strip/block). *Amended during implementation (review round 2): checks on serialized markup missed `href="data&#58;…"`, entity-encoded link text and nested `<a><span>…</span></a>` text.*
    - If a text node is changed, only that node's source range is rewritten with the cleaned text, re-escaping `&`, `<` and `>`. Every other byte stays identical.
 3. Unicode layer on plain text, or per decoded HTML text node. Non-HTML text is never entity-decoded (a literal `&#8203;` in plain text is visible, harmless text).
 4. ANSI.
-5. URL layer.
+5. URL layer: on plain text; for HTML only inside step 2 (per decoded text node + decoded attributes/anchor text), never on the serialized document.
 6. Phrase rules.
 
 The same input always yields the same output and findings.
