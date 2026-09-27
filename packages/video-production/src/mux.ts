@@ -9,6 +9,7 @@
  * filtergraph (`subtitles=captions.srt`); every other path is absolute.
  */
 
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -195,6 +196,17 @@ async function assertBurnable(runner: Runner): Promise<void> {
   if (!/ subtitles /.test(f.stdout)) fail("ffmpeg lacks the subtitles filter (libass) — omit --burn for soft captions");
 }
 
+/** Atomic no-clobber commit: `link` fails if another process created `output` meanwhile. */
+function commitNoClobber(temp: string, output: string): void {
+  try {
+    fs.linkSync(temp, output);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") fail("output exists — pass --force to overwrite");
+    throw e;
+  }
+  fs.unlinkSync(temp);
+}
+
 export async function runMux(opts: MuxOptions): Promise<MuxResult> {
   const runner = opts.runner ?? defaultRunner;
   const { tl, picture, output, warnings } = prepareMux(opts);
@@ -204,7 +216,7 @@ export async function runMux(opts: MuxOptions): Promise<MuxResult> {
   if (burn) await assertBurnable(runner);
 
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  const temp = path.join(path.dirname(output), `.${path.basename(output, ".mp4")}.tmp-${process.pid}-${Date.now()}.mp4`);
+  const temp = path.join(path.dirname(output), `.${path.basename(output, ".mp4")}.tmp-${randomUUID()}.mp4`);
   const subsDir = burn ? fs.mkdtempSync(path.join(os.tmpdir(), "pi-veo-mux-")) : undefined;
   try {
     if (subsDir && tl.captions) fs.copyFileSync(tl.captions.path, path.join(subsDir, "captions.srt"));
@@ -223,7 +235,8 @@ export async function runMux(opts: MuxOptions): Promise<MuxResult> {
       const tail = r.stderr.replace(/\n+$/, "").split("\n").slice(-10).join("\n");
       fail(`ffmpeg exited with code ${r.code}:\n${tail}`);
     }
-    fs.renameSync(temp, output);
+    if (opts.force) fs.renameSync(temp, output);
+    else commitNoClobber(temp, output);
   } finally {
     fs.rmSync(temp, { force: true });
     if (subsDir) fs.rmSync(subsDir, { recursive: true, force: true });

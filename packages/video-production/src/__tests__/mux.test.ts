@@ -205,6 +205,24 @@ describe("runMux — output location and overwrite (E24)", () => {
   });
 });
 
+describe("runMux — no-clobber commit", () => {
+  it("refuses when the output appears during encoding (no --force)", async () => {
+    const p = muxProject(FULL);
+    const out = path.join(p.base, "master", "master.mp4");
+    const f = fakeRunner({
+      encode: () => {
+        fs.writeFileSync(out, "racer");
+        return { code: 0 };
+      },
+    });
+    await expect(runMux({ target: p.base, picture: "picture.mp4", cwd: p.project, runner: f.runner })).rejects.toThrow(
+      "output exists — pass --force to overwrite",
+    );
+    expect(fs.readFileSync(out, "utf8")).toBe("racer");
+    expect(fs.readdirSync(path.dirname(out))).toEqual(["master.mp4"]);
+  });
+});
+
 describe("runMux — inputs (E25)", () => {
   const mux = (p: { base: string; project: string }, picture: string | null = "picture.mp4") =>
     runMux({ target: p.base, picture: picture ?? undefined, cwd: p.project, runner: fakeRunner({}).runner });
