@@ -45,6 +45,15 @@ describe("group-by handlers", () => {
     expect(broadcast).toHaveBeenCalledTimes(2);
   });
 
+  it("a missing mode is malformed, never an implicit 'use default'", () => {
+    handleSetFolderGroupBy({ type: "set_folder_group_by", path: REPO, mode: "status" }, ctx);
+    broadcast.mockClear();
+    handleSetFolderGroupBy({ type: "set_folder_group_by", path: REPO } as never, ctx);
+    handleSetFolderGroupBy({ type: "set_folder_group_by", path: REPO, mode: undefined } as never, ctx);
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(store.getGroupByPrefs().folderGroupBy).toEqual({ [REPO]: "status" });
+  });
+
   it("invalid values never broadcast or write", () => {
     handleSetFolderGroupBy({ type: "set_folder_group_by", path: REPO, mode: "bogus" as never }, ctx);
     handleSetDefaultGroupBy({ type: "set_default_group_by", mode: "x" as never }, ctx);

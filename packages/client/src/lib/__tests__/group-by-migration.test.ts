@@ -24,11 +24,19 @@ describe("decideUrgencyMigration", () => {
 });
 
 describe("runUrgencyMigration", () => {
-  it("sets status for legacy folders then clears the key", () => {
+  it("sends status for legacy folders; clears the key only after the server echo confirms", () => {
     localStorage.setItem(LEGACY_FOLDER_URGENCY_SORT_KEY, JSON.stringify(["/repo"]));
     const send = vi.fn();
-    expect(runUrgencyMigration(prefs(), send)).toEqual(["/repo"]);
+    const sent = new Set<string>();
+    expect(runUrgencyMigration(prefs(), send, sent)).toEqual(["/repo"]);
     expect(send).toHaveBeenCalledWith("/repo", "status");
+    // Not confirmed yet (e.g. socket dropped) → key kept for the next load.
+    expect(localStorage.getItem(LEGACY_FOLDER_URGENCY_SORT_KEY)).not.toBeNull();
+    // A re-render with the same unconfirmed snapshot does not re-send.
+    expect(runUrgencyMigration(prefs(), send, sent)).toEqual([]);
+    expect(send).toHaveBeenCalledTimes(1);
+    // Echo lands → cleared.
+    runUrgencyMigration(prefs({ "/repo": "status" }), send, sent);
     expect(localStorage.getItem(LEGACY_FOLDER_URGENCY_SORT_KEY)).toBeNull();
   });
 

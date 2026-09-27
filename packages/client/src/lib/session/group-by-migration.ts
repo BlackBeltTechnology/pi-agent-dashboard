@@ -2,8 +2,10 @@
  * One-shot retirement of the per-folder "Float blocked sessions to top"
  * localStorage toggle (design D8). After the first `group_by_prefs_updated`
  * arrives, every legacy folder WITHOUT an explicit server-side mode gets
- * `status`; folders that already have one keep it. The legacy key is then
- * removed. Runs before the snapshot never (prefs unknown ⇒ no decision).
+ * `status`; folders that already have one keep it. The legacy key is removed
+ * only once the server's echoed prefs show an explicit mode for EVERY legacy
+ * folder, so a dropped socket leaves it for the next load to retry. Never
+ * runs before the snapshot (prefs unknown ⇒ no decision).
  * See change: session-list-group-by.
  */
 import type { GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
@@ -47,18 +49,28 @@ export function decideUrgencyMigration(legacy: string[], prefs: GroupByPrefs): s
 }
 
 /**
- * Run the migration once `prefs` (the server snapshot) is known. Returns the
- * folders it migrated. Idempotent: the legacy key is gone after the first run.
+ * One migration step, run on every grouping snapshot. Sends `status` for each
+ * legacy folder still lacking an explicit mode (once per `sent` set, i.e. per
+ * page load), and clears the legacy key only when none is left — the server
+ * echo is the confirmation. Returns the folders sent in THIS step.
  */
 export function runUrgencyMigration(
   prefs: GroupByPrefs | undefined,
   setFolderGroupBy: (path: string, mode: "status") => void,
+  sent: Set<string> = new Set(),
 ): string[] {
   if (!prefs) return [];
   const legacy = readLegacyUrgencyFolders();
   if (legacy === null) return [];
-  const toSet = decideUrgencyMigration(legacy, prefs);
-  for (const path of toSet) setFolderGroupBy(path, "status");
-  clearLegacyUrgencyFolders();
-  return toSet;
+  const pending = decideUrgencyMigration(legacy, prefs);
+  if (pending.length === 0) {
+    clearLegacyUrgencyFolders();
+    return [];
+  }
+  const toSend = pending.filter((p) => !sent.has(p));
+  for (const path of toSend) {
+    sent.add(path);
+    setFolderGroupBy(path, "status");
+  }
+  return toSend;
 }

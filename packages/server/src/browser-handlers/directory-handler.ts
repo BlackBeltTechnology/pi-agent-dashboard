@@ -1,9 +1,11 @@
 /**
  * Directory and preference handlers: pin, unpin, reorder, openspec, pi-gateway forwards.
  */
+
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 
@@ -204,8 +206,10 @@ export function handleSetFolderGroupBy(
   msg: Extract<BrowserToServerMessage, { type: "set_folder_group_by" }>,
   ctx: BrowserHandlerContext,
 ): void {
-  if (typeof msg.path !== "string") return;
-  if (ctx.preferencesStore?.setFolderGroupBy?.(msg.path, msg.mode ?? null)) broadcastGroupByPrefs(ctx);
+  // `mode` must be EXACTLY null ("use default") or a valid enum — a missing /
+  // undefined `mode` is malformed, never an implicit "clear the override".
+  if (typeof msg.path !== "string" || (msg.mode !== null && !isGroupByMode(msg.mode))) return;
+  if (ctx.preferencesStore?.setFolderGroupBy?.(msg.path, msg.mode)) broadcastGroupByPrefs(ctx);
 }
 
 export function handleSetDefaultGroupBy(

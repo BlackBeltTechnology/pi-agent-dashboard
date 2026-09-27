@@ -71,6 +71,8 @@ interface Props {
   errorSessionIds?: Set<string>;
   retrySessionIds?: Set<string>;
   noticeSessionIds?: Set<string>;
+  /** Widget-bar placement per session (true ⇒ not needs-you), same source as the lane classifier. */
+  widgetBar?: (sessionId: string) => boolean;
 }
 
 const ROLLUP_META: Record<CapsuleBucket, { shape: "needs-you" | "error" | "working" | "idle"; color: string; key: string }> = {
@@ -96,11 +98,22 @@ function rollupLabel(bucket: CapsuleBucket, count: number): string {
 /**
  * Inert status rollup for a collapsed location lane — same segments, order,
  * shapes and tokens as the folder capsule, but spans only (it lives inside
- * the lane toggle button, where nested buttons are invalid). An `ask_user`
- * session counts as needs-you, matching the lane classifier.
+ * the lane toggle button, where nested buttons are invalid).
  */
-function LaneRollup({ sessions, flags, testId }: { sessions: DashboardSession[]; flags: Parameters<typeof countStatusCapsule>[1]; testId: string }) {
-  const counts = countStatusCapsule(sessions, { ...flags, widgetBar: () => false });
+function LaneRollup({
+  sessions,
+  flags,
+  widgetBar,
+  testId,
+}: {
+  sessions: DashboardSession[];
+  flags: Parameters<typeof countStatusCapsule>[1];
+  widgetBar?: (sessionId: string) => boolean;
+  testId: string;
+}) {
+  // An ask_user session NOT placed in the widget bar counts as needs-you,
+  // matching the lane classifier (unclassified = not widget-bar).
+  const counts = countStatusCapsule(sessions, { ...flags, widgetBar: (id) => widgetBar?.(id) ?? false });
   const visible = CAPSULE_SEGMENT_ORDER.filter((b) => counts[b] > 0);
   if (visible.length === 0) return null;
   return (
@@ -136,6 +149,7 @@ export function LaneHeader({
   errorSessionIds,
   retrySessionIds,
   noticeSessionIds,
+  widgetBar,
 }: Props) {
   const meta = laneMeta(lane);
   const countLabel = t("sessionList.laneCount", { count }, count === 1 ? "1 session" : `${count} sessions`);
@@ -178,6 +192,7 @@ export function LaneHeader({
           <LaneRollup
             sessions={sessions}
             flags={{ errorSessionIds, retrySessionIds, noticeSessionIds }}
+            widgetBar={widgetBar}
             testId={`lane-rollup-${folderKey}::${lane}`}
           />
         )}

@@ -37,6 +37,9 @@ export interface StatusLaneFlags {
 export function classifyStatusLane(s: DashboardSession, flags: StatusLaneFlags = {}): StatusLaneId | null {
   if (s.status === "ended") return null;
   const shape = deriveStatusShape(s, flags);
+  // `compacting` is working (spec rule 3), outranking notice/unread (rule 4);
+  // `deriveStatusShape` does not know it, so apply it before those mappings.
+  if (s.compacting && (shape === "notice" || shape === "idle")) return "working";
   switch (shape) {
     case "error":
       return "error";
@@ -47,7 +50,6 @@ export function classifyStatusLane(s: DashboardSession, flags: StatusLaneFlags =
     case "notice":
       return "review";
     case "idle":
-      if (s.compacting) return "working";
       return s.unread ? "review" : "idle";
     default:
       return null;
@@ -114,6 +116,17 @@ export function mergeLaneOrder(storedOrder: string[], laneIds: string[], newLane
   // The lane's ids beyond its stored slots (absent from the stored order).
   out.push(...queue.slice(qi));
   return out;
+}
+
+/**
+ * The folder's COMPLETE stored order (may include ids of paged-out ended
+ * sessions) followed by any loaded ids it does not yet hold — the base a lane
+ * reorder merges into, so persisting it never drops an id.
+ */
+export function completeStoredOrder(stored: string[] | undefined, loadedIds: string[]): string[] {
+  const base = stored ?? [];
+  const known = new Set(base);
+  return [...base, ...loadedIds.filter((id) => !known.has(id))];
 }
 
 export type LaneDropDecision =

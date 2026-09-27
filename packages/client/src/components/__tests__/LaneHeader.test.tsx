@@ -46,6 +46,25 @@ describe("LaneHeader", () => {
     expect(screen.getByTestId(`lane-rollup-${K}::worktrees`)).toBeTruthy();
   });
 
+  it("rollup excludes widget-bar ask_user from needs-you", () => {
+    render(
+      <LaneHeader
+        folderKey={K}
+        lane="worktrees"
+        count={2}
+        collapsed
+        onToggle={() => {}}
+        controlsId="c"
+        sessions={[s("a", { status: "streaming" }), s("b", { currentTool: "ask_user" })]}
+        widgetBar={(id) => id === "b"}
+      />,
+    );
+    const segs = Array.from(screen.getByTestId(`lane-rollup-${K}::worktrees`).querySelectorAll("[data-rollup-segment]")).map((el) =>
+      el.getAttribute("data-rollup-segment"),
+    );
+    expect(segs).toEqual(["working"]);
+  });
+
   it("selected marker only when collapsed and containing the selection", () => {
     const { rerender } = render(
       <LaneHeader folderKey={K} lane="idle" count={1} collapsed onToggle={() => {}} controlsId="c" containsSelected />,

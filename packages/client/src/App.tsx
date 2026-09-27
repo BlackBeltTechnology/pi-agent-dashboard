@@ -1241,9 +1241,15 @@ export default function App() {
   }, [snapshotGeneration, collapsedFolders, send]);
 
   // session-list-group-by: one-shot retirement of the localStorage urgency
-  // toggle — runs once the grouping snapshot is known (D8).
+  // toggle — sends once the grouping snapshot is known; clears the legacy key
+  // only after the echoed snapshot confirms every folder (D8).
+  const urgencyMigrationSentRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    runUrgencyMigration(groupByPrefs, (path, mode) => send({ type: "set_folder_group_by", path, mode }));
+    runUrgencyMigration(
+      groupByPrefs,
+      (path, mode) => send({ type: "set_folder_group_by", path, mode }),
+      urgencyMigrationSentRef.current,
+    );
   }, [groupByPrefs, send]);
 
   // Clear subscriptions on reconnect so sessions get re-subscribed

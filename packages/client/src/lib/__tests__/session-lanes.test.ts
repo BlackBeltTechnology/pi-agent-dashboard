@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyLocationLane,
   classifyStatusLane,
+  completeStoredOrder,
   isLaneCollapsed,
   laneFingerprint,
   mergeLaneOrder,
@@ -50,6 +51,10 @@ describe("classifyStatusLane", () => {
     expect(classifyStatusLane(mk("a", { unread: true }))).toBe("review");
     expect(classifyStatusLane(mk("a", { status: "active" }))).toBe("idle");
     expect(classifyStatusLane(mk("a"))).toBe("idle");
+  });
+  it("compacting outranks notice / unread (spec rule 3 before 4)", () => {
+    expect(classifyStatusLane(mk("a", { compacting: true }), { hasNotice: true })).toBe("working");
+    expect(classifyStatusLane(mk("a", { compacting: true, unread: true }))).toBe("working");
   });
   it("ended is excluded (null), even with a notice", () => {
     expect(classifyStatusLane(mk("a", { status: "ended" }))).toBeNull();
@@ -157,5 +162,12 @@ describe("resolveLaneDrop", () => {
   });
   it("ended bucket involved → flat path (drag-to-resume)", () => {
     expect(resolveLaneDrop({ ...base, activeId: "e", overId: "a", activeLane: undefined, overLane: "idle" })).toEqual({ kind: "flat" });
+  });
+});
+
+describe("completeStoredOrder", () => {
+  it("keeps paged-out ids from the stored order and appends unordered loaded ids", () => {
+    expect(completeStoredOrder(["a", "gone", "b"], ["b", "a", "new"])).toEqual(["a", "gone", "b", "new"]);
+    expect(completeStoredOrder(undefined, ["x"])).toEqual(["x"]);
   });
 });

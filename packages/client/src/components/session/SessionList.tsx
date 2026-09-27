@@ -43,6 +43,7 @@ import {
 import {
   classifyLocationLane,
   classifyStatusLane,
+  completeStoredOrder,
   explicitGroupBy,
   isLaneCollapsed,
   type Lane,
@@ -696,9 +697,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       mode === "status"
         ? (s: DashboardSession) => laneHysteresis.displayed.get(s.id) ?? classifyStatusLane(s, laneFlagsFor(s.id))
         : classifyLocationLane;
-    const key = `${mode}|${order?.join(",") ?? ""}|${laneFingerprint(alive, laneFlagsFor)}|${
-      mode === "status" ? alive.map((s) => laneHysteresis.displayed.get(s.id) ?? "").join(",") : ""
-    }`;
+    // Location lanes depend only on worktree membership — keep status ticks
+    // out of their key so a streaming/unread change never re-partitions them.
+    const laneInputs =
+      mode === "status"
+        ? `${laneFingerprint(alive, laneFlagsFor)}|${alive.map((s) => laneHysteresis.displayed.get(s.id) ?? "").join(",")}`
+        : alive.map((s) => `${s.id}:${s.gitWorktree ? 1 : 0}`).join(",");
+    const key = `${mode}|${order?.join(",") ?? ""}|${laneInputs}`;
     const cached = laneCacheRef.current.get(group.cwd);
     let layout = cached?.key === key ? cached.layout : undefined;
     if (!layout) {
@@ -1032,8 +1037,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           // the flat path below (drag-to-resume).
           const activeLane = laneOfIn(group, active.id as string);
           const overLane = laneOfIn(group, over.id as string);
+          // Merge against the COMPLETE stored order (it may hold ids of
+          // paged-out ended sessions `group.sessions` lacks), plus any loaded
+          // ids not yet ordered — so a lane reorder never drops an id.
           const drop = resolveLaneDrop({
-            storedIds: sessionIds,
+            storedIds: completeStoredOrder(sessionOrderMap?.get(group.cwd), sessionIds),
             activeId: active.id as string,
             overId: over.id as string,
             activeLane,
@@ -1125,7 +1133,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         onMoveFolderToWorkspace?.(active.id as string, move.toWorkspaceId, move.index);
       }
     }
-  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, onResume, onResumeKeepPosition, clearSpringTimer, showToast, t]);
+  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, onResume, onResumeKeepPosition, clearSpringTimer, showToast, t, sessionOrderMap]);
 
   // Tag/phase axes derived flags + the per-session predicate. OR-within each
   // axis; AND-across. Empty axis = inert. See change: add-session-tags.
@@ -2324,6 +2332,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                           errorSessionIds={errorSessionIds}
                           retrySessionIds={retrySessionIds}
                           noticeSessionIds={noticeSessionIds}
+                          widgetBar={(id) => widgetBarMap.get(id) === true}
                         />
                         {collapsed ? (
                           <div id={controlsId} hidden />

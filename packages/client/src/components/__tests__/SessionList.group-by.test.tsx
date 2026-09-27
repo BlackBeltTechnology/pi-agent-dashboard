@@ -313,4 +313,15 @@ describe("performance: no re-partition on token/cost ticks", () => {
     rerender(<List sessions={many.map((s, i) => (i === 1 ? { ...s, status: "streaming" as const } : s))} groupByPrefs={p} />);
     expect(spy).toHaveBeenCalled();
   });
+
+  it("location mode — a status-only change does not re-partition", () => {
+    const p = prefs({ folderGroupBy: { [CWD]: "location" } });
+    const wt = { mainPath: CWD, name: "x" };
+    const many = Array.from({ length: 6 }, (_, i) => mk(`s${i}`, i % 2 ? { gitWorktree: wt } : {}));
+    const { rerender } = render(<List sessions={many} groupByPrefs={p} />);
+    const spy = vi.mocked(lanesModule.partitionIntoLanes);
+    spy.mockClear();
+    rerender(<List sessions={many.map((s, i) => (i === 0 ? { ...s, status: "streaming" as const, unread: true } : s))} groupByPrefs={p} />);
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
