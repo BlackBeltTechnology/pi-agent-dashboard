@@ -288,6 +288,23 @@ describe('tsconfig extends must resolve inside the tarball', () => {
     expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
   });
 
+  it('follows the extends chain through a packed non-tsconfig base', () => {
+    const ws = fixture({}, {
+      'tsconfig.json': tsc('./base.json'),
+      'base.json': tsc('./shared.json'),
+    });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json', 'base.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].file).toBe('base.json');
+    expect(findings[0].specifier).toBe('./shared.json');
+  });
+
+  it('terminates on a cyclic extends chain', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('./a.json'), 'a.json': tsc('./tsconfig.json') });
+    expect(tsconfigExtendsFindings(ws, ['tsconfig.json', 'a.json'])).toEqual([]);
+  });
+
   it('ignores a package-name extends', () => {
     const ws = fixture({}, { 'tsconfig.json': tsc('@tsconfig/node20/tsconfig.json') });
     expect(tsconfigExtendsFindings(ws, ['tsconfig.json'])).toEqual([]);
@@ -333,6 +350,11 @@ describe('pack payload shapes — never a vacuous empty file set', () => {
     const payload = { '@scope/ws': { name: '@scope/ws', files: [{ path: 'ws.js' }] }, '@scope/root': { name: '@scope/root', files } };
     expect(packEntryFiles(payload, '@scope/root')).toEqual(['a.js']);
     expect(packEntryFiles([{ name: '@scope/ws', files: [{ path: 'ws.js' }] }, { name: '@scope/root', files }], '@scope/root')).toEqual(['a.js']);
+  });
+
+  it('matches the requested package by its object key when the entry has no name', () => {
+    expect(packEntryFiles({ '@scope/root': { files } }, '@scope/root')).toEqual(['a.js']);
+    expect(packEntryFiles({ '@scope/ws': { files: [{ path: 'ws.js' }] } }, '@scope/root')).toBeNull();
   });
 
   it('returns null when no entry names the requested package (loud pack-failed, not a wrong-package pass)', () => {

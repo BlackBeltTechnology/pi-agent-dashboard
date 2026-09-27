@@ -361,7 +361,11 @@ export function packEntryFiles(parsed, name) {
   const withFiles = candidates.filter((c) => c && Array.isArray(c.files));
   // With a name, only the entry for THAT package counts: a multi-workspace payload
   // must never let one package's files stand in for another's.
-  const entry = name === undefined ? withFiles[0] : withFiles.find((c) => c.name === name);
+  if (name === undefined) return withFiles[0] ? withFiles[0].files.map((f) => f.path) : null;
+  // npm's root payload is keyed by package name and its entry may omit `name`.
+  const keyed = Array.isArray(parsed) ? undefined : parsed[name];
+  const entry =
+    withFiles.find((c) => c.name === name) ?? (keyed && Array.isArray(keyed.files) ? keyed : undefined);
   return entry ? entry.files.map((f) => f.path) : null;
 }
 
@@ -459,10 +463,12 @@ function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly,
 
 const TSCONFIG_FILE = /(?:^|\/)tsconfig[^/]*\.json$/;
 
-/** Does a relative `extends` land on a packed file? `.json` is appended only when absent, as TS does. */
-function tsconfigExtendsResolves(entry, fromFile, packedSet) {
+/** The packed path a relative `extends` lands on, or null. `.json` is appended only when absent, as TS does. */
+function tsconfigExtendsTarget(entry, fromFile, packedSet) {
   const target = join(dirname(fromFile), entry).split("\\").join("/");
-  return packedSet.has(target) || (!target.endsWith(".json") && packedSet.has(`${target}.json`));
+  if (packedSet.has(target)) return target;
+  if (!target.endsWith(".json") && packedSet.has(`${target}.json`)) return `${target}.json`;
+  return null;
 }
 
 /** Relative `extends` entries of a JSONC tsconfig, or `{ error }` when it will not parse. */
@@ -485,8 +491,14 @@ function relativeExtendsOf(abs) {
 export function tsconfigExtendsFindings(ws, packedFiles) {
   const findings = [];
   const packedSet = new Set(packedFiles);
-  for (const rel of packedFiles) {
-    if (!TSCONFIG_FILE.test(rel)) continue;
+  // Worklist over the inheritance chain: a packed base config (any name) that a
+  // shipped tsconfig extends is itself loaded by TS, so its own `extends` must
+  // resolve too. `visited` makes a cyclic chain terminate.
+  const queue = packedFiles.filter((rel) => TSCONFIG_FILE.test(rel));
+  const visited = new Set();
+  for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
+    if (visited.has(rel)) continue;
+    visited.add(rel);
     const abs = join(ws.dir, rel);
     if (!existsSync(abs)) continue;
     const { entries, error } = relativeExtendsOf(abs);
@@ -496,7 +508,11 @@ export function tsconfigExtendsFindings(ws, packedFiles) {
       continue;
     }
     for (const e of entries) {
-      if (tsconfigExtendsResolves(e.replaceAll("\\", "/"), rel, packedSet)) continue;
+      const target = tsconfigExtendsTarget(e.replaceAll("\\", "/"), rel, packedSet);
+      if (target !== null) {
+        queue.push(target);
+        continue;
+      }
       findings.push(finding("error", "dangling-tsconfig-extends", ws.rel, rel, e,
         `tsconfig extends "${e}" has no target in the packed file set; jiti/tsc will fail for a consumer`));
     }
