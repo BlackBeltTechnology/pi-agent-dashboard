@@ -1017,7 +1017,7 @@ describe("SessionList folder actions menu", () => {
   });
 
   // E2 — top-level folder outside a workspace.
-  it("E2: workspace group carries add-to-workspace; directory group carries pin, sort, settings", () => {
+  it("E2: workspace group carries add-to-workspace; directory group carries pin, settings", () => {
     renderList({
       onPinDirectory: () => {},
       onOpenDirectorySettings: () => {},
@@ -1027,7 +1027,8 @@ describe("SessionList folder actions menu", () => {
     expect(panel.querySelector("[data-testid='folder-menu-group-workspace']")).toBeTruthy();
     expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`)).toBeTruthy();
     expect(screen.getByTestId("folder-menu-item-pin")).toBeTruthy();
-    expect(screen.getByTestId("folder-menu-item-urgency-sort")).toBeTruthy();
+    // Urgency sort retired (session-list-group-by) — superseded by Group by.
+    expect(screen.queryByTestId("folder-menu-item-urgency-sort")).toBeNull();
     expect(screen.getByTestId("folder-menu-item-directory-settings")).toBeTruthy();
     expect(screen.queryByTestId("folder-menu-item-remove-from-workspace")).toBeNull();
   });

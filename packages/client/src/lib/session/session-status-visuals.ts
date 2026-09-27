@@ -297,25 +297,6 @@ function capsuleBucketFor(s: DashboardSession, flags: CapsuleFlags): CapsuleBuck
   return null;
 }
 
-/**
- * Opt-in urgency sort: float `ask_user` (blocked-on-you) sessions to the top
- * of a folder's active list. Stable — relative order within the blocked group
- * and within the rest group is preserved. Pure + unit-testable.
- * See change: improve-dashboard-attention-routing.
- */
-export function floatAskUserFirst(
-  sessions: DashboardSession[],
-  isWidgetBar: (sessionId: string) => boolean = () => false,
-): DashboardSession[] {
-  const blocked: DashboardSession[] = [];
-  const rest: DashboardSession[] = [];
-  for (const s of sessions) {
-    if (isChatRoutedAskUser(s, isWidgetBar(s.id))) blocked.push(s);
-    else rest.push(s);
-  }
-  return blocked.length === 0 ? sessions : [...blocked, ...rest];
-}
-
 /** Session ids of chat-routed `ask_user` sessions (rollup target order). */
 export function needsYouSessionIds(
   sessions: DashboardSession[],

@@ -39,4 +39,7 @@ The `llmChanged` save task dispatches `PROVIDER_AUTH_EVENT` (imported from `hook
 
 Access page passes `selectedCwd` to `AccessPromptsSection` (YOLO default scope). See change: add-access-grant-dialog (tasks 8b.7a).
 
+## session-list-group-by
+
+- Props `groupByPrefs`, `onSetDefaultGroupBy`; renders `DefaultGroupingField` first in Session list section (disabled until prefs known). See change: session-list-group-by.
 Renders `CardSectionsSection` after `DisplayPrefsSection` on General. See change: configurable-session-card-sections.

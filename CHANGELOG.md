@@ -12,6 +12,21 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Session list Group by.** Each folder's actions menu gains a "Group sessions
+  by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
+  · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
+  default`. A global Default grouping lives in Settings ▸ Sessions ▸ Session
+  list. Lanes keep the stored session order, are collapsible, hide when empty
+  or when only one lane has sessions, and flatten under search/tag filters.
+  Drag-reorder works within a lane; a cross-lane drop is rejected with an
+  explanatory toast. In Status mode a card leaving Working is held there ~3 s
+  (countdown underline in the destination lane colour) so cards do not jump
+  between turns; moves animate unless reduced motion is preferred. Modes,
+  default and lane collapse are stored server-side in `preferences.json`
+  (`folderGroupBy`, `defaultGroupBy`, `collapsedLanes`) and shared live across
+  browsers. New theme token `--status-unread`. See change:
+  session-list-group-by.
+
 - **Browser WebSocket diagnostics.** Every browser socket close now logs one
   line with its close code, JSON-quoted reason, lifetime, inbound frame count and
   cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
@@ -59,6 +74,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
+  removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
+  after upgrade, every folder that had the toggle on in that browser (and no
+  explicit grouping) is switched to `Status` once; the browser-local
+  `dashboard:folder-urgency-sort` key is then cleared. See change:
+  session-list-group-by.
+
 - **The root `@blackbelt-technology/pi-agent-dashboard` tarball no longer ships
   tests, fixtures or DOX sidecars.** Its `files` list now excludes
   `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
@@ -70,6 +92,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   the root reaches at runtime; this is an explicit, counted exception for
   npm hoisting. CI also re-runs the check after the build. (change:
   check-root-package-imports)
+
 - **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
   sign-in-able — and remote dashboards can finally complete a sign-in.** The
   dashboard carried a hand-copied fork of pi-ai's OAuth flows

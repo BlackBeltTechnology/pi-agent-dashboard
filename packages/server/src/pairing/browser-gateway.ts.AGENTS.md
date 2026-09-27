@@ -8,4 +8,9 @@ Prompt-capability issuance (tasks 2b.1, 3.2). `setPromptCapabilityPolicy(policy 
 
 `frameClassOf` classifies `grant_request` and `grant_dismiss` as STATE frames sharing the key `grant:<promptId>`: never shed (a shed prompt is a dialog that silently never appears), and a dismiss SUPERSEDES a still-queued request for the same prompt instead of racing it. `grant_response` reaches the coordinator through `registerHandler` (the `customHandlers` fallback). See change: add-access-grant-dialog.
 
+## session-list-group-by
+
+- Connect burst sends `group_by_prefs_updated` right after `collapsed_folders_updated`, before `pinned_dirs_updated`/`workspaces_updated`/`sessions_snapshot` (lanes on first paint, no flat→lanes flash). `typeof getGroupByPrefs` guarded for old stubs.
+- `frameClassOf`: `group_by_prefs_updated` is `state` (coalesced by type, never shed).
+- Dispatch: `set_folder_group_by` / `set_default_group_by` / `set_lane_collapsed` → directory-handler. See change: session-list-group-by.
 Card sections: routes `set_card_section_visibility` / `reset_folder_card_sections` to directory-handler; connect burst sends `card_sections_updated` before `sessions_snapshot` unconditionally (incl. `{}` — reconnect drops stale client state); `frameClassOf` classes it `state`. See change: configurable-session-card-sections.
