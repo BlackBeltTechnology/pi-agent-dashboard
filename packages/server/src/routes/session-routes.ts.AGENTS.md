@@ -8,3 +8,5 @@ See change: offload-retained-transcript-replay — the two retained reads are AS
 
 The session-file containment site passes `hold: { request, reply }` to `evaluateContainment`, so an out-of-session read may be suspended while the operator is asked and is re-evaluated on an allow; the refusal body is unchanged. See change: add-access-grant-dialog (task 6.2).
 See change: fix-session-diff-heap-retention — `sessionDiffCache = new SessionDiffCache<SessionDiffResult>(2000, 100, {maxBytes: 64 MiB, sizeOf: sessionDiffResultSize})` (byte-budgeted, estimated).
+
+See change: surface-denial-remedy-in-previews — Session-file read passes `disclosure: canDiscloseAccessPosture(request)`.

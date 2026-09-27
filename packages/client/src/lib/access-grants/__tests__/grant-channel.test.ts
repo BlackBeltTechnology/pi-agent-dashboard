@@ -82,3 +82,36 @@ describe("grant channel capability", () => {
     expect(seen[0].header).toBe("explicit");
   });
 });
+
+describe("preview provenance fails closed (change: surface-denial-remedy-in-previews, D4; #E28)", () => {
+  it("opts out with no provider and with an auto-opened provider; carries the capability only when operator-declared", async () => {
+    const { previewFetchFor } = await import("../preview-provenance.js");
+    setGrantChannel("cap-live");
+    await previewFetchFor(null).fetch("/api/file/raw?path=/x");
+    await previewFetchFor({ autoOpened: true }).fetch("/api/file/raw?path=/x");
+    await previewFetchFor({ autoOpened: false }).fetch("/api/file/raw?path=/x");
+    expect(seen.map((s) => s.header)).toEqual(["", "", "cap-live"]);
+    expect(previewFetchFor(null).optedOut).toBe(true);
+    expect(previewFetchFor({ autoOpened: false }).optedOut).toBe(false);
+  });
+
+  it("the hook reads the nearest provider", async () => {
+    const { createElement } = await import("react");
+    const { renderHook } = await import("@testing-library/react");
+    const { PreviewProvenance, usePreviewFetch } = await import("../preview-provenance.js");
+    const outside = renderHook(() => usePreviewFetch());
+    expect(outside.result.current.optedOut).toBe(true);
+    const inside = renderHook(() => usePreviewFetch(), {
+      wrapper: ({ children }) => createElement(PreviewProvenance, { autoOpened: false, children }),
+    });
+    expect(inside.result.current.optedOut).toBe(false);
+  });
+
+  it("canCarryGrantChannel needs a live capability AND a same-origin /api/ URL", async () => {
+    const { canCarryGrantChannel } = await import("../grant-channel.js");
+    expect(canCarryGrantChannel("/api/file/raw")).toBe(false);
+    setGrantChannel("cap-live");
+    expect(canCarryGrantChannel("/api/file/raw")).toBe(true);
+    expect(canCarryGrantChannel("http://other.example:8000/api/file/raw")).toBe(false);
+  });
+});

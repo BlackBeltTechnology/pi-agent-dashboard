@@ -4,6 +4,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute out-of-cwd `write`) never prompts; video/PDF click-to-ask; outcomes via paired-device bearer (disclosure). Flips enforce+prompting, restores stores; `promptBudget` paces 5/min. #F2/#F3 at L1 (premise unreachable). See change: surface-denial-remedy-in-previews. |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → grant → admitted… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export const PKG = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const REPO = resolve(PKG, "..", "..");
-export const SKILLS = join(PKG, ".pi", "skills");
+const SKILLS = join(PKG, ".pi", "skills");
 
 const SKIP = new Set(["__pycache__", "node_modules", ".pytest_cache"]);
 

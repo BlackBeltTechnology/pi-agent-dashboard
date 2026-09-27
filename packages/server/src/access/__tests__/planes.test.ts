@@ -2,7 +2,10 @@ import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { __resetAccessGrants, listGrants } from "../access-grants.js";
+import { AccessPlaneRegistry } from "../access-plane.js";
+import { GrantCoordinator } from "../grant-coordinator.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "../planes.js";
 
 /**
@@ -188,5 +191,63 @@ describe("5.4 CORS plane: the admitted origin verbatim, no derived wildcard", ()
     ]) {
       expect(plane.subjectOf(bad)).toBeNull();
     }
+  });
+});
+
+describe("filesystem plane never prompts for an ungrantable subject (change: surface-denial-remedy-in-previews, D7)", () => {
+  let savedHome: string | undefined;
+  let home: string;
+  beforeEach(() => {
+    savedHome = process.env.HOME;
+    home = mk("parent", "home");
+    process.env.HOME = home; // os.homedir() reads $HOME on POSIX
+  });
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    vi.restoreAllMocks();
+  });
+
+  const coordinator = (sent: ServerToBrowserMessage[]) => {
+    const planes = new AccessPlaneRegistry();
+    planes.register(createFilesystemPlane());
+    return new GrantCoordinator({
+      planes,
+      broadcast: (m) => sent.push(m),
+      hostGateMode: () => "enforce",
+      promptEnabled: () => true,
+      killSwitch: () => false,
+      operatorChannels: () => 1,
+      onTransition: () => {},
+    });
+  };
+  const denial = (rawSubject: string) => ({
+    plane: "filesystem" as const,
+    rawSubject,
+    origin: "s1",
+    channel: "sock-A",
+    requestHoldsCapability: true,
+  });
+
+  it("#E15 the parent of $HOME: no grant_request, reason not-promptable, one neutral log line", async () => {
+    if (process.platform === "win32") return;
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => void errors.push(a.join(" ")));
+    const sent: ServerToBrowserMessage[] = [];
+    const parent = path.dirname(home);
+    const hold = coordinator(sent).onDenial(denial(parent), true);
+    expect(await hold.result).toEqual({ kind: "deny", reason: "not-promptable" });
+    expect(sent.filter((m) => m.type === "grant_request")).toHaveLength(0);
+    const lines = errors.filter((l) => l.startsWith("[access-grant] not-promptable"));
+    expect(lines).toEqual([`[access-grant] not-promptable plane=filesystem subject=${JSON.stringify(parent)}`]);
+  });
+
+  it("#E16 a grantable sibling is still prompted exactly once", async () => {
+    if (process.platform === "win32") return;
+    const sent: ServerToBrowserMessage[] = [];
+    const sibling = mk("other");
+    const hold = coordinator(sent).onDenial(denial(sibling), true);
+    expect(hold.held).toBe(true);
+    expect(sent.filter((m) => m.type === "grant_request")).toHaveLength(1);
+    hold.abort();
   });
 });
