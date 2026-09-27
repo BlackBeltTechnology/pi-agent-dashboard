@@ -38,3 +38,5 @@ providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)
 ## electron-runtime-overlay-updates
 
 D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.
+
+Doctor: `runtimeHealthForDoctor` holder (set in runtime-overlay block) feeds the `Dashboard runtime` extra check. See change: electron-runtime-overlay-updates.

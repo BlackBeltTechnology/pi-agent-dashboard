@@ -47,3 +47,7 @@ Renders `CardSectionsSection` after `DisplayPrefsSection` on General. See change
 See change: align-ui-with-theme-tokens. User-facing hints say new/start sessions, never spawn (keys unchanged).
 
 Models nav group FIRST (`navGroups` gains `id`; Providers moved from Extensions). `promotions` = `resolveSettingsPromotions(pluginRows, RESERVED_SETTINGS_LABELS)`. Promoted entry `nav-promoted-<id>` (generic plugin icon, `pluginNavHealth` dot, `off` marker when disabled, active iff `activePluginId === id`). Plugins subtree: enabled promoted → pointer row `nav-plugin-pointer-<id>` (`<Name> ↗ <Group>`, never `aria-current`). Save Bar label `<Group> › <nav.label>`. Passes `promotion` to `PluginSettingsPage`, `promotions` to `PluginsSection`. testids `settings-nav-group-<id>` / `settings-nav-group-label-<id>`. See change: promote-model-roles-settings.
+
+## electron-runtime-overlay-updates
+
+Packages tab renders `ElectronRuntimeUpdates` → `RuntimeUpdatesSection` when `useLaunchSource()==="electron"`. See change: electron-runtime-overlay-updates.

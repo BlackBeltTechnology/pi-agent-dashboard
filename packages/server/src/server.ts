@@ -217,7 +217,8 @@ import {
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
 import { activeExtensionFromEnv, createExtensionReloadGuard } from "./runtime-overlay/extension-reload.js";
-import { buildRuntimeHealth } from "./runtime-overlay/runtime-health.js";
+import { bundledFallbackIntact, buildRuntimeDoctorCheck } from "./runtime-overlay/runtime-doctor.js";
+import { buildRuntimeHealth, type RuntimeHealth } from "./runtime-overlay/runtime-health.js";
 import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
 import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
 import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
@@ -1940,7 +1941,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
-  registerDoctorRoutes(fastify);
+  // Assigned by the runtime-overlay block below; read lazily per request.
+  let runtimeHealthForDoctor: (() => RuntimeHealth) | null = null;
+  registerDoctorRoutes(fastify, {
+    // See change: electron-runtime-overlay-updates (task 9.2).
+    extraChecks: () =>
+      runtimeHealthForDoctor
+        ? [
+            buildRuntimeDoctorCheck({
+              health: runtimeHealthForDoctor(),
+              piVersion: resolvedPiVersion(),
+              mismatches: extensionReloadGuard.mismatches(),
+              bundledIntact: bundledFallbackIntact(),
+            }),
+          ]
+        : [],
+  });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2095,6 +2111,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         readState: () => readRuntimeState(runtimeDir),
         localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
       });
+    runtimeHealthForDoctor = runtimeHealthNow;
     const runtimeChecker = new RuntimeUpdateChecker({
       readSelection: () => {
         const req = readRuntimeRequest(runtimeDir);

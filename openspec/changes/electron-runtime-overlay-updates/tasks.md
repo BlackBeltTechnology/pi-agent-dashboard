@@ -90,10 +90,10 @@
 
 ## 9. Observability + Doctor
 
-- [ ] 9.1 Structured log lines for check / stage / activate / commit / rollback / abort (Electron log + server log) with runtime id, source and reason.
-- [ ] 9.2 Doctor row: active runtime origin/version/source/piVersion, last failure, `extension_mismatch` diagnostics, whether the bundled fallback is intact.
+- [x] 9.1 Structured log lines for check / stage / activate / commit / rollback / abort (Electron log + server log) with runtime id, source and reason.
+- [x] 9.2 Doctor row: active runtime origin/version/source/piVersion, last failure, `extension_mismatch` diagnostics, whether the bundled fallback is intact.
 
 ## 10. Docs
 
-- [ ] 10.1 DocScribe: `docs/electron-immutable-bundle.md` (bundle immutable, runtime overlay allowed, pi version follows the runtime for opt-in users), `docs/electron-bootstrap-flow.md` (new launch kinds, switchRuntime), FAQ "How do I run my checkout inside the Electron app".
-- [ ] 10.2 Update the `packages/electron/src/lib/AGENTS.md`, `packages/shared/src/**/AGENTS.md`, `packages/server/src/**/AGENTS.md` and `packages/client/src/components/AGENTS.md` rows for new and changed files.
+- [x] 10.1 DocScribe: `docs/electron-immutable-bundle.md` (bundle immutable, runtime overlay allowed, pi version follows the runtime for opt-in users), `docs/electron-bootstrap-flow.md` (new launch kinds, switchRuntime), FAQ "How do I run my checkout inside the Electron app".
+- [x] 10.2 Update the `packages/electron/src/lib/AGENTS.md`, `packages/shared/src/**/AGENTS.md`, `packages/server/src/**/AGENTS.md` and `packages/client/src/components/AGENTS.md` rows for new and changed files.
