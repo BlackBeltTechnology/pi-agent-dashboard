@@ -195,7 +195,9 @@ describe("compare-and-swap persist", () => {
     await vi.waitFor(() => expect(refreshToken).toHaveBeenCalledTimes(1));
     writeAuth({ anthropic: { ...start, enterpriseUrl: "b.corp.example" }, openai: OPENAI });
     d.resolve(minted());
-    await pending;
+    // The changed credential is still expired → changed-during-refresh, not a write.
+    expect(await pending).toBeInstanceOf(Error);
+    expect(((await pending) as Error).message).toMatch(/changed during refresh/);
 
     const stored = readAuthJson().anthropic as Cred;
     expect(stored.enterpriseUrl).toBe("b.corp.example");
