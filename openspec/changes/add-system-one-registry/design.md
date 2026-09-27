@@ -34,7 +34,7 @@ Constraints found in the repo:
 - **What we reuse:** the `llm` backend kind references a role (`@fast`), so the LLM fallback follows the user's role presets. UI patterns come from `ui:model-selector` and blackhole's `ChainEditor`.
 
 ### D2. Library + plugin split
-- **`packages/system-one`** holds `predict`, config load and merge, the catalog, the capability check, egress classification and the decision log. It depends only on Node built-ins. Extensions import it directly.
+- **`packages/system-one`** (published as `@blackbelt-technology/pi-system-one`) holds `predict`, config load and merge, the catalog, the capability check, egress classification and the decision log. It depends only on Node built-ins. Extensions import it directly.
 - **`packages/system-one-plugin`** holds the server routes, managed process supervisor, eval runner and settings client. It imports the library.
 - **Alternative:** a server-side HTTP service that extensions call. Rejected because extensions must work with the dashboard down, and a hop would add latency on `tool_call` paths.
 
@@ -101,7 +101,7 @@ flowchart LR
 
 ### D11. Managed backends: POSIX + uv only in v1
 - Engines are installed with `uv tool install` into a dashboard-owned tool directory and spawned directly, so the child PID is the server rather than a `uv` wrapper. PID files are matched on PID + start time + argv. This is specified for macOS and Linux. Docker is deferred: a detached container breaks the direct-child lifecycle. Windows reports `unsupported-platform`; users can run the engine themselves and add an `http` backend.
-- Health uses `GET /v1/models` (Von documents it) and falls back to a one-`noul` request, because the `laya-serve` endpoints are not verified yet (task 6.0).
+- Health uses `GET /v1/models` (Von documents it) and falls back to a one-`noul` request, because `laya-serve` serves only `/health` and `/v1/systemone` (verified laya 0.3.20, task 6.11).
 
 ### D12. Config trust hygiene and write concurrency
 - Both config layers parse into null-prototype objects. `__proto__`, `constructor` and `prototype` keys are dropped. Reads use own properties only. This closes prototype pollution from a trusted-but-hostile project file, which would otherwise flip `allowOffMachine`.
@@ -124,7 +124,7 @@ flowchart LR
 - [`llm` fallback is slow (seconds)] → It carries its own 15 s timeout. Consumers on hot paths should omit `llm` from their override chain; the UI warns when a consumer with `failurePolicy: fail-open` has `llm` in its chain.
 - [Child processes leak on crash] → PID files plus orphan termination matched on command line, and no autostart by default.
 - [The user-supplied `http` URL could be used for SSRF from the eval runner] → Only an authenticated dashboard user can set it; mutating routes sit behind `networkGuard`; only `http:` / `https:` schemes are accepted.
-- [Workspace-internal library] → Consumers outside this monorepo cannot import it. Publishing is deferred until a second-party consumer exists.
+- [Published library is a public surface] → The `predict` contract and config schema become an npm API. The package ships at the monorepo version with the plugin; breaking changes follow the release SemVer rules. It is published (not private) because the plugin ships in Electron and npm-global installs, where dependencies resolve from npm.
 - [Token estimate chars ÷ 4 under-counts CJK] → Accepted. Capability checks are a coarse filter; an over-long state produces a backend error, and the chain falls through.
 - [Config drift between the two process types] → One file, mtime-checked reads, and atomic writes, so there's no cross-process cache coherence to manage.
 

@@ -10,7 +10,7 @@ TDD order: in every group, the test tasks come first and must fail before the im
 ## 1. Scaffold and test infrastructure
 
 - [x] 1.1 Create `packages/system-one`:
-  - name `@blackbelt-technology/pi-system-one`, Node built-ins only, ESM, workspace-internal (`private: true`);
+  - name `@blackbelt-technology/pi-system-one`, Node built-ins only, ESM, published public (`publishConfig.access: public`; the plugin ships and resolves it from npm);
   - `vitest.config.ts` with `pool:"forks"` and the shared `setup-home` globalSetup (see `packages/goal-plugin/vitest.config.ts`), so tests never touch the real `~`;
   - register it in the root vitest projects.
 
@@ -87,7 +87,7 @@ Exemplar for this group: `packages/server/src/spawn-process/__tests__/headless-p
 - [ ] 6.1 Test port pick (test-plan #E28). 18400–18402 busy, the dashboard on 18403, another backend on 18404 · add a portless backend · picks 18405 and persists it; never 8000 or 8080. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [ ] 6.2 Test a busy configured port (test-plan #E29). Port 18420 held by another listener · Start · `failed` with `port-in-use`; the config port stays 18420; spawn not called. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [ ] 6.3 Test platform + launcher (test-plan #E30). platform {darwin, linux, win32} × `uv` {present, absent} · status + Start · win32 → `unsupported-platform`; no uv → `unavailable`; spawn called 0 times. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
-- [ ] 6.4 Test argv (test-plan #E31). Von and Laya, port 18410, checkpoint `typed-decisions` · install + Start with an injected spawn · install env `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` sit under `~/.pi/agent/system-one/tools/`; argv[0] = `<bin>/von`; the argv holds `--host 127.0.0.1 --port 18410`; no `shell`. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
+- [ ] 6.4 Test argv (test-plan #E31). Von and Laya, port 18410, checkpoint `typed-decisions` · install + Start with an injected spawn · install env `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` sit under `~/.pi/agent/system-one/tools/`; Von argv[0] = `<bin>/von` and the argv holds `--host 127.0.0.1 --port 18410`; Laya argv = `[<bin>/laya-serve]` with env `LAYA_HOST=127.0.0.1`, `LAYA_PORT=18410`, `LAYA_MODELS=typed-decisions`; no `shell`. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [ ] 6.5 Test health + failure (test-plan #X10). Fake engine {`/v1/models` 200; 404 then valid systemone; never healthy}; fake clock · Start · `ready`; `ready` via fallback; `failed` at 120 s with 50 log lines kept. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [ ] 6.6 Test a crash (test-plan #X11). The `ready` fake engine is killed externally · next `predict` on it · status `failed`; the attempt fails in < 50 ms as `error`; the chain continues. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [ ] 6.7 Test stop escalation (test-plan #X12). The fake engine traps SIGTERM · Stop · SIGTERM, then SIGKILL at 10 s (fake clock); the process is gone and the PID file removed. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.

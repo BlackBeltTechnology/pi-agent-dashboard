@@ -44,7 +44,7 @@ Fake backends are `node:http` servers on an ephemeral loopback port. A "remote" 
 | E28 | managed: port pick | BVA | L1 | automated | ports 18400–18402 busy, dashboard on 18403, another backend on 18404 | add portless backend | picks 18405, persisted; never 8000/8080 |
 | E29 | managed: busy configured port | BVA | L1 | automated | configured port 18420 held by another listener | Start | status `failed`, reason `port-in-use`; config port still 18420; spawn not called |
 | E30 | managed: platform + launcher | decision table | L1 | automated | platform {darwin, linux, win32} × `uv` {present, absent} | status + Start | win32 → `unsupported-platform`; no uv → `unavailable`; spawn called 0 times in both |
-| E31 | managed: argv | EP | L1 | automated | Von and Laya backends, port 18410, checkpoint `typed-decisions` | install + Start with injected spawn | install env has `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` under `~/.pi/agent/system-one/tools/`; spawn argv[0] = `<bin>/von` (not `uv`), contains `--host 127.0.0.1 --port 18410`, `shell` not set |
+| E31 | managed: argv | EP | L1 | automated | Von and Laya backends, port 18410, checkpoint `typed-decisions` | install + Start with injected spawn | install env has `UV_TOOL_DIR`/`UV_TOOL_BIN_DIR` under `~/.pi/agent/system-one/tools/`; Von argv[0] = `<bin>/von` (not `uv`), contains `--host 127.0.0.1 --port 18410`; Laya argv = `[<bin>/laya-serve]` with env `LAYA_HOST=127.0.0.1`, `LAYA_PORT=18410`, `LAYA_MODELS=typed-decisions`; `shell` not set |
 
 ### Performance
 

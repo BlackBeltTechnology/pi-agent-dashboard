@@ -54,7 +54,7 @@ None. No existing spec's requirements change. D11 lives in an open change's `des
 - **Changed:** `openspec/changes/unify-context-manager/design.md` (D11; planning semantics as above).
 - **Server:** the plugin mounts `/api/system-one/*` routes. Mutating routes use `networkGuard`. The plugin spawns and supervises managed backend child processes.
 - **Extension-side consumers** read the config file directly, so they work with the dashboard down; managed backends are then unreachable and the fallback chain applies.
-- **Distribution:** `packages/system-one` is workspace-internal in this change. Only monorepo extensions and plugins import it; npm publishing is deferred.
+- **Distribution:** `packages/system-one` is published as `@blackbelt-technology/pi-system-one` (public, like `pi-dashboard-session-distiller`). The plugin ships in Electron (`resources/plugins/`) and npm-global installs, where its dependencies resolve from npm, so a private library cannot back it (decided during implementation).
 - **Dependencies:** no npm runtime dependency for the wire (plain `fetch`). Managed backends need `uv` on PATH (Docker deferred) (detected; not bundled here; see `bundle-python-runtime`).
 - **Data egress:** only through `http` backends whose host is not loopback, or through `llm` backends on a remote provider. Both are blocked when the off-machine switch is off.
 - **Compatibility:** Node ≥ 22.19, pi peer `>=0.87.1`.

@@ -15,8 +15,8 @@ On `win32` every managed backend SHALL show status `unsupported-platform` in thi
 
 ### Requirement: Start, stop and health
 Install SHALL run `uv tool install <package>` with `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` set to directories under `~/.pi/agent/system-one/tools/`. Start SHALL then spawn the engine executable from that bin directory directly, so the child PID is the server itself. The spawn SHALL have no shell, SHALL use an argv array, and SHALL bind to `127.0.0.1` on the backend's port:
-- Von: `<bin>/von serve --host 127.0.0.1 --port <port>`;
-- Laya: `<bin>/laya-serve --host 127.0.0.1 --port <port>` plus the configured checkpoint.
+- Von (`von-sdk`): `<bin>/von serve --host 127.0.0.1 --port <port> --model <checkpoint>`;
+- Laya (`laya[serve]`): `<bin>/laya-serve` with `LAYA_HOST=127.0.0.1`, `LAYA_PORT=<port>` and `LAYA_MODELS=<checkpoint>` in its environment. `laya-serve` takes no CLI flags; the checkpoint is also sent per request in the `model` field.
 
 The package specifiers and flag spellings SHALL come from the plugin's catalog, pinned to verified versions.
 
