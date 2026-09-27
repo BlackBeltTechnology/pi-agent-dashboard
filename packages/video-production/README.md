@@ -9,7 +9,13 @@ written in each shot file. Storyboard first-frames are generated via nano-banana
 Exposed as:
 
 - **pi skills** — `veo-showreel-production-kit` (prompting) + `veo-generator` (render).
-- **CLI bin** — `pi-veo` (`parse` / `plan` / `render` / `storyboard`).
+- **pi skills for real footage** — `hyperframes-showreel` (footage → HyperFrames
+  showreel: sampling, edit script, redacted clips, generated composition, Veo as
+  screen-blend FX only, music + punches, delivery render, export QA) and
+  `footage-redaction` (`redact.py`: JSON spec → crop / timed delogo / detector-gated
+  blur in one ffmpeg pass, stdlib-only, contact-sheet verification). The music step
+  uses `@blackbelt-technology/pi-dashboard-music-production`.
+- **CLI bin** — `pi-veo` (`parse` / `plan` / `render` / `storyboard` / `export` / `mux`).
 
 ## Usage
 
@@ -21,8 +27,13 @@ pi-veo render <Project> --model fast --resolution 720p   # cheap preview pass
 pi-veo render <Project> --parallel 4         # independent shots, N concurrent
 pi-veo render <Project> --chain              # seamless A→B (ffmpeg last-frame handoff)
 pi-veo storyboard <Project>                  # (re)generate first-frame sketches
+pi-veo export render <Project>               # pi-video-gen render-input.json (needs film.json sidecars)
+pi-veo export timeline <Project> --clips video_production/renders   # video_compose timeline-input.json
+pi-veo mux <Project> --picture final_video.mp4   # VO + music + captions → video_production/master/master.mp4
 ```
 
+`export` targets the optional user-installed `@amaster.ai/pi-video-gen` extension
+(verified 0.1.18; run from the pi session cwd). `mux` needs `ffmpeg` + `ffprobe`.
 `<Project>` may be a project dir, a `video_production` dir, or a `shots` dir.
 Rendered clips land in `<package>/renders/`; already-rendered shots are skipped
 unless `--force`.

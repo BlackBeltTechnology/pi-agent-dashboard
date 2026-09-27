@@ -114,6 +114,8 @@ Tail trim: at the first ≥ 1 s run below −50 dBFS after the last segment's fi
 
 `--preview` writes `<out>.m4a` via ffmpeg (AAC 256k) for the listening loop.
 
+**Implementation note (ship-it calibration, user-approved).** The context measure shipped in `score_joins.py` compares the outgoing bars A−1…A against **B's run-up in the source (bars B−2…B−1)**, falling back to B…B+1 when B ≤ 2. The literal "A−1…A vs B…B+1" measure above failed this decision's own calibration on the session track: v1 scored 0.713, above the approved v3 join 13→18 at 0.679. The run-up measure passes with the unchanged weights: the approved joins score 0.798, 0.812 and 0.743, above the rejected 0.706 and 0.691. It also reproduces the session's "bar 12≡16, 1.00/0.99" criterion (chroma 0.999, timbre 0.996). Stem-derived classes do not separate a trance build from a tech-house groove, so the class-change penalty is advisory; the skill's block-marking step is the guard. Test E13 scores the loop-back 8→5 instead of 4→1, because 4→1 has no run-up.
+
 ### D7 — Hit picking is irregular by construction
 `pick_hits.py <edit.json>` reads the map through `edit.map` and the edited audio through `edit.audio`. The process:
 
