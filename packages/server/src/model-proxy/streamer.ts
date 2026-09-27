@@ -6,46 +6,55 @@
  *
  * See change: add-dashboard-model-proxy, task 6.1.
  */
-import { getModelRegistry } from "./registry-singleton.js";
 import type { PiAiModule } from "./internal-registry.js";
+import { getModelRegistry } from "./registry-singleton.js";
+
+type PiAiStreamSimple = PiAiModule["streamSimple"];
 
 export interface StreamCompletionOpts {
-  model: any;
-  messages: any[];
+  model: unknown;
+  messages: unknown[];
   system?: string;
-  tools?: any[];
+  tools?: unknown[];
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
 }
 
-/**
- * Adapt route-level `streamSimple` opts (see model-proxy-routes.ts) to pi-ai's
- * `streamSimple(model, context, options)` call. pi-ai's `Context` field is
- * `systemPrompt` — passing `system` silently drops the client's system prompt.
- */
+/** Route-level stream input (see model-proxy-routes.ts `ProxyStreamOpts`). */
 export interface RouteStreamOpts {
   model: unknown;
   messages: unknown[];
   system?: string;
   tools?: unknown[];
-  [option: string]: unknown;
 }
 
-export function callPiAiStreamSimple(
-  fn: PiAiModule["streamSimple"],
-  opts: RouteStreamOpts,
-): ReturnType<PiAiModule["streamSimple"]> {
-  const context = {
+/**
+ * Build pi-ai's `Context`. Its field is `systemPrompt`: passing `system`
+ * silently drops the client's system prompt.
+ */
+function toPiAiContext(opts: RouteStreamOpts) {
+  return {
     messages: opts.messages,
     ...(opts.system !== undefined ? { systemPrompt: opts.system } : {}),
     ...(opts.tools ? { tools: opts.tools } : {}),
   };
-  return fn(opts.model, context, opts);
+}
+
+/**
+ * Adapt route-level `streamSimple` opts to pi-ai's
+ * `streamSimple(model, context, options)` call; the full opts object doubles
+ * as the options (apiKey/headers/signal/maxTokens/temperature).
+ */
+export function callPiAiStreamSimple<O extends RouteStreamOpts>(
+  fn: PiAiStreamSimple,
+  opts: O,
+): ReturnType<PiAiStreamSimple> {
+  return fn(opts.model, toPiAiContext(opts), opts);
 }
 
 export interface RegistryLike {
-  getApiKeyAndHeaders(model: any): Promise<{ apiKey: string; headers: Record<string, string> }>;
+  getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
 }
 
 /**
@@ -60,19 +69,13 @@ export interface RegistryLike {
  */
 export async function streamCompletion(
   opts: StreamCompletionOpts,
-  piAiStreamSimple: PiAiModule["streamSimple"],
+  piAiStreamSimple: PiAiStreamSimple,
   registryOverride?: RegistryLike,
-): Promise<AsyncIterable<any>> {
-  const registry = registryOverride ?? await getModelRegistry();
+): Promise<ReturnType<PiAiStreamSimple>> {
+  const registry = registryOverride ?? (await getModelRegistry());
   const { apiKey, headers } = await registry.getApiKeyAndHeaders(opts.model);
 
-  const context: any = {
-    messages: opts.messages,
-    ...(opts.system !== undefined ? { systemPrompt: opts.system } : {}),
-    ...(opts.tools ? { tools: opts.tools } : {}),
-  };
-
-  const options: any = {
+  const options = {
     apiKey,
     headers,
     ...(opts.maxTokens != null ? { maxTokens: opts.maxTokens } : {}),
@@ -80,5 +83,5 @@ export async function streamCompletion(
     ...(opts.signal ? { signal: opts.signal } : {}),
   };
 
-  return piAiStreamSimple(opts.model, context, options);
+  return piAiStreamSimple(opts.model, toPiAiContext(opts), options);
 }

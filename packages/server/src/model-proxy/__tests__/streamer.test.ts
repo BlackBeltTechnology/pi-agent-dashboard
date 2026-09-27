@@ -5,7 +5,7 @@
  *
  * See change: add-dashboard-model-proxy, tasks 6.2 + 6.3.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { callPiAiStreamSimple, streamCompletion } from "../streamer.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────

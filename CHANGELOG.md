@@ -58,6 +58,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Plugin config updates reach the plugin UI live.** A plugin server entry's
+  `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
+  stored the new config under `"undefined"` and the plugin's settings UI kept
+  the stale value until reload. The broadcast now carries `id`; the `as any`
+  that hid the omission is gone.
+
 - **Model proxy (`/v1/*`) forwards system prompts, stops abandoned streams,
   and ends failed streams.** Client system prompts were silently dropped: the
   adapter passed pi-ai `system` instead of `Context.systemPrompt` (new
