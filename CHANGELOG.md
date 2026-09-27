@@ -12,6 +12,21 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Session list Group by.** Each folder's actions menu gains a "Group sessions
+  by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
+  · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
+  default`. A global Default grouping lives in Settings ▸ Sessions ▸ Session
+  list. Lanes keep the stored session order, are collapsible, hide when empty
+  or when only one lane has sessions, and flatten under search/tag filters.
+  Drag-reorder works within a lane; a cross-lane drop is rejected with an
+  explanatory toast. In Status mode a card leaving Working is held there ~3 s
+  (countdown underline in the destination lane colour) so cards do not jump
+  between turns; moves animate unless reduced motion is preferred. Modes,
+  default and lane collapse are stored server-side in `preferences.json`
+  (`folderGroupBy`, `defaultGroupBy`, `collapsedLanes`) and shared live across
+  browsers. New theme token `--status-unread`. See change:
+  session-list-group-by.
+
 - **Browser WebSocket diagnostics.** Every browser socket close now logs one
   line with its close code, JSON-quoted reason, lifetime, inbound frame count and
   cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
@@ -48,6 +63,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.
 
 ### Changed
+
+- **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
+  removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
+  after upgrade, every folder that had the toggle on in that browser (and no
+  explicit grouping) is switched to `Status` once; the browser-local
+  `dashboard:folder-urgency-sort` key is then cleared. See change:
+  session-list-group-by.
 
 - **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
   sign-in-able — and remote dashboards can finally complete a sign-in.** The

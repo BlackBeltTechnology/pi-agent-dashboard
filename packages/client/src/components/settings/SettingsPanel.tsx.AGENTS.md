@@ -38,3 +38,7 @@ The `llmChanged` save task dispatches `PROVIDER_AUTH_EVENT` (imported from `hook
 - Access page renders `<AccessPromptsSection />` then `<AccessSection />` (siblings). Prompt toggle writes `accessGrants.promptEnabled` instant-apply via `PUT /api/config`, NOT through the Save-bar draft (`computeConfigPartial` does not diff `accessGrants`, so no Save clobbers it). See change: add-access-grant-dialog (tasks 8.1-8.3)
 
 Access page passes `selectedCwd` to `AccessPromptsSection` (YOLO default scope). See change: add-access-grant-dialog (tasks 8b.7a).
+
+## session-list-group-by
+
+- Props `groupByPrefs`, `onSetDefaultGroupBy`; renders `DefaultGroupingField` first in Session list section (disabled until prefs known). See change: session-list-group-by.

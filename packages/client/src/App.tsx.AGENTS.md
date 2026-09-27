@@ -15,3 +15,7 @@ See change: fix-long-session-ux-degradation — three independent edits: mobile 
 See change: add-access-grant-dialog — `grantPromptHost` (`<GrantPromptHost onMessage send ws />`) mounted beside `firstLaunchModal` in BOTH mobile and desktop returns. Owns the prompt-capability lifecycle (`grant_channel` set, `ws === null` clear) and the one-at-a-time grant dialog (tasks 7.1-7.3).
 
 See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSession` content-view gate delegates to `<SessionContentGate registry={_pluginRegistry} session renderContentView renderDetail>` (D6); `forSession` import dropped from App.
+
+## session-list-group-by
+
+- State `groupByPrefs` (undefined until `group_by_prefs_updated`); passes `groupByPrefs`/`onSetFolderGroupBy`/`onSetLaneCollapsed` to SessionList and `groupByPrefs`/`onSetDefaultGroupBy` to both SettingsPanel mounts; effect runs `runUrgencyMigration` once prefs known. See change: session-list-group-by.
