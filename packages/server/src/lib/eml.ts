@@ -12,16 +12,10 @@
 import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import { type ParsedMail, simpleParser } from "mailparser";
+import { loadPurify } from "./purify.js";
 
-// Lazy DOMPurify: `isomorphic-dompurify` constructs a jsdom window at import
-// time. Loading it statically would run that at server boot, so a broken/torn
-// jsdom install bricks startup. Deferring to first sanitize call scopes any such
-// failure to a single EML preview request instead. See change: add-eml-preview.
-type DomPurify = (typeof import("isomorphic-dompurify"))["default"];
-let _purify: DomPurify | null = null;
-async function getPurify(): Promise<DomPurify> {
-  return (_purify ??= (await import("isomorphic-dompurify")).default);
-}
+// Lazy DOMPurify via shared `loadPurify()` (./purify.ts): a broken jsdom fails a
+// single EML preview request, never server boot. See change: add-eml-preview.
 
 /** Hard size cap enforced before read (design D6). */
 export const EML_SIZE_CAP = 25 * 1024 * 1024;
@@ -189,7 +183,7 @@ export async function sanitizeBody(
   opts: { allowRemote: boolean },
 ): Promise<{ html: string; hasRemote: boolean }> {
   if (!rawHtml) return { html: "", hasRemote: false };
-  const DOMPurify = await getPurify();
+  const DOMPurify = await loadPurify();
   const bodyEl = DOMPurify.sanitize(rawHtml, {
     RETURN_DOM: true,
     WHOLE_DOCUMENT: false,

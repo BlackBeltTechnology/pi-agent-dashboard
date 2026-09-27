@@ -28,6 +28,10 @@ beforeAll(async () => {
   await fs.writeFile(path.join(cwd, "AGENTS.md"), "# a");
   await fs.writeFile(path.join(cwd, ".pi", "skills", "SKILL.md"), "# s");
   await fs.writeFile(path.join(cwd, "notes.txt"), "x");
+  await fs.writeFile(path.join(cwd, "guide.adoc"), "= g");
+  await fs.writeFile(path.join(cwd, "guide.asciidoc"), "= g");
+  await fs.writeFile(path.join(cwd, "data.csv"), "a,b");
+  await fs.writeFile(path.join(root, "sibling", "evil.adoc"), "= e");
   await fs.writeFile(path.join(root, "sibling", "evil.md"), "# e");
   await fs.writeFile(path.join(home, ".pi", "agent", "MEMORY.md"), "# m");
   await fs.writeFile(path.join(home, ".pi", "agent", "sub", "deep.md"), "# d");
@@ -50,6 +54,16 @@ describe("isWritableMdTarget — directory scope", () => {
 
   it("allows an in-scope .md under .pi/**", async () => {
     expect(await isWritableMdTarget(path.join(cwd, ".pi", "skills", "SKILL.md"), { cwd })).toBe(true);
+  });
+
+  it("allows in-scope editable text docs (.adoc, .asciidoc, .csv)", async () => {
+    for (const f of ["guide.adoc", "guide.asciidoc", "data.csv"]) {
+      expect(await isWritableMdTarget(path.join(cwd, f), { cwd }), f).toBe(true);
+    }
+  });
+
+  it("rejects an .adoc .. traversal escaping cwd", async () => {
+    expect(await isWritableMdTarget(path.join(cwd, "..", "sibling", "evil.adoc"), { cwd })).toBe(false);
   });
 
   it("rejects a non-markdown file in scope", async () => {

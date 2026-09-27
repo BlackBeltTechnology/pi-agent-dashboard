@@ -321,6 +321,15 @@ describe("GET /api/file/render (AsciiDoc)", () => {
     expect(body.data.html).toContain("<strong>world</strong>");
   });
 
+  it("renders the document title (`= Title`) as an h1", async () => {
+    await fsp.writeFile(path.join(tmp, "titled.adoc"), "= Field Guide\n\nBody text.");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/render?cwd=${encodeURIComponent(tmp)}&path=titled.adoc`,
+    });
+    expect(res.json().data.html).toMatch(/<h1>Field Guide<\/h1>/);
+  });
+
   it("accepts .asciidoc extension", async () => {
     await fsp.writeFile(path.join(tmp, "n.asciidoc"), "hello");
     const res = await app.inject({
