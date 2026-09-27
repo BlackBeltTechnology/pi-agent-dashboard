@@ -23,6 +23,7 @@ import {
   type LaunchSourceOpts,
   type LaunchSourceProbes,
   type RuntimeLaunchInputs,
+  runtimeIdentityEnv,
 } from "../launch-source.js";
 
 function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<LaunchSourceProbes> {
@@ -388,5 +389,31 @@ describe("getServerReadyDeadlineMs (E23)", () => {
     ["bundled", 15_000],
   ] as const)("%s → %d ms", (kind, ms) => {
     expect(getServerReadyDeadlineMs(kind)).toBe(ms);
+  });
+});
+
+// ── D8: runtime identity env stamped on the spawned server ───────────────────
+// See change: electron-runtime-overlay-updates.
+
+describe("runtimeIdentityEnv (D8 active extension dir)", () => {
+  const res = "/res";
+  const dir = "/rt";
+  it("overlay → the overlay's installed extension package", () => {
+    const env = runtimeIdentityEnv({ kind: "overlay", cliPath: "c", cwd: "w", runtimeId: "0.9.1" }, res, dir);
+    expect(env.PI_DASHBOARD_RUNTIME_ID).toBe("0.9.1");
+    expect(env.PI_DASHBOARD_EXTENSION_DIR).toMatch(/0\.9\.1.*node_modules.*@blackbelt-technology.*pi-dashboard-extension$/);
+  });
+  it("local link → <checkout>/packages/extension", () => {
+    const env = runtimeIdentityEnv({ kind: "localLink", cliPath: "c", cwd: "w", runtimeId: "local:/r/co" }, res, dir);
+    expect(env.PI_DASHBOARD_EXTENSION_DIR?.split(/[\\/]/).slice(-4)).toEqual(["r", "co", "packages", "extension"]);
+  });
+  it("bundled → resources/server/packages/extension", () => {
+    const env = runtimeIdentityEnv({ kind: "bundled", cliPath: "c", cwd: "w" }, res, dir);
+    expect(env.PI_DASHBOARD_EXTENSION_DIR?.split(/[\\/]/).slice(-4)).toEqual(["res", "server", "packages", "extension"]);
+  });
+  it("devMonorepo registers no extension → no convergence target", () => {
+    const env = runtimeIdentityEnv({ kind: "devMonorepo", cliPath: "c", cwd: "w" }, res, dir);
+    expect(env.PI_DASHBOARD_EXTENSION_DIR).toBeUndefined();
+    expect(env.PI_DASHBOARD_RUNTIME_ID).toBe("devMonorepo");
   });
 });

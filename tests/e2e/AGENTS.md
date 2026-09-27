@@ -128,6 +128,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling (bound-subagent-event-serializati… → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue`… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `runtime-extension-reload-convergence.spec.ts` | F5: two independent pi sessions (own process groups); re-point settings to `extension-b`, restart server with Electron runtime env, B SIGSTOPped until A converges; each exactly one `/reload` (server.log `[runtime-overlay]`). Restores default server. See change: electron-runtime-overlay-updates. |
 | `runtime-updates-remote-local.spec.ts` | X14: remote client — no runtime section/path input; runtime POSTs (incl. local-folder bodies) 4xx; health.runtime unchanged. See change: electron-runtime-overlay-updates. |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides "more"; no same-offset retry. → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |

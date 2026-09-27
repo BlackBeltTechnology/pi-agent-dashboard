@@ -13,7 +13,9 @@ test.describe("runtime updates — no remote local-folder path (X14)", () => {
 
     await gotoDashboard(page);
     await page.goto("/settings/packages");
-    await expect(page.getByText("Pi Ecosystem")).toBeVisible();
+    // exact: "No pi ecosystem core packages detected" also substring-matches
+    // while the core check is still running after a server restart.
+    await expect(page.getByText("Pi Ecosystem", { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("runtime-updates-section")).toHaveCount(0);
     await expect(page.getByText(/Set from the app menu/)).toHaveCount(0);
 

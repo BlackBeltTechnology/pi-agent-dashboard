@@ -216,6 +216,7 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { activeExtensionFromEnv, createExtensionReloadGuard } from "./runtime-overlay/extension-reload.js";
 import { buildRuntimeHealth } from "./runtime-overlay/runtime-health.js";
 import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
 import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
@@ -438,7 +439,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // baseDir MUST be <repo>/ so findBundledExtension resolves
   // <repo>/packages/extension. Three levels up, not two.
   const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-  const extPath = findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
+  // Under Electron the active runtime's extension dir is authoritative (D8):
+  // the same path Electron registered before spawning; for an overlay the
+  // sibling search below cannot find `node_modules/@…/pi-dashboard-extension`.
+  // See change: electron-runtime-overlay-updates.
+  const activeExtension = activeExtensionFromEnv();
+  if (process.env.PI_DASHBOARD_EXTENSION_DIR && !activeExtension) {
+    console.warn(`[runtime-overlay] ignoring PI_DASHBOARD_EXTENSION_DIR=${process.env.PI_DASHBOARD_EXTENSION_DIR} (not an Electron-spawned dashboard extension)`);
+  }
+  const extPath = activeExtension?.dir ?? findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
   if (extPath) {
     registerBridgeExtension(extPath);
     console.log(`[dashboard] Bridge extension registered: ${extPath}`);
@@ -1336,7 +1345,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
 
   // Wire up event forwarding from pi gateway to browser gateway
+  // D8: bridges whose extension differs from the active runtime's get one
+  // `/reload` (through the same ladder as the reload button), once idle.
+  // Electron only: validated PI_DASHBOARD_EXTENSION_DIR set at spawn.
+  const extensionReloadGuard = createExtensionReloadGuard({
+    active: () => activeExtension,
+    isBusy: (sid) => {
+      const s = sessionManager.get(sid);
+      return s?.status === "streaming" || s?.compacting === true;
+    },
+    reload: (sid) => {
+      console.log(`[runtime-overlay] extension identity differs → /reload session=${sid} runtime=${activeExtension?.runtimeId}`);
+      return dispatchReload(sid);
+    },
+    onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
+  });
+
   wireEvents({
+    onBridgeRegister: (sid, identity) => {
+      const outcome = extensionReloadGuard.onRegister(sid, identity);
+      if (outcome !== "skipped") {
+        console.log(`[runtime-overlay] bridge register session=${sid} extension=${identity?.dir ?? "(none)"} outcome=${outcome}`);
+      }
+    },
     sessionManager,
     remoteTranscriptStore,
     eventStore,

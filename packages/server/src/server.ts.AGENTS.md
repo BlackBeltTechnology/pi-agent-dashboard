@@ -34,3 +34,7 @@ Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registr
 See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trusts via `isTrustedSource(remoteAddress, wsHeaders, trusted)` (relayed loopback → 403); boot calls `noteTrustedList(liveTrustedNetworks(...))` once; `registerSystemRoutes` gets `readTrustedNetworks` (live list) for `/api/health` `trustPosture`.
 
 providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
+
+## electron-runtime-overlay-updates
+
+D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.

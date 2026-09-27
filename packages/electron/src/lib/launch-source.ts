@@ -39,6 +39,8 @@ import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboar
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
+import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { extensionPathFor } from "./runtime-overlay.js";
 
 export type { LaunchSource, SourceKind };
 
@@ -402,6 +404,26 @@ function runtimeIdOf(source: Exclude<LaunchSource, { kind: "attach" }>): string 
   return source.kind === "overlay" || source.kind === "localLink" ? source.runtimeId : source.kind;
 }
 
+/**
+ * Runtime identity env for the spawned server: id/origin (echoed by
+ * /api/health.runtime), the Electron owner token, and — except devMonorepo,
+ * which registers no extension — the extension dir registered for this
+ * runtime (D8: the server reloads bridges reporting a different one).
+ */
+export function runtimeIdentityEnv(
+  source: Exclude<LaunchSource, { kind: "attach" }>,
+  resourcesPath: string,
+  overlayDir: string,
+): Record<string, string> {
+  const id = runtimeIdOf(source);
+  return {
+    PI_DASHBOARD_RUNTIME_ID: id,
+    PI_DASHBOARD_RUNTIME_ORIGIN: runtimeOriginOf(source),
+    PI_DASHBOARD_ELECTRON_INSTANCE: ELECTRON_INSTANCE_ID,
+    ...(source.kind === "devMonorepo" ? {} : { PI_DASHBOARD_EXTENSION_DIR: extensionPathFor(id, overlayDir, resourcesPath) }),
+  };
+}
+
 /** `/api/health.runtime.origin` for a spawnable source. */
 function runtimeOriginOf(source: Exclude<LaunchSource, { kind: "attach" }>): "bundled" | "overlay" | "local" | "devMonorepo" {
   return source.kind === "localLink" ? "local" : source.kind;
@@ -461,9 +483,7 @@ export async function spawnFromSource(
   env["PI_DASHBOARD_RESOURCES_PATH"] = getResourcesPath();
   // Runtime identity echoed by /api/health.runtime so a runtime switch only
   // commits the server it spawned. See change: electron-runtime-overlay-updates.
-  env["PI_DASHBOARD_RUNTIME_ID"] = runtimeIdOf(source);
-  env["PI_DASHBOARD_RUNTIME_ORIGIN"] = runtimeOriginOf(source);
-  env["PI_DASHBOARD_ELECTRON_INSTANCE"] = ELECTRON_INSTANCE_ID;
+  Object.assign(env, runtimeIdentityEnv(source, getResourcesPath(), getRuntimeOverlayDir()));
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";
