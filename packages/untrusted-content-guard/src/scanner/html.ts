@@ -23,10 +23,17 @@ import { hasRtl, unicodeLayer } from "./unicode.js";
 
 type Decls = Map<string, string>;
 
+/** A simple-selector rule, remembered with its source order for the cascade. */
+interface IndexedRule {
+  order: number;
+  decls: Decls;
+}
+
 interface CssIndex {
-  type: Map<string, Decls>;
-  cls: Map<string, Decls>;
-  id: Map<string, Decls>;
+  type: Map<string, IndexedRule[]>;
+  cls: Map<string, IndexedRule[]>;
+  id: Map<string, IndexedRule[]>;
+  size: number;
 }
 
 interface Edit {
@@ -36,8 +43,7 @@ interface Edit {
 }
 
 const HTML_DETECT = /^\s*<(?:!doctype\s+html|html)\b/i;
-const STYLE_BLOCK = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
-const CSS_RULE = /([^{}]+)\{([^{}]*)\}/g;
+const STYLE_OPEN = /<style\b[^>]{0,2000}>/gi;
 const SIMPLE_SELECTOR = /^(?:[a-z][a-z0-9-]*|\.[\w-]+|#[\w-]+)$/i;
 const HIDDEN_TEXT_SAMPLE = 200;
 
@@ -121,58 +127,93 @@ function hidingReason(decls: Decls): string | null {
   return null;
 }
 
-function addRule(map: Map<string, Decls>, key: string, decls: Decls): void {
-  const existing = map.get(key);
-  if (!existing) {
-    map.set(key, new Map(decls));
-    return;
-  }
-  for (const [k, v] of decls) existing.set(k, v);
+function addRule(map: Map<string, IndexedRule[]>, key: string, rule: IndexedRule): void {
+  const list = map.get(key);
+  if (list) list.push(rule);
+  else map.set(key, [rule]);
 }
 
 /** Register one CSS rule: simple selectors into the index, complex hiding ones as `unresolved_css`. */
 function indexRule(index: CssIndex, prelude: string, body: string, findings: FindingSet): void {
   const decls = parseDecls(body);
   const hides = hidingReason(decls) !== null;
+  const rule: IndexedRule = { order: index.size++, decls };
   for (const selector of prelude.split(",").map((s) => s.trim())) {
     if (!selector) continue;
     if (!SIMPLE_SELECTOR.test(selector)) {
       if (hides) findings.add("unresolved_css", "low", `${selector} {${body}}`);
       continue;
     }
-    if (selector.startsWith(".")) addRule(index.cls, selector.slice(1), decls);
-    else if (selector.startsWith("#")) addRule(index.id, selector.slice(1), decls);
-    else addRule(index.type, selector.toLowerCase(), decls);
+    if (selector.startsWith(".")) addRule(index.cls, selector.slice(1), rule);
+    else if (selector.startsWith("#")) addRule(index.id, selector.slice(1), rule);
+    else addRule(index.type, selector.toLowerCase(), rule);
+  }
+}
+
+/**
+ * Walk the innermost `prelude { body }` blocks of a stylesheet with linear
+ * `indexOf` scans (a regex here retries from every offset on brace-free input).
+ * Descends into `@media`-style wrappers; skips other at-rules.
+ */
+function forEachCssRule(css: string, visit: (prelude: string, body: string) => void): void {
+  let start = 0;
+  let close = -1;
+  for (let open = css.indexOf("{"); open !== -1; open = css.indexOf("{", open + 1)) {
+    if (close < open) close = css.indexOf("}", open + 1);
+    if (close === -1) return;
+    const nextOpen = css.indexOf("{", open + 1);
+    if (nextOpen !== -1 && nextOpen < close) {
+      start = open + 1; // wrapper block (e.g. @media): its rules follow
+      continue;
+    }
+    // Drop anything before the last `;`/`}` (e.g. `@import …;`, a closed wrapper).
+    const prelude = css.slice(start, open).split(/[;}]/).pop()?.trim() ?? "";
+    if (prelude && !prelude.startsWith("@")) visit(prelude, css.slice(open + 1, close));
+    start = close + 1;
   }
 }
 
 function buildCssIndex(src: string, findings: FindingSet): CssIndex {
-  const index: CssIndex = { type: new Map(), cls: new Map(), id: new Map() };
+  const index: CssIndex = { type: new Map(), cls: new Map(), id: new Map(), size: 0 };
   if (!/<style\b/i.test(src)) return index;
-  STYLE_BLOCK.lastIndex = 0;
-  for (let block = STYLE_BLOCK.exec(src); block !== null; block = STYLE_BLOCK.exec(src)) {
-    const css = (block[1] as string).replace(/\/\*[\s\S]*?\*\//g, "");
-    CSS_RULE.lastIndex = 0;
-    for (let rule = CSS_RULE.exec(css); rule !== null; rule = CSS_RULE.exec(css)) {
-      // Drop anything before the last `;` (e.g. `@import …;` preceding the selector).
-      const prelude = (rule[1] as string).split(";").pop()?.trim() ?? "";
-      if (prelude && !prelude.startsWith("@")) indexRule(index, prelude, rule[2] as string, findings);
-    }
+  const lower = src.toLowerCase();
+  STYLE_OPEN.lastIndex = 0;
+  for (let open = STYLE_OPEN.exec(src); open !== null; open = STYLE_OPEN.exec(src)) {
+    const bodyStart = open.index + open[0].length;
+    const bodyEnd = lower.indexOf("</style", bodyStart);
+    if (bodyEnd === -1) break; // unclosed: no further complete stylesheet
+    const css = src.slice(bodyStart, bodyEnd).replace(/\/\*[\s\S]*?\*\//g, "");
+    forEachCssRule(css, (prelude, body) => indexRule(index, prelude, body, findings));
+    STYLE_OPEN.lastIndex = bodyEnd;
   }
   return index;
+}
+
+/** Specificity ranks of the supported simple selectors. */
+const TYPE_RANK = 0;
+const CLASS_RANK = 1;
+const ID_RANK = 2;
+
+/** Stylesheet declarations applying to an element: specificity first, then source order. */
+function cascade(name: string, attribs: Record<string, string>, css: CssIndex): Decls {
+  const matched: Array<{ rank: number; rule: IndexedRule }> = [];
+  const collect = (rank: number, rules: IndexedRule[] | undefined) => {
+    for (const rule of rules ?? []) matched.push({ rank, rule });
+  };
+  collect(TYPE_RANK, css.type.get(name));
+  for (const cls of new Set((attribs.class ?? "").split(/\s+/))) if (cls) collect(CLASS_RANK, css.cls.get(cls));
+  if (attribs.id) collect(ID_RANK, css.id.get(attribs.id));
+  matched.sort((x, y) => x.rank - y.rank || x.rule.order - y.rule.order);
+  const decls: Decls = new Map();
+  for (const { rule } of matched) for (const [k, v] of rule.decls) decls.set(k, v);
+  return decls;
 }
 
 function elementReason(name: string, attribs: Record<string, string>, css: CssIndex): string | null {
   if (name === "script") return "html-script";
   if (Object.hasOwn(attribs, "hidden")) return "html-hidden-attr";
-  const decls: Decls = new Map();
-  const merge = (d: Decls | undefined) => {
-    if (d) for (const [k, v] of d) decls.set(k, v);
-  };
-  merge(css.type.get(name));
-  for (const cls of (attribs.class ?? "").split(/\s+/)) if (cls) merge(css.cls.get(cls));
-  if (attribs.id) merge(css.id.get(attribs.id));
-  if (attribs.style) merge(parseDecls(attribs.style));
+  const decls = css.size > 0 ? cascade(name, attribs, css) : new Map<string, string>();
+  if (attribs.style) for (const [k, v] of parseDecls(attribs.style)) decls.set(k, v); // inline wins
   return hidingReason(decls);
 }
 
@@ -243,7 +284,13 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
       },
       oncomment(data) {
         flushText();
-        if (hidden || !/\S/.test(data)) return;
+        if (!/\S/.test(data)) return;
+        if (hidden) {
+          // A comment inside a hidden element is hidden content: the element goes.
+          hidden.hasText = true;
+          if (hidden.sample.length < HIDDEN_TEXT_SAMPLE) hidden.sample += data;
+          return;
+        }
         edits.push({ start: parser.startIndex, end: parser.endIndex + 1, text: "" });
         findings.add("html-comment", "high", data);
       },

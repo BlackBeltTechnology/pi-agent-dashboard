@@ -5,18 +5,21 @@
  *   when `replaceData` (strip/block). warn keeps them.
  * - Markdown `![](…)` / HTML `<img src>` images with a query string to a host
  *   not in `allowHosts` → LOW `tracking-image`, never removed.
- * - Mixed-script (Latin + Cyrillic/Greek) words in link text or domains → LOW
+ * - Mixed-script (Latin + Cyrillic/Greek) words in link text (markdown or HTML
+ *   `<a>`) or domains → LOW
  *   `confusable`, never removed.
  */
 
 import type { FindingSet } from "./findings.js";
 
+// Tag scans are bounded ({0,2000}) so unterminated `<img`/`<a` runs stay linear.
 const DATA_URL =
   /(?<![\w-])data:([a-z]+\/[a-z0-9.+-]+)?((?:;[a-z0-9-]+(?:=[^;,\s"')]*)?)*),([A-Za-z0-9+/=%._~-]*)/gi;
 const MD_IMAGE = /!\[[^\]\n]{0,500}\]\(\s*<?(https?:\/\/[^\s)>]+)/gi;
-const HTML_IMG = /<img\b[^>]*?\ssrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi;
+const HTML_IMG = /<img\b[^>]{0,2000}?\ssrc\s*=\s*["']?(https?:\/\/[^"'\s>]+)/gi;
 const URL_HOST = /https?:\/\/([^\s/?#:"'<>)\]]+)/gi;
 const MD_LINK_TEXT = /\[([^\]\n]{1,200})\]\(/g;
+const HTML_LINK_TEXT = /<a\b[^>]{0,2000}>([^<]{1,200})<\/a\s*>/gi;
 
 const LATIN = /\p{Script=Latin}/u;
 const CONFUSABLE_SCRIPT = /[\p{Script=Cyrillic}\p{Script=Greek}]/u;
@@ -83,14 +86,15 @@ function eachMatch(re: RegExp, text: string, fn: (group: string) => void): void 
 }
 
 export function urlLayer(text: string, findings: FindingSet, opts: UrlLayerOptions): string {
-  const replaced = text.includes("data:") ? replaceDataUrls(text, findings) : text;
+  // Schemes are case-insensitive: `DATA:` must not slip past the pre-check.
+  const replaced = /data:/i.test(text) ? replaceDataUrls(text, findings) : text;
 
   if (text.includes("](") || /<img\b/i.test(text)) {
     for (const re of [MD_IMAGE, HTML_IMG]) eachMatch(re, text, (url) => checkImage(url, opts.allowHosts, findings));
   }
 
   if (/[^\x00-\x7f]/.test(text)) {
-    for (const re of [URL_HOST, MD_LINK_TEXT]) eachMatch(re, text, (part) => checkConfusable(part, findings));
+    for (const re of [URL_HOST, MD_LINK_TEXT, HTML_LINK_TEXT]) eachMatch(re, text, (part) => checkConfusable(part, findings));
   }
   return opts.replaceData ? replaced : text;
 }

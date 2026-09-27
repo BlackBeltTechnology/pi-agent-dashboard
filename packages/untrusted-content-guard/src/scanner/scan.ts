@@ -30,6 +30,8 @@ export interface ScanOptions {
   contentType?: string;
   /** Hosts whose query-string images are not reported (subdomains included). */
   allowHosts?: readonly string[];
+  /** Size cap for this call (default `MAX_SCAN_CHARS`); the guard passes a per-result remaining budget. */
+  maxChars?: number;
 }
 
 export interface ScanResult {
@@ -42,11 +44,11 @@ export interface ScanResult {
 /** Scan cap: 2 MiB, measured in UTF-16 code units. */
 export const MAX_SCAN_CHARS = 2 * 1024 * 1024;
 
-function capSize(text: string, findings: FindingSet): string {
-  if (text.length <= MAX_SCAN_CHARS) return text;
-  let end = MAX_SCAN_CHARS;
+function capSize(text: string, findings: FindingSet, max: number): string {
+  if (text.length <= max) return text;
+  let end = Math.max(0, max);
   const unit = text.charCodeAt(end - 1);
-  if (unit >= 0xd800 && unit <= 0xdbff) end -= 1; // never split a surrogate pair
+  if (end > 0 && unit >= 0xd800 && unit <= 0xdbff) end -= 1; // never split a surrogate pair
   findings.add("oversize_truncated", "high", `${text.length} chars truncated to ${end}`);
   return text.slice(0, end);
 }
@@ -55,7 +57,7 @@ export function scan(input: string, options: ScanOptions = {}): ScanResult {
   const mode = options.mode ?? "strip";
   const apply = mode !== "warn";
   const findings = new FindingSet();
-  const capped = capSize(input, findings);
+  const capped = capSize(input, findings, options.maxChars ?? MAX_SCAN_CHARS);
 
   let html = isHtml(capped, options.contentType);
   let text: string;

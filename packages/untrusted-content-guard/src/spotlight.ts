@@ -21,9 +21,14 @@ export function newMarker(): string {
   return [...randomBytes(8)].map((b) => ALPHABET[b % ALPHABET.length]).join("");
 }
 
-/** Defuse any delimiter-like `<<untrusted` / `<</untrusted` inside content (`<<` → `< <`). */
+/**
+ * Defuse delimiter syntax inside content: every `<` that could start
+ * `<<untrusted` / `<</untrusted` becomes `‹`, and so does a trailing `<` run,
+ * so a delimiter cannot be assembled across two adjacent content blocks.
+ * Bounded lookahead keeps it linear on `<<<<…` runs.
+ */
 export function escapeDelimiters(text: string): string {
-  return text.replace(/<<(?=\s*\/?\s*untrusted)/gi, "< <");
+  return text.replace(/<(?=[<\s/]{0,8}untrusted)/gi, "‹").replace(/<(?=[<\s/]{0,8}$)/g, "‹");
 }
 
 export function openDelimiter(source: string, marker: string): string {

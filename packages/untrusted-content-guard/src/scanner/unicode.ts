@@ -57,7 +57,8 @@ function preservedZeroWidth(run: string, prev: number | undefined, next: number 
   const cp = run.charCodeAt(0);
   if (cp === ZWJ || cp === ZWNJ) {
     if (test(EMOJI_SEQ_PREV, prev) && test(PICTOGRAPHIC, next)) return true;
-    return test(CLUSTER_SCRIPT, prev) || test(CLUSTER_SCRIPT, next);
+    // Inside a cluster: both neighbours belong to a joining script (never a script boundary).
+    return test(CLUSTER_SCRIPT, prev) && test(CLUSTER_SCRIPT, next);
   }
   if (cp === ZWSP) return test(SPACELESS_SCRIPT, prev) || test(SPACELESS_SCRIPT, next);
   return false;

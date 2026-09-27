@@ -13,7 +13,7 @@
 import { matchesAny } from "./glob.js";
 import { type GuardRegistry, isDeclared } from "./registry.js";
 import type { Finding } from "./scanner/findings.js";
-import { scan } from "./scanner/scan.js";
+import { MAX_SCAN_CHARS, scan } from "./scanner/scan.js";
 import type { GuardSettings } from "./settings.js";
 import {
   blockNotice,
@@ -143,23 +143,29 @@ export class UntrustedContentGuard {
 
     const contentType = detailsRecord(event.details)?.contentType;
     const merged = new Map<string, Finding>();
+    // One size budget for the whole result, not per block (design D1 size cap).
+    let budget = MAX_SCAN_CHARS;
     const blocks: Block[] = event.content.map((block) => {
       if (block.type !== "text") return block;
+      const maxChars = budget;
+      budget = Math.max(0, budget - block.text.length);
       const result = scan(block.text, {
         mode,
         contentType: typeof contentType === "string" ? contentType : undefined,
         allowHosts: settings.allowHosts,
+        maxChars,
       });
       mergeFindings(merged, result.findings);
       return { type: "text", text: escapeDelimiters(result.cleaned) };
     });
     const findings = [...merged.values()];
 
+    const open = openDelimiter(event.toolName, this.runMarker);
     if (mode === "block" && findings.some((f) => f.severity === "high")) {
-      return { content: [{ type: "text", text: blockNotice(event.toolName, findings) }] };
+      const notice = `${open}\n${blockNotice(event.toolName, findings)}\n${closeDelimiter(this.runMarker)}`;
+      return { content: [{ type: "text", text: notice }] };
     }
 
-    const open = openDelimiter(event.toolName, this.runMarker);
     const summary = summaryLine(findings, mode);
     const close = closeDelimiter(this.runMarker) + (summary ? `\n${summary}` : "");
     const first = blocks[0];
