@@ -95,6 +95,14 @@ describe("ansi string sequences", () => {
     expect(scan("\x1bPa\x07still hidden\x1b\\shown", { mode: "strip" }).cleaned).toBe("shown");
     expect(scan("\x1b]0;title\x07shown", { mode: "strip" }).cleaned).toBe("shown");
   });
+
+  it("strips every ECMA-35 two-char / nF escape (ESC c reset, ESC =, ESC ( B) with an ansi finding", () => {
+    for (const seq of ["\x1bc", "\x1b=", "\x1b>", "\x1b(B", "\x1b#8"]) {
+      const r = scan(`a${seq}b`, { mode: "strip" });
+      expect(r.cleaned, JSON.stringify(seq)).toBe("ab");
+      expect(r.findings, JSON.stringify(seq)).toEqual([expect.objectContaining({ layer: "ansi", severity: "high", count: 1 })]);
+    }
+  });
 });
 
 describe("hidden-HTML layer", () => {

@@ -10,8 +10,9 @@ import type { FindingSet } from "./findings.js";
 const ANSI =
   // OSC: ESC ] … (BEL | ESC \ | end). DCS/SOS/PM/APC: ESC P|X|^|_ … (ESC \ | end) —
   // their payload is never displayed, and BEL does NOT end them. CSI: ESC [ params
-  // intermediates final; 8-bit CSI; remaining two-char ESC sequences.
-  /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*(?:\x1b\\)?|\x1b\[[0-?]*[ -/]*[@-~]|\x9b[0-?]*[ -/]*[@-~]|\x1b[@-Z\\^_]/g;
+  // intermediates final; 8-bit CSI; every other ECMA-35 escape: ESC, intermediates
+  // 0x20–0x2F, final 0x30–0x7E (ESC c reset, ESC =, ESC ( B, …).
+  /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[PX^_][^\x1b]*(?:\x1b\\)?|\x1b\[[0-?]*[ -/]*[@-~]|\x9b[0-?]*[ -/]*[@-~]|\x1b[ -/]*[0-~]/g;
 
 export function ansiLayer(text: string, findings: FindingSet): string {
   if (!text.includes("\x1b") && !text.includes("\x9b")) return text;
