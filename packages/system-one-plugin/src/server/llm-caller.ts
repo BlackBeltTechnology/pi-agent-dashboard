@@ -25,8 +25,13 @@ interface Resolved {
   local: boolean;
 }
 
-export interface ServerLlmCaller extends LlmCaller {
-  prepare(roles: string[]): Promise<void>;
+/**
+ * Factory for request-scoped callers. `snapshot(roles)` resolves + classifies
+ * each role once; the returned `LlmCaller` answers `isLocal` and `call` from
+ * that frozen snapshot only.
+ */
+export interface ServerLlmCaller {
+  snapshot(roles: string[]): Promise<LlmCaller>;
 }
 
 const defaultProvidersPath = () => join(homedir(), ".pi", "agent", "providers.json");
@@ -96,45 +101,47 @@ async function drainDone(events: AsyncIterable<StreamEvent>): Promise<unknown> {
   return final;
 }
 
+async function invoke(runtime: PluginModelRuntime, r: { provider: string; modelId: string }, args: { state: string; questions: Questions; signal: AbortSignal }) {
+  const registry = await runtime.getModelRegistry();
+  const model = registry ? await registry.find(r.provider, r.modelId) : null;
+  if (!registry || !model) throw new Error("model-unavailable");
+  const creds = await registry.getApiKeyAndHeaders(model);
+  const final = await drainDone(
+    runtime.streamSimple({
+      model,
+      system: SYSTEM,
+      messages: [{ role: "user", content: JSON.stringify({ state: args.state, questions: args.questions }), timestamp: Date.now() }],
+      maxTokens: 1024,
+      temperature: 0,
+      apiKey: creds.apiKey,
+      headers: creds.headers,
+      signal: args.signal,
+    }),
+  );
+  const parsed = extractJson(extractText(final)) as { answers?: unknown };
+  return { answers: parsed?.answers, model: `${r.provider}/${r.modelId}` };
+}
+
 export function createServerLlmCaller(runtime: PluginModelRuntime | undefined, providersPath?: string): ServerLlmCaller {
-  const cache = new Map<string, Resolved>();
   return {
-    async prepare(roles) {
-      if (!runtime) return;
-      const registry = await runtime.getModelRegistry();
-      for (const role of roles) {
+    async snapshot(roles) {
+      // Request-scoped and frozen: classification and call read the SAME resolution,
+      // so neither a retargeted role nor a concurrent snapshot can move this request's bytes.
+      const resolved = new Map<string, Resolved>();
+      const registry = runtime ? await runtime.getModelRegistry() : null;
+      for (const role of new Set(roles)) {
         const r = resolveRoleRef(role, providersPath);
-        if (r) cache.set(role, { ...r, local: await isLocalModel(registry, r) });
-        else cache.delete(role);
+        if (r) resolved.set(role, { ...r, local: await isLocalModel(registry, r) });
       }
-    },
-    isLocal(role) {
-      return cache.get(role)?.local === true;
-    },
-    async call({ role, state, questions, signal }: { role: string; state: string; questions: Questions; signal: AbortSignal }) {
-      if (!runtime) throw new Error("no-model-runtime");
-      // Bind to the resolution `isLocal` classified (prepare); a role retargeted
-      // since then must not change where this call's bytes go.
-      const r = cache.get(role) ?? resolveRoleRef(role, providersPath);
-      if (!r) throw new Error("role-unassigned");
-      const registry = await runtime.getModelRegistry();
-      const model = registry ? await registry.find(r.provider, r.modelId) : null;
-      if (!registry || !model) throw new Error("model-unavailable");
-      const creds = await registry.getApiKeyAndHeaders(model);
-      const final = await drainDone(
-        runtime.streamSimple({
-          model,
-          system: SYSTEM,
-          messages: [{ role: "user", content: JSON.stringify({ state, questions }), timestamp: Date.now() }],
-          maxTokens: 1024,
-          temperature: 0,
-          apiKey: creds.apiKey,
-          headers: creds.headers,
-          signal,
-        }),
-      );
-      const parsed = extractJson(extractText(final)) as { answers?: unknown };
-      return { answers: parsed?.answers, model: `${r.provider}/${r.modelId}` };
+      return {
+        isLocal: (role) => resolved.get(role)?.local === true,
+        async call({ role, state, questions, signal }) {
+          if (!runtime) throw new Error("no-model-runtime");
+          const r = resolved.get(role);
+          if (!r) throw new Error(resolveRoleRef(role, providersPath) ? "role-not-prepared" : "role-unassigned");
+          return invoke(runtime, r, { state, questions, signal });
+        },
+      };
     },
   };
 }

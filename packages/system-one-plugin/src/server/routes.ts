@@ -26,6 +26,7 @@ import {
   isOffMachine,
   isValidKeyRef,
   keyStatus,
+  type LlmCaller,
   loadConfig,
   normalizeUser,
   parseBackendUrl,
@@ -60,12 +61,17 @@ function egressLabel(b: Backend, off: boolean): EgressLabel {
   return catalogEntry(b)?.hosted ? "hosted" : "remote";
 }
 
-async function backendViews(cfg: SystemOneConfig, deps: SystemOneRouteDeps) {
+/** A request-scoped caller over every llm role in `cfg` (undefined without a runtime seam or on failure). */
+async function snapshotFor(cfg: SystemOneConfig, deps: SystemOneRouteDeps): Promise<LlmCaller | undefined> {
   const roles = Object.values(cfg.backends).flatMap((b) => (b.kind === "llm" ? [b.role] : []));
-  if (roles.length) await deps.llmCaller?.prepare(roles).catch(() => {});
+  return deps.llmCaller?.snapshot(roles).catch(() => undefined);
+}
+
+async function backendViews(cfg: SystemOneConfig, deps: SystemOneRouteDeps) {
+  const caller = await snapshotFor(cfg, deps);
   const out: Record<string, unknown> = {};
   for (const [id, b] of Object.entries(cfg.backends)) {
-    const off = isOffMachine(b, deps.llmCaller);
+    const off = isOffMachine(b, caller);
     const entry = catalogEntry(b);
     out[id] = {
       capabilities: effectiveCapabilities(b),
@@ -100,9 +106,9 @@ function validateIncoming(v: unknown): { ok: true; cfg: SystemOneConfig } | { ok
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 /** Why a Test must not run on this backend (409 code), or null. Off-machine checks precede any request. */
-function evalRefusal(cfg: SystemOneConfig, backendId: string, deps: SystemOneRouteDeps): string | null {
+function evalRefusal(cfg: SystemOneConfig, backendId: string, deps: SystemOneRouteDeps, caller: LlmCaller | undefined): string | null {
   const b = cfg.backends[backendId];
-  if (!cfg.allowOffMachine && isOffMachine(b, deps.llmCaller)) return "off-machine";
+  if (!cfg.allowOffMachine && isOffMachine(b, caller)) return "off-machine";
   if (b.kind === "managed" && deps.managed?.status(backendId).state !== "ready") return "not-running";
   return null;
 }
@@ -213,8 +219,9 @@ export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteD
     if (typeof backendId !== "string" || !Object.hasOwn(cfg.backends, backendId))
       return reply.code(404).send({ error: "unknown-backend" });
     const b = cfg.backends[backendId];
-    if (b.kind === "llm") await deps.llmCaller?.prepare([b.role]).catch(() => {});
-    const refusal = evalRefusal(cfg, backendId, deps);
+    // One snapshot classifies AND serves this whole run.
+    const caller = await snapshotFor(cfg, deps);
+    const refusal = evalRefusal(cfg, backendId, deps, caller);
     if (refusal) return reply.code(409).send({ error: refusal });
 
     const ac = new AbortController();
@@ -227,7 +234,7 @@ export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteD
       backendId,
       cases: fx.cases,
       priceUsdPerMTok: catalogEntry(b)?.priceUsdPerMTok,
-      llmCaller: deps.llmCaller,
+      llmCaller: caller,
       signal: ac.signal,
     });
   });

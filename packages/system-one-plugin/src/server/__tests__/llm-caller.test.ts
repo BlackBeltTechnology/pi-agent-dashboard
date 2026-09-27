@@ -46,9 +46,9 @@ describe("server LlmCaller", () => {
       "anthropic/claude-haiku-4-5": { baseUrl: "http://127.0.0.1:8000/proxy" },
       "ollama/remote-box": { baseUrl: "http://10.0.0.5:11434/v1" },
     });
-    const c = createServerLlmCaller(rt as never, path);
-    expect(c.isLocal("@local")).toBe(false); // not prepared yet → off-machine
-    await c.prepare(["@local", "@cloud", "@proxy", "@missing"]);
+    const f = createServerLlmCaller(rt as never, path);
+    expect((await f.snapshot([])).isLocal("@local")).toBe(false); // not in the snapshot → off-machine
+    const c = await f.snapshot(["@local", "@cloud", "@proxy", "@missing"]);
     expect(c.isLocal("@local")).toBe(true);
     expect(c.isLocal("@cloud")).toBe(false);
     expect(c.isLocal("@proxy")).toBe(false);
@@ -58,7 +58,7 @@ describe("server LlmCaller", () => {
   it("call resolves the role, streams once, and parses the JSON answers", async () => {
     const path = providers({ fast: "anthropic/claude-haiku-4-5" });
     const { rt, streamed } = runtime({ "anthropic/claude-haiku-4-5": {} });
-    const c = createServerLlmCaller(rt as never, path);
+    const c = await createServerLlmCaller(rt as never, path).snapshot(["@fast"]);
     const r = await c.call({ role: "@fast", state: "s", questions: { n: { type: "noul", instructions: "i" } }, signal: new AbortController().signal });
     expect(r).toEqual({ answers: { n: { noul: 0.8 } }, model: "anthropic/claude-haiku-4-5" });
     expect(streamed).toHaveLength(1);
@@ -68,8 +68,7 @@ describe("server LlmCaller", () => {
   it("call uses the resolution isLocal classified, even if the role changes afterwards", async () => {
     const path = providers({ fast: "ollama/llama3" });
     const { rt, streamed } = runtime({ "ollama/llama3": { baseUrl: "http://127.0.0.1:11434/v1" }, "anthropic/claude-haiku-4-5": {} });
-    const c = createServerLlmCaller(rt as never, path);
-    await c.prepare(["@fast"]);
+    const c = await createServerLlmCaller(rt as never, path).snapshot(["@fast"]);
     expect(c.isLocal("@fast")).toBe(true);
     writeFileSync(path, JSON.stringify({ roles: { fast: "anthropic/claude-haiku-4-5" } })); // role retargeted to cloud
     const r = await c.call({ role: "@fast", state: "s", questions: { n: { type: "noul", instructions: "i" } }, signal: new AbortController().signal });
@@ -77,12 +76,36 @@ describe("server LlmCaller", () => {
     expect(streamed).toHaveLength(1);
   });
 
+  it("snapshots are request-scoped: a later snapshot never changes an earlier one's classification or target", async () => {
+    const path = providers({ fast: "ollama/llama3" });
+    const { rt, streamed } = runtime({ "ollama/llama3": { baseUrl: "http://127.0.0.1:11434/v1" }, "anthropic/claude-haiku-4-5": {} });
+    const c = createServerLlmCaller(rt as never, path);
+    const first = await c.snapshot(["@fast"]);
+    writeFileSync(path, JSON.stringify({ roles: { fast: "anthropic/claude-haiku-4-5" } }));
+    const second = await c.snapshot(["@fast"]);
+    expect(first.isLocal("@fast")).toBe(true);
+    expect(second.isLocal("@fast")).toBe(false);
+    const q = { n: { type: "noul" as const, instructions: "i" } };
+    const signal = new AbortController().signal;
+    expect((await first.call({ role: "@fast", state: "s", questions: q, signal })).model).toBe("ollama/llama3");
+    expect((await second.call({ role: "@fast", state: "s", questions: q, signal })).model).toBe("anthropic/claude-haiku-4-5");
+    expect(streamed).toHaveLength(2);
+  });
+
+  it("a snapshot refuses roles it did not classify", async () => {
+    const path = providers({ fast: "anthropic/claude-haiku-4-5" });
+    const snap = await createServerLlmCaller(runtime({ "anthropic/claude-haiku-4-5": {} }).rt as never, path).snapshot([]);
+    expect(snap.isLocal("@fast")).toBe(false);
+    await expect(snap.call({ role: "@fast", state: "s", questions: { n: { type: "noul", instructions: "i" } }, signal: new AbortController().signal })).rejects.toThrow("role-not-prepared");
+  });
+
   it("call fails for an unassigned role, a missing model, or no runtime", async () => {
     const path = providers({ fast: "anthropic/claude-haiku-4-5" });
     const q = { n: { type: "noul" as const, instructions: "i" } };
     const signal = new AbortController().signal;
-    await expect(createServerLlmCaller(runtime({}).rt as never, path).call({ role: "@other", state: "s", questions: q, signal })).rejects.toThrow("role-unassigned");
-    await expect(createServerLlmCaller(runtime({}).rt as never, path).call({ role: "@fast", state: "s", questions: q, signal })).rejects.toThrow("model-unavailable");
-    await expect(createServerLlmCaller(undefined, path).call({ role: "@fast", state: "s", questions: q, signal })).rejects.toThrow("no-model-runtime");
+    const snap = (rt: unknown) => createServerLlmCaller(rt as never, path).snapshot(["@fast", "@other"]);
+    await expect((await snap(runtime({}).rt)).call({ role: "@other", state: "s", questions: q, signal })).rejects.toThrow("role-unassigned");
+    await expect((await snap(runtime({}).rt)).call({ role: "@fast", state: "s", questions: q, signal })).rejects.toThrow("model-unavailable");
+    await expect((await snap(undefined)).call({ role: "@fast", state: "s", questions: q, signal })).rejects.toThrow("no-model-runtime");
   });
 });

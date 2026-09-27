@@ -40,7 +40,7 @@ const managed: ManagedControl = {
   platform: () => "darwin",
   hasLauncher: () => true,
 };
-const llmCaller: ServerLlmCaller = { prepare: async () => {}, isLocal: () => false, call: vi.fn() as any };
+const llmCaller: ServerLlmCaller = { snapshot: async () => ({ isLocal: () => false, call: vi.fn() as never }) };
 
 beforeEach(async () => {
   rmSync(userConfigPath(), { force: true });
