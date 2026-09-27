@@ -495,7 +495,7 @@ The server SHALL expose `POST /api/provider-auth/start` with body `{ provider, e
 
 ### Requirement: Flow status
 
-The server SHALL expose `GET /api/provider-auth/flow/:flowId` for every flow started by `start`. The response SHALL contain `flowId`, `provider`, `status` (`"pending" | "complete" | "error" | "expired"`), `authUrl` when the flow has published one (retained for the life of the flow), `message` (the most recent progress text from the flow, if any), `error` when `status` is `"error"`, and `pending` describing what the client must render or answer next:
+The server SHALL expose `GET /api/provider-auth/flow/:flowId` for every flow started by `start` and for every flow a dashboard plugin started through the plugin OAuth flow seam. Serving plugin flows SHALL NOT wait for the LLM provider registry. The response SHALL contain `flowId`, `provider`, `status` (`"pending" | "complete" | "error" | "expired"`), `authUrl` when the flow has published one (retained for the life of the flow), `message` (the most recent progress text from the flow, if any), `error` when `status` is `"error"`, and `pending` describing what the client must render or answer next:
 
 - `{ kind: "device_code", userCode, verificationUri, intervalSeconds?, expiresInSeconds? }`
 - `{ kind: "manual_code", message, placeholder? }`
@@ -515,6 +515,10 @@ The server SHALL expose `GET /api/provider-auth/flow/:flowId` for every flow sta
 #### Scenario: Completion
 - **WHEN** the runtime's flow resolves with a credential
 - **THEN** the server SHALL persist it to `auth.json` under the provider id via the existing locked, backed-up write path, notify bridges, and `GET /api/provider-auth/flow/:flowId` SHALL report `status: "complete"` with no `pending`
+
+#### Scenario: Plugin flow completion
+- **WHEN** a plugin-started flow resolves with a credential
+- **THEN** the server SHALL hand the credential to the plugin's persist callback instead of writing `auth.json`, SHALL NOT notify bridges, and `GET /api/provider-auth/flow/:flowId` SHALL report `status: "complete"` with no `pending`
 
 #### Scenario: Device code expires
 - **WHEN** a device code's `expiresInSeconds` elapses without authorization and the runtime's flow gives up

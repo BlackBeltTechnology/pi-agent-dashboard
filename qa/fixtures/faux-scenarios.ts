@@ -725,6 +725,16 @@ export const SCENARIOS: Record<string, Scenario> = {
 
   // ── Client tool-renderer matrix (one per registry entry + unknown) ──────
   "tool-read": toolScenario("read", { path: "src/example.ts" }),
+  // demo-plugin `demo_echo` (fixture bridge tool) — round-trips through the
+  // private plugin request lane to the demo server's `demo/echo` handler.
+  // Two-step terminate. See change: expose-plugin-credential-and-oauth-seams (X13).
+  "demo-echo": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("demo_echo", { text: "hi" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("demo echo done")]),
+    ],
+    expect: { toolName: "demo_echo" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.
@@ -1516,6 +1526,23 @@ export const SCENARIOS: Record<string, Scenario> = {
   // Calls the `e2e_notify` fixture tool (qa/fixtures/e2e-notify.ext.ts), whose
   // execute() calls `ctx.ui.notify` — the only L3 lever on the real notify
   // path. Drives tests/e2e/notify-channel.spec.ts.
+  // ── Untrusted-content guard (add-untrusted-content-guard, test-plan #F1) ──
+  // Reads untrusted HTML through the `stub_fetch` fixture tool
+  // (qa/fixtures/e2e-stub-fetch.ext.ts), then calls `bash`. The guard taints the
+  // run on the untrusted result, so the bash call must raise its confirm card.
+  // The command text never equals its output, so the output proves execution.
+  "guard-confirm": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("stub_fetch", { url: "https://example.test/news" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo guard-$((40+2))" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("guard scenario done")]),
+    ],
+    expect: { toolName: "stub_fetch" },
+  },
   "notify-probe": {
     script: [
       fauxAssistantMessage(

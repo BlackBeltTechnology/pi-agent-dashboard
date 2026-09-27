@@ -7,7 +7,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
-import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -198,6 +198,8 @@ export interface EventWiringDeps {
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
+  /** Private plugin request lane. See change: expose-plugin-credential-and-oauth-seams (D7). */
+  dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -275,6 +277,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
+    dispatchPluginRequest,
     dispatchPluginRawEvent,
     metaPersistence,
     liveEpoch,
@@ -804,6 +807,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       // plugin can attribute the message without trusting its body.
       // See change: add-dashboard-mcp-server.
       dispatchPluginPiMessage?.(msg.messageType, msg, sessionId);
+      return;
+    }
+
+    // Private request/reply lane: answered with `plugin_reply` on this socket.
+    // See change: expose-plugin-credential-and-oauth-seams (D7).
+    if (msg.type === "plugin_request") {
+      dispatchPluginRequest?.(sessionId, msg);
       return;
     }
 

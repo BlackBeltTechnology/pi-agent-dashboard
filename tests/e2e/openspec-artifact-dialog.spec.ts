@@ -10,7 +10,7 @@ import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
 // `e2e-artifact-demo`, all 4 artifacts) so the P/D/S/T badges render.
 //
 // The board (`ProposalCard` → `OpenSpecStepper`) renders clickable
-// `stepper-node-*` badges for any cwd change WITHOUT attachment, so it is the
+// `stepper-segment-*` badges for any cwd change WITHOUT attachment, so it is the
 // attach-free primary surface. E7 additionally attaches the change to cover
 // the composer-chip + header-button wiring sites.
 
@@ -23,7 +23,7 @@ async function openBoard(page: Page): Promise<Locator> {
   await ensureGitSession(page);
   await page.goto(BOARD_URL);
   await page.getByTestId("openspec-board").waitFor({ state: "visible", timeout: 20_000 });
-  const badge = page.getByTestId("stepper-node-proposal").first();
+  const badge = page.getByTestId("stepper-segment-proposal").first();
   // The openspec poll populates openspecMap after spawn; the ProposalCard +
   // stepper mount once it arrives.
   await badge.waitFor({ state: "visible", timeout: 45_000 });
@@ -192,7 +192,7 @@ test.describe("non-mobile OpenSpec artifact dialog", () => {
     await page.setViewportSize({ width: 700, height: 800 });
     await page.goto(BOARD_URL);
     await page.getByTestId("openspec-board").waitFor({ state: "visible", timeout: 20_000 });
-    const badge = page.getByTestId("stepper-node-proposal").first();
+    const badge = page.getByTestId("stepper-segment-proposal").first();
     await badge.waitFor({ state: "visible", timeout: 45_000 });
 
     await badge.click();

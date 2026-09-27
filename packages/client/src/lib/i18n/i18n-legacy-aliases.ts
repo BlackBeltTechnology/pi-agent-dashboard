@@ -634,7 +634,6 @@ export const LEGACY_ALIASES: Record<string, string> = {
   "auto.switching_u2026": "common.switchingU2026",
   "auto.tap": "common.tap",
   "auto.tasks": "openspec.tasks",
-  "auto.tasks_2": "openspec.tasks2",
   "auto.terminal_closed": "terminal.terminalClosed",
   "auto.terminals": "terminal.terminals",
   "auto.the_dashboard_reads_this_file_to": "common.theDashboardReadsThisFileTo",
