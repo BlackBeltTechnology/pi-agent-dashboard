@@ -14,7 +14,7 @@ The per-session group-key resolver (`resolveSessionGroupPath`) SHALL apply the f
 2. **Git worktree collapse** — else if `session.gitWorktree?.mainPath` is set, the session SHALL group under the main worktree path.
 3. **Default** — else the session SHALL group under its cwd.
 
-Within a group, session order SHALL be governed solely by the server-provided session order (status-partitioned per the `session-ordering` capability). There SHALL be NO workspace-cluster adjacency constraint: worktree sibling sessions are ordered purely by the flat order list, not forced adjacent. (This removes the prior `clusterByWorkspaceName` ordering; grouping-under-parent collapse — step 2 above — is unchanged.)
+Within a group, session order SHALL be governed by the server-provided session order (status-partitioned per the `session-ordering` capability). When the group's effective group-by mode (per the `session-list-group-by` capability) is `status` or `location`, the group's non-ended sessions SHALL additionally be partitioned into lanes, each lane preserving the relative server order. There SHALL be NO workspace-cluster adjacency constraint: worktree sibling sessions are ordered purely by the flat order list, not forced adjacent. (This removes the prior `clusterByWorkspaceName` ordering; grouping-under-parent collapse — step 2 above — is unchanged.)
 
 #### Scenario: Multiple sessions in same directory
 - **WHEN** two or more sessions share the same `cwd`
@@ -39,6 +39,10 @@ Within a group, session order SHALL be governed solely by the server-provided se
 #### Scenario: Sessions ordered within group
 - **WHEN** the server provides an order for a group's resolved key
 - **THEN** sessions within that group SHALL be rendered in the server-provided order (status-partitioned), with unordered sessions appended by startedAt descending
+
+#### Scenario: Sessions ordered within lanes
+- **WHEN** a group's effective group-by mode is `status` or `location`
+- **THEN** each lane SHALL list its sessions in the relative order of the server-provided order, with unordered sessions appended by startedAt descending
 
 #### Scenario: Worktree session groups under parent repo
 - **WHEN** a session has `cwd = "/repo/.worktrees/feat-x"` and `gitWorktree.mainPath = "/repo"`

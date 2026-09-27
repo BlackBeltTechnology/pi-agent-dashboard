@@ -16,15 +16,14 @@
  *
  * See change: fix-pending-prompt-lost-on-replay (design D1/D2/D3).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { EventEmitter } from "node:events";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { createBrowserGateway, frameClassOf } from "../pairing/browser-gateway.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-// Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
-import { asWs as debtAsWs, attachCapturedWs, buildDebtGateway, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
 import type { DrainingWs } from "./helpers/draining-ws.js";
 import { createDrainingWs } from "./helpers/draining-ws.js";
 import {
@@ -35,6 +34,8 @@ import {
   seedReplayEvents,
   seedSessions,
 } from "./helpers/load-fixtures.js";
+// Aliased: this file already owns a StateWs-typed `asWs` for its own fixtures.
+import { attachCapturedWs, buildDebtGateway, asWs as debtAsWs, TEST_MAX_WS_BUFFER } from "./helpers/status-debt-fixtures.js";
 
 const MAX_WS_BUFFER = 4 * 1024 * 1024; // gateway default
 const MB = 1024 * 1024;
@@ -686,6 +687,16 @@ describe("status-reconcile is loop-safe and releases on abnormal teardown (X1/X3
 });
 
 describe("collapsed-folder frames (X7)", () => {
+  it("group_by_prefs_updated is state-class (session-list-group-by)", () => {
+    const m = {
+      type: "group_by_prefs_updated",
+      defaultGroupBy: "none",
+      folderGroupBy: {},
+      collapsedLanes: [],
+    } as ServerToBrowserMessage;
+    expect(frameClassOf(m)).toEqual({ cls: "state", key: "group_by_prefs_updated" });
+  });
+
   it("X7: collapsed_folders_updated is state-class — coalesced by type, never shed as transcript", () => {
     const cf = (k: string): ServerToBrowserMessage =>
       ({ type: "collapsed_folders_updated", collapsedFolders: [k] }) as ServerToBrowserMessage;
