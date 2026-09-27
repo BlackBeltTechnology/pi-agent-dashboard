@@ -278,7 +278,8 @@ function richKind(ext: string, mimeOf: (fallback: string) => string): FileKindRe
     };
   }
   if (ASCIIDOC_EXTENSIONS.has(ext)) {
-    return { kind: "asciidoc", mimeType: mimeOf("text/asciidoc"), viewer: "asciidoc", editable: false };
+    // Text-backed → editable (Monaco Edit over raw source, like `.csv`).
+    return { kind: "asciidoc", mimeType: mimeOf("text/asciidoc"), viewer: "asciidoc", editable: true };
   }
   if (EMAIL_EXTENSIONS.has(ext)) {
     return { kind: "email", mimeType: mimeOf("message/rfc822"), viewer: "email", editable: false };

@@ -5,3 +5,5 @@ New `case "view_messages_update"`: replaces `viewMessagesMap.get(sessionId)` wit
 Both reset arms (`event_replay` full-sweep + `session_state_reset`) carry unanswered interactive requests AND their `ui-<requestId>` rows via module-level `withCarriedInteractiveRequests(rebuilt, prev)` over `carryInteractiveRequests` — merged AFTER the replay fold, rows at the tail. See change: fix-pending-prompt-lost-on-replay (D8).
 
 `case "collapsed_folders_updated"` sets `collapsedFolders` from `msg.collapsedFolders` (full snapshot, replace not merge), beside `pinned_dirs_updated`/`workspaces_updated`. See change: persist-folder-collapse-server-side.
+
+`case "card_sections_updated"` → optional `setCardSections?.(msg.cardSections)` (replace, not merge). See change: configurable-session-card-sections.

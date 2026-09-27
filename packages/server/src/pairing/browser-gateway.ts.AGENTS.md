@@ -13,3 +13,4 @@ Prompt-capability issuance (tasks 2b.1, 3.2). `setPromptCapabilityPolicy(policy 
 - Connect burst sends `group_by_prefs_updated` right after `collapsed_folders_updated`, before `pinned_dirs_updated`/`workspaces_updated`/`sessions_snapshot` (lanes on first paint, no flat→lanes flash). `typeof getGroupByPrefs` guarded for old stubs.
 - `frameClassOf`: `group_by_prefs_updated` is `state` (coalesced by type, never shed).
 - Dispatch: `set_folder_group_by` / `set_default_group_by` / `set_lane_collapsed` → directory-handler. See change: session-list-group-by.
+Card sections: routes `set_card_section_visibility` / `reset_folder_card_sections` to directory-handler; connect burst sends `card_sections_updated` before `sessions_snapshot` unconditionally (incl. `{}` — reconnect drops stale client state); `frameClassOf` classes it `state`. See change: configurable-session-card-sections.

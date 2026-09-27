@@ -463,6 +463,46 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     expect(idx).toBeLessThan(types.indexOf("sessions_snapshot"));
     expect(msgs[idx]).toEqual({ type: "group_by_prefs_updated", ...prefs });
   });
+
+  // See change: configurable-session-card-sections.
+  function connectWithCardSections(cardSections: object) {
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({}),
+      {
+        getPinnedDirectories: () => [],
+        setPinnedDirectories: () => {},
+        getCollapsedFolders: () => [],
+        getCardSections: () => cardSections,
+        getWorkspaces: () => [],
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+      } as never,
+    );
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    return sentMessages(ws);
+  }
+
+  it("card_sections_updated is sent before sessions_snapshot", () => {
+    const prefs = { folders: { "/a": { git: false } } };
+    const msgs = connectWithCardSections(prefs);
+    const types = msgs.map((m) => m.type as string);
+    const idx = types.indexOf("card_sections_updated");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(types.indexOf("sessions_snapshot"));
+    expect((msgs[idx] as { cardSections: unknown }).cardSections).toEqual(prefs);
+  });
+
+  it("card_sections_updated is sent (empty) on connect so a reconnect clears stale client state", () => {
+    const msgs = connectWithCardSections({});
+    const msg = msgs.find((m) => m.type === "card_sections_updated") as { cardSections: unknown } | undefined;
+    expect(msg?.cardSections).toEqual({});
+  });
 });
 
 // ── E7: archived sessions are non-resident in the connect snapshot ──────────

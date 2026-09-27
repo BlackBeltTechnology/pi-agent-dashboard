@@ -1,6 +1,7 @@
 /**
  * Server ↔ Browser WebSocket protocol messages.
  */
+import type { CardSectionPrefs } from "./card-sections.js";
 import type {
   PluginActionMessage,
   PluginEventBroadcast,
@@ -702,6 +703,17 @@ export interface CollapsedFoldersUpdatedMessage {
 }
 
 /**
+ * Server → browser: full session-card section visibility snapshot. Sent on
+ * every mutation and on every connect (incl. `{}`, so a reconnect replaces
+ * stale client state).
+ * See change: configurable-session-card-sections.
+ */
+export interface CardSectionsUpdatedMessage {
+  type: "card_sections_updated";
+  cardSections: CardSectionPrefs;
+}
+
+/**
  * Server → browser: aggregate session-list grouping prefs snapshot (sent on
  * connect right after `collapsed_folders_updated`, before any folder-group
  * materializing message, and on every real mutation). Keys of `folderGroupBy`
@@ -1188,6 +1200,7 @@ export type ServerToBrowserMessage =
   | WorkspacesUpdatedMessage
   | CollapsedFoldersUpdatedMessage
   | GroupByPrefsUpdatedMessage
+  | CardSectionsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1769,6 +1782,25 @@ export interface SetFolderCollapsedMessage {
 }
 
 /**
+ * Browser → server: set one session-card section's visibility. `path` absent
+ * = global default; `visible: null` = inherit (deletes the key). The server
+ * validates the section id + path and canonicalizes the folder key.
+ * See change: configurable-session-card-sections.
+ */
+export interface SetCardSectionVisibilityMessage {
+  type: "set_card_section_visibility";
+  path?: string;
+  section: string;
+  visible: boolean | null;
+}
+
+/** Browser → server: drop every section override for one folder. See change: configurable-session-card-sections. */
+export interface ResetFolderCardSectionsMessage {
+  type: "reset_folder_card_sections";
+  path: string;
+}
+
+/**
  * Browser → server: set one folder's explicit group-by mode; `null` removes
  * the override (folder follows `defaultGroupBy`). Server validates the enum
  * and canonicalizes `path`. See change: session-list-group-by.
@@ -2060,6 +2092,8 @@ export type BrowserToServerMessage =
   | SetFolderGroupByMessage
   | SetDefaultGroupByMessage
   | SetLaneCollapsedMessage
+  | SetCardSectionVisibilityMessage
+  | ResetFolderCardSectionsMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage

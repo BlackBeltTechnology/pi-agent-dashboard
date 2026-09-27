@@ -19,3 +19,4 @@ See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSessio
 ## session-list-group-by
 
 - State `groupByPrefs` (undefined until `group_by_prefs_updated`); passes `groupByPrefs`/`onSetFolderGroupBy`/`onSetLaneCollapsed` to SessionList and `groupByPrefs`/`onSetDefaultGroupBy` to both SettingsPanel mounts; effect runs `runUrgencyMigration` once prefs known. See change: session-list-group-by.
+`cardSections` state + `CardSectionsProvider` (value memoized on snapshot + `send`; `showToast` routed through a ref so the value stays stable); `VALID_FOLDER_SETTINGS_PAGES` gains `cards`. See change: configurable-session-card-sections.

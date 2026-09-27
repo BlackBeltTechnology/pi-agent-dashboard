@@ -8,6 +8,7 @@ import type {
   ServerToBrowserMessage,
   SpawnFailureCode,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
@@ -131,6 +132,8 @@ export interface MessageHandlerSetters {
   setCollapsedFolders: React.Dispatch<React.SetStateAction<string[]>>;
   /** Session-list grouping prefs, synced via `group_by_prefs_updated`. See change: session-list-group-by. */
   setGroupByPrefs?: React.Dispatch<React.SetStateAction<import("@blackbelt-technology/pi-dashboard-shared/session-group-by.js").GroupByPrefs | undefined>>;
+  /** Session-card section visibility snapshot, synced via `card_sections_updated`. Optional so older setter bags stay valid. See change: configurable-session-card-sections. */
+  setCardSections?: React.Dispatch<React.SetStateAction<CardSectionPrefs>>;
   /** Favorite model labels, synced via `favorite_models_updated`. See change: enrich-model-selector-capabilities-favorites. */
   setFavoriteModels: React.Dispatch<React.SetStateAction<string[]>>;
   /** folder-workspaces: full workspace list, kept in sync via `workspaces_updated`. */
@@ -301,7 +304,7 @@ export function useMessageHandler(
   const {
     setSessions, setSessionStates, setSessionCommands,
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult,
-    setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals,
+    setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
@@ -1715,6 +1718,11 @@ export function useMessageHandler(
         });
         break;
 
+      case "card_sections_updated":
+        // configurable-session-card-sections: full snapshot. Replace, do not merge.
+        setCardSections?.(msg.cardSections);
+        break;
+
       case "favorite_models_updated":
         setFavoriteModels(msg.labels);
         break;
@@ -1967,5 +1975,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef]);
 }

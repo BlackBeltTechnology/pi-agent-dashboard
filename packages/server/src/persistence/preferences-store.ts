@@ -14,6 +14,14 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Workspace } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import {
+  CARD_SECTIONS_MAX_FOLDERS,
+  CARD_SECTIONS_MAX_KEYS,
+  type CardSectionPrefs,
+  cardSectionFolderKey,
+  isValidFolderPath,
+  isValidSectionId,
+} from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { CONFIG_DIR } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import {
@@ -138,6 +146,13 @@ interface PreferencesData {
   defaultGroupBy?: GroupByMode;
   folderGroupBy?: Record<string, GroupByMode>;
   collapsedLanes?: string[];
+  /**
+   * Session-card section visibility: sparse global defaults + per-folder
+   * overrides keyed by `cardSectionFolderKey` (`pathKey`-folded, never
+   * realpath'd). Absent/corrupt → `{}` (all visible). Capped per design D4.
+   * See change: configurable-session-card-sections.
+   */
+  cardSections?: CardSectionPrefs;
 }
 
 export interface PreferencesStore {
@@ -169,6 +184,18 @@ export interface PreferencesStore {
   setDefaultGroupBy(mode: GroupByMode): boolean;
   /** Invalid lane or no-op → false, no write. */
   setLaneCollapsed(dirPath: string, lane: LaneId, collapsed: boolean): boolean;
+  // ── card sections (configurable-session-card-sections) ──────────
+  /** Deep-copied snapshot; `{}` when nothing is set. */
+  getCardSections(): CardSectionPrefs;
+  /**
+   * Set one section's visibility. `dirPath` undefined → global default;
+   * `visible: null` → inherit (deletes the key; an emptied folder is
+   * removed). Rejects invalid id / path / value and over-cap writes without
+   * mutation. Returns `true` only on a real mutation.
+   */
+  setCardSectionVisibility(dirPath: string | undefined, section: string, visible: boolean | null): boolean;
+  /** Drop every override for one folder. Returns `true` only on mutation. */
+  resetFolderCardSections(dirPath: string): boolean;
   // ── favorite models (enrich-model-selector-capabilities-favorites) ──
   getFavoriteModels(): string[];
   setFavoriteModels(labels: string[]): void;
@@ -362,6 +389,60 @@ function normalizeWorkspaceOnLoad(ws: Workspace): Workspace {
   };
 }
 
+type SectionMap = Map<string, boolean>;
+
+/** Valid-id, boolean-valued entries only; capped at `CARD_SECTIONS_MAX_KEYS`. */
+function sanitizeSectionMap(raw: unknown): SectionMap {
+  const out: SectionMap = new Map();
+  if (!isPlainObject(raw)) return out;
+  for (const [id, v] of Object.entries(raw)) {
+    if (out.size >= CARD_SECTIONS_MAX_KEYS) break;
+    if (isValidSectionId(id) && typeof v === "boolean") out.set(id, v);
+  }
+  return out;
+}
+
+/**
+ * Load-time sanitization of `cardSections`: drops invalid ids / non-boolean
+ * values / non-absolute folder keys / empty folder maps, re-folds folder keys
+ * (merging spellings), and applies the caps. Corrupt input → empty.
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Fold one raw folder entry into `folders` (merging spellings, honouring caps). */
+function addLoadedFolder(folders: Map<string, SectionMap>, p: string, raw: unknown): void {
+  if (!isValidFolderPath(p)) return;
+  const map = sanitizeSectionMap(raw);
+  if (map.size === 0) return;
+  const key = cardSectionFolderKey(p);
+  const existing = folders.get(key);
+  if (!existing) {
+    if (folders.size < CARD_SECTIONS_MAX_FOLDERS) folders.set(key, map);
+    return;
+  }
+  for (const [id, v] of map) if (existing.size < CARD_SECTIONS_MAX_KEYS) existing.set(id, v);
+}
+
+function loadCardSections(raw: unknown): { global: SectionMap; folders: Map<string, SectionMap> } {
+  const folders = new Map<string, SectionMap>();
+  if (!isPlainObject(raw)) return { global: new Map(), folders };
+  if (isPlainObject(raw.folders)) {
+    for (const [p, m] of Object.entries(raw.folders)) addLoadedFolder(folders, p, m);
+  }
+  return { global: sanitizeSectionMap(raw.global), folders };
+}
+
+function cardSectionsSnapshot(global: SectionMap, folders: Map<string, SectionMap>): CardSectionPrefs {
+  const out: CardSectionPrefs = {};
+  if (global.size > 0) out.global = Object.fromEntries(global);
+  if (folders.size > 0) {
+    out.folders = Object.fromEntries([...folders].map(([k, m]) => [k, Object.fromEntries(m)]));
+  }
+  return out;
+}
+
 export function createPreferencesStore(
   filePath: string = PREFERENCES_FILE,
   deps: {
@@ -483,6 +564,14 @@ export function createPreferencesStore(
     ].filter(Boolean));
     return pathKey(dirPath, platform);
   }
+  // Session-card section visibility (configurable-session-card-sections).
+  const loadedCardSections = loadCardSections(data.cardSections);
+  const cardSectionsGlobal = loadedCardSections.global;
+  const cardSectionsFolders = loadedCardSections.folders;
+  const cardSectionsChangedOnLoad =
+    data.cardSections !== undefined &&
+    JSON.stringify(data.cardSections) !==
+      JSON.stringify(cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders));
   // Favorite model labels — deduped, insertion-ordered. Default [] for legacy files.
   let favoriteModels: string[] = dedupePreserveOrder(
     Array.isArray(data.favoriteModels) ? data.favoriteModels.filter((l) => typeof l === "string") : [],
@@ -492,6 +581,7 @@ let dirty =
     // Load-time displayPrefs migration/seeding (custom-entry-fallback) must
     // reach disk on THIS load — see the prefsChangedOnLoad comment above.
     prefsChangedOnLoad ||
+    cardSectionsChangedOnLoad ||
     data.pinSeeded !== true ||
     pinnedDirectories.length !== rawPinned.length ||
     pinnedDirectories.some((p, i) => p !== rawPinned[i]) ||
@@ -505,6 +595,34 @@ let dirty =
     collapsedFolders.length !== rawCollapsed.length ||
     collapsedFolders.some((p, i) => p !== rawCollapsed[i]);
 
+  /** Inherit: drop the key; an emptied folder map is removed. `key` undefined = global. */
+  function deleteCardSection(key: string | undefined, section: string): boolean {
+    const map = key === undefined ? cardSectionsGlobal : cardSectionsFolders.get(key);
+    if (!map?.delete(section)) return false;
+    if (key !== undefined && map.size === 0) cardSectionsFolders.delete(key);
+    return true;
+  }
+
+  /** Explicit value; rejects over-cap writes (new folder / new key) without mutation. */
+  function putCardSection(key: string | undefined, section: string, visible: boolean): boolean {
+    let map = key === undefined ? cardSectionsGlobal : cardSectionsFolders.get(key);
+    if (map?.get(section) === visible) return false;
+    if (!map) {
+      if (cardSectionsFolders.size >= CARD_SECTIONS_MAX_FOLDERS) return false;
+      map = new Map();
+      cardSectionsFolders.set(key as string, map);
+    } else if (!map.has(section) && map.size >= CARD_SECTIONS_MAX_KEYS) {
+      return false;
+    }
+    map.set(section, visible);
+    return true;
+  }
+
+  function cardSectionsForDisk(): CardSectionPrefs | undefined {
+    const snap = cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders);
+    return snap.global || snap.folders ? snap : undefined;
+  }
+
   function scheduleSave(): void {
     dirty = true;
     if (debounceTimer) return;
@@ -512,7 +630,7 @@ let dirty =
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -524,7 +642,7 @@ let dirty =
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
     }
   }
 
@@ -613,6 +731,30 @@ let dirty =
       }
       if (idx === -1) return false;
       collapsedFolders.splice(idx, 1);
+      scheduleSave();
+      return true;
+    },
+
+    // ── card sections (configurable-session-card-sections) ──
+
+    getCardSections(): CardSectionPrefs {
+      return cardSectionsSnapshot(cardSectionsGlobal, cardSectionsFolders);
+    },
+
+    setCardSectionVisibility(dirPath: string | undefined, section: string, visible: boolean | null): boolean {
+      if (!isValidSectionId(section)) return false;
+      if (visible !== null && typeof visible !== "boolean") return false;
+      if (dirPath !== undefined && !isValidFolderPath(dirPath)) return false;
+      const key = dirPath === undefined ? undefined : cardSectionFolderKey(dirPath);
+      const changed =
+        visible === null ? deleteCardSection(key, section) : putCardSection(key, section, visible);
+      if (changed) scheduleSave();
+      return changed;
+    },
+
+    resetFolderCardSections(dirPath: string): boolean {
+      if (!isValidFolderPath(dirPath)) return false;
+      if (!cardSectionsFolders.delete(cardSectionFolderKey(dirPath))) return false;
       scheduleSave();
       return true;
     },

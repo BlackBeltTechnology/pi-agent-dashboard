@@ -128,7 +128,7 @@ The server SHALL expose `GET /api/file/raw?cwd=&path=` that streams the file con
 
 ### Requirement: AsciiDoc rendering endpoint
 
-The server SHALL expose `GET /api/file/render?cwd=&path=` that runs `asciidoctor` in `safe: "secure"` mode against the file and returns `{ success: true, data: { html } }`. It SHALL reject any extension other than `.adoc` / `.asciidoc` with HTTP 400. It SHALL enforce the same anti-traversal gate as `/api/file/raw`.
+The server SHALL expose `GET /api/file/render?cwd=&path=` that runs `asciidoctor` in `safe: "secure"` mode against the file and returns `{ success: true, data: { html } }`. The convert SHALL set the `showtitle` attribute so the document title (`= Title`) is kept as an `<h1>` in the embedded output. It SHALL reject any extension other than `.adoc` / `.asciidoc` with HTTP 400. It SHALL enforce the same anti-traversal gate as `/api/file/raw`.
 
 #### Scenario: AsciiDoc rendered to sanitized HTML
 
@@ -146,6 +146,12 @@ The server SHALL expose `GET /api/file/render?cwd=&path=` that runs `asciidoctor
 - **GIVEN** `evil.adoc` contains `include::/etc/passwd[]`
 - **WHEN** rendered through this endpoint
 - **THEN** the returned HTML does NOT contain `/etc/passwd` contents (the include directive is neutralized by `safe: "secure"`)
+
+#### Scenario: Document title is rendered
+
+- **GIVEN** `guide.adoc` starts with `= Field Guide`
+- **WHEN** rendered through this endpoint
+- **THEN** the returned HTML contains `<h1>Field Guide</h1>`
 
 ### Requirement: HTML preview is sandboxed without script execution
 
@@ -406,9 +412,14 @@ cache keyed by path + mtime + size so the attachment endpoint does not re-parse 
 
 ### Requirement: EML sanitizer loads lazily so a broken jsdom cannot block server boot
 
-The server-side HTML sanitizer (`isomorphic-dompurify`) SHALL be loaded via dynamic `import()`
-at first sanitize, NOT via a static top-level import (it constructs a `jsdom` window on first
-evaluation). A failure to initialize the sanitizer (e.g. a corrupt/torn `jsdom`
+The server-side HTML sanitizer (`isomorphic-dompurify`) SHALL be loaded lazily at first sanitize
+through the shared `loadPurify()` helper, NOT via a static top-level import (it constructs a
+`jsdom` window on first evaluation). This applies to every server-side sanitizer consumer: EML
+bodies, docx HTML and diagram (Kroki) SVGs. `loadPurify()` SHALL load the package with native
+`require` (`createRequire`), NOT dynamic `import()`: under the server's `node --import
+jiti-register` loader a dynamic import routes jsdom's CommonJS through jiti and breaks its
+`interfaces.js` ↔ `create-element.js` require cycle. It SHALL NOT cache an instance whose
+`sanitize` is not a function, so a failed first load is retried on the next request. A failure to initialize the sanitizer (e.g. a corrupt/torn `jsdom`
 install) SHALL therefore surface only on an EML preview request, and SHALL NOT prevent the
 server from starting or registering routes.
 
@@ -421,6 +432,11 @@ server from starting or registering routes.
 - **WHEN** the client requests `/api/file/eml` for an `.eml` with an HTML body
 - **THEN** that single request fails with an HTTP error `{ success: false, error: … }`
 - **AND** the server process stays up and other routes continue to respond
+
+#### Scenario: Sanitizer works under the server's jiti loader
+- **GIVEN** a process started with `node --import jiti-register` (as the dashboard server is)
+- **WHEN** `loadPurify()` sanitizes `<svg><script>…</script><g/></svg>`
+- **THEN** it returns `<svg><g></g></svg>` (jsdom initialized correctly, script stripped)
 
 ### Requirement: EML attachment streaming endpoint is content-type-safe
 
@@ -596,7 +612,7 @@ client SHALL degrade to the existing `FallbackPreview` download card with a clea
 
 ### Requirement: Overlay and editor-pane surfaces share renderers
 
-Every renderer (`MarkdownPreview`, `AsciiDocPreview`, `HtmlPreview`, `PdfPreview`, `VideoPreview`, `ImagePreview`, `YouTubePreview`, `DocxPreview`, `PptxPreview`, `SpreadsheetPreview`, `EmlPreview`, `FallbackPreview`) SHALL be usable in two contexts: the `/pi-view` / `…/view` overlay route (FileLink / OpenFileButton / canvas) and the internal editor pane (`viewer-registry` + `UrlViewer`). The renderer component SHALL NOT contain navigation or surface chrome; the shell is owned by the overlay route component or the editor-pane viewer wrapper. There is no longer an in-chat `PreviewCard` surface.
+Every renderer (`MarkdownPreview`, `AsciiDocPreview`, `HtmlPreview`, `PdfPreview`, `VideoPreview`, `ImagePreview`, `YouTubePreview`, `DocxPreview`, `PptxPreview`, `SpreadsheetPreview`, `EmlPreview`, `FallbackPreview`) SHALL be usable in two contexts: the `/pi-view` / `…/view` overlay route (FileLink / OpenFileButton / canvas) and the internal editor pane (`viewer-registry` + `UrlViewer`). The renderer component SHALL NOT contain navigation or surface chrome; the shell is owned by the overlay route component or the editor-pane viewer wrapper. Because the editor pane supplies no scroll container of its own, the editor-pane wrapper of a flow-height renderer (`AsciiDocPreview`, `DocxPreview` HTML mode) SHALL provide one, so long documents scroll within the pane instead of overflowing it. There is no longer an in-chat `PreviewCard` surface.
 
 The overlay route SHALL render in a route-backed overlay container: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth panel on mobile. It is no longer full-screen on desktop. The URL SHALL be unchanged by this container choice, and the renderer components SHALL be unaffected — the container is owned by the overlay route component, which is exactly the boundary this requirement already draws.
 
@@ -605,6 +621,12 @@ The overlay route SHALL render in a route-backed overlay container: a `Dialog` o
 - **GIVEN** a `.pdf` target opens in the editor pane via `/view`
 - **WHEN** the same file is opened through a FileLink overlay
 - **THEN** both mount the SAME `PdfPreview` component with the same `target` prop (no separate variant component)
+
+#### Scenario: Long document scrolls in the editor pane
+
+- **GIVEN** a long `.adoc` or `.docx` (HTML mode) opened in the editor pane or canvas
+- **WHEN** it renders taller than the pane
+- **THEN** the content scrolls within the pane and does not overflow the pane's footer
 
 #### Scenario: Overlay route renders in a dialog container on desktop
 
@@ -685,7 +707,7 @@ The AsciiDoc preview SHALL render the returned HTML inside a dedicated `.asciido
 
 ### Requirement: Diagram source blocks in AsciiDoc preview hydrate
 
-The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to rendered diagrams, keying on the language attributes that survive the secure embedded convert (`[source,mermaid]` / `[source,plantuml]` blocks) plus content sniffing for listing blocks that start with `@startuml`. Mermaid blocks SHALL render client-side; PlantUML blocks SHALL render via the diagram render proxy. A block that fails or declines to render SHALL remain visible as its original code listing. Bare style-only blocks (`[mermaid]` without `source`) carry no surviving type information and SHALL remain code listings.
+The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to rendered diagrams, keying on the language attributes that survive the secure embedded convert (`[source,mermaid]` / `[source,plantuml]` blocks) plus content sniffing for listing blocks that start with `@startuml`. Mermaid blocks SHALL render client-side; PlantUML blocks SHALL render via the diagram render proxy. A hydrated PlantUML diagram SHALL size to its content in the document flow (no fixed-height box): scaled down to the column width when wider, never cropped, aspect ratio preserved, with zoom/pan still available. A block that fails or declines to render SHALL remain visible as its original code listing. Bare style-only blocks (`[mermaid]` without `source`) carry no surviving type information and SHALL remain code listings.
 
 #### Scenario: source,mermaid block hydrates client-side
 - **WHEN** a previewed `.adoc` contains a `[source,mermaid]` block with valid mermaid syntax
@@ -694,6 +716,10 @@ The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to
 #### Scenario: source,plantuml block hydrates via proxy
 - **WHEN** a previewed `.adoc` contains a `[source,plantuml]` block and the proxy resolves an endpoint
 - **THEN** it renders as an SVG diagram in place of the code listing
+
+#### Scenario: Tall PlantUML diagram is not cropped
+- **WHEN** a hydrated PlantUML SVG is taller than 400px
+- **THEN** its container grows to the diagram's height and the whole diagram is visible without panning
 
 #### Scenario: @startuml sniffing
 - **WHEN** a plain listing block's content starts with `@startuml`
@@ -706,3 +732,16 @@ The AsciiDoc preview SHALL upgrade diagram source blocks in the rendered HTML to
 #### Scenario: Bare style block stays a listing
 - **WHEN** a previewed `.adoc` contains a bare `[mermaid]` style block (not `[source,mermaid]`)
 - **THEN** it remains a code listing (no type information survives the secure convert)
+
+### Requirement: AsciiDoc preview renders latexmath
+
+The AsciiDoc preview SHALL render asciidoctor `latexmath` passthrough, inline `\(…\)` (from `stem:[…]`) and display `\[…\]` (from `[stem]` blocks), with KaTeX, decoding HTML entities first and rendering invalid TeX as an inline error rather than failing the preview. Text inside `<pre>`/`<code>` SHALL be left untouched. KaTeX SHALL be loaded on demand only when the rendered HTML contains math delimiters, so documents without math do not pay for it.
+
+#### Scenario: Inline and display math render
+- **GIVEN** an `.adoc` with `stem:[n \cdot c]` and a `[stem]` block, under `:stem: latexmath`
+- **WHEN** it is previewed
+- **THEN** both render as KaTeX (the block in display mode) and no raw `\(` delimiter text is shown
+
+#### Scenario: Code listings keep literal delimiters
+- **WHEN** a source block contains `\(x\)` text
+- **THEN** that listing is shown literally, not rendered as math

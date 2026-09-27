@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { hasAdocMath, renderAdocMath } from "../../lib/preview/adoc-math.js";
 import { splitAdocDiagramSegments, type AdocSegment } from "../../lib/preview/adoc-diagram-splitter.js";
 import { DiagramPreview } from "./DiagramPreview.js";
 import { MermaidBlock } from "./MermaidBlock.js";
@@ -31,7 +32,14 @@ export function AsciiDocPreview({ target }: Props) {
         const body = await res.json();
         if (cancelled) return;
         if (body.success && typeof body.data?.html === "string") {
-          setHtml(body.data.html);
+          let rendered: string = body.data.html;
+          // latexmath (`stem:[…]`, `[stem]`): KaTeX loaded only when the doc has math.
+          if (hasAdocMath(rendered)) {
+            const katex = (await import("katex")).default;
+            if (cancelled) return;
+            rendered = renderAdocMath(rendered, katex);
+          }
+          setHtml(rendered);
         } else {
           setError(body.error || "failed to render");
         }
@@ -73,10 +81,11 @@ export function AsciiDocPreview({ target }: Props) {
           );
         }
         return (
-          <div key={idx} className="my-2 h-[400px] border border-[var(--border-subtle)] rounded overflow-hidden">
+          <div key={idx} className="my-2 border border-[var(--border-subtle)] rounded overflow-hidden">
             <DiagramPreview
               target={target}
               sourceText={seg.source}
+              inline
             />
           </div>
         );

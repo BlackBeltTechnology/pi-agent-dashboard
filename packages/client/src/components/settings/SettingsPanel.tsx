@@ -76,6 +76,7 @@ import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DefaultGroupingField } from "./DefaultGroupingField.js";
+import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
@@ -1404,6 +1405,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   </div>
                 </Section>
                 <DisplayPrefsSection />
+                <CardSectionsSection />
               </>
             )}
 
