@@ -20,9 +20,11 @@ import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
   sourceText?: string;
+  /** Embedded in a document flow: size to the diagram (width-capped) instead of filling a fixed-height parent. */
+  inline?: boolean;
 }
 
-export function DiagramPreview({ target, sourceText }: Props) {
+export function DiagramPreview({ target, sourceText, inline = false }: Props) {
   // Opted out of the access-grant dialog unless a provider declares operator
   // provenance (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch } = usePreviewFetch();
@@ -125,18 +127,19 @@ export function DiagramPreview({ target, sourceText }: Props) {
   if (svg) {
     return (
       <div
-        className="relative h-full w-full overflow-hidden bg-[var(--bg-surface)] select-none"
+        className={`relative w-full overflow-hidden bg-[var(--bg-surface)] select-none ${inline ? "" : "h-full"}`}
         data-testid="diagram-preview-viewport"
       >
         <ZoomControls onZoomIn={zoomIn} onZoomOut={zoomOut} onReset={reset} scale={zoom.scale} />
         <div
-          className="flex h-full w-full items-center justify-center"
+          className={`flex w-full items-center justify-center ${inline ? "py-2" : "h-full"}`}
           {...handlers}
           style={{ cursor: zoom.scale > 1 ? "grab" : "default", touchAction: "none" }}
         >
           <div
             data-testid="diagram-svg-container"
-            className="flex items-center justify-center"
+            // Inline: scale Kroki's fixed-size SVG (inline style width/height) to the column, keeping aspect.
+            className={`flex items-center justify-center ${inline ? "max-w-full [&_svg]:max-w-full [&_svg]:!h-auto" : ""}`}
             style={{
               transform: `translate(${zoom.translateX}px, ${zoom.translateY}px) scale(${zoom.scale})`,
               transformOrigin: "center center",

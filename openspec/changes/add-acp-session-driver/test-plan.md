@@ -64,6 +64,17 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | E48 | spawn routing by durable | decision-table | L1 | automated | agent `durable` absent / `false` / `true` | spawn via WS `spawn_session` | absent+false → host A: no keeper spawned, agent pid in headless PID registry; true → keeper with `piCmd=[node, bin/acp-bridge.mjs]`, `piArgs=["--agent",id]` |
 | E49 | hosts: behaviour parity | invariant | L1 | automated | same fake-agent script (prompt, tool call, permission, idle) | run through host A (LocalBridgeSocket) and host B (fake WS gateway) | browser-visible message sequences equal after normalising ids/timestamps |
 | E50 | hosts: in-process origin local | EP | L1 | automated | in-process ACP session registered | read session record | origin local (no `originDeviceId`); resume/stop capability same as a local pi session |
+| E51 | plugin spawn with agent | decision-table | L1 | automated | hook opts {agent:"qmt",spawnToken,pluginRef,initialPrompt} / {agent:"qmt",scope:{tools:["read"]}} / {agent:"nope"} | host `spawnSession` | first: ACP host started, token+pluginRef kept, initial prompt as `send_prompt`; second/third `success:false` naming `scope` / unknown agent, nothing spawned |
+| E52 | automation agent validation | decision-table | L1 | automated | agent "qmt"+`core.prompt` / "qmt"+`core.skill` / "ghost"+`core.prompt` | validate on save | valid / error naming `core.skill` / error naming unknown agent |
+| E53 | automation run on ACP | state-transition | L1 | automated | automation agent "qmt"; fake spawn + synthesized `agent_end`/`message_end` | fire | `spawnSession` gets `agent:"qmt"`, no `model`; run completes with final assistant text as result |
+| E54 | plugin sendToSession slash text | EP | L1 | automated | ACP session; text "/review" | `ctx.sendToSession` | `send_prompt` "/review"; no `dispatch_extension_command` |
+| E55 | continue-session guards | decision-table | L1 | automated | ended + running ACP sessions | reload, prompt-to-ended, resume, fork, fork-degrade, REST resume/fork, retry | each `unsupported_for_acp`; no spawn, kill, `resuming` flag or intent record; pi sessions unchanged |
+| E56 | boot recovery skips ACP | EP | L1 | automated | candidates [pi with sessionFile, ACP] | recovery grace timer | `spawnPiSession` called once, for pi only |
+| E57 | picker memory + fallback | state-transition | L1 | automated | agents [qmt]; spawn qmt in /a; later agents [] / [other] | render /a and /b controls | /a preselects qmt, /b pi; qmt removed → pi; no agents → plain button |
+| E58 | picker entry-point wiring | decision-table | L1 | automated | agents [qmt]; ACP source session qmt | folder +, directory prompt, OpenSpec, worktree, landing, sibling, keyboard sibling, Initialize | chosen agent on picker entries; qmt for sibling/keyboard without menu; no agent for Initialize |
+| E59 | automation editor picker | EP | L1 | automated | agents [qmt] | choose qmt | model selector hidden; saved `agent:"qmt"`; skill action disabled |
+| E60 | goal link refuses ACP session | decision-table | L1 | automated | running session S driver acp in goal cwd | POST /api/folders/goals/:id/sessions {sessionId:S} | 400 unsupported_for_acp; no linkSession/applyGoalIdToSession/primeGoalSession call |
+| E61 | goal spawn + respawn stay pi | invariant | L1 | automated | agents [qmt]; folder memory qmt | POST …/sessions {spawn:true}; supervisor respawn | ctx.spawnSession opts have no agent |
 
 ### Performance
 
@@ -86,6 +97,13 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 | F6 | pi-only controls hidden | invariant | L3 | automated | ACP session open | inspect session header/menus | no flow/fork/reload/terminal entry points |
 | F7 | ACP UX overall | visual/subjective | — | manual-only | querymt real session | human uses it for a task | [judgment: badge, degraded-feature messaging and tool cards feel coherent] |
 | F8 | hosts: non-durable end-to-end | state-convergence | L3 | automated | harness with fake agent `durable:false` | spawn from dialog, send "hello" | card with ACP badge; one user bubble; reply rendered; no keeper process for the session |
+| F9 | automation on ACP end-to-end | state-transition | L3 | automated | harness fake agent; automation agent qmt | run now; second run stopped mid-turn | first completes with result text; second marked stopped, session ended |
+| F10 | ended ACP session controls | invariant | L3 | automated | ended ACP session | open card, type prompt | no Resume/Fork/Reload/Retry; "start a new session" hint; no process spawned |
+| F11 | picker keyboard (APG menu button) | state-transition | L3 | automated | agents [qmt, claude]; folder tray | focus chevron, ArrowDown, ArrowDown, Enter; reopen, Escape | menu opens on ArrowDown with focus on checked item; Enter selects next agent; focus returns to chevron; Escape closes keeping selection; exactly one `aria-checked="true"` |
+| F12 | ACP surfaces a11y | invariant | L3 | automated | spawn tray with menu open, ACP session cards (running/ended), ended-session callout, startup-failure callout, automation editor with agent | axe `wcag2a/2aa/21aa/22aa` in dark and light | 0 violations in both themes |
+| F13 | picker layout robustness | BVA | L3 | automated | agent name "Claude Agent" (longest configured) | render tray at 375 / 900 / 1440, open menu | main button height ≤ 44 px (single line); menu rect within viewport at all widths; no horizontal scroll at 375 |
+| F14 | worktree dialog agent field | decision-table | L3 | automated | folder remembers `claude`; agents [qmt, claude]; 2 existing worktrees | open +Worktree dialog; click existing-row "New session →"; separately Create; repeat with no agents | Agent select preselected `claude`; row + submit labels name the agent; both actions send `spawn_session.agent="claude"` with the worktree cwd; parent-folder memory updated on change; no agents → field absent, labels unchanged |
+| F15 | goal detail pi-only affordances | decision-table | L3 | automated | folder remembers qmt; running pi P + ACP S; agents configured | open goal detail; Link existing… | "New pi session" label; list = [P]; omitted-count line; axe 0 violations |
 
 ### Error-handling
 
@@ -105,10 +123,14 @@ Harness notes: "fake agent" = `packages/server/src/acp-bridge/__tests__/fake-acp
 
 ## Coverage summary
 
-- Requirements covered: 18/18 (acp-agent-sessions 14, acp-update-model 4)
-- Scenarios by class: edge 50 · perf 4 · frontend 8 · error 9
-- Scenarios by level: L1 60 · L2 2 · L3 7
-- Scenarios by disposition: automated 70 · manual-only 1
+- Requirements covered: 21/21 (acp-agent-sessions 17, acp-update-model 4)
+- Scenarios by class: edge 61 · perf 4 · frontend 15 · error 9
+- Scenarios by level: L1 71 · L2 2 · L3 14
+- Scenarios by disposition: automated 88 · manual-only 1
+
+## UX baseline
+
+Mockups + probe: `mockups/index.html`, `mockups/ux-probe.cjs` (33/33), results `mockups/ux-test.md`. F11–F15 port the probe checks to the real client.
 
 ## New infra needed
 

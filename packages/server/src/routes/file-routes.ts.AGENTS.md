@@ -5,5 +5,7 @@ REST routes for file read/browse. `/api/file` decodes leading `file://` on `path
 Access-grant prompting (change: add-access-grant-dialog, tasks 6.2/6.3). The five handler-level containment sites (`read`, `tree`, `exists`, `raw`, `render`) pass `hold: { request, reply }` to `evaluateContainment`, so a miss may be suspended while the operator is asked and re-evaluated on an allow. The helper-level sites `gateFilePath` and `gateOfficeFile` have no request in scope: they still report every denial (recorded, answerable on the Access surface) but never suspend. The unknown-cwd refusal in `GET /api/file/exists` goes through `unknownCwdVerdictAdmits`: on an allow verdict it RE-RUNS the known-cwd guard against the LIVE pinned set (allow-always pinned it) or admits exactly the named directory for this request (allow-once); every other outcome returns the byte-identical `"unknown cwd"` body.
 
 `unknownCwdVerdictAdmits` allow-once also requires `!isUngrantableSubject(subject)`. See change: add-access-grant-dialog (2b.7 review).
+- `GET /api/file` `mtime` = full-precision `stat.mtimeMs` (was `Math.round` → false 409 on every sub-ms mtime in `/api/file/write`). Content returned for `editable` kinds incl. `.adoc`.
+- `/api/file/render` asciidoctor `attributes: { showtitle: "" }` → embedded output keeps `= Title` as `<h1>`.
 
 See change: surface-denial-remedy-in-previews — Every denial site passes `disclosure: canDiscloseAccessPosture(request)` (5 holding sites; `gateFilePath` opts + `gateOfficeFile` param, 7 call sites). `denialBody` copies `promptOutcome`.

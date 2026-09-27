@@ -93,7 +93,12 @@ const CASES: Case[] = [
     act: (c) => fireEvent.error(c.querySelector("audio") as HTMLElement),
   },
   { file: "CappedViewer.tsx", el: () => <CappedViewer viewer="image" {...vp("a.png", "image")} /> },
-  { file: "EditableSpreadsheetTab.tsx", el: () => <EditableSpreadsheetTab {...vp("a.csv")} /> },
+  // EditablePreviewTab's own `/api/file` load runs on entering Edit.
+  {
+    file: "EditablePreviewTab.tsx",
+    el: () => <EditableSpreadsheetTab {...vp("a.csv")} />,
+    act: (c) => fireEvent.click(c.querySelector('[data-testid="csv-edit-toggle"]') as HTMLElement),
+  },
   { file: "MarkdownViewer.tsx", el: () => <MarkdownViewer {...vp("a.md", "markdown")} /> },
   { file: "MermaidViewer.tsx", el: () => <MermaidViewer {...vp("a.mmd")} /> },
   { file: "MonacoBuffer.tsx", el: () => <MonacoBuffer {...vp("a.ts")} /> },

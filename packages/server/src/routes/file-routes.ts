@@ -438,7 +438,7 @@ export function registerFileRoutes(
         // Classify by extension + a bounded sniff (first 1024 bytes) so binary
         // files are not slurped whole just to discriminate. Content is returned
         // for text-renderable kinds (monaco / markdown viewers) AND any
-        // `editable` kind (currently `.csv`, so Monaco Edit can load the raw
+        // `editable` kind (`.csv`, `.adoc`, so Monaco Edit can load the raw
         // text); image / pdf / binary / office tabs fetch their own bytes.
         // Binary spreadsheets (`.xlsx`/`.xls`) stay `editable:false` → no
         // `content` (no binary-bytes-in-JSON leak).
@@ -1127,7 +1127,8 @@ export function registerFileRoutes(
 
       try {
         const adoc = getAsciidoctor();
-        const html = adoc.convert(source, { safe: "secure", standalone: false });
+        // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
+        const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
         return { success: true, data: { html: String(html) } } satisfies ApiResponse;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "render failed";
