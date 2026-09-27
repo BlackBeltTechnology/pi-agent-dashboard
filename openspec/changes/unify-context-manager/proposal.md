@@ -1,6 +1,8 @@
 # unify-context-manager (umbrella)
 
-> Supersedes `openspec/changes/consolidate-retrieval-planes`. Evidence base:
+> Supersedes `openspec/changes/consolidate-retrieval-planes`,
+> `memory-retrieval-injection`, `distill-hermes-memory-into-skills` and
+> `add-automatic-session-kb-index` (carry-overs: design, "Superseded proposals"). Evidence base:
 > `docs/research/unified-context-manager-exploration.md` (§1–§20). This is an
 > **umbrella**: it fixes the target architecture and the phase split. Each
 > phase ships as its own change that carries the behavioural spec deltas.
