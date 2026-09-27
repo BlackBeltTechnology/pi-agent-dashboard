@@ -24,14 +24,17 @@ const allNames = GENERATED_TOOLS.map((t) => t.name);
 const contextRows = MANIFEST.filter((r) => r.bind.kind === "context");
 
 describe("context partition", () => {
-  it("accounts for all 20 members exactly once", () => {
-    expect(ALL_CONTEXT_MEMBERS).toHaveLength(20);
+  it("accounts for all 23 members exactly once", () => {
+    expect(ALL_CONTEXT_MEMBERS).toHaveLength(23);
     expect(assertContextPartitionTotal()).toEqual({ ok: true, unclassified: [], overlapping: [] });
   });
 
-  it("splits 5 allowlisted / 14 denied / 1 internal", () => {
+  it("splits 5 allowlisted / 17 denied / 1 internal", () => {
     expect(ALLOWLISTED_CONTEXT_MEMBERS).toHaveLength(5);
-    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(14);
+    expect(DENIED_CONTEXT_MEMBERS).toHaveLength(17);
+    expect(DENIED_CONTEXT_MEMBERS).toEqual(
+      expect.arrayContaining(["credentials", "oauth", "registerPiRequestHandler"]),
+    );
     expect(INTERNAL_ONLY_CONTEXT_MEMBERS).toEqual(["fastify"]);
     expect(
       ALLOWLISTED_CONTEXT_MEMBERS.length +

@@ -72,6 +72,7 @@ import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
@@ -1081,6 +1082,12 @@ function initBridge(pi: ExtensionAPI) {
   // than the value, so all ~100 `connection.send(...)` sites follow the session
   // to its new dashboard without being rewritten (task 9.4).
   // biome-ignore lint/style/useConst: reassigned by the move command below.
+  // Private plugin request/reply lane (bridge half). The global symbol is
+  // installed only while the socket is open; a close fails pending calls
+  // `disconnected`. See change: expose-plugin-credential-and-oauth-seams (D7).
+  const pluginRequests = createPluginRequestClient({ send: (m) => connection.send(m) });
+  let uninstallPluginRequest: (() => void) | null = null;
+
   let connection = new ConnectionManager({
     url: dashboardUrl,
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
@@ -1127,6 +1134,16 @@ function initBridge(pi: ExtensionAPI) {
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).
     getSessionId: () => sessionId,
+    onOpen: () => {
+      if (!isActive()) return;
+      uninstallPluginRequest?.();
+      uninstallPluginRequest = installPluginRequest(pluginRequests.request);
+    },
+    onClose: () => {
+      uninstallPluginRequest?.();
+      uninstallPluginRequest = null;
+      pluginRequests.failAll("disconnected");
+    },
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
@@ -1193,6 +1210,11 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
+      if (msg.type === "plugin_reply") {
+        // Resolves the caller's Promise only — never re-emitted on pi.events.
+        pluginRequests.handleReply(msg);
+        return;
+      }
       if (msg.type === "mcp_token_minted") {
         // D5: the minted MCP bearer arrives on the session-private lane. The
         // delivery module assigns it to this process's env and triggers the

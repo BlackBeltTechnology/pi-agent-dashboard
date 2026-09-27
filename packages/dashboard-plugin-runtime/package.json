@@ -25,6 +25,10 @@
       "types": "./src/server/index.ts",
       "default": "./src/server/index.ts"
     },
+    "./bridge": {
+      "types": "./src/bridge/index.ts",
+      "default": "./src/bridge/index.ts"
+    },
     "./vite-plugin": {
       "types": "./src/vite-plugin/index.ts",
       "default": "./src/vite-plugin/index.ts"

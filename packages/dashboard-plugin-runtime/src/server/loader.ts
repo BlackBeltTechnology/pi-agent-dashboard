@@ -19,6 +19,7 @@ import {
   transitiveDependents,
 } from "../dependency-graph.js";
 import { validateManifest } from "../manifest-validator.js";
+import { fixtureEntryAllowed } from "./fixture-gate.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
   missingFromReport,
@@ -436,7 +437,10 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       continue;
     }
 
-    if (!plugin.serverEntryPath) {
+    // A fixture plugin's server entry loads only under the opt-in gate; without
+    // it the plugin behaves as client-only. See change:
+    // expose-plugin-credential-and-oauth-seams (D8).
+    if (!plugin.serverEntryPath || !fixtureEntryAllowed(manifest)) {
       // No server entry — still mark as loaded (client-only plugin)
       store.setStatus({
         id: manifest.id,

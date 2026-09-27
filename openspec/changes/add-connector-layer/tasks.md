@@ -6,6 +6,7 @@
 
 - [ ] 1.1 Reuse the existing `api_key` / `oauth` credential types from `provider-auth-storage.ts`. Do NOT define new encrypted record types. Target a **separate sibling file** `~/.pi/agent/connector-auth.json` (not `auth.json`).
 - [ ] 1.2 Factor the read/write/lock primitives from `provider-auth-storage.ts` (proper-lockfile, atomic tmp+rename, 0600) so they can target a configurable path — OR add a thin `connector-auth-storage.ts` that calls the same lockfile/atomic helpers against the connector file. Prefer the smallest change; do not fork the logic.
+  - **Coordination (expose-plugin-credential-and-oauth-seams):** the path-parameterised primitives already exist in `packages/server/src/auth/locked-json-file.ts` (`withLockedJsonFile`, `readJsonChecked`, `writeJsonAtomic`, `corruptUnbackedRefusal`). Consume that module against `connector-auth.json`; do NOT extract a second copy.
 - [ ] 1.3 Store API-key secrets plaintext at 0600, matching the provider-creds posture (stakeholder decision A). No new crypto, no keychain dependency.
 - [ ] 1.4 Store API: `add`, `list` (no secret material), `get`, `revoke` — mirroring the provider-auth-storage surface.
 - [ ] 1.5 Tests: round-trip add/get; `list` never emits secret material; `get` of a revoked id fails; concurrent writes respect the lockfile (no corruption).

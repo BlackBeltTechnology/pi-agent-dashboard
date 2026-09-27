@@ -2,6 +2,7 @@
  * System REST API routes: config, health, shutdown, tunnel.
  */
 
+import { fixturePluginsEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -227,7 +228,10 @@ export function registerSystemRoutes(
   // The plugin set is process-stable (`discoverPlugins` is cached and only the
   // build-side vite-plugin clears it), so a registration-time snapshot is both
   // cheaper and equivalent. See change: add-served-build-coherence-and-hash-parity.
-  const bundleHash = runtimePluginRegistryHash(!config.dev);
+  // Fixture clients are part of a production build only under the opt-in
+  // PI_DASHBOARD_FIXTURE_PLUGINS gate (docker test harness) — the same rule
+  // the vite plugin applied. See change: expose-plugin-credential-and-oauth-seams (D8).
+  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled());
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message

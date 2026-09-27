@@ -56,6 +56,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |
 | `fix-pty-permissions.cjs` | Postinstall: fix node-pty spawn-helper execute permissions |
 | `generate-plugin-registry.mjs` | Standalone generator for packages/client/src/generated/plugin-registry.tsx (gitignored). → see `generate-plugin-registry.mjs.AGENTS.md` |
+| `i18n-lint.mjs` | Hardcoded-string lint over shipped UI (`--strict` gates). Skips demo/scaffold/headless trees + `DEAD_CODE`; `NON_SPA_PAGES` excludes `dashboard-plugin-runtime/src/server/loopback-callback.ts` (system-browser page outside the SPA). See change: expose-plugin-credential-and-oauth-seams. |
 | `rebuild-and-restart.sh` | Build → verify served client → `pi-dashboard restart` → `npm run reload`. Twin of `rebuild-restart.sh`; BOTH run the gate so it cannot be bypassed by picking the other script. See change: add-served-build-coherence-and-hash-parity. |
 | `rebuild-restart.sh` | Build (+ optional `--check` tsc) → verify served client (`node scripts/sync-served-client.mjs`) → `pi-dashboard restart` → `./scripts/reload-all.sh`. `set -euo pipefail` aborts before any restart/reload when built ≠ served. See change: add-served-build-coherence-and-hash-parity. |
 | `refresh-vendor.mjs` | Owns the vendored-relay refresh: copy → verify upstream (in memory, before any write) → patch → rehash. → see `refresh-vendor.mjs.AGENTS.md` |

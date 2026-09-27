@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -79,6 +79,11 @@ import {
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
+import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
+import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
+import { createPluginRequestLane } from "./plugin-request-lane.js";
+import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
@@ -1242,6 +1247,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       try { h(msg, sessionId); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
     }
   }
+  // Private plugin request/reply lane: one handler per (pluginId, type), reply
+  // sent host-internally on the requesting socket (not the priority-gated
+  // sendExtensionMessage). See change: expose-plugin-credential-and-oauth-seams (D7).
+  const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
+    piGateway.sendToSession(sessionId, msg),
+  );
+  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage): void {
+    pluginRequestLane.handle(sessionId, msg).catch((err) => {
+      console.error("[plugin-request]", err);
+    });
+  }
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
     for (const h of pluginRawEventSubs) {
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
@@ -1295,6 +1311,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
+    dispatchPluginRequest,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
     metaPersistence,
@@ -2898,6 +2915,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // spawn/abort powers. Returns raw OAuth refresh/access tokens, so
               // untrusted plugins get `undefined`.
               // See change: publish-quota-plugin.
+              // Own-namespace plugin credential store, plugin OAuth flows and
+              // the private request lane. Not trust-gated: each is scoped to
+              // the calling plugin's manifest id. See change:
+              // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
+              pluginCredentials: (id) => createPluginCredentialStore(id),
+              startPluginOAuthFlow: async (id, opts) => {
+                const res = await beginFlow({
+                  provider: pluginFlowProvider(id, opts.key),
+                  loginFlow: opts.loginFlow as OAuthLoginFlow,
+                  preAnswers: [],
+                  // The login result reaches `persist` untouched; never auth.json.
+                  writeCredential: async (_provider, credential) => {
+                    await opts.persist(credential);
+                  },
+                  notifyBridges: () => {},
+                });
+                return res.ok ? { ok: true, flowId: res.flow.id } : res;
+              },
+              registerPiRequestHandler: (id, type, handler) =>
+                pluginRequestLane.register(id, type, handler),
               providerAuth: {
                 getCredential: (provider: string) => {
                   if (!plugin.packageName.startsWith("@blackbelt-technology/")) return undefined;
@@ -3275,6 +3312,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const discoveredPlugins = discoverPlugins();
       const pluginsWithBridges = discoveredPlugins
         .filter(p => p.bridgeEntryPath)
+        // Fixture bridges (demo-plugin) only under PI_DASHBOARD_FIXTURE_PLUGINS=1,
+        // or they would land in every pi session's tool list.
+        // See change: expose-plugin-credential-and-oauth-seams (D8).
+        .filter(p => fixtureEntryAllowed(p.manifest))
         .map(p => ({ pluginId: p.manifest.id, bridgePath: p.bridgeEntryPath! }));
       if (pluginsWithBridges.length) {
         const results = registerAllPluginBridges(pluginsWithBridges);

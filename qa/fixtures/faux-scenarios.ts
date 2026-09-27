@@ -725,6 +725,16 @@ export const SCENARIOS: Record<string, Scenario> = {
 
   // ── Client tool-renderer matrix (one per registry entry + unknown) ──────
   "tool-read": toolScenario("read", { path: "src/example.ts" }),
+  // demo-plugin `demo_echo` (fixture bridge tool) — round-trips through the
+  // private plugin request lane to the demo server's `demo/echo` handler.
+  // Two-step terminate. See change: expose-plugin-credential-and-oauth-seams (X13).
+  "demo-echo": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("demo_echo", { text: "hi" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("demo echo done")]),
+    ],
+    expect: { toolName: "demo_echo" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.

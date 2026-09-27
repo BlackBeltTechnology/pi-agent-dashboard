@@ -15,7 +15,7 @@ import type { Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { rank } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import type { McpCaller } from "./tokens.js";
 
-/** Every member of `ServerPluginContext`, as of the 20-member interface. */
+/** Every member of `ServerPluginContext`, as of the 23-member interface. */
 export const ALL_CONTEXT_MEMBERS = [
   "fastify",
   "sessionManager",
@@ -37,6 +37,10 @@ export const ALL_CONTEXT_MEMBERS = [
   "getPluginConfig",
   "updatePluginConfig",
   "logger",
+  // See change: expose-plugin-credential-and-oauth-seams.
+  "credentials",
+  "oauth",
+  "registerPiRequestHandler",
 ] as const;
 
 /**
@@ -78,6 +82,12 @@ export const DENIED_CONTEXT_MEMBERS = [
   "getPluginConfig",
   "updatePluginConfig",
   "logger",
+  // Plugin-private credential store, OAuth flows and bridge request lane:
+  // never reachable from an MCP caller. See change:
+  // expose-plugin-credential-and-oauth-seams.
+  "credentials",
+  "oauth",
+  "registerPiRequestHandler",
 ] as const;
 
 /** Verbs that must never appear as tools. */

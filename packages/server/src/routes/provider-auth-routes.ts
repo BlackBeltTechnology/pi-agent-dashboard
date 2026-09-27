@@ -11,25 +11,15 @@
  */
 
 
-// Delegate to the shared platform primitive. The cross-OS dispatch
-// (open/start/xdg-open) and URL escaping live in
-// `packages/shared/src/platform/commands.ts`.
-// See change: consolidate-platform-handlers.
-import { openBrowser as platformOpenBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
 import type { FastifyInstance } from "fastify";
+import { beginFlow, isPluginFlow } from "../auth/begin-flow.js";
 import {
   abortAllFlows,
   cancelFlow,
-  deleteFlow,
-  FLOW_START_TIMEOUT_MS,
   getFlow,
   type OAuthFlow,
-  pendingFlowsFor,
   pruneFlows,
-  SUPERSEDE_SETTLE_TIMEOUT_MS,
-  startFlow,
   startFlowPruneTimer,
-  type StartedFlow,
   toFlowStatus,
 } from "../auth/provider-auth-adapter.js";
 import {
@@ -52,26 +42,6 @@ import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalo
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 
-/**
- * Open a URL in the system's default browser.
- *
- * Suppressed under vitest: the route tests register these routes for real and
- * drive a scripted fake flow whose `auth_url` events carry fixture URLs
- * (`claude.ai/oauth/authorize?code=true&state=fake-state`, …). Without this
- * guard every `npm test` run spawns real `open`/`xdg-open` calls and hijacks
- * the developer's browser. Same defense-in-depth shape as
- * `auth/test-env-guard.ts`.
- */
-function openInBrowser(url: string): void {
-  if (process.env.VITEST === "true") {
-    console.warn("[provider-auth] browser open suppressed under vitest:", url);
-    return;
-  }
-  platformOpenBrowser(url, {
-    onError: (err) => console.error("[provider-auth] Failed to open browser:", err.message),
-  });
-}
-
 export interface ProviderAuthRouteDeps {
   piGateway: PiGateway;
   browserGateway: BrowserGateway;
@@ -82,63 +52,6 @@ export interface ProviderAuthRouteDeps {
   oauthRegistry?: OAuthRegistryEntry[];
   /** Readiness-gate override paired with {@link oauthRegistry}. */
   oauthReady?: Promise<void>;
-}
-
-/**
- * Bound how long a supersede waits for the outgoing flow to release its
- * callback port. The wait is the point — a fixed port cannot be bound twice —
- * but it must never hang `/start`.
- */
-async function waitForSettle(flow: OAuthFlow): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    await Promise.race([
-      flow.settled,
-      new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, SUPERSEDE_SETTLE_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-/**
- * Cancel any pending flow for `provider` and WAIT for its listener to close.
- *
- * A provider's callback port is fixed (53692 / 1455) and registered with the
- * provider, so a second start cannot bind it until the first flow's `finally`
- * ran — which happens only once its pending prompt is rejected, i.e. once
- * `login()` settled. Skipping the wait trades a clean 200 for an EADDRINUSE.
- */
-async function supersedePendingFlows(provider: string): Promise<void> {
-  for (const existing of pendingFlowsFor(provider)) {
-    cancelFlow(existing);
-    await waitForSettle(existing);
-  }
-}
-
-/** Which branch of the start handshake won. */
-type StartOutcome = "step" | "settled" | "timeout";
-
-/**
- * Answer `POST /start` once the flow produced its first user-facing step, or
- * settled, or went quiet for {@link FLOW_START_TIMEOUT_MS}. The timer is
- * cleared whichever branch wins.
- */
-async function awaitStartOutcome(started: StartedFlow): Promise<StartOutcome> {
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      started.firstEvent.then((): StartOutcome => "step"),
-      started.settled.then((): StartOutcome => "settled"),
-      new Promise<StartOutcome>((resolve) => {
-        timer = setTimeout(() => resolve("timeout"), FLOW_START_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
 }
 
 // ── Route registration ───────────────────────────────────────────────────────
@@ -153,29 +66,6 @@ export function registerProviderAuthRoutes(
   // the first request rarely waits for the ~330 ms runtime import); tests inject
   // a settled promise and never touch the SDK.
   const registryReady: Promise<void> = deps.oauthReady ?? oauthRegistryReady();
-  /**
-   * Per-provider `/start` chain. A provider's callback port is fixed, so
-   * `supersede → start → bind` MUST be atomic per provider: without this,
-   * two overlapping starts both observe "no pending flow" and race to bind
-   * 53692 / 1455, turning a legitimate supersede into an EADDRINUSE 500.
-   * One entry per provider (the tail of its chain), so the map stays bounded.
-   */
-  const startTails = new Map<string, Promise<void>>();
-
-  function queueStart<T>(provider: string, run: () => Promise<T>): Promise<T> {
-    const tail = startTails.get(provider) ?? Promise.resolve();
-    // `run` on BOTH outcomes: a failed predecessor must not wedge the provider.
-    const next = tail.then(run, run);
-    startTails.set(
-      provider,
-      next.then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-    return next;
-  }
-
   function notifyBridges() {
     // Tell every bridge to reload auth.json + refresh its model registry.
     // Each bridge will then push a fresh per-session models_list (and
@@ -187,11 +77,19 @@ export function registerProviderAuthRoutes(
     refreshModelRegistry().catch(() => {});
   }
 
-  // A flow record whose start already failed must not linger: the caller got a
-  // non-2xx and has no id to poll.
-  function forgetFlow(flow: OAuthFlow): void {
-    cancelFlow(flow);
-    deleteFlow(flow.id);
+  /**
+   * Resolve a flow for the status / input / cancel routes. Plugin-started
+   * flows (`plugin:<id>:<key>`) do not wait for the pi-ai provider registry,
+   * so plugin sign-in works even when that registry is slow or failed.
+   * See change: expose-plugin-credential-and-oauth-seams (D3).
+   */
+  async function lookupFlow(flowId: string): Promise<OAuthFlow | undefined> {
+    pruneFlows();
+    const early = getFlow(flowId);
+    if (early && isPluginFlow(early)) return early;
+    await registryReady;
+    pruneFlows();
+    return getFlow(flowId);
   }
 
   const stopPruneTimer = startFlowPruneTimer();
@@ -253,41 +151,26 @@ export function registerProviderAuthRoutes(
         return reply.code(400).send({ error: `Unknown OAuth provider: ${provider}` });
       }
 
-      // Serialized per provider: see `queueStart`.
-      let started: StartedFlow | undefined;
-      let outcome: StartOutcome = "timeout";
-      await queueStart(provider, async () => {
-        await supersedePendingFlows(provider);
-
-        started = startFlow({
-          provider,
-          loginFlow: entry.auth,
-          // A blank string is meaningful ("github.com"); null / 42 / absent are
-          // not pre-answers at all.
-          preAnswers:
-            typeof body.enterpriseDomain === "string" ? [body.enterpriseDomain] : [],
-          writeCredential,
-          notifyBridges,
-          openInBrowser,
-        });
-        outcome = await awaitStartOutcome(started);
+      // Supersede + serialization + start race: see `beginFlow`.
+      const result = await beginFlow({
+        provider,
+        loginFlow: entry.auth,
+        // A blank string is meaningful ("github.com"); null / 42 / absent are
+        // not pre-answers at all.
+        preAnswers:
+          typeof body.enterpriseDomain === "string" ? [body.enterpriseDomain] : [],
+        writeCredential,
+        notifyBridges,
       });
-      // `queueStart` always assigned `started` (it cannot reject without doing
-      // so, and `run` never throws past this point).
-      if (!started) return reply.code(500).send({ error: "Provider login failed" });
-
-      if (outcome === "timeout") {
-        forgetFlow(started.flow);
-        return reply.code(504).send({ error: "Provider did not respond" });
-      }
-      if (outcome === "settled" && started.flow.status !== "complete") {
+      if (!result.ok) {
+        if (result.code === "start_timeout") {
+          return reply.code(504).send({ error: result.message });
+        }
         // Failed before producing anything to render: there is no id worth
         // polling, so the message travels in this response.
-        const message = started.flow.error ?? "Provider login failed";
-        forgetFlow(started.flow);
-        return reply.code(500).send({ error: message });
+        return reply.code(500).send({ error: result.message });
       }
-      return toFlowStatus(started.flow);
+      return toFlowStatus(result.flow);
     },
   );
 
@@ -295,9 +178,7 @@ export function registerProviderAuthRoutes(
   fastify.get<{ Params: { flowId: string } }>(
     "/api/provider-auth/flow/:flowId",
     async (request, reply) => {
-      await registryReady;
-      pruneFlows();
-      const flow = getFlow(request.params.flowId);
+      const flow = await lookupFlow(request.params.flowId);
       if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
       return toFlowStatus(flow);
     },
@@ -309,9 +190,7 @@ export function registerProviderAuthRoutes(
   fastify.post<{ Params: { flowId: string }; Body: { value?: unknown } }>(
     "/api/provider-auth/flow/:flowId/input",
     async (request, reply) => {
-      await registryReady;
-      pruneFlows();
-      const flow = getFlow(request.params.flowId);
+      const flow = await lookupFlow(request.params.flowId);
       if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
       const resolve = flow.resolveInput;
       if (!resolve) {
@@ -327,9 +206,7 @@ export function registerProviderAuthRoutes(
   fastify.delete<{ Params: { flowId: string } }>(
     "/api/provider-auth/flow/:flowId",
     async (request, reply) => {
-      await registryReady;
-      pruneFlows();
-      const flow = getFlow(request.params.flowId);
+      const flow = await lookupFlow(request.params.flowId);
       if (!flow) return reply.code(404).send({ error: "Invalid or expired flow" });
       cancelFlow(flow);
       return reply.code(204).send();
