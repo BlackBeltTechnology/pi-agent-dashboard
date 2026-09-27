@@ -49,7 +49,7 @@ export function laneMeta(lane: LaneId): LaneMeta {
   }
 }
 
-export function isLocationLane(lane: LaneId): boolean {
+function isLocationLane(lane: LaneId): boolean {
   return lane === "main" || lane === "worktrees";
 }
 

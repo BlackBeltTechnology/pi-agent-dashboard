@@ -9,9 +9,9 @@
 import type { StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-export const LANE_HOLD_MS = 3000;
+const LANE_HOLD_MS = 3000;
 
-export interface LaneHold {
+interface LaneHold {
   /** Epoch ms when the hold expires and the card moves to `dest`. */
   until: number;
   dest: StatusLaneId;
@@ -52,7 +52,7 @@ export function stepLaneHysteresis(
 }
 
 /** Earliest hold expiry, or `null` when nothing is held. */
-export function nextHoldWake(state: LaneHysteresisState): number | null {
+function nextHoldWake(state: LaneHysteresisState): number | null {
   let min: number | null = null;
   for (const h of state.holds.values()) if (min === null || h.until < min) min = h.until;
   return min;

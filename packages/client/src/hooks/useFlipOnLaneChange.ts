@@ -9,10 +9,10 @@
  */
 import { type RefObject, useLayoutEffect, useMemo } from "react";
 
-export const FLIP_DURATION_MS = 220;
+const FLIP_DURATION_MS = 220;
 const FLIP_EASING = "cubic-bezier(.2,.8,.2,1)";
 
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
     : false;

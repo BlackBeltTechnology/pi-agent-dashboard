@@ -14,7 +14,7 @@ import { explicitGroupBy } from "./session-lanes.js";
 export const LEGACY_FOLDER_URGENCY_SORT_KEY = "dashboard:folder-urgency-sort";
 
 /** `null` when the key is absent (nothing to migrate); `[]` when present but empty/corrupt. */
-export function readLegacyUrgencyFolders(): string[] | null {
+function readLegacyUrgencyFolders(): string[] | null {
   try {
     const raw = localStorage.getItem(LEGACY_FOLDER_URGENCY_SORT_KEY);
     if (raw === null) return null;
@@ -25,7 +25,7 @@ export function readLegacyUrgencyFolders(): string[] | null {
   }
 }
 
-export function clearLegacyUrgencyFolders(): void {
+function clearLegacyUrgencyFolders(): void {
   try {
     localStorage.removeItem(LEGACY_FOLDER_URGENCY_SORT_KEY);
   } catch {
