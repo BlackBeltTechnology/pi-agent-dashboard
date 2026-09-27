@@ -18,7 +18,7 @@ TDD order: in every group, the test tasks come first and must fail before the im
 - [ ] 1.2 Create `packages/system-one-plugin`, a dashboard plugin with server and client entries and the `settings-section` claim. Verify: `GET /api/plugins` lists it after `curl -X POST http://localhost:8000/api/restart`.
 - [x] 1.3 Build the fake backend helper `src/__tests__/helpers/fake-backend.ts`. It provides a loopback `node:http` server with scripted replies (answer, delay, socket destroy, 302, 404), a connection counter, and an off-machine-URL interceptor that records requests without real network. Copy the listen-on-0 glue from `packages/server/src/__tests__/model-proxy-second-port.test.ts`. Verify: a self-test scripts one reply and asserts the connection count.
 - [x] 1.4 Build the fake engine script `packages/system-one-plugin/src/server/__tests__/fixtures/fake-engine.mjs`. It serves `/v1/models` (200 or 404) and `/v1/systemone`, can trap SIGTERM, and can stay unhealthy. Verify: a self-test spawns it, gets a 200, and kills it.
-- [ ] 1.5 Add `AGENTS.md` for both packages and their `src/` dirs, one row per file (caveman style, `See change: add-system-one-registry`). Verify: `kb dox lint` reports no missing rows.
+- [x] 1.5 Add `AGENTS.md` for both packages and their `src/` dirs, one row per file (caveman style, `See change: add-system-one-registry`). Verify: `kb dox lint` reports no missing rows.
 
 ## 2. Config (spec: system-one-config)
 
