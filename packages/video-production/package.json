@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-video-production",
   "version": "0.8.0",
-  "description": "TypeScript port of the veo-generator + veo-showreel-production-kit pi skills. Parses a scripted shot package (shots/*.md) and renders one mp4 clip per camera cut with the Google Veo 3.1 API, plus storyboard first-frame generation via nano-banana. Exposed as pi skills and the pi-veo CLI (parse/plan/render/storyboard).",
+  "description": "TypeScript port of the veo-generator + veo-showreel-production-kit pi skills. Parses a scripted shot package (shots/*.md) and renders one mp4 clip per camera cut with the Google Veo 3.1 API, plus storyboard first-frame generation via nano-banana. Exposed as pi skills and the pi-veo CLI (parse/plan/render/storyboard/export/mux). Optional pi-video-gen export (render/timeline specs) and local ffmpeg VO/music/captions mux.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -32,6 +32,11 @@
     "tools": [
       {
         "id": "ffmpeg",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "ffprobe",
         "probe": "resolve",
         "optional": true
       },
