@@ -5,8 +5,8 @@
  *
  * See change: add-dashboard-model-proxy, tasks 6.2 + 6.3.
  */
-import { describe, it, expect, vi } from "vitest";
-import { streamCompletion } from "../streamer.js";
+import { describe, expect, it, vi } from "vitest";
+import { callPiAiStreamSimple, streamCompletion } from "../streamer.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -199,5 +199,43 @@ describe("deferral guard — the system:/systemPrompt: mismatch stays as-is", ()
     );
     const [, contextArg] = streamSimple.mock.calls[0];
     expect(contextArg.systemPrompt).toBe("S");
+  });
+});
+
+// ── Route adapter (server.ts /v1 wiring) ────────────────────────────────────
+
+describe("callPiAiStreamSimple", () => {
+  const routeOpts = (extra: Record<string, unknown> = {}) => ({
+    model: makeModel(),
+    messages: [{ role: "user", content: "hi" }],
+    apiKey: "sk-x",
+    headers: { h: "1" },
+    ...extra,
+  });
+
+  it("maps route `system` onto pi-ai Context.systemPrompt (not `system`)", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    callPiAiStreamSimple(fn, routeOpts({ system: "be terse" }));
+    const [modelArg, contextArg] = fn.mock.calls[0];
+    expect(modelArg).toEqual(makeModel());
+    expect(contextArg.systemPrompt).toBe("be terse");
+    expect(contextArg).not.toHaveProperty("system");
+  });
+
+  it("omits systemPrompt/tools when absent and forwards messages + options", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    const opts = routeOpts();
+    expect(callPiAiStreamSimple(fn, opts)).toBe("stream");
+    const [, contextArg, optionsArg] = fn.mock.calls[0];
+    expect(contextArg).toEqual({ messages: opts.messages });
+    expect(optionsArg.apiKey).toBe("sk-x");
+    expect(optionsArg.headers).toEqual({ h: "1" });
+  });
+
+  it("forwards tools on the context", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    const tools = [{ name: "t", description: "d", parameters: {} }];
+    callPiAiStreamSimple(fn, routeOpts({ tools }));
+    expect(fn.mock.calls[0][1].tools).toBe(tools);
   });
 });

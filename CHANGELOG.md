@@ -58,6 +58,23 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Plugin config updates reach the plugin UI live.** A plugin server entry's
+  `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
+  stored the new config under `"undefined"` and the plugin's settings UI kept
+  the stale value until reload. The broadcast now carries `id`; the `as any`
+  that hid the omission is gone.
+
+- **Model proxy (`/v1/*`) forwards system prompts, stops abandoned streams,
+  and ends failed streams.** Client system prompts were silently dropped: the
+  adapter passed pi-ai `system` instead of `Context.systemPrompt` (new
+  `callPiAiStreamSimple` in `model-proxy/streamer.ts`). A client disconnect never
+  aborted the upstream call, because Node 24 fires `request.raw` "close" as soon
+  as the body is read; it now keys off `reply.raw` "close", so an abandoned
+  stream stops using tokens. An upstream error thrown mid-stream threw
+  `ERR_HTTP_HEADERS_SENT` and left the client hanging; the SSE stream now ends
+  like an upstream `error` event. Parallel-conversation isolation is covered by
+  `model-proxy-parallel-isolation.test.ts`.
+
 - **`pi-dashboard start` / `restart` no longer crash on a fresh npm install.**
   The 0.8.0 tarball shipped `packages/{server,shared,extension}/tsconfig.json`,
   which extend `../../tsconfig.base.json`, but not `tsconfig.base.json` itself,

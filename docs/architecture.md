@@ -5184,6 +5184,42 @@ sequenceDiagram
     D-->>C: SSE stream (OpenAI or Anthropic shape)
 ```
 
+### Completion request pipeline
+
+Both POST routes (`/v1/chat/completions`, `/v1/messages`) run ONE pipeline `handleCompletion(format, deps, request, reply)` (`packages/server/src/routes/model-proxy-routes.ts`). Format differences live only in a `CompletionFormat` adapter: `OPENAI_FORMAT`, `ANTHROPIC_FORMAT`. Adapter fields: `invalid` (400 message or null), `newMessageId`, `toUpstream` (message/tool conversion → `{system, messages, tools, maxTokens}`), `sseEncoder` (fresh per response; owns its `ToolCallIndexTracker` / `AnthropicBlockTracker`), `toResponse`.
+
+```mermaid
+flowchart TD
+    A["POST /v1/chat/completions or /v1/messages"] --> B["validate body → 400 invalid"]
+    B --> C["registry ready? → 503 MODEL_PROXY_RUNTIME_MISSING"]
+    C --> D["resolveRequestedModel → 400 / 404"]
+    D --> E["acquireSlot → 503 SERVER_FULL, 429 KEY_FULL / PROVIDER_FULL + Retry-After"]
+    E --> F["runCompletion → toUpstream → upstream stream"]
+    F --> G{"stream?"}
+    G -->|streamEvents| H["SSE via format sseEncoder"]
+    G -->|collectEvents| I["JSON via format toResponse"]
+    F -.throw.-> J[failCompletion]
+    H -.throw mid-stream.-> J
+    I -.throw.-> J
+    J -->|AbortError| X["return — client gone"]
+    J -->|headers sent| K["format SSE error event + reply.raw.end()"]
+    J -->|headers not sent| M["500 JSON api_error"]
+    H --> L["logOutcome → optional ~/.pi/dashboard/model-proxy.jsonl"]
+    I --> L
+    K --> L
+    M --> L
+```
+
+- Stages in order: validate body (400) → registry (`503 MODEL_PROXY_RUNTIME_MISSING`) → `resolveRequestedModel` (400/404) → `acquireSlot` (`503 SERVER_FULL`, `429 KEY_FULL` / `PROVIDER_FULL` + `Retry-After`) → `runCompletion` → `streamEvents` (SSE) or `collectEvents` (JSON) → `failCompletion` on throw. `logOutcome` writes optional request log (`~/.pi/dashboard/model-proxy.jsonl` when `modelProxy.logRequests`).
+- Types exported: `ProxyModel`, `ProxyStreamEvent`, `ProxyStreamOpts`, `StreamSimpleFn`. Zero `any`.
+- Stateless per request — no conversation state kept between requests. Concurrent-conversation isolation covered by `packages/server/src/__tests__/model-proxy-parallel-isolation.test.ts` (real listener, start barrier proves overlap, OpenAI + Anthropic, multi-turn, abort, mid-stream failure, per-key caps).
+- Disconnect detection: `reply.raw` `"close"` while `!reply.raw.writableFinished` → `AbortController.abort()` → upstream `AbortSignal`. NOT `request.raw` `"close"` — on Node 24 it fires once the request body is consumed, before the listener attaches, so abort never fired (bug fixed).
+- Mid-stream failure: throw after headers sent → format's SSE `error` event (OpenAI: stop chunk + `data: [DONE]`; Anthropic: `event: error`) + `reply.raw.end()`. Never `reply.code(500)` (was `ERR_HTTP_HEADERS_SENT` + hung client).
+- System prompt: route passes `system`; `callPiAiStreamSimple(fn, opts)` (`packages/server/src/model-proxy/streamer.ts`) maps it to pi-ai `Context.systemPrompt` via private `toPiAiContext`. Both `/v1` wirings in `server.ts` (main listener + optional second port) use it. Former `{ system }` context key was silently dropped by pi-ai (bug fixed).
+- Concurrency caps: `ConcurrencyTracker`. Server-wide default 16 (`modelProxy.maxConcurrentStreams`), per key default 4 (`perKeyConcurrentStreams`), per provider default 4 (`perProviderCaps[provider]`). Released exactly once on success/error/abort.
+
+See change: fix-model-proxy-stream-lifecycle.
+
 ### API-key auth data flow
 
 1. Client sends `Authorization: Bearer pi-proxy-<48-char-base64url>`.
