@@ -157,6 +157,11 @@ describe("hidden-HTML layer", () => {
     expect(sheetComment.cleaned).not.toContain(">A<");
   });
 
+  it("decodes CSS escapes in declarations", () => {
+    expect(scan('<html><style>.x{display:n\\6fne}</style><p class="x">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
+    expect(scan('<html><p style="displ\\61y:none">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
+  });
+
   it("reads stylesheets from real <style> elements only", () => {
     // A <style> inside a script string is not a stylesheet: the visible <p> stays byte-identical.
     const fake = '<html><script>var s = "<style>.x{display:none}</style>";</script><p class="x">A</p></html>';
@@ -327,9 +332,30 @@ describe("URL checks on decoded HTML (design D1 amendment)", () => {
     expect(scan('<html><img src="https://t.co/p.gif?u=1"></html>', { allowHosts: ["t.co"] }).findings).toEqual([]);
   });
 
-  it("skips URL checks inside hidden elements (the element is removed whole)", () => {
+  it("rewrites the REAL attribute, not attribute-like text inside another quoted value", () => {
+    const doc = `<html><a title=" href='safe'" href="data:text/plain,x">go</a></html>`;
+    expect(scan(doc, { mode: "strip" }).cleaned).toBe(
+      `<html><a title=" href='safe'" href="[data-url removed: text/plain, 1 bytes]">go</a></html>`,
+    );
+  });
+
+  it("canonicalises tab/newline inside the scheme like the URL parser does", () => {
+    const r = scan('<html><a href="da&#9;ta:text/html,x">go</a></html>', { mode: "strip" });
+    expect(r.findings).toEqual([expect.objectContaining({ layer: "data-url", severity: "high" })]);
+    expect(r.cleaned).toBe('<html><a href="[data-url removed: text/html, 1 bytes]">go</a></html>');
+  });
+
+  it("scans URL attributes of hidden markup that holds no text", () => {
+    for (const doc of ['<html><img hidden src="data:text/plain,x"></html>', '<html><div hidden><img src="data:text/plain,x"></div></html>']) {
+      const r = scan(doc, { mode: "strip" });
+      expect(r.findings.map((f) => f.layer), doc).toContain("data-url");
+      expect(r.cleaned, doc).not.toContain("data:");
+    }
+  });
+
+  it("still reports URLs inside a hidden element that is removed whole (no overlapping edit)", () => {
     const r = scan('<html><div hidden><a href="data:text/plain,x">x</a></div><p>ok</p></html>', { mode: "strip" });
-    expect(r.findings.map((f) => f.layer)).toEqual(["html-hidden-attr"]);
+    expect(r.findings.map((f) => f.layer)).toEqual(["data-url", "html-hidden-attr"]);
     expect(r.cleaned).toBe("<html><p>ok</p></html>");
   });
 });

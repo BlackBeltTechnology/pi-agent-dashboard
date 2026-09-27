@@ -149,6 +149,20 @@ describe("#E24 spotlight escape", () => {
     }
   });
 
+  it("scans adjacent text blocks as one stream, so a payload cannot be split across them", () => {
+    const guard = makeGuard();
+    const out = guard.onToolResult({
+      toolName: "web_search",
+      content: [
+        { type: "text", text: "see data" },
+        { type: "text", text: ":text/plain,secret now" },
+      ],
+    });
+    const text = textOf(out);
+    expect(text).not.toContain("secret");
+    expect(text).toContain("[data-url removed: text/plain, 6 bytes]");
+  });
+
   it("a delimiter cannot be assembled across adjacent text blocks", () => {
     const guard = makeGuard();
     const out = guard.onToolResult({

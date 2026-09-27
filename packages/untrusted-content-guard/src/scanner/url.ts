@@ -81,7 +81,8 @@ export function hostOf(url: string): string | undefined {
 
 /** Placeholder for an attribute value that IS a `data:` URL, or null. */
 export function dataUrlPlaceholder(value: string): string | null {
-  const m = DATA_VALUE.exec(value);
+  // Canonicalise like the URL parser: drop ASCII tab/LF/CR anywhere, leading C0/space.
+  const m = DATA_VALUE.exec(value.replace(/[\t\n\r]/g, "").replace(/^[\x00-\x20]+/, ""));
   if (!m) return null;
   return `[data-url removed: ${(m[1] ?? "text/plain").toLowerCase()}, ${dataBytes(m[2] as string, (m[3] as string).trim())} bytes]`;
 }

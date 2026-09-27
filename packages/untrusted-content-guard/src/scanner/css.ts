@@ -61,13 +61,26 @@ function stripCssComments(css: string): string {
   return out + css.slice(last);
 }
 
+const CSS_ESCAPE = /\\(?:([0-9a-f]{1,6})[ \t\n\r\f]?|([\s\S]))/gi;
+
+/** Decode CSS escapes (`\6f`, `\:`) the way a browser tokenizer does. */
+function decodeCssEscapes(text: string): string {
+  if (!text.includes("\\")) return text;
+  return text.replace(CSS_ESCAPE, (_match, hex: string | undefined, ch: string | undefined) => {
+    if (hex === undefined) return ch ?? "";
+    const cp = Number.parseInt(hex, 16);
+    const valid = cp > 0 && cp <= 0x10ffff && (cp < 0xd800 || cp > 0xdfff);
+    return String.fromCodePoint(valid ? cp : 0xfffd);
+  });
+}
+
 function parseDeclList(style: string): Map<string, Decl> {
   const decls = new Map<string, Decl>();
   for (const part of stripCssComments(style).split(";")) {
     const colon = part.indexOf(":");
     if (colon <= 0) continue;
-    const prop = part.slice(0, colon).trim().toLowerCase();
-    const raw = part.slice(colon + 1).trim().toLowerCase();
+    const prop = decodeCssEscapes(part.slice(0, colon)).trim().toLowerCase();
+    const raw = decodeCssEscapes(part.slice(colon + 1)).trim().toLowerCase();
     const important = IMPORTANT.test(raw);
     const value = important ? raw.replace(IMPORTANT, "").trim() : raw;
     const existing = decls.get(prop);

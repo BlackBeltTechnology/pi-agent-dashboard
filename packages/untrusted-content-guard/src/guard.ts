@@ -63,6 +63,20 @@ function mergeFindings(into: Map<string, Finding>, findings: readonly Finding[])
   }
 }
 
+/**
+ * Join consecutive text blocks into one: the model reads them as one stream, so
+ * they are scanned as one — a payload split across blocks cannot evade a layer.
+ */
+function mergeTextRuns(content: readonly Block[]): Block[] {
+  const out: Block[] = [];
+  for (const block of content) {
+    const prev = out[out.length - 1];
+    if (block.type === "text" && prev?.type === "text") out[out.length - 1] = { type: "text", text: prev.text + block.text };
+    else out.push(block);
+  }
+  return out;
+}
+
 function argsSummary(input: Record<string, unknown>): string {
   const raw = typeof input.command === "string" ? input.command : JSON.stringify(input);
   const flat = (raw ?? "").replace(/\s+/g, " ");
@@ -145,7 +159,7 @@ export class UntrustedContentGuard {
     const merged = new Map<string, Finding>();
     // One size budget for the whole result, not per block (design D1 size cap).
     let budget = MAX_SCAN_CHARS;
-    const blocks: Block[] = event.content.map((block) => {
+    const blocks: Block[] = mergeTextRuns(event.content).map((block) => {
       if (block.type !== "text") return block;
       const maxChars = budget;
       budget = Math.max(0, budget - block.text.length);

@@ -118,14 +118,47 @@ interface OpenElement {
   anchor?: boolean;
 }
 
-/** Source range of one attribute's VALUE inside an open tag (quotes included), or null. */
+const isSpace = (ch: string | undefined) => ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\f";
+const endsName = (ch: string | undefined) => isSpace(ch) || ch === "/" || ch === ">" || ch === "=";
+
+/** First index in [i, end) where `stop` holds (or `end`). */
+function skipUntil(src: string, i: number, end: number, stop: (ch: string | undefined) => boolean): number {
+  let j = i;
+  while (j < end && !stop(src[j])) j++;
+  return j;
+}
+
+/** End (exclusive) of an attribute value starting at `i`: a quoted string or an unquoted run. */
+function valueEnd(src: string, i: number, end: number): number {
+  const quote = src[i];
+  if (quote !== '"' && quote !== "'") return skipUntil(src, i, end, (ch) => isSpace(ch) || ch === ">");
+  const close = src.indexOf(quote, i + 1);
+  return close === -1 || close >= end ? end : close + 1;
+}
+
+/**
+ * Source range of the FIRST occurrence of `attr`'s value inside the open tag
+ * `src[tagStart, tagEnd)` (quotes included) — a quote-aware walk, so text that
+ * merely looks like an attribute inside another quoted value never matches.
+ * First occurrence wins, as in htmlparser2.
+ */
 function attributeValueRange(src: string, tagStart: number, tagEnd: number, attr: string): { start: number; end: number } | null {
-  const tag = src.slice(tagStart, tagEnd);
-  const name = attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>"'=<\`]+)`, "i").exec(tag);
-  if (!m) return null;
-  const valueStart = m.index + m[0].length - (m[1] as string).length;
-  return { start: tagStart + valueStart, end: tagStart + m.index + m[0].length };
+  let i = skipUntil(src, tagStart + 1, tagEnd, (ch) => isSpace(ch) || ch === "/" || ch === ">"); // tag name
+  while (i < tagEnd) {
+    i = skipUntil(src, i, tagEnd, (ch) => !isSpace(ch) && ch !== "/");
+    if (i >= tagEnd || src[i] === ">") return null;
+    const nameEnd = skipUntil(src, i, tagEnd, endsName);
+    const name = src.slice(i, nameEnd).toLowerCase();
+    i = skipUntil(src, nameEnd, tagEnd, (ch) => !isSpace(ch));
+    if (src[i] !== "=") {
+      if (name === attr) return null; // valueless first occurrence
+      continue;
+    }
+    const start = skipUntil(src, i + 1, tagEnd, (ch) => !isSpace(ch));
+    i = valueEnd(src, start, tagEnd);
+    if (name === attr) return { start, end: i };
+  }
+  return null;
 }
 
 /**
@@ -187,15 +220,16 @@ export function htmlLayer(
         flushText();
         const element: OpenElement = { name, start: parser.startIndex };
         stack.push(element);
-        if (hidden) return;
-        const reason = elementReason(name, attribs, css);
-        if (reason) {
-          hidden = { depth: stack.length - 1, reason, hasText: false, sample: "" };
-          return;
+        if (!hidden) {
+          const reason = elementReason(name, attribs, css);
+          if (reason) hidden = { depth: stack.length - 1, reason, hasText: false, sample: "" };
         }
+        // Also inside hidden markup: a hidden element without text is NOT removed,
+        // so its URLs must still be neutralised. Edits under a removed range are
+        // dropped as overlapping by applyEdits.
         const tag = { name, start: parser.startIndex, end: parser.endIndex + 1, attribs };
         checkAttributes(src, tag, opts.allowHosts, findings, edits);
-        if (name === "a" && anchorText === null) {
+        if (!hidden && name === "a" && anchorText === null) {
           anchorText = "";
           element.anchor = true;
         }
