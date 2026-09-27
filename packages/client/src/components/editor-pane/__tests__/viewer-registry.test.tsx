@@ -308,3 +308,20 @@ describe("viewerRegistry — asciidoc scroll container", () => {
     expect(scroller?.className).toContain("min-h-0");
   });
 });
+
+describe("viewerRegistry — docx scroll container", () => {
+  it("wraps DocxPreview in its own scroll container (editor pane supplies none)", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, data: { mode: "html", html: "<p>x</p>", truncated: false } }),
+      }),
+    ) as unknown as typeof fetch;
+    const { container } = renderKind("docx");
+    await waitFor(() => expect(container.querySelector(".asciidoc-body")).not.toBeNull());
+    const scroller = container.querySelector(".asciidoc-body")?.closest(".overflow-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toContain("min-h-0");
+  });
+});

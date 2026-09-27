@@ -74,7 +74,13 @@ const ImageTab = (p: ViewerProps) => <ImagePreview target={asTarget(p)} variant=
 const AudioViewer = (p: ViewerProps) => <AudioPreview target={asTarget(p)} />;
 // Rich office / document / email viewers, each delegating to its shared
 // `preview/*` renderer. See change: open-view-command-in-editor-pane (D3).
-const DocxViewer = (p: ViewerProps) => <DocxPreview target={asTarget(p)} />;
+// The editor pane supplies no scroll container (FilePreviewOverlay does), so the
+// flow-height docx HTML body gets its own.
+const DocxViewer = (p: ViewerProps) => (
+  <div className="h-full min-h-0 overflow-auto">
+    <DocxPreview target={asTarget(p)} />
+  </div>
+);
 const PptxViewer = (p: ViewerProps) => <PptxPreview target={asTarget(p)} />;
 // An `editable` spreadsheet (`.csv`) gets the Preview/Edit toggle tab; binary
 // `.xlsx`/`.xls` render the read-only grid directly. See change:

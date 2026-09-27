@@ -6,3 +6,4 @@ Access-grant prompting (change: add-access-grant-dialog, tasks 6.2/6.3). The fiv
 
 `unknownCwdVerdictAdmits` allow-once also requires `!isUngrantableSubject(subject)`. See change: add-access-grant-dialog (2b.7 review).
 - `GET /api/file` `mtime` = full-precision `stat.mtimeMs` (was `Math.round` → false 409 on every sub-ms mtime in `/api/file/write`). Content returned for `editable` kinds incl. `.adoc`.
+- `/api/file/render` asciidoctor `attributes: { showtitle: "" }` → embedded output keeps `= Title` as `<h1>`.

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change auto-canvas. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Shared renderability table
 
 The extension→`RendererKind` mapping SHALL live in `packages/shared` (as `RENDERER_BY_EXT`),
@@ -188,7 +190,10 @@ for loopback urls, `openUrlTarget` for generic urls). The auto-open SHALL be
 when the editor is already shown (`split` or `full`) it SHALL leave the mode
 unchanged, add the target's tab **without** changing the active tab, mark it
 **unread**, and play a one-time highlight — for all three target kinds. On mobile the
-driver SHALL NEVER yank chat; it SHALL surface a tap-to-open chip. The chip tap is a
+driver SHALL NEVER yank chat; it SHALL surface a tap-to-open chip. A target withheld by
+the mobile gate SHALL NOT count as delivered: when the viewport later grows to
+desktop/tablet, the driver SHALL auto-open that same pending target (same version)
+without requiring a new canvas write. The chip tap is a
 **user** action and SHALL be **foreground** (activates the tab), even though the
 auto-open path that shares its handler is background.
 
@@ -209,10 +214,15 @@ auto-open path that shares its handler is background.
 - **WHEN** the canvas target changes
 - **THEN** no pane is yanked and a tap-to-open chip is shown
 
+#### Scenario: Target withheld on mobile opens when the viewport grows
+- **GIVEN** a canvas target delivered while the viewport is mobile (chip shown, nothing opened)
+- **WHEN** the viewport grows to desktop or tablet with the same target and version
+- **THEN** the driver auto-opens that target (background semantics) without a new canvas write
+- **AND** an already-opened target is not re-opened by unrelated re-renders
+
 #### Scenario: Tapping the chip activates (foreground), not silent
 - **GIVEN** the mobile tap-to-open chip is shown
 - **WHEN** the user taps it
 - **THEN** the target opens and becomes the active tab (foreground)
 - **AND** it is not left unread — the shared `useOpenTarget` handler passes
   foreground intent for the chip tap while the auto-open effect passes background
-
