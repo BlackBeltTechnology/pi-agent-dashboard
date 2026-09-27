@@ -479,7 +479,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             onClick={() => setSourceMode("fork")}
             data-testid="worktree-source-fork"
             aria-pressed={sourceMode === "fork"}
-            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
+            className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border ${
               sourceMode === "fork"
                 ? "border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)] bg-[var(--tint-blue-bg)]"
                 : "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
@@ -492,7 +492,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             onClick={() => setSourceMode("checkout")}
             data-testid="worktree-source-checkout"
             aria-pressed={sourceMode === "checkout"}
-            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
+            className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border ${
               sourceMode === "checkout"
                 ? "border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)] bg-[var(--tint-blue-bg)]"
                 : "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
@@ -506,7 +506,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             disabled={!!ghUnavailable}
             data-testid="worktree-source-pr"
             aria-pressed={sourceMode === "pr"}
-            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
+            className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border ${
               ghUnavailable
                 ? "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] opacity-50 cursor-not-allowed"
                 : sourceMode === "pr"
@@ -576,7 +576,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                             type="button"
                             onClick={() => handleSpawnExisting(forkCollision.holder as WorktreeEntry)}
                             data-testid="worktree-collision-spawn"
-                            className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
+                            className="focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
                           >
                             {i18nT("git.spawnIntoThatWorktree", undefined, "New session in that worktree →")}
                           </button>
@@ -586,7 +586,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                             disabled={submitting}
                             onClick={handleReuseAsCheckout}
                             data-testid="worktree-collision-checkout"
-                            className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
+                            className="focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
                           >
                             {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
                           </button>
@@ -655,7 +655,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                 disabled={cleaningOrphan}
                 onClick={() => handleCleanOrphan(!!submitError?.orphanLikely)}
                 data-testid="worktree-dialog-orphan-cleanup"
-                className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
+                className="focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
               >
                 {cleaningOrphan ? "Cleaning…" : submitError?.orphanLikely ? "Clean up + retry" : "Clean up"}
               </button>
@@ -677,7 +677,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                 type="button"
                 onClick={handleReuseAsCheckout}
                 data-testid="worktree-dialog-branch-reuse"
-                className="mt-1 focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
+                className="mt-1 focus-ring inline-flex items-center px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
               >
                 {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
               </button>

@@ -235,7 +235,7 @@ export function WorktreeList({
         data-testid={`worktree-chip-${key}`}
         aria-pressed={on}
         onClick={() => setReveal((r) => ({ ...r, [key]: !r[key] }))}
-        className="focus-ring text-[12px] rounded-full border border-[var(--border-secondary)] px-2.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] min-h-[44px] sm:min-h-[32px]"
+        className="focus-ring text-[12px] rounded-full border border-[var(--border-secondary)] px-2.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] tap-target"
       >
         {/* The sign states the ACTION so the number cannot be misread as
             "N are currently shown" (design D2). */}
@@ -254,7 +254,7 @@ export function WorktreeList({
           data-testid="worktree-filter-query"
           aria-label={i18nT("worktree.filterWorktrees", undefined, "Filter worktrees")}
           placeholder={i18nT("worktree.filterWorktrees", undefined, "Filter worktrees")}
-          className="text-[12px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-2 py-1 min-h-[44px] sm:min-h-[32px] flex-1 min-w-[8rem] text-[var(--text-primary)]"
+          className="text-[12px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-2 py-1 tap-target flex-1 min-w-[8rem] text-[var(--text-primary)]"
         />
         {chip("detached", counts.detached, i18nT("worktree.detached", undefined, "detached"))}
         {chip("outOfTree", counts.outOfTree, i18nT("worktree.outOfTree", undefined, "out of tree"))}
@@ -288,7 +288,7 @@ export function WorktreeList({
             type="button"
             onClick={selectAllShown}
             data-testid="worktree-select-all"
-            className="focus-ring text-[12px] text-[var(--text-secondary)] underline min-h-[44px] sm:min-h-[32px]"
+            className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target"
           >
             {i18nT("worktree.selectAllShown", undefined, "Select all")} {selectable.length}{" "}
             {i18nT("common.shown", undefined, "shown")}
@@ -308,7 +308,7 @@ export function WorktreeList({
               type="button"
               onClick={() => onRemoveSelected?.(selected, { deleteBranch })}
               data-testid="worktree-remove-selected"
-              className="focus-ring text-[12px] font-semibold text-[var(--text-primary)] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] rounded-md px-2.5 min-h-[44px] sm:min-h-[32px]"
+              className="focus-ring text-[12px] font-semibold text-[var(--text-primary)] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] rounded-md px-2.5 tap-target"
             >
               {i18nT("worktree.removeNWorktrees", undefined, "Remove")} {selected.length}{" "}
               {i18nT("worktree.worktrees", undefined, "worktrees")}
@@ -319,7 +319,7 @@ export function WorktreeList({
               type="button"
               onClick={onPrune}
               data-testid="worktree-prune-footer"
-              className="focus-ring text-[12px] text-[var(--text-secondary)] underline min-h-[44px] sm:min-h-[32px] ml-auto"
+              className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target ml-auto"
             >
               {/* Repo-global, and the copy must say so (design D8). */}
               {i18nT(
@@ -399,7 +399,7 @@ function WorktreeRow({
         type="button"
         data-testid={testId}
         onClick={() => onSpawn?.(entry.path, entry)}
-        className="focus-ring w-full text-left px-3 py-2 min-h-[44px] sm:min-h-[32px] hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
+        className="focus-ring w-full text-left px-3 py-2 tap-target hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
       >
         <div className="flex items-center">{identity}</div>
         {pathLine}
@@ -439,7 +439,7 @@ function WorktreeRow({
               <button
                 type="button"
                 onClick={failure.onRetry}
-                className="focus-ring underline min-h-[44px] sm:min-h-[32px]"
+                className="focus-ring underline tap-target"
                 data-testid={`worktree-row-retry-${encodeURIComponent(entry.path)}`}
               >
                 {i18nT("common.retry", undefined, "Retry")}
@@ -453,7 +453,7 @@ function WorktreeRow({
           type="button"
           onClick={onPrune}
           data-testid={`worktree-prune-${encodeURIComponent(entry.path)}`}
-          className="focus-ring text-[12px] text-[var(--text-secondary)] underline min-h-[44px] sm:min-h-[32px]"
+          className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target"
         >
           {i18nT("worktree.pruneStaleRegistrations", undefined, "Prune stale registrations")}
         </button>

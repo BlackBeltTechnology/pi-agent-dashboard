@@ -178,7 +178,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
                 type="button"
                 disabled={busy || goal.status === a.status}
                 onClick={() => void run(() => updateGoal(cwd, goal.id, { status: a.status }))}
-                className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
               >
                 {a.label}
               </button>
@@ -187,20 +187,20 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
 
           {/* Loop-control bar (task 5.1) — dispatches via existing plugin_action. */}
           <div className="flex items-center gap-1.5 mt-3 flex-wrap" data-testid="goal-loop-controls">
-            <button type="button" disabled={busy} onClick={() => dispatch("pause")} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-pause">
+            <button type="button" disabled={busy} onClick={() => dispatch("pause")} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-pause">
               <Icon path={mdiPause} size={0.55} />{t("pause", undefined, "Pause")}
             </button>
-            <button type="button" disabled={busy} onClick={() => dispatch("resume")} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-resume">
+            <button type="button" disabled={busy} onClick={() => dispatch("resume")} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-resume">
               <Icon path={mdiPlay} size={0.55} />{t("resume", undefined, "Resume")}
             </button>
-            <button type="button" disabled={busy} onClick={() => dispatch("done")} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-done">
+            <button type="button" disabled={busy} onClick={() => dispatch("done")} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-done">
               <Icon path={mdiCheck} size={0.55} />{t("done", undefined, "Done")}
             </button>
-            <button type="button" disabled={busy} onClick={() => dispatch("clear")} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-clear">
+            <button type="button" disabled={busy} onClick={() => dispatch("clear")} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40" data-testid="goal-ctl-clear">
               <Icon path={mdiBroom} size={0.55} />{t("clear", undefined, "Clear")}
             </button>
             <span className="flex-1" />
-            <button type="button" disabled={busy} onClick={() => void removeGoal()} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] hover:bg-[color-mix(in_srgb,var(--tint-red-bg)_70%,var(--tint-red-border))] disabled:opacity-40" data-testid="goal-detail-delete">
+            <button type="button" disabled={busy} onClick={() => void removeGoal()} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-red disabled:opacity-40" data-testid="goal-detail-delete">
               <Icon path={mdiTrashCanOutline} size={0.55} />{t("delete", undefined, "Delete")}
             </button>
           </div>
@@ -249,11 +249,11 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
                 value={subgoalDraft}
                 onChange={(e) => setSubgoalDraft(e.target.value)}
                 placeholder={t("addCriterionPlaceholder", undefined, "Add criterion / subgoal…")}
-                className="flex-1 min-w-0 text-[12px] px-2 min-h-[44px] sm:min-h-[32px] rounded-md bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] outline-none focus:border-[var(--focus-ring)]"
+                className="flex-1 min-w-0 text-[12px] px-2 tap-target rounded-md bg-[var(--bg-primary)] border border-[var(--border-secondary)] text-[var(--text-primary)] outline-none focus:border-[var(--focus-ring)]"
                 onKeyDown={(e) => { if (e.key === "Enter") addSubgoal(); }}
                 data-testid="goal-subgoal-input"
               />
-              <button type="button" onClick={addSubgoal} disabled={!subgoalDraft.trim()} className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--tint-purple-border)] bg-[var(--tint-purple-bg)] text-[var(--tint-purple-fg)] hover:bg-[color-mix(in_srgb,var(--tint-purple-bg)_70%,var(--tint-purple-border))] disabled:opacity-50" data-testid="goal-subgoal-add">
+              <button type="button" onClick={addSubgoal} disabled={!subgoalDraft.trim()} className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-purple disabled:opacity-50" data-testid="goal-subgoal-add">
                 {t("add", undefined, "Add")}
               </button>
             </div>
@@ -289,7 +289,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
               type="button"
               disabled={busy}
               onClick={() => void run(() => spawnSession(cwd, goal.id))}
-              className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--tint-purple-border)] bg-[var(--tint-purple-bg)] text-[var(--tint-purple-fg)] hover:bg-[color-mix(in_srgb,var(--tint-purple-bg)_70%,var(--tint-purple-border))] disabled:opacity-50"
+              className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-purple disabled:opacity-50"
               data-testid="goal-new-session"
             >
               <Icon path={mdiPlus} size={0.55} />{t("newSession", undefined, "New session")}
@@ -298,7 +298,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
               type="button"
               onClick={() => setLinking((v) => !v)}
               aria-expanded={linking}
-              className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
               data-testid="goal-link-existing"
             >
               <Icon path={mdiLinkVariant} size={0.55} />{t("linkExisting", undefined, "Link existing…")}
@@ -314,7 +314,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
                   type="button"
                   disabled={busy}
                   onClick={() => void run(async () => { await linkSession(cwd, goal.id, s.id); setLinking(false); })}
-                  className="focus-ring block w-full text-left px-2 min-h-[44px] sm:min-h-[32px] rounded text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] truncate"
+                  className="focus-ring block w-full text-left px-2 tap-target rounded text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] truncate"
                 >
                   {s.name || s.id.slice(0, 8)}
                 </button>

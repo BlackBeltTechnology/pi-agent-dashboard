@@ -1225,7 +1225,7 @@ export function SessionCard({
               <button
                 onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
                 disabled={session.resuming || session.cwdMissing === true}
-                className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-green disabled:opacity-50 disabled:cursor-not-allowed"
                 title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.resumeTitle", undefined, "Resume session (continue same session)")}
               >
                 <Icon path={mdiPlayCircleOutline} size={0.5} className="flex-shrink-0" />{i18nT("session.resume", undefined, "Resume")}
@@ -1234,7 +1234,7 @@ export function SessionCard({
             <button
               onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
               disabled={session.resuming || session.cwdMissing === true}
-              className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] text-[var(--tint-blue-fg)] hover:bg-[color-mix(in_srgb,var(--tint-blue-bg)_70%,var(--tint-blue-border))] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-blue disabled:opacity-50 disabled:cursor-not-allowed"
               title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.forkTitle", undefined, "Fork session (new session from this point)")}
             >
               <Icon path={mdiSourceFork} size={0.5} className="flex-shrink-0" />{i18nT("session.fork", undefined, "Fork")}
@@ -1248,7 +1248,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
             disabled={!!session.cwdMissing}
-            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-green disabled:opacity-50 disabled:cursor-not-allowed"
             title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnSiblingTitle", undefined, "+Session clean sibling in same folder")}
             data-testid="session-card-spawn-sibling"
           >
@@ -1271,7 +1271,7 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}
-            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] text-[var(--tint-orange-fg)] hover:bg-[color-mix(in_srgb,var(--tint-orange-bg)_70%,var(--tint-orange-border))] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold tap-target px-2.5 rounded-md border tint-action-orange disabled:opacity-50 disabled:cursor-not-allowed"
             title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create a git worktree and start a new session in it")}
             data-testid="session-card-spawn-worktree"
           >
@@ -1631,7 +1631,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
-          className="focus-ring mt-1 inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] rounded-full text-[12px] border border-[var(--border-subtle)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          className="focus-ring mt-1 inline-flex items-center gap-1 px-2.5 tap-target rounded-full text-[12px] border border-[var(--border-subtle)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           data-testid="background-drawer-chip"
           aria-label={i18nT("session.backgroundProcessesTapToView", { count: processes.length }, "{count} background processes — tap to view")}
         >
@@ -1691,7 +1691,7 @@ function ProcessSafetyChip({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
-        className="mt-1.5 inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] rounded-full text-[12px] font-semibold border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)] bg-[var(--severity-warning-bg)] hover:bg-[color-mix(in_srgb,var(--severity-warning-bg)_70%,var(--severity-warning-border))] focus-ring"
+        className="mt-1.5 inline-flex items-center gap-1 px-2.5 tap-target rounded-full text-[12px] font-semibold border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)] bg-[var(--severity-warning-bg)] hover:bg-[color-mix(in_srgb,var(--severity-warning-bg)_70%,var(--severity-warning-border))] focus-ring"
         data-testid="process-safety-chip"
       >
         <Icon path={mdiAlertOutline} size={0.4} className="flex-shrink-0" />
@@ -1784,7 +1784,7 @@ function OpenSpecDisabledPanel({
             e.stopPropagation();
             control();
           }}
-          className="focus-ring rounded-md px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+          className="focus-ring rounded-md px-2.5 tap-target text-[12px] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
         >
           {targetsSettings
             ? i18nT("openspec.remediateOpenSettings", undefined, "Open OpenSpec settings")

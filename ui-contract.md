@@ -77,8 +77,13 @@ keep the meanings apart. See change: align-ui-with-theme-tokens.
   `--text-secondary`; timestamps and counts are information →
   `--text-secondary`.
 
-**Tinted action recipe:** `border border-[var(--tint-X-border)] bg-[var(--tint-X-bg)]
-text-[var(--tint-X-fg)] hover:bg-[color-mix(in_srgb,var(--tint-X-bg)_70%,var(--tint-X-border))]`.
+**Tinted action recipe:** `border tint-action-X` (X = green | orange | blue | purple | red).
+`@utility tint-action-X` in `packages/client/src/index.css` = `--tint-X-fg` text,
+`--tint-X-border` border, `--tint-X-bg` bg; hover (on `(hover: hover)`) mixes the bg
+70% toward the border. Use the utility, not the four arbitrary-value classes — the
+recipe then lives in the CSS chunk, not the JS index chunk (`mdi-chunk-size` cap).
+A disabled control keeps the static triple without the hover (no `tint-action-X`).
+**Target floor:** `tap-target` = min-height 44px, 32px from `sm:` up.
 
 ## Spacing scale
 
@@ -138,7 +143,7 @@ drop it on a raised surface.
 | card root | `rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)]` + raised elevation |
 | inset panel | `rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]` |
 | chip / pill | `rounded-full px-1.5 py-0.5 text-[11px] bg-[var(--bg-tertiary)]` (identity pill: tint triple) |
-| action chip | `focus-ring inline-flex items-center gap-0.5 rounded-md border px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold` + tinted action recipe |
+| action chip | `focus-ring inline-flex items-center gap-0.5 rounded-md border px-2.5 tap-target text-[12px] font-semibold` + `tint-action-X` |
 | severity callout | `rounded-md border bg-[var(--severity-X-bg)] border-[var(--severity-X-border)] text-[var(--severity-X-fg)]` |
 | primary button | `focus-ring rounded-md bg-[var(--accent-solid)] px-3 min-h-[44px] sm:min-h-[36px] text-white font-semibold disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]` — `--accent-solid` is theme-invariant (white on it is 5.17:1 everywhere); `--accent-primary` is NOT a white-text fill (3.68:1) |
 | secondary button | `focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px]` |

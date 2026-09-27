@@ -55,21 +55,21 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
         <button
           type="button"
           onClick={() => onRespond({ confirmed: true })}
-          className="focus-ring inline-flex items-center justify-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors bg-[var(--accent-solid)] text-white hover:brightness-110"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors bg-[var(--accent-solid)] text-white hover:brightness-110"
         >
           {i18nT("common.yes", undefined, "Yes")}
         </button>
         <button
           type="button"
           onClick={() => onRespond({ confirmed: false })}
-          className="focus-ring inline-flex items-center justify-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] hover:bg-[color-mix(in_srgb,var(--tint-red-bg)_70%,var(--tint-red-border))]"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border tint-action-red"
         >
           {i18nT("common.no", undefined, "No")}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="focus-ring inline-flex items-center justify-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
         >
           {i18nT("common.cancel", undefined, "Cancel")}
         </button>

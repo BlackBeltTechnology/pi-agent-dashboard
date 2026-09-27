@@ -42,10 +42,10 @@ export function DashboardSpawnButtons({
         onClick={(e) => { e.stopPropagation(); onAddFolder(); }}
         disabled={addFolderDisabled}
         data-testid={addFolderTestId}
-        className={`focus-ring w-full text-[12px] font-semibold px-2.5 py-1 min-h-[44px] sm:min-h-[32px] rounded-md border flex items-center justify-center gap-0.5 ${
+        className={`focus-ring w-full text-[12px] font-semibold px-2.5 py-1 tap-target rounded-md border flex items-center justify-center gap-0.5 ${
           addFolderDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
-            : "text-[var(--tint-blue-fg)] border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] hover:bg-[color-mix(in_srgb,var(--tint-blue-bg)_70%,var(--tint-blue-border))]"
+            : "tint-action-blue"
         }`}
         title={i18nT("folders.addAFolder", undefined, "Add a folder")}
       >
@@ -57,7 +57,7 @@ export function DashboardSpawnButtons({
           type="button"
           onClick={(e) => { e.stopPropagation(); onNewWorkspace(); }}
           data-testid="dashboard-new-workspace-btn"
-          className="focus-ring w-full text-[12px] font-semibold px-2.5 py-1 min-h-[44px] sm:min-h-[32px] rounded-md border flex items-center justify-center gap-0.5 text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
+          className="focus-ring w-full text-[12px] font-semibold px-2.5 py-1 tap-target rounded-md border flex items-center justify-center gap-0.5 text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
           title={i18nT("folders.newWorkspace3", undefined, "New workspace")}
         >
           <Icon path={mdiViewGridPlus} size={0.6} /> {i18nT("folders.newWorkspace2", undefined, "New Workspace")}

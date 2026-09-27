@@ -1107,7 +1107,7 @@ function ProposalCard(props: {
         <button
           type="button"
           onClick={() => props.onSpawnSession(props.cwd, c.name)}
-          className="focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 min-h-[44px] sm:min-h-[32px] rounded-md border whitespace-nowrap border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))]"
+          className="focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap tint-action-green"
           data-testid={`card-new-session-${c.name}`}
           title={i18nT("session.spawnASessionAttachedToThis", undefined, "New session for this proposal")}
         >
@@ -1121,7 +1121,7 @@ function ProposalCard(props: {
           type="button"
           onClick={() => { if (props.worktreeAvailability.available) props.onSpawnAttachedWorktree(props.cwd, c.name); }}
           disabled={!props.worktreeAvailability.available}
-          className={`focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 min-h-[44px] sm:min-h-[32px] rounded-md border whitespace-nowrap border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] text-[var(--tint-orange-fg)] ${props.worktreeAvailability.available ? "hover:bg-[color-mix(in_srgb,var(--tint-orange-bg)_70%,var(--tint-orange-border))]" : "opacity-50 cursor-not-allowed"}`}
+          className={`focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap ${props.worktreeAvailability.available ? "tint-action-orange" : "border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] text-[var(--tint-orange-fg)] opacity-50 cursor-not-allowed"}`}
           data-testid={`card-new-worktree-${c.name}`}
           title={worktreeActionTitle(props.worktreeAvailability)}
         >
@@ -1298,11 +1298,11 @@ function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCance
           <label className="block text-[12px] font-semibold text-[var(--text-primary)] mb-1">{i18nT("common.name", undefined, "Name")}</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="kebab-case-name"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
-            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 min-h-[44px] sm:min-h-[32px] outline-none focus:border-[var(--focus-ring)]" data-testid="np-name" />
+            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 tap-target outline-none focus:border-[var(--focus-ring)]" data-testid="np-name" />
         </div>
         <div className="mb-2.5">
           <label className="block text-[12px] font-semibold text-[var(--text-primary)] mb-1">{i18nT("common.group", undefined, "Group")}</label>
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 min-h-[44px] sm:min-h-[32px] outline-none focus:border-[var(--focus-ring)]" data-testid="np-group">
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 tap-target outline-none focus:border-[var(--focus-ring)]" data-testid="np-group">
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             <option value={UNGROUPED}>{i18nT("common.ungrouped", undefined, "Ungrouped")}</option>
           </select>

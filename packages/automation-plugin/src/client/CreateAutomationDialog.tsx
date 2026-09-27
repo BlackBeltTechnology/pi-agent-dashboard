@@ -515,7 +515,7 @@ export function CreateAutomationDialog({
                   data-testid={`trigger-cat-${c.category}`}
                   disabled={planned}
                   onClick={() => setCategory(c.category)}
-                  className={`focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] rounded-full border ${
+                  className={`focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] rounded-full border ${
                     selected
                       ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -598,7 +598,7 @@ export function CreateAutomationDialog({
                   if (!rawCronMode) setCron(buildCron(freq, time, dow));
                   setRawCronMode((v) => !v);
                 }}
-                className="focus-ring inline-flex items-center min-h-[44px] sm:min-h-[32px] text-[12px] text-[var(--text-secondary)] underline"
+                className="focus-ring inline-flex items-center tap-target text-[12px] text-[var(--text-secondary)] underline"
               >
                 {rawCronMode ? t("useScheduleHelper", undefined, "use schedule helper") : t("editRawCron", undefined, "edit raw cron")}
               </button>
@@ -754,7 +754,7 @@ export function CreateAutomationDialog({
                     type="button"
                     data-testid={`remove-action-entry-${i}`}
                     onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
-                    className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--tint-red-border)] bg-[var(--tint-red-bg)] text-[var(--tint-red-fg)] hover:bg-[color-mix(in_srgb,var(--tint-red-bg)_70%,var(--tint-red-border))]"
+                    className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-red"
                   >
                     {t("remove", undefined, "Remove")}
                   </button>
@@ -811,7 +811,7 @@ export function CreateAutomationDialog({
               onClick={() =>
                 setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
               }
-              className="focus-ring inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+              className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
               {t("addAction", undefined, "+ Add action")}
             </button>
@@ -823,7 +823,7 @@ export function CreateAutomationDialog({
                 type="button"
                 data-testid="create-model-mode-role"
                 onClick={() => setModelMode("role")}
-                className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] rounded-md border ${
+                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
                   modelMode === "role"
                     ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -835,7 +835,7 @@ export function CreateAutomationDialog({
                 type="button"
                 data-testid="create-model-mode-model"
                 onClick={() => setModelMode("model")}
-                className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] rounded-md border ${
+                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
                   modelMode === "model"
                     ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -923,7 +923,7 @@ export function CreateAutomationDialog({
             data-testid="create-advanced-toggle"
             onClick={() => setAdvancedOpen((v) => !v)}
             aria-expanded={advancedOpen}
-            className="focus-ring inline-flex items-center gap-1 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className="focus-ring inline-flex items-center gap-1 tap-target text-[12px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
           </button>
@@ -1088,7 +1088,7 @@ function Segmented<T extends string>({
             data-testid={`${testid}-${o.value}`}
             disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] rounded ${
+            className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded ${
               selected
                 ? "bg-[var(--accent-solid)] text-white"
                 : "text-[var(--text-secondary)]"
@@ -1177,7 +1177,7 @@ function ActionPicker({
                   onClick={() => onToggleSource(src)}
                   aria-expanded={open}
                   data-testid={`action-group-${src}`}
-                  className="focus-ring flex w-full items-center gap-2 px-2 py-1.5 min-h-[44px] sm:min-h-[32px] text-left text-[12px] font-semibold"
+                  className="focus-ring flex w-full items-center gap-2 px-2 py-1.5 tap-target text-left text-[12px] font-semibold"
                 >
                   <span aria-hidden="true" className="text-[var(--text-muted)]">{open ? "▾" : "▸"}</span>
                   <span className="capitalize">{src}</span>
@@ -1198,7 +1198,7 @@ function ActionPicker({
                           onClick={() => onSelect(a)}
                           aria-pressed={selected}
                           data-testid={`create-action-${a.id}`}
-                          className={`focus-ring flex items-center gap-2 rounded border px-2 py-1.5 min-h-[44px] sm:min-h-[32px] text-left text-[12px] ${
+                          className={`focus-ring flex items-center gap-2 rounded border px-2 py-1.5 tap-target text-left text-[12px] ${
                             selected
                               ? "border-[var(--accent)] bg-[var(--accent)]/10"
                               : "border-[var(--border-secondary)]"

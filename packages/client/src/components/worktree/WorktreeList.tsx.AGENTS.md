@@ -14,3 +14,5 @@ Exports `WorktreeList`, plus pure helpers `normalisePath`, `basenameOf`, `isInTr
  Shared `isRemovable` predicate (`!isMain && !bare && !missing`) gates checkbox, batch selection, and Remove button; default view falls back to every non-detached entry when no main resolves. See change: apply-checkout-root-to-worktree-ops.
 
 See change: align-ui-with-theme-tokens. Buttons/links 12 px, `min-h-[44px] sm:min-h-[32px]`, `focus-ring`; remove ✕ 44/32 px with `--tint-red-*` hover; main/missing badges 11 px no uppercase. `ManageWorktreesDialog` inherits.
+
+See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` / `tap-target` utilities (index chunk cap).
