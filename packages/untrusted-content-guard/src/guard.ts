@@ -16,10 +16,10 @@ import type { Finding } from "./scanner/findings.js";
 import { scan } from "./scanner/scan.js";
 import type { GuardSettings } from "./settings.js";
 import {
-  GUIDELINE,
   blockNotice,
   closeDelimiter,
   escapeDelimiters,
+  GUIDELINE,
   newMarker,
   openDelimiter,
   summaryLine,

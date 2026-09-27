@@ -3,12 +3,10 @@
  *
  * ADVISORY ONLY (design Non-Goals): visible persuasive text cannot be detected
  * deterministically, so every hit is a LOW finding and nothing is removed.
- * Bump PHRASE_RULES_VERSION whenever the list changes.
+ * Rule-list version: 1. Bump it (here and in README) whenever the list changes.
  */
 
 import type { FindingSet } from "./findings.js";
-
-export const PHRASE_RULES_VERSION = 1;
 
 const PHRASE_RULES: readonly RegExp[] = [
   /\bignore (?:all |any )?(?:the )?(?:previous|prior|above|earlier) (?:instructions|prompts|rules)\b/gi,

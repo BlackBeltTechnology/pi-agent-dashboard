@@ -130,6 +130,22 @@ function addRule(map: Map<string, Decls>, key: string, decls: Decls): void {
   for (const [k, v] of decls) existing.set(k, v);
 }
 
+/** Register one CSS rule: simple selectors into the index, complex hiding ones as `unresolved_css`. */
+function indexRule(index: CssIndex, prelude: string, body: string, findings: FindingSet): void {
+  const decls = parseDecls(body);
+  const hides = hidingReason(decls) !== null;
+  for (const selector of prelude.split(",").map((s) => s.trim())) {
+    if (!selector) continue;
+    if (!SIMPLE_SELECTOR.test(selector)) {
+      if (hides) findings.add("unresolved_css", "low", `${selector} {${body}}`);
+      continue;
+    }
+    if (selector.startsWith(".")) addRule(index.cls, selector.slice(1), decls);
+    else if (selector.startsWith("#")) addRule(index.id, selector.slice(1), decls);
+    else addRule(index.type, selector.toLowerCase(), decls);
+  }
+}
+
 function buildCssIndex(src: string, findings: FindingSet): CssIndex {
   const index: CssIndex = { type: new Map(), cls: new Map(), id: new Map() };
   if (!/<style\b/i.test(src)) return index;
@@ -140,20 +156,7 @@ function buildCssIndex(src: string, findings: FindingSet): CssIndex {
     for (let rule = CSS_RULE.exec(css); rule !== null; rule = CSS_RULE.exec(css)) {
       // Drop anything before the last `;` (e.g. `@import …;` preceding the selector).
       const prelude = (rule[1] as string).split(";").pop()?.trim() ?? "";
-      if (!prelude || prelude.startsWith("@")) continue;
-      const decls = parseDecls(rule[2] as string);
-      const hides = hidingReason(decls) !== null;
-      for (const selector of prelude.split(",").map((s) => s.trim())) {
-        if (!selector) continue;
-        if (!SIMPLE_SELECTOR.test(selector)) {
-          if (hides) findings.add("unresolved_css", "low", `${selector} {${rule[2]}}`);
-          continue;
-        }
-        const key = selector.toLowerCase();
-        if (key.startsWith(".")) addRule(index.cls, selector.slice(1), decls);
-        else if (key.startsWith("#")) addRule(index.id, selector.slice(1), decls);
-        else addRule(index.type, key, decls);
-      }
+      if (prelude && !prelude.startsWith("@")) indexRule(index, prelude, rule[2] as string, findings);
     }
   }
   return index;
@@ -214,17 +217,14 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
       onclosetag(_name, isImplied) {
         flushText();
         const element = stack.pop();
-        if (!element) return;
-        if (hidden && hidden.depth === stack.length) {
-          if (hidden.hasText) {
-            const end = isImplied ? parser.startIndex : parser.endIndex + 1;
-            if (end > element.start) {
-              edits.push({ start: element.start, end, text: "" });
-              findings.add(hidden.reason, "high", hidden.sample);
-            }
-          }
-          hidden = null;
+        if (!element || !hidden || hidden.depth !== stack.length) return;
+        // Implied close (sibling / parent close / EOF) ends at the trigger's start.
+        const end = isImplied ? parser.startIndex : parser.endIndex + 1;
+        if (hidden.hasText && end > element.start) {
+          edits.push({ start: element.start, end, text: "" });
+          findings.add(hidden.reason, "high", hidden.sample);
         }
+        hidden = null;
       },
       ontext(chunk) {
         if (hidden) {

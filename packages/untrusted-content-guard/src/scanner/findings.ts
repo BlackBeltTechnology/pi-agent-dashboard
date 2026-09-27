@@ -19,7 +19,7 @@ export interface Finding {
   sample: string;
 }
 
-export const SAMPLE_MAX = 80;
+const SAMPLE_MAX = 80;
 
 /**
  * Code points rendered as `U+XXXX` in a sample: C0/C1 controls, format chars
@@ -32,7 +32,7 @@ function hex(cp: number): string {
 }
 
 /** Escape every invisible code point as `U+XXXX`; visible text passes through. */
-export function visibleEscape(text: string): string {
+function visibleEscape(text: string): string {
   // Escaped code points and runs of visible text become space-separated parts:
   // "hi" + U+E0069 → "hi U+E0069".
   const parts: string[] = [];
@@ -53,7 +53,7 @@ export function visibleEscape(text: string): string {
 }
 
 /** Cap a sample at SAMPLE_MAX characters (an ellipsis marks the cut). */
-export function truncateSample(sample: string): string {
+function truncateSample(sample: string): string {
   const flat = sample.replace(/\s+/g, " ").trim();
   return flat.length <= SAMPLE_MAX ? flat : `${flat.slice(0, SAMPLE_MAX - 1)}…`;
 }

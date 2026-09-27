@@ -21,7 +21,7 @@ import { phraseLayer } from "./phrase.js";
 import { unicodeLayer } from "./unicode.js";
 import { urlLayer } from "./url.js";
 
-export type ScanMode = "warn" | "strip" | "block";
+type ScanMode = "warn" | "strip" | "block";
 
 export interface ScanOptions {
   /** Default `strip`. `warn` detects only; `strip`/`block` clean. */

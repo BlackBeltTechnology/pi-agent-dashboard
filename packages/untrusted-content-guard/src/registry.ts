@@ -21,7 +21,7 @@ export const REGISTRY_SYMBOL: unique symbol = Symbol.for("pi.untrusted-content-g
 
 export type DeclarationKind = "untrusted" | "selfConfirming";
 
-export interface Declaration {
+interface Declaration {
   kind: DeclarationKind;
   /** Tool names (globs allowed). */
   names: string[];
@@ -38,11 +38,6 @@ export function getRegistry(host: object = globalThis): GuardRegistry {
   const h = host as RegistryHost;
   h[REGISTRY_SYMBOL] ??= { declarations: [] };
   return h[REGISTRY_SYMBOL];
-}
-
-/** Convenience for extensions that do import this package. */
-export function declareTools(kind: DeclarationKind, names: string[], host: object = globalThis): void {
-  getRegistry(host).declarations.push({ kind, names: [...names] });
 }
 
 /** Live check: is `toolName` declared with `kind`? Malformed entries are ignored. */

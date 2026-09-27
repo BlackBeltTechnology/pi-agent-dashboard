@@ -68,6 +68,30 @@ export function hasRtl(text: string): boolean {
 }
 
 /**
+ * Classify one candidate run, recording its finding. Returns true when the run
+ * must be removed (high severity).
+ */
+function classify(m: RegExpExecArray, prev: number | undefined, next: number | undefined, rtl: boolean, findings: FindingSet): boolean {
+  if (m[1] !== undefined) {
+    if (preservedZeroWidth(m[1], prev, next)) return false;
+    findings.add("unicode-zero-width", "high", m[1]);
+    return true;
+  }
+  if (m[2] !== undefined) {
+    findings.add(rtl ? "unicode-bidi-rtl" : "unicode-bidi", rtl ? "low" : "high", m[2]);
+    return !rtl;
+  }
+  if (m[3] !== undefined) {
+    findings.add("unicode-tags", "high", m[3]);
+    return true;
+  }
+  const run = m[4] as string;
+  if ([...run].length < 2 && test(EMOJI_BASE, prev)) return false;
+  findings.add("unicode-variation-selectors", "high", run);
+  return true;
+}
+
+/**
  * Scan `text`, record findings, and return the cleaned text (high-severity
  * spans removed). `rtlContext` overrides the RTL test (HTML passes the whole
  * document's answer so a control in its own text node is judged in context).
@@ -81,31 +105,7 @@ export function unicodeLayer(text: string, findings: FindingSet, rtlContext?: bo
   for (let m = CANDIDATES.exec(text); m !== null; m = CANDIDATES.exec(text)) {
     const start = m.index;
     const end = start + m[0].length;
-    const prev = cpBefore(text, start);
-    let remove = false;
-    if (m[1] !== undefined) {
-      if (!preservedZeroWidth(m[1], prev, text.codePointAt(end))) {
-        findings.add("unicode-zero-width", "high", m[1]);
-        remove = true;
-      }
-    } else if (m[2] !== undefined) {
-      if (rtl) {
-        findings.add("unicode-bidi-rtl", "low", m[2]);
-      } else {
-        findings.add("unicode-bidi", "high", m[2]);
-        remove = true;
-      }
-    } else if (m[3] !== undefined) {
-      findings.add("unicode-tags", "high", m[3]);
-      remove = true;
-    } else {
-      const selectors = [...(m[4] as string)].length;
-      if (selectors >= 2 || !test(EMOJI_BASE, prev)) {
-        findings.add("unicode-variation-selectors", "high", m[4] as string);
-        remove = true;
-      }
-    }
-    if (remove) {
+    if (classify(m, cpBefore(text, start), text.codePointAt(end), rtl, findings)) {
       out += text.slice(last, start);
       last = end;
     }

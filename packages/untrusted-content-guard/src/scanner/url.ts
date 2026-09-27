@@ -66,33 +66,31 @@ export interface UrlLayerOptions {
   allowHosts: readonly string[];
 }
 
+function replaceDataUrls(text: string, findings: FindingSet): string {
+  let count = 0;
+  let first = "";
+  const replaced = text.replace(DATA_URL, (match, mime: string | undefined, params: string, payload: string) => {
+    if (count++ === 0) first = match.slice(0, 60);
+    return `[data-url removed: ${(mime ?? "text/plain").toLowerCase()}, ${dataBytes(params, payload)} bytes]`;
+  });
+  if (count > 0) findings.add("data-url", "high", first, count);
+  return replaced;
+}
+
+function eachMatch(re: RegExp, text: string, fn: (group: string) => void): void {
+  re.lastIndex = 0;
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) fn(m[1] as string);
+}
+
 export function urlLayer(text: string, findings: FindingSet, opts: UrlLayerOptions): string {
-  let out = text;
-  if (text.includes("data:")) {
-    let count = 0;
-    let first = "";
-    const replaced = text.replace(DATA_URL, (match, mime: string | undefined, params: string, payload: string) => {
-      if (count++ === 0) first = match.slice(0, 60);
-      return `[data-url removed: ${(mime ?? "text/plain").toLowerCase()}, ${dataBytes(params, payload)} bytes]`;
-    });
-    if (count > 0) {
-      findings.add("data-url", "high", first, count);
-      if (opts.replaceData) out = replaced;
-    }
-  }
+  const replaced = text.includes("data:") ? replaceDataUrls(text, findings) : text;
 
   if (text.includes("](") || /<img\b/i.test(text)) {
-    for (const re of [MD_IMAGE, HTML_IMG]) {
-      re.lastIndex = 0;
-      for (let m = re.exec(text); m !== null; m = re.exec(text)) checkImage(m[1] as string, opts.allowHosts, findings);
-    }
+    for (const re of [MD_IMAGE, HTML_IMG]) eachMatch(re, text, (url) => checkImage(url, opts.allowHosts, findings));
   }
 
   if (/[^\x00-\x7f]/.test(text)) {
-    URL_HOST.lastIndex = 0;
-    for (let m = URL_HOST.exec(text); m !== null; m = URL_HOST.exec(text)) checkConfusable(m[1] as string, findings);
-    MD_LINK_TEXT.lastIndex = 0;
-    for (let m = MD_LINK_TEXT.exec(text); m !== null; m = MD_LINK_TEXT.exec(text)) checkConfusable(m[1] as string, findings);
+    for (const re of [URL_HOST, MD_LINK_TEXT]) eachMatch(re, text, (part) => checkConfusable(part, findings));
   }
-  return out;
+  return opts.replaceData ? replaced : text;
 }

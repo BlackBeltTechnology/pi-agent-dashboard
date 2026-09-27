@@ -13,8 +13,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-export type GuardMode = "off" | "warn" | "strip" | "block";
-export type TaintScope = "run" | "session";
+type GuardMode = "off" | "warn" | "strip" | "block";
+type TaintScope = "run" | "session";
 
 export interface GuardSettings {
   mode: GuardMode;
@@ -25,7 +25,7 @@ export interface GuardSettings {
   preset?: "strict";
 }
 
-export const SETTINGS_KEY = "untrusted-content-guard";
+const SETTINGS_KEY = "untrusted-content-guard";
 
 export const DEFAULT_SETTINGS: Readonly<GuardSettings> = Object.freeze({
   mode: "strip",

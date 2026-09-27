@@ -5,7 +5,6 @@ export default defineConfig({
     include: ["src/**/__tests__/**/*.test.ts"],
     environment: "node",
     pool: "forks",
-    maxWorkers: 1,
     // P1 scans 1 MB inputs five times; keep headroom on a loaded CI runner.
     testTimeout: 30000,
   },
