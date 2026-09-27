@@ -36,6 +36,11 @@ interface Edit {
 const HTML_DETECT = /^\s*<(?:!doctype\s+html|html)\b/i;
 const HIDDEN_TEXT_SAMPLE = 200;
 const ANCHOR_TEXT_MAX = 1000;
+/**
+ * Anything a text-node layer could act on: non-ASCII (Unicode layer, confusables),
+ * ESC (ANSI), `data:` / `](` / `<img` (URL layer). Plain ASCII prose skips them all.
+ */
+const NEEDS_TEXT_SCAN = /[^\x00-\x1a\x1c-\x7f]|data:|\]\(|<img/i;
 /** Attributes whose (decoded) value is a URL. */
 const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster", "background", "cite", "data", "xlink:href"]);
 
@@ -77,7 +82,8 @@ function collectStylesheets(src: string): string[] {
 function elementReason(name: string, attribs: Record<string, string>, css: CssIndex): string | null {
   if (name === "script") return "html-script";
   if (Object.hasOwn(attribs, "hidden")) return "html-hidden-attr";
-  return hidingReason(resolveDecls(name, attribs, css));
+  const decls = resolveDecls(name, attribs, css);
+  return decls ? hidingReason(decls) : null;
 }
 
 function escapeText(text: string): string {
@@ -173,8 +179,9 @@ function checkAttributes(
   findings: FindingSet,
   edits: Edit[],
 ): void {
-  for (const [attr, value] of Object.entries(tag.attribs)) {
+  for (const attr in tag.attribs) {
     if (!URL_ATTRIBUTES.has(attr)) continue;
+    const value = tag.attribs[attr] as string;
     const placeholder = dataUrlPlaceholder(value);
     if (placeholder) {
       findings.add("data-url", "high", value.slice(0, 60));
@@ -208,6 +215,10 @@ export function htmlLayer(
 
   const flushText = () => {
     if (!text) return;
+    if (!NEEDS_TEXT_SCAN.test(text.decoded)) {
+      text = null;
+      return;
+    }
     const plain = ansiLayer(unicodeLayer(text.decoded, findings, rtl), findings);
     const cleaned = urlLayer(plain, findings, { replaceData: true, allowHosts: opts.allowHosts });
     if (cleaned !== text.decoded) edits.push({ start: text.start, end: text.end, text: escapeText(cleaned) });

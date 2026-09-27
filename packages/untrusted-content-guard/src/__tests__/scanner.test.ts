@@ -186,8 +186,9 @@ describe("hidden-HTML layer", () => {
   };
 
   it("stays within the latency bound on a rule-count × element-count cascade", () => {
-    const rules = ".x{color:red}".repeat(2000);
-    const elements = '<p class="x">t</p>'.repeat(2000);
+    // 8000 × 8000 (~250 KB): large enough that GC / timer granularity do not dominate.
+    const rules = ".x{color:red}".repeat(8000);
+    const elements = '<p class="x">t</p>'.repeat(8000);
     expect(msPer100KB(`<html><style>${rules}</style>${elements}</html>`)).toBeLessThanOrEqual(25);
   });
 

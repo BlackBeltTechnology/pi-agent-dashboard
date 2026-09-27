@@ -40,6 +40,22 @@ export interface CssIndex {
 const SIMPLE_SELECTOR = /^(?:[a-z][a-z0-9-]*|\.[\w-]+|#[\w-]+)$/i;
 const IMPORTANT = /!\s*important\s*$/i;
 
+/** The only properties `hidingReason` reads; nothing else is indexed. */
+const HIDING_PROPS = new Set([
+  "display",
+  "visibility",
+  "font-size",
+  "opacity",
+  "color",
+  "background-color",
+  "background",
+  "position",
+  "left",
+  "top",
+  "right",
+  "bottom",
+]);
+
 const TYPE_RANK = 0;
 const CLASS_RANK = 1;
 const ID_RANK = 2;
@@ -105,11 +121,12 @@ function beats(candidate: Winner, current: Winner | undefined): boolean {
 
 function addToKey(map: Map<string, KeyDecls>, key: string, rank: number, order: number, decls: Map<string, Decl>): void {
   let keyDecls = map.get(key);
-  if (!keyDecls) {
-    keyDecls = new Map();
-    map.set(key, keyDecls);
-  }
   for (const [prop, d] of decls) {
+    if (!HIDING_PROPS.has(prop)) continue; // irrelevant to hiding: never indexed
+    if (!keyDecls) {
+      keyDecls = new Map();
+      map.set(key, keyDecls);
+    }
     const candidate = { ...d, rank, order };
     if (beats(candidate, keyDecls.get(prop))) keyDecls.set(prop, candidate);
   }
@@ -117,11 +134,13 @@ function addToKey(map: Map<string, KeyDecls>, key: string, rank: number, order: 
 
 function indexRule(index: CssIndex, prelude: string, body: string, findings: FindingSet): void {
   const decls = parseDeclList(body);
-  const hides = hidingReason(values(decls)) !== null;
+  let hides: boolean | undefined; // computed only if a complex selector needs it
   const order = index.rules++;
-  for (const selector of prelude.split(",").map((s) => s.trim())) {
+  for (const raw of prelude.split(",")) {
+    const selector = raw.trim();
     if (!selector) continue;
     if (!SIMPLE_SELECTOR.test(selector)) {
+      hides ??= hidingReason(values(decls)) !== null;
       if (hides) findings.add("unresolved_css", "low", `${selector} {${body}}`);
       continue;
     }
@@ -148,7 +167,9 @@ function forEachCssRule(css: string, visit: (prelude: string, body: string) => v
       continue;
     }
     // Drop anything before the last `;`/`}` (e.g. `@import …;`, a closed wrapper).
-    const prelude = css.slice(start, open).split(/[;}]/).pop()?.trim() ?? "";
+    // Search only inside [start, open): a backward scan past `start` would be quadratic.
+    const segment = css.slice(start, open);
+    const prelude = segment.slice(Math.max(segment.lastIndexOf(";"), segment.lastIndexOf("}")) + 1).trim();
     if (prelude && !prelude.startsWith("@")) visit(prelude, css.slice(open + 1, close));
     start = close + 1;
   }
@@ -163,24 +184,39 @@ export function buildCssIndex(stylesheets: readonly string[], findings: FindingS
   return index;
 }
 
-/** Cascaded declarations for one element: stylesheet rules, then inline `style`. */
-export function resolveDecls(name: string, attribs: Record<string, string>, css: CssIndex): Decls {
+/** Offer one declaration to the element's running cascade (no per-call closures: hot path). */
+function offer(best: Map<string, Winner>, prop: string, w: Winner): void {
+  if (beats(w, best.get(prop))) best.set(prop, w);
+}
+
+function offerKey(best: Map<string, Winner>, keyDecls: KeyDecls | undefined): void {
+  if (keyDecls) for (const [prop, w] of keyDecls) offer(best, prop, w);
+}
+
+/** Offer every stylesheet winner matching the element's type, classes and id. */
+function offerStylesheet(best: Map<string, Winner>, name: string, attribs: Record<string, string>, css: CssIndex): void {
+  offerKey(best, css.type.get(name));
+  if (attribs.class) for (const cls of attribs.class.split(/\s+/)) if (cls) offerKey(best, css.cls.get(cls));
+  if (attribs.id) offerKey(best, css.id.get(attribs.id));
+}
+
+/**
+ * Cascaded hiding-relevant declarations for one element (stylesheet rules, then
+ * inline `style`), or null when nothing applies. A repeated class re-applies the
+ * same winner, which is idempotent.
+ */
+export function resolveDecls(name: string, attribs: Record<string, string>, css: CssIndex): Decls | null {
   const best = new Map<string, Winner>();
-  const apply = (keyDecls: KeyDecls | undefined) => {
-    for (const [prop, w] of keyDecls ?? []) if (beats(w, best.get(prop))) best.set(prop, w);
-  };
-  if (css.rules > 0) {
-    apply(css.type.get(name));
-    for (const cls of new Set((attribs.class ?? "").split(/\s+/))) if (cls) apply(css.cls.get(cls));
-    if (attribs.id) apply(css.id.get(attribs.id));
-  }
+  if (css.rules > 0) offerStylesheet(best, name, attribs, css);
   if (attribs.style) {
     for (const [prop, d] of parseDeclList(attribs.style)) {
-      const candidate = { ...d, rank: INLINE_RANK, order: Number.MAX_SAFE_INTEGER };
-      if (beats(candidate, best.get(prop))) best.set(prop, candidate);
+      offer(best, prop, { ...d, rank: INLINE_RANK, order: Number.MAX_SAFE_INTEGER });
     }
   }
-  return new Map([...best].map(([prop, w]) => [prop, w.value]));
+  if (best.size === 0) return null;
+  const decls: Decls = new Map();
+  for (const [prop, w] of best) decls.set(prop, w.value);
+  return decls;
 }
 
 const NAMED_COLORS: Record<string, string> = { white: "#ffffff", black: "#000000" };
