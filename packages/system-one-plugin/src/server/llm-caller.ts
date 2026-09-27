@@ -7,7 +7,7 @@
  * machine: a known local runtime (ollama, lmstudio, llama.cpp) whose model
  * base URL is loopback. Any other provider — including a loopback proxy such
  * as the dashboard model proxy — is off-machine. `isLocal` is synchronous, so
- * `prepare(roles)` must run first; an unprepared role is off-machine.
+ * each request takes a `snapshot(roles)`; a role outside it is off-machine.
  * See change: add-system-one-registry.
  */
 import { readFileSync } from "node:fs";
