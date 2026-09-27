@@ -82,3 +82,29 @@ describe("#E37 a zero-byte file is not a refusal", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 });
+
+describe("a stale probe cannot touch the next target (step-4.5 review round 2)", () => {
+  it("A's in-flight ASK resolving after the switch to B neither remounts B nor changes its phase", async () => {
+    answers.push(refusal()); // A's diagnosis probe
+    const { container, rerender } = render(<VideoPreview target={target} />);
+    fireEvent.error(container.querySelector("video") as HTMLVideoElement);
+    const askBtn = await screen.findByRole("button", { name: "Ask for access" });
+    let release!: (r: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            release = resolve;
+          }),
+      ),
+    );
+    fireEvent.click(askBtn); // A: eligible probe in flight (dialog open)
+    rerender(<VideoPreview target={{ ...target, path: "other.mp4" }} />);
+    const b = container.querySelector("video") as HTMLVideoElement;
+    expect(b).toBeTruthy();
+    await act(async () => release(new Response("x", { status: 206 })));
+    expect(container.querySelector("video")).toBe(b); // no attempt bump → no remount
+    expect(screen.queryByTestId("denial-notice")).toBeNull();
+  });
+});

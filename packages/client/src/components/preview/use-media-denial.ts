@@ -26,6 +26,14 @@ export type MediaPhase =
 
 const MEDIA: MediaPhase = { kind: "media" };
 
+const freshFlags = (url: string): Flags => ({
+  url,
+  probed: false,
+  retriedAfterAsk: false,
+  lastFailure: { kind: "unknown" },
+  op: 0,
+});
+
 /** Per-URL flags. A new URL gets a fresh object, so completions for the old one are ignored. */
 interface Flags {
   url: string;
@@ -50,18 +58,16 @@ export function useMediaDenial(url: string): {
   // (PdfPreview's container) never renders a stale notice for it.
   const [state, setState] = useState<{ url: string; phase: MediaPhase }>({ url, phase: MEDIA });
   const phase = state.url === url ? state.phase : MEDIA;
-  const flags = useRef<Flags>({ url, probed: false, retriedAfterAsk: false, lastFailure: { kind: "unknown" }, op: 0 });
-
-  const flagsFor = useCallback((u: string): Flags => {
-    if (flags.current.url !== u) {
-      flags.current = { url: u, probed: false, retriedAfterAsk: false, lastFailure: { kind: "unknown" }, op: 0 };
-    }
-    return flags.current;
-  }, []);
+  const flags = useRef<Flags>(freshFlags(url));
+  // Reset at render, not lazily at the next operation: the moment a new target
+  // renders, every in-flight completion for the old one fails its identity
+  // check (A→B→A included — the returning A gets a fresh object). Idempotent
+  // for a repeated render of the same URL.
+  if (flags.current.url !== url) flags.current = freshFlags(url);
 
   const onLoadError = useCallback(
     (message?: string) => {
-      const f = flagsFor(url);
+      const f = flags.current;
       if (f.retriedAfterAsk) {
         setState({ url, phase: { kind: "failed", failure: f.lastFailure, asked: true, admittedCheckOnly: true } });
         return;
@@ -80,11 +86,11 @@ export function useMediaDenial(url: string): {
         setState({ url, phase: { kind: "failed", failure, asked: false, admittedCheckOnly: false } });
       });
     },
-    [url, flagsFor],
+    [url],
   );
 
   const ask = useCallback(() => {
-    const f = flagsFor(url);
+    const f = flags.current;
     const op = ++f.op;
     setState({ url, phase: { kind: "diagnosing" } }); // held while the dialog is open
     void probeMedia(eligibleFetch, url, false).then((r) => {
@@ -98,7 +104,7 @@ export function useMediaDenial(url: string): {
       f.lastFailure = r;
       setState({ url, phase: { kind: "failed", failure: r, asked: true, admittedCheckOnly: false } });
     });
-  }, [url, flagsFor]);
+  }, [url]);
 
   return { phase, attempt, onLoadError, ask };
 }

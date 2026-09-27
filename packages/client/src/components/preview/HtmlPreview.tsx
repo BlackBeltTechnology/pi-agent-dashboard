@@ -49,7 +49,14 @@ export function HtmlPreview({ target, restrictCsp = false }: Props) {
         setFailure(r);
         return;
       }
-      const text = await r.response.text();
+      let text: string;
+      try {
+        text = await r.response.text();
+      } catch (e) {
+        // A body stream that aborts must end in an error, not a permanent "Loading…".
+        if (!cancelled) setFailure({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+        return;
+      }
       if (!cancelled) setHtml(restrictCsp ? withRestrictiveCsp(text) : text);
     })().catch(logRejection("HtmlPreview.render"));
     return () => {
