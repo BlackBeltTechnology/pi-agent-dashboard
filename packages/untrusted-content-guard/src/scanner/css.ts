@@ -61,7 +61,8 @@ function stripCssComments(css: string): string {
   return out + css.slice(last);
 }
 
-const CSS_ESCAPE = /\\(?:([0-9a-f]{1,6})[ \t\n\r\f]?|([\s\S]))/gi;
+// A hex escape's optional terminator is ONE whitespace, and CRLF counts as one.
+const CSS_ESCAPE = /\\(?:([0-9a-f]{1,6})(?:\r\n|[ \t\n\r\f])?|([\s\S]))/gi;
 
 /** Decode CSS escapes (`\6f`, `\:`) the way a browser tokenizer does. */
 function decodeCssEscapes(text: string): string {

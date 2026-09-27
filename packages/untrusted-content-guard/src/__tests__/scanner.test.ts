@@ -160,6 +160,9 @@ describe("hidden-HTML layer", () => {
   it("decodes CSS escapes in declarations", () => {
     expect(scan('<html><style>.x{display:n\\6fne}</style><p class="x">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
     expect(scan('<html><p style="displ\\61y:none">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
+    // A CRLF after a hex escape is ONE terminator (CSS syntax), in values and property names.
+    expect(scan('<html><style>.x{display:n\\6f\r\nne}</style><p class="x">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
+    expect(scan('<html><p style="displ\\61\r\ny:none">A</p></html>', { mode: "strip" }).cleaned).not.toContain(">A<");
   });
 
   it("reads stylesheets from real <style> elements only", () => {
