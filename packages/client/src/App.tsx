@@ -143,6 +143,7 @@ import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
@@ -162,6 +163,7 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
@@ -719,6 +721,10 @@ export default function App() {
   // connect snapshot too). Server is the single source of truth — no optimistic
   // mirror, matching the `workspaces_updated` convention below.
   const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
+  // session-list-group-by: server-owned grouping prefs (`group_by_prefs_updated`,
+  // sent in the connect burst before any folder-materializing frame).
+  // `undefined` until the snapshot lands — also the urgency migration's gate.
+  const [groupByPrefs, setGroupByPrefs] = useState<GroupByPrefs | undefined>(undefined);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -1059,7 +1065,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
   );
 
@@ -1233,6 +1239,12 @@ export default function App() {
     }
     if (decision.nextRecord) writeLegacyCollapsedGroups(decision.nextRecord);
   }, [snapshotGeneration, collapsedFolders, send]);
+
+  // session-list-group-by: one-shot retirement of the localStorage urgency
+  // toggle — runs once the grouping snapshot is known (D8).
+  useEffect(() => {
+    runUrgencyMigration(groupByPrefs, (path, mode) => send({ type: "set_folder_group_by", path, mode }));
+  }, [groupByPrefs, send]);
 
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
@@ -1938,6 +1950,10 @@ export default function App() {
       // arrive (matches the workspace-collapse convention below).
       collapsedGroups={collapsedFolders}
       onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
+      // session-list-group-by — server-owned, no optimistic mirror.
+      groupByPrefs={groupByPrefs}
+      onSetFolderGroupBy={(path, mode) => send({ type: "set_folder_group_by", path, mode })}
+      onSetLaneCollapsed={(path, lane, collapsed) => send({ type: "set_lane_collapsed", path, lane, collapsed })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast
@@ -2841,7 +2857,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />
+              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={goBack} />
             ) : pluginOverlayMatched ? (
@@ -3112,7 +3128,7 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} />
+        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
           </RouteBackedOverlay>
         )}
         {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at
