@@ -153,7 +153,7 @@ export const PROMPT_OUTCOMES = [
 export type PromptOutcome = (typeof PROMPT_OUTCOMES)[number];
 
 /** The additive remedy fields of a containment 403, mirrored from the server. */
-export interface DenialRemedy {
+interface DenialRemedy {
   reason: string;
   hint: string;
   subject: string;
@@ -174,7 +174,9 @@ export type ParsedDenialBody =
  * `unavailable`, which would invent a re-ask the server did not offer.
  */
 export function parseDenialBody(body: unknown): ParsedDenialBody {
-  const b = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  // Every field is untrusted until checked below.
+  const b: { [K in keyof DenialRemedy]?: unknown } & { error?: unknown } =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : {};
   if (typeof b.denialId === "string" && b.denialId.length > 0) {
     const outcome = (PROMPT_OUTCOMES as readonly unknown[]).includes(b.promptOutcome)
       ? (b.promptOutcome as PromptOutcome)

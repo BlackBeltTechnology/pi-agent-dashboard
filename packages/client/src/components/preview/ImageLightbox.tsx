@@ -36,7 +36,7 @@ interface Props {
  * loads through `fetch` → `blob:` (design D1). `data:`, `blob:` and cross-origin
  * sources keep the plain `<img>`, `fallbackSrc` path intact.
  */
-export function isSameOriginFileRawSrc(src: string): boolean {
+function isSameOriginFileRawSrc(src: string): boolean {
   try {
     const u = new URL(src, window.location.origin);
     return u.origin === window.location.origin && u.pathname === "/api/file/raw";
