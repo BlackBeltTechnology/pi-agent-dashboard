@@ -5,4 +5,9 @@ Global UI preferences store — JSON-backed with debounced writes. Stores `sessi
 
 Workspace seam (add-chat-gateway-team-controls): `onWorkspacesChanged(handler): () => void` — subscribe to workspace mutations, fired from all nine workspace mutators after a successful change (per-subscriber try/catch so one throwing handler neither blocks others nor fails the mutation; never driven by the browser broadcast). Exports `WORKSPACE_MUTATOR_NAMES` (the wiring contract) + `discoverWorkspaceMutators(methodNames)` for the completeness guard test. See change: add-chat-gateway-team-controls.
 
+## session-list-group-by
+
+- New optional fields `defaultGroupBy` (absent → none), `folderGroupBy: Record<pathKey, GroupByMode>`, `collapsedLanes: string[]` (`<pathKey>::<lane>`). Included in both `writeJsonFile` payloads.
+- Load: invalid modes / lane ids dropped; corrupt containers → defaults; keys `pathKey`-folded (platform from `inferPlatform` over collapsedFolders + group keys); never realpath'd; never pruned.
+- API: `getGroupByPrefs()` (copies), `setFolderGroupBy(path, mode|null)`, `setDefaultGroupBy(mode)`, `setLaneCollapsed(path, lane, collapsed)` — each validates, canonicalizes via `groupFolderKey`, returns true only on real change. See change: session-list-group-by.
 Card sections: `cardSections` field — Map-backed (no prototype keys), load-time sanitized (invalid ids / non-boolean / non-absolute folder keys / empty maps dropped, keys re-folded + merged, caps applied; corrupt → `{}`; rewritten when sanitization changed it). `getCardSections()` deep snapshot. `setCardSectionVisibility(path|undefined, id, boolean|null)` → true only on mutation; null deletes key + empties folder; over-cap new folder/key rejected. `resetFolderCardSections(path)`. Omitted from disk when empty. See change: configurable-session-card-sections.

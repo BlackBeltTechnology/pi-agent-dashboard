@@ -9,12 +9,24 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// `writeCredential` names the CAS persist (`writeRefreshedOAuth`) the refresh
+// now uses; the locked snapshot reads the same mocked `readAuthJson` data.
+// See change: harden-auth-json-lock-coordination.
 const writeCredential = vi.fn();
 const readAuthJson = vi.fn();
 
 vi.mock("../../auth/provider-auth-storage.js", () => ({
+  AuthJsonCorruptError: class extends Error {},
   readAuthJson: (...a: unknown[]) => readAuthJson(...a),
-  writeCredential: (...a: unknown[]) => writeCredential(...a),
+  readCredentialLocked: async (provider: string) => {
+    const cred = readAuthJson()?.[provider];
+    if (!cred) return { outcome: "removed" };
+    if (cred.type !== "oauth") return { outcome: "replaced" };
+    return { outcome: "ok", credential: cred };
+  },
+  // Default outcome is `written`; a test may still hold the write open.
+  writeRefreshedOAuth: async (provider: string, next: unknown) =>
+    (await writeCredential(provider, next)) ?? { outcome: "written", credential: next },
 }));
 
 import { InternalAuthStorage, type PiAiOAuthModule } from "../internal-auth-storage.js";

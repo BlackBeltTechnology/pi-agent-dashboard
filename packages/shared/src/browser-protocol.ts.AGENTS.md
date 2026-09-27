@@ -12,4 +12,9 @@ Access-grant prompt protocol. Adds `AccessPlaneId` = `"filesystem" | "cwd" | "ne
 
 `GrantRequestMessage` gains optional `ttlMs` (ms remaining when sent; clients re-base `expiresAt` on their own clock, skew-safe; additive, back-compatible). See change: add-access-grant-dialog (review 9.5).
 
+## session-list-group-by
+
+- Browser→server: `SetFolderGroupByMessage` (`set_folder_group_by {path, mode: GroupByMode|null}`, null = use default), `SetDefaultGroupByMessage` (`set_default_group_by {mode}`), `SetLaneCollapsedMessage` (`set_lane_collapsed {path, lane, collapsed}`). Explicit target state, never toggles.
+- Server→browser: `GroupByPrefsUpdatedMessage` (`group_by_prefs_updated {defaultGroupBy, folderGroupBy, collapsedLanes}`) — aggregate snapshot, connect burst + every real mutation.
+- Types imported from `session-group-by.ts`. bus-client `generated/verbs.ts` regenerated; mcp `tools.denylist.ts` marks the three verbs UI-only. See change: session-list-group-by.
 Card sections: `SetCardSectionVisibilityMessage` (`set_card_section_visibility {path?, section, visible: boolean|null}` — path absent = global, null = inherit), `ResetFolderCardSectionsMessage` (`reset_folder_card_sections {path}`), `CardSectionsUpdatedMessage` (`card_sections_updated {cardSections}` full snapshot). See change: configurable-session-card-sections.

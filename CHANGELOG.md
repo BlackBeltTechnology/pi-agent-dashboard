@@ -12,6 +12,21 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Session list Group by.** Each folder's actions menu gains a "Group sessions
+  by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
+  · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
+  default`. A global Default grouping lives in Settings ▸ Sessions ▸ Session
+  list. Lanes keep the stored session order, are collapsible, hide when empty
+  or when only one lane has sessions, and flatten under search/tag filters.
+  Drag-reorder works within a lane; a cross-lane drop is rejected with an
+  explanatory toast. In Status mode a card leaving Working is held there ~3 s
+  (countdown underline in the destination lane colour) so cards do not jump
+  between turns; moves animate unless reduced motion is preferred. Modes,
+  default and lane collapse are stored server-side in `preferences.json`
+  (`folderGroupBy`, `defaultGroupBy`, `collapsedLanes`) and shared live across
+  browsers. New theme token `--status-unread`. See change:
+  session-list-group-by.
+
 - **Browser WebSocket diagnostics.** Every browser socket close now logs one
   line with its close code, JSON-quoted reason, lifetime, inbound frame count and
   cause (`peer` / `keepalive` / `stalled`). The server pings browser sockets every
@@ -43,6 +58,23 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Plugin config updates reach the plugin UI live.** A plugin server entry's
+  `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
+  stored the new config under `"undefined"` and the plugin's settings UI kept
+  the stale value until reload. The broadcast now carries `id`; the `as any`
+  that hid the omission is gone.
+
+- **Model proxy (`/v1/*`) forwards system prompts, stops abandoned streams,
+  and ends failed streams.** Client system prompts were silently dropped: the
+  adapter passed pi-ai `system` instead of `Context.systemPrompt` (new
+  `callPiAiStreamSimple` in `model-proxy/streamer.ts`). A client disconnect never
+  aborted the upstream call, because Node 24 fires `request.raw` "close" as soon
+  as the body is read; it now keys off `reply.raw` "close", so an abandoned
+  stream stops using tokens. An upstream error thrown mid-stream threw
+  `ERR_HTTP_HEADERS_SENT` and left the client hanging; the SSE stream now ends
+  like an upstream `error` event. Parallel-conversation isolation is covered by
+  `model-proxy-parallel-isolation.test.ts`.
+
 - **`pi-dashboard start` / `restart` no longer crash on a fresh npm install.**
   The 0.8.0 tarball shipped `packages/{server,shared,extension}/tsconfig.json`,
   which extend `../../tsconfig.base.json`, but not `tsconfig.base.json` itself,
@@ -58,6 +90,27 @@ see [`docs/release-process.md`](docs/release-process.md).
   **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.
 
 ### Changed
+
+- **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
+  removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
+  after upgrade, every folder that had the toggle on in that browser (and no
+  explicit grouping) is switched to `Status` once; the browser-local
+  `dashboard:folder-urgency-sort` key is then cleared. See change:
+  session-list-group-by.
+
+- **The root `@blackbelt-technology/pi-agent-dashboard` tarball no longer ships
+  tests, fixtures or DOX sidecars.** Its `files` list now excludes
+  `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
+  `AGENTS.md` and `*.AGENTS.md` under `packages/` (the root `AGENTS.md` still
+  ships, now as the anchored `/AGENTS.md`: on npm <=11 a bare `AGENTS.md`
+  include matched at any depth and defeated the exclusion). With npm 11, the
+  publishing npm, this removes 1259 files and 8.4 MB unpacked (1831 → 572
+  files, 14.6 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
+  now applies its full rules to the root package. Root-shipped copies of
+  workspace sources are credited with the runtime dependencies of workspaces
+  the root reaches at runtime; this is an explicit, counted exception for
+  npm hoisting. CI also re-runs the check after the build. (change:
+  check-root-package-imports)
 
 - **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
   sign-in-able — and remote dashboards can finally complete a sign-in.** The

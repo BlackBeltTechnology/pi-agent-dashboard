@@ -22,6 +22,7 @@ import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/hos
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -74,6 +75,7 @@ import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
+import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
@@ -475,7 +477,7 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
+export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
    * Per-session `models_list` union pushed by live bridges. Merged with the
    * session-independent `GET /api/models` catalogue this panel fetches itself;
@@ -493,6 +495,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
    * See change: fix-settings-back-to-launching-route.
    */
   onBack?: () => void;
+  /** Server-owned grouping prefs + default setter (session-list-group-by). */
+  groupByPrefs?: GroupByPrefs;
+  onSetDefaultGroupBy?: (mode: GroupByMode) => void;
 }) {
   const { language, setLanguage, t } = useI18n();
   const [, navigate] = useLocation();
@@ -1773,6 +1778,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                 </Section>
                 <Section title={t("settings.sessionList", undefined, "Session list")}>
+                  {/* Instant-apply over WS, outside the Save-bar draft: the
+                      value is server-owned and shared across browsers.
+                      See change: session-list-group-by. */}
+                  {onSetDefaultGroupBy && (
+                    <DefaultGroupingField
+                      value={groupByPrefs?.defaultGroupBy ?? "none"}
+                      onChange={onSetDefaultGroupBy}
+                      disabled={!groupByPrefs}
+                    />
+                  )}
                   <SelectField
                     label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
                     value={config.reattachPlacement ?? "always"}

@@ -1,0 +1,360 @@
+[
+  {
+    "state": "$ npm test\nTests: 42 passed, 0 failed",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Did every test pass?"
+      }
+    },
+    "expected": {
+      "q": true
+    }
+  },
+  {
+    "state": "$ npm test\nTests: 3 failed, 39 passed",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Did every test pass?"
+      }
+    },
+    "expected": {
+      "q": false
+    }
+  },
+  {
+    "state": "Error: ECONNREFUSED 127.0.0.1:5432",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Is the database unreachable?"
+      }
+    },
+    "expected": {
+      "q": true
+    }
+  },
+  {
+    "state": "Build finished in 12.4s. Output written to dist/.",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Did the build fail?"
+      }
+    },
+    "expected": {
+      "q": false
+    }
+  },
+  {
+    "state": "rm -rf / --no-preserve-root",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Is this command destructive?"
+      }
+    },
+    "expected": {
+      "q": true
+    }
+  },
+  {
+    "state": "ls -la src/",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Is this command destructive?"
+      }
+    },
+    "expected": {
+      "q": false
+    }
+  },
+  {
+    "state": "The user wrote: please stop, I want to do this myself.",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Does the user ask the agent to stop?"
+      }
+    },
+    "expected": {
+      "q": true
+    }
+  },
+  {
+    "state": "The user wrote: looks good, carry on with the next file.",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Does the user ask the agent to stop?"
+      }
+    },
+    "expected": {
+      "q": false
+    }
+  },
+  {
+    "state": "git push --force origin main",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Does this rewrite shared history?"
+      }
+    },
+    "expected": {
+      "q": true
+    }
+  },
+  {
+    "state": "git status",
+    "questions": {
+      "q": {
+        "type": "noul",
+        "instructions": "Does this rewrite shared history?"
+      }
+    },
+    "expected": {
+      "q": false
+    }
+  },
+  {
+    "state": "We were charged twice for March, please refund one payment.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "invoices, payments, refunds",
+          "technical": "bugs, errors, outages",
+          "sales": "pricing, new plans, upgrades"
+        }
+      }
+    },
+    "expected": {
+      "q": "billing"
+    }
+  },
+  {
+    "state": "The app crashes with a null pointer error when I open settings.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "invoices, payments, refunds",
+          "technical": "bugs, errors, outages",
+          "sales": "pricing, new plans, upgrades"
+        }
+      }
+    },
+    "expected": {
+      "q": "technical"
+    }
+  },
+  {
+    "state": "What does the enterprise plan cost for 50 seats?",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "invoices, payments, refunds",
+          "technical": "bugs, errors, outages",
+          "sales": "pricing, new plans, upgrades"
+        }
+      }
+    },
+    "expected": {
+      "q": "sales"
+    }
+  },
+  {
+    "state": "Request timed out after 30s (HTTP 503). Upstream is temporarily unavailable.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "What should the agent do next?",
+        "criteria": {
+          "retry": "transient failure; running the same step again may work",
+          "escalate": "needs a human decision",
+          "continue": "nothing is wrong"
+        }
+      }
+    },
+    "expected": {
+      "q": "retry"
+    }
+  },
+  {
+    "state": "The migration will drop the users table. Proceed? This cannot be undone.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "What should the agent do next?",
+        "criteria": {
+          "retry": "transient failure; running the same step again may work",
+          "escalate": "needs a human decision",
+          "continue": "nothing is wrong"
+        }
+      }
+    },
+    "expected": {
+      "q": "escalate"
+    }
+  },
+  {
+    "state": "All 12 files formatted. No changes needed.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "What should the agent do next?",
+        "criteria": {
+          "retry": "transient failure; running the same step again may work",
+          "escalate": "needs a human decision",
+          "continue": "nothing is wrong"
+        }
+      }
+    },
+    "expected": {
+      "q": "continue"
+    }
+  },
+  {
+    "state": "Invoice #4411 was paid by card but the receipt is missing.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "invoices, payments, refunds",
+          "technical": "bugs, errors, outages",
+          "sales": "pricing, new plans, upgrades"
+        }
+      }
+    },
+    "expected": {
+      "q": "billing"
+    }
+  },
+  {
+    "state": "Login returns 500 Internal Server Error since this morning.",
+    "questions": {
+      "q": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "invoices, payments, refunds",
+          "technical": "bugs, errors, outages",
+          "sales": "pricing, new plans, upgrades"
+        }
+      }
+    },
+    "expected": {
+      "q": "technical"
+    }
+  },
+  {
+    "state": "A typo in a code comment.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 0
+    }
+  },
+  {
+    "state": "Production database is down and customers cannot log in.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 2
+    }
+  },
+  {
+    "state": "One unit test is flaky on CI about once a week.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 1
+    }
+  },
+  {
+    "state": "Secret API key committed to a public repository.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 2
+    }
+  },
+  {
+    "state": "Button label uses inconsistent capitalization.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 0
+    }
+  },
+  {
+    "state": "Search results are slow (3s) but correct.",
+    "questions": {
+      "q": {
+        "type": "score",
+        "instructions": "How severe is this issue?",
+        "criteria": [
+          "low",
+          "medium",
+          "high"
+        ]
+      }
+    },
+    "expected": {
+      "q": 1
+    }
+  }
+]

@@ -11,6 +11,7 @@ import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugin
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
@@ -81,7 +82,6 @@ import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
-import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
 import {
   type CoreWsRouteScope,
   extractTicket,
@@ -91,6 +91,7 @@ import {
   type WsRouteScope,
   WsTicketStore,
 } from "./auth/ws-ticket.js";
+import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
 import {
   buildDispatchReloadContext,
   forceKillSession,
@@ -129,9 +130,10 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
-import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
 import { PairingManager } from "./pairing/pairing.js";
@@ -381,6 +383,7 @@ export interface DashboardServer {
 }
 
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -610,6 +613,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Save per-session .meta.json on any change. The meta payload is an EXPLICIT
   // field enumeration (`sessionToMeta`) written as a FULL overwrite — omitting a
   // field there wipes it on the next unrelated save. See change: add-session-tags.
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
   sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
@@ -1876,7 +1880,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       operationId,
       ...(moveId ? { moveId } : {}),
       event,
-    } as any);
+    });
   });
 
   // Boot-time `modelProxy.enabled`, captured once inside the Model Proxy block
@@ -1898,10 +1902,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       success: result.success,
       error: result.error,
       diagnostics: result.diagnostics,
-      sessionsReloaded: (result as any).sessionsReloaded,
+      sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
       ...(result.moveId ? { moveId: result.moveId } : {}),
       ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
-    } as any);
+    } as PackageOperationCompleteMessage);
     if (result.success) invalidateRecommendedCache();
     // A successful package operation may have changed plugin requirement
     // satisfaction. Refresh probes and broadcast plugin_config_update for
@@ -2137,10 +2141,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             return null;
           }
         },
-        streamSimple: (opts: any) => {
+        streamSimple: (opts) => {
           const fn = getStreamSimpleFn();
           if (!fn) throw new Error("streamSimple not available");
-          return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+          return callPiAiStreamSimple(fn, opts);
         },
       });
 
@@ -2256,6 +2260,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     vitePort = await detectVitePort();
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     fastify.setNotFoundHandler(async (request, reply) => {
       // Try Vite proxy first
       if (!vitePort) vitePort = await detectVitePort();
@@ -2341,6 +2346,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       });
     },
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async _startCore() {
       // Clean up orphan headless processes from a previous server instance
       await browserGateway.headlessPidRegistry.cleanupOrphans();
@@ -2515,7 +2521,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
                 }
-                browserGateway.broadcast(msg as any);
+                browserGateway.broadcast(msg as ServerToBrowserMessage);
               },
               subscribeSession: (sessionId, handler) => {
                 // Trusted gate — same priority rule as the other control-plane
@@ -2523,11 +2529,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // plugins receive nothing.
                 // See change: add-chat-gateway.
                 if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
-                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler as any);
+                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler);
                 // Replay any ALREADY-pending PromptBus request so a gateway
                 // that (re)subscribes renders an open ask_user instead of a
                 // dead card.
-                browserGateway.replayPendingPromptsTo(sessionId, handler as any);
+                browserGateway.replayPendingPromptsTo(sessionId, handler);
                 return unsub;
               },
               registerPiHandler: (type, handler) => {
@@ -2558,6 +2564,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
               // hook that always rejects. See change: add-automation-plugin.
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               spawnSession: async (opts) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) {
@@ -2679,6 +2686,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Hard path kills by sessionId, falling back to spawnToken for
               // a run spawned but not yet registered.
               // See change: fix-automation-stop-zombie-runs.
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               abortSpawnedRun: async ({ sessionId, spawnToken, graceful }) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
@@ -2755,6 +2763,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // (warn-only on meta failure, same posture as the goal routes);
               // `persist: false` = memory only (C2e). See change:
               // relocate-goal-product-to-plugin (D1-#5).
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               assignSessionRef: (sessionId, ref, opts) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
@@ -2876,11 +2885,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 fs.renameSync(tmpFile, CONFIG_FILE);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',
+                  id,
                   // writeOnly fields (e.g. the browser plugin's per-profile SSO
                   // tokens) never cross to a client — spec add-browser-relay
                   // browser-plugin-settings F2 / GAP A.
                   config: redactPluginConfigForClient(id, merged),
-                } as any);
+                });
               },
               // In-process model runtime seam for plugin server entries (e.g. the
               // grammar plugin's llm backend) — mirrors the grammar-route wiring
@@ -2930,6 +2940,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
       }
 
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       fastify.server.on("upgrade", (request, socket, head) => {
         // Ephemeral single-use ticket (D11) bound to the requested WS route
         // scope. The one cheap read BEFORE the first gate — the host-admission
@@ -3146,14 +3157,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               getRegistry: async () => {
                 try { return await getModelRegistry(); } catch { return null; }
               },
-              streamSimple: (opts: any) => {
+              streamSimple: (opts) => {
                 const fn = getStreamSimpleFn();
                 if (!fn) throw new Error("streamSimple not available");
-                return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+                return callPiAiStreamSimple(fn, opts);
               },
             });
             await sf.listen({ port: proxyCfg.secondPort, host: "127.0.0.1" });
-            secondFastify = sf as any;
+            secondFastify = sf;
             console.log(`Model proxy second port listening at http://127.0.0.1:${proxyCfg.secondPort}`);
           } catch (err) {
             console.warn(`Model proxy second port bind failed (continuing without):`, err);
@@ -3380,6 +3391,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // breaks message routing. Keeper-alive candidates (Class 1) were
           // already excluded above.
           recoveryGraceTimer = setTimeout(() => {
+            // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
             void (async () => {
               const resumeConfig = loadConfig();
               const survivors = [...liveRecoveryCandidates.values()];
@@ -3396,7 +3408,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   strategy: resumeConfig.spawnStrategy,
                 });
                 // Cold-start recovery resume: no ws, reclaim still required.
-                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy as any, result);
+                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy, result);
                 if (result.process && result.pid) {
                   browserGateway.headlessPidRegistry.register(
                     result.pid,
@@ -3418,6 +3430,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async stop(opts: { exitIntent?: ExitIntent } = {}) {
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.

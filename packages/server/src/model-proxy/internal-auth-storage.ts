@@ -2,18 +2,24 @@
  * Server-resident auth storage for the model proxy.
  *
  * Reads credentials from ~/.pi/agent/auth.json via provider-auth-storage.ts.
- * For OAuth providers, handles token refresh when expired and persists
- * the new token via the existing writeCredential writer (single-writer contract).
+ * For OAuth providers, handles token refresh when expired. The refresh
+ * coordinates with other auth.json writers (pi): locked snapshot, refresh
+ * without holding the lock, compare-and-swap persist.
+ * See change: harden-auth-json-lock-coordination (D3).
  *
  * See change: add-dashboard-model-proxy, design §1.
  */
+import { isDeepStrictEqual } from "node:util";
 import type { PiAiOAuthModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 import {
   type AuthCredential,
   type AuthData,
+  AuthJsonCorruptError,
+  type LockedCredentialRead,
   type OAuthCredential,
   readAuthJson,
-  writeCredential,
+  readCredentialLocked,
+  writeRefreshedOAuth,
 } from "../auth/provider-auth-storage.js";
 
 /**
@@ -72,6 +78,31 @@ const REFRESH_BUFFER_MS = 30_000;
  * routed through this credential.
  */
 const REFRESH_TIMEOUT_MS = 30_000;
+
+/**
+ * Valid beyond the refresh buffer. ONE predicate decides both "a refresh is
+ * needed" and "adopt what another writer stored", so the two cannot disagree.
+ */
+function isFresh(cred: AuthCredential): cred is OAuthCredential {
+  return cred.type === "oauth" && !!cred.expires && cred.expires > Date.now() + REFRESH_BUFFER_MS;
+}
+
+/** Coordination outcome → error. Names the provider and outcome only, never token material. */
+function outcomeError(provider: string, outcome: Exclude<LockedCredentialRead["outcome"], "ok">): Error {
+  switch (outcome) {
+    case "removed":
+      return new Error(`OAuth credential for "${provider}" was removed from auth.json during refresh`);
+    case "replaced":
+      return new Error(`OAuth credential for "${provider}" was replaced by a non-OAuth credential`);
+    case "corrupt":
+      return new AuthJsonCorruptError(provider);
+  }
+}
+
+function credentialOrThrow(provider: string, read: LockedCredentialRead): OAuthCredential {
+  if (read.outcome === "ok") return read.credential;
+  throw outcomeError(provider, read.outcome);
+}
 
 export class InternalAuthStorage {
   private oauthModule: PiAiOAuthModule | null;
@@ -140,16 +171,13 @@ export class InternalAuthStorage {
     provider: string,
     cred: OAuthCredential,
   ): Promise<OAuthCredential> {
-    const now = Date.now();
-    if (cred.expires && cred.expires > now + REFRESH_BUFFER_MS) {
-      return cred;
-    }
+    if (isFresh(cred)) return cred;
 
     // Serialize concurrent refreshes for the same provider
     const existing = this.refreshLocks.get(provider);
     if (existing) return existing;
 
-    const refreshPromise = this.refreshOAuth(provider, cred);
+    const refreshPromise = this.refreshOAuth(provider);
     this.refreshLocks.set(provider, refreshPromise);
     try {
       return await refreshPromise;
@@ -158,7 +186,73 @@ export class InternalAuthStorage {
     }
   }
 
-  private async refreshOAuth(
+  private async refreshOAuth(provider: string): Promise<OAuthCredential> {
+    try {
+      return await this.coordinatedRefresh(provider);
+    } finally {
+      // Disk is authoritative after every coordination outcome: adopted,
+      // written, or refused. The next request re-reads it.
+      this.cachedAuth = null;
+    }
+  }
+
+  /**
+   * Design D3: locked snapshot → adopt if already fresh → refresh from the
+   * SNAPSHOT (the on-disk refresh token, not the cached one) with the lock
+   * NOT held → compare-and-swap persist → map the outcome. A refresh failure
+   * takes one more locked read before it is surfaced.
+   */
+  private async coordinatedRefresh(provider: string): Promise<OAuthCredential> {
+    const snapshot = credentialOrThrow(provider, await readCredentialLocked(provider));
+    if (isFresh(snapshot)) return snapshot;
+
+    let next: OAuthCredential;
+    try {
+      next = await this.refreshFromProvider(provider, snapshot);
+    } catch (err) {
+      return await this.recoverFailedRefresh(provider, snapshot, err);
+    }
+
+    // Lock exhaustion here propagates: the minted credential is DISCARDED, never
+    // served unpersisted (D3 step 7).
+    const result = await writeRefreshedOAuth(provider, next, snapshot);
+    switch (result.outcome) {
+      case "written":
+        return result.credential;
+      case "changed":
+        if (isFresh(result.credential)) return result.credential;
+        throw new Error(
+          `OAuth credential for "${provider}" changed during refresh and is not valid beyond the refresh buffer; retry the request`,
+        );
+      default:
+        throw outcomeError(provider, result.outcome);
+    }
+  }
+
+  /**
+   * D3 step 5 — after the provider rejected: adopt a DIFFERENT fresh credential
+   * another writer stored; surface removed/replaced/corrupt (they explain the
+   * rejection); otherwise rethrow the original. The re-read is best-effort: a
+   * lock or I/O failure on it rethrows the original error.
+   */
+  private async recoverFailedRefresh(
+    provider: string,
+    snapshot: OAuthCredential,
+    original: unknown,
+  ): Promise<OAuthCredential> {
+    let again: LockedCredentialRead;
+    try {
+      again = await readCredentialLocked(provider);
+    } catch {
+      throw original;
+    }
+    if (again.outcome !== "ok") throw outcomeError(provider, again.outcome);
+    if (!isDeepStrictEqual(again.credential, snapshot) && isFresh(again.credential)) return again.credential;
+    throw original;
+  }
+
+  /** One provider refresh from `cred`. Never touches auth.json. */
+  private async refreshFromProvider(
     provider: string,
     cred: OAuthCredential,
   ): Promise<OAuthCredential> {
@@ -250,7 +344,7 @@ export class InternalAuthStorage {
     // opaque field the refresh itself returned (an updated `enterpriseUrl`),
     // then the canonical fields last so nothing can override them.
     // See change: adopt-piai-factory-api-registry.
-    const newCred: OAuthCredential = {
+    return {
       ...cred,
       ...opaqueCredentialFields(refreshed),
       type: "oauth",
@@ -258,15 +352,5 @@ export class InternalAuthStorage {
       access: refreshedAccess,
       expires: refreshed.expiresAt ?? refreshed.expires ?? Date.now() + 3600_000,
     };
-
-    // Persist via existing single-writer path. Awaited: the refreshed token
-    // must be on disk before the caller receives headers.
-    // See change: fix-provider-auth-lock-contention.
-    await writeCredential(provider, newCred);
-
-    // Invalidate cache so next read picks up the new token
-    this.cachedAuth = null;
-
-    return newCred;
   }
 }

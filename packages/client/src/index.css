@@ -20,6 +20,7 @@
 @source "../../goal-plugin/src/client";
 @source "../../automation-plugin/src/client";
 @source "../../mcp-client-plugin/src/client";
+@source "../../system-one-plugin/src/client";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/
@@ -138,6 +139,9 @@
   /* Non-error info: model returned only reasoning, no answer.
      See change: fix-gemini-subagent-silent-tool-schema-failure. */
   --status-notice: var(--accent-blue);
+  /* Unread / "To review": the cyan formerly hardcoded in .card-stripes-unread.
+     See change: session-list-group-by. */
+  --status-unread: #22d3ee;
 
   /* Message-severity tokens — single color source of truth for every toast /
      banner surface. Each accent tier is a triple derived from one base accent
@@ -202,6 +206,9 @@
 }
 
 [data-theme="light"] {
+  /* Unread / "To review" (darker cyan for contrast on white).
+     See change: session-list-group-by. */
+  --status-unread: #0891b2;
   /* Backgrounds */
   --bg-primary: #ffffff;       /* page background */
   --bg-secondary: #fafafa;     /* panels, sidebar */
@@ -544,8 +551,8 @@ body {
 /* unread — cyan (cyan-400) */
 .card-stripes-unread::before {
   background-image:
-    repeating-linear-gradient(90deg, transparent 0 60px, rgba(34, 211, 238, 0.20) 230px, transparent 400px 460px),
-    linear-gradient(rgba(34, 211, 238, 0.05), rgba(34, 211, 238, 0.05));
+    repeating-linear-gradient(90deg, transparent 0 60px, color-mix(in srgb, var(--status-unread) 20%, transparent) 230px, transparent 400px 460px),
+    linear-gradient(color-mix(in srgb, var(--status-unread) 5%, transparent), color-mix(in srgb, var(--status-unread) 5%, transparent));
 }
 /* ask_user — purple (purple-500 rgb(168 85 247)) */
 .card-stripes-input::before {
@@ -1028,4 +1035,36 @@ mark.markdown-search-highlight-active {
 @media (prefers-reduced-motion: reduce) {
   [data-testid="replay-in-flight-pill"] .animate-spin,
   [data-testid="replay-in-flight-pill"] svg { animation: none; }
+}
+
+/* ── Session-list Group-by lanes (change: session-list-group-by) ──────────
+   Hold countdown: a held card (demoted out of Working, still displayed there)
+   shows a 2px underline in the DESTINATION lane colour shrinking over the hold
+   window. Static at 50% under reduced motion. */
+.lane-hold-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--lane-dest, var(--status-working));
+  transform-origin: left;
+  opacity: 0.8;
+  pointer-events: none;
+  animation: lane-hold-shrink var(--lane-hold-ms, 3000ms) linear forwards;
+}
+@keyframes lane-hold-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lane-hold-bar { animation: none; transform: scaleX(0.5); }
+}
+/* Coarse pointer / narrow: 44px targets for lane headers; the mode chip keeps
+   its 18px visual and grows only its hit area. */
+@media (pointer: coarse), (max-width: 760px) {
+  .lane-header-btn { min-height: 44px; }
+  .group-by-chip { position: relative; }
+  .group-by-chip::after { content: ""; position: absolute; inset: -13px -6px; }
 }

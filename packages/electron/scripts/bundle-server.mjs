@@ -137,6 +137,7 @@ const BUNDLED_PLUGINS = [
   "quota-plugin",
   "browser-plugin",
   "chat-gateway",
+  "system-one-plugin",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });
