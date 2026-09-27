@@ -1,4 +1,5 @@
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
 import {
   HOST_PRESSURE_DEGRADED_MS,
   HOST_PRESSURE_UNRESPONSIVE_MS,
@@ -40,6 +41,7 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../../lib/git/git-status-cache.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
+import { useCardSectionActions, useCardSectionVisible } from "../../lib/state/CardSectionsContext.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
@@ -62,6 +64,7 @@ import { ContextUsageBar } from "./ContextUsageBar.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionSubcard } from "./SessionSubcard.js";
+import type { SubcardMenuTarget } from "./SubcardLegendMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 
 /**
@@ -834,6 +837,24 @@ export function SessionCard({
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
   const isMobile = useMobile();
   const prefs = useDisplayPrefs(session.id);
+  // Per-folder / global section visibility, ANDed into each section's existing
+  // gate (empty sections still auto-hide). Worktree sessions resolve against
+  // their group folder (`gitWorktree.mainPath`).
+  // See change: configurable-session-card-sections (D5/D6).
+  const showTags = useCardSectionVisible(session, "tags");
+  const showSpawn = useCardSectionVisible(session, "spawn");
+  const showOpenspec = useCardSectionVisible(session, "openspec");
+  const showKb = useCardSectionVisible(session, "kb");
+  const showGit = useCardSectionVisible(session, "git");
+  const showStatus = useCardSectionVisible(session, "status");
+  const showProcess = useCardSectionVisible(session, "process");
+  const showFlows = useCardSectionVisible(session, "flows");
+  const showMemory = useCardSectionVisible(session, "memory");
+  const { canWrite: canEditSections } = useCardSectionActions();
+  const sectionFolderPath = session.gitWorktree?.mainPath || session.cwd;
+  const menuFor = (sectionId: string): SubcardMenuTarget | undefined =>
+    canEditSections ? { sectionId, folderPath: sectionFolderPath } : undefined;
+  const processList = processes ?? EMPTY_PROCESSES;
   // Suppress purple `card-input-stripes` when a widget-bar slot owns the
   // pending prompt. Plugin-agnostic. See change: fix-flows-plugin-polish (B1).
   // Also gates the chat-routed `ask_user` → needs-you color in dot/rail.
@@ -952,7 +973,7 @@ export function SessionCard({
         {/* fix-mobile-attach-proposal-display. Coexists with OpenSpecActivityBadge */}
         {/* below (which reads openspecPhase/openspecChange, not attachedProposal). */}
         {/* Mirror in SessionHeader.tsx → MobileHeader (mobile-header-attached-chip). */}
-        {session.attachedProposal && (
+        {showOpenspec && session.attachedProposal && (
           <div
             className="mt-1 flex items-center gap-1 text-[11px] text-blue-400"
             data-testid="mobile-card-attached-chip"
@@ -963,7 +984,7 @@ export function SessionCard({
           </div>
         )}
         {/* OpenSpec activity badge */}
-        {(session.openspecPhase || session.openspecChange) ? (
+        {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
           <OpenSpecActivityBadge
             phase={session.openspecPhase ?? undefined}
             changeName={session.openspecChange ?? undefined}
@@ -981,21 +1002,25 @@ export function SessionCard({
         ) : null}
         {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
             phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-        {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+        {showTags && ((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
           <div className="mt-1">
             <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
           </div>
         ) : null}
         {/* PROCESS subcard (mobile compact) — activity bar + drawer.
             See change: redesign-process-list-activity-bar. */}
-        <MobileProcessSubcard
-          activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
-          processes={processes ?? EMPTY_PROCESSES}
-          onKill={onKillProcess}
-          onAbortTool={onAbortTool}
-          now={now}
-          onNavigateToSession={onSelect}
-        />
+        {showProcess ? (
+          <MobileProcessSubcard
+            activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
+            processes={processList}
+            onKill={onKillProcess}
+            onAbortTool={onAbortTool}
+            now={now}
+            onNavigateToSession={onSelect}
+          />
+        ) : (
+          <ProcessSafetyChip processes={processList} onKill={onKillProcess} onNavigateToSession={onSelect} />
+        )}
       </li>
     );
   }
@@ -1176,7 +1201,7 @@ export function SessionCard({
         {/* +Session — clean sibling spawn. Always visible (no ended/sessionFile
             gate, unlike Fork/Resume above). Inherits cwd + attachedProposal.
             See change: session-card-plus-session-button. */}
-        {onSpawnSibling && (
+        {showSpawn && onSpawnSibling && (
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
             disabled={!!session.cwdMissing}
@@ -1199,7 +1224,7 @@ export function SessionCard({
             failure, and after restart for cold sessions).
             See changes: session-card-plus-session-button,
             gate-session-worktree-button-on-git. */}
-        {onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
+        {showSpawn && onSpawnWorktree && !session.gitWorktree && session.isGitRepo !== false && (
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}
@@ -1234,7 +1259,7 @@ export function SessionCard({
       </div>
 
       {/* OpenSpec activity badge */}
-      {(session.openspecPhase || session.openspecChange) ? (
+      {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
         <OpenSpecActivityBadge
           phase={session.openspecPhase ?? undefined}
           changeName={session.openspecChange ?? undefined}
@@ -1253,7 +1278,7 @@ export function SessionCard({
 
       {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
           phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-      {((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+      {showTags && ((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
         <div className="mt-1 px-1">
           <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
         </div>
@@ -1276,6 +1301,7 @@ export function SessionCard({
           disabled variant.
           See change: add-openspec-init-affordances; auto-hide-empty-session-subcards. */}
       {(() => {
+        if (!showOpenspec) return null;
         if (!openspecChanges || !onSendPrompt || !onAttachProposal || !onDetachProposal) return null;
         const readiness = openspecReadiness;
         const disabled = readiness?.state === "BROKEN" || readiness?.state === "STALE";
@@ -1288,7 +1314,7 @@ export function SessionCard({
               : Boolean(openspecInitialized) || Boolean(openspecPending);
         if (!open && !disabled) return null;
         return (
-          <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
+          <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")} menu={menuFor("openspec")}>
             {disabled && readiness ? (
               <OpenSpecDisabledPanel
                 reason={readiness.reason ?? (readiness.state === "BROKEN" ? "cli-failed" : "missing-skills")}
@@ -1324,44 +1350,52 @@ export function SessionCard({
           — without it the KB row butts flush against the OPENSPEC subcard
           above while GIT below still gets its gap.
           See change: kb-row-on-worktree-session-card. */}
-      {session.gitWorktree && (
+      {showKb && session.gitWorktree && (
         <div className="mt-1.5" data-testid="worktree-card-section-gap">
           <WorktreeCardSectionSlot folder={{ cwd: session.cwd }} />
         </div>
       )}
 
       {/* GIT subcard. See change: redesign-session-card-and-composer (5.1–5.3). */}
-      <GitSubcard
-        session={session}
-        showGitInfo={showGitInfo}
-        allSessions={allSessions ?? []}
-        onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
-      />
-      <BadgeSubcard session={session} />
+      {showGit && (
+        <GitSubcard
+          session={session}
+          showGitInfo={showGitInfo}
+          allSessions={allSessions ?? []}
+          onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
+          menu={menuFor("git")}
+        />
+      )}
+      {showStatus && <BadgeSubcard session={session} menu={menuFor("status")} />}
 
       {/* PROCESS subcard — activity bar (in-flight bash toolCalls) +
           background processes drawer. Subcard hides only when BOTH the
           activity bar's inflight list and the drawer's process list are
           empty. See change: redesign-process-list-activity-bar. */}
-      <ProcessSubcard
-        activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
-        processes={processes ?? EMPTY_PROCESSES}
-        onKill={onKillProcess}
-        onAbortTool={onAbortTool}
-        now={now}
-        collapsed={session.processDrawerCollapsed}
-        onSetCollapsed={onSetProcessDrawerCollapsed}
-        onNavigateToSession={onSelect}
-        reserveAtIdle={prefs.reserveProcessLineAtIdle}
-      />
+      {showProcess ? (
+        <ProcessSubcard
+          activity={inflightBashTools ?? EMPTY_BASH_TOOLS}
+          processes={processList}
+          onKill={onKillProcess}
+          onAbortTool={onAbortTool}
+          now={now}
+          collapsed={session.processDrawerCollapsed}
+          onSetCollapsed={onSetProcessDrawerCollapsed}
+          onNavigateToSession={onSelect}
+          reserveAtIdle={prefs.reserveProcessLineAtIdle}
+          menu={menuFor("process")}
+        />
+      ) : (
+        <ProcessSafetyChip processes={processList} onKill={onKillProcess} onNavigateToSession={onSelect} />
+      )}
 
       {/* FLOWS subcard — plugin slot only.
           Populated by flows-plugin's SessionFlowActionsClaim via the
           dedicated `session-card-flows` slot. See change: add-flows-subcard. */}
-      <FlowsSubcard session={session} />
+      {showFlows && <FlowsSubcard session={session} menu={menuFor("flows")} />}
 
       {/* MEMORY subcard — plugin slot only */}
-      <MemorySubcard session={session} />
+      {showMemory && <MemorySubcard session={session} menu={menuFor("memory")} />}
 
       {/* Plugin slot: session-card-action-bar — generic card footer.
           Kept rendered for future generic plugins. */}
@@ -1446,6 +1480,8 @@ interface ProcessSubcardProps {
    * grid never reflows. Mobile ignores it.
    */
   reserveAtIdle?: boolean;
+  /** Legend options menu target (desktop). See change: configurable-session-card-sections. */
+  menu?: SubcardMenuTarget;
 }
 
 /**
@@ -1473,7 +1509,7 @@ export function formatCountsPill(running: number, bg: number): string | null {
  * Unmounts (returns null) only when both surfaces are empty AND `reserveAtIdle`
  * is false. See change: stable-process-line.
  */
-function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession, reserveAtIdle }: ProcessSubcardProps) {
+function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collapsed, onSetCollapsed, onNavigateToSession, reserveAtIdle, menu }: ProcessSubcardProps) {
   const hasActivity = activity.length > 0;
   const hasProcesses = processes.length > 0;
   const { expanded, onToggle } = useDrawerExpansion(collapsed, onSetCollapsed);
@@ -1502,7 +1538,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
   }
 
   return (
-    <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")}>
+    <SessionSubcard title={i18nT("session.subcardProcess", undefined, "PROCESS")} menu={menu}>
       <CollapseSummary expanded={expanded} onToggle={onToggle} testId="process-summary-line">
         <Icon path={lineIcon} size={0.4} className={`${lineIconClass} flex-shrink-0`} />
         <span className="text-[var(--text-secondary)] truncate flex-1" title={primary?.command ?? lineText}>
@@ -1584,6 +1620,70 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
 }
 
 /**
+ * PROCESS safety chip — rendered INSTEAD of the PROCESS section when the
+ * section is hidden by preference but background processes are running, so
+ * hiding PROCESS can never hide a runaway process. In-flight bash activity is
+ * deliberately not surfaced (transient, visible in chat). Activating the chip
+ * opens the process list in a portaled sheet (escapes the card's `isolate`).
+ * See change: configurable-session-card-sections (D7).
+ */
+function ProcessSafetyChip({
+  processes,
+  onKill,
+  onNavigateToSession,
+}: {
+  processes: readonly ProcessEntry[];
+  onKill?: (pgid: number) => void;
+  onNavigateToSession?: (sessionId: string) => void;
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  if (processes.length === 0) return null;
+  const label = i18nT(
+    "session.backgroundProcessCount",
+    { count: processes.length },
+    `${processes.length} background process${processes.length === 1 ? "" : "es"}`,
+  );
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
+        className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 focus-ring"
+        data-testid="process-safety-chip"
+      >
+        <Icon path={mdiAlertOutline} size={0.4} className="flex-shrink-0" />
+        {label}
+      </button>
+      {sheetOpen && (
+        <DialogPortal>
+          <div
+            className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end sm:items-center justify-center z-dialog"
+            onClick={(e) => { e.stopPropagation(); setSheetOpen(false); }}
+            data-testid="process-safety-sheet"
+          >
+            <div
+              role="dialog"
+              aria-label={i18nT("common.backgroundProcesses", undefined, "Background processes")}
+              className="bg-[var(--bg-secondary)] rounded-t-lg sm:rounded-lg p-4 w-full max-w-lg border border-[var(--border-secondary)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-semibold mb-2 text-[var(--text-secondary)]">{i18nT("common.backgroundProcesses", undefined, "Background processes")}</h3>
+              {onKill ? (
+                <ProcessList processes={[...processes]} onKill={onKill} compact onNavigateToSession={onNavigateToSession} />
+              ) : (
+                <ul className="space-y-0.5 text-[11px] text-[var(--text-secondary)]">
+                  {processes.map((p) => <li key={p.pgid} className="truncate">{p.command}</li>)}
+                </ul>
+              )}
+            </div>
+          </div>
+        </DialogPortal>
+      )}
+    </>
+  );
+}
+
+/**
  * GIT subcard — git branch / PR / worktree pill + worktree actions menu.
  * Strictly git-scoped: never considers plugin slot claims.
  * See change: redesign-session-card-and-composer (5.1).
@@ -1652,14 +1752,14 @@ function OpenSpecDisabledPanel({
   );
 }
 
-function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void }) {
+function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void; menu?: SubcardMenuTarget }) {
   // Worktree sessions need their own GitInfo line even in multi-session
   // groups (parent group header shows the main checkout's branch).
   const renderGitInfo = showGitInfo || !!session.gitWorktree;
   const hasWorktreeActions = !!session.gitWorktree;
   if (!renderGitInfo && !hasWorktreeActions) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")}>
+    <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")} menu={menu}>
       {renderGitInfo ? <GitInfo session={session} /> : null}
       {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
     </SessionSubcard>
@@ -1671,11 +1771,11 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { 
  * Strictly plugin-scoped: never considers git state.
  * See change: redesign-session-card-and-composer (5.1).
  */
-function BadgeSubcard({ session }: { session: DashboardSession }) {
+function BadgeSubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
   const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
   if (!hasBadge) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")}>
+    <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")} menu={menu}>
       <SessionCardBadgeSlot session={session} />
     </SessionSubcard>
   );
@@ -1685,11 +1785,11 @@ function BadgeSubcard({ session }: { session: DashboardSession }) {
  * MEMORY subcard — renders only when a plugin claims session-card-memory.
  * See change: redesign-session-card-subcards (D3).
  */
-function MemorySubcard({ session }: { session: DashboardSession }) {
+function MemorySubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
   const hasMemory = useSlotHasClaimsForSession("session-card-memory", session);
   if (!hasMemory) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardMemory", undefined, "MEMORY")}>
+    <SessionSubcard title={i18nT("session.subcardMemory", undefined, "MEMORY")} menu={menu}>
       <SessionCardMemorySlot session={session} />
     </SessionSubcard>
   );
@@ -1700,11 +1800,11 @@ function MemorySubcard({ session }: { session: DashboardSession }) {
  * at least one claim's `shouldRender(session)` returns true. See change:
  * add-flows-subcard.
  */
-function FlowsSubcard({ session }: { session: DashboardSession }) {
+function FlowsSubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
   const hasFlows = useSlotHasClaimsForSession("session-card-flows", session);
   if (!hasFlows) return null;
   return (
-    <SessionSubcard title={i18nT("session.subcardFlows", undefined, "FLOWS")}>
+    <SessionSubcard title={i18nT("session.subcardFlows", undefined, "FLOWS")} menu={menu}>
       <SessionCardFlowsSlot session={session} />
     </SessionSubcard>
   );
