@@ -47,8 +47,10 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   // load once, eligibly (surface-denial-remedy-in-previews, D4).
   const [loadFailure, setLoadFailure] = useState<DenialFailure | null>(null);
   const { fetch: previewFetch, optedOut } = usePreviewFetch();
-  const [asked, setAsked] = useState(false);
   const url = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+  // The ask belongs to ONE target: a new target starts un-asked (fail closed).
+  const [askedUrl, setAskedUrl] = useState<string | null>(null);
+  const asked = askedUrl === url;
 
   const load = useCallback(() => {
     let active = true;
@@ -112,7 +114,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   }, [cwd, path, buffer, mtime, saving]);
 
   if (loadFailure) {
-    return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAsked(true)} asked={asked} />;
+    return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
   }
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
   if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("common.loading2", undefined, "Loading…")}</div>;

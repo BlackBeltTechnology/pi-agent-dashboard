@@ -120,4 +120,17 @@ describe("platform-scoped forbidden list (change: surface-denial-remedy-in-previ
     expect(whole).toContain("D:\\");
     expect(whole.some((e) => e.startsWith("/") || /\\(etc|usr|var)$/.test(e))).toBe(false);
   });
+
+  it("the predicates use Windows semantics end to end under a simulated win32", () => {
+    const env = {
+      homedir: "D:\\Users\\op",
+      platform: "win32" as const,
+      env: { SystemRoot: "D:\\Windows" },
+    };
+    expect(isUngrantableSubject("d:\\windows", env)).toBe(true); // exact, case-insensitive
+    expect(isUngrantableSubject("D:\\Users", env)).toBe(true); // contains $HOME
+    expect(isUngrantableSubject("D:\\Users\\op\\.ssh\\keys", env)).toBe(true); // under a sensitive dir
+    expect(isUngrantableSubject("D:\\Users\\op\\proj", env)).toBe(false);
+    expect(isUngrantableSubject("E:\\data", env)).toBe(false);
+  });
 });

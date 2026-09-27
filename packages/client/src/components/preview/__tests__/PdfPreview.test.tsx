@@ -123,3 +123,17 @@ describe("#E38 PDF is always opted out (change: surface-denial-remedy-in-preview
     expect(headersOf(0)).toEqual({ "X-Pi-Grant-Channel": "" });
   });
 });
+
+describe("a failed PDF does not block the next target (step-4.5 review round 1)", () => {
+  it("failed a.pdf → b.pdf mounts its document", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ success: false, error: "x", denialId: "d", subject: "/o" }), { status: 403 })),
+    );
+    getDocument.mockImplementationOnce(() => ({ promise: Promise.reject(new Error("refused")) }));
+    const { rerender, findByTestId } = render(<PdfPreview target={target} />);
+    await findByTestId("denial-notice");
+    rerender(<PdfPreview target={{ ...target, path: "b.pdf" }} />);
+    await waitFor(() => expect(pdfViewerCalls.length).toBe(1));
+  });
+});

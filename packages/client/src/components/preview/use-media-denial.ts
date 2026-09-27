@@ -14,7 +14,7 @@
  *
  * A remount does not re-arm the probe; only a new explicit ask does.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { eligibleFetch } from "../../lib/access-grants/preview-provenance.js";
 import { type DenialFailure, probeMedia } from "./denial-fetch.js";
@@ -23,6 +23,18 @@ export type MediaPhase =
   | { kind: "media" }
   | { kind: "diagnosing" }
   | { kind: "failed"; failure: DenialFailure; asked: boolean; admittedCheckOnly: boolean };
+
+const MEDIA: MediaPhase = { kind: "media" };
+
+/** Per-URL flags. A new URL gets a fresh object, so completions for the old one are ignored. */
+interface Flags {
+  url: string;
+  probed: boolean;
+  retriedAfterAsk: boolean;
+  lastFailure: DenialFailure;
+  /** Bumped per request; only the latest request's completion may apply. */
+  op: number;
+}
 
 export function useMediaDenial(url: string): {
   phase: MediaPhase;
@@ -33,52 +45,60 @@ export function useMediaDenial(url: string): {
   ask: () => void;
 } {
   const [attempt, setAttempt] = useState(0);
-  const [phase, setPhase] = useState<MediaPhase>({ kind: "media" });
-  const probed = useRef(false);
-  const retriedAfterAsk = useRef(false);
-  const lastFailure = useRef<DenialFailure>({ kind: "unknown" });
-  const live = useRef(url);
+  // Keyed by URL and derived synchronously: the first render for a new target
+  // is already `media`, so a viewer that needs its element mounted to load
+  // (PdfPreview's container) never renders a stale notice for it.
+  const [state, setState] = useState<{ url: string; phase: MediaPhase }>({ url, phase: MEDIA });
+  const phase = state.url === url ? state.phase : MEDIA;
+  const flags = useRef<Flags>({ url, probed: false, retriedAfterAsk: false, lastFailure: { kind: "unknown" }, op: 0 });
 
-  useEffect(() => {
-    live.current = url;
-    probed.current = false;
-    retriedAfterAsk.current = false;
-    setPhase({ kind: "media" });
-  }, [url]);
-
-  const onLoadError = useCallback((message?: string) => {
-    if (retriedAfterAsk.current) {
-      setPhase({ kind: "failed", failure: lastFailure.current, asked: true, admittedCheckOnly: true });
-      return;
+  const flagsFor = useCallback((u: string): Flags => {
+    if (flags.current.url !== u) {
+      flags.current = { url: u, probed: false, retriedAfterAsk: false, lastFailure: { kind: "unknown" }, op: 0 };
     }
-    if (probed.current) return;
-    probed.current = true;
-    setPhase({ kind: "diagnosing" });
-    void probeMedia(fetchWithoutGrantPrompt, url, true).then((r) => {
-      if (live.current !== url) return;
-      // A probe that succeeds says nothing about access: the element failed for
-      // another reason (codec, corrupt file). A `416` (zero-byte file) is an
-      // ordinary load error too — `classifyResponse` maps it to `error`.
-      const failure: DenialFailure = r.kind === "ok" ? { kind: "error", message: message ?? "media error" } : r;
-      lastFailure.current = failure;
-      setPhase({ kind: "failed", failure, asked: false, admittedCheckOnly: false });
-    });
-  }, [url]);
+    return flags.current;
+  }, []);
 
-  const ask = useCallback(() => {
-    setPhase({ kind: "diagnosing" }); // held while the dialog is open
-    void probeMedia(eligibleFetch, url, false).then((r) => {
-      if (live.current !== url) return;
-      if (r.kind === "ok") {
-        retriedAfterAsk.current = true;
-        setAttempt((a) => a + 1);
-        setPhase({ kind: "media" });
+  const onLoadError = useCallback(
+    (message?: string) => {
+      const f = flagsFor(url);
+      if (f.retriedAfterAsk) {
+        setState({ url, phase: { kind: "failed", failure: f.lastFailure, asked: true, admittedCheckOnly: true } });
         return;
       }
-      lastFailure.current = r;
-      setPhase({ kind: "failed", failure: r, asked: true, admittedCheckOnly: false });
+      if (f.probed) return;
+      f.probed = true;
+      const op = ++f.op;
+      setState({ url, phase: { kind: "diagnosing" } });
+      void probeMedia(fetchWithoutGrantPrompt, url, true).then((r) => {
+        if (flags.current !== f || f.op !== op) return; // superseded (new target or newer request)
+        // A probe that succeeds says nothing about access: the element failed
+        // for another reason (codec, corrupt file). A `416` (zero-byte file) is
+        // an ordinary load error too — `classifyResponse` maps it to `error`.
+        const failure: DenialFailure = r.kind === "ok" ? { kind: "error", message: message ?? "media error" } : r;
+        f.lastFailure = failure;
+        setState({ url, phase: { kind: "failed", failure, asked: false, admittedCheckOnly: false } });
+      });
+    },
+    [url, flagsFor],
+  );
+
+  const ask = useCallback(() => {
+    const f = flagsFor(url);
+    const op = ++f.op;
+    setState({ url, phase: { kind: "diagnosing" } }); // held while the dialog is open
+    void probeMedia(eligibleFetch, url, false).then((r) => {
+      if (flags.current !== f || f.op !== op) return;
+      if (r.kind === "ok") {
+        f.retriedAfterAsk = true;
+        setAttempt((a) => a + 1);
+        setState({ url, phase: MEDIA });
+        return;
+      }
+      f.lastFailure = r;
+      setState({ url, phase: { kind: "failed", failure: r, asked: true, admittedCheckOnly: false } });
     });
-  }, [url]);
+  }, [url, flagsFor]);
 
   return { phase, attempt, onLoadError, ask };
 }

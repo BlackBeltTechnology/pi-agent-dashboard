@@ -32,8 +32,10 @@ export function HtmlPreview({ target, restrictCsp = false }: Props) {
   // Opted out unless operator provenance is declared; Ask for access re-runs it
   // once, eligibly (surface-denial-remedy-in-previews, D4).
   const { fetch: previewFetch, optedOut } = usePreviewFetch();
-  const [asked, setAsked] = useState(false);
   const url = rawUrl(target);
+  // The ask belongs to ONE target: a new target starts un-asked (fail closed).
+  const [askedUrl, setAskedUrl] = useState<string | null>(null);
+  const asked = askedUrl === url;
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +58,7 @@ export function HtmlPreview({ target, restrictCsp = false }: Props) {
   }, [url, restrictCsp, asked, previewFetch, optedOut]);
 
   if (failure) {
-    return <DenialNotice result={failure} url={url} path={target.path} onAsk={() => setAsked(true)} asked={asked} />;
+    return <DenialNotice result={failure} url={url} path={target.path} onAsk={() => setAskedUrl(url)} asked={asked} />;
   }
   if (html == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return (

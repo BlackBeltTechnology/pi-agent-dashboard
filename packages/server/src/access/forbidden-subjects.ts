@@ -78,22 +78,33 @@ const WINDOWS_SYSTEM_DIRS: ReadonlyArray<readonly [string, string]> = [
  *
  * See change: surface-denial-remedy-in-previews.
  */
+/**
+ * Path semantics for the selected platform: its `path` flavour, a canonicaliser
+ * (real paths only when the platform shares the host's path family — the
+ * filesystem cannot resolve the other family, which is exactly the test seam)
+ * and its equality. Shared by the list and every predicate, so a simulated
+ * `win32` is Windows end to end (design D8).
+ */
+function pathOps(env?: ForbiddenSubjectsEnv) {
+  const platform = env?.platform ?? process.platform;
+  const windows = platform === "win32";
+  const p = windows ? path.win32 : path.posix;
+  const hostIsWindows = process.platform === "win32"; // platform-branch-ok: same path family as the host? (not host behaviour)
+  const canonical = (x: string): string => {
+    const resolved = p.resolve(x);
+    return windows === hostIsWindows ? realpathNearestAncestor(resolved) : resolved;
+  };
+  const same = (a: string, b: string): boolean => samePath(a, b, platform);
+  return { platform, windows, p, canonical, same };
+}
+
 export function forbiddenGrantSubjects(env?: ForbiddenSubjectsEnv): {
   whole: string[];
   sensitive: string[];
 } {
-  const platform = env?.platform ?? process.platform;
+  const { windows, p, canonical } = pathOps(env);
   const vars = env?.env ?? process.env;
   const home = env?.homedir ?? os.homedir();
-  const windows = platform === "win32";
-  const p = windows ? path.win32 : path.posix;
-  // Real paths only for the host's own platform: the filesystem cannot resolve
-  // the other platform's paths, and the test seam uses exactly that case.
-  const canonical = (x: string): string => {
-    const resolved = p.resolve(x);
-    const hostIsWindows = process.platform === "win32"; // platform-branch-ok: same path family as the host? (not host behaviour)
-    return windows === hostIsWindows ? realpathNearestAncestor(resolved) : resolved;
-  };
   const system = windows
     ? WINDOWS_SYSTEM_DIRS.map(([name, fallback]) => vars[name] || fallback)
     : POSIX_SYSTEM_DIRS;
@@ -118,24 +129,19 @@ export function isForbiddenGrantSubject(
   /** Precomputed `forbiddenGrantSubjects(env)`, so a caller builds it once. */
   sets?: ReturnType<typeof forbiddenGrantSubjects>,
 ): boolean {
-  const real = realpathNearestAncestor(path.resolve(subject));
+  const ops = pathOps(env);
+  const real = ops.canonical(subject);
   const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
 
-  if (whole.some((f) => samePath(real, f))) return true;
-
-  for (const forbidden of sensitive) {
-    if (samePath(real, forbidden)) return true;
-    const rel = path.relative(forbidden, real);
-    if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) return true;
-  }
-  return false;
+  if (whole.some((f) => ops.same(real, f))) return true;
+  return sensitive.some((forbidden) => subsumes(forbidden, real, ops));
 }
 
-/** True when `candidate` equals, or sits under, `other`. */
-function subsumes(candidate: string, other: string): boolean {
-  if (samePath(candidate, other)) return true;
-  const rel = path.relative(candidate, other);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+/** True when `candidate` equals, or is an ancestor of, `other` (selected platform's semantics). */
+function subsumes(candidate: string, other: string, ops: ReturnType<typeof pathOps>): boolean {
+  if (ops.same(candidate, other)) return true;
+  const rel = ops.p.relative(candidate, other);
+  return rel !== "" && !rel.startsWith("..") && !ops.p.isAbsolute(rel);
 }
 
 /**
@@ -157,9 +163,10 @@ export function subsumesForbiddenGrantSubject(
   /** Precomputed `forbiddenGrantSubjects(env)`, for a caller testing many rungs. */
   sets?: ReturnType<typeof forbiddenGrantSubjects>,
 ): boolean {
-  const real = realpathNearestAncestor(path.resolve(candidate));
+  const ops = pathOps(env);
+  const real = ops.canonical(candidate);
   const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
-  return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden));
+  return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden, ops));
 }
 
 /**

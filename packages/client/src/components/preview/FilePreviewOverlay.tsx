@@ -110,7 +110,9 @@ export function FilePreviewOverlay({ provenance = "operator", ...props }: Props)
   // loading code lives in the inner body (surface-denial-remedy-in-previews, D4).
   return (
     <PreviewProvenance autoOpened={provenance === "auto"}>
-      <FilePreviewOverlayBody {...props} />
+      {/* Keyed by target: the host reuses one overlay across targets, and every
+          target-scoped state (the ask, errors, content) must start fresh. */}
+      <FilePreviewOverlayBody key={`${props.cwd}\u0000${props.path}`} {...props} />
     </PreviewProvenance>
   );
 }

@@ -22,7 +22,8 @@ interface Props {
 }
 
 export function ImagePreview({ target, variant = "inline", srcUrl }: Props) {
-  if (variant === "full") return <FullImage target={target} srcUrl={srcUrl} />;
+  // Keyed by source: a new target starts with no stale decode failure.
+  if (variant === "full") return <FullImage key={srcUrl ?? rawUrl(target)} target={target} srcUrl={srcUrl} />;
   return (
     <img
       src={srcUrl ?? rawUrl(target)}
