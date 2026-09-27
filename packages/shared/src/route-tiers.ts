@@ -166,6 +166,12 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/sessions/archived", tier: "observe" },
   { method: "GET", path: "/api/sessions/archived/:id", tier: "observe" },
   { method: "GET", path: "/api/spawn-failures", tier: "observe" },
+  // add-system-one-registry: config/keys/eval/calibration/lifecycle are operate; status reads observe.
+  { method: "GET", path: "/api/system-one/config", tier: "operate" },
+  { method: "GET", path: "/api/system-one/consumers", tier: "observe" },
+  { method: "GET", path: "/api/system-one/keys", tier: "observe" },
+  { method: "GET", path: "/api/system-one/managed", tier: "observe" },
+  { method: "GET", path: "/api/system-one/managed/:id/log", tier: "operate" },
   { method: "GET", path: "/api/tools", tier: "observe" },
   { method: "GET", path: "/api/tools/:name", tier: "observe" },
   { method: "GET", path: "/api/tunnel-readiness", tier: "observe" },
@@ -260,6 +266,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/session/:id/unarchive", tier: "control" },
   { method: "POST", path: "/api/session/spawn", tier: "control" },
   { method: "POST", path: "/api/shutdown", tier: "operate" },
+  { method: "POST", path: "/api/system-one/calibration", tier: "operate" },
+  { method: "POST", path: "/api/system-one/eval", tier: "operate" },
+  { method: "POST", path: "/api/system-one/keys/:keyRef", tier: "operate" },
+  { method: "POST", path: "/api/system-one/managed/:id/:action", tier: "operate" },
   { method: "POST", path: "/api/tools/diagnostics", tier: "operate" },
   { method: "POST", path: "/api/tools/rescan", tier: "operate" },
   { method: "POST", path: "/api/tunnel-connect", tier: "operate" },
@@ -280,6 +290,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PUT", path: "/api/plugins/hermes-memory/config", tier: "operate" },
   { method: "PUT", path: "/api/provider-auth/api-key", tier: "operate" },
   { method: "PUT", path: "/api/providers", tier: "operate" },
+  { method: "PUT", path: "/api/system-one/config", tier: "operate" },
   { method: "PUT", path: "/api/tools/:name", tier: "operate" },
 ];
 

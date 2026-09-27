@@ -472,6 +472,28 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/system-one": {
+      "entry": [
+        "src/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/system-one-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/server/__tests__/fixtures/fake-engine.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/roles-plugin": {
       "entry": [
         "src/index.tsx",

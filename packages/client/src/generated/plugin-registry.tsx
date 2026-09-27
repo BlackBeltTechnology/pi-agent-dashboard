@@ -13,6 +13,7 @@ import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-te
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -522,6 +523,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "system-one",
+        "displayName": "Decision models",
+        "priority": 200,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "SystemOneSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "system-one", priority: 200, slot: "settings-section", tab: "general", Component: SystemOneSettings },
+    ],
+    catalog: system_one_catalog,
+  },
+  {
+    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -605,4 +627,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "9903cd6ad9080451f9398d9d6d0cbff1554691f62c8cbdb59fe292c480e92eda";
+export const PLUGIN_REGISTRY_HASH = "f67978be002f35766697ce46476741c5ca238e94ae6a4e9d623af53216ee8c44";

@@ -287,10 +287,10 @@ export function extractSpecifiers(text, fileName) {
 /**
  * The repository-root package when it is published (not `private`), else null.
  *
- * Checked for tsconfig `extends` ONLY: it is a meta-package shipping
- * `packages/server/src/` etc. whose deps resolve transitively, so the import
- * rules report ~250 pre-existing findings there - a follow-up change.
- * See change: fix-ship-tsconfig-base.
+ * A normal workspace record: the root gets the FULL rule set. It is a
+ * meta-package shipping copies of `packages/server/src/` etc., so its copied
+ * sources earn reachable-workspace credit (`reachableWorkspaces`) in
+ * `analyzeRepository`. See changes: fix-ship-tsconfig-base, check-root-package-imports.
  */
 export function rootPackage(root = REPO_ROOT) {
   let manifest;
@@ -300,7 +300,39 @@ export function rootPackage(root = REPO_ROOT) {
     return null;
   }
   if (manifest.private === true) return null;
-  return { dir: root, rel: ".", name: manifest.name ?? ".", manifest, tsconfigOnly: true };
+  return { dir: root, rel: ".", name: manifest.name ?? ".", manifest };
+}
+
+const runtimeDeps = (m) => RUNTIME_FIELDS.flatMap((f) => Object.keys(m?.[f] ?? {}));
+
+/**
+ * Workspaces the root meta-package reaches at runtime: `packages/<dir>` -> manifest.
+ *
+ * Closure over `RUNTIME_FIELDS` of dependency names that resolve to a
+ * `packages/*` workspace in this repo (private or not), starting from the root's
+ * runtime deps. Cycle-safe; an unparseable workspace manifest is skipped, never
+ * thrown. See change: check-root-package-imports.
+ */
+export function reachableWorkspaces(root, rootManifest) {
+  const byName = new Map();
+  const base = join(root, "packages");
+  for (const dir of existsSync(base) ? readdirSync(base).sort() : []) {
+    try {
+      const manifest = JSON.parse(readFileSync(join(base, dir, "package.json"), "utf8"));
+      if (typeof manifest?.name === "string") byName.set(manifest.name, { rel: `packages/${dir}`, manifest });
+    } catch {
+      // no manifest, or malformed: not a workspace we can credit
+    }
+  }
+  const reached = new Map();
+  const queue = runtimeDeps(rootManifest);
+  for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+    const ws = byName.get(name);
+    if (!ws || reached.has(ws.rel)) continue;
+    reached.set(ws.rel, ws.manifest);
+    queue.push(...runtimeDeps(ws.manifest));
+  }
+  return reached;
 }
 
 /** Every workspace under `packages/` that does not declare `"private": true`. */
@@ -520,13 +552,61 @@ export function tsconfigExtendsFindings(ws, packedFiles) {
   return findings;
 }
 
-/** Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files. */
-export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}) {
+/**
+ * The declaration scope for one shipped file: `declared` / `devOnly` sets plus
+ * `creditOnly` (names satisfied ONLY through reachable-workspace credit).
+ *
+ * META-PACKAGE EXCEPTION - reliance on npm hoisting, made explicit. The root's
+ * `pi-dashboard` bin runs the root tarball's OWN copy of `packages/<dir>/src`,
+ * whose bare imports resolve from the root's `node_modules` only because npm
+ * hoists the deps of the root's workspace deps there. So a root-shipped file
+ * under `packages/<dir>/` also counts as declared its workspace's runtime deps -
+ * but only when that workspace is reachable (`credit.byDir`). Known limit: this
+ * reads the LOCAL manifests; releases are lockstep, so they match the published
+ * ones. Outside `packages/`, or with no reachable manifest (`packages/dist/`),
+ * no credit applies. See change: check-root-package-imports.
+ */
+function declarationScope(m, owner) {
+  const own = new Set(runtimeDeps(m));
+  const declared = new Set([...own, ...runtimeDeps(owner)]);
+  const dev = [...Object.keys(m.devDependencies ?? {}), ...Object.keys(owner?.devDependencies ?? {})];
+  return {
+    declared,
+    devOnly: new Set(dev.filter((d) => !declared.has(d))),
+    creditOnly: new Set([...declared].filter((d) => !own.has(d))),
+  };
+}
+
+/** `rel` -> its (cached) `declarationScope`; the owner is looked up only when `credit` is given. */
+function scopeResolver(manifest, credit) {
+  const scopes = new Map();
+  return (rel) => {
+    const dir = credit ? /^packages\/[^/]+(?=\/)/.exec(rel)?.[0] : undefined;
+    const owner = dir ? credit.byDir.get(dir) : undefined;
+    const key = owner ? dir : "";
+    if (!scopes.has(key)) scopes.set(key, declarationScope(manifest, owner));
+    return scopes.get(key);
+  };
+}
+
+/** A clean (finding-free) specifier that ONLY the reachable-workspace credit satisfied. */
+const creditedImport = (value, allowed, creditOnly) => {
+  const pkg = packageNameOf(value);
+  // Mirror `specifierFinding`: an allowlist entry matches the exact specifier OR its package.
+  return creditOnly.has(pkg) && !allowed.has(value) && !allowed.has(pkg);
+};
+
+/**
+ * Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files.
+ *
+ * `credit` is passed for the ROOT only: `{ byDir: Map<"packages/<dir>", manifest>,
+ * credited: number }`; `credited` is incremented per import satisfied solely by
+ * the credit (see `declarationScope`).
+ */
+export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST, credit } = {}) {
   const findings = [];
   const packedSet = new Set(packedFiles);
-  const m = ws.manifest;
-  const declared = new Set(RUNTIME_FIELDS.flatMap((f) => Object.keys(m[f] ?? {})));
-  const devOnly = new Set(Object.keys(m.devDependencies ?? {}).filter((d) => !declared.has(d)));
+  const scopeOf = scopeResolver(ws.manifest, credit);
   const allowed = new Set(
     allowlist.filter((e) => e.workspace === ws.rel || e.workspace === ws.name).map((e) => e.specifier),
   );
@@ -545,9 +625,12 @@ export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}
       continue;
     }
 
+    const { declared, devOnly, creditOnly } = scopeOf(rel);
     for (const { value, line } of specifiers) {
       const f = specifierFinding({ wsRel: ws.rel, rel, value, line, allowed, declared, devOnly, packedSet });
       if (f) findings.push(f);
+      // `creditOnly` is empty unless `credit` was passed, so this never touches an absent `credit`.
+      else if (creditedImport(value, allowed, creditOnly)) credit.credited++;
     }
   }
   findings.push(...tsconfigExtendsFindings(ws, packedFiles));
@@ -588,6 +671,7 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
   const rootPkg = rootPackage(root);
   const workspaces = [...listWorkspaces(root), ...(rootPkg ? [rootPkg] : [])];
   const findings = [...validateAllowlist(allowlist)];
+  const credit = rootPkg ? { byDir: reachableWorkspaces(root, rootPkg.manifest), credited: 0 } : undefined;
 
   const queue = [...workspaces];
   const runner = async () => {
@@ -600,18 +684,21 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
         );
         continue;
       }
-      if (ws.tsconfigOnly) {
-        findings.push(...tsconfigExtendsFindings(ws, files));
-        continue;
-      }
-      findings.push(...analyzeWorkspace(ws, files, { allowlist }));
+      findings.push(...analyzeWorkspace(ws, files, { allowlist, credit: ws === rootPkg ? credit : undefined }));
       findings.push(...verifyDeclaredRanges(ws, root));
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length || 1) }, runner));
 
   findings.sort((a, b) => `${a.workspace}${a.file}${a.specifier}`.localeCompare(`${b.workspace}${b.file}${b.specifier}`));
-  return { workspaces, findings };
+  return { workspaces, findings, credited: credit?.credited ?? 0 };
+}
+
+/** The CLI's closing summary line; names the meta-package credit count so the exception stays visible. */
+export function formatSummary({ workspaces, findings, credited = 0 }) {
+  const errors = findings.filter((f) => f.severity === "error").length;
+  const warnings = findings.length - errors;
+  return `${workspaces.length} non-private workspace(s) checked · ${errors} error(s) · ${warnings} warning(s) · ${credited} root import(s) credited via reachable workspace`;
 }
 
 export function formatFinding(f) {
@@ -620,14 +707,10 @@ export function formatFinding(f) {
 }
 
 async function main() {
-  const { workspaces, findings } = await analyzeRepository();
-  for (const f of findings) console.log(formatFinding(f));
-  const errors = findings.filter((f) => f.severity === "error");
-  const warnings = findings.filter((f) => f.severity === "warning");
-  console.log(
-    `\n${workspaces.length} non-private workspace(s) checked · ${errors.length} error(s) · ${warnings.length} warning(s)`,
-  );
-  process.exit(errors.length > 0 ? 1 : 0);
+  const result = await analyzeRepository();
+  for (const f of result.findings) console.log(formatFinding(f));
+  console.log(`\n${formatSummary(result)}`);
+  process.exit(result.findings.some((f) => f.severity === "error") ? 1 : 0);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) await main();

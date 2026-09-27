@@ -342,6 +342,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-subagents-plugin':
         specifier: ^0.8.0
         version: link:../subagents-plugin
+      '@blackbelt-technology/pi-dashboard-system-one-plugin':
+        specifier: ^0.8.0
+        version: link:../system-one-plugin
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -1339,6 +1342,39 @@ importers:
       vitest:
         specifier: ^4.0.0
         version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.4.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/system-one: {}
+
+  packages/system-one-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.8.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.8.0
+        version: link:../shared
+      '@blackbelt-technology/pi-system-one':
+        specifier: ^0.8.0
+        version: link:../system-one
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
 
   packages/video-production:
     dependencies:
