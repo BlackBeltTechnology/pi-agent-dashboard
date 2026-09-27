@@ -2334,7 +2334,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                           errorSessionIds={errorSessionIds}
                           retrySessionIds={retrySessionIds}
                           noticeSessionIds={noticeSessionIds}
-                          widgetBar={(id) => widgetBarMap.get(id) === true}
+                          widgetBar={(id) => widgetBarMap.get(id)}
                         />
                         {collapsed ? (
                           <div id={controlsId} hidden />

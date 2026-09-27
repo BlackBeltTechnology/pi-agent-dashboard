@@ -13,7 +13,7 @@
  */
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { busSend } from "./helpers/folder-collapse.js";
-import { ensureGitSession, expandFolder, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { expandFolder, FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 const CWD = FIXTURE_GIT;
@@ -49,7 +49,8 @@ test.describe("session-list group by", () => {
     page,
     browser,
   }) => {
-    await ensureGitSession(page);
+    // A card in FIXTURE_GIT specifically — `ensureGitSession` may reuse any card.
+    await spawnFreshGitSession(page);
     await expandFolder(page, CWD);
     await expect(chip(page)).toHaveCount(0);
 
@@ -78,7 +79,8 @@ test.describe("session-list group by", () => {
   });
 
   test("G2: Settings Default grouping applies to folders without an override; Use default reverts", async ({ page }) => {
-    await ensureGitSession(page);
+    // A card in FIXTURE_GIT specifically — `ensureGitSession` may reuse any card.
+    await spawnFreshGitSession(page);
     await busSend([{ type: "set_folder_group_by", path: CWD, mode: null }]);
     await expect(chip(page)).toHaveCount(0, { timeout: 15_000 });
 

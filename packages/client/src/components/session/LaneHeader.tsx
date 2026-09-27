@@ -71,8 +71,8 @@ interface Props {
   errorSessionIds?: Set<string>;
   retrySessionIds?: Set<string>;
   noticeSessionIds?: Set<string>;
-  /** Widget-bar placement per session (true ⇒ not needs-you), same source as the lane classifier. */
-  widgetBar?: (sessionId: string) => boolean;
+  /** Widget-bar placement per session: true ⇒ widget bar, false ⇒ needs-you, undefined ⇒ unresolved (excluded). */
+  widgetBar?: (sessionId: string) => boolean | undefined;
 }
 
 const ROLLUP_META: Record<CapsuleBucket, { shape: "needs-you" | "error" | "working" | "idle"; color: string; key: string }> = {
@@ -108,12 +108,13 @@ function LaneRollup({
 }: {
   sessions: DashboardSession[];
   flags: Parameters<typeof countStatusCapsule>[1];
-  widgetBar?: (sessionId: string) => boolean;
+  widgetBar?: (sessionId: string) => boolean | undefined;
   testId: string;
 }) {
-  // An ask_user session NOT placed in the widget bar counts as needs-you,
-  // matching the lane classifier (unclassified = not widget-bar).
-  const counts = countStatusCapsule(sessions, { ...flags, widgetBar: (id) => widgetBar?.(id) ?? false });
+  // Same contract as the folder capsule: only an ask_user session RESOLVED as
+  // not-widget-bar (explicit false) counts as needs-you; unresolved probes
+  // (undefined) stay out until classified.
+  const counts = countStatusCapsule(sessions, { ...flags, widgetBar });
   const visible = CAPSULE_SEGMENT_ORDER.filter((b) => counts[b] > 0);
   if (visible.length === 0) return null;
   return (

@@ -46,6 +46,31 @@ describe("LaneHeader", () => {
     expect(screen.getByTestId(`lane-rollup-${K}::worktrees`)).toBeTruthy();
   });
 
+  it("rollup: unresolved widget-bar probe stays out of needs-you; explicit false counts", () => {
+    const segsFor = (probe: boolean | undefined) => {
+      const { unmount } = render(
+        <LaneHeader
+          folderKey={K}
+          lane="worktrees"
+          count={1}
+          collapsed
+          onToggle={() => {}}
+          controlsId="c"
+          sessions={[s("b", { currentTool: "ask_user" })]}
+          widgetBar={() => probe}
+        />,
+      );
+      const roll = screen.queryByTestId(`lane-rollup-${K}::worktrees`);
+      const out = Array.from(roll?.querySelectorAll("[data-rollup-segment]") ?? []).map((el) =>
+        el.getAttribute("data-rollup-segment"),
+      );
+      unmount();
+      return out;
+    };
+    expect(segsFor(undefined)).not.toContain("needs-you");
+    expect(segsFor(false)).toContain("needs-you");
+  });
+
   it("rollup excludes widget-bar ask_user from needs-you", () => {
     render(
       <LaneHeader
