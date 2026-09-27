@@ -5,14 +5,19 @@
  *
  * See change: fix-out-of-band-reload (test-plan #E3, #E4, #E5, #X3, #X8).
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isBareReloadCommand } from "../browser-handlers/session-action-helpers.js";
 import {
+  _resetForwardedReloads,
   type DispatchReloadContext,
   dispatchReload,
   RELOAD_BUSY_MESSAGE,
   RELOAD_COMPACTING_MESSAGE,
 } from "../rpc-keeper/dispatch-reload.js";
+
+// The forwarded-reload watch is module-level; isolate it between tests.
+// See change: fix-terminal-session-dashboard-reload.
+afterEach(() => _resetForwardedReloads());
 
 function msg(overrides: Partial<{ text: string; images: unknown[]; sessionId: string }> = {}) {
   return {
@@ -100,9 +105,8 @@ describe("dispatchReload — non-keeper branches", () => {
   });
 
   it("respawns a headless session rather than forwarding, even with a live bridge (#E1)", async () => {
-    // The bridge path is a no-op for a dashboard-spawned session (its
-    // RELOAD_KEY was never captured in a TUI), so a registered PID always wins
-    // over the connection.
+    // Respawn is the headless reload mechanism (it also rescues a session
+    // whose bridge died), so a registered PID always wins over the connection.
     const h = harness({ connected: true, pid: 4242 });
     const outcome = await dispatchReload("S1", h.ctx);
     expect(outcome).toBe("respawn");

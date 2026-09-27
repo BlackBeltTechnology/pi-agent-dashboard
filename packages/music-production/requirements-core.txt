@@ -1,0 +1,8 @@
+# Quick tier (music-analysis quick, music-edit-to-length, beat-sync-video).
+# Exact pins verified on Python 3.14 / macOS arm64 (2026-09-24).
+# Install into a project venv:  uv venv -p python3.14 .venv-music && uv pip install --python .venv-music -r requirements-core.txt
+librosa==1.0.0
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0
+matplotlib==3.11.2

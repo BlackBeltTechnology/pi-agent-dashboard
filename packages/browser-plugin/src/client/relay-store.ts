@@ -82,6 +82,17 @@ export function dismissLiveView(): void {
   for (const listener of subscribers) listener();
 }
 
+/**
+ * Re-open a dismissed live view (the badge button). No-op when not dismissed.
+ * See change: fix-browser-live-view-subscribe-and-reopen (D5).
+ */
+export function reopenLiveView(): void {
+  if (!dismissed) return;
+  dismissed = false;
+  bumpSlotClaimsVersion();
+  for (const listener of subscribers) listener();
+}
+
 /** Subscribe to store changes. Returns the unsubscribe fn. */
 function subscribeRelayStore(listener: () => void): () => void {
   subscribers.add(listener);

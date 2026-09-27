@@ -1152,7 +1152,7 @@ Headless command line:
 
 Detached spawn (`platform/detached-spawn.ts`): `spawnDetached` uses `detached: true` on every OS. Windows emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, skips `AssignProcessToJobObject` → child excluded from parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Pi sessions survive dashboard restart on all platforms (matches Unix PGID behavior). `headlessPidRegistry` reconciles survivors at `~/.pi/dashboard/headless-pids.json` on server boot.
 
-Reload path selection (`shouldInterceptReload`): headless sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → `piGateway.sendToSession` → bridge `__dashboard_reload` command (captures `ctx.reload` from pi's `ExtensionCommandContext` since `ExtensionContext` has no `reload()`).
+Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, gated pi >= 0.84.2; handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
 
 Cross-refs:
 - docs/architecture.md:1147

@@ -37,3 +37,10 @@ Use when a user has a script/timeline + voiceover and wants to generate a consis
 3. Storyboard sketches generated for the world anchor and every cut; spot-check key frames (opener, any on-screen-text shot, recurring character, final logo-space shot) for look + compliance.
 4. `pi-veo parse <Project>` reports `Sidecars: enabled` with 0 problems (exit 0).
 5. Build a contact sheet (ImageMagick montage) to eyeball cross-shot consistency.
+
+## Mode: Veo as FX layer over real footage
+When the video is built from real screen or site recordings, Veo does not render shots — it renders only additive FX layers.
+- Every process on screen comes from real footage; drop any beat that has no recording instead of generating it.
+- Prompt each FX layer on a pure black background (light, particles, flares, scan lines; no objects, no people, no text).
+- Composite with `mix-blend-mode: screen` on the FX wrapper; set the black point before blending if the render is tinted.
+- The assembly, music edit, camera punches and export QA follow the `hyperframes-showreel` skill.

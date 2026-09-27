@@ -22,7 +22,7 @@ interface Harness {
 }
 
 /** Boot an instance with a connected extension (handshake done) + CDP client. */
-async function boot(opts: { allowedDomains?: string[]; tabs?: Array<{ id: number; title: string; url: string }>; cdpTimeoutMs?: number } = {}): Promise<Harness> {
+async function boot(opts: { allowedDomains?: string[]; tabs?: Array<{ id: number; title: string; url: string }>; cdpTimeoutMs?: number; autoAttach?: boolean; onStatusChange?: () => void } = {}): Promise<Harness> {
   const audit = new AuditRing();
   const closed: string[] = [];
   const instance = new RelayInstance({
@@ -32,7 +32,7 @@ async function boot(opts: { allowedDomains?: string[]; tabs?: Array<{ id: number
     audit,
     logger: silentLogger,
     onClosed: (r) => closed.push(r),
-    onStatusChange: () => {},
+    onStatusChange: opts.onStatusChange ?? (() => {}),
     cdpAttachTimeoutMs: opts.cdpTimeoutMs ?? 30_000,
   });
   const [relayExt, extSide] = socketPair();
@@ -45,6 +45,7 @@ async function boot(opts: { allowedDomains?: string[]; tabs?: Array<{ id: number
   await flush();
   await instance.waitForHandshake();
   // Auto-attach is what makes the model assign relay session ids per tab.
+  if (opts.autoAttach === false) return { instance, audit, ext, extSide, cdpSide, closed };
   cdpSide.send(JSON.stringify({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } }));
   await flush();
   return { instance, audit, ext, extSide, cdpSide, closed };
@@ -448,6 +449,58 @@ describe("lifecycle ends (X4-X7)", () => {
     instance.close("a");
     instance.close("b");
     expect(closed).toEqual(["a"]);
+  });
+});
+
+describe("no-session tabs (fix-browser-live-view-subscribe-and-reopen)", () => {
+  it("lists a known tab without a debugger session as detached/no-session (D1)", async () => {
+    const { instance } = await boot({ autoAttach: false });
+    expect(instance.sessionIdForTab(7)).toBeUndefined();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "no-session" });
+  });
+
+  it("devtools reason wins over no-session (D1)", async () => {
+    const { instance, ext } = await boot();
+    ext.detach(7, "canceled_by_user");
+    await flush();
+    expect(instance.sessionIdForTab(7)).toBeUndefined();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "devtools" });
+  });
+
+  it("clears the DevTools marker once the tab gets a new debugger session", async () => {
+    const { instance, ext, cdpSide } = await boot();
+    ext.detach(7, "canceled_by_user");
+    await flush();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "detached", reason: "devtools" });
+    cdpSide.send(JSON.stringify({ id: 2, method: "Target.setAutoAttach", params: { autoAttach: true } }));
+    await flush();
+    expect(instance.sessionIdForTab(7)).toBeDefined();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "live" });
+  });
+
+  it("broadcasts exactly once when the agent attaches to a no-session tab (D2)", async () => {
+    const onStatusChange = vi.fn();
+    const { instance, cdpSide } = await boot({ autoAttach: false, onStatusChange });
+    onStatusChange.mockClear();
+    cdpSide.send(JSON.stringify({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } }));
+    await flush();
+    expect(instance.tabList().find((t) => t.tabId === 7)).toMatchObject({ state: "live" });
+    expect(onStatusChange).toHaveBeenCalledTimes(1);
+    // A further message with no viewability change does not broadcast again.
+    cdpSide.send(JSON.stringify({ id: 2, method: "Browser.getVersion" }));
+    await flush();
+    expect(onStatusChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a subscribe on a no-session tab without screencasting and audits it (D4)", async () => {
+    const { instance, ext, audit } = await boot({ autoAttach: false });
+    const result = instance.subscribe(viewerSocket(), 7);
+    await flush();
+    expect(result.ok).toBe(false);
+    expect(ext.cdpCommands.some((c) => c.method === "Page.startScreencast")).toBe(false);
+    expect(audit.list().filter((e) => e.kind === "viewer-subscribe-refused")).toEqual([
+      expect.objectContaining({ kind: "viewer-subscribe-refused", detail: "tab:7 reason:no-session" }),
+    ]);
   });
 });
 
