@@ -255,12 +255,13 @@ describe("D5: promptOutcome, decided in the gate", () => {
   it("#E11 a joiner reports its own eligibility, not the entry's", async () => {
     const app = makeApp();
     // Two dialogs from two other operator sockets fill the global cap.
+    const held: Array<Promise<unknown>> = [];
     for (const [sock, dir] of [
       ["sock-2", "x"],
       ["sock-3", "y"],
     ] as const) {
       fs.mkdirSync(path.join(outside, dir));
-      void raw(app, path.join(outside, dir, "f.png"), { cap: issuePromptChannel(sock) });
+      held.push(raw(app, path.join(outside, dir, "f.png"), { cap: issuePromptChannel(sock) }));
     }
     const x = await nextPrompt(0);
     const y = await nextPrompt(1);
@@ -273,6 +274,7 @@ describe("D5: promptOutcome, decided in the gate", () => {
     expect(joined.json().promptOutcome).toBe("ineligible");
     await answer(x, "deny");
     await answer(y, "deny");
+    await Promise.all(held);
   });
 
   it("#E12 an allow the re-evaluation refuses is allowed-but-refused", async () => {
