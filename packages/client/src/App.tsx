@@ -1,10 +1,11 @@
-import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
+import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
@@ -35,7 +36,6 @@ import { ComposerSessionActions } from "./components/session/ComposerSessionActi
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
-import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
@@ -142,8 +142,8 @@ const FileDiffView = lazy(() =>
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
@@ -161,13 +161,13 @@ import { useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
-import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
-import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
-import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
+import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
+import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { DisplayPrefsProvider, resolveSessionOverride } from "./lib/state/DisplayPrefsContext.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 

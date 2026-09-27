@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isNotifyRowVisible } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPreferencesStore } from "../persistence/preferences-store.js";
 import { safeRealpathSync } from "../resolve-path.js";
 

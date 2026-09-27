@@ -18,6 +18,19 @@ export function prefersReducedMotion(): boolean {
     : false;
 }
 
+/** FLIP "Invert + Play" for one card that moved from rect `a` to rect `b`. */
+function playFlip(el: HTMLElement, a: DOMRect, b: DOMRect): void {
+  const dx = a.left - b.left;
+  const dy = a.top - b.top;
+  if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
+  el.style.transition = "none";
+  el.style.transform = `translate(${dx}px, ${dy}px)`;
+  requestAnimationFrame(() => {
+    el.style.transition = `transform ${FLIP_DURATION_MS}ms ${FLIP_EASING}`;
+    el.style.transform = "";
+  });
+}
+
 function measure(root: HTMLElement | null): Map<string, DOMRect> {
   const out = new Map<string, DOMRect>();
   if (!root) return out;
@@ -49,17 +62,7 @@ export function useFlipOnLaneChange(
     for (const el of root.querySelectorAll<HTMLElement>("[data-session-id]")) {
       const id = el.dataset.sessionId;
       const a = id ? before.get(id) : undefined;
-      if (!a) continue;
-      const b = el.getBoundingClientRect();
-      const dx = a.left - b.left;
-      const dy = a.top - b.top;
-      if (Math.abs(dx) < 2 && Math.abs(dy) < 2) continue;
-      el.style.transition = "none";
-      el.style.transform = `translate(${dx}px, ${dy}px)`;
-      requestAnimationFrame(() => {
-        el.style.transition = `transform ${FLIP_DURATION_MS}ms ${FLIP_EASING}`;
-        el.style.transform = "";
-      });
+      if (a) playFlip(el, a, el.getBoundingClientRect());
     }
   }, [before]);
 }

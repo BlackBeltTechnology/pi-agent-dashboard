@@ -40,7 +40,6 @@ import {
   resolveSessionGroupPath,
   sortSessionsByOrder,
 } from "../../lib/session/session-grouping.js";
-import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
 import {
   classifyLocationLane,
   classifyStatusLane,
@@ -53,6 +52,7 @@ import {
   resolveLaneDrop,
   type StatusLaneFlags,
 } from "../../lib/session/session-lanes.js";
+import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";

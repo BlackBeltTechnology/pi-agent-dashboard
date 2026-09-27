@@ -180,7 +180,20 @@ export function laneFingerprint(sessions: DashboardSession[], flagsFor: (id: str
   let fp = "";
   for (const s of sessions) {
     const f = flagsFor(s.id);
-    fp += `${s.id}:${s.status}:${s.currentTool === "ask_user" ? 1 : 0}${s.compacting ? 1 : 0}${s.resuming ? 1 : 0}${s.unread ? 1 : 0}${s.gitWorktree ? 1 : 0}${f.hasError ? 1 : 0}${f.isRetrying ? 1 : 0}${f.hasWidgetBarPrompt ? 1 : 0}${f.hasNotice ? 1 : 0}|`;
+    const bits = [
+      s.currentTool === "ask_user",
+      s.compacting,
+      s.resuming,
+      s.unread,
+      s.gitWorktree,
+      f.hasError,
+      f.isRetrying,
+      f.hasWidgetBarPrompt,
+      f.hasNotice,
+    ]
+      .map((b) => (b ? 1 : 0))
+      .join("");
+    fp += `${s.id}:${s.status}:${bits}|`;
   }
   return fp;
 }

@@ -184,6 +184,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
   // Open with focus on the checked radio (session-list-group-by). Re-runs when
   // the desktop panel's first measure lands — a `visibility:hidden` node
   // cannot take focus.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus once the panel is visible.
   React.useEffect(() => {
     if (!open || !radioGroup) return;
     const checked = panelRef.current?.querySelector<HTMLElement>("[role='menuitemradio'][aria-checked='true']");
@@ -244,7 +245,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
                 close(true);
                 item.onSelect();
               }}
-              className="flex w-full min-h-[44px] md:min-h-[30px] items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus:bg-[var(--bg-hover)] focus:outline-none"
+              className="flex w-full min-h-[44px] md:min-h-[30px] items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-ring focus:bg-[var(--bg-hover)]"
             >
               <span
                 aria-hidden="true"
@@ -258,7 +259,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }
               )}
             </button>
           ))}
-          <div role="separator" className="mx-1 my-1 h-px bg-[var(--border-subtle)]" />
+          <div aria-hidden="true" className="mx-1 my-1 h-px bg-[var(--border-subtle)]" />
         </div>
       )}
       {FOLDER_MENU_GROUPS.map((group) => {

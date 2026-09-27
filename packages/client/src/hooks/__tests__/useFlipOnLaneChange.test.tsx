@@ -2,7 +2,7 @@
  * FLIP on lane change. See change: session-list-group-by (design D5).
  */
 import { render } from "@testing-library/react";
-import React, { useRef } from "react";
+import { useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useFlipOnLaneChange } from "../useFlipOnLaneChange.js";
 

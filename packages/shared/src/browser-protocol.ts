@@ -7,8 +7,8 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
+import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
