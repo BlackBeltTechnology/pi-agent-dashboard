@@ -63,6 +63,10 @@ export default defineConfig({
       "packages/flows-plugin",
       "packages/flows-anthropic-bridge-plugin",
       "packages/roles-plugin",
+      // System-1 decision adapter + its settings/supervisor plugin.
+      // See change: add-system-one-registry.
+      "packages/system-one",
+      "packages/system-one-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
       // demo-plugin fixture: bridge fixture-gate contract. See change:

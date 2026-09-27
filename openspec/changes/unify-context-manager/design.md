@@ -417,30 +417,35 @@ triage. Status-type entries are archived to the `sessions` scope instead of
 becoming lessons.
 
 ### D11: The System-1 adapter
-- Interface: `SystemOne.predict(state, questions)` with the `choice`, `score`
-  and `noul` primitives.
-- Implementations:
-  - HTTP `/v1/systemone`, covering a remote endpoint or a dashboard-managed
-    local server (Von or Laya via uv or Docker, on a port other than 8000);
-  - in-process `laya-ts`;
-  - `LlmSystemOne`, which asks the selected LLM for the same structured answers.
-- **Fallback rule:** no System-1 endpoint configured → `LlmSystemOne`. This is
-  a configuration switch, not a per-item one. It applies per step (below).
-- **Per-step routing:** each triage step has its own route: an LLM model, a
-  System-1 endpoint + model, or a deterministic rule optionally followed by a
-  model (e.g. `sensitive`: PII regex first). Each step has its own threshold.
-  The bake-off supports this; no single backend won every step:
+- **Amended by `add-system-one-registry`:** the adapter is the shared library
+  `@blackbelt-technology/pi-system-one` (`predict({ consumer, state, questions })`
+  with `choice`, `score` and `noul`); this change consumes it instead of owning
+  one. Backends, presets, egress (`allowOffMachine`), keys and calibration live
+  in `~/.pi/agent/system-one.json` and its settings section.
+- Implementations: the library's backend kinds — `http` (`/v1/systemone`:
+  hosted, remote, or a dashboard-managed local Von/Laya on 18400–18499) and
+  `llm` (a pi role such as `@fast`, via an injected `LlmCaller`). In-process
+  `laya-ts` stays deferred.
+- **Fallback rule:** "nothing configured → default LLM" becomes the
+  consumer's declared `failurePolicy` (`fail-open | fail-closed |
+  deterministic`) plus an `llm` chain entry when the user adds one. With no
+  config, every step gets `ok: false, reason: "no-backend"` and applies its
+  policy; no request leaves the machine.
+- **Per-step routing:** each triage step is its own consumer, id
+  `context-manager:<step>` (e.g. `context-manager:is_lesson`), routed by a
+  per-consumer override chain in the active preset. A deterministic rule
+  (e.g. `sensitive`: PII regex first) stays in consumer code before
+  `predict`. Thresholds come from each step's calibration record
+  (`<backend>::context-manager:<step>`), measured with the settings Test. The
+  bake-off supports per-step routing; no single backend won every step:
   - `is_lesson`: LLM 0.95 AUC vs best System-1 0.71;
   - `kind`: LLM 0.54 vs Laya 0.20;
   - `scope` on real lessons: Laya 0.92 vs LLM 0.58 (only 12 lessons, weak);
   - `cue` on real lessons: LLM 0.92 vs Laya 0.58;
   - `sensitive` and `same_as`: unmeasured.
-- **Step-level fallback:** a step with no route uses the default triage LLM
-  (`LlmSystemOne`). Decided by configuration, never per item. With nothing
-  configured, every step runs on the default LLM.
-- **Settings UI:** one primary + fallback chain per step, reusing the
-  blackhole `ChainEditor` pattern (`blackhole-model-picker-chains`); defaults
-  keep everything on one LLM.
+- **Settings UI:** the System-1 settings section's per-consumer override
+  (chain editor adapted from the blackhole `ChainEditor`), not a
+  context-manager-owned editor.
 - **Query shape:** System-1 backends are queried with decomposed, observable
   atomic `noul`s (with `true`/`false` descriptions) over a structured JSON
   state, never one abstract judgement. The method study measured this:
