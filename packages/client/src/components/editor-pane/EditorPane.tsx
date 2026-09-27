@@ -38,6 +38,7 @@ import { EditorTabs } from "./EditorTabs.js";
 // on every folder pane).
 const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) => ({ default: m.TerminalPaneLayer })));
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
+import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
 import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
@@ -168,7 +169,10 @@ export function EditorPane() {
     // mis-routed kind instead of deferring it to a runtime `<undefined/>`.
     // Never replace this with a cast.
     const viewer = activeTab.viewer;
-    const viewerKey = `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}`;
+    // `autoOpened` is in the key: a provenance change on the active tab remounts
+    // it, so its next request uses the new eligibility (surface-denial-remedy-in-previews, D4).
+    const autoOpened = activeTab.autoOpened === true;
+    const viewerKey = `${activeTab.path}:${refreshNonce}:${lineForTab ?? ""}:${autoOpened}`;
     const viewerProps = {
       cwd,
       path: activeTab.path,
@@ -180,13 +184,15 @@ export function EditorPane() {
     };
     const PseudoTabViewerComponent = isPseudoTabViewer(viewer) ? pseudoTabRegistry[viewer] : null;
     body = (
-      <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
-        {PseudoTabViewerComponent ? (
-          <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
-        ) : isPseudoTabViewer(viewer) ? null : (
-          <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
-        )}
-      </Suspense>
+      <PreviewProvenance autoOpened={autoOpened}>
+        <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
+          {PseudoTabViewerComponent ? (
+            <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
+          ) : isPseudoTabViewer(viewer) ? null : (
+            <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
+          )}
+        </Suspense>
+      </PreviewProvenance>
     );
   }
 

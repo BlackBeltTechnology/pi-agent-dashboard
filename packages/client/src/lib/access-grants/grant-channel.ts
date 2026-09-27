@@ -67,6 +67,33 @@ function shouldAttach(url: string): boolean {
 }
 
 /**
+ * Headers that declare a request prompt-INELIGIBLE: an empty capability. The
+ * wrapper never overrides a header the caller set, and the server resolves an
+ * empty value to "no capability", so the denial is never held and never raises
+ * the dialog. Removes eligibility; confers nothing. For callers that take a
+ * header object (pdf.js `httpHeaders`). See change:
+ * surface-denial-remedy-in-previews (design D3).
+ */
+export const GRANT_OPT_OUT_HEADERS: Readonly<Record<string, string>> = Object.freeze({ [GRANT_CHANNEL_HEADER]: "" });
+
+/** `fetch`, declared prompt-ineligible (design D3). Every opt-out site is found by this name. */
+export function fetchWithoutGrantPrompt(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+  headers.set(GRANT_CHANNEL_HEADER, "");
+  return fetch(input, { ...init, headers });
+}
+
+/**
+ * Could an eligible request to `url` carry a capability right now? The
+ * wrapper's same-origin `/api/*` rule plus a live capability. A notice offers
+ * "Ask for access" only when this holds, so it never offers a re-ask that is
+ * structurally ineligible (cross-origin shell, socket down).
+ */
+export function canCarryGrantChannel(url: string): boolean {
+  return capability !== null && shouldAttach(url);
+}
+
+/**
  * Wrap `window.fetch` once so same-origin `/api/*` requests echo the
  * capability. Idempotent; never overrides a header the caller set.
  */

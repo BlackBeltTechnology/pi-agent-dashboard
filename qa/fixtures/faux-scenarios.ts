@@ -1464,6 +1464,27 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // ── preview denial remedy (change: surface-denial-remedy-in-previews) ────
+  // An agent auto-open of a file OUTSIDE the session cwd: write detection
+  // accepts an absolute path, so a `write` of a `.png` opens the canvas on it.
+  // One fixed directory per e2e test: the 120 s post-answer backoff is per
+  // subject. The bytes need not decode — only the refusal is under test.
+  ...Object.fromEntries(
+    ["f4", "f6", "f13", "x2"].map((id) => [
+      `denial-write-png-${id}`,
+      {
+        script: [
+          fauxAssistantMessage(
+            [fauxToolCall("write", { path: `/tmp/denial-canvas-${id}/a.png`, content: "not really a png\n" })],
+            { stopReason: "toolUse" },
+          ),
+          fauxAssistantMessage([fauxText("png written")]),
+        ],
+        expect: { toolName: "write" },
+      },
+    ]),
+  ),
+
   // ── Client interactive-renderer matrix (one per ask_user method) ────────
   "ask-confirm": askScenario("confirm", { title: "Proceed?" }),
   "ask-select": askScenario("select", {

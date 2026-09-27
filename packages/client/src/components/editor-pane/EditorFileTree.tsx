@@ -16,6 +16,7 @@ import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-sh
 import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useEffect, useRef, useState } from "react";
+import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { fileIcon } from "../../lib/preview/file-icon.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
@@ -221,7 +222,9 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
 
 /** List a directory's entries (name + isDir) from the single tree endpoint. */
 async function listDir(cwd: string, relDir: string): Promise<DirEntry[]> {
-  return fetch(
+  // Never raises the access-grant dialog: the tree rail is not a preview and
+  // declares no provenance (surface-denial-remedy-in-previews, D4).
+  return fetchWithoutGrantPrompt(
     `${getApiBase()}/api/file/tree?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(relDir || ".")}`,
   )
     .then((r) => r.json())

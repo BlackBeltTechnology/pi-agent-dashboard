@@ -332,7 +332,7 @@ describe("4.5 review #4 — the remedy names the resource, not its parent", () =
       site: "test:file",
     });
     expect(d.allowed).toBe(false);
-    expect(d.remedy?.subject).toBe(outside);
+    expect(d.remedy?.subject).toBe(fs.realpathSync(outside)); // canonical subject (D6)
   });
 
   it("a DIRECTORY denial names the directory itself, never the parent holding siblings", async () => {
@@ -349,9 +349,9 @@ describe("4.5 review #4 — the remedy names the resource, not its parent", () =
       subjectKind: "directory",
     });
     expect(d.allowed).toBe(false);
-    expect(d.remedy?.subject).toBe(outside);
-    expect(d.remedy?.subject).not.toBe(path.dirname(outside));
-    expect(sibling.startsWith(`${d.remedy?.subject}/`)).toBe(false);
+    expect(d.remedy?.subject).toBe(fs.realpathSync(outside)); // canonical subject (D6)
+    expect(d.remedy?.subject).not.toBe(fs.realpathSync(path.dirname(outside)));
+    expect(fs.realpathSync(sibling).startsWith(`${d.remedy?.subject}/`)).toBe(false);
   });
 
   it("subjectKind 'auto' names a refused DIRECTORY itself and a refused FILE's parent", async () => {
@@ -370,14 +370,14 @@ describe("4.5 review #4 — the remedy names the resource, not its parent", () =
       subjectKind: "auto",
     });
     expect(dir.allowed).toBe(false);
-    expect(dir.remedy?.subject).toBe(outside);
+    expect(dir.remedy?.subject).toBe(fs.realpathSync(outside)); // canonical subject (D6)
 
     const asFile = await evaluateContainment(file, [session], {
       site: "test:auto-file",
       subjectKind: "auto",
     });
     expect(asFile.allowed).toBe(false);
-    expect(asFile.remedy?.subject).toBe(outside);
+    expect(asFile.remedy?.subject).toBe(fs.realpathSync(outside)); // canonical subject (D6)
   });
 
   it("allowGrant:false originates NO remedy and records nothing (environment-free)", async () => {
