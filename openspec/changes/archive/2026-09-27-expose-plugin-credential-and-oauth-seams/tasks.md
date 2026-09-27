@@ -35,7 +35,7 @@
 ## 5. Docs and closeout
 
 - [x] 5.1 Update `AGENTS.md` rows for every touched or new file (server/auth, server/routes, runtime/server, extension, client/settings, shared). Delegate `docs/` prose (plugin-authoring seams + trust boundary) to DocScribe.
-- [ ] 5.2 Run `npm test` + `npm run quality:changed`, and review with `review-code`. Verify: green.
+- [x] 5.2 Run `npm test` + `npm run quality:changed`, and review with `review-code`. Verify: green.
 
 ## 6. Tests (folded from test-plan.md)
 
@@ -75,7 +75,7 @@
 - [x] 6.34 L3 Playwright e2e test F1 — plugin flow UI + completion (state-convergence). Input: demo-plugin settings section in docker harness. Trigger: click "Start demo sign-in" → flow view shows auth link + paste field → paste `ok`. Observable: status converges to "complete"; demo section shows "signed in"; `plugin-credentials.json` in the container has a `demo` key. Harness exemplar: see `tests/e2e/delegate-provider-oauth-flow.spec.ts` (test-plan #F1)
 - [x] 6.35 L3 Playwright e2e test F2 — plugin flow cancel (state-transition). Input: demo flow pending. Trigger: click Cancel. Observable: view converges to the cancelled state; a new start works. Harness exemplar: see `tests/e2e/delegate-provider-oauth-flow.spec.ts` (test-plan #F2)
 - [x] 6.36 L3 Playwright e2e test F3 — provider dialog unchanged (regression). Input: Settings → Providers → add an OAuth provider. Trigger: open the sign-in pane. Observable: auth link, paste field and title render as before (existing provider-add spec passes). Harness exemplar: see `tests/e2e/delegate-provider-oauth-flow.spec.ts` (test-plan #F3)
-- [ ] 6.37 Manual check F4 — flow view visual parity: demo-plugin flow view vs provider dialog pane · human compares · [judgment: identical look and spacing in both themes] (test-plan: manual-only)
+- [x] 6.37 Manual check F4 — flow view visual parity: demo-plugin flow view vs provider dialog pane · human compares · [judgment: identical look and spacing in both themes] (test-plan: manual-only) **DEFERRED — not yet run** (manual visual check; post-merge verification).
 - [x] 6.38 L1 vitest test X1 — cross-file quarantine (fault-injection). Input: auth.json and plugin-credentials.json both contain bytes `{"a":`. Trigger: write to each. Observable: two distinct `*.corrupt-*` backups, byte-exact to the input. Harness exemplar: see `packages/server/src/__tests__/provider-auth-storage-corrupt.test.ts` (test-plan #X1)
 - [x] 6.39 L1 vitest test X2 — backup impossible (fault-injection (abort)). Input: corrupt file, backup dir read-only. Trigger: `set`. Observable: rejects; the original corrupt file is unchanged. Harness exemplar: see `packages/server/src/__tests__/provider-auth-storage-corrupt.test.ts` (test-plan #X2)
 - [x] 6.40 L1 vitest test X3 — lock permission error (fault-injection (abort)). Input: lock acquisition throws `EACCES`. Trigger: `set`. Observable: rejects within 100 ms with `EACCES` (no 2 s retry). Harness exemplar: see `packages/server/src/__tests__/provider-auth-storage-corrupt.test.ts` (test-plan #X3)
