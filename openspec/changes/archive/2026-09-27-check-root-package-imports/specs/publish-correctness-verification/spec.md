@@ -102,6 +102,10 @@ The publish check SHALL include the repository-root package when its `package.js
 - **WHEN** the root `package.json` has no `"private": true` and a root-shipped file outside `packages/` imports a package that is declared nowhere
 - **THEN** the check reports `undeclared-import` for the root package
 
+#### Scenario: Non-private root tsconfigs are checked
+- **WHEN** the root `package.json` has no `"private": true`
+- **THEN** the root package's packed tsconfigs are verified for dangling `extends`
+
 #### Scenario: Private root is skipped
 - **WHEN** the root `package.json` has `"private": true`
 - **THEN** the root package is not checked
