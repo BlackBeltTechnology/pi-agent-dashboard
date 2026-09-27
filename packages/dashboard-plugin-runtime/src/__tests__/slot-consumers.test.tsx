@@ -12,6 +12,7 @@ import {
   SettingsSectionByPluginSlot,
   SettingsSectionSlot,
   ToolRendererSlot,
+  useSlotHasAnyClaims,
   useSlotHasClaimsForSession,
   WorktreeCardSectionSlot,
 } from "../slot-consumers.js";
@@ -625,5 +626,39 @@ describe("ComposerContextGroup primitive", () => {
     expect(order[0]).toBe("SPAN"); // divider has no testid
     expect(order[1]).toBe("g-label");
     expect(order[2]).toBe("g-child");
+  });
+});
+
+// ── useSlotHasAnyClaims (configurable-session-card-sections) ────────────────
+
+describe("useSlotHasAnyClaims", () => {
+  const wrap =
+    (registry: ReturnType<typeof createSlotRegistry>) =>
+    ({ children }: { children: React.ReactNode }) => (
+      <PluginContextProvider registry={registry}>{children}</PluginContextProvider>
+    );
+
+  it("returns false when no plugin claims the slot", () => {
+    const registry = createSlotRegistry();
+    const { result } = renderHook(() => useSlotHasAnyClaims("session-card-memory"), { wrapper: wrap(registry) });
+    expect(result.current).toBe(false);
+  });
+
+  it("returns true when a claim exists, even if it would not render for a session", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "mem",
+      priority: 100,
+      slot: "session-card-memory",
+      shouldRender: () => false,
+      Component: () => <span>m</span>,
+    });
+    const { result } = renderHook(() => useSlotHasAnyClaims("session-card-memory"), { wrapper: wrap(registry) });
+    expect(result.current).toBe(true);
+  });
+
+  it("returns false without a registry", () => {
+    const { result } = renderHook(() => useSlotHasAnyClaims("session-card-memory"));
+    expect(result.current).toBe(false);
   });
 });

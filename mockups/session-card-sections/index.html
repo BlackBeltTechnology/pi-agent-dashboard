@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup — per-folder session-card sections</title>
+<style>
+  :root {
+    --bg-primary: #0f1115; --bg-secondary: #161a20; --bg-tertiary: #1d222a;
+    --border-subtle: #262c35; --border-secondary: #323a45;
+    --text-primary: #e6e9ee; --text-secondary: #aab2bf; --text-tertiary: #737d8c;
+    --accent: #4c9aff; --accent-soft: rgba(76,154,255,.14);
+    --ok: #3fb950; --warn: #d29922; --muted-chip: #2a303a;
+    --rail-directory: #3a4250;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-primary); font-size: 13px; }
+  header.top { padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header.top h1 { font-size: 15px; margin: 0; }
+  .tabs { display: flex; gap: 4px; }
+  .tabs button { background: none; border: 1px solid var(--border-secondary); color: var(--text-secondary); padding: 5px 10px; border-radius: 6px; cursor: pointer; font: inherit; }
+  .tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--text-primary); border-color: var(--accent); }
+  .note { color: var(--text-tertiary); font-size: 12px; }
+  section.view { display: none; padding: 20px; }
+  section.view.active { display: block; }
+
+  /* ── Directory settings shell ───────────────── */
+  .ds { display: grid; grid-template-columns: 200px 1fr 340px; gap: 0; border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; min-height: 560px; }
+  .ds-nav { background: var(--bg-secondary); padding: 10px 8px; border-right: 1px solid var(--border-subtle); }
+  .ds-nav .hdr { display: flex; gap: 8px; align-items: center; padding: 4px 6px 12px; color: var(--text-secondary); }
+  .ds-nav .group { font-size: 10px; letter-spacing: .08em; color: var(--text-tertiary); padding: 12px 8px 4px; }
+  .ds-nav a { display: flex; justify-content: space-between; padding: 7px 8px; border-radius: 6px; color: var(--text-secondary); text-decoration: none; }
+  .ds-nav a.active { background: var(--accent-soft); color: var(--text-primary); }
+  .ds-nav a .new { font-size: 9px; background: var(--accent); color: #fff; border-radius: 8px; padding: 0 5px; }
+  .ds-main { padding: 18px 22px; overflow: auto; }
+  .ds-main h2 { font-size: 15px; margin: 0 0 4px; }
+  .ds-main p.lead { margin: 0 0 16px; color: var(--text-tertiary); }
+  .ds-preview { background: var(--bg-secondary); border-left: 1px solid var(--border-subtle); padding: 16px; }
+  .ds-preview h3 { font-size: 11px; letter-spacing: .08em; color: var(--text-tertiary); margin: 0 0 10px; font-weight: 600; }
+
+  .inherit-bar { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-secondary); border-radius: 8px; margin-bottom: 14px; background: var(--bg-tertiary); }
+  .inherit-bar .grow { flex: 1; }
+  .btn { background: none; border: 1px solid var(--border-secondary); color: var(--text-secondary); padding: 4px 10px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px; }
+  .btn:hover { color: var(--text-primary); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.primary { border-color: var(--accent); color: var(--text-primary); }
+
+  .rowgroup { border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 14px; }
+  .rowgroup .gtitle { font-size: 10px; letter-spacing: .08em; color: var(--text-tertiary); padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 10px 12px; align-items: center; border-bottom: 1px solid var(--border-subtle); min-height: 44px; }
+  .row:last-child { border-bottom: 0; }
+  .row .name { font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  .row .desc { color: var(--text-tertiary); font-size: 12px; margin-top: 2px; }
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--muted-chip); color: var(--text-secondary); font-weight: 500; }
+  .badge.override { background: rgba(210,153,34,.16); color: var(--warn); }
+  .badge.plugin { background: rgba(76,154,255,.12); color: var(--accent); }
+  .row .link { color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+  /* segmented tri-state */
+  .seg { display: inline-flex; border: 1px solid var(--border-secondary); border-radius: 6px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--text-tertiary); padding: 5px 9px; font: inherit; font-size: 12px; cursor: pointer; min-height: 28px; }
+  .seg button + button { border-left: 1px solid var(--border-secondary); }
+  .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); }
+  .seg button:focus-visible, .btn:focus-visible, .tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* switch */
+  .switch { position: relative; width: 34px; height: 20px; background: var(--border-secondary); border-radius: 10px; border: 0; cursor: pointer; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .12s; }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch[aria-checked="true"]::after { left: 17px; }
+
+  /* ── Session card (preview) ─────────────────── */
+  .card { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 4px 8px rgba(0,0,0,.3); position: relative; }
+  .card .l1 { display: flex; gap: 6px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .card .title { font-weight: 600; flex: 1; }
+  .card .model { color: var(--text-tertiary); font-size: 11px; }
+  .card .l2 { display: flex; gap: 4px; margin-top: 4px; }
+  .pill { font-size: 9px; padding: 0 4px; border-radius: 3px; border: 1px solid var(--border-secondary); color: var(--text-secondary); }
+  .card .l3 { display: flex; gap: 8px; align-items: center; margin-top: 3px; font-size: 11px; color: var(--text-tertiary); }
+  .ctxbar { flex: 1; height: 4px; background: var(--border-secondary); border-radius: 2px; overflow: hidden; }
+  .ctxbar i { display: block; width: 38%; height: 100%; background: var(--accent); }
+  .sub { margin-top: 6px; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 10px 8px 6px; position: relative; background: rgba(255,255,255,.02); }
+  .sub .legend { position: absolute; top: -7px; left: 8px; font-size: 9px; letter-spacing: .08em; background: var(--bg-tertiary); padding: 0 5px; border-radius: 6px; color: var(--text-tertiary); border: 1px solid var(--border-subtle); display: flex; gap: 4px; align-items: center; }
+  .sub .legend .kebab { display: none; cursor: pointer; color: var(--text-secondary); border: 0; background: none; padding: 0 2px; font: inherit; }
+  .sub:hover .legend .kebab, .sub:focus-within .legend .kebab { display: inline; }
+  .sub .content { font-size: 11px; color: var(--text-secondary); display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--muted-chip); }
+  .chip.warn { background: rgba(210,153,34,.16); color: var(--warn); }
+  .hiddenfoot { margin-top: 6px; font-size: 10px; color: var(--text-tertiary); display: flex; gap: 6px; align-items: center; }
+  .hiddenfoot button { background: none; border: 0; color: var(--text-tertiary); cursor: pointer; font: inherit; text-decoration: underline dotted; padding: 0; }
+  .ghost { opacity: .35; outline: 1px dashed var(--border-secondary); }
+
+  .menu { position: absolute; z-index: 5; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; padding: 4px; box-shadow: 0 8px 20px rgba(0,0,0,.45); min-width: 230px; }
+  .menu button { display: block; width: 100%; text-align: left; background: none; border: 0; color: var(--text-secondary); padding: 7px 9px; border-radius: 5px; font: inherit; font-size: 12px; cursor: pointer; }
+  .menu button:hover { background: var(--accent-soft); color: var(--text-primary); }
+  .menu hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 4px 0; }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px; padding: 9px 14px; display: none; gap: 14px; align-items: center; box-shadow: 0 8px 20px rgba(0,0,0,.45); }
+  .toast.show { display: flex; }
+
+  .twocol { display: grid; grid-template-columns: 380px 1fr; gap: 28px; align-items: start; }
+  .folder { border-left: 2px solid var(--rail-directory); padding-left: 12px; }
+  .folder .fh { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--text-secondary); }
+  .explain { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 16px; line-height: 1.55; }
+  .explain h3 { margin: 0 0 6px; font-size: 13px; }
+  .explain ol, .explain ul { margin: 6px 0; padding-left: 18px; }
+  code { background: var(--muted-chip); padding: 0 4px; border-radius: 3px; font-size: 11.5px; }
+
+  @media (max-width: 1000px) {
+    .ds { grid-template-columns: 1fr; }
+    .ds-nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+    .ds-nav .group, .ds-nav .hdr { display: none; }
+    .ds-preview { border-left: 0; border-top: 1px solid var(--border-subtle); }
+    .twocol { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Session-card sections — per-folder visibility</h1>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-view="v1">A · Directory Settings page</button>
+    <button role="tab" aria-selected="false" data-view="v2">B · Inline "hide in this folder"</button>
+    <button role="tab" aria-selected="false" data-view="v3">C · Global default</button>
+  </div>
+  <span class="note">Interactive — toggles drive the live preview card. State is in-memory only.</span>
+</header>
+
+<!-- ═════════════ A · DIRECTORY SETTINGS ═════════════ -->
+<section class="view active" id="v1">
+  <div class="ds">
+    <nav class="ds-nav" aria-label="Directory settings">
+      <div class="hdr">← <b>pi-agent-dashboard</b></div>
+      <a href="#">Instructions</a>
+      <a href="#">Packages</a>
+      <a href="#" class="active" aria-current="page">Session cards <span class="new">new</span></a>
+      <div class="group">RESOURCES</div>
+      <a href="#">Skills <span class="badge">42</span></a>
+      <a href="#">Agents <span class="badge">9</span></a>
+      <a href="#">Extensions <span class="badge">17</span></a>
+      <a href="#">Prompts <span class="badge">6</span></a>
+      <a href="#">Themes <span class="badge">4</span></a>
+    </nav>
+
+    <div class="ds-main">
+      <h2>Session cards</h2>
+      <p class="lead">Choose which sections appear on session cards in <code>~/Project/pi-agent-dashboard</code> (and its worktrees). Applies on every device. Sections with nothing to show still hide automatically.</p>
+
+      <div class="inherit-bar">
+        <span class="grow" id="inheritText">Using <b>global defaults</b> — no overrides for this folder.</span>
+        <button class="btn" id="resetBtn" disabled>Reset to global</button>
+      </div>
+
+      <div class="rowgroup" id="rowsBuiltin">
+        <div class="gtitle"><span>SECTIONS</span><span>Global · <b>This folder</b></span></div>
+      </div>
+
+      <div class="rowgroup" id="rowsPlugin">
+        <div class="gtitle"><span>PLUGIN SECTIONS</span><span>added by installed plugins</span></div>
+      </div>
+
+      <div class="rowgroup" id="rowsLines">
+        <div class="gtitle"><span>CARD LINES</span><span>outside the section stack</span></div>
+      </div>
+    </div>
+
+    <aside class="ds-preview" aria-label="Live preview">
+      <h3>LIVE PREVIEW · busiest session in folder</h3>
+      <div id="preview1"></div>
+      <p class="note" style="margin-top:12px">Preview uses a synthetic "everything populated" session so hidden sections are obvious. Real cards still auto-hide empty sections.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- ═════════════ B · INLINE ═════════════ -->
+<section class="view" id="v2">
+  <div class="twocol">
+    <div class="folder">
+      <div class="fh">📁 <b>pi-agent-dashboard</b> <span class="note">· 2 sessions</span></div>
+      <div id="preview2"></div>
+      <div style="height:10px"></div>
+      <div id="preview2b"></div>
+    </div>
+    <div class="explain">
+      <h3>Discoverable path (no settings trip)</h3>
+      <ol>
+        <li>Hover / focus a section → a <b>⋯</b> appears in its legend capsule.</li>
+        <li>Menu: <i>Hide in this folder</i> · <i>Hide everywhere</i> · <i>Section settings…</i> (opens view A).</li>
+        <li>Undo toast (6 s). Every card in the folder updates at once — it's folder state, not card state.</li>
+        <li>A quiet footer <b>"2 sections hidden · show"</b> keeps hidden stuff recoverable from the card itself. It opens view A pre-scrolled.</li>
+      </ol>
+      <h3 style="margin-top:12px">Why a footer, not nothing</h3>
+      <ul>
+        <li>Without it, a teammate / future-you sees "no GIT section" and assumes a bug.</li>
+        <li>Footer renders <b>only if</b> a hidden section <i>would have had content</i> — no permanent noise.</li>
+        <li>Global pref can turn the footer off for power users.</li>
+      </ul>
+      <h3 style="margin-top:12px">Safety valve</h3>
+      <ul>
+        <li><b>PROCESS</b> hidden + a background process running → the warning collapses into the footer as <span class="chip warn">⚠ 1 bg process</span> instead of vanishing. Hiding must never hide a runaway process.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════ C · GLOBAL ═════════════ -->
+<section class="view" id="v3">
+  <div class="twocol">
+    <div class="rowgroup" id="rowsGlobal" style="margin:0">
+      <div class="gtitle"><span>SETTINGS › DISPLAY › SESSION CARD SECTIONS</span><span>default for all folders</span></div>
+    </div>
+    <div class="explain">
+      <h3>Resolution order</h3>
+      <p><code>built-in default (all on)</code> → <code>global</code> → <code>folder override</code> → <i>auto-hide when empty</i></p>
+      <p>Folder settings store only the <b>diff</b> (sparse). Changing a global default flows to every folder that hasn't overridden that section — mirrors how <code>displayPrefs</code> + session override already merge.</p>
+      <h3 style="margin-top:12px">Per-row "N folders override"</h3>
+      <p>Each global row shows how many folders diverge, so flipping a global doesn't silently fail to take effect where you expect.</p>
+      <h3 style="margin-top:12px">Not a session-level setting</h3>
+      <p>Deliberately no per-session layer: cards in one folder should look alike (scan-ability), and it avoids a third state to reason about.</p>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast" role="status"><span id="toastMsg"></span><button class="btn" id="undoBtn">Undo</button></div>
+
+<script>
+const SECTIONS = [
+  { id: "openspec", label: "OPENSPEC", group: "builtin", desc: "Attached change, artifact chips, workflow actions.",
+    extra: 'Hiding ≠ disabling OpenSpec. <span class="link">Disable OpenSpec for this folder…</span>' },
+  { id: "kb", label: "KB", group: "plugin", plugin: "kb-plugin", desc: "Knowledge-base row (worktree sessions only)." },
+  { id: "git", label: "GIT", group: "builtin", desc: "Branch, ahead/behind, worktree pill + actions." },
+  { id: "status", label: "STATUS", group: "plugin", plugin: "goal / automation", desc: "Goal + automation badges." },
+  { id: "process", label: "PROCESS", group: "builtin", desc: "Running bash tools + background processes.",
+    extra: "When hidden, a running background process still surfaces as a ⚠ chip in the card footer." },
+  { id: "flows", label: "FLOWS", group: "plugin", plugin: "flows-plugin", desc: "Flow launcher + active flow." },
+  { id: "memory", label: "MEMORY", group: "plugin", plugin: "hermes-memory", desc: "Memory plugin row." },
+  { id: "tags", label: "Tags strip", group: "lines", desc: "User tags + OpenSpec phase chip." },
+  { id: "spawn", label: "+Session / +Worktree buttons", group: "lines", desc: "Quick sibling / worktree spawn." },
+  { id: "ctx", label: "Context usage bar", group: "lines", desc: "Already a global display pref — shown here read-only, links to it.", readonly: true },
+];
+
+const globalPrefs = Object.fromEntries(SECTIONS.map(s => [s.id, true]));
+globalPrefs.memory = false; // example: user globally hides MEMORY
+let folderOverride = {};    // sparse: { git: false }
+const overrideCounts = { openspec: 0, kb: 0, git: 2, status: 0, process: 1, flows: 3, memory: 1, tags: 0, spawn: 4, ctx: 0 };
+
+const effective = id => (id in folderOverride ? folderOverride[id] : globalPrefs[id]);
+
+function segHtml(s) {
+  const v = s.id in folderOverride ? (folderOverride[s.id] ? "show" : "hide") : "inherit";
+  const g = globalPrefs[s.id] ? "Show" : "Hide";
+  const opt = (val, txt) => `<button type="button" aria-pressed="${v === val}" data-sec="${s.id}" data-val="${val}">${txt}</button>`;
+  return `<div class="seg" role="group" aria-label="${s.label} visibility">${opt("inherit", "Default (" + g + ")")}${opt("show", "Show")}${opt("hide", "Hide")}</div>`;
+}
+
+function renderRows() {
+  const groups = { builtin: "rowsBuiltin", plugin: "rowsPlugin", lines: "rowsLines" };
+  for (const [g, elId] of Object.entries(groups)) {
+    const el = document.getElementById(elId);
+    el.querySelectorAll(".row").forEach(r => r.remove());
+    for (const s of SECTIONS.filter(x => x.group === g)) {
+      const row = document.createElement("div");
+      row.className = "row";
+      const overridden = s.id in folderOverride;
+      row.innerHTML = `<div>
+          <div class="name">${s.label}
+            ${s.plugin ? `<span class="badge plugin">${s.plugin}</span>` : ""}
+            ${overridden ? `<span class="badge override">overridden</span>` : ""}</div>
+          <div class="desc">${s.desc}${s.extra ? "<br>" + s.extra : ""}</div>
+        </div>
+        ${s.readonly ? `<span class="link">Open display settings</span>` : segHtml(s)}`;
+      el.appendChild(row);
+    }
+  }
+  const n = Object.keys(folderOverride).length;
+  document.getElementById("inheritText").innerHTML = n
+    ? `<b>${n} override${n > 1 ? "s" : ""}</b> for this folder; everything else follows global defaults.`
+    : `Using <b>global defaults</b> — no overrides for this folder.`;
+  document.getElementById("resetBtn").disabled = !n;
+}
+
+function renderGlobal() {
+  const el = document.getElementById("rowsGlobal");
+  el.querySelectorAll(".row").forEach(r => r.remove());
+  for (const s of SECTIONS) {
+    const row = document.createElement("div");
+    row.className = "row";
+    const c = overrideCounts[s.id];
+    row.innerHTML = `<div><div class="name">${s.label} ${s.plugin ? `<span class="badge plugin">${s.plugin}</span>` : ""}</div>
+      <div class="desc">${c ? `<span class="link">${c} folder${c > 1 ? "s" : ""} override this</span>` : "No folder overrides"}</div></div>
+      ${s.readonly ? `<span class="note">in Chat display</span>` : `<button class="switch" role="switch" aria-checked="${globalPrefs[s.id]}" aria-label="${s.label} default" data-gsec="${s.id}"></button>`}`;
+    el.appendChild(row);
+  }
+}
+
+function sub(id, label, content, opts = {}) {
+  const hidden = !effective(id);
+  if (hidden && !opts.ghost) return "";
+  return `<div class="sub ${hidden ? "ghost" : ""}" data-sub="${id}">
+    <span class="legend">${label}${opts.menu ? `<button class="kebab" aria-label="${label} section options" data-menu="${id}">⋯</button>` : ""}</span>
+    <div class="content">${content}</div></div>`;
+}
+
+function card({ title, model, menu = false, ghost = false, bgProc = false }) {
+  const hiddenIds = SECTIONS.filter(s => !s.readonly && !effective(s.id));
+  const procHidden = !effective("process");
+  return `<div class="card">
+    <div class="l1"><span class="dot"></span><span class="title">${title}</span><span class="model">${model}</span></div>
+    ${effective("spawn") ? `<div class="l2"><span class="pill">Fork</span><span class="pill" style="color:var(--ok)">+ Session</span><span class="pill" style="color:var(--warn)">⎇ Worktree</span></div>` : ""}
+    <div class="l3"><span>Idle</span><span class="ctxbar"><i></i></span><span>$0.42</span></div>
+    ${effective("tags") ? `<div style="margin-top:4px;display:flex;gap:4px"><span class="chip">ui</span><span class="chip">apply</span></div>` : ""}
+    ${sub("openspec", "OPENSPEC", `<span class="chip">session-card-sections</span><span class="chip">proposal ✓</span><span class="chip">design ✓</span><span class="chip">tasks 4/12</span>`, { menu, ghost })}
+    ${sub("kb", "KB", `<span class="chip">kb · 1,204 docs · fresh</span>`, { menu, ghost })}
+    ${sub("git", "GIT", `<span>⎇ develop</span><span class="chip">↑2 ↓0</span><span class="chip">3 modified</span>`, { menu, ghost })}
+    ${sub("status", "STATUS", `<span class="chip">🎯 goal: ship card prefs</span>`, { menu, ghost })}
+    ${sub("process", "PROCESS", `<span class="chip">▶ npm test · 12s</span>${bgProc ? `<span class="chip warn">⚠ 1 background process</span>` : ""}`, { menu, ghost })}
+    ${sub("flows", "FLOWS", `<span class="chip">▶ Run flow</span><span class="chip">review · step 2/5</span>`, { menu, ghost })}
+    ${sub("memory", "MEMORY", `<span class="chip">🧠 14 memories</span>`, { menu, ghost })}
+    ${!ghost && hiddenIds.length ? `<div class="hiddenfoot">
+        ${procHidden && bgProc ? `<span class="chip warn">⚠ 1 bg process</span>` : ""}
+        <button data-openA>${hiddenIds.length} section${hiddenIds.length > 1 ? "s" : ""} hidden in this folder · show</button></div>` : ""}
+  </div>`;
+}
+
+function renderPreviews() {
+  document.getElementById("preview1").innerHTML = card({ title: "Implement card prefs", model: "opus-4.6", ghost: true, bgProc: true });
+  document.getElementById("preview2").innerHTML = card({ title: "Implement card prefs", model: "opus-4.6", menu: true, bgProc: true });
+  document.getElementById("preview2b").innerHTML = card({ title: "Review PR #812", model: "sonnet-4.6", menu: true });
+}
+
+function renderAll() { renderRows(); renderGlobal(); renderPreviews(); }
+
+let undoState = null, toastTimer;
+function toast(msg, prev) {
+  undoState = prev;
+  document.getElementById("toastMsg").textContent = msg;
+  const t = document.getElementById("toast"); t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 6000);
+}
+document.getElementById("undoBtn").onclick = () => {
+  if (undoState) { folderOverride = undoState.f; Object.assign(globalPrefs, undoState.g); renderAll(); }
+  document.getElementById("toast").classList.remove("show");
+};
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  document.querySelectorAll(".menu").forEach(m => { if (!m.contains(t)) m.remove(); });
+  if (t.dataset.view) {
+    document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b === t));
+    document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === t.dataset.view));
+  }
+  if (t.dataset.sec) {
+    const { sec, val } = t.dataset;
+    if (val === "inherit") delete folderOverride[sec]; else folderOverride[sec] = val === "show";
+    renderAll();
+  }
+  if (t.dataset.gsec) { globalPrefs[t.dataset.gsec] = !globalPrefs[t.dataset.gsec]; renderAll(); }
+  if (t.id === "resetBtn") { const prev = { f: { ...folderOverride }, g: {} }; folderOverride = {}; renderAll(); toast("Folder reset to global defaults", prev); }
+  if (t.dataset.openA !== undefined) document.querySelector('[data-view="v1"]').click();
+  if (t.dataset.menu) {
+    e.stopPropagation();
+    const id = t.dataset.menu, label = SECTIONS.find(s => s.id === id).label;
+    const m = document.createElement("div"); m.className = "menu"; m.setAttribute("role", "menu");
+    m.innerHTML = `<button role="menuitem" data-act="folder">Hide ${label} in this folder</button>
+      <button role="menuitem" data-act="global">Hide ${label} everywhere</button><hr>
+      <button role="menuitem" data-act="settings">Section settings…</button>`;
+    const r = t.getBoundingClientRect();
+    m.style.left = (r.left + window.scrollX) + "px"; m.style.top = (r.bottom + window.scrollY + 4) + "px";
+    document.body.appendChild(m);
+    m.onclick = ev => {
+      const act = ev.target.dataset.act; if (!act) return;
+      const prev = { f: { ...folderOverride }, g: { ...globalPrefs } };
+      if (act === "folder") { folderOverride[id] = false; toast(`${label} hidden in pi-agent-dashboard`, prev); }
+      if (act === "global") { globalPrefs[id] = false; toast(`${label} hidden in all folders`, prev); }
+      if (act === "settings") document.querySelector('[data-view="v1"]').click();
+      m.remove(); renderAll();
+    };
+  }
+});
+renderAll();
+</script>
+</body>
+</html>
