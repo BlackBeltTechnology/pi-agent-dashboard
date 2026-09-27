@@ -703,7 +703,8 @@ export interface CollapsedFoldersUpdatedMessage {
 
 /**
  * Server → browser: full session-card section visibility snapshot. Sent on
- * every mutation and on connect when any preference exists.
+ * every mutation and on every connect (incl. `{}`, so a reconnect replaces
+ * stale client state).
  * See change: configurable-session-card-sections.
  */
 export interface CardSectionsUpdatedMessage {
