@@ -97,11 +97,12 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
               key={o.v}
               type="button"
               aria-pressed={value === o.v}
+              disabled={!actions.canWrite}
               data-testid={`card-section-${m.id}-${o.v}`}
               onClick={() => {
                 if (value !== o.v) actions.setVisibility(cwd, m.id, o.send);
               }}
-              className={`px-2.5 min-h-[28px] text-xs border-l first:border-l-0 border-[var(--border-secondary)] focus-ring ${
+              className={`px-2.5 min-h-[28px] text-xs border-l first:border-l-0 border-[var(--border-secondary)] focus-ring disabled:opacity-50 disabled:cursor-not-allowed ${
                 value === o.v
                   ? "bg-blue-600/15 text-[var(--text-primary)]"
                   : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -140,7 +141,7 @@ export function CardSectionsPage({ cwd }: { cwd: string }) {
           <button
             type="button"
             data-testid="card-sections-reset"
-            disabled={overrideCount === 0}
+            disabled={overrideCount === 0 || !actions.canWrite}
             onClick={() => actions.resetFolder(cwd)}
             className="text-xs px-2.5 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
           >

@@ -106,6 +106,21 @@ describe("CardSectionsPage", () => {
     expect(history[history.length - 1]).toBe("/settings/openspec");
   });
 
+  it("controls are disabled while the socket is down", () => {
+    const { hook } = memoryLocation({ path: "/" });
+    render(
+      <Router hook={hook}>
+        <PluginContextProvider registry={createSlotRegistry()}>
+          <CardSectionsProvider value={{ prefs: { folders: { [CWD]: { git: false } } }, send: vi.fn(), connected: false }}>
+            <CardSectionsPage cwd={CWD} />
+          </CardSectionsProvider>
+        </PluginContextProvider>
+      </Router>,
+    );
+    expect((screen.getByTestId("card-section-git-show") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("card-sections-reset") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("live preview omits hidden sections", () => {
     renderPage({ folders: { [CWD]: { git: false, spawn: false } } });
     expect(screen.queryByTestId("card-sections-preview-git")).toBeNull();

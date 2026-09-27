@@ -50,7 +50,7 @@ For a session in a git worktree, folder overrides SHALL be looked up by the fold
 
 ### Requirement: Server-side persistence and sync
 
-Global defaults and folder overrides SHALL persist in the dashboard preferences file and survive server restarts. Folder keys SHALL be canonicalized with the same folder-key rule used for collapsed folders. Every change SHALL be broadcast as a full snapshot to all connected browsers, and a snapshot SHALL be sent on browser connect when any preference exists. Setting a value to "inherit" SHALL remove the key; a folder with no remaining keys SHALL be removed. Unknown section ids already stored SHALL be preserved on write.
+Global defaults and folder overrides SHALL persist in the dashboard preferences file and survive server restarts. Folder keys SHALL be canonicalized with the same folder-key rule used for collapsed folders. Every change SHALL be broadcast as a full snapshot to all connected browsers, and a snapshot SHALL be sent on every browser connect, including when no preference exists (an empty snapshot), so a reconnecting browser replaces stale state. Setting a value to "inherit" SHALL remove the key; a folder with no remaining keys SHALL be removed. Unknown section ids already stored SHALL be preserved on write.
 
 #### Scenario: Change syncs to another browser
 - **GIVEN** two browsers connected

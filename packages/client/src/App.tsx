@@ -2688,8 +2688,8 @@ export default function App() {
     [],
   );
   const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
-    () => ({ prefs: cardSections, send, showToast: stableShowToast }),
-    [cardSections, send, stableShowToast],
+    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast }),
+    [cardSections, send, ws, stableShowToast],
   );
 
   const displayPrefsContextValue = useMemo(() => ({

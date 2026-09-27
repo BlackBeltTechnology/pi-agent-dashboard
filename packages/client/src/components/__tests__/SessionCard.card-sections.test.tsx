@@ -267,6 +267,11 @@ describe("legend options menu", () => {
     expect(btn.parentElement?.textContent).toBe("GIT");
   });
 
+  it("no menu while the socket is down", () => {
+    renderCard({}, { ctx: { send: vi.fn(), connected: false } });
+    expect(screen.queryByTestId("subcard-menu-git")).toBeNull();
+  });
+
   it("no menu without a transport", () => {
     renderCard({});
     expect(screen.queryByTestId("subcard-menu-git")).toBeNull();

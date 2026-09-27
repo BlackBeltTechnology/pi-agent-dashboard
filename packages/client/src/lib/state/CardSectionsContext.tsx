@@ -24,6 +24,8 @@ import { t as i18nT } from "../i18n/i18n.js";
 export interface CardSectionsContextValue {
   prefs: CardSectionPrefs;
   send?: (msg: BrowserToServerMessage) => void;
+  /** Live socket present. `false` during a reconnect gap disables writes; absent = assume connected. */
+  connected?: boolean;
   showToast?: (text: string, variant?: ToastVariant, opts?: { action?: ToastAction }) => void;
 }
 
@@ -54,7 +56,7 @@ export function useCardSectionVisible(
 }
 
 export interface CardSectionActions {
-  /** True when a transport is wired (App provider); gates the legend menu. */
+  /** True when a transport is wired AND the socket is live; gates the legend menu + settings controls. */
   canWrite: boolean;
   /** `path` undefined → global default; `null` → inherit. */
   setVisibility(path: string | undefined, section: string, visible: boolean | null): void;
@@ -66,7 +68,7 @@ export interface CardSectionActions {
 }
 
 export function useCardSectionActions(): CardSectionActions {
-  const { prefs, send, showToast } = useContext(CardSectionsContext);
+  const { prefs, send, connected, showToast } = useContext(CardSectionsContext);
   return useMemo(() => {
     const setVisibility = (path: string | undefined, section: string, visible: boolean | null) => {
       send?.(
@@ -81,7 +83,7 @@ export function useCardSectionActions(): CardSectionActions {
       });
     };
     return {
-      canWrite: send !== undefined,
+      canWrite: send !== undefined && connected !== false,
       setVisibility,
       resetFolder: (path) => send?.({ type: "reset_folder_card_sections", path }),
       hideInFolder: (path, section, label) => {
@@ -102,5 +104,5 @@ export function useCardSectionActions(): CardSectionActions {
         );
       },
     };
-  }, [prefs, send, showToast]);
+  }, [prefs, send, connected, showToast]);
 }

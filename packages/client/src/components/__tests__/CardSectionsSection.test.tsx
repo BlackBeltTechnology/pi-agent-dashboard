@@ -44,6 +44,18 @@ describe("CardSectionsSection", () => {
     expect(send).toHaveBeenLastCalledWith({ type: "set_card_section_visibility", section: "tags", visible: false });
   });
 
+  it("switches are disabled while the socket is down", () => {
+    render(
+      <PluginContextProvider registry={createSlotRegistry()}>
+        <CardSectionsProvider value={{ prefs: {}, send: vi.fn(), connected: false }}>
+          <CardSectionsSection />
+        </CardSectionsProvider>
+      </PluginContextProvider>,
+    );
+    const git = screen.getByTestId("card-sections-global-git").querySelector("[role=switch]") as HTMLButtonElement;
+    expect(git.disabled).toBe(true);
+  });
+
   it("omits plugin rows no plugin contributes", () => {
     renderSection({});
     expect(screen.getByTestId("card-sections-global-flows")).toBeTruthy();

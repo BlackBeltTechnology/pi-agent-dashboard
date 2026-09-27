@@ -37,6 +37,7 @@ export function CardSectionsSection() {
             meta={m}
             visible={getGlobalValue(prefs, m.id) ?? true}
             overrides={countFolderOverrides(prefs, m.id)}
+            disabled={!actions.canWrite}
             onToggle={(next) => actions.setVisibility(undefined, m.id, next ? null : false)}
           />
         ))}
@@ -50,10 +51,12 @@ function GlobalRow({
   visible,
   overrides,
   onToggle,
+  disabled,
 }: {
   meta: CardSectionMeta;
   visible: boolean;
   overrides: number;
+  disabled: boolean;
   onToggle: (next: boolean) => void;
 }) {
   const id = useId();
@@ -76,8 +79,9 @@ function GlobalRow({
         role="switch"
         aria-checked={visible}
         aria-describedby={hintId}
+        disabled={disabled}
         onClick={() => onToggle(!visible)}
-        className={`relative shrink-0 w-10 h-5 rounded-full transition-colors focus-ring ${visible ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
+        className={`relative shrink-0 w-10 h-5 rounded-full transition-colors focus-ring disabled:opacity-50 disabled:cursor-not-allowed ${visible ? "bg-blue-600" : "bg-[var(--bg-tertiary)]"}`}
       >
         <span className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${visible ? "translate-x-5" : "translate-x-0"}`} />
       </button>
