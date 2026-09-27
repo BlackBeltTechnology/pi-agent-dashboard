@@ -66,6 +66,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/omp-agent-parallel-support.md` | Research dossier. Explore-mode, no change / no impl. Parallel pi+omp agents, per-session selectable, both… → see `research/omp-agent-parallel-support.md.AGENTS.md` |
 | `research/oh-my-pi-feature-adaptation.md` | Research artifact. omp (oh-my-pi, pi-mono fork) → pi-dashboard feature adaptation. → see `research/oh-my-pi-feature-adaptation.md.AGENTS.md` |
 | `research/querymt-agent-backend.md` | Research dossier. Explore-mode, no change / no impl. Can query.mt (`qmtcode`) replace pi under dashboard?… → see `research/querymt-agent-backend.md.AGENTS.md` |
+| `research/ovis-omni-embedding-kb-eval.md` | Research dossier. Local feasibility of `ATH-MaaS/Ovis-Omni-Embedding-3B` (omni embedding, not chat) + 3-question kb retrieval eval plan. → see `research/ovis-omni-embedding-kb-eval.md.AGENTS.md` |
 | `research/qwen-audio-and-omni-models.md` | Research dossier. Qwen cloud audio/omni landscape + measured transcription test. → see `research/qwen-audio-and-omni-models.md.AGENTS.md` |
 | `research/reverse-spec-from-code-session.md` | Method playbook. HOW `reverse-spec-from-code` skill + 102-spec backfill built in one pi session. → see `research/reverse-spec-from-code-session.md.AGENTS.md` |
 | `research/reverse-spec-from-code.md` | Research artifact. `reverse-spec-from-code` skill prompt tuning + generator-model-loss experiment. → see `research/reverse-spec-from-code.md.AGENTS.md` |
