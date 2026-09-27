@@ -188,6 +188,19 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
+import { buildRuntimeHealth } from "./runtime-overlay/runtime-health.js";
+import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
+import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
+import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import {
+  deriveEffectiveSource,
+  deriveLocalIdentity,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
@@ -2012,6 +2025,61 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     });
   });
   registerPiChangelogRoutes(fastify, {});
+
+  // Runtime overlay updates (Electron). Checker is notify-only; staging and
+  // activation are explicit user actions. See change: electron-runtime-overlay-updates.
+  {
+    const runtimeDir = getRuntimeOverlayDir();
+    const runtimeHealthNow = () =>
+      buildRuntimeHealth({
+        env: process.env,
+        serverVersion: pkgVersion,
+        readRequest: () => readRuntimeRequest(runtimeDir),
+        readState: () => readRuntimeState(runtimeDir),
+        localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+      });
+    const runtimeChecker = new RuntimeUpdateChecker({
+      readSelection: () => {
+        const req = readRuntimeRequest(runtimeDir);
+        return {
+          source: deriveEffectiveSource(req, readRuntimeState(runtimeDir)),
+          channel: req?.channel,
+          pin: typeof req?.pin === "string" ? req.pin : undefined,
+        };
+      },
+      activeVersion: () => pkgVersion,
+      feeds: runtimeReleaseFeeds,
+    });
+    const stagerDeps = createStagerDeps();
+    registerRuntimeRoutes(fastify, {
+      dir: runtimeDir,
+      launchSource: () => parseLaunchSource(process.env),
+      networkGuard,
+      checker: runtimeChecker,
+      stage: (version, source, onProgress) => stageRuntime({ dir: runtimeDir, version, source, deps: stagerDeps, onProgress }),
+      exclusive: (fn) => packageManagerWrapper.runExclusive(fn),
+      runtimeHealth: runtimeHealthNow,
+      broadcast: (msg) => browserGateway.broadcastToAll(msg),
+    });
+    // Scheduled notify-only check (Electron only): once shortly after boot,
+    // then daily. Never stages or activates. Timers never hold the process.
+    if (parseLaunchSource(process.env) === "electron") {
+      const runCheck = () => {
+        runtimeChecker
+          .check()
+          .then((st) => console.log(`[runtime-overlay] check state=${st.state}${"target" in st ? ` target=${st.target}` : ""}${"reason" in st ? ` reason=${st.reason}` : ""}`))
+          .catch((err: unknown) => console.warn(`[runtime-overlay] check error: ${String(err)}`));
+      };
+      const first = setTimeout(runCheck, 60_000);
+      const daily = setInterval(runCheck, 24 * 3600_000);
+      first.unref();
+      daily.unref();
+      fastify.addHook("onClose", async () => {
+        clearTimeout(first);
+        clearInterval(daily);
+      });
+    }
+  }
 
   registerPiCoreRoutes(fastify, {
     piCoreChecker,

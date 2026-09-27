@@ -129,6 +129,22 @@ describe("bundled plugin list — single source of truth (E22)", () => {
     }
   });
 
+  it("copies a plugin whose SOURCE lives under node_modules (runtime overlay), still skipping its own nested node_modules", () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "e22-nm-"));
+    try {
+      const src = path.join(tmp, "node_modules", "@scope", "x-plugin");
+      mkdirSync(path.join(src, "node_modules", "dep"), { recursive: true });
+      mkdirSync(path.join(src, "src"), { recursive: true });
+      writeFileSync(path.join(src, "package.json"), JSON.stringify({ name: "@scope/x-plugin" }));
+      writeFileSync(path.join(src, "src", "index.ts"), "");
+      const dest = path.join(tmp, "out");
+      expect(materializeBundledPlugins({ ids: ["x-plugin"], resolveSource: () => src, destDir: dest })).toEqual(["x-plugin"]);
+      expect(readdirSync(path.join(dest, "x-plugin")).sort()).toEqual(["package.json", "src"]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("readBundledPluginIds rejects a missing or malformed field", () => {
     const tmp = mkdtempSync(path.join(os.tmpdir(), "e22-bad-"));
     try {

@@ -52,19 +52,19 @@
 
 ## 6. Server: check, stage, API, health
 
-- [ ] 6.1 Test (test-plan #E9): new `packages/server/src/__tests__/runtime-update-checker.test.ts`, harness from `pi-core-checker.test.ts` (exemplar). Input: mocked dist-tags/releases × channel. Trigger: `resolveTarget` for npm and github. Observable: stable→0.9.0, beta→0.10.0-beta.2, pin→0.8.5.
-- [ ] 6.2 Test (test-plan #E10): same file. Input: active 0.9.0, channel has 0.9.1. Trigger: scheduled check. Observable: `available: 0.9.1`; no `versions/0.9.1*`; `pending` unset.
-- [ ] 6.3 Test (test-plan #X3): same file. Input: network error / 30 s stall. Trigger: check. Observable: `check_failed` with reason; runtime untouched; cached result kept 24 h.
-- [ ] 6.4 Implement the runtime-update checker (24 h cache + "Check now"; notify-only).
-- [ ] 6.5 Test (test-plan #E8): new `packages/server/src/__tests__/runtime-stager.test.ts`, harness from `pi-core-updater-managed-path.test.ts` (exemplar). Input: fixture `runtime-lock.json` for X. Trigger: build the synthetic root twice. Observable: byte-identical roots; command is `npm ci --omit=dev`.
-- [ ] 6.6 Test (test-plan #E7): same file. Input: tree with one plugin at 0.8.0 while X=0.9.0. Trigger: lockstep check. Observable: fails naming `<plugin>@0.8.0`; `.partial` removed; `pending` unchanged.
-- [ ] 6.7 Test (test-plan #X1): same file. Input: asset bytes ≠ `.sha512`. Trigger: stage github X. Observable: `checksum_mismatch`; no `versions/X*`; current unchanged.
-- [ ] 6.8 Test (test-plan #X2): same file. Input: fetch/`npm ci` killed mid-way. Trigger: stage, then stage again. Observable: `.partial` never selectable; second run clean + succeeds.
-- [ ] 6.9 Implement the npm stager (`npm pack` server@X → `runtime-lock.json` → `npm ci`, bundled Node/npm, `.npmrc` honoured) and the GitHub stager (download + sha512 + extract), lockstep check, `materializeBundledPlugins`, manifest write, `.partial` → rename, `runExclusive` + progress WS events.
-- [ ] 6.10 Test (test-plan #E16): new `packages/server/src/__tests__/runtime-routes.test.ts`, harness from `pi-core-routes.test.ts` (exemplar). Input: starter electron/standalone/bridge. Trigger: POST `/api/runtime/{source,update,activate,rollback}`. Observable: 403 + `request.json` untouched for non-electron; accepted for electron.
-- [ ] 6.11 Test (test-plan #E17): same file. Input: bodies `{source:"local"}`, `{localPath}`, mixed, from 127.0.0.1. Trigger: POST `/api/runtime/source`. Observable: rejected; server never writes `state.json`; `localPath` ignored in the mixed body.
-- [ ] 6.12 Test (test-plan #E18): same file. Input: local active, binding `{E,3}`. Trigger: POST source `bundled`. Observable: `sourceSeq=4`; derived source `bundled`.
-- [ ] 6.13 Implement `/api/runtime/{status,source,update,activate,rollback}` behind `networkGuard` + the mutation-origin gate; Electron-only mutations; no local-enable path; explicit Update/Activate clear `bad[X]`.
+- [x] 6.1 Test (test-plan #E9): new `packages/server/src/__tests__/runtime-update-checker.test.ts`, harness from `pi-core-checker.test.ts` (exemplar). Input: mocked dist-tags/releases × channel. Trigger: `resolveTarget` for npm and github. Observable: stable→0.9.0, beta→0.10.0-beta.2, pin→0.8.5.
+- [x] 6.2 Test (test-plan #E10): same file. Input: active 0.9.0, channel has 0.9.1. Trigger: scheduled check. Observable: `available: 0.9.1`; no `versions/0.9.1*`; `pending` unset.
+- [x] 6.3 Test (test-plan #X3): same file. Input: network error / 30 s stall. Trigger: check. Observable: `check_failed` with reason; runtime untouched; cached result kept 24 h.
+- [x] 6.4 Implement the runtime-update checker (24 h cache + "Check now"; notify-only).
+- [x] 6.5 Test (test-plan #E8): new `packages/server/src/__tests__/runtime-stager.test.ts`, harness from `pi-core-updater-managed-path.test.ts` (exemplar). Input: fixture `runtime-lock.json` for X. Trigger: build the synthetic root twice. Observable: byte-identical roots; command is `npm ci --omit=dev`.
+- [x] 6.6 Test (test-plan #E7): same file. Input: tree with one plugin at 0.8.0 while X=0.9.0. Trigger: lockstep check. Observable: fails naming `<plugin>@0.8.0`; `.partial` removed; `pending` unchanged.
+- [x] 6.7 Test (test-plan #X1): same file. Input: asset bytes ≠ `.sha512`. Trigger: stage github X. Observable: `checksum_mismatch`; no `versions/X*`; current unchanged.
+- [x] 6.8 Test (test-plan #X2): same file. Input: fetch/`npm ci` killed mid-way. Trigger: stage, then stage again. Observable: `.partial` never selectable; second run clean + succeeds.
+- [x] 6.9 Implement the npm stager (`npm pack` server@X → `runtime-lock.json` → `npm ci`, bundled Node/npm, `.npmrc` honoured) and the GitHub stager (download + sha512 + extract), lockstep check, `materializeBundledPlugins`, manifest write, `.partial` → rename, `runExclusive` + progress WS events.
+- [x] 6.10 Test (test-plan #E16): new `packages/server/src/__tests__/runtime-routes.test.ts`, harness from `pi-core-routes.test.ts` (exemplar). Input: starter electron/standalone/bridge. Trigger: POST `/api/runtime/{source,update,activate,rollback}`. Observable: 403 + `request.json` untouched for non-electron; accepted for electron.
+- [x] 6.11 Test (test-plan #E17): same file. Input: bodies `{source:"local"}`, `{localPath}`, mixed, from 127.0.0.1. Trigger: POST `/api/runtime/source`. Observable: rejected; server never writes `state.json`; `localPath` ignored in the mixed body.
+- [x] 6.12 Test (test-plan #E18): same file. Input: local active, binding `{E,3}`. Trigger: POST source `bundled`. Observable: `sourceSeq=4`; derived source `bundled`.
+- [x] 6.13 Implement `/api/runtime/{status,source,update,activate,rollback}` behind `networkGuard` + the mutation-origin gate; Electron-only mutations; no local-enable path; explicit Update/Activate clear `bad[X]`.
 - [x] 6.14 Test (test-plan #E20): extend `packages/server/src/__tests__/health-shape.test.ts` (exemplar). Input: starter × origin × lastFailure. Trigger: GET `/api/health`. Observable: `runtime.updatable` true only for electron with origin ≠ devMonorepo; pre-existing fields unchanged.
 - [x] 6.15 Implement the `/api/health.runtime` block (origin, version, updatable, source, channel, gitSha, dirty, piVersion, lastFailure).
 

@@ -83,6 +83,15 @@ describe("piDashboard.bundledPlugins completeness", () => {
     expect(stale, `stale BUNDLED_PLUGINS entries (no matching runtime plugin): ${stale.join(", ")}`).toEqual([]);
   });
 
+  it("every bundled plugin publishes repository.directory = packages/<id> (runtime-overlay stager maps npm packages back to ids by it)", () => {
+    // See change: electron-runtime-overlay-updates (runtime-stager.ts).
+    const wrong = bundled.filter((id) => {
+      const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGES_DIR, id, "package.json"), "utf8"));
+      return pkg?.repository?.directory !== `packages/${id}`;
+    });
+    expect(wrong).toEqual([]);
+  });
+
   it("includes kb-plugin", () => {
     // Explicit pin: kb-plugin regressed once (present on disk, omitted here).
     expect(bundled).toContain("kb-plugin");

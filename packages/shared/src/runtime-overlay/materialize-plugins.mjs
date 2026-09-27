@@ -33,11 +33,13 @@ export function readBundledPluginIds(serverPackageJsonPath) {
   return ids;
 }
 
-// pnpm per-package node_modules are store symlinks; never copy them. Split on
-// both separators (NOT path.sep) so a Windows `\` path is handled on every
-// host. See change: adopt-pnpm-for-dev-ci (design.md §D4).
-const excludeNodeModules = (/** @type {string} */ src) =>
-  !src.split(/[\\/]/).includes("node_modules");
+// Skip the package's OWN nested node_modules (pnpm store symlinks in the
+// monorepo; nested deps in an overlay). Tested RELATIVE to the package dir:
+// an overlay plugin itself lives under node_modules/. Split on both
+// separators (NOT path.sep) so a Windows `\` path is handled on every host.
+// See change: adopt-pnpm-for-dev-ci (design.md §D4), electron-runtime-overlay-updates.
+const excludeNestedNodeModules = (/** @type {string} */ pkgDir) => (/** @type {string} */ src) =>
+  !path.relative(pkgDir, src).split(/[\\/]/).includes("node_modules");
 
 /**
  * Copy each declared plugin package into `destDir/<id>/`. Skips ids whose
@@ -61,7 +63,7 @@ export function materializeBundledPlugins({ ids, resolveSource, destDir }) {
     cpSync(src, path.join(destDir, id), {
       recursive: true,
       dereference: false,
-      filter: excludeNodeModules,
+      filter: excludeNestedNodeModules(src),
     });
     done.push(id);
   }

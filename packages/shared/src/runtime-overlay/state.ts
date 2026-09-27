@@ -44,6 +44,12 @@ export interface RuntimeRequest {
   pin?: string;
   /** Staged runtime id awaiting activation. */
   pending?: string;
+  /**
+   * Fresh uuid per explicit Update (user action). Electron consumes it once
+   * (`state.handledPendingNonce`) to clear `bad[pending]` + attempts — the
+   * server cannot write state.json itself (D2).
+   */
+  pendingNonce?: string;
   activateNonce?: string;
   [unknownKey: string]: unknown;
 }
@@ -73,6 +79,8 @@ export interface RuntimeState {
   bad?: Record<string, { reason: string; snapshot?: LocalSnapshot }>;
   attempts?: Record<string, number>;
   handledNonce?: string;
+  /** Last consumed `request.pendingNonce`. */
+  handledPendingNonce?: string;
   lastFailure?: RuntimeFailure;
   [unknownKey: string]: unknown;
 }

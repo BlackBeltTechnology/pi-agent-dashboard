@@ -77,6 +77,7 @@ export interface ColdLaunchPlan {
  * activation) is marked bad here — "retry at most once" (E12).
  */
 export function planColdLaunch(dir: string, exclude: ReadonlySet<string> = new Set()): ColdLaunchPlan {
+  consumeExplicitUpdate(dir);
   const request = readRuntimeRequest(dir);
   const pending = typeof request?.pending === "string" ? request.pending : undefined;
   const state = markExhaustedPending(dir, readRuntimeState(dir), pending);
@@ -119,6 +120,22 @@ function overlayCandidateIds(state: RuntimeState, pending: string | undefined, s
   add(state.current);
   add(state.previous);
   return ids;
+}
+
+/**
+ * An explicit Update (server writes a fresh `request.pendingNonce`) is a user
+ * action on the pending id: clear its bad entry + attempts exactly once.
+ * Returns true when a new nonce was consumed.
+ */
+function consumeExplicitUpdate(dir: string): boolean {
+  const request = readRuntimeRequest(dir);
+  const nonce = request?.pendingNonce;
+  const pending = request?.pending;
+  if (typeof nonce !== "string" || typeof pending !== "string") return false;
+  if (readRuntimeState(dir).handledPendingNonce === nonce) return false;
+  clearBad(dir, pending);
+  patchRuntimeState(dir, { handledPendingNonce: nonce });
+  return true;
 }
 
 /** An attempt is counted only for a runtime that is not already committed (E11). */
@@ -253,6 +270,7 @@ export function watchActivationRequests(opts: {
 }): () => void {
   let delivered: string | undefined;
   const timer = setInterval(() => {
+    consumeExplicitUpdate(opts.dir);
     const request = readRuntimeRequest(opts.dir);
     const nonce = request?.activateNonce;
     if (!request || typeof nonce !== "string" || nonce === delivered) return;

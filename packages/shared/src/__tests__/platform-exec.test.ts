@@ -9,7 +9,15 @@
  * See change: platform-command-executor.
  */
 import { describe, it, expect } from "vitest";
-import { execSync, spawn, spawnSync, exec, execFile } from "../platform/exec.js";
+import {
+  exec,
+  execAsync as execAsyncFn,
+  execFile,
+  execFileAsync as execFileAsyncFn,
+  execSync,
+  spawn,
+  spawnSync,
+} from "../platform/exec.js";
 
 describe("platform/exec wrappers", () => {
   // ── execSync ────────────────────────────────────────────────────────────
@@ -99,5 +107,28 @@ describe("platform/exec — windowsHide default (source-level assertion)", () =>
     expect(src).toMatch(/windowsHide:\s*hide/);
     // Default must be true (not false) when caller omits it.
     expect(src).toMatch(/opts\?\.windowsHide\s*\?\?\s*true/);
+  });
+});
+
+// ── execFileAsync / execAsync resolve {stdout, stderr} (regression) ─────────
+// promisify() of the windowsHide WRAPPER lost Node's custom promisify, so the
+// promise resolved to the bare stdout string while typed as {stdout, stderr}
+// (callers reading `.stdout` got undefined). See change: electron-runtime-overlay-updates.
+
+describe("execFileAsync / execAsync shape", () => {
+  it("execFileAsync resolves { stdout, stderr }", async () => {
+    const r = await execFileAsyncFn(process.execPath, ["-e", "process.stdout.write('out'); process.stderr.write('err')"]);
+    expect(r).toEqual({ stdout: "out", stderr: "err" });
+  });
+
+  it("execFileAsync rejects on non-zero exit with stdout/stderr attached", async () => {
+    await expect(
+      execFileAsyncFn(process.execPath, ["-e", "process.stdout.write('o'); process.exit(3)"]),
+    ).rejects.toMatchObject({ code: 3, stdout: "o" });
+  });
+
+  it("execAsync resolves { stdout, stderr }", async () => {
+    const r = await execAsyncFn(`"${process.execPath}" -e "process.stdout.write('x')"`);
+    expect(r).toMatchObject({ stdout: "x" });
   });
 });

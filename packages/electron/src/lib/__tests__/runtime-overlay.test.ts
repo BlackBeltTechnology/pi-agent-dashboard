@@ -99,6 +99,22 @@ describe("planColdLaunch (E11, E12, E13a)", () => {
     expect(readRuntimeState(dir).bad?.["0.9.1"]?.reason).toBe("crashed_before_commit");
   });
 
+  it("an explicit Update (fresh pendingNonce) clears bad[X] + attempts once, so X is attempted again", () => {
+    selectRuntimeSource(dir, { source: "npm" });
+    patchRuntimeState(dir, { current: "0.9.0", bad: { "0.9.1": { reason: "health timeout" } }, attempts: { "0.9.1": 2 } });
+    patchRuntimeRequest(dir, { pending: "0.9.1" });
+    expect(planColdLaunch(dir).inputs.overlays?.map((c) => c.runtimeId)).toEqual(["0.9.0"]);
+
+    patchRuntimeRequest(dir, { pending: "0.9.1", pendingNonce: "3f1c0e7a-1111-4222-8333-944455556666" });
+    expect(planColdLaunch(dir).inputs.overlays?.map((c) => c.runtimeId)).toEqual(["0.9.1", "0.9.0"]);
+    expect(readRuntimeState(dir).bad?.["0.9.1"]).toBeUndefined();
+    expect(readRuntimeState(dir).attempts?.["0.9.1"]).toBeUndefined();
+
+    // consumed once: a later failure marks it bad again and the SAME nonce does not re-clear it
+    patchRuntimeState(dir, (s) => ({ bad: { ...s.bad, "0.9.1": { reason: "again" } } }));
+    expect(planColdLaunch(dir).inputs.overlays?.map((c) => c.runtimeId)).toEqual(["0.9.0"]);
+  });
+
   it("E13a: a bad local checkout is not attempted on cold launch", () => {
     const co = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "co-")));
     const req = selectRuntimeSource(dir, { source: "bundled" });
