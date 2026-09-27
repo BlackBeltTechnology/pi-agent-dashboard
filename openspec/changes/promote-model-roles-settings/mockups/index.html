@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model roles — promoted settings page (mockup)</title>
+<style>
+  :root, [data-theme="light"] {
+    --bg: #ffffff; --bg2: #f5f5f5; --bg3: #ececec; --fg: #1a1a1a; --fg2: #555; --fg3: #6b6b6b;
+    --border: #dcdcdc; --accent: #2563eb; --accent-soft: #dbe6fd; --ok: #15803d; --ok-soft: #dcfce7;
+    --warn: #92400e; --warn-soft: #fef3c7; --err: #b91c1c;
+  }
+  [data-theme="studio"] {
+    --bg: #0a0a0a; --bg2: #141414; --bg3: #1e1e1e; --fg: #ededed; --fg2: #b5b5b5; --fg3: #9a9a9a;
+    --border: #2c2c2c; --accent: #60a5fa; --accent-soft: #1e3050; --ok: #4ade80; --ok-soft: #12301d;
+    --warn: #fbbf24; --warn-soft: #3a2c0c; --err: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); }
+  .bar { display: flex; gap: 8px; align-items: center; padding: 8px 16px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .bar b { margin-right: 6px; }
+  .seg button { border: 1px solid var(--border); background: var(--bg); color: var(--fg); padding: 5px 10px; cursor: pointer; font: inherit; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; } .seg button:last-child { border-radius: 0 6px 6px 0; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .note { padding: 10px 16px; background: var(--warn-soft); color: var(--fg); border-bottom: 1px solid var(--border); font-size: 13px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+  header.top h1 { margin: 0; font-size: 20px; }
+  .btn { border: 1px solid var(--border); background: var(--bg2); color: var(--fg); border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.ghost { background: transparent; }
+  .shell { display: grid; grid-template-columns: 224px 1fr; min-height: calc(100vh - 110px); }
+  nav.rail { border-right: 1px solid var(--border); padding: 14px 8px; overflow: auto; }
+  .grp { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--fg3); padding: 14px 12px 6px; text-transform: uppercase; }
+  .grp:first-child { padding-top: 4px; }
+  .item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; color: var(--fg2); padding: 8px 12px; border-radius: 6px; font: inherit; text-align: left; cursor: pointer; min-height: 36px; }
+  .item:hover { background: var(--bg2); }
+  .item[aria-current="page"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+  .item .ic { width: 16px; text-align: center; opacity: .8; }
+  .item .badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); }
+  .sub { padding-left: 34px; font-size: 13px; min-height: 30px; }
+  .sub .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .sub.dim { opacity: .55; }
+  .hl { outline: 2px dashed var(--accent); outline-offset: -2px; }
+  main { padding: 20px 24px 40px; max-width: 820px; }
+  .pagehead h2 { margin: 0 0 4px; font-size: 20px; }
+  .pagehead p { margin: 0 0 14px; color: var(--fg2); max-width: 64ch; }
+  .prov { font-size: 12px; color: var(--fg3); display: flex; gap: 6px; align-items: center; }
+  .prov a { color: var(--accent); }
+  .chrome { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  .chrome .row { display: flex; justify-content: space-between; align-items: center; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--ok-soft); color: var(--ok); border: 1px solid currentColor; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+  .chip { display: inline-block; background: var(--bg3); border-radius: 4px; padding: 1px 6px; }
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0 18px; }
+  .preset { border: 1px solid var(--border); background: var(--bg2); color: var(--fg); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
+  .preset[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lbl { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--fg3); text-transform: uppercase; margin: 16px 0 8px; }
+  .roles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .role { background: var(--bg2); border: 1px solid transparent; border-radius: 6px; padding: 8px 10px; min-height: 44px; }
+  .role .n { font-weight: 700; }
+  .role .d { color: var(--fg3); font-size: 12px; }
+  .role .m { color: var(--fg2); }
+  .role.missing { border-color: var(--warn); background: var(--warn-soft); }
+  .role.missing .m { color: var(--warn); font-weight: 600; }
+  .rowline { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .callout { border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--bg2); border-radius: 6px; padding: 10px 12px; margin: 14px 0; font-size: 13px; }
+  .callout.warn { border-left-color: var(--warn); }
+  .off { border: 1px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; color: var(--fg2); }
+  .cmp { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .cmp th, .cmp td { border: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: top; }
+  .cmp th { background: var(--bg2); }
+  .rec { color: var(--ok); font-weight: 700; }
+  @media (max-width: 720px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.rail { border-right: 0; border-bottom: 1px solid var(--border); max-height: 240px; }
+    .roles { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>View</b>
+  <span class="seg" id="view">
+    <button data-v="today" aria-pressed="false">Today</button>
+    <button data-v="A" aria-pressed="true">A · "Models" group on top</button>
+    <button data-v="B" aria-pressed="false">B · pinned under Dashboard</button>
+    <button data-v="cmp" aria-pressed="false">Mechanism</button>
+  </span>
+  <b style="margin-left:12px">State</b>
+  <span class="seg" id="state">
+    <button data-s="ok" aria-pressed="true">Configured</button>
+    <button data-s="gap" aria-pressed="false">Unset role</button>
+    <button data-s="off" aria-pressed="false">Plugin disabled</button>
+  </span>
+  <b style="margin-left:12px">Theme</b>
+  <span class="seg" id="theme">
+    <button data-t="light" aria-pressed="true">Light</button>
+    <button data-t="studio" aria-pressed="false">Studio</button>
+  </span>
+</div>
+<div class="note" id="note"></div>
+
+<header class="top"><h1>← Settings</h1><button class="btn">⟳ Restart</button></header>
+<div class="shell">
+  <nav class="rail" id="rail" aria-label="Settings"></nav>
+  <main id="main"></main>
+</div>
+
+<script>
+const S = { view: "A", state: "ok", theme: "light" };
+
+const NOTES = {
+  today: "Today: Roles lives 5 levels down — Extensions ▸ Plugins ▸ 16 plugin rows ▸ Roles. Page chrome is developer-facing (id, claims list). Name collides with Security/Access vocabulary.",
+  A: "Option A (recommended): new MODELS group is FIRST in the rail. Model roles + Providers side by side — credentials and what uses them. Plugin remains the owner; host only relocates the entry and swaps the dev chrome for a user-facing header.",
+  B: "Option B: minimal move — Model roles pinned into the DASHBOARD group after General. Providers stays under Extensions. Less churn, but splits the model story across two groups.",
+  cmp: "How a plugin page can appear outside the Plugins subtree — the spec today forbids it (settings-section renders ONLY under the owning plugin row).",
+};
+
+const plugins = ["Anthropic Messages Bridge","Apple Tools","Automations","Blackhole","Browser Relay","Chat Gateway","Cost","Decision models","Flows","Goal","Grammar & Spelling","Hermes Memory","MCP Client","Provider Quota","Roles","Subagent Inspector"];
+
+function item(id, label, ic, current, extra = "") {
+  return `<button class="item ${extra}" ${current ? 'aria-current="page"' : ""}><span class="ic">${ic}</span>${label}${badge(id)}</button>`;
+}
+function badge(id) {
+  if (id !== "roles") return "";
+  if (S.state === "gap") return `<span class="badge" title="FOLLOW-UP idea, not in this change">1 unset</span>`;
+  if (S.state === "off") return `<span class="badge" style="background:var(--bg3);color:var(--fg3)">off</span>`;
+  return "";
+}
+
+function rail() {
+  const v = S.view;
+  let h = "";
+  if (v === "A") {
+    h += `<div class="grp">Models</div>`;
+    h += item("roles", "Model roles", "◎", true, "hl");
+    h += item("providers", "Providers", "⚿", false, "hl");
+  }
+  h += `<div class="grp">Dashboard</div>`;
+  h += item("general", "General", "⚙", false);
+  if (v === "B") h += item("roles", "Model roles", "◎", true, "hl");
+  h += item("server", "Server", "▤", false) + item("sessions", "Sessions", "▦", false);
+  h += `<div class="grp">Network</div>` + item("","Remote Servers","◍") + item("","Gateway","⇆") + item("","Security","🔒︎") + item("","Access","✔︎");
+  h += `<div class="grp">Extensions</div>`;
+  if (v !== "A") h += item("providers", "Providers", "⚿", false);
+  h += item("","Packages","▣") + item("","Plugins","✦");
+  for (const p of plugins) {
+    const isRoles = p === "Roles";
+    const cur = v === "today" && isRoles;
+    const label = isRoles && v !== "today" ? "Roles <span style='color:var(--fg3)'>↗ Models</span>" : p;
+    h += `<button class="item sub ${isRoles && v!=="today" ? "dim" : ""} ${cur ? "hl" : ""}" ${cur ? 'aria-current="page"' : ""}><span class="dot"></span>${label}</button>`;
+  }
+  h += `<div class="grp">Resources</div>` + item("","Skills","▢") + item("","Agents","☺");
+  return h;
+}
+
+const BUILTIN = [
+  ["@planning","claude-opus-5-5","Design, proposals, long reasoning"],
+  ["@coding","glm-5.3-flash","Default implementation work"],
+  ["@compact","deepseek-v4.1-flash","Context compaction summaries"],
+  ["@fast","deepseek-v4.1-flash","Cheap quick calls; fallback for others"],
+  ["@vision","deepseek-v4.1-flash","Image / screenshot input"],
+  ["@research","claude-opus-5","Web research, source checking"],
+  ["@naming","","Session auto-naming (falls back to @fast)"],
+];
+const CUSTOM = [["@propose-review-1","deepseek-v4.1-flash"],["@propose-review-2","glm-5.3"],["@propose-review-3","gpt-5.6-sol"],["@review","gpt-5.6-sol"]];
+
+function roleCard([n, m, d]) {
+  const unset = !m && S.state === "gap";
+  const shown = m || (S.state === "gap" ? "Not set" : "→ @fast · deepseek-v4.1-flash");
+  return `<div class="role ${unset ? "missing" : ""}">
+    <div class="rowline"><span class="n mono">${n}</span><span class="m mono">${shown}</span></div>
+    ${d ? `<div class="d">${d}</div>` : ""}</div>`;
+}
+
+function body() {
+  let h = "";
+  if (S.view === "today") {
+    h += `<div class="chrome"><div class="row"><div><b style="font-size:17px">Roles</b><div class="mono" style="color:var(--fg3)">roles</div></div><div><span class="pill">enabled</span> <label><input type="checkbox" checked> enable</label></div></div>
+      <div style="margin-top:8px;color:var(--fg3);font-size:12px">claims: <span class="chip mono">settings-section</span></div></div>
+      <div style="color:var(--fg3);font-size:12px">global role → model assignments</div>`;
+  } else {
+    h += `<div class="pagehead"><h2>Model roles</h2>
+      <p>Pick which model answers each <code>@role</code>. Agents, flows and skills ask for a role — not a model — so changing it here re-routes them everywhere.</p>
+      <div class="prov">Provided by the <b>Roles</b> plugin · <a href="#">plugin details</a></div></div>`;
+  }
+  if (S.state === "off") {
+    h += `<div class="off" style="margin-top:16px"><b>Model roles is turned off.</b><br>
+      <code>@role</code> references won't resolve; sessions use their default model instead.<br><br>
+      <button class="btn primary">Turn on Model roles</button></div>`;
+    return h;
+  }
+  if (S.state === "gap" && S.view !== "today") {
+    h += `<div class="callout warn" role="status"><b>1 built-in role has no model.</b> <code>@naming</code> falls back to <code>@fast</code> — set it to pick a model on purpose.</div>`;
+  }
+  if (S.view !== "today") h += `<div class="lbl">Preset</div>`;
+  h += `<div class="presets"><button class="preset" aria-pressed="false">Current</button><button class="preset" aria-pressed="true">opencode-go-backup</button><button class="preset" aria-pressed="false">openrouter</button><button class="preset" style="border-style:dashed">+ Save current as preset</button></div>`;
+  h += `<div class="lbl">Built-in</div><div class="roles">${BUILTIN.map(r => S.view === "today" ? roleCard([r[0], r[1], ""]) : roleCard(r)).join("")}</div>`;
+  h += `<div class="lbl">Custom</div><div class="roles">${CUSTOM.map(([n,m]) => roleCard([n,m,""])).join("")}</div>
+    <div style="margin-top:10px"><button class="btn ghost">+ Add custom role</button></div>`;
+  if (S.view === "A") {
+    h += `<div class="callout">Models come from connected providers. <b>3 connected</b> · Anthropic (expires in 5h), OpenAI, DeepSeek — <a href="#" style="color:var(--accent)">Providers →</a></div>`;
+  }
+  return h;
+}
+
+function cmp() {
+  return `<div class="pagehead"><h2>How does a plugin page leave the Plugins subtree?</h2>
+  <p>Spec <code>dashboard-plugin-loader</code>: a <code>settings-section</code> claim renders ONLY under its owning plugin row; <code>tab</code> is inert. Each option below changes that contract differently.</p></div>
+  <table class="cmp"><tr><th></th><th>M1 · manifest <code>nav</code> hint</th><th>M2 · host carve-out</th><th>M3 · move into core</th></tr>
+  <tr><th>What</th><td>Claim gains <code>"nav": {"group":"models","label":"Model roles","order":0}</code>. Host honours it only for allowlisted group <code>models</code> AND a trusted plugin (npm scope <code>@blackbelt-technology/</code>, server-projected <code>trusted</code>). Invalid hint → dropped with warning, plugin still loads.</td><td>SettingsPanel hard-codes a <code>model-roles</code> page that mounts the roles plugin's claim via <code>SettingsSectionByPluginSlot</code>.</td><td>Roles UI + API move into client/server; plugin retired.</td></tr>
+  <tr><th>Route</th><td>unchanged <code>/settings/plugins/roles</code> (placement only)</td><td>same</td><td><code>/settings/model-roles</code></td></tr>
+  <tr><th>Plugin off</th><td>Entry stays, shows "off" + Turn on</td><td>same</td><td>n/a</td></tr>
+  <tr><th>Risk</th><td>Mitigated: group allowlist + scope trust + built-in label collision check + text-only render</td><td>Host couples to one plugin id; one-off</td><td>Largest diff; loses plugin enable/disable</td></tr>
+  <tr><th>Reuse</th><td>Providers-adjacent plugins (Quota, Cost) could join Models later</td><td>none</td><td>none</td></tr>
+  <tr><th>Verdict</th><td class="rec">Recommended</td><td>OK as a stopgap</td><td>Overkill</td></tr></table>`;
+}
+
+function render() {
+  document.documentElement.dataset.theme = S.theme;
+  document.getElementById("note").textContent = NOTES[S.view];
+  document.getElementById("rail").innerHTML = rail();
+  document.getElementById("main").innerHTML = S.view === "cmp" ? cmp() : body();
+  for (const [id, key, attr] of [["view","view","v"],["state","state","s"],["theme","theme","t"]])
+    document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset[attr] === S[key])));
+}
+for (const [id, key, attr] of [["view","view","v"],["state","state","s"],["theme","theme","t"]])
+  document.getElementById(id).addEventListener("click", e => { const b = e.target.closest("button"); if (b) { S[key] = b.dataset[attr]; render(); } });
+render();
+</script>
+</body>
+</html>
