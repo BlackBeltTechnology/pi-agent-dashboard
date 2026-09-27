@@ -48,6 +48,19 @@ export function useSlotHasClaimsForSession(slotId: SlotId, session: DashboardSes
   return forSessionRendered(registry.getClaims(slotId), session).length > 0;
 }
 
+/**
+ * Session-agnostic presence check: `true` when ANY installed plugin claims
+ * `slotId` (no `shouldRender` / session predicate). Gates settings rows that
+ * only make sense when a contributing plugin exists.
+ * See change: configurable-session-card-sections (design D9).
+ */
+export function useSlotHasAnyClaims(slotId: SlotId): boolean {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return false;
+  return registry.getClaims(slotId).length > 0;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderClaim(

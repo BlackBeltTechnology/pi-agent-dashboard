@@ -2,6 +2,7 @@
  * Directory and preference handlers: pin, unpin, reorder, openspec, pi-gateway forwards.
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { isValidSectionId } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { safeRealpathSync } from "../resolve-path.js";
@@ -186,6 +187,36 @@ export function handleSetFolderCollapsed(
   if (ctx.preferencesStore?.setFolderCollapsed?.(msg.path, msg.collapsed)) {
     broadcastCollapsedFolders(ctx);
   }
+}
+
+// ── card sections (configurable-session-card-sections) ──────────
+//
+// Same shape as collapsed folders: validate at the trust boundary, let the
+// store canonicalize + cap, broadcast the full snapshot only on mutation.
+
+function broadcastCardSections(ctx: BrowserHandlerContext): void {
+  if (!ctx.preferencesStore?.getCardSections) return;
+  ctx.broadcast({ type: "card_sections_updated", cardSections: ctx.preferencesStore.getCardSections() });
+}
+
+export function handleSetCardSectionVisibility(
+  msg: Extract<BrowserToServerMessage, { type: "set_card_section_visibility" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (!isValidSectionId(msg.section)) return;
+  if (msg.visible !== null && typeof msg.visible !== "boolean") return;
+  if (msg.path !== undefined && (typeof msg.path !== "string" || msg.path.length === 0)) return;
+  if (ctx.preferencesStore?.setCardSectionVisibility?.(msg.path, msg.section, msg.visible)) {
+    broadcastCardSections(ctx);
+  }
+}
+
+export function handleResetFolderCardSections(
+  msg: Extract<BrowserToServerMessage, { type: "reset_folder_card_sections" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.path !== "string" || msg.path.length === 0) return;
+  if (ctx.preferencesStore?.resetFolderCardSections?.(msg.path)) broadcastCardSections(ctx);
 }
 
 export function handleAddFolderToWorkspace(

@@ -198,7 +198,7 @@ test.describe("system-one settings section (L3)", () => {
         }),
       }),
     );
-    const calibrations: any[] = [];
+    const calibrations: Array<Record<string, unknown>> = [];
     await page.route("**/api/system-one/calibration", async (route) => {
       calibrations.push(route.request().postDataJSON());
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ revision: "r2" }) });
@@ -254,11 +254,12 @@ test.describe("system-one settings section (L3)", () => {
 
       await page.addScriptTag({ path: path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js") });
       const violations = await page.evaluate(async (selector) => {
-        const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<any> } }).axe;
+        type Violation = { id: string; impact: string | null; nodes: Array<{ target: string[] }> };
+        const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<{ violations: Violation[] }> } }).axe;
         const r = await axe.run(selector, { rules: { "color-contrast": { enabled: false } } });
         return r.violations
-          .filter((v: any) => v.impact === "serious" || v.impact === "critical")
-          .map((v: any) => `${v.id}: ${v.nodes.map((n: any) => n.target.join(" ")).join(" | ")}`);
+          .filter((v) => v.impact === "serious" || v.impact === "critical")
+          .map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`);
       }, SECTION);
       expect(violations).toEqual([]);
 
