@@ -41,7 +41,7 @@ import { supportsInProcessCommandDispatch } from "./slash-dispatch.js";
 export const RELOAD_COMMAND_NAME = "__dashboard_reload";
 
 /** `process` key of the pending-reload slot. */
-export const PENDING_RELOAD_SLOT_KEY = "__pi_dashboard_pending_reload__" as const;
+const PENDING_RELOAD_SLOT_KEY = "__pi_dashboard_pending_reload__" as const;
 
 /** The handler must start within this bound, measured from `armedAt`. */
 export const START_TIMEOUT_MS = 5_000;
@@ -49,7 +49,7 @@ export const START_TIMEOUT_MS = 5_000;
 /** The reload must finish within this bound, measured from `armedAt`. */
 export const FINISH_TIMEOUT_MS = 60_000;
 
-export type PendingReloadState = "armed" | "started" | "delivered" | "expired";
+type PendingReloadState = "armed" | "started" | "delivered" | "expired";
 
 export interface PendingReloadSlot {
   token: string;
@@ -86,7 +86,7 @@ function isInFlight(slot: PendingReloadSlot | undefined, sessionId: string, now:
 }
 
 /** The slice of pi's `ExtensionCommandContext` the reload handler uses. */
-export interface ReloadCommandCtx {
+interface ReloadCommandCtx {
   reload?: () => Promise<void>;
   ui?: { notify?: (message: string, level?: "info" | "warning" | "error") => void };
 }
