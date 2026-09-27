@@ -56,7 +56,7 @@ Exemplar for this group: `packages/server/src/__tests__/model-proxy-second-port.
 - [x] 3.17 Test no config (test-plan #X7). No `system-one.json`; the fake is listening · `predict` · `ok:false reason:"no-backend"`, 0 connections. See `packages/server/src/__tests__/model-proxy-second-port.test.ts`.
 - [x] 3.18 Implement `src/predict.ts`, `src/backends/http.ts` (`redirect:"error"`, scheme allowlist), `src/backends/llm.ts` (`LlmCaller`, own timer), `src/capabilities.ts`, `src/egress.ts` and `src/registry.ts`. Verify: 3.1–3.17 pass.
 - [x] 3.19 Test the overhead budget (test-plan #P1). 1,000 sequential `predict` calls, an instant fake, 5 questions, 2 KB state, log on · timed run · adapter overhead p95 ≤ 5 ms (assert on p95). See `packages/server/src/__tests__/model-proxy-second-port.test.ts`.
-- [ ] 3.20 Test the config re-read (test-plan #P2). 1,000 `predict` calls with an unchanged config · spy on `readFile` · 1 read; after touching the mtime, 2 reads. See `packages/kb/src/__tests__/config-doctrine.test.ts`.
+- [x] 3.20 Test the config re-read (test-plan #P2). 1,000 `predict` calls with an unchanged config · spy on `readFile` · 1 read; after touching the mtime, 2 reads. See `packages/kb/src/__tests__/config-doctrine.test.ts`.
 
 ## 4. Decision log (spec: system-one-adapter)
 

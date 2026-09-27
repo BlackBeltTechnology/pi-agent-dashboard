@@ -20,6 +20,7 @@ System-1 adapter library. Spec: system-one-adapter, system-one-config. See chang
 | `validate.ts` | `normalizeAnswers(questions, raw)`: every question answered and constrained (choice key ∈ criteria, score ∈ [0, levels-1], noul ∈ [0,1], probabilities ∈ [0,1] over declared keys); else null → attempt `error`. Missing probabilities → picked option 1.0. |
 | `warn.ts` | `warnOnce(msg)` → `console.warn("[system-one] …")` deduped per process. |
 | `__tests__/config.test.ts` | L1 E12–E16 (2.1–2.5): layering matrix, project limits, no hosted retarget, prototype pollution, shape handling. |
+| `__tests__/config-reread.test.ts` | L1 P2 (3.20): 1,000 predicts read the config once (counted `node:fs` wrapper); an mtime touch adds exactly one read. |
 | `__tests__/decision-log.test.ts` | L1 E11, X8, X9 (4.1–4.3): no SECRET/INSTR marker, 0600, read-only dirs tolerated, 29/30 kept · 31 deleted. |
 | `__tests__/fake-backend.test.ts` | L1 self-test of the fake backend helper (1.3). |
 | `__tests__/helpers/config.ts` | `freshState()` (HOME is per FILE → clear config + state dir + caches per test), `writeUserConfig`, `chainConfig`. |
