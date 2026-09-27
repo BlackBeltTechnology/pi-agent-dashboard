@@ -59,6 +59,17 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **The root `@blackbelt-technology/pi-agent-dashboard` tarball no longer ships
+  tests, fixtures or DOX sidecars.** Its `files` list now excludes
+  `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
+  `AGENTS.md` and `*.AGENTS.md` under `packages/` (the root `AGENTS.md` still
+  ships). This removes 1248 files and 8.3 MB unpacked (1816 → 568 files,
+  14.5 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
+  now applies its full rules to the root package. Root-shipped copies of
+  workspace sources are credited with the runtime dependencies of workspaces
+  the root reaches at runtime; this is an explicit, counted exception for
+  npm hoisting. CI also re-runs the check after the build. (change:
+  check-root-package-imports)
 - **Provider OAuth sign-in is delegated to pi-ai, so every provider pi bundles is
   sign-in-able — and remote dashboards can finally complete a sign-in.** The
   dashboard carried a hand-copied fork of pi-ai's OAuth flows

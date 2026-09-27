@@ -49,7 +49,14 @@
     "docs/architecture.md",
     "AGENTS.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!packages/**/__tests__",
+    "!packages/**/__fixtures__",
+    "!packages/**/__mocks__",
+    "!packages/**/*.test.*",
+    "!packages/**/*.spec.*",
+    "!packages/**/AGENTS.md",
+    "!packages/**/*.AGENTS.md"
   ],
   "scripts": {
     "postinstall": "node scripts/maybe-patch-package.cjs && node scripts/fix-pty-permissions.cjs",

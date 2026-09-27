@@ -157,6 +157,13 @@ jobs:
             echo "::error::@mdi/js dynamic-import warning re-appeared (harden-ios-safari-memory-and-ws-diagnostics)"; fail=1
           fi
           exit $fail
+      # Second publish-imports run, on the BUILT tree. The first run (above) sees
+      # an unbuilt tree, so the root's shipped `packages/dist/` bundle output was
+      # never analysed. It carries no workspace manifest, so it gets no
+      # reachable-workspace credit: any bare import there is a consumer break.
+      # See change: check-root-package-imports.
+      - name: Verify published imports on the built tree
+        run: node scripts/verify-published-imports.mjs
 
   # ── required Docker gate ───────────────────────────────────────────────────
   # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X12).

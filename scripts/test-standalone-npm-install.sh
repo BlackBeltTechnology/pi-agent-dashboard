@@ -88,6 +88,21 @@ if [[ ! -x "$BIN" ]]; then
   exit 1
 fi
 
+# The root tarball excludes tests + DOX sidecars under packages/; the boot below
+# then proves nothing at runtime needed them. See change: check-root-package-imports.
+ROOT_PKGS="$INSTALL_DIR/node_modules/@blackbelt-technology/pi-agent-dashboard/packages"
+if [[ ! -d "$ROOT_PKGS" ]]; then
+  echo "[smoke] FAIL: installed root has no packages/ at $ROOT_PKGS" >&2
+  exit 1
+fi
+LEAKED=$(find "$ROOT_PKGS" \( -name __tests__ -o -name '*.test.*' -o -name '*.AGENTS.md' \) -print)
+if [[ -n "$LEAKED" ]]; then
+  echo "[smoke] FAIL: installed root ships excluded files:" >&2
+  echo "$LEAKED" | head -20 >&2
+  exit 1
+fi
+echo "[smoke] ✓ installed root ships no tests or DOX sidecars"
+
 echo "[smoke] launching pi-dashboard on port ${PORT}..."
 HOME="$TMP_HOME" \
   PI_DASHBOARD_PORT="$PORT" \
