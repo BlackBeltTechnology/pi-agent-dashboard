@@ -25,6 +25,9 @@ function playFlip(el: HTMLElement, a: DOMRect, b: DOMRect): void {
   if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return;
   el.style.transition = "none";
   el.style.transform = `translate(${dx}px, ${dy}px)`;
+  // Force a style flush so the inverted transform is committed before the
+  // transition is enabled — otherwise the browser may coalesce both writes.
+  void el.offsetWidth;
   requestAnimationFrame(() => {
     el.style.transition = `transform ${FLIP_DURATION_MS}ms ${FLIP_EASING}`;
     el.style.transform = "";

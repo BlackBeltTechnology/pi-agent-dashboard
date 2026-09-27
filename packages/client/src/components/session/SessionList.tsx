@@ -1383,7 +1383,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     if (isGroupKeyCollapsed(groupPath)) setFolderCollapsed(groupPath, false);
     // A reveal targeting a card inside a collapsed lane expands that lane
     // (add-only). See change: session-list-group-by.
-    const revealGroup = allGroups.find((g) => g.cwd === groupPath);
+    // Canonical match: groups key by `pathKey` but keep a raw display `cwd`.
+    const revealKey = pathKey(groupPath, collapsePlatform);
+    const revealGroup = allGroups.find((g) => pathKey(g.cwd, collapsePlatform) === revealKey);
     const revealLane = revealGroup ? laneOfIn(revealGroup, target.id) : undefined;
     if (revealLane && isLaneKeyCollapsed(groupPath, revealLane)) setLaneCollapsed(groupPath, revealLane, false);
     if (isEnded) {
