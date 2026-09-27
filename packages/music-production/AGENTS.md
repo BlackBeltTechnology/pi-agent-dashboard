@@ -19,7 +19,7 @@ Files in this package. One row per file. Python skill scripts + pytest; vitest f
 | `package.json` | Manifest `@blackbelt-technology/pi-dashboard-music-production`. `pi.skills` ×3, `pi.tools` ffmpeg + uv (optional). `files` = `.pi/skills/`, `lib/`, `requirements-*.txt`, README, minus AGENTS/pycache. |
 | `requirements-core.txt` | Quick-tier pins: librosa, numpy, scipy, soundfile, matplotlib (`==`). |
 | `requirements-mir.txt` | Deep-tier pins: core + essentia-tensorflow 2.1b6.dev1438, beat-this 1.1.0, demucs 4.1.0, torch/torchaudio 2.11.* pair. |
-| `src/__tests__/files.ts` | Test helpers: `PKG`, `REPO`, `SKILLS`, `walk` (skips caches/venvs), `read`, `skill`. |
+| `src/__tests__/files.ts` | Test helpers: `PKG`, `REPO`, `walk` (skips caches/venvs), `read`, `skill` (module-local `SKILLS` dir). |
 | `src/__tests__/no-personal-coupling.test.ts` | #E11: no `/Users/`, client or project names in the new skill trees + `lib/`. |
 | `src/__tests__/no-rip.test.ts` | #E10: no stream-ripping tool named under `.pi/` or `lib/`. |
 | `src/__tests__/package-wiring.test.ts` | #E36: `pi.skills` SKILL.md present, named scripts exist, `files` allowlist, root vitest project, lockfile importer. |

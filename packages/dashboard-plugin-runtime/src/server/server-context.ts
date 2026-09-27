@@ -632,11 +632,13 @@ export interface PluginCredentials {
   snapshot(): Promise<Record<string, PluginCredentialRecord>>;
   set(key: string, record: PluginCredentialRecord): Promise<void>;
   remove(key: string): Promise<void>;
-  /** Atomic read-modify-write; `fn` runs inside the file lock. Return `undefined` to delete. */
+  /**
+   * Atomic read-modify-write; `fn` runs SYNCHRONOUSLY inside the file lock
+   * (never held across an await). Return `undefined` to delete.
+   */
   update(
     key: string,
-    fn: (prev: PluginCredentialRecord | undefined) =>
-      PluginCredentialRecord | undefined | Promise<PluginCredentialRecord | undefined>,
+    fn: (prev: PluginCredentialRecord | undefined) => PluginCredentialRecord | undefined,
   ): Promise<PluginCredentialRecord | undefined>;
 }
 

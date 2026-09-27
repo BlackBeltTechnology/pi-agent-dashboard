@@ -13,6 +13,7 @@ import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, renderedPdfUrl, renderUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
 import { logRejection } from "../../lib/report-error.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -25,6 +26,9 @@ type DocxData =
   | { mode: "html"; html: string; truncated: boolean; imageCount: number; note?: string };
 
 export function DocxPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [data, setData] = useState<DocxData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -37,7 +41,7 @@ export function DocxPreview({ target }: Props) {
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(renderUrl(target));
+        const res = await previewFetch(renderUrl(target));
         const body = await res.json();
         if (cancelled) return;
         if (body.success && body.data?.mode) {
@@ -53,7 +57,7 @@ export function DocxPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, previewFetch]);
 
   if (failed) return <FallbackPreview target={target} />;
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;

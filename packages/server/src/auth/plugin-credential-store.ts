@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   corruptUnbackedRefusal,
+  type NotPromise,
   readJsonChecked,
   withLockedJsonFile,
   writeJsonAtomic,
@@ -34,11 +35,13 @@ export interface PluginCredentialStore {
   snapshot(): Promise<Record<string, PluginCredentialRecord>>;
   set(key: string, record: PluginCredentialRecord): Promise<void>;
   remove(key: string): Promise<void>;
-  /** Atomic read-modify-write; `fn` runs inside the lock. Return `undefined` to delete. */
+  /**
+   * Atomic read-modify-write; `fn` runs SYNCHRONOUSLY inside the lock (the lock
+   * is never held across an await). Return `undefined` to delete.
+   */
   update(
     key: string,
-    fn: (prev: PluginCredentialRecord | undefined) =>
-      PluginCredentialRecord | undefined | Promise<PluginCredentialRecord | undefined>,
+    fn: (prev: PluginCredentialRecord | undefined) => PluginCredentialRecord | undefined,
   ): Promise<PluginCredentialRecord | undefined>;
 }
 
@@ -134,20 +137,20 @@ function checkNamespaceCaps(ns: Namespace): void {
 function mutateNamespace<T>(
   filePath: string,
   pluginId: string,
-  fn: (ns: Namespace) => Promise<T> | T,
+  fn: (ns: Namespace) => T & NotPromise<T>,
 ): Promise<T> {
-  return withLockedJsonFile(filePath, async () => {
+  return withLockedJsonFile(filePath, (): T & NotPromise<T> => {
     const checked = readJsonChecked<FileData>(filePath, LOG_TAG);
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal(filePath);
     const data: FileData = Object.assign(Object.create(null), checked.data);
     const ns = namespaceOf(data, pluginId);
-    const result = await fn(ns);
+    const result = fn(ns);
     checkNamespaceCaps(ns);
     if (Object.keys(ns).length === 0) delete data[pluginId];
     else data[pluginId] = ns;
     writeJsonAtomic(filePath, data, checked.corrupt ? 0o600 : undefined);
     return result;
-  });
+  }, { logTag: LOG_TAG });
 }
 
 export function createPluginCredentialStore(
@@ -161,7 +164,7 @@ export function createPluginCredentialStore(
     return namespaceOf(data, pluginId);
   };
 
-  const mutate = <T>(fn: (ns: Namespace) => Promise<T> | T): Promise<T> =>
+  const mutate = <T>(fn: (ns: Namespace) => T & NotPromise<T>): Promise<T> =>
     mutateNamespace(filePath, pluginId, fn);
 
   return {
@@ -187,9 +190,9 @@ export function createPluginCredentialStore(
     },
     async update(key, fn) {
       validateKey(key);
-      return mutate(async (ns) => {
+      return mutate((ns): PluginCredentialRecord | undefined => {
         const prev = ns[key];
-        const next = await fn(prev === undefined ? undefined : structuredClone(prev));
+        const next = fn(prev === undefined ? undefined : structuredClone(prev));
         if (next === undefined) {
           delete ns[key];
           return undefined;

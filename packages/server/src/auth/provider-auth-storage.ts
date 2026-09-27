@@ -12,6 +12,7 @@
 
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -23,6 +24,8 @@ import {
 import {
   type CheckedJsonRead,
   corruptUnbackedRefusal as corruptUnbackedRefusal_,
+  LOCK_OPTIONS,
+  type NotPromise,
   _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
   readJsonChecked,
   withLockedJsonFile,
@@ -47,20 +50,50 @@ interface OAuthProviderMeta {
 
 // ── Locked file I/O ──────────────────────────────────────────────────────────
 //
-// Lock, checked read, quarantine and atomic write live in locked-json-file.ts,
-// shared with the plugin credential store. auth.json behaviour is unchanged.
-// See changes: fix-provider-auth-lock-contention, fix-corrupt-auth-json-500,
+// Lock (pi-coupled `LOCK_OPTIONS`, contained compromise, sync-only critical
+// section), checked read, quarantine and atomic write live in
+// locked-json-file.ts, shared with the plugin credential store. auth.json
+// behaviour is unchanged. See changes: fix-provider-auth-lock-contention,
+// fix-corrupt-auth-json-500, harden-auth-json-lock-coordination,
 // expose-plugin-credential-and-oauth-seams (D1).
 
 const LOG_TAG = "provider-auth";
 
+export { LOCK_OPTIONS };
+
+/**
+ * Lock window for the internal OAuth refresh path: pi's 15 s refresh timeout
+ * signal plus margin, and below `LOCK_OPTIONS.stale`. Long enough that a proxy
+ * request waits out a concurrent pi refresh and adopts its result.
+ * See change: harden-auth-json-lock-coordination (D4).
+ */
+const REFRESH_LOCK_BUDGET_MS = 20_000;
+let refreshLockBudgetMs = REFRESH_LOCK_BUDGET_MS;
+
+/** Test seam: shorten the refresh-path lock window; `null` restores the default. */
+export function _setRefreshLockBudgetForTests(ms: number | null): void {
+  refreshLockBudgetMs = ms ?? REFRESH_LOCK_BUDGET_MS;
+}
+
+export interface WithLockOptions {
+  /** Window the lock-held condition is retried. Default: the 2 s interactive window. */
+  budgetMs?: number;
+  /** Pre-create an empty 0600 `auth.json` when absent. The refresh path passes `false`. */
+  createIfMissing?: boolean;
+}
+
+/**
+ * Run `fn` while holding the auth.json lock. `fn` MUST be synchronous
+ * (`NotPromise<T>`); see `withLockedJsonFile`.
+ * See change: harden-auth-json-lock-coordination (D2).
+ */
+export function withLock<T>(fn: () => T & NotPromise<T>, opts: WithLockOptions = {}): Promise<T> {
+  return withLockedJsonFile(AUTH_PATH, fn, { ...opts, logTag: LOG_TAG });
+}
+
 /** Test seam: clear the quarantine dedup between assertions. */
 export function _resetQuarantineDedupForTests(): void {
   _resetLockedJsonQuarantineDedup();
-}
-
-function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  return withLockedJsonFile(AUTH_PATH, fn);
 }
 
 function readAuthJsonChecked(): CheckedJsonRead<AuthData> {
@@ -77,6 +110,82 @@ function corruptUnbackedRefusal(): Error {
 
 function writeAuthJson(data: AuthData, forceMode?: number): void {
   writeJsonAtomic(AUTH_PATH, data, forceMode);
+}
+
+// ── Internal OAuth refresh: locked snapshot + compare-and-swap ─────────────
+//
+// The model proxy refreshes OAuth credentials WITHOUT holding the lock across
+// its network call (so interactive writes never starve). Its starting point is
+// a locked read (pi writes auth.json in place — an unlocked read can be torn),
+// and its persist is a compare-and-swap. Neither ever creates auth.json.
+// Messages name the provider and the outcome only, never credential material.
+// See change: harden-auth-json-lock-coordination (D3, D4).
+
+/** auth.json holds unparseable content; the refresh declines to proceed. */
+export class AuthJsonCorruptError extends Error {
+  readonly code = "provider_auth.auth_json_corrupt";
+  constructor(provider: string) {
+    super(`Cannot refresh OAuth credential for "${provider}": auth.json is corrupt (unparseable content)`);
+    this.name = "AuthJsonCorruptError";
+  }
+}
+
+export type LockedCredentialRead =
+  | { outcome: "ok"; credential: OAuthCredential }
+  | { outcome: "removed" }
+  | { outcome: "replaced" }
+  | { outcome: "corrupt" };
+
+const refreshLockOptions = (): WithLockOptions => ({ budgetMs: refreshLockBudgetMs, createIfMissing: false });
+
+/**
+ * Read one provider's credential under the lock (refresh-path window, never
+ * creates auth.json). Never throws on content: corrupt bytes are quarantined
+ * by `readAuthJsonChecked` exactly as on every read, and reported as `corrupt`.
+ * An absent auth.json reads as `{}` → `removed`. I/O and lock errors propagate.
+ */
+export async function readCredentialLocked(provider: string): Promise<LockedCredentialRead> {
+  return withLock((): LockedCredentialRead => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt) return { outcome: "corrupt" };
+    const stored = checked.data[provider];
+    if (!stored) return { outcome: "removed" };
+    if (stored.type !== "oauth") return { outcome: "replaced" };
+    return { outcome: "ok", credential: stored };
+  }, refreshLockOptions());
+}
+
+export type RefreshedOAuthWrite =
+  | { outcome: "written"; credential: OAuthCredential }
+  | { outcome: "changed"; credential: OAuthCredential }
+  | { outcome: "removed" }
+  | { outcome: "replaced" };
+
+/**
+ * Compare-and-swap persist of a refreshed OAuth credential. Under the lock,
+ * writes `next` only when the stored credential is deep-equal — in EVERY field,
+ * opaque ones such as `enterpriseUrl` included — to `snapshot`, the credential
+ * the refresh started from. Otherwise nothing is written: disk wins.
+ * Absent file / missing key → `removed` (never recreated); non-OAuth →
+ * `replaced` (never adopted as a token); corrupt → throws, never written over.
+ */
+export async function writeRefreshedOAuth(
+  provider: string,
+  next: OAuthCredential,
+  snapshot: OAuthCredential,
+): Promise<RefreshedOAuthWrite> {
+  return withLock((): RefreshedOAuthWrite => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt) throw new AuthJsonCorruptError(provider);
+    const data = checked.data;
+    const stored = data[provider];
+    if (!stored) return { outcome: "removed" };
+    if (stored.type !== "oauth") return { outcome: "replaced" };
+    if (!isDeepStrictEqual(stored, snapshot)) return { outcome: "changed", credential: stored };
+    data[provider] = next;
+    writeAuthJson(data);
+    return { outcome: "written", credential: next };
+  }, refreshLockOptions());
 }
 
 // ── Public API: write/remove ─────────────────────────────────────────────────

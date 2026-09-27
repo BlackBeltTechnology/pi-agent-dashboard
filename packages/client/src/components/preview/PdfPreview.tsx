@@ -8,7 +8,10 @@
  * step. See change: render-file-previews. See change: pdf-preview-continuous-scroll.
  */
 import { useEffect, useRef, useState } from "react";
+import { GRANT_OPT_OUT_HEADERS } from "../../lib/access-grants/grant-channel.js";
+import { MediaDenialNotice } from "./MediaDenialNotice.js";
 import { rawUrl } from "./raw-url.js";
+import { useMediaDenial } from "./use-media-denial.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -63,7 +66,10 @@ async function mountViewer(container: HTMLDivElement, url: string): Promise<View
   const pdfjs = await loadPdfJs();
   // Sequential await is required: pdf_viewer.mjs expects globalThis.pdfjsLib to be populated by the main pdfjs module.
   const { EventBus, PDFLinkService, PDFViewer } = await loadViewer();
-  const doc = await pdfjs.getDocument({ url }).promise;
+  // ALWAYS opted out of the access-grant dialog, whatever the provenance: pdf.js
+  // loads one document with several ranged requests and Allow once admits one
+  // (design D2). A refusal is diagnosed and asked about from the notice.
+  const doc = await pdfjs.getDocument({ url, httpHeaders: { ...GRANT_OPT_OUT_HEADERS } }).promise;
   const eventBus = new EventBus();
   const linkService = new PDFLinkService({ eventBus });
   // Enable the text layer (textLayerMode 2) → text selection + ctrl-F find.
@@ -78,6 +84,13 @@ export function PdfPreview({ target, srcUrl }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const { cwd, path } = target;
+  // The notice replaces the error state only for this viewer's OWN
+  // `/api/file/raw` source; a caller `srcUrl` (`rendered-pdf`, an EML `blob:`)
+  // keeps the plain error below. See change: surface-denial-remedy-in-previews.
+  const ownUrl = rawUrl({ kind: "file", cwd, path });
+  const media = useMediaDenial(ownUrl);
+  const onLoadError = media.onLoadError;
+  const attempt = media.attempt;
 
   // Construct the pdfjs `PDFViewer` once per document load; tear it down on
   // unmount / target change. If the effect is torn down before the async mount
@@ -88,21 +101,26 @@ export function PdfPreview({ target, srcUrl }: Props) {
     setError(null);
     const container = containerRef.current;
     if (!container) return;
-    mountViewer(container, srcUrl ?? rawUrl({ kind: "file", cwd, path }))
+    mountViewer(container, srcUrl ?? ownUrl)
       .then((h) => {
         if (cancelled) destroyViewer(h);
         else handle = h;
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "failed to load PDF");
+        if (cancelled) return;
+        if (srcUrl === undefined) onLoadError(e instanceof Error ? e.message : "failed to load PDF");
+        else setError(e instanceof Error ? e.message : "failed to load PDF");
       });
     return () => {
       cancelled = true;
       if (handle) destroyViewer(handle);
     };
-  }, [cwd, path, srcUrl]);
+  }, [ownUrl, srcUrl, attempt, onLoadError]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
+  if (srcUrl === undefined && media.phase.kind !== "media") {
+    return <MediaDenialNotice media={media} url={ownUrl} path={path} />;
+  }
 
   // pdfjs `PDFViewer` measures its container and requires a positioned parent
   // with a definite height plus an absolutely-positioned scroll container

@@ -54,7 +54,7 @@ const RATE_WINDOW_MS = 60_000;
 const SETTLED_MEMORY = GRANT_REGISTRY_CAPACITY * 4;
 
 /** Ladder conditions the CALLER decides, from the live request (D3, D6). */
-type PreconditionReason = "ineligible" | "report-mode" | "disabled" | "no-audience";
+export type PreconditionReason = "ineligible" | "report-mode" | "disabled" | "no-audience";
 /** Why a denial got no entry at all. */
 export type RefusalReason = "capacity" | "channel-share" | "deferred-share";
 /** Why an entry was recorded but not prompted, by the registry's own controls. */
@@ -89,7 +89,15 @@ export interface PendingGrant {
   plane: AccessPlaneId;
   subject: string;
   mode: GrantSettlementMode;
+  /** The creator's channel: owns the entry's capacity share, never moves. */
   channel: string;
+  /**
+   * Who the dialog is charged to (open-dialog bound, deferred per-channel prompt
+   * rate): the requester whose request prompted it. Set on promotion only; a
+   * join by an eligible requester re-points it (see change:
+   * surface-denial-remedy-in-previews, design D5).
+   */
+  dialogChannel?: string;
   store: string;
   ancestors: readonly string[];
   recordedAt: number;
@@ -104,7 +112,8 @@ export interface PendingGrant {
 export type RecordOutcome =
   | { kind: "prompt"; entry: PendingGrant }
   | { kind: "recorded"; entry: PendingGrant; reason: PreconditionReason | FloodReason }
-  | { kind: "joined"; entry: PendingGrant }
+  /** `reason`: why an eligible joiner could not promote the entry (its own flood checks). */
+  | { kind: "joined"; entry: PendingGrant; reason?: FloodReason }
   | { kind: "refused"; reason: RefusalReason };
 
 export type SettleOutcome =
@@ -242,8 +251,17 @@ export class PendingGrantRegistry {
       // it (backoff, a full dialog slot, an ineligible first requester) may have
       // cleared. Still at most one dialog per key: a prompted entry never
       // prompts twice.
-      if (!existing.prompted && precondition.promptable && !this.floodReason(existing, key, now)) {
-        return this.promote(existing, now);
+      //
+      // The dialog is decided and charged against the JOINER's channel, not the
+      // creator's: an opted-out creator is keyed by source address, and judging
+      // the operator's request against it would bypass the operator's own
+      // one-dialog bound. The entry share (`channel`) is untouched.
+      if (!existing.prompted && precondition.promptable) {
+        const flood = this.floodReason(existing, key, now, input.channel);
+        if (!flood) return this.promote(existing, now, input.channel);
+        this.stats.flooded[flood] = (this.stats.flooded[flood] ?? 0) + 1;
+        this.transition("flooded", existing, { reason: flood });
+        return { kind: "joined", entry: existing, reason: flood };
       }
       return { kind: "joined", entry: existing };
     }
@@ -282,7 +300,7 @@ export class PendingGrantRegistry {
       return { kind: "recorded", entry, reason: precondition.reason };
     }
 
-    const flood = this.floodReason(entry, key, now);
+    const flood = this.floodReason(entry, key, now, entry.channel);
     if (flood) {
       entry.suppressedBy = flood;
       this.stats.flooded[flood] = (this.stats.flooded[flood] ?? 0) + 1;
@@ -290,16 +308,17 @@ export class PendingGrantRegistry {
       return { kind: "recorded", entry, reason: flood };
     }
 
-    return this.promote(entry, now);
+    return this.promote(entry, now, entry.channel);
   }
 
-  /** Mark an entry prompted and charge the rate windows. */
-  private promote(entry: PendingGrant, now: number): RecordOutcome {
+  /** Mark an entry prompted, charge its dialog to `dialogChannel`, charge the rate windows. */
+  private promote(entry: PendingGrant, now: number, dialogChannel: string): RecordOutcome {
     entry.prompted = true;
     entry.suppressedBy = undefined;
+    entry.dialogChannel = dialogChannel;
     this.stats.prompted += 1;
     this.pushWindow(this.planePrompts, entry.plane, now);
-    this.pushWindow(this.channelPrompts, keyOf(entry.plane, entry.channel), now);
+    this.pushWindow(this.channelPrompts, keyOf(entry.plane, dialogChannel), now);
     this.transition("prompted", entry);
     return { kind: "prompt", entry };
   }
@@ -396,15 +415,18 @@ export class PendingGrantRegistry {
 
   // ---------------------------------------------------------------------------
 
-  /** Per-channel checks first, so starvation is attributed to the requester (E23). */
-  private floodReason(entry: PendingGrant, key: string, now: number): FloodReason | undefined {
+  /**
+   * Per-channel checks first, so starvation is attributed to the requester (E23).
+   * `dialogChannel` is the requester the dialog would be charged to.
+   */
+  private floodReason(entry: PendingGrant, key: string, now: number, dialogChannel: string): FloodReason | undefined {
     const until = this.backoffUntil.get(key);
     if (until !== undefined && now < until) return "backoff";
-    if (this.countChannelDialogs(entry.channel, entry) >= GRANT_CHANNEL_MAX_DIALOGS) return "channel-concurrent";
+    if (this.countChannelDialogs(dialogChannel, entry) >= GRANT_CHANNEL_MAX_DIALOGS) return "channel-concurrent";
     if (this.countDialogs(entry) >= GRANT_MAX_CONCURRENT_DIALOGS) return "concurrent-cap";
     if (
       entry.mode === "deferred" &&
-      this.windowCount(this.channelPrompts, keyOf(entry.plane, entry.channel), now) >=
+      this.windowCount(this.channelPrompts, keyOf(entry.plane, dialogChannel), now) >=
         GRANT_DEFERRED_CHANNEL_PROMPTS_PER_MINUTE
     ) {
       return "channel-rate";
@@ -444,9 +466,10 @@ export class PendingGrantRegistry {
     return n;
   }
 
-  private countChannelDialogs(channel: string, except: PendingGrant): number {
+  /** Open dialogs charged to `channel` (by `dialogChannel`, never the entry share). */
+  countChannelDialogs(channel: string, except?: PendingGrant): number {
     let n = 0;
-    for (const e of this.byId.values()) if (e.prompted && e.channel === channel && e !== except) n += 1;
+    for (const e of this.byId.values()) if (e.prompted && e.dialogChannel === channel && e !== except) n += 1;
     return n;
   }
 

@@ -30,6 +30,15 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { LiveServerTarget } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
 import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import {
+  type GroupByMode,
+  type GroupByPrefs,
+  isGroupByMode,
+  isLaneId,
+  type LaneId,
+  laneCollapseKey,
+  parseLaneCollapseKey,
+} from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import { safeRealpathSync } from "../resolve-path.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
@@ -128,6 +137,16 @@ interface PreferencesData {
    */
   collapsedFolders?: string[];
   /**
+   * Session-list grouping (change: session-list-group-by). All optional.
+   * `defaultGroupBy` absent ⇒ `none`. `folderGroupBy` keys and the folder
+   * half of `collapsedLanes` (`<pathKey>::<laneId>`) are `pathKey`-folded like
+   * `collapsedFolders` — never realpath'd, never pruned. Invalid values are
+   * dropped on load.
+   */
+  defaultGroupBy?: GroupByMode;
+  folderGroupBy?: Record<string, GroupByMode>;
+  collapsedLanes?: string[];
+  /**
    * Session-card section visibility: sparse global defaults + per-folder
    * overrides keyed by `cardSectionFolderKey` (`pathKey`-folded, never
    * realpath'd). Absent/corrupt → `{}` (all visible). Capped per design D4.
@@ -156,6 +175,15 @@ export interface PreferencesStore {
    * so the gateway broadcasts only on change.
    */
   setFolderCollapsed(dirPath: string, collapsed: boolean): boolean;
+  // ── session-list grouping (session-list-group-by) ────────────────
+  /** Aggregate snapshot (copies). */
+  getGroupByPrefs(): GroupByPrefs;
+  /** `mode === null` removes the override. Invalid mode → false, no write. True only on real change. */
+  setFolderGroupBy(dirPath: string, mode: GroupByMode | null): boolean;
+  /** Invalid or unchanged → false, no write. */
+  setDefaultGroupBy(mode: GroupByMode): boolean;
+  /** Invalid lane or no-op → false, no write. */
+  setLaneCollapsed(dirPath: string, lane: LaneId, collapsed: boolean): boolean;
   // ── card sections (configurable-session-card-sections) ──────────
   /** Deep-copied snapshot; `{}` when nothing is set. */
   getCardSections(): CardSectionPrefs;
@@ -501,6 +529,41 @@ export function createPreferencesStore(
   const collapsedFolders: string[] = dedupePreserveOrder(
     rawCollapsed.map((p) => pathKey(p, collapsedPlatform)),
   );
+  // Session-list grouping prefs (session-list-group-by). Same pathKey-fold
+  // rule as collapsedFolders; invalid entries dropped; corrupt containers → defaults.
+  let defaultGroupBy: GroupByMode = isGroupByMode(data.defaultGroupBy) ? data.defaultGroupBy : "none";
+  const rawFolderGroupBy =
+    data.folderGroupBy && typeof data.folderGroupBy === "object" && !Array.isArray(data.folderGroupBy)
+      ? (data.folderGroupBy as Record<string, unknown>)
+      : {};
+  const rawLanes = Array.isArray(data.collapsedLanes)
+    ? data.collapsedLanes.filter((e): e is string => typeof e === "string")
+    : [];
+  const groupPlatform = inferPlatform([
+    ...rawCollapsed,
+    ...Object.keys(rawFolderGroupBy),
+    ...rawLanes.map((e) => parseLaneCollapseKey(e)?.folderKey ?? ""),
+  ].filter(Boolean));
+  const folderGroupBy: Record<string, GroupByMode> = {};
+  for (const [k, v] of Object.entries(rawFolderGroupBy)) {
+    if (isGroupByMode(v)) folderGroupBy[pathKey(k, groupPlatform)] = v;
+  }
+  const collapsedLanes: string[] = dedupePreserveOrder(
+    rawLanes.flatMap((e) => {
+      const parsed = parseLaneCollapseKey(e);
+      return parsed ? [laneCollapseKey(pathKey(parsed.folderKey, groupPlatform), parsed.lane)] : [];
+    }),
+  );
+  /** Canonical folder key for a grouping write — platform inferred from every stored key. */
+  function groupFolderKey(dirPath: string): string {
+    const platform = inferPlatform([
+      dirPath,
+      ...collapsedFolders,
+      ...Object.keys(folderGroupBy),
+      ...collapsedLanes.map((e) => parseLaneCollapseKey(e)?.folderKey ?? ""),
+    ].filter(Boolean));
+    return pathKey(dirPath, platform);
+  }
   // Session-card section visibility (configurable-session-card-sections).
   const loadedCardSections = loadCardSections(data.cardSections);
   const cardSectionsGlobal = loadedCardSections.global;
@@ -567,7 +630,7 @@ let dirty =
       debounceTimer = null;
       if (dirty) {
         dirty = false;
-        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+        writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
       }
     }, DEBOUNCE_MS);
   }
@@ -579,7 +642,7 @@ let dirty =
     }
     if (dirty) {
       dirty = false;
-      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
+      writeJsonFile(filePath, { sessionOrder, pinnedDirectories, favoriteModels, workspaces, displayPrefs, openspecUpdateSignatures, autoInitWorktreeOnSpawn, autoNameSessions, pinSeeded, liveServers, collapsedFolders, defaultGroupBy, folderGroupBy, collapsedLanes, cardSections: cardSectionsForDisk() } satisfies PreferencesData);
     }
   }
 
@@ -692,6 +755,48 @@ let dirty =
     resetFolderCardSections(dirPath: string): boolean {
       if (!isValidFolderPath(dirPath)) return false;
       if (!cardSectionsFolders.delete(cardSectionFolderKey(dirPath))) return false;
+      scheduleSave();
+      return true;
+    },
+
+    // ── session-list grouping (session-list-group-by) ───────
+
+    getGroupByPrefs(): GroupByPrefs {
+      return { defaultGroupBy, folderGroupBy: { ...folderGroupBy }, collapsedLanes: [...collapsedLanes] };
+    },
+
+    setFolderGroupBy(dirPath: string, mode: GroupByMode | null): boolean {
+      if (mode !== null && !isGroupByMode(mode)) return false;
+      const key = groupFolderKey(dirPath);
+      if (mode === null) {
+        if (!(key in folderGroupBy)) return false;
+        delete folderGroupBy[key];
+      } else {
+        if (folderGroupBy[key] === mode) return false;
+        folderGroupBy[key] = mode;
+      }
+      scheduleSave();
+      return true;
+    },
+
+    setDefaultGroupBy(mode: GroupByMode): boolean {
+      if (!isGroupByMode(mode) || mode === defaultGroupBy) return false;
+      defaultGroupBy = mode;
+      scheduleSave();
+      return true;
+    },
+
+    setLaneCollapsed(dirPath: string, lane: LaneId, collapsed: boolean): boolean {
+      if (!isLaneId(lane)) return false;
+      const entry = laneCollapseKey(groupFolderKey(dirPath), lane);
+      const idx = collapsedLanes.indexOf(entry);
+      if (collapsed) {
+        if (idx !== -1) return false;
+        collapsedLanes.push(entry);
+      } else {
+        if (idx === -1) return false;
+        collapsedLanes.splice(idx, 1);
+      }
       scheduleSave();
       return true;
     },

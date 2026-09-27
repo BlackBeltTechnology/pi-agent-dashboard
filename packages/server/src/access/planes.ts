@@ -64,8 +64,14 @@ export function createFilesystemPlane(): HeldAccessPlane {
     yoloEligible: true,
     store,
     // The store's own canonical form, so a verdict and the grant it produces
-    // name the byte-identical subject.
-    subjectOf: (raw) => (raw ? normalizeGrantSubject(raw) : null),
+    // name the byte-identical subject. An ungrantable subject is never
+    // promptable: the resume path would refuse any allow (mirrors the cwd plane;
+    // see change: surface-denial-remedy-in-previews, design D7).
+    subjectOf: (raw) => {
+      if (!raw) return null;
+      const normalized = normalizeGrantSubject(raw);
+      return isUngrantableSubject(normalized) ? null : normalized;
+    },
     keyOf: identity,
     describe: (_subject, ancestors) => heldCopy(store, ancestors),
     async grant(req) {

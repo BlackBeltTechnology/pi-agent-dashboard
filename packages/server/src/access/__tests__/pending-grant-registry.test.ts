@@ -371,3 +371,56 @@ describe("4.4 transition log", () => {
     spy.mockRestore();
   });
 });
+
+describe("dialog owner: decided and charged against the requester that raises it (change: surface-denial-remedy-in-previews, D5)", () => {
+  const INELIGIBLE = { promptable: false, reason: "ineligible" } as const;
+  const source = sourceChannel("127.0.0.1");
+
+  it("#E19 an ineligible creator does not own the dialog an eligible joiner raises", () => {
+    const created = reg.record(fs("/d", { channel: source }), INELIGIBLE, T0);
+    expect(created.kind).toBe("recorded");
+    const joined = reg.record(fs("/d", { channel: "sock-S" }), OK, T0 + 1);
+    expect(joined.kind).toBe("prompt");
+    expect(reg.countChannelDialogs("sock-S")).toBe(1);
+    expect(reg.countChannelDialogs(source)).toBe(0);
+    // The entry still counts in the SOURCE channel's entry share.
+    expect(joined.kind === "prompt" && joined.entry.channel).toBe(source);
+    expect(joined.kind === "prompt" && joined.entry.dialogChannel).toBe("sock-S");
+  });
+
+  it("#E20 the one-dialog bound applies to a joined entry, and the join reports it", () => {
+    expect(reg.record(fs("/a"), { promptable: true }, T0).kind).toBe("prompt"); // sock-A has a dialog open
+    reg.record(fs("/b", { channel: source }), INELIGIBLE, T0);
+    const before = reg.snapshotStats().flooded["channel-concurrent"] ?? 0;
+    const joined = reg.record(fs("/b"), OK, T0 + 1);
+    expect(joined).toMatchObject({ kind: "joined", reason: "channel-concurrent" });
+    expect(joined.kind === "joined" && joined.entry.prompted).toBe(false);
+    expect(transitions.at(-1)).toMatchObject({ transition: "flooded", reason: "channel-concurrent", subject: "/b" });
+    expect(reg.snapshotStats().flooded["channel-concurrent"]).toBe(before + 1);
+  });
+
+  it("#E22 the deferred per-channel rate is the joiner's, not the creator's", () => {
+    const net = (subject: string, channel: string): DenialInput => ({
+      plane: "network",
+      subject,
+      mode: "deferred",
+      channel,
+      store: "config.trustedNetworks",
+    });
+    const first = reg.record(net("198.51.100.1", "R1"), OK, T0);
+    if (first.kind !== "prompt") throw new Error("expected prompt");
+    reg.settle(answer(first.entry, "deny"), T0);
+    // R1 has used its 1 prompt/min: its entry for Y is recorded unprompted.
+    expect(reg.record(net("198.51.100.2", "R1"), OK, T0 + 1_000)).toMatchObject({ reason: "channel-rate" });
+    // R2 joins: decided against R2's window, so it prompts.
+    const joined = reg.record(net("198.51.100.2", "R2"), OK, T0 + 2_000);
+    expect(joined.kind).toBe("prompt");
+    expect(joined.kind === "prompt" && joined.entry.dialogChannel).toBe("R2");
+    if (joined.kind === "prompt") reg.settle(answer(joined.entry, "deny"), T0 + 2_500);
+    // The prompt was charged to R2's window, not R1's: once R1's own window
+    // clears, R1 prompts again while R2 is still rate-limited.
+    expect(reg.record(net("198.51.100.3", "R2"), OK, T0 + 3_000)).toMatchObject({ reason: "channel-rate" });
+    const later = reg.record(net("198.51.100.4", "R1"), OK, T0 + 60_500);
+    expect(later.kind).toBe("prompt");
+  });
+});

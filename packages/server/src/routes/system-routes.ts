@@ -30,7 +30,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { isGenuinelyLocal, localhostGuard } from "../auth/localhost-guard.js";
+import { canDiscloseAccessPosture, localhostGuard } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
@@ -934,10 +934,7 @@ export function registerSystemRoutes(
     // `/api/health` is unguarded (tunnel-reachable): `accessGrants` names the
     // host-gate mode, YOLO state and whether an operator is online, so it is
     // served only to an authenticated or genuinely-local caller.
-    const mayReadAccess =
-      (request as { isAuthenticated?: boolean }).isAuthenticated === true ||
-      isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>);
-    if (mayReadAccess) {
+    if (canDiscloseAccessPosture(request)) {
       try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
     }
     let providerAuthError: string | null = null;

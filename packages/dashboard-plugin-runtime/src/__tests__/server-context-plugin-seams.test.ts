@@ -56,7 +56,7 @@ function memoryCredentials() {
       set: async (k, r) => { ns().set(k, r); },
       remove: async (k) => { ns().delete(k); },
       update: async (k, fn) => {
-        const next = await fn(ns().get(k));
+        const next = fn(ns().get(k));
         if (next === undefined) ns().delete(k); else ns().set(k, next);
         return next;
       },

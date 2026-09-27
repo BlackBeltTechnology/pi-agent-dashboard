@@ -1,7 +1,8 @@
 /**
  * Path-parameterised locked JSON file primitives: proper-lockfile lock with an
- * ELOCKED-only bounded retry, 0600 placeholder create, checked read with
- * byte-exact corrupt-file quarantine, and atomic tmp+rename write.
+ * ELOCKED-only bounded retry, contained compromise, sync-only critical
+ * section, 0600 placeholder create, checked read with byte-exact corrupt-file
+ * quarantine, and atomic tmp+rename write.
  *
  * Extracted verbatim from provider-auth-storage.ts so auth.json and
  * plugin-credentials.json share ONE implementation. The quarantine dedup is
@@ -18,7 +19,15 @@ const _require = createRequire(import.meta.url);
 const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
 
 /**
- * Lock options, carried verbatim across the sync→async switch.
+ * Lock options — the SINGLE source of the dashboard's lock contract, shared by
+ * `auth.json` and `plugin-credentials.json`.
+ *
+ * `stale: 30_000` is coupled to pi 0.86.1 `auth-storage.js` `acquireLockAsync`
+ * (`withLockAsync`), which holds the auth.json lock across its OAuth network
+ * refresh and refreshes the lockfile mtime only every `stale/2` = 15 s.
+ * proper-lockfile judges staleness by the ACQUIRER's `stale`, so any shorter
+ * value lets the dashboard steal pi's live lock mid-refresh.
+ * See change: harden-auth-json-lock-coordination (D1).
  *
  * `realpath: false` is load-bearing: the async `lock()` defaults it to `true`,
  * and resolving symlinks would have the dashboard and pi lock DIFFERENT
@@ -26,9 +35,9 @@ const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile"
  * dropping the mutual exclusion this lock exists for.
  * See change: fix-provider-auth-lock-contention.
  */
-const LOCK_OPTIONS = { stale: 10_000, realpath: false } as const;
+export const LOCK_OPTIONS = { stale: 30_000, realpath: false } as const;
 
-/** Total window the lock-held condition is retried before the write fails. */
+/** Default window the lock-held condition is retried before an INTERACTIVE write fails. */
 const LOCK_RETRY_BUDGET_MS = 2_000;
 
 /**
@@ -52,11 +61,15 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * would stall every HTTP request and WebSocket frame for the whole wait.
  * See change: fix-provider-auth-lock-contention.
  */
-async function acquireLock(filePath: string): Promise<() => Promise<void>> {
-  const deadline = Date.now() + LOCK_RETRY_BUDGET_MS;
+async function acquireLock(
+  filePath: string,
+  budgetMs: number,
+  onCompromised: (err: Error) => void,
+): Promise<() => Promise<void>> {
+  const deadline = Date.now() + budgetMs;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await _lockfile.lock(filePath, LOCK_OPTIONS);
+      return await _lockfile.lock(filePath, { ...LOCK_OPTIONS, onCompromised });
     } catch (err) {
       if ((err as { code?: unknown } | null)?.code !== "ELOCKED") throw err;
       const remaining = deadline - Date.now();
@@ -67,24 +80,58 @@ async function acquireLock(filePath: string): Promise<() => Promise<void>> {
   }
 }
 
+/** Rejects promise-like results at the type level (see `withLockedJsonFile`). */
+export type NotPromise<T> = T extends PromiseLike<unknown> ? never : unknown;
+
+export interface LockedJsonFileOptions {
+  /** Window the lock-held condition is retried. Default: the 2 s interactive window. */
+  budgetMs?: number;
+  /** Pre-create an empty 0600 file when absent. Default true. */
+  createIfMissing?: boolean;
+  /** Log prefix for the compromise warning. */
+  logTag?: string;
+}
+
 /**
  * Run `fn` while holding a proper-lockfile lock on `filePath`.
- * Ensures the file exists (lockfile requires the target to exist).
+ *
+ * `fn` MUST be synchronous: the lock is held only across a synchronous
+ * read-modify-write, so it cannot be held across network I/O and a compromise
+ * can never interleave with an awaited write. `NotPromise<T>` makes an async
+ * callback a compile error. See change: harden-auth-json-lock-coordination (D2).
+ *
+ * Compromise is CONTAINED: proper-lockfile's default `onCompromised` throws
+ * from its update timer and would crash the server. Each acquisition records
+ * the error in its own cell and logs its code only; a compromise observed
+ * before `fn` fails this operation with the recorded `ECOMPROMISED` error and
+ * leaves the file untouched.
  */
-export async function withLockedJsonFile<T>(filePath: string, fn: () => T | Promise<T>): Promise<T> {
+export async function withLockedJsonFile<T>(
+  filePath: string,
+  fn: () => T & NotPromise<T>,
+  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true, logTag = "locked-json" }: LockedJsonFileOptions = {},
+): Promise<T> {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  if (!fs.existsSync(filePath)) {
-    // Create an empty file so lockfile can lock it. 0600 explicitly: without
-    // it the placeholder lands at 0666 & ~umask (≈0644) and writeJsonAtomic's
-    // permission preservation carries that onto every later write — the
-    // credential file would be group/world-readable. See change:
-    // fix-corrupt-auth-json-500.
+  // With `realpath: false` proper-lockfile only `mkdir`s `<file>.lock`, so the
+  // target need not exist; the placeholder is for interactive writers.
+  if (createIfMissing && !fs.existsSync(filePath)) {
+    // 0600 explicitly: without it the placeholder lands at 0666 & ~umask
+    // (≈0644) and writeJsonAtomic's permission preservation carries that onto
+    // every later write. See change: fix-corrupt-auth-json-500.
     try { fs.writeFileSync(filePath, "{}\n", { flag: "wx", mode: 0o600 }); } catch { /* race-safe */ }
   }
 
-  const release = await acquireLock(filePath);
+  const cell: { compromised?: Error } = {};
+  const name = path.basename(filePath);
+  const onCompromised = (err: Error) => {
+    cell.compromised ??= err;
+    console.warn(`[${logTag}] ${name} lock compromised (${(err as { code?: string }).code ?? "unknown"})`);
+  };
+
+  const release = await acquireLock(filePath, budgetMs, onCompromised);
   try {
-    return await fn();
+    if (cell.compromised) throw cell.compromised;
+    return fn();
   } finally {
     // `release()` is a promise on the async API: an unlock failure
     // (`ERELEASED`, `EACCES`) must not surface as an unhandled rejection.
