@@ -29,6 +29,9 @@ async function openMenu(page: Page, cwd = CWD): Promise<void> {
 
 async function resetPrefs(): Promise<void> {
   await busSend([
+    // Shared container: an earlier spec may leave the folder collapsed, which
+    // hides the session cards `ensureGitSession` looks for.
+    { type: "set_folder_collapsed", path: CWD, collapsed: false },
     { type: "set_folder_group_by", path: CWD, mode: null },
     { type: "set_default_group_by", mode: "none" },
   ]);
