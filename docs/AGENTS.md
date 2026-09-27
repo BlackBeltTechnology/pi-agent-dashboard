@@ -80,6 +80,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `service-bootstrap.md` | 3 starters (Electron/Bridge/Standalone) × 2 surfaces (GUI/shell). Tool resolution (pi, openspec, node, tsx, bridge). `DASHBOARD_STARTER` env, `launchSource` on `/api/health`. |
 | `skills-as-subagents.md` | Skill↔subagent bridge analysis. Wrap skill via thin `.pi/agents/<Name>.md` (model role, `inherit_context`,… → see `skills-as-subagents.md.AGENTS.md` |
 | `slash-command.md` | Bridge routes typed `/foo` chat text to pi handlers. `parseSendPrompt` + `bridge.ts::sessionPrompt` 11-step… → see `slash-command.md.AGENTS.md` |
+| `system-one.md` | Shared decision registry. `@blackbelt-technology/pi-system-one` library (`predict` over `choice`/`score`/`noul`; config `~/.pi/agent/system-one.json`; `allowOffMachine` egress switch) + `@blackbelt-technology/pi-dashboard-system-one-plugin` (settings section "Decision models (System 1)", `/api/system-one/*`, managed Von/Laya). See change: add-system-one-registry. |
 | `ui-contract.md` | (repo root) Cross-screen design control plane. Single source of truth for visual consistency. → see `ui-contract.md.AGENTS.md` |
 | `untrusted-plugin-ui-gap.md` | Read-only gap analysis. Untrusted plugin UI via descriptor protocol (`extension-ui-system`) vs React path. 53% claims blocked (`react-only` slots). Rec: descriptors + sandboxed-iframe escape hatch. |
 | `user-features.md` | End-user feature subset. Curated from docs/features.md. Communicable to end users. Excludes internal plumbing, CI/QA, packaging, refactors. |

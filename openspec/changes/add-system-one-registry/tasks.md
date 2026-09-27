@@ -121,7 +121,7 @@ Exemplar for this group: `tests/e2e/blackhole-settings.spec.ts` (docker harness;
   - the query-shape rules stay.
 
   Verify: `openspec validate unify-context-manager` passes; the diff touches only D11.
-- [ ] 8.2 Delegate to DocScribe: `docs/system-one.md` covering the config reference, how to write a consumer (declaration + `predict` + applying the failure policy), and the egress and trust model. Add rows in `docs/AGENTS.md`. Verify: `grep -n "allowOffMachine" docs/system-one.md` hits.
+- [x] 8.2 Delegate to DocScribe: `docs/system-one.md` covering the config reference, how to write a consumer (declaration + `predict` + applying the failure policy), and the egress and trust model. Add rows in `docs/AGENTS.md`. Verify: `grep -n "allowOffMachine" docs/system-one.md` hits.
 - [ ] 8.3 Full verification:
   - `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` passes;
   - `npm run test:e2e` passes for the 7.x specs;
