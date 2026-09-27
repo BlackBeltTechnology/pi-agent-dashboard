@@ -25,7 +25,7 @@ interface BrowserRouteTab {
   title: string;
   url: string;
   state: BrowserRelayTabState;
-  reason?: "devtools";
+  reason?: "devtools" | "no-session";
 }
 
 /** One live instance row (no guid ever leaves the server). */

@@ -1,0 +1,58 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-music-production",
+  "version": "0.8.0",
+  "description": "Music-production pi skills: analyse a local audio file into a versioned music map (tempo, downbeat cut grid, key, sections, drops, stems), cut it to length on the beat grid with scored click-free joins, and pick irregular camera-punch hits for a beat-synced video edit. Python scripts, no TypeScript runtime.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/music-production"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "music",
+    "beat-grid",
+    "librosa",
+    "video-editing",
+    "showreel"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/music-analysis",
+      ".pi/skills/music-edit-to-length",
+      ".pi/skills/beat-sync-video"
+    ],
+    "tools": [
+      {
+        "id": "ffmpeg",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "uv",
+        "probe": "resolve",
+        "optional": true
+      }
+    ]
+  },
+  "files": [
+    ".pi/skills/",
+    "lib/",
+    "requirements-*.txt",
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__pycache__"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

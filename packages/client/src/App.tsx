@@ -46,6 +46,7 @@ import { LandingPage } from "./components/shell/LandingPage.js";
 import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
 import { MobileShell } from "./components/shell/MobileShell.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
+import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
@@ -181,7 +182,6 @@ import {
   ContentInlineFooterSlot,
   ContentViewSlot,createSlotRegistry, 
   FolderMenuProvider,
-  forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
   useShellOverlayRouteMatched,
@@ -2926,12 +2926,18 @@ export default function App() {
                    `<ContentViewSlot>` to return null while still satisfying
                    the `??` operator, masking sessionDetail / LandingPage.
                    See change: pluginize-flows-via-registry (design.md
-                   Decision 3 RECONSIDERED). */
-                const contentView =
-                  selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
-                    ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
-                    : null;
-                return contentView ?? renderSessionDetail(id);
+                   Decision 3 RECONSIDERED).
+                   The gate subscribes to slot-claims invalidation, so a
+                   predicate flip re-renders it on an idle session. See change:
+                   fix-browser-live-view-subscribe-and-reopen (D6). */
+                return (
+                  <SessionContentGate
+                    registry={_pluginRegistry}
+                    session={selectedId ? selectedSession : undefined}
+                    renderContentView={(session) => <ContentViewSlot session={session} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />}
+                    renderDetail={() => renderSessionDetail(id)}
+                  />
+                );
               }}
             />
           )
