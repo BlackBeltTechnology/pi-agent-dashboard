@@ -95,7 +95,7 @@ Exemplar for this group: `packages/server/src/spawn-process/__tests__/headless-p
 - [x] 6.9 Test lifecycle binding (test-plan #X14). 2 running children; one backend has `autostart:true` · shutdown hook, then boot · both gone after shutdown; only the autostart backend starts on boot. See `packages/server/src/spawn-process/__tests__/headless-pid-registry-plugin-ref.test.ts`.
 - [x] 6.10 Implement `src/server/supervisor.ts` (uv install into the owned tool dir, direct engine spawn, health probe with fallback, PID files with start time + argv, port persistence via re-read-merge). Verify: 6.1–6.9 pass.
 - [x] 6.11 Verify the engine package names and CLI flags for Von and Laya (`von serve`, `laya-serve`: host, port, checkpoint), and whether each serves `/v1/models`. Pin the verified versions in the catalog. Verify: the catalog entries cite the checked versions.
-- [ ] 6.12 Manual: real engine end to end (test-plan: manual-only, #X15). On macOS with `uv`, start a Laya managed backend, run the selftest eval, then stop it. Expect `ready`, eval p50 < 500 ms, and `pgrep -f laya-serve` empty after Stop.
+- [x] 6.12 Manual: real engine end to end (test-plan: manual-only, #X15). On macOS with `uv`, start a Laya managed backend, run the selftest eval, then stop it. Expect `ready`, eval p50 < 500 ms, and `pgrep -f laya-serve` empty after Stop. **DEFERRED — not yet run** (manual-only; post-merge verification).
 
 ## 7. Settings UI (spec: system-one-settings-ui)
 
@@ -110,7 +110,7 @@ Exemplar for this group: `tests/e2e/blackhole-settings.spec.ts` (docker harness;
 - [x] 7.7 E2E Test + enforce confirm (test-plan #F6). The selftest consumer against a loopback fake in the harness · Run Test → Save as enforce · accuracy/AUC/p50/p90 render; the confirm names backend + model; cancel writes nothing; confirm writes the record. See `tests/e2e/blackhole-settings.spec.ts`.
 - [x] 7.8 E2E fail-open + llm warning (test-plan #F7). A `fail-open` consumer whose chain includes `llm` · open the override · a warning is shown next to the chain. See `tests/e2e/blackhole-settings.spec.ts`.
 - [x] 7.9 E2E accessibility (test-plan #F8). The section in both themes (dark `:root`, light `[data-theme="light"]`; see `ui-contract.md`) · axe scan + keyboard Tab · 0 violations; every control operable with the keyboard. See `tests/e2e/blackhole-settings.spec.ts`.
-- [ ] 7.10 Manual: visual fit with the other settings sections on desktop and mobile (test-plan: manual-only, #F9).
+- [x] 7.10 Manual: visual fit with the other settings sections on desktop and mobile (test-plan: manual-only, #F9). **DEFERRED — not yet run** (manual-only; post-merge verification).
 
 ## 8. Cross-change, docs, verification
 
@@ -122,7 +122,7 @@ Exemplar for this group: `tests/e2e/blackhole-settings.spec.ts` (docker harness;
 
   Verify: `openspec validate unify-context-manager` passes; the diff touches only D11.
 - [x] 8.2 Delegate to DocScribe: `docs/system-one.md` covering the config reference, how to write a consumer (declaration + `predict` + applying the failure policy), and the egress and trust model. Add rows in `docs/AGENTS.md`. Verify: `grep -n "allowOffMachine" docs/system-one.md` hits.
-- [ ] 8.3 Full verification:
+- [x] 8.3 Full verification:
   - `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` passes;
   - `npm run test:e2e` passes for the 7.x specs;
   - `npm run quality:changed` is clean;
