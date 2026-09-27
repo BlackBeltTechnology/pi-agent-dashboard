@@ -23,6 +23,7 @@ export default defineConfig({
       "@blackbelt-technology/dashboard-plugin-runtime/test-support": path.resolve(__dirname, "../dashboard-plugin-runtime/src/test-support/index.ts"),
       "@blackbelt-technology/dashboard-plugin-runtime": path.resolve(__dirname, "../dashboard-plugin-runtime/src/index.ts"),
       "@blackbelt-technology/pi-dashboard-shared": path.resolve(__dirname, "../shared/src"),
+      "@blackbelt-technology/pi-system-one/capabilities": path.resolve(__dirname, "../system-one/src/capabilities.ts"),
       "@blackbelt-technology/pi-system-one": path.resolve(__dirname, "../system-one/src/index.ts"),
     },
   },

@@ -13,7 +13,8 @@
     "directory": "packages/system-one"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./capabilities": "./src/capabilities.ts"
   },
   "files": [
     "src/",
