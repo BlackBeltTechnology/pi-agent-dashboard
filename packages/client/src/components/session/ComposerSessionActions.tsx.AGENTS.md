@@ -1,3 +1,5 @@
 # ComposerSessionActions.tsx — index
 
 Composer-side session-action strip. Hosts OpenSpec artifact chips + action buttons + GIT group + read-only `composer-context-group` contributions (after GIT, before STATUS, OUTSIDE the streaming `<fieldset disabled>` so usage/context stays visible mid-run) + STATUS group. The early-return guard also consults `useSlotHasClaimsForSession("composer-context-group", …)` so a session with no OpenSpec dir, no worktree and no badge still shows its context groups. Hidden when no session selected and no host group / context-group claim. Host group markup unchanged. See change: redesign-session-card-and-composer, redesign-prompt-input, move-quota-to-context-strip.
+
+Lifecycle gating: Explore rendered only when unattached; Archive only when attached ∧ COMPLETE. Tasks chip = count chip (`completed/total` text, aria "Tasks N of M done", 2 px `composer-tasks-underline`), disabled while streaming; P/D/S stay enabled. `skipped` chip renders as done. Consumes reshaped `deriveStepperState` (no `attached`/`hasAnyChanges`). See change: compact-openspec-lifecycle-bar.

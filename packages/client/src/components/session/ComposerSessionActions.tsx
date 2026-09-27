@@ -25,7 +25,6 @@ import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ExploreDialog } from "../openspec/ExploreDialog.js";
 import { deriveStepperState } from "../openspec/OpenSpecStepper.js";
-import { buildOpenSpecTooltips } from "../openspec/SessionOpenSpecActions.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { TasksPopover } from "./TasksPopover.js";
@@ -147,7 +146,7 @@ function ArtifactChip({
   disabled,
   title,
   testId,
-  sub,
+  progress,
 }: {
   letter: string;
   /** Full artifact name for the accessible label, e.g. "Proposal". */
@@ -157,7 +156,8 @@ function ArtifactChip({
   disabled?: boolean;
   title: string;
   testId: string;
-  sub?: string;
+  /** Tasks count-chip mode: `completed/total` replaces the letter, 2 px underline shows the ratio. */
+  progress?: { completed: number; total: number };
 }) {
   // Color flows through the semantic --status-* token; the glyph (e.g. ✓ for
   // done) is the mandatory non-hue channel so done≠todo without color.
@@ -170,10 +170,14 @@ function ArtifactChip({
       onClick={(e) => { e.stopPropagation(); if (!disabled && onClick) onClick(); }}
       disabled={disabled || !onClick}
       title={title}
-      aria-label={statusAriaLabel(name, state, stateLabel)}
+      aria-label={
+        progress
+          ? i18nT("openspec.segment.tasksCount", { done: progress.completed, total: progress.total }, `Tasks ${progress.completed} of ${progress.total} done`)
+          : statusAriaLabel(name, state, stateLabel)
+      }
       data-testid={testId}
       data-state={state}
-      className="focus-ring inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed"
+      className="focus-ring relative overflow-hidden inline-flex items-baseline gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded border disabled:opacity-50 disabled:cursor-not-allowed"
       style={{
         color: pres.tokenVar,
         borderColor: `color-mix(in srgb, ${pres.tokenVar} 50%, transparent)`,
@@ -181,8 +185,19 @@ function ArtifactChip({
       }}
     >
       <span aria-hidden="true" className="text-[8px]">{pres.glyph}</span>
-      <span>{letter}</span>
-      {sub && <span className="text-[8px] font-normal opacity-80">{sub}</span>}
+      {progress ? (
+        <>
+          <span className="tabular-nums">{`${progress.completed}/${progress.total}`}</span>
+          <span
+            aria-hidden="true"
+            data-testid="composer-tasks-underline"
+            className="absolute left-0 bottom-0 h-[2px]"
+            style={{ width: `${Math.round((progress.completed / progress.total) * 100)}%`, backgroundColor: pres.tokenVar }}
+          />
+        </>
+      ) : (
+        <span>{letter}</span>
+      )}
     </button>
   );
 }
@@ -245,21 +260,18 @@ export function ComposerSessionActions({
   const showStatus = hasBadge;
   const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree;
 
-  const tips = buildOpenSpecTooltips({ attached, state: changeState, streaming });
-
   // Derive per-artifact-chip state via the shared stepper state derivation so
   // composer chips and sidecard stepper stay in sync.
   const stepperStates = deriveStepperState({
-    attached,
     artifacts: change?.artifacts ?? [],
     completedTasks: change?.completedTasks ?? 0,
     totalTasks: change?.totalTasks ?? 0,
     changeState,
-    hasAnyChanges: (changes?.length ?? 0) > 0,
   });
+  // Chips keep their look: `skipped` (hatched on the bar) renders as done here.
   const artifactChipState = (id: "proposal" | "design" | "specs" | "tasks"): "done" | "current" | "todo" => {
     const s = stepperStates[id];
-    return s === "done" || s === "current" ? s : "todo";
+    return s === "skipped" ? "done" : s;
   };
 
   // Nothing to render? Bail early so we don't add an empty group to StatusBar.
@@ -273,13 +285,16 @@ export function ComposerSessionActions({
       {showOpenSpec && (
         <>
           <GroupLabel testId="composer-openspec-group-label">{i18nT("openspec.openspec", undefined, "OpenSpec")}</GroupLabel>
-          {wf("explore") && (
+          {/* Explore hidden (not disabled) once a change is attached — the
+              session card's ⋯ carries the change-scoped Explore….
+              See change: compact-openspec-lifecycle-bar. */}
+          {wf("explore") && !attached && (
             <IconButton
               icon={mdiCompassOutline}
               label={i18nT("common.explore", undefined, "Explore")}
               onClick={() => setExploreOpen(true)}
-              disabled={!!attached || streaming}
-              title={streaming ? "Session is streaming" : tips.explore}
+              disabled={streaming}
+              title={streaming ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : undefined}
               testId="composer-explore-btn"
               variant="info"
             />
@@ -317,7 +332,7 @@ export function ComposerSessionActions({
                 <ArtifactChip
                   letter="T"
                   name={i18nT("openspec.artifactTasks", undefined, "Tasks")}
-                  sub={`${change.completedTasks}/${change.totalTasks}`}
+                  progress={{ completed: change.completedTasks, total: change.totalTasks }}
                   state={artifactChipState("tasks")}
                   title={i18nT("openspec.openTaskList", undefined, "Open task list")}
                   testId="composer-artifact-t"
@@ -371,13 +386,13 @@ export function ComposerSessionActions({
               variant="success"
             />
           )}
-          {wf("archive") && (
+          {wf("archive") && attached && changeState === ChangeState.COMPLETE && (
             <IconButton
               icon={mdiArchiveOutline}
               label={i18nT("openspec.archive", undefined, "Archive")}
               onClick={() => setArchiveConfirm(true)}
-              disabled={!attached || streaming || changeState !== ChangeState.COMPLETE}
-              title={tips.archive}
+              disabled={streaming}
+              title={streaming ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : undefined}
               testId="composer-archive-btn"
               variant="accent"
             />
