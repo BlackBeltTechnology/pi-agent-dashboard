@@ -9,3 +9,4 @@ REST routes: config, health, shutdown, tunnel. External-editor endpoints `/api/e
 `/api/health.accessGrants` served only when `request.isAuthenticated` or `isGenuinelyLocal(ip, headers)` (tunnel-forwarded 127.0.0.1 excluded); else `null` — endpoint is unguarded. See change: add-access-grant-dialog (2b.7 review).
 
 See change: surface-denial-remedy-in-previews — `/api/health` access block gated by shared `canDiscloseAccessPosture`.
+`bundleHash` policy honours `fixturePluginsEnabled()` (`!config.dev && !fixturePluginsEnabled()`), matching the vite fixture gate. See change: expose-plugin-credential-and-oauth-seams.

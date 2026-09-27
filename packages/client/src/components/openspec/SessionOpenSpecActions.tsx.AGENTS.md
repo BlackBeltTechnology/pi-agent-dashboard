@@ -1,3 +1,5 @@
 # SessionOpenSpecActions.tsx — index
 
-OpenSpec action panel for a session (attach/detach, New/Propose/Explore, Continue/FF/Apply/Verify/Archive, `OpenSpecStepper`, `TasksPopover`, `ReplaceProposalDialog`). Config-driven workflow gating via `openspecConfig`. Exports `SessionOpenSpecActions`, `buildOpenSpecTooltips`.
+OpenSpec action panel for a session (attach/detach, New/Propose/Explore, Continue/FF/Apply/Verify/Archive, `OpenSpecStepper`, `TasksPopover`, `ReplaceProposalDialog`). Config-driven workflow gating via `openspecConfig`. Exports `SessionOpenSpecActions`.
+
+Attached header = badge + ONE primary (first `wf()`-enabled candidate: PLANNING continue→ff, READY/IMPLEMENTING apply, COMPLETE archive→verify) + `⋯` `OverflowMenu` (client-utils `Popover`, body portal; items `ff-btn`/`verify-btn`/`archive-anyway-btn`/`explore-menu-item`/`detach-btn`, every handler `stopPropagation`; first item focused via rAF, `⋯` refocused on dismiss). Streaming → primary `aria-disabled`, menu items disabled except Detach, Tasks segment inert. Ended + not-found → `⋯` with only Detach. `onArchive` passed to the bar only when COMPLETE ∧ idle ∧ `wf("archive")`. `StatePill`, inline Explore and disabled Archive removed; `buildOpenSpecTooltips` deleted. See change: compact-openspec-lifecycle-bar.

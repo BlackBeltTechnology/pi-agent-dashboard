@@ -22,3 +22,7 @@ Auto-session-naming streams through pi's OWN `ctx.modelRegistry.streamSimple` (d
 
 
 Terminal-hosted `/reload`: `reload` option = `createTerminalReload(...).reload` (self-dispatch `/__dashboard_reload <token>`, pi >= 0.84.2). `__dashboard_reload` handler delegates to `handleReloadCommand`. `session_start` runs `consumePendingReloadOnSessionStart` synchronously at top; sends `reloadCompletedFeedback` once, after `replay_complete`. `session_shutdown{reason:"reload"}` calls `releaseBridgeOwnerOnShutdown` → reloaded instance passes `isBridgeReentry` guard (spike: before, every in-process reload orphaned the dashboard session). `RELOAD_KEY` / captured reload fn removed. See change: fix-terminal-session-dashboard-reload.
+
+Installs the plugin-request symbol on `onOpen`, uninstalls + `failAll("disconnected")` on `onClose`; `plugin_reply` → `pluginRequests.handleReply` (never re-emitted on `pi.events`). See change: expose-plugin-credential-and-oauth-seams.
+
+Plugin lane uses `connection.sendIfOpen`; `pluginLaneUp/Down` follow the CURRENT connection (`primaryConnection` guard) and the `/dashboard-connect` move target (its `onOpen`/`onClose` + `plugin_reply` dispatch; lane re-raised after rebind). See change: expose-plugin-credential-and-oauth-seams.

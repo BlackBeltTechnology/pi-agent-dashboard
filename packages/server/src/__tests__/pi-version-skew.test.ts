@@ -251,7 +251,8 @@ describe("pi pin block \u2014 0.86.1", () => {
       const range = pkg.peerDependencies?.["@earendil-works/pi-coding-agent"];
       if (range) peers.push({ name: dir, range });
     }
-    expect(peers.length).toBe(9);
+    // 10th: packages/untrusted-content-guard (change: add-untrusted-content-guard).
+    expect(peers.length).toBe(10);
     for (const { name, range } of peers) {
       expect(range, `${name} peer range must stay broad`).toBe(">=0.80.10");
     }

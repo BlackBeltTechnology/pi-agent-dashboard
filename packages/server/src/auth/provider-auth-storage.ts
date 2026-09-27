@@ -10,15 +10,9 @@
  * See changes: replace-hardcoded-provider-lists, delegate-provider-oauth-to-pi-ai.
  */
 
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-
-const _require = createRequire(import.meta.url);
-const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
 
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -27,6 +21,16 @@ import {
   getOAuthRegistry,
   type OAuthRegistryEntry,
 } from "./provider-auth-handlers.js";
+import {
+  type CheckedJsonRead,
+  corruptUnbackedRefusal as corruptUnbackedRefusal_,
+  LOCK_OPTIONS,
+  type NotPromise,
+  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
+  readJsonChecked,
+  withLockedJsonFile,
+  writeJsonAtomic,
+} from "./locked-json-file.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -44,31 +48,18 @@ interface OAuthProviderMeta {
   flowType: "auth_code" | "device_code";
 }
 
-// ── Lock helpers (proper-lockfile) ───────────────────────────────────────────
+// ── Locked file I/O ──────────────────────────────────────────────────────────
 //
-// Upgraded from mkdir-based lock to proper-lockfile to match pi-coding-agent's
-// AuthStorage lock convention. See change: add-dashboard-model-proxy task 2.5.
+// Lock (pi-coupled `LOCK_OPTIONS`, contained compromise, sync-only critical
+// section), checked read, quarantine and atomic write live in
+// locked-json-file.ts, shared with the plugin credential store. auth.json
+// behaviour is unchanged. See changes: fix-provider-auth-lock-contention,
+// fix-corrupt-auth-json-500, harden-auth-json-lock-coordination,
+// expose-plugin-credential-and-oauth-seams (D1).
 
-/**
- * Lock options — the SINGLE source of the dashboard's auth.json lock contract.
- *
- * `stale: 30_000` is coupled to pi 0.86.1 `auth-storage.js` `acquireLockAsync`
- * (`withLockAsync`), which holds this same lock across its OAuth network
- * refresh and refreshes the lockfile mtime only every `stale/2` = 15 s.
- * proper-lockfile judges staleness by the ACQUIRER's `stale`, so any shorter
- * value here lets the dashboard steal pi's live lock mid-refresh.
- * See change: harden-auth-json-lock-coordination (D1).
- *
- * `realpath: false` is load-bearing: the async `lock()` defaults it to `true`,
- * and resolving symlinks would have the dashboard and pi lock DIFFERENT
- * lockfiles on a symlinked home (docker volume, network mount) — silently
- * dropping the mutual exclusion this lock exists for.
- * See change: fix-provider-auth-lock-contention.
- */
-export const LOCK_OPTIONS = { stale: 30_000, realpath: false } as const;
+const LOG_TAG = "provider-auth";
 
-/** Total window the lock-held condition is retried before an INTERACTIVE write fails. */
-const LOCK_RETRY_BUDGET_MS = 2_000;
+export { LOCK_OPTIONS };
 
 /**
  * Lock window for the internal OAuth refresh path: pi's 15 s refresh timeout
@@ -84,48 +75,6 @@ export function _setRefreshLockBudgetForTests(ms: number | null): void {
   refreshLockBudgetMs = ms ?? REFRESH_LOCK_BUDGET_MS;
 }
 
-/**
- * Await between attempts. The cap matters more than the growth: several writers
- * queued behind one holder have to drain in sequence inside the budget.
- */
-const LOCK_RETRY_BACKOFF_MS = [25, 50, 100] as const;
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/**
- * Acquire the auth.json lock, retrying ONLY the lock-already-held condition
- * (`ELOCKED`) for a bounded window.
- *
- * Deliberately NOT proper-lockfile's own `retries` option: its retry driver
- * re-runs on ANY truthy error, so an `EACCES`/`EPERM` would silently consume
- * the whole window before surfacing. Every other lock or I/O failure must
- * propagate immediately.
- *
- * The wait is an awaited timer, never `Atomics.wait`: a blocked event loop
- * would stall every HTTP request and WebSocket frame for the whole wait.
- * See change: fix-provider-auth-lock-contention.
- */
-async function acquireAuthLock(
-  budgetMs: number,
-  onCompromised: (err: Error) => void,
-): Promise<() => Promise<void>> {
-  const deadline = Date.now() + budgetMs;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await _lockfile.lock(AUTH_PATH, { ...LOCK_OPTIONS, onCompromised });
-    } catch (err) {
-      if ((err as { code?: unknown } | null)?.code !== "ELOCKED") throw err;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw err;
-      const backoff = LOCK_RETRY_BACKOFF_MS[Math.min(attempt, LOCK_RETRY_BACKOFF_MS.length - 1)];
-      await sleep(Math.min(backoff, remaining));
-    }
-  }
-}
-
-/** Rejects promise-like results at the type level (see `withLock`). */
-type NotPromise<T> = T extends PromiseLike<unknown> ? never : unknown;
-
 export interface WithLockOptions {
   /** Window the lock-held condition is retried. Default: the 2 s interactive window. */
   budgetMs?: number;
@@ -134,207 +83,33 @@ export interface WithLockOptions {
 }
 
 /**
- * Run `fn` while holding a proper-lockfile lock on auth.json.
- *
- * `fn` MUST be synchronous: the lock is held only across a synchronous
- * read-modify-write, so it cannot be held across network I/O and a compromise
- * can never interleave with an awaited write. `NotPromise<T>` makes an async
- * (or promise-returning) callback a compile error — a plain `() => T` would
- * infer `T = Promise<X>`. See change: harden-auth-json-lock-coordination (D2).
- *
- * Compromise is CONTAINED: proper-lockfile's default `onCompromised` throws
- * from its update timer and would crash the server. Each acquisition records
- * the error in its own cell and logs its code only; a compromise observed
- * before `fn` fails this operation with the recorded `ECOMPROMISED` error and
- * leaves auth.json untouched.
+ * Run `fn` while holding the auth.json lock. `fn` MUST be synchronous
+ * (`NotPromise<T>`); see `withLockedJsonFile`.
+ * See change: harden-auth-json-lock-coordination (D2).
  */
-export async function withLock<T>(
-  fn: () => T & NotPromise<T>,
-  { budgetMs = LOCK_RETRY_BUDGET_MS, createIfMissing = true }: WithLockOptions = {},
-): Promise<T> {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  // With `realpath: false` proper-lockfile only `mkdir`s `auth.json.lock`, so
-  // the target need not exist; the placeholder is for interactive writers.
-  if (createIfMissing && !fs.existsSync(AUTH_PATH)) {
-    // Create empty auth file so lockfile can lock it. 0600 explicitly: without
-    // it the placeholder lands at 0666 & ~umask (≈0644) and writeAuthJson's
-    // permission preservation carries that onto every later write — the
-    // credential file would be group/world-readable. See change:
-    // fix-corrupt-auth-json-500.
-    try { fs.writeFileSync(AUTH_PATH, "{}\n", { flag: "wx", mode: 0o600 }); } catch { /* race-safe */ }
-  }
-
-  const cell: { compromised?: Error } = {};
-  const onCompromised = (err: Error) => {
-    cell.compromised ??= err;
-    console.warn(`[provider-auth] auth.json lock compromised (${(err as { code?: string }).code ?? "unknown"})`);
-  };
-
-  const release = await acquireAuthLock(budgetMs, onCompromised);
-  try {
-    if (cell.compromised) throw cell.compromised;
-    return fn();
-  } finally {
-    // `release()` is a promise on the async API: the previous sync
-    // `try { release(); } catch {}` could not catch an unlock failure
-    // (`ERELEASED`, `EACCES`), which instead surfaced as an unhandled rejection
-    // and took the process down. See change: fix-provider-auth-lock-contention.
-    try { await release(); } catch { /* ignore cleanup errors */ }
-  }
+export function withLock<T>(fn: () => T & NotPromise<T>, opts: WithLockOptions = {}): Promise<T> {
+  return withLockedJsonFile(AUTH_PATH, fn, { ...opts, logTag: LOG_TAG });
 }
 
-// ── File operations ──────────────────────────────────────────────────────────
-
-// ── Corrupt-content recovery ──────────────────────────────────────────
-//
-// auth.json is shared with pi processes and can be truncated/emptied by an
-// interrupted write. Read tolerance and write safety are SPLIT: a read never
-// fails on bad content (it quarantines a copy and returns {}), a write never
-// destroys bytes it could not first copy aside. See change:
-// fix-corrupt-auth-json-500.
-
-/**
- * Internal carrier of a checked read. `quarantined: true` means a backup of
- * these exact bytes exists on disk — NOT that this call performed the copy.
- */
-interface CheckedAuthRead {
-  data: AuthData;
-  /** Bytes were readable but not a JSON plain object. */
-  corrupt: boolean;
-  /** A backup of these exact bytes exists on disk (this call, or a dedup hit). */
-  quarantined: boolean;
-}
-
-/** In-process dedup of quarantined content: sha256 hex → recorded only on a successful copy. */
-const quarantinedBackups = new Set<string>();
-
-/** Test seam: clear the quarantine dedup set between assertions. */
+/** Test seam: clear the quarantine dedup between assertions. */
 export function _resetQuarantineDedupForTests(): void {
-  quarantinedBackups.clear();
+  _resetLockedJsonQuarantineDedup();
 }
 
-/** `YYYYMMDDTHHMMSSsssZ` — sortable, millisecond precision, and NTFS-safe (no `:`). */
-function quarantineStamp(date = new Date()): string {
-  return date.toISOString().replace(/[-:]/g, "").replace(".", "");
-}
-
-/**
- * Copy the bad bytes to `auth.json.corrupt-<stamp>[-N]` and report success.
- *
- * The bytes WRITTEN are the exact bytes that were read and hashed — never a
- * fresh re-read of the file. A `copyFileSync` here would re-read the CURRENT
- * file, and on the unlocked read path pi can replace auth.json in between,
- * yielding a backup of content Y while the dedup set records sha256(X) — the
- * one scenario where the write-path refusal could then destroy X with no real
- * backup of X. Writing the in-memory buffer is byte-exact by construction and
- * is a COPY, never a rename: pi replaces auth.json atomically, so a read→rename
- * is a TOCTOU that can move away a file that became valid between our read and
- * the rename.
- *
- * The `wx` flag means two dashboards (or a crash-looping pi) on one $HOME never
- * overwrite an existing backup; on EEXIST a `-1`, `-2`, … suffix is appended.
- * Mode 0600: truncated credential files usually still contain intact secrets.
- *
- * Returns true also on a DEDUP HIT — the flag means "a backup of these exact
- * bytes was made earlier in this process", not "this call performed the copy"
- * and not "the backup still exists". The hash is recorded only after a
- * successful write so a failed write is retried, never latched.
- */
-function quarantineCorruptAuthFile(bytes: Buffer): boolean {
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  if (quarantinedBackups.has(digest)) return true;
-
-  const base = `${AUTH_PATH}.corrupt-${quarantineStamp()}`;
-  let target = base;
-  for (let n = 1; ; n++) {
-    try {
-      fs.writeFileSync(target, bytes, { flag: "wx", mode: 0o600 });
-    } catch (err: any) {
-      if (err?.code === "EEXIST") { target = `${base}-${n}`; continue; }
-      // A failed exclusive create can leave an empty/partial file behind;
-      // remove it so the retry reuses the same name instead of stacking -N.
-      try { fs.unlinkSync(target); } catch { /* best-effort cleanup */ }
-      console.warn(`[provider-auth] Could not quarantine corrupt auth.json: write ${target} failed:`, err?.message ?? err);
-      return false;
-    }
-    quarantinedBackups.add(digest);
-    // One announcement: path + reason. Never the file's contents.
-    console.warn(`[provider-auth] auth.json is corrupt (unparseable content); quarantined a byte-exact copy to ${target}`);
-    return true;
-  }
-}
-
-/** Parse with BOM tolerance; non-plain-object JSON is corrupt by definition. */
-function parseAuthData(raw: string): AuthData {
-  const stripped = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const parsed: unknown = JSON.parse(stripped);
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new SyntaxError("auth.json content is not a JSON object");
-  }
-  return parsed as AuthData;
-}
-
-/**
- * Checked read. Content failures (empty/truncated/non-object) never throw:
- * they quarantine the bytes and return `{}` with `corrupt: true`. Read
- * failures (EACCES, EISDIR, …) are NOT content failures and still throw —
- * an unreadable file is a deployment bug, not corruption. ENOENT keeps its
- * meaning: `{}`, corrupt: false.
- */
-function readAuthJsonChecked(): CheckedAuthRead {
-  let bytes: Buffer;
-  try {
-    bytes = fs.readFileSync(AUTH_PATH);
-  } catch (err: any) {
-    if (err.code === "ENOENT") return { data: {}, corrupt: false, quarantined: false };
-    throw err;
-  }
-  try {
-    return { data: parseAuthData(bytes.toString("utf-8")), corrupt: false, quarantined: false };
-  } catch (err: any) {
-    if (!(err instanceof SyntaxError)) throw err;
-    const quarantined = quarantineCorruptAuthFile(bytes);
-    return { data: {}, corrupt: true, quarantined };
-  }
+function readAuthJsonChecked(): CheckedJsonRead<AuthData> {
+  return readJsonChecked<AuthData>(AUTH_PATH, LOG_TAG);
 }
 
 export function readAuthJson(): AuthData {
   return readAuthJsonChecked().data;
 }
 
-/** Write-path refusal reason. Names the file, never any credential material. */
 function corruptUnbackedRefusal(): Error {
-  return new Error(
-    `Refusing to write credentials: ${AUTH_PATH} is corrupt and could not be backed up. ` +
-    `Fix or remove the file manually, then try again.`,
-  );
+  return corruptUnbackedRefusal_(AUTH_PATH);
 }
 
 function writeAuthJson(data: AuthData, forceMode?: number): void {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  const tmp = AUTH_PATH + ".tmp";
-  const content = JSON.stringify(data, null, 2) + "\n";
-
-  // Preserve existing permissions or use 0600 for new file — with group/world
-  // bits always cleared: a legacy 0644 credential file must not stay
-  // group/world-readable forever just because preservation copies its mode
-  // forward. A corrupt-file repair forces 0600 outright: the corrupt file may
-  // carry arbitrary wider bits. See change: fix-corrupt-auth-json-500.
-  let mode = 0o600;
-  if (forceMode !== undefined) {
-    mode = forceMode;
-  } else {
-    try {
-      mode = fs.statSync(AUTH_PATH).mode & 0o777 & 0o700;
-    } catch { /* file doesn't exist yet */ }
-  }
-
-  fs.writeFileSync(tmp, content, { mode });
-  // writeFileSync's mode applies only at CREATION: a auth.json.tmp surviving
-  // from a crashed earlier write (e.g. 0644 from an older build) would keep
-  // its mode through the rename and publish the credential world-readable.
-  fs.chmodSync(tmp, mode);
-  fs.renameSync(tmp, AUTH_PATH);
+  writeJsonAtomic(AUTH_PATH, data, forceMode);
 }
 
 // ── Internal OAuth refresh: locked snapshot + compare-and-swap ─────────────

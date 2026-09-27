@@ -3,8 +3,11 @@
  * Fixture for dashboard-plugin-runtime end-to-end tests.
  * DO NOT use in production.
  */
-import React, { useState } from "react";
+
+import { oauthFlowClient, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type React from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface DemoConfig {
   greeting: string;
@@ -61,6 +64,118 @@ export function DemoSettings() {
       >
         Save
       </button>
+      <DemoSignIn />
+    </div>
+  );
+}
+
+type FlowState = React.ComponentProps<ReturnType<typeof useUiPrimitive<"ui:oauth-flow">>>["flow"];
+
+type FlowStatus = NonNullable<FlowState["status"]>;
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** `complete`, or the flow's error / terminal status. */
+function terminalOutcome(status: FlowStatus): string {
+  if (status.status === "complete") return "complete";
+  return status.error ?? status.status;
+}
+
+/** Poll a flow every 500 ms: `onPending` while pending, `onDone(outcome)` once terminal. */
+function useFlowPoll(
+  flowId: string | undefined,
+  onPending: (status: FlowStatus) => void,
+  onDone: (outcome: string) => void,
+) {
+  const pendingRef = useRef(onPending);
+  const doneRef = useRef(onDone);
+  pendingRef.current = onPending;
+  doneRef.current = onDone;
+  useEffect(() => {
+    if (!flowId) return;
+    let stopped = false;
+    const tick = () =>
+      oauthFlowClient.status(flowId).then(
+        (status) => {
+          if (stopped) return;
+          if (status.status === "pending") pendingRef.current(status);
+          else doneRef.current(terminalOutcome(status));
+        },
+        (err: unknown) => {
+          if (!stopped) doneRef.current(errorText(err));
+        },
+      );
+    const timer = setInterval(() => { void tick(); }, 500);
+    return () => { stopped = true; clearInterval(timer); };
+  }, [flowId]);
+}
+
+/**
+ * DemoSignIn — exercises the plugin OAuth seam end-to-end: POST
+ * /api/plugins/demo/sign-in starts a fake flow via `ctx.oauth.startFlow`, the
+ * flow renders through the `ui:oauth-flow` primitive, and completion persists
+ * via `ctx.credentials`. See change: expose-plugin-credential-and-oauth-seams (D8).
+ */
+function DemoSignIn() {
+  const OAuthFlow = useUiPrimitive("ui:oauth-flow");
+  const [flow, setFlow] = useState<FlowState | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
+  const [outcome, setOutcome] = useState<string | null>(null);
+
+  const refreshAccount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/plugins/demo/account");
+      if (res.ok) setSignedIn(((await res.json()) as { signedIn?: boolean }).signedIn === true);
+    } catch { /* fixture: best-effort */ }
+  }, []);
+
+  useEffect(() => { void refreshAccount(); }, [refreshAccount]);
+
+  const flowId = flow?.status?.flowId;
+  useFlowPoll(flowId, (status) => setFlow({ phase: "waiting", status }), (outcomeText) => {
+    setFlow(null);
+    setOutcome(outcomeText);
+    void refreshAccount();
+  });
+
+  const start = async () => {
+    setOutcome(null);
+    setFlow({ phase: "starting" });
+    try {
+      const res = await fetch("/api/plugins/demo/sign-in", { method: "POST" });
+      const body = (await res.json()) as { flowId?: string; error?: string };
+      if (!res.ok || !body.flowId) throw new Error(body.error ?? `HTTP ${res.status}`);
+      setFlow({ phase: "waiting", status: await oauthFlowClient.status(body.flowId) });
+    } catch (err) {
+      setFlow(null);
+      setOutcome(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div data-testid="demo-oauth" style={{ marginTop: "8px" }}>
+      <div data-testid="demo-oauth-account" style={{ fontSize: "12px" }}>
+        {signedIn ? "signed in" : "signed out"}
+      </div>
+      {outcome && (
+        <div data-testid="demo-oauth-outcome" style={{ fontSize: "12px" }}>{outcome}</div>
+      )}
+      {flow ? (
+        <OAuthFlow
+          flow={flow}
+          onSendInput={(id, value) => oauthFlowClient.input(id, value)}
+          onCancel={(id) => { void oauthFlowClient.cancel(id); }}
+        />
+      ) : (
+        <button
+          type="button"
+          data-testid="demo-oauth-start"
+          onClick={() => void start()}
+          style={{ fontSize: "12px", padding: "2px 8px" }}
+        >
+          Start demo sign-in
+        </button>
+      )}
     </div>
   );
 }

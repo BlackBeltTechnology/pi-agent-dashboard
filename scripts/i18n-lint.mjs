@@ -32,6 +32,12 @@ function listPluginSrc() {
 // rendered surface) — excluded from the shipped-UI scan.
 const DEAD_CODE = [/flows-plugin\/src\/client\/FlowsCommandRoutes\.tsx$/];
 
+// Not SPA UI: the loopback OAuth callback's completion page is served by a
+// bare node:http listener to the SYSTEM browser, outside the client and its
+// i18n runtime. Plugins override it via `successHtml`.
+// See change: expose-plugin-credential-and-oauth-seams (D5).
+const NON_SPA_PAGES = [/dashboard-plugin-runtime\/src\/server\/loopback-callback\.ts$/];
+
 function walk(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -72,7 +78,8 @@ function walk(dir) {
     } else if (
       /\.(tsx?|jsx?)$/.test(e.name) &&
       !/\.test\.|i18n(-|\.)/.test(e.name) &&
-      !DEAD_CODE.some((re) => re.test(p))
+      !DEAD_CODE.some((re) => re.test(p)) &&
+      !NON_SPA_PAGES.some((re) => re.test(p))
     ) {
       out.push(p);
     }

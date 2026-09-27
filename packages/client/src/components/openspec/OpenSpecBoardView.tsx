@@ -1063,8 +1063,6 @@ function ProposalCard(props: {
 }) {
   const { change: c, groupKey, sessions, openspecMap } = props;
   const sortable = useSortable({ id: c.name, data: { type: "card", groupKey } });
-  const state = deriveChangeState(c);
-  const pct = c.totalTasks > 0 ? Math.round((100 * c.completedTasks) / c.totalTasks) : 0;
   // Aggregate the most-urgent child-session state into one card-level stripe.
   // See change: port-session-card-state-visuals-to-openspec-board.
   const cardStripeFx = deriveProposalCardState(sessions);
@@ -1081,30 +1079,18 @@ function ProposalCard(props: {
       {cardStripeFx ? <div className={`card-stripes-fx ${cardStripeFx}`} aria-hidden="true" /> : null}
       <div className="flex items-center gap-1.5">
         <span className="text-[var(--text-primary)] font-semibold text-[12px] flex-1 min-w-0 truncate" data-testid="board-card-name">{c.name}</span>
-        <BoardStatePill state={state} testId="board-card-state" />
       </div>
 
-      {/* Lifecycle stepper */}
+      {/* Lifecycle bar — its current segment + Tasks count replace the state
+          pill and progress block. See change: compact-openspec-lifecycle-bar (D7). */}
       <div className="mt-2" onPointerDown={(e) => e.stopPropagation()}>
         <OpenSpecStepper
           variant="compact"
           change={c}
-          attached={null}
-          hasAnyChanges
           onReadArtifact={props.onReadArtifact}
           onOpenTasks={props.onOpenTasks}
         />
       </div>
-
-      {/* Task progress */}
-      {c.totalTasks > 0 && (
-        <div className="mt-1.5" data-testid="board-card-progress">
-          <div className="h-1 rounded-[3px] bg-[var(--bg-secondary)] overflow-hidden">
-            <i className="block h-full bg-green-500" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="text-[9px] text-[var(--text-tertiary)] mt-0.5">{c.completedTasks}/{c.totalTasks} {i18nT("openspec.tasks2", undefined, "tasks ·")} {pct}%</div>
-        </div>
-      )}
 
       {/* Sessions */}
       {sessions.length > 0 && (
