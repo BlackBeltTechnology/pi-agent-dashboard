@@ -114,7 +114,7 @@ Exemplar for this group: `tests/e2e/blackhole-settings.spec.ts` (docker harness;
 
 ## 8. Cross-change, docs, verification
 
-- [ ] 8.1 Amend `openspec/changes/unify-context-manager/design.md` D11:
+- [x] 8.1 Amend `openspec/changes/unify-context-manager/design.md` D11:
   - the adapter becomes `@blackbelt-technology/pi-system-one`;
   - per-step routing maps to per-consumer overrides with ids `context-manager:<step>`;
   - "nothing configured → default LLM" becomes the consumer's `failurePolicy` plus an optional `llm` chain entry;
