@@ -308,7 +308,7 @@ describe("performance: no re-partition on token/cost ticks", () => {
     const { rerender } = render(<List sessions={many} groupByPrefs={p} />);
     const spy = vi.mocked(lanesModule.partitionIntoLanes);
     spy.mockClear();
-    rerender(<List sessions={many.map((s) => ({ ...s, tokensIn: s.tokensIn + 100, cost: 1.5 }))} groupByPrefs={p} />);
+    rerender(<List sessions={many.map((s) => ({ ...s, tokensIn: (s.tokensIn ?? 0) + 100, cost: 1.5 }))} groupByPrefs={p} />);
     expect(spy).not.toHaveBeenCalled();
     rerender(<List sessions={many.map((s, i) => (i === 1 ? { ...s, status: "streaming" as const } : s))} groupByPrefs={p} />);
     expect(spy).toHaveBeenCalled();
