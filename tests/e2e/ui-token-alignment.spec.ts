@@ -12,7 +12,8 @@ import {
   sizeFailures,
 } from "./helpers/computed-contrast.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
-import { openBoard } from "./helpers/openspec-board.js";
+import { unpinViaBus } from "./helpers/folder-collapse.js";
+import { BOARD_FIXTURE, openBoard } from "./helpers/openspec-board.js";
 
 /**
  * L3 — live action surfaces follow the theme-token recipe
@@ -47,6 +48,10 @@ async function axeViolations(page: Page, selector: string): Promise<string[]> {
 }
 
 async function expectTint(page: Page, el: Locator, hue: string): Promise<void> {
+  // Park the pointer off the control: a prior click leaves it hovering, and the
+  // hover recipe mixes the bg toward the border. Wait out transition-colors.
+  await page.mouse.move(0, 0);
+  await page.waitForTimeout(300);
   const want = await resolveColor(page, `var(--tint-${hue}-bg)`);
   const got = await ownBackground(el);
   expect(colorDistance(got, want), `bg ${got} vs --tint-${hue}-bg ${want}`).toBeLessThanOrEqual(1);
@@ -60,7 +65,16 @@ async function readable(scope: Locator, floor = AA): Promise<void> {
 }
 
 async function folderBody(page: Page): Promise<Locator> {
+  // ensureGitSession waits for the DESKTOP card, so pin at desktop width and
+  // restore the caller's viewport afterwards.
+  const vp = page.viewportSize();
+  if (vp && vp.width < 768) await page.setViewportSize({ width: 1280, height: vp.height });
   await ensureGitSession(page);
+  if (vp && vp.width < 768) {
+    await page.setViewportSize(vp);
+    // Mobile: the opened session pane covers the sidebar; go back to the list.
+    await page.goto("/");
+  }
   const body = page.getByTestId(`folder-body-${FIXTURE_GIT}`);
   await body.waitFor({ state: "visible", timeout: 30_000 });
   return body;
@@ -94,6 +108,7 @@ test.describe("new-session tray (F1)", () => {
   test("tray targets are ≥ 44×44 at 375 px", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 800 });
     const body = await folderBody(page);
+    await body.getByTestId("folder-spawn-session-btn").waitFor({ state: "visible", timeout: 30_000 });
     const boxes = await buttonBoxes(body.getByTestId("folder-spawn-session-btn").locator("xpath=.."));
     expect(boxes.length).toBeGreaterThan(0);
     expect(boxes.filter((b) => b.w < 44 || b.h < 44)).toEqual([]);
@@ -151,10 +166,20 @@ test.describe("session card action chips (F2, F9)", () => {
         .filter((b) => (b as HTMLElement).offsetParent !== null)
         .map((b) => b.getBoundingClientRect())
         .filter((r) => r.right > cardBox.right + 1 || r.left < cardBox.left - 1).length;
-      return { scroll: el.scrollWidth - el.clientWidth, clipped };
+      // scrollWidth would count the selected-card glow layers (card-glow-fx /
+      // card-ring-fx), which bleed past the edge by design; measure content only.
+      const overhang = Math.max(
+        0,
+        ...[...el.querySelectorAll("*")]
+          .filter((c) => !c.closest("[class*='card-glow-fx'],[class*='card-ring-fx']"))
+          .map((c) => c.getBoundingClientRect())
+          .filter((r) => r.width > 0)
+          .map((r) => r.right - cardBox.right),
+      );
+      return { scroll: overhang, clipped };
     });
     expect(overflow.clipped, "buttons outside the card box").toBe(0);
-    expect(overflow.scroll, "card scrolls horizontally").toBeLessThanOrEqual(1);
+    expect(overflow.scroll, "card content overhangs the card box").toBeLessThanOrEqual(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     await page.evaluate(() => localStorage.removeItem("dashboard:sidebar-width"));
   });
@@ -199,8 +224,10 @@ test.describe("worktree dialog (F3, X1, E10)", () => {
         await readable(create);
         expect(colorDistance(await ownBackground(create), await resolveColor(page, "var(--accent-solid)"))).toBeLessThanOrEqual(1);
 
-        // A colliding branch (main is checked out at the repo root) → warning block.
-        await dialog.getByTestId("worktree-new-branch-input").fill("main");
+        // A colliding branch (the base branch, checked out at the repo root) → warning block.
+        const baseBranch = ((await dialog.getByRole("combobox", { name: "Base branch" }).textContent()) ?? "").replace("▾", "").trim();
+        expect(baseBranch, "base branch name").not.toBe("");
+        await dialog.getByTestId("worktree-new-branch-input").fill(baseBranch);
         const collision = dialog.getByTestId("worktree-fork-collision");
         await expect(collision).toBeVisible();
         expect(colorDistance(await ownBackground(collision), await resolveColor(page, "var(--severity-warning-bg)"))).toBeLessThanOrEqual(1);
@@ -325,7 +352,7 @@ test.describe("goal detail controls (F4)", () => {
 test.describe("select / confirm prompt (F5)", () => {
   test.setTimeout(240_000);
 
-  test("options ≥ 44 px tall at 375, ≥ 12 px, ≥ 4.5:1 — dark + light", async ({ page }) => {
+  test("select options ≥ 44 px tall at 375, ≥ 12 px, ≥ 4.5:1 — dark + light", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await sendPrompt(page, "[[faux:ask-select]] go");
@@ -344,8 +371,14 @@ test.describe("select / confirm prompt (F5)", () => {
       await page.setViewportSize({ width: 1280, height: 900 });
     }
 
-    // Answer the select, then raise a confirm in the same session.
     await alpha.click();
+  });
+
+  // Separate test (own page + session): the faux select turn does not go idle,
+  // and a second session in the same page makes the composer lookup ambiguous.
+  test("confirm buttons ≥ 44×44 at 375, ≥ 12 px, ≥ 4.5:1 — dark + light", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
     await sendPrompt(page, "[[faux:ask-confirm]] go");
     const yes = page.getByRole("button", { name: /^Yes$/ }).first();
     await expect(yes).toBeVisible({ timeout: 30_000 });
@@ -371,7 +404,7 @@ test.describe("automation dialog help + error (F6, X1)", () => {
   test("help ≥ 12 px --text-secondary, error --severity-error-fg, armed badge --tint-green-* — dark + light", async ({ page }) => {
     const name = "e2e-inbox-watch";
     const config = {
-      on: { kind: "file" },
+      on: { kind: "file", events: ["created"] },
       action: { kind: "prompt", prompt: "./prompt.md" },
       model: "@fast",
       mode: "local",
@@ -387,6 +420,18 @@ test.describe("automation dialog help + error (F6, X1)", () => {
     await page.route("**/api/plugins/automation/definition**", (route) =>
       route.fulfill({ contentType: "application/json", body: JSON.stringify({ config, promptBody: "Summarise the new file." }) }),
     );
+    // The File trigger ships as "planned" (disabled); advertise it enabled so the
+    // editor renders its path field, help and missing-path error.
+    await page.route("**/api/plugins/automation/trigger-kinds**", async (route) => {
+      const res = await route.fetch();
+      const body = (await res.json()) as { categories?: Array<{ category: string; status: string; events?: Array<{ status?: string }> }> };
+      for (const c of body.categories ?? []) {
+        if (c.category !== "file") continue;
+        c.status = "enabled";
+        for (const e of c.events ?? []) if (e.status) e.status = "enabled";
+      }
+      await route.fulfill({ response: res, json: body });
+    });
     await page.route("**/api/plugins/automation/runs**", (route) =>
       route.fulfill({ contentType: "application/json", body: JSON.stringify({ runs: [] }) }),
     );
@@ -431,6 +476,11 @@ test.describe("automation dialog help + error (F6, X1)", () => {
 // ── F11 — secondary surfaces ──────────────────────────────────────────────
 test.describe("secondary surfaces (F11)", () => {
   test.setTimeout(180_000);
+  // openBoard pins the board fixture; leave the shared harness as found, or its
+  // "Set up" banner leaks into page-global banner assertions in later specs.
+  test.afterAll(async () => {
+    await unpinViaBus(BOARD_FIXTURE);
+  });
 
   for (const width of [375, 1280]) {
     test(`dashboard tray + OpenSpec new-proposal controls at ${width} — dark + light`, async ({ page }) => {

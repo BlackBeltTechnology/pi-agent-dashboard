@@ -133,7 +133,7 @@ export function GoalDetailClaim({ params, onBack }: GoalDetailClaimProps): React
       <button
         type="button"
         onClick={() => navigate(goalsBoardUrl(cwd))}
-        className="focus-ring inline-flex items-center min-h-[44px] sm:min-h-[32px] px-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline"
+        className="focus-ring inline-flex items-center justify-center min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-[32px] px-1 text-[12px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline"
       >
         {t("goalsBreadcrumb", undefined, "Goals")}
       </button>
