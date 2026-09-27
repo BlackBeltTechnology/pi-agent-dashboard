@@ -2,7 +2,10 @@
  * Image transport for the grant dialog: `fetch` → `blob:` for a same-origin
  * API base, blob ownership, the cross-origin `<img>` fallback, the silent
  * inline variant, and the lightbox's foreign sources (change:
- * surface-denial-remedy-in-previews, design D1; test-plan #E39-#E42, #X4).
+ * surface-denial-remedy-in-previews, design D1; test-plan #E39-#E42, #X4, and
+ * #F2/#F3's observables — their L3 premises are unreachable: a chat link to an
+ * outside path resolves "not found" via `resolve-mention`, and an outside
+ * image embedded in markdown fails inline to a non-clickable placeholder).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 let apiBase = "";
 vi.mock("../../lib/api/api-context.js", () => ({ getApiBase: () => apiBase }));
 
+import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
+import { FilePreviewOverlay } from "../preview/FilePreviewOverlay.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { ImagePreview } from "../preview/ImagePreview.js";
 
 const target = { kind: "file" as const, cwd: "/p", path: "a.png" };
@@ -126,5 +132,74 @@ describe("#E42 a foreign lightbox source is unchanged", () => {
     // Operator provenance: the request is NOT opted out (no empty grant header).
     const init = fetchSpy.mock.calls[0][1];
     expect(new Headers(init?.headers).get("X-Pi-Grant-Channel")).toBeNull();
+  });
+});
+
+describe("#F3 the lightbox declares its own provenance", () => {
+  it("inside an auto-opened tab it does NOT inherit the opt-out", async () => {
+    const fetchSpy = vi.fn(async (_u: RequestInfo | URL, _init?: RequestInit) => png());
+    vi.stubGlobal("fetch", fetchSpy);
+    render(
+      <PreviewProvenance autoOpened>
+        <ImageLightbox src="/api/file/raw?cwd=%2Fp&path=a.png" alt="a" onClose={() => {}} />
+      </PreviewProvenance>,
+    );
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(new Headers(fetchSpy.mock.calls[0][1]?.headers).get("X-Pi-Grant-Channel")).toBeNull();
+  });
+
+  it("an explicit auto provenance opts out", async () => {
+    const fetchSpy = vi.fn(async (_u: RequestInfo | URL, _init?: RequestInit) => png());
+    vi.stubGlobal("fetch", fetchSpy);
+    render(<ImageLightbox src="/api/file/raw?cwd=%2Fp&path=a.png" alt="a" onClose={() => {}} provenance="auto" />);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(new Headers(fetchSpy.mock.calls[0][1]?.headers).get("X-Pi-Grant-Channel")).toBe("");
+  });
+});
+
+describe("#F2 the preview overlay's image is operator-declared", () => {
+  beforeEach(() => {
+    window.matchMedia = vi.fn((q: string) => ({
+      matches: false,
+      media: q,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it("loads through an eligible fetch → blob:, and a refusal renders DenialNotice", async () => {
+    const fetchSpy = vi.fn(
+      async (_u: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ success: false, error: "x", denialId: "d", subject: "/out", promptOutcome: "declined" }), {
+          status: 403,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    render(
+      <ThemeProvider>
+        <FilePreviewOverlay cwd="/p" path="/out/a.png" onClose={() => {}} />
+      </ThemeProvider>,
+    );
+    const n = await screen.findByTestId("denial-notice");
+    expect(n.getAttribute("data-outcome")).toBe("declined");
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/api/file/raw?");
+    expect(new Headers(init?.headers).get("X-Pi-Grant-Channel")).toBeNull(); // not opted out
+  });
+
+  it("a future non-click opener passing provenance=auto opts out", async () => {
+    const fetchSpy = vi.fn(async (_u: RequestInfo | URL, _init?: RequestInit) => png());
+    vi.stubGlobal("fetch", fetchSpy);
+    render(
+      <ThemeProvider>
+        <FilePreviewOverlay cwd="/p" path="/out/a.png" onClose={() => {}} provenance="auto" />
+      </ThemeProvider>,
+    );
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(new Headers(fetchSpy.mock.calls[0][1]?.headers).get("X-Pi-Grant-Channel")).toBe("");
   });
 });
