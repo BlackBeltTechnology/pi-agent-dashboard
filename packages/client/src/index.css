@@ -1067,15 +1067,3 @@ mark.markdown-search-highlight-active {
   .group-by-chip { position: relative; }
   .group-by-chip::after { content: ""; position: absolute; inset: -13px -6px; }
 }
-/* Lane expand: same 250ms ease-in-out as `.group-collapse`, played on mount
-   (collapsed lane cards are unmounted so dnd-kit never targets hidden rows). */
-.lane-collapse {
-  animation: lane-expand 250ms ease-in-out;
-}
-@keyframes lane-expand {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .lane-collapse { animation: none; }
-}

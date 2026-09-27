@@ -2330,7 +2330,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         ) : (
                           <div
                             id={controlsId}
-                            className={`lane-collapse relative space-y-1 pt-0.5 pb-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--lane-rail)]${deny ? " rounded-[10px] outline-dashed outline-1 outline-offset-2 outline-[var(--status-error)] cursor-not-allowed" : ""}`}
+                            className={`relative space-y-1 pt-0.5 pb-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--lane-rail)] ${deny ? "rounded-[10px] outline-dashed outline-1 outline-offset-2 outline-[var(--status-error)] cursor-not-allowed" : ""}`}
                             style={laneRailStyle(laneId)}
                             data-testid={`lane-cards-${laneKey}`}
                             data-drop-deny={deny || undefined}
