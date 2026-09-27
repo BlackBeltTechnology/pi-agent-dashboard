@@ -430,6 +430,39 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     const msg = msgs.find((m) => m.type === "collapsed_folders_updated") as { collapsedFolders: string[] };
     expect(msg.collapsedFolders).toEqual(["/pinned"]);
   });
+
+  it("group_by_prefs_updated follows collapsed folders and precedes group-materializing frames", () => {
+    // Lanes must render on first paint — no flat→lanes flash.
+    // See change: session-list-group-by.
+    const prefs = { defaultGroupBy: "status", folderGroupBy: { "/pinned": "location" }, collapsedLanes: ["/pinned::main"] };
+    const gateway = createBrowserGateway(
+      createMemorySessionManager(),
+      createMemoryEventStore(() => false),
+      makeStubPiGateway(),
+      undefined,
+      undefined,
+      makeStubOrderManager({}),
+      {
+        getPinnedDirectories: () => ["/pinned"],
+        setPinnedDirectories: () => {},
+        getCollapsedFolders: () => [],
+        getGroupByPrefs: () => prefs,
+        getWorkspaces: () => [],
+        getSessionOrder: () => ({}),
+        setSessionOrder: () => {},
+      } as never,
+    );
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    const msgs = sentMessages(ws);
+    const types = msgs.map((m) => m.type as string);
+    const idx = types.indexOf("group_by_prefs_updated");
+    expect(idx).toBeGreaterThan(types.indexOf("collapsed_folders_updated"));
+    expect(idx).toBeLessThan(types.indexOf("pinned_dirs_updated"));
+    expect(idx).toBeLessThan(types.indexOf("workspaces_updated"));
+    expect(idx).toBeLessThan(types.indexOf("sessions_snapshot"));
+    expect(msgs[idx]).toEqual({ type: "group_by_prefs_updated", ...prefs });
+  });
 });
 
 // ── E7: archived sessions are non-resident in the connect snapshot ──────────

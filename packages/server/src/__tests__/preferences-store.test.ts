@@ -989,4 +989,104 @@ describe("preferences-store", () => {
       store.dispose();
     });
   });
+  // See change: session-list-group-by.
+  describe("group-by prefs", () => {
+    it("absent fields load as defaults (none / {} / [])", () => {
+      fs.writeFileSync(filePath, JSON.stringify({ pinnedDirectories: [], sessionOrder: {} }));
+      const store = createPreferencesStore(filePath);
+      expect(store.getGroupByPrefs()).toEqual({ defaultGroupBy: "none", folderGroupBy: {}, collapsedLanes: [] });
+      store.dispose();
+    });
+
+    it("sets and clears a folder mode under the canonical key", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setFolderGroupBy(`${A_PATH}/`, "status")).toBe(true);
+      expect(store.getGroupByPrefs().folderGroupBy).toEqual({ [A_PATH]: "status" });
+      // same spelling → no-op
+      expect(store.setFolderGroupBy(A_PATH, "status")).toBe(false);
+      expect(store.setFolderGroupBy(A_PATH, "location")).toBe(true);
+      expect(store.setFolderGroupBy(A_PATH, null)).toBe(true);
+      expect(store.getGroupByPrefs().folderGroupBy).toEqual({});
+      expect(store.setFolderGroupBy(A_PATH, null)).toBe(false);
+      store.dispose();
+    });
+
+    it("rejects an invalid folder mode with no mutation", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setFolderGroupBy(A_PATH, "bogus" as never)).toBe(false);
+      expect(store.getGroupByPrefs().folderGroupBy).toEqual({});
+      store.dispose();
+    });
+
+    it("sets the default; invalid or unchanged default is a no-op", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setDefaultGroupBy("location")).toBe(true);
+      expect(store.setDefaultGroupBy("location")).toBe(false);
+      expect(store.setDefaultGroupBy("nope" as never)).toBe(false);
+      expect(store.getGroupByPrefs().defaultGroupBy).toBe("location");
+      store.dispose();
+    });
+
+    it("sets and clears lane collapse keyed <pathKey>::<lane>", () => {
+      const store = createPreferencesStore(filePath);
+      expect(store.setLaneCollapsed(`${A_PATH}/`, "idle", true)).toBe(true);
+      expect(store.getGroupByPrefs().collapsedLanes).toEqual([`${A_PATH}::idle`]);
+      expect(store.setLaneCollapsed(A_PATH, "idle", true)).toBe(false);
+      expect(store.setLaneCollapsed(A_PATH, "bogus" as never, true)).toBe(false);
+      expect(store.setLaneCollapsed(A_PATH, "idle", false)).toBe(true);
+      expect(store.getGroupByPrefs().collapsedLanes).toEqual([]);
+      expect(store.setLaneCollapsed(A_PATH, "idle", false)).toBe(false);
+      store.dispose();
+    });
+
+    it("survives the debounced-write restart round-trip and is never pruned", () => {
+      const store = createPreferencesStore(filePath);
+      store.setFolderGroupBy(A_PATH, "status");
+      store.setDefaultGroupBy("location");
+      store.setLaneCollapsed(A_PATH, "working", true);
+      store.setSessionOrder({ [B_PATH]: ["s1"] });
+      store.setSessionOrder({ [B_PATH]: ["s2"] });
+      store.flush();
+      store.dispose();
+      const reloaded = createPreferencesStore(filePath);
+      expect(reloaded.getGroupByPrefs()).toEqual({
+        defaultGroupBy: "location",
+        folderGroupBy: { [A_PATH]: "status" },
+        collapsedLanes: [`${A_PATH}::working`],
+      });
+      reloaded.dispose();
+    });
+
+    it("drops invalid values on load and canonicalizes keys", () => {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({
+          pinnedDirectories: [A_PATH],
+          sessionOrder: {},
+          defaultGroupBy: "weird",
+          folderGroupBy: { [`${A_PATH}/`]: "status", [B_PATH]: "nope", [X_PATH]: 3 },
+          collapsedLanes: [`${A_PATH}/::idle`, `${A_PATH}::idle`, `${B_PATH}::bogus`, 7],
+        }),
+      );
+      const store = createPreferencesStore(filePath);
+      expect(store.getGroupByPrefs()).toEqual({
+        defaultGroupBy: "none",
+        folderGroupBy: { [A_PATH]: "status" },
+        collapsedLanes: [`${A_PATH}::idle`],
+      });
+      expect(store.getPinnedDirectories()).toEqual([A_PATH]);
+      store.dispose();
+    });
+
+    it("corrupt container types fall back to defaults without failing the load", () => {
+      fs.writeFileSync(
+        filePath,
+        JSON.stringify({ pinnedDirectories: [A_PATH], folderGroupBy: ["x"], collapsedLanes: "y" }),
+      );
+      const store = createPreferencesStore(filePath);
+      expect(store.getGroupByPrefs()).toEqual({ defaultGroupBy: "none", folderGroupBy: {}, collapsedLanes: [] });
+      expect(store.getPinnedDirectories()).toEqual([A_PATH]);
+      store.dispose();
+    });
+  });
 });

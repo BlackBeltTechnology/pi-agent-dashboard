@@ -7,6 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
+import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
@@ -700,6 +701,20 @@ export interface CollapsedFoldersUpdatedMessage {
   collapsedFolders: string[];
 }
 
+/**
+ * Server → browser: aggregate session-list grouping prefs snapshot (sent on
+ * connect right after `collapsed_folders_updated`, before any folder-group
+ * materializing message, and on every real mutation). Keys of `folderGroupBy`
+ * and the folder half of `collapsedLanes` (`<pathKey>::<laneId>`) are
+ * canonical `pathKey` folder keys. See change: session-list-group-by.
+ */
+export interface GroupByPrefsUpdatedMessage {
+  type: "group_by_prefs_updated";
+  defaultGroupBy: GroupByMode;
+  folderGroupBy: Record<string, GroupByMode>;
+  collapsedLanes: string[];
+}
+
 export interface TerminalAddedMessage {
   type: "terminal_added";
   terminal: TerminalSession;
@@ -1172,6 +1187,7 @@ export type ServerToBrowserMessage =
   | FavoriteModelsUpdatedMessage
   | WorkspacesUpdatedMessage
   | CollapsedFoldersUpdatedMessage
+  | GroupByPrefsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1752,6 +1768,34 @@ export interface SetFolderCollapsedMessage {
   collapsed: boolean;
 }
 
+/**
+ * Browser → server: set one folder's explicit group-by mode; `null` removes
+ * the override (folder follows `defaultGroupBy`). Server validates the enum
+ * and canonicalizes `path`. See change: session-list-group-by.
+ */
+export interface SetFolderGroupByMessage {
+  type: "set_folder_group_by";
+  path: string;
+  mode: GroupByMode | null;
+}
+
+/** Browser → server: set the global default group-by mode. See change: session-list-group-by. */
+export interface SetDefaultGroupByMessage {
+  type: "set_default_group_by";
+  mode: GroupByMode;
+}
+
+/**
+ * Browser → server: set one lane's collapsed state inside a folder (explicit
+ * target state, never a toggle). See change: session-list-group-by.
+ */
+export interface SetLaneCollapsedMessage {
+  type: "set_lane_collapsed";
+  path: string;
+  lane: LaneId;
+  collapsed: boolean;
+}
+
 export interface AddFolderToWorkspaceMessage {
   type: "add_folder_to_workspace";
   id: string;
@@ -2013,6 +2057,9 @@ export type BrowserToServerMessage =
   | DeleteWorkspaceMessage
   | SetWorkspaceCollapsedMessage
   | SetFolderCollapsedMessage
+  | SetFolderGroupByMessage
+  | SetDefaultGroupByMessage
+  | SetLaneCollapsedMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage

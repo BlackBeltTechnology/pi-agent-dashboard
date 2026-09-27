@@ -188,6 +188,41 @@ export function handleSetFolderCollapsed(
   }
 }
 
+// ── session-list grouping (session-list-group-by) ────────────────
+//
+// Same contract as `set_folder_collapsed`: the store validates the enums and
+// canonicalizes `msg.path`, returning true only on a real mutation, so
+// invalid / no-op input emits no broadcast. One aggregate message keeps the
+// client state atomic.
+
+function broadcastGroupByPrefs(ctx: BrowserHandlerContext): void {
+  if (!ctx.preferencesStore?.getGroupByPrefs) return;
+  ctx.broadcast({ type: "group_by_prefs_updated", ...ctx.preferencesStore.getGroupByPrefs() });
+}
+
+export function handleSetFolderGroupBy(
+  msg: Extract<BrowserToServerMessage, { type: "set_folder_group_by" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.path !== "string") return;
+  if (ctx.preferencesStore?.setFolderGroupBy?.(msg.path, msg.mode ?? null)) broadcastGroupByPrefs(ctx);
+}
+
+export function handleSetDefaultGroupBy(
+  msg: Extract<BrowserToServerMessage, { type: "set_default_group_by" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (ctx.preferencesStore?.setDefaultGroupBy?.(msg.mode)) broadcastGroupByPrefs(ctx);
+}
+
+export function handleSetLaneCollapsed(
+  msg: Extract<BrowserToServerMessage, { type: "set_lane_collapsed" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.path !== "string" || typeof msg.collapsed !== "boolean") return;
+  if (ctx.preferencesStore?.setLaneCollapsed?.(msg.path, msg.lane, msg.collapsed)) broadcastGroupByPrefs(ctx);
+}
+
 export function handleAddFolderToWorkspace(
   msg: Extract<BrowserToServerMessage, { type: "add_folder_to_workspace" }>,
   ctx: BrowserHandlerContext,

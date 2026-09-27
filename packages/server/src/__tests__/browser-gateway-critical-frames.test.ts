@@ -686,6 +686,16 @@ describe("status-reconcile is loop-safe and releases on abnormal teardown (X1/X3
 });
 
 describe("collapsed-folder frames (X7)", () => {
+  it("group_by_prefs_updated is state-class (session-list-group-by)", () => {
+    const m = {
+      type: "group_by_prefs_updated",
+      defaultGroupBy: "none",
+      folderGroupBy: {},
+      collapsedLanes: [],
+    } as ServerToBrowserMessage;
+    expect(frameClassOf(m)).toEqual({ cls: "state", key: "group_by_prefs_updated" });
+  });
+
   it("X7: collapsed_folders_updated is state-class — coalesced by type, never shed as transcript", () => {
     const cf = (k: string): ServerToBrowserMessage =>
       ({ type: "collapsed_folders_updated", collapsedFolders: [k] }) as ServerToBrowserMessage;

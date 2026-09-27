@@ -94,6 +94,7 @@ export function frameClassOf(
     case "pinned_dirs_updated":
     case "workspaces_updated":
     case "collapsed_folders_updated":
+    case "group_by_prefs_updated":
     case "favorite_models_updated":
     case "display_prefs_updated":
     case "reachability_updated":
@@ -136,7 +137,7 @@ export function frameClassOf(
 import { randomUUID } from "node:crypto";
 import type { UpgradeHeaders } from "../access/capability-issuance.js";
 import { issuePromptChannel, releasePromptChannel } from "../access/prompt-channel.js";
-import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetFolderCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
+import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetDefaultGroupBy, handleSetFolderCollapsed, handleSetFolderGroupBy, handleSetLaneCollapsed, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handlePromptResyncRequest, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleArchiveSession, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnarchiveSession } from "../browser-handlers/session-meta-handler.js";
@@ -1428,6 +1429,12 @@ export function createBrowserGateway(
           collapsedFolders: preferencesStore.getCollapsedFolders(),
         });
       }
+      // Grouping prefs right after collapsed folders, before any folder-group
+      // materializing message, so lanes render on first paint (no flat→lanes
+      // flash). See change: session-list-group-by.
+      if (typeof preferencesStore.getGroupByPrefs === "function") {
+        sendTo(ws, { type: "group_by_prefs_updated", ...preferencesStore.getGroupByPrefs() });
+      }
       sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
       // Send favorite models snapshot on connect. Guarded with `typeof` so
       // old PreferencesStore stubs in tests don't crash.
@@ -1775,6 +1782,15 @@ export function createBrowserGateway(
             break;
           case "set_folder_collapsed":
             handleSetFolderCollapsed(msg, ctx);
+            break;
+          case "set_folder_group_by":
+            handleSetFolderGroupBy(msg, ctx);
+            break;
+          case "set_default_group_by":
+            handleSetDefaultGroupBy(msg, ctx);
+            break;
+          case "set_lane_collapsed":
+            handleSetLaneCollapsed(msg, ctx);
             break;
           case "add_folder_to_workspace":
             handleAddFolderToWorkspace(msg, ctx);
