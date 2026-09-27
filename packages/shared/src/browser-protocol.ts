@@ -1,6 +1,7 @@
 /**
  * Server ↔ Browser WebSocket protocol messages.
  */
+import type { CardSectionPrefs } from "./card-sections.js";
 import type {
   PluginActionMessage,
   PluginEventBroadcast,
@@ -700,6 +701,16 @@ export interface CollapsedFoldersUpdatedMessage {
   collapsedFolders: string[];
 }
 
+/**
+ * Server → browser: full session-card section visibility snapshot. Sent on
+ * every mutation and on connect when any preference exists.
+ * See change: configurable-session-card-sections.
+ */
+export interface CardSectionsUpdatedMessage {
+  type: "card_sections_updated";
+  cardSections: CardSectionPrefs;
+}
+
 export interface TerminalAddedMessage {
   type: "terminal_added";
   terminal: TerminalSession;
@@ -1172,6 +1183,7 @@ export type ServerToBrowserMessage =
   | FavoriteModelsUpdatedMessage
   | WorkspacesUpdatedMessage
   | CollapsedFoldersUpdatedMessage
+  | CardSectionsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1752,6 +1764,25 @@ export interface SetFolderCollapsedMessage {
   collapsed: boolean;
 }
 
+/**
+ * Browser → server: set one session-card section's visibility. `path` absent
+ * = global default; `visible: null` = inherit (deletes the key). The server
+ * validates the section id + path and canonicalizes the folder key.
+ * See change: configurable-session-card-sections.
+ */
+export interface SetCardSectionVisibilityMessage {
+  type: "set_card_section_visibility";
+  path?: string;
+  section: string;
+  visible: boolean | null;
+}
+
+/** Browser → server: drop every section override for one folder. See change: configurable-session-card-sections. */
+export interface ResetFolderCardSectionsMessage {
+  type: "reset_folder_card_sections";
+  path: string;
+}
+
 export interface AddFolderToWorkspaceMessage {
   type: "add_folder_to_workspace";
   id: string;
@@ -2013,6 +2044,8 @@ export type BrowserToServerMessage =
   | DeleteWorkspaceMessage
   | SetWorkspaceCollapsedMessage
   | SetFolderCollapsedMessage
+  | SetCardSectionVisibilityMessage
+  | ResetFolderCardSectionsMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage

@@ -141,6 +141,7 @@ const FileDiffView = lazy(() =>
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -166,6 +167,7 @@ import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacy
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
+import { type CardSectionsContextValue, CardSectionsProvider } from "./lib/state/CardSectionsContext.js";
 import { DisplayPrefsProvider, resolveSessionOverride } from "./lib/state/DisplayPrefsContext.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 
@@ -502,7 +504,7 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
-  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "skills", "agents", "extensions", "prompts", "themes"] as const;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
   const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
   const folderSettingsPage: DirectorySettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
@@ -719,6 +721,9 @@ export default function App() {
   // connect snapshot too). Server is the single source of truth — no optimistic
   // mirror, matching the `workspaces_updated` convention below.
   const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
+  // configurable-session-card-sections: session-card section visibility
+  // snapshot, synced via `card_sections_updated`. Server-authoritative.
+  const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -1059,7 +1064,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
   );
 
@@ -2673,6 +2678,20 @@ export default function App() {
   // fix-session-card-icon-import-and-shell-boundary.
   // Memoize the session-override lookup so consumer `useDisplayPrefs`
   // re-runs only when the relevant session's override actually changes.
+  // `showToast` is re-created every render; route it through a ref so the
+  // card-sections context value (and every memoized SessionCard reading it)
+  // only changes when the snapshot or the socket does.
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+  const stableShowToast = useCallback<NonNullable<CardSectionsContextValue["showToast"]>>(
+    (text, variant, opts) => showToastRef.current(text, variant, opts),
+    [],
+  );
+  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
+    () => ({ prefs: cardSections, send, showToast: stableShowToast }),
+    [cardSections, send, stableShowToast],
+  );
+
   const displayPrefsContextValue = useMemo(() => ({
     global: displayPrefs,
     getSessionOverride: (sessionId: string | undefined) => resolveSessionOverride(sessions, sessionId),
@@ -2700,6 +2719,7 @@ export default function App() {
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
+      <CardSectionsProvider value={cardSectionsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
       <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
@@ -2780,6 +2800,7 @@ export default function App() {
       </PluginContextProvider>
       </ModelConfigProvider>
       </CommitDialogProvider>
+      </CardSectionsProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>
   );
