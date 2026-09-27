@@ -113,6 +113,12 @@ export interface BridgeRegisterOptions {
    * falls back to `$HOME || $USERPROFILE || os.homedir()` (existing behavior).
    */
   homedir?: string;
+  /**
+   * Throw when settings.json cannot be written (default: log and continue).
+   * A runtime switch must not spawn with a stale extension registered.
+   * See change: electron-runtime-overlay-updates (D8).
+   */
+  strict?: boolean;
 }
 
 /**
@@ -122,7 +128,9 @@ export interface BridgeRegisterOptions {
  * that point to non-existent directories or directories without package.json.
  * Existing valid registrations (dev, global, other bundled) are preserved.
  *
- * No-op if the path is already registered.
+ * No-op when the resulting list is unchanged (already registered, no other
+ * same-identity entry). Writes durably (fsync) — see change:
+ * electron-runtime-overlay-updates (D8, E15).
  */
 export function registerBridgeExtension(
   extensionPath: string,
@@ -146,9 +154,6 @@ export function registerBridgeExtension(
   } catch { /* start fresh */ }
 
   const packages = Array.isArray(settings.packages) ? settings.packages as string[] : [];
-
-  // Already registered?
-  if (packages.includes(extensionPath)) return;
 
   // Compute the identity (package.json#name) of the new entry. We use it
   // to dedupe across install layouts (dev / .app / npm-global / legacy
@@ -183,15 +188,28 @@ export function registerBridgeExtension(
     }
   });
 
-  cleaned.push(extensionPath);
+  // Keep the target's position when already registered; append otherwise.
+  if (!cleaned.includes(extensionPath)) cleaned.push(extensionPath);
+  // Unchanged → no write (the pre-existing "no-op if registered" contract).
+  if (cleaned.length === packages.length && cleaned.every((p, i) => p === packages[i])) return;
   settings.packages = cleaned;
 
   try {
     const tmp = settingsPath + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
+    // Durable write: a runtime switch spawns right after re-pointing, and a
+    // bridge that reloads at any later point must read the new path. fsync
+    // before rename. See change: electron-runtime-overlay-updates (D8).
+    const fd = fs.openSync(tmp, "w");
+    try {
+      fs.writeSync(fd, JSON.stringify(settings, null, 2) + "\n");
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
     fs.renameSync(tmp, settingsPath);
     console.log(`[dashboard] Registered bridge extension in pi settings: ${extensionPath}`);
   } catch (err) {
     console.error("[dashboard] Failed to register bridge extension:", err);
+    if (opts.strict) throw err;
   }
 }

@@ -27,6 +27,7 @@
  * network, or child-process layer.
  */
 
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
@@ -384,6 +385,28 @@ function trySource(
   }
 }
 
+/**
+ * Per-app-launch owner token, stamped into every server this app spawns
+ * (`PI_DASHBOARD_ELECTRON_INSTANCE`). `/api/restart` re-spawns with the same
+ * env, so ownership survives a server restart even though its PID changes.
+ * See change: electron-runtime-overlay-updates.
+ */
+const ELECTRON_INSTANCE_ID = randomUUID();
+
+export function getElectronInstanceId(): string {
+  return ELECTRON_INSTANCE_ID;
+}
+
+/** Runtime id of a spawnable source: overlay `X`, `local:<realpath>`, `bundled`, `devMonorepo`. */
+function runtimeIdOf(source: Exclude<LaunchSource, { kind: "attach" }>): string {
+  return source.kind === "overlay" || source.kind === "localLink" ? source.runtimeId : source.kind;
+}
+
+/** `/api/health.runtime.origin` for a spawnable source. */
+function runtimeOriginOf(source: Exclude<LaunchSource, { kind: "attach" }>): "bundled" | "overlay" | "local" | "devMonorepo" {
+  return source.kind === "localLink" ? "local" : source.kind;
+}
+
 // ── Spawn primitive ───────────────────────────────────────────────────────────
 
 export interface SpawnResult {
@@ -401,6 +424,8 @@ export async function spawnFromSource(
     logFile?: string;
     /** Forwarded to `launchDashboardServer.onChildExit`. */
     onChildExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
+    /** Forwarded to `launchDashboardServer.onSpawned` (pre-readiness child PID). */
+    onSpawned?: (pid: number) => void;
   },
 ): Promise<SpawnResult> {
   const logFile = opts?.logFile ?? path.join(os.homedir(), ".pi", "dashboard", "server.log");
@@ -434,6 +459,11 @@ export async function spawnFromSource(
   // electron-arm-identity-lost-at-process-boundary).
   env["PI_DASHBOARD_ELECTRON"] = "1";
   env["PI_DASHBOARD_RESOURCES_PATH"] = getResourcesPath();
+  // Runtime identity echoed by /api/health.runtime so a runtime switch only
+  // commits the server it spawned. See change: electron-runtime-overlay-updates.
+  env["PI_DASHBOARD_RUNTIME_ID"] = runtimeIdOf(source);
+  env["PI_DASHBOARD_RUNTIME_ORIGIN"] = runtimeOriginOf(source);
+  env["PI_DASHBOARD_ELECTRON_INSTANCE"] = ELECTRON_INSTANCE_ID;
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";
@@ -462,11 +492,14 @@ export async function spawnFromSource(
       detach: false,
       cwd: source.cwd,
       onChildExit: opts?.onChildExit,
+      onSpawned: opts?.onSpawned,
     });
     return { pid: result.reportedPid ?? result.childPid };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to start server from source "${source.kind}": ${message}`);
+    // Keep the original as `cause` so callers can classify it (PortConflictError
+    // → environmental, not a bad runtime). See change: electron-runtime-overlay-updates.
+    throw new Error(`Failed to start server from source "${source.kind}": ${message}`, { cause: err });
   }
 }
 

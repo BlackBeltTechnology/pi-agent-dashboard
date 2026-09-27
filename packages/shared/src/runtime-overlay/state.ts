@@ -233,6 +233,17 @@ export function patchRuntimeRequest(
 }
 
 /**
+ * SERVER writer, boot-time: make sure request.json exists with a valid
+ * binding so the app-menu local pick can bind to it. A valid file is left
+ * untouched (bumping seq would silently turn local off).
+ */
+export function ensureRuntimeRequest(dir: string): void {
+  const raw = readJsonObject(path.join(dir, RUNTIME_REQUEST_FILE));
+  if (raw && isValidBinding(raw.sourceEpoch, raw.sourceSeq)) return;
+  patchRuntimeRequest(dir, {});
+}
+
+/**
  * ELECTRON writer: merge a patch — or an updater's result — over `state.json`.
  * Both forms merge onto the current object, so unknown keys survive even when
  * an updater returns only the fields it changed. Clear a key by setting it to

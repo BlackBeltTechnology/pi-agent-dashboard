@@ -32,6 +32,11 @@ export default defineConfig({
 			// takes every probe by injection (pure). See change:
 			// electron-runtime-overlay-updates (test-plan E4, E23).
 			"src/lib/__tests__/launch-source.test.ts",
+			// Runtime-overlay state machine + switchRuntime (all process/network I/O
+			// injected; state files in a temp dir) and PID-scoped watchdog
+			// ownership. test-plan E3 E11-E13 P1 X4-X9.
+			"src/lib/__tests__/runtime-overlay.test.ts",
+			"src/lib/__tests__/server-watchdog.test.ts",
 		],
 		environment: "node",
 		pool: "forks",

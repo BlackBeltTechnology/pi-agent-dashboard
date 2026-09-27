@@ -19,6 +19,7 @@ import {
   type RuntimeState,
   readRuntimeRequest,
   readRuntimeState,
+  ensureRuntimeRequest,
   selectRuntimeSource,
 } from "../runtime-overlay/state.js";
 
@@ -156,6 +157,27 @@ describe("request.json writer", () => {
     const req = readRuntimeRequest(dir);
     expect(req?.sourceSeq).toBe(1);
     expect(req?.sourceEpoch).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
+describe("ensureRuntimeRequest", () => {
+  it("creates a bundled request with a fresh binding when missing", () => {
+    ensureRuntimeRequest(dir);
+    expect(readRuntimeRequest(dir)).toMatchObject({ source: "bundled", sourceSeq: 1 });
+  });
+
+  it("leaves a valid request byte-identical (no seq bump — would turn local off)", () => {
+    selectRuntimeSource(dir, { source: "npm" });
+    selectRuntimeSource(dir, { source: "npm" });
+    const before = fs.readFileSync(path.join(dir, "request.json"), "utf8");
+    ensureRuntimeRequest(dir);
+    expect(fs.readFileSync(path.join(dir, "request.json"), "utf8")).toBe(before);
+  });
+
+  it("repairs a legacy file (keeps its source, adds a fresh epoch)", () => {
+    fs.writeFileSync(path.join(dir, "request.json"), JSON.stringify({ source: "github", futureKey: 1 }));
+    ensureRuntimeRequest(dir);
+    expect(readRuntimeRequest(dir)).toMatchObject({ source: "github", sourceSeq: 1, futureKey: 1 });
   });
 });
 

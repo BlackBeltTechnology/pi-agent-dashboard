@@ -6,10 +6,13 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { app, BrowserWindow, dialog, Menu, type MenuItemConstructorOptions, shell } from "electron";
 import { checkForUpdatesNow, getUpdateLogPath } from "./app-updater.js";
 import { openDoctorWindow } from "./doctor-window.js";
 import { openRemoteConnectWindow, useLocalDashboard } from "./remote-connect-window.js";
+import { activationTarget, pickLocalFolder, stopUsingLocalFolder } from "./runtime-overlay.js";
+import { getActiveRuntimeContext, runRuntimeSwitch } from "./runtime-overlay-main.js";
 
 /** True when running an unpackaged dev build; hides the update-check item. */
 function isDevMode(): boolean {
@@ -100,6 +103,63 @@ export async function showDoctorDialog(): Promise<void> {
   openDoctorWindow();
 }
 
+// ── Runtime → local folder (D7: the ONLY way to enable a local source) ──────
+// See change: electron-runtime-overlay-updates.
+
+function logRuntimeMenuError(err: unknown): void {
+  console.error("[runtime-overlay] menu action failed:", err);
+}
+
+function runtimeNotReady(): void {
+  dialog
+    .showMessageBox({
+      type: "info",
+      title: "Runtime",
+      message: "The dashboard server is not managed by this app yet.",
+      buttons: ["OK"],
+    })
+    .catch(logRuntimeMenuError);
+}
+
+async function handleUseLocalFolder(): Promise<void> {
+  const active = getActiveRuntimeContext();
+  if (!active) return runtimeNotReady();
+  const pick = await dialog.showOpenDialog({
+    title: "Use local dashboard checkout",
+    properties: ["openDirectory"],
+    message: "Pick a built pi-agent-dashboard monorepo checkout",
+  });
+  if (pick.canceled || pick.filePaths.length === 0) return;
+  const res = pickLocalFolder(getRuntimeOverlayDir(), pick.filePaths[0]);
+  if (!res.ok) {
+    const detail =
+      res.error === "request_unreadable"
+        ? "Open Settings → Updates once so the dashboard records a runtime selection, then try again."
+        : `Not a dashboard checkout (${res.detail ?? "missing packages/server/src/cli.ts"}).`;
+    await dialog.showMessageBox({ type: "warning", title: "Runtime", message: "Local folder not used", detail, buttons: ["OK"] });
+    return;
+  }
+  active.onResult(await runRuntimeSwitch(res.runtimeId, active.ctx));
+}
+
+async function handleStopUsingLocalFolder(): Promise<void> {
+  const active = getActiveRuntimeContext();
+  if (!active) return runtimeNotReady();
+  const dir = getRuntimeOverlayDir();
+  stopUsingLocalFolder(dir);
+  active.onResult(await runRuntimeSwitch(activationTarget(dir), active.ctx));
+}
+
+function runtimeSubmenu(): MenuItemConstructorOptions {
+  return {
+    label: "Runtime",
+    submenu: [
+      { label: "Use Local Folder…", click: () => handleUseLocalFolder().catch(logRuntimeMenuError) },
+      { label: "Stop Using Local Folder", click: () => handleStopUsingLocalFolder().catch(logRuntimeMenuError) },
+    ],
+  };
+}
+
 export function setupAppMenu(): void {
   if (process.platform === "darwin") {
     const template: MenuItemConstructorOptions[] = [
@@ -114,6 +174,7 @@ export function setupAppMenu(): void {
           { label: "Doctor...", click: () => showDoctorDialog() },
           { label: "Connect to Remote Dashboard…", click: () => openRemoteConnectWindow() },
           { label: "Use Local Dashboard", click: () => useLocalDashboard() },
+          runtimeSubmenu(),
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -200,6 +261,7 @@ export function setupAppMenu(): void {
       label: "Use Local Dashboard",
       click: () => useLocalDashboard(),
     },
+    runtimeSubmenu(),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

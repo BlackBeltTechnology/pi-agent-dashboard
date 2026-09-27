@@ -77,6 +77,14 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchd
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
+import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+import {
+  deriveLocalIdentity,
+  ensureRuntimeRequest,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 
 /**
  * `/api/health` → `piRuntime`.
@@ -914,6 +922,20 @@ export function registerSystemRoutes(
   // it made an unauthenticated, frequently-polled route do file I/O
   // (CodeQL js/missing-rate-limiting).
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
+  // Runtime-overlay identity, refreshed off the request path.
+  // See change: electron-runtime-overlay-updates (D10).
+  const runtimeOverlayDir = getRuntimeOverlayDir();
+  if (parseLaunchSource(process.env) === "electron") {
+    try { ensureRuntimeRequest(runtimeOverlayDir); } catch { /* non-fatal: menu pick reports request_unreadable */ }
+  }
+  const runtimeHealth = createRuntimeHealthProvider({
+    env: process.env,
+    serverVersion: version ?? "unknown",
+    readRequest: () => readRuntimeRequest(runtimeOverlayDir),
+    readState: () => readRuntimeState(runtimeOverlayDir),
+    localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+  });
+  fastify.addHook("onClose", async () => runtimeHealth.stop());
 
   // Health endpoint — includes server + agent process metrics
   fastify.get("/api/health", async (request) => {
@@ -981,6 +1003,11 @@ export function registerSystemRoutes(
       // node_modules/ is read-only). See change:
       // eliminate-electron-runtime-install task 3.2.
       launchSource: parseLaunchSource(process.env),
+      // Active dashboard runtime (origin/id/version/updatable/source/…); redacted
+      // (no local path / git / failure detail) for unauthenticated remote callers. Drives
+      // ONLY the Settings → Updates section; pi-core gates are unchanged.
+      // See change: electron-runtime-overlay-updates (D10).
+      runtime: mayReadAccess ? runtimeHealth.get() : redactRuntimeHealth(runtimeHealth.get()),
       // Boot parent PID (static, captured at module load) + live parent PID
       // (reparenting-aware, read fresh per request) + boot-parent liveness.
       // Powers Electron zombie detection: POSIX compares live `ppid` against

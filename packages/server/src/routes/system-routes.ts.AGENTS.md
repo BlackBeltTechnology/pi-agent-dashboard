@@ -11,3 +11,7 @@ REST routes: config, health, shutdown, tunnel. External-editor endpoints `/api/e
 See change: surface-denial-remedy-in-previews — `/api/health` access block gated by shared `canDiscloseAccessPosture`.
 `bundleHash` policy honours `fixturePluginsEnabled()` (`!config.dev && !fixturePluginsEnabled()`), matching the vite fixture gate. See change: expose-plugin-credential-and-oauth-seams.
 See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustPosture: {trustedHasLoopback} | null` (via `loopbackCoveringEntries`), same `canDiscloseAccessPosture` gate as `accessGrants`; dep `readTrustedNetworks?` (server wires `liveTrustedNetworks`; falls back to `config.resolvedTrustedNetworks`).
+
+## Runtime overlay
+
+`/api/health.runtime` from `createRuntimeHealthProvider` (cached, no fs in handler). Electron starter: `ensureRuntimeRequest` at route setup so the app-menu local pick can bind. See change: electron-runtime-overlay-updates.

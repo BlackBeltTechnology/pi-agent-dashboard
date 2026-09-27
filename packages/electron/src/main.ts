@@ -102,6 +102,7 @@ import {
   decideOwnership,
   decideIsZombie,
   getStoredSpawnedPid,
+  setLocalServerSpawner,
 } from "./lib/server-lifecycle.js";
 import { promptZombieAdoption, stopZombieServer } from "./lib/zombie-adoption-dialog.js";
 import { isDashboardRunning } from "./lib/health-check.js";
@@ -114,18 +115,63 @@ import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { initAutoUpdater, downloadAndInstall, quitAndInstall } from "./lib/app-updater.js";
 import { setupAppMenu } from "./lib/app-menu.js";
 import {
-  selectLaunchSource,
-  spawnFromSource,
   parsePreferOverride,
   PinnedSourceUnavailableError,
   BundledServerMissingError,
 } from "./lib/launch-source.js";
+import type { SwitchResult } from "./lib/runtime-overlay.js";
+import {
+  resolveAndSpawnRuntime,
+  startActivationWatcher,
+  type RuntimeSwitchContext,
+} from "./lib/runtime-overlay-main.js";
 import fs from "node:fs";
 log("All imports loaded");
 
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 let isStartingUp = true;
+
+// ── Runtime overlay activation (server → Electron) ────────────────────────────
+// The server writes request.json#activateNonce; Electron polls it (2 s) and
+// runs switchRuntime. A rollback is surfaced non-blockingly.
+// See change: electron-runtime-overlay-updates (D3).
+
+function notifyRuntimeSwitch(result: SwitchResult): void {
+  log(`[runtime-overlay] switch result ${JSON.stringify(result)}`);
+  if (result.kind === "committed") return;
+  const detail =
+    result.kind === "rolledBack"
+      ? `Runtime ${result.failedId} failed (${result.reason}). Running ${result.runtimeId} instead.`
+      : result.kind === "aborted"
+        ? `Runtime switch aborted: ${result.reason}${result.detail ? ` (${result.detail})` : ""}.`
+        : `Runtime switch failed: ${result.reason}.`;
+  dialog
+    .showMessageBox({ type: "warning", title: "Dashboard runtime", message: "Runtime was not switched", detail, buttons: ["OK"] })
+    .catch((err: unknown) => log(`[runtime-overlay] notice dialog failed: ${String(err)}`));
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) win.webContents.reload();
+}
+
+// `ensureServer` (loading-page "Start server", tray) spawns through the same
+// runtime-overlay-aware resolver as startup. No watchdog on that path (as before).
+setLocalServerSpawner(async (o) => {
+  const launched = await resolveAndSpawnRuntime({
+    resolver: { isPackaged: o.isPackaged, cwd: o.cwd, preferOverride: o.preferOverride, resourcesPath: o.resourcesPath, port: o.port },
+    port: o.port,
+    piPort: o.piPort,
+    logFile: o.logFile,
+    shellVersion: app.getVersion(),
+    log,
+    registerBundledExtension: registerBundledBridgeExtension,
+    onChildExit: () => {},
+  });
+  return launched.kind === "attach" ? { kind: "attach", url: launched.source.url } : { kind: "spawned", pid: launched.pid };
+});
+
+function startRuntimeActivationWatcher(ctx: RuntimeSwitchContext): void {
+  startActivationWatcher(ctx, notifyRuntimeSwitch);
+}
 
 // Zombie-adoption modal: in-memory "already asked this launch" guard so a
 // user who picks "Leave running" is not re-prompted by any later re-evaluation
@@ -219,21 +265,27 @@ async function maybePromptZombieAdoption(): Promise<void> {
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   });
   try {
-    const source = await selectLaunchSource({
-      isPackaged: app.isPackaged,
-      cwd: process.cwd(),
-      preferOverride: parsePreferOverride(process.env),
-      resourcesPath: (process as any).resourcesPath ?? "",
+    // Runtime-overlay aware: respawn the current runtime, not always the bundle.
+    // See change: electron-runtime-overlay-updates.
+    const launched = await resolveAndSpawnRuntime({
+      resolver: {
+        isPackaged: app.isPackaged,
+        cwd: process.cwd(),
+        preferOverride: parsePreferOverride(process.env),
+        resourcesPath: (process as { resourcesPath?: string }).resourcesPath ?? "",
+        port: config.port,
+      },
       port: config.port,
+      piPort: config.piPort,
+      logFile: path.join(os.homedir(), ".pi", "dashboard", "server.log"),
+      shellVersion: app.getVersion(),
+      log,
+      registerBundledExtension: registerBundledBridgeExtension,
+      onChildExit: () => {},
     });
-    if (source.kind !== "attach") {
-      const spawnResult = await spawnFromSource(
-        source as Exclude<typeof source, { kind: "attach" }>,
-        { port: config.port, piPort: config.piPort },
-        { logFile: path.join(os.homedir(), ".pi", "dashboard", "server.log") },
-      );
-      setSpawnedPid(spawnResult.pid);
-      log(`[zombie] respawned server pid=${spawnResult.pid}`);
+    if (launched.kind === "spawned") {
+      setSpawnedPid(launched.pid);
+      log(`[zombie] respawned server pid=${launched.pid}`);
     }
     // Reload the window only after the fresh server passes a health probe.
     // Gate on an explicit success flag: a bare deadline break would reload the
@@ -572,18 +624,53 @@ async function main(): Promise<void> {
       return;
     }
 
-    // ── State: checking-server-health ────────────────────────────────────────
+    // ── State: checking-server-health → launch-server ───────────────────────
+    // One resolver pass covers attach, devMonorepo, a linked local checkout,
+    // a staged runtime overlay and the bundle (last fallback), with the
+    // runtime-overlay retry-once / rollback bookkeeping.
+    // See change: electron-runtime-overlay-updates (D3, D4).
     updateSplashStatus("Checking dashboard server…");
-    const source = await selectLaunchSource({
-      isPackaged: app.isPackaged,
-      cwd: process.cwd(),
-      preferOverride: parsePreferOverride(process.env),
-      resourcesPath: (process as any).resourcesPath ?? "",
+    const logFile = path.join(os.homedir(), ".pi", "dashboard", "server.log");
+    const onCrash = (): void => {
+      const win = mainWindow;
+      if (win && !win.isDestroyed()) {
+        showLoadingPage(win, `http://localhost:${config.port}`);
+      }
+    };
+    const launched = await resolveAndSpawnRuntime({
+      resolver: {
+        isPackaged: app.isPackaged,
+        cwd: process.cwd(),
+        preferOverride: parsePreferOverride(process.env),
+        resourcesPath: (process as { resourcesPath?: string }).resourcesPath ?? "",
+        port: config.port,
+      },
       port: config.port,
+      piPort: config.piPort,
+      logFile,
+      shellVersion: app.getVersion(),
+      log,
+      // Best-effort bundled bridge registration; non-fatal.
+      // See change: auto-launch-first-run-skip-welcome (task 1.1a).
+      registerBundledExtension: registerBundledBridgeExtension,
+      // PID-aware so a runtime switch's planned stop of THIS server
+      // (expectExit) is graceful, while any other exit still reaches recovery.
+      onChildExit: (code, signal, pid) =>
+        makeServerWatchdog({ isGraceful: isGracefulShutdownInProgress, log, onCrash, getPid: () => pid })(code, signal),
     });
-    log(`[launch-source] resolved kind=${source.kind}`);
+    log(`[launch-source] resolved kind=${launched.source.kind}`);
+    const runtimeCtx: RuntimeSwitchContext = {
+      port: config.port,
+      piPort: config.piPort,
+      logFile,
+      resourcesPath: (process as { resourcesPath?: string }).resourcesPath ?? "",
+      shellVersion: app.getVersion(),
+      log,
+      onCrash,
+    };
 
-    if (source.kind === "attach") {
+    if (launched.kind === "attach") {
+      const source = launched.source;
       // ── State: attach ───────────────────────────────────────────────────
       updateSplashStatus("Opening dashboard…");
       const win = createMainWindow(source.url);
@@ -599,37 +686,14 @@ async function main(): Promise<void> {
       // lifetime. Fire-and-forget; the modal is non-blocking for startup.
       // See change: electron-attach-ownership-fixes.
       void maybePromptZombieAdoption();
+      startRuntimeActivationWatcher(runtimeCtx);
       return;
     }
 
-    // Best-effort bundled bridge registration on every launch; non-fatal.
-    // Registers the bundled bridge so pi sessions forward events to the
-    // dashboard. Formerly gated behind the first-run wizard arm.
-    // See change: auto-launch-first-run-skip-welcome (task 1.1a).
-    try { registerBundledBridgeExtension(); } catch { /* non-fatal */ }
-
-    // ── State: launch-server ─────────────────────────────────────────────────
     updateSplashStatus("Launching dashboard server…");
-    const logFile = path.join(os.homedir(), ".pi", "dashboard", "server.log");
-    const spawnResult = await spawnFromSource(
-      source as Exclude<typeof source, { kind: "attach" }>,
-      { port: config.port, piPort: config.piPort },
-      {
-        logFile,
-        onChildExit: makeServerWatchdog({
-          isGraceful: isGracefulShutdownInProgress,
-          log,
-          onCrash: () => {
-            const win = mainWindow;
-            if (win && !win.isDestroyed()) {
-              showLoadingPage(win, `http://localhost:${config.port}`);
-            }
-          },
-        }),
-      },
-    );
-    log(`[launch-source] spawned server pid=${spawnResult.pid}`);
-    setSpawnedPid(spawnResult.pid);
+    log(`[launch-source] spawned server pid=${launched.pid}`);
+    setSpawnedPid(launched.pid);
+    startRuntimeActivationWatcher(runtimeCtx);
 
     // ── State: health-wait → done ────────────────────────────────────────────
     // (`launchDashboardServer` inside `spawnFromSource` already waits for the
