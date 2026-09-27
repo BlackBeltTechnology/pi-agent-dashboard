@@ -115,6 +115,7 @@ flowchart LR
 - Test is refused for a `managed` backend that is not `ready`, in the UI and on the eval route.
 - Only the draft (`allowOffMachine`, `backends`, `presets`, `activePreset`) goes through the host Save Bar. Key entry, Start/Stop and calibration saves act immediately, and the UI says so next to each control.
 - Thresholds are shown read-only from the run; no editor in v1.
+- Threshold derivation (decided by the user during ship-it): per `noul` question with binary `expected`, the eval runner picks the score cut that maximises accuracy on the fixtures (ties → the cut closest to 0.5). `choice` questions get no threshold. The record stores `thresholds[questionId] = cut`.
 
 ## Risks / Trade-offs
 
@@ -135,6 +136,5 @@ flowchart LR
 
 ## Open Questions
 
-- How the eval runner derives `thresholds` from a run (e.g. per question, the score that maximises accuracy on the fixtures). The UI only displays what the run reports (D13); settle the method before 5.8.
 
 - Should `kev` have a managed engine entry? It's MLX-based on Mac, with a different launcher. Deferred; the catalog row exists and users can point an `http` backend at it.
