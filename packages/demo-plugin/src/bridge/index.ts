@@ -28,6 +28,9 @@ export async function demoEcho(text: string): Promise<ToolResult> {
 }
 
 export default function activate(ctx: unknown): void {
+  // Defence in depth: never register a fixture tool outside the opt-in gate,
+  // even if a stale settings.json registration loaded this entry.
+  if (process.env.PI_DASHBOARD_FIXTURE_PLUGINS !== "1") return;
   const c = ctx as { pi?: PiLike } | PiLike;
   const pi = ((c as { pi?: PiLike }).pi ?? c) as PiLike;
   if (!pi || typeof pi.registerTool !== "function") return;

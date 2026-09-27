@@ -29,8 +29,8 @@ export type PluginRequestFn = (
 ) => Promise<PluginLaneReply>;
 
 export interface PluginRequestClientDeps {
-  /** Sends one frame on the bridge socket. */
-  send: (msg: unknown) => void;
+  /** Sends one frame on the OPEN bridge socket; `false` = not sent (never buffered). */
+  send: (msg: unknown) => boolean;
   timeoutMs?: number;
   newId?: () => string;
 }
@@ -73,8 +73,9 @@ export function createPluginRequestClient(deps: PluginRequestClientDeps): Plugin
         const timer = setTimeout(() => settle(requestId, { ok: false, error: "timeout" }), timeoutMs);
         timer.unref?.();
         pending.set(requestId, { resolve, timer });
+        let sent = false;
         try {
-          deps.send({
+          sent = deps.send({
             type: "plugin_request",
             requestId,
             pluginId,
@@ -82,8 +83,9 @@ export function createPluginRequestClient(deps: PluginRequestClientDeps): Plugin
             payload: JSON.parse(json ?? "null"),
           });
         } catch {
-          settle(requestId, { ok: false, error: "disconnected" });
+          sent = false;
         }
+        if (!sent) settle(requestId, { ok: false, error: "disconnected" });
       });
     },
     handleReply(msg) {

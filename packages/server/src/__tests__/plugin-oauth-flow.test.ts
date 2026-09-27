@@ -5,7 +5,7 @@
  * input never echoed/logged, early failure, start timeout, registry-failure
  * isolation, and no real browser under vitest.
  * See change: expose-plugin-credential-and-oauth-seams
- * (test-plan E13–E15, E17, X5–X8).
+ * (test-plan E13–E15, E17, X5–X8; E17b from the step-4.5 review).
  */
 
 import fs from "node:fs";
@@ -25,7 +25,12 @@ vi.mock("../model-proxy/registry-singleton.js", () => ({
 
 import { beginFlow, pluginFlowProvider } from "../auth/begin-flow.js";
 import type { LoginInteraction, OAuthCredential, OAuthLoginFlow } from "../auth/pi-oauth-types.js";
-import { abortAllFlows, flowStoreSize, getFlow } from "../auth/provider-auth-adapter.js";
+import {
+  abortAllFlows,
+  flowStoreSize,
+  getFlow,
+  WITHHELD_ERROR_MESSAGE,
+} from "../auth/provider-auth-adapter.js";
 import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
 
 const AUTH = path.join(os.homedir(), ".pi", "agent", "auth.json");
@@ -173,6 +178,42 @@ describe("flow routes serve plugin flows", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it("E17b: a login error that quotes the submitted input is withheld from status", async () => {
+    const app = await buildApp(Promise.resolve());
+    try {
+      const echoing: OAuthLoginFlow = {
+        name: "Echo",
+        async login(ix) {
+          ix.notify({ type: "auth_url", url: "https://example.test/authorize" });
+          const answer = await ix.prompt({ type: "manual_code", message: "Paste" });
+          const code = new URL(answer).searchParams.get("code");
+          throw new Error(`invalid grant for code ${code}`);
+        },
+      };
+      const res = await pluginBegin("k", echoing).result;
+      if (!res.ok) throw new Error("start failed");
+      await app.inject({
+        method: "POST", url: `/api/provider-auth/flow/${res.flow.id}/input`,
+        payload: { value: "http://127.0.0.1/?code=SECRET123&state=x" },
+      });
+      await res.flow.settled;
+      const status = await app.inject({ method: "GET", url: `/api/provider-auth/flow/${res.flow.id}` });
+      expect(status.payload).not.toContain("SECRET123");
+      expect(JSON.parse(status.payload)).toMatchObject({ status: "error", error: WITHHELD_ERROR_MESSAGE });
+      expect(res.flow.submitted).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("an error that does not quote the input passes through unchanged", async () => {
+    const res = await pluginBegin("k", manualFlow(cred())).result;
+    if (!res.ok) throw new Error("start failed");
+    res.flow.resolveInput!("wrong-value");
+    await res.flow.settled;
+    expect(getFlow(res.flow.id)).toMatchObject({ status: "error", error: "bad code" });
   });
 
   it("E17: submitted input is never echoed by status nor logged", async () => {

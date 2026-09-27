@@ -12,3 +12,5 @@ Migration gate (fix-bridge-mdns-migration-hijack): `updateUrl` is REPLACED by `r
 Adds `ConnectionManagerOptions.onPostFlush?: () => void` — fired after the drop-buffered frames are flushed onto the reopened socket, and paired with `onReconnect` (skips the first open). `onopen` fires `onReconnect()` BEFORE the flush, so anything sent from there overtakes a buffered real `agent_end`: a status correction sent that early would settle the session to `idle` first and the real `agent_end` would arrive with `before.status === "idle"`, erasing the `streaming→idle` edge `isUnreadTrigger` needs. Ordering pinned by construction, not by comment. See change: fix-stuck-streaming-status-latch (D8).
 
 New `onClose` option, fired on every socket loss (drop or `disconnect()`), listener errors swallowed. See change: expose-plugin-credential-and-oauth-seams.
+
+`sendIfOpen(msg): boolean` — send only on an OPEN socket, never buffers (plugin request frames). See change: expose-plugin-credential-and-oauth-seams.

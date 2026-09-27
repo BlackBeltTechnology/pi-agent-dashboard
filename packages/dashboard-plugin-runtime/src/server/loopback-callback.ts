@@ -130,6 +130,10 @@ export async function createLoopbackCallback(
     });
   });
 
+  // Read the bound address BEFORE any abort handling: `server.address()` is
+  // null once the listener is closed.
+  const { port } = server.address() as AddressInfo;
+
   if (opts.signal?.aborted) {
     onAbort();
   } else {
@@ -141,7 +145,6 @@ export async function createLoopbackCallback(
     timer.unref?.();
   }
 
-  const { port } = server.address() as AddressInfo;
   return {
     redirectUri: `http://127.0.0.1:${port}${cbPath}`,
     state,

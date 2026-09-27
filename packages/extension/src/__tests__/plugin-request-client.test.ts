@@ -21,11 +21,15 @@ function requestPluginServer(pluginId: string, type: string, payload?: unknown) 
   return fn ? fn(pluginId, type, payload) : Promise.resolve({ ok: false, error: "unavailable" });
 }
 
-function setup(timeoutMs?: number) {
+function setup(timeoutMs?: number, open = true) {
   const sent: Array<Record<string, unknown>> = [];
   let n = 0;
   const client = createPluginRequestClient({
-    send: (m) => { sent.push(m as Record<string, unknown>); },
+    send: (m) => {
+      if (!open) return false;
+      sent.push(m as Record<string, unknown>);
+      return true;
+    },
     timeoutMs,
     newId: () => `r${++n}`,
   });
@@ -66,6 +70,13 @@ describe("plugin request client (bridge)", () => {
     vi.advanceTimersByTime(15_000);
     await expect(p).resolves.toEqual({ ok: false, error: "timeout" });
     expect(() => client.handleReply({ requestId: "r1", ok: true, result: 1 })).not.toThrow();
+    expect(client.pendingCount()).toBe(0);
+  });
+
+  it("a request on a socket that is not OPEN fails disconnected at once and is never queued", async () => {
+    const { client, sent } = setup(undefined, false);
+    await expect(client.request("p", "t", {})).resolves.toEqual({ ok: false, error: "disconnected" });
+    expect(sent).toHaveLength(0);
     expect(client.pendingCount()).toBe(0);
   });
 

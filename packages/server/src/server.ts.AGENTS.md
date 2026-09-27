@@ -27,3 +27,5 @@ Passes `readAccessGrants` to `registerSystemRoutes`: `snapshotAccessGrantHealth`
 `registerAccessPromptRoutes` wired after `registerAccessRoutes` with `grantCoordinator`, `grantPlanes`, `yolo`, live prompting status (`accessGrants.promptEnabled`, `isGrantPromptKilled()`, `resolveHostGateMode`), `listRefusals`/`clearRefusal`. See change: add-access-grant-dialog (8.1).
 
 Plugin context wires `pluginCredentials` (`createPluginCredentialStore`), `startPluginOAuthFlow` (`beginFlow` with `plugin:<id>:<key>`, persist callback, no bridge notify) and `registerPiRequestHandler` (`pluginRequestLane`); `dispatchPluginRequest` → `piGateway.sendToSession`. Bridge auto-registration filters `fixtureEntryAllowed`. See change: expose-plugin-credential-and-oauth-seams.
+
+Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registration + reconciliation. See change: expose-plugin-credential-and-oauth-seams.

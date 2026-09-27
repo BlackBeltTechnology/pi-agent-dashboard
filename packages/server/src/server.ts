@@ -19,6 +19,7 @@ import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
   reconcilePluginBridgePackages,
+  deregisterPluginBridge,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
@@ -3310,6 +3311,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // Auto-register plugin bridge entries
       const discoveredPlugins = discoverPlugins();
+      // A fixture bridge left in settings.json by an earlier opt-in run must
+      // not survive into a gated run (reconciliation below would keep it).
+      // See change: expose-plugin-credential-and-oauth-seams (D8).
+      for (const p of discoveredPlugins) {
+        if (p.bridgeEntryPath && !fixtureEntryAllowed(p.manifest)) {
+          try { deregisterPluginBridge(p.manifest.id); } catch (err) {
+            console.warn(`[plugin-bridge] could not deregister fixture bridge "${p.manifest.id}":`, err);
+          }
+        }
+      }
       const pluginsWithBridges = discoveredPlugins
         .filter(p => p.bridgeEntryPath)
         // Fixture bridges (demo-plugin) only under PI_DASHBOARD_FIXTURE_PLUGINS=1,

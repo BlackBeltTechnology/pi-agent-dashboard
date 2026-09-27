@@ -71,6 +71,15 @@ describe("createLoopbackCallback", () => {
     expect(() => { cb.close(); cb.close(); }).not.toThrow();
   });
 
+  it("X12: an already-aborted signal yields a rejected, closed helper (no throw)", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const cb = await make({ signal: ac.signal });
+    expect(cb.redirectUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+    await expect(cb.waitForCode()).rejects.toMatchObject({ code: "aborted" });
+    expect(cb.server.listening).toBe(false);
+  });
+
   it("X12: abort rejects and closes", async () => {
     const ac = new AbortController();
     const cb = await make({ signal: ac.signal });

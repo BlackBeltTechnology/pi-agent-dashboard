@@ -473,6 +473,22 @@ export class ConnectionManager {
     try { this.onClose?.(); } catch { /* a listener must not break teardown */ }
   }
 
+  /**
+   * Send only when the socket is OPEN — never buffers. For request frames
+   * whose caller must learn synchronously that nothing was sent (a buffered
+   * request could execute after reconnect with its reply dropped).
+   * See change: expose-plugin-credential-and-oauth-seams (D7).
+   */
+  sendIfOpen(message: unknown): boolean {
+    if (this.ws?.readyState !== 1) return false;
+    try {
+      this.ws.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   send(message: unknown): void {
     const data = JSON.stringify(message);
 
