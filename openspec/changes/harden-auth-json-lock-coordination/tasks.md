@@ -46,5 +46,5 @@
 ## 3. Validate
 
 - [ ] 3.1 Manual live coordination check: a running dashboard proxy plus an active pi session on Anthropic OAuth near expiry; drive proxy requests across pi's refresh. Expect no `invalid_grant`, pi keeps working, no forced re-login, and `server.log` shows adopt/written outcomes with no ECOMPROMISED crash (test-plan: manual-only, #F1)
-- [x] 3.2 `npm test` green (pre-existing unrelated failures unchanged: kb eval-guard, bus-client send-types, extension pi-version-tracker, scripts verify-published-imports, server pi-version-skew fail identically on the pre-change tree; session-diff P1 is a full-run load flake, green in isolation), `npm run lint` clean (includes E6), and `npm run quality:changed` clean
+- [x] 3.2 `npm test` green (1969 files / 22992 tests, after a per-worktree `pnpm install`; knip ratchet fixed by un-exporting six inherited module-local symbols), `npm run lint` clean (includes E6), and `npm run quality:changed` clean
 - [x] 3.3 `openspec validate harden-auth-json-lock-coordination --strict` passes
