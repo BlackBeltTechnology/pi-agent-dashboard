@@ -18,23 +18,9 @@
 
 import { Parser } from "htmlparser2";
 import { ansiLayer } from "./ansi.js";
+import { buildCssIndex, type CssIndex, hidingReason, resolveDecls } from "./css.js";
 import type { FindingSet } from "./findings.js";
 import { hasRtl, unicodeLayer } from "./unicode.js";
-
-type Decls = Map<string, string>;
-
-/** A simple-selector rule, remembered with its source order for the cascade. */
-interface IndexedRule {
-  order: number;
-  decls: Decls;
-}
-
-interface CssIndex {
-  type: Map<string, IndexedRule[]>;
-  cls: Map<string, IndexedRule[]>;
-  id: Map<string, IndexedRule[]>;
-  size: number;
-}
 
 interface Edit {
   start: number;
@@ -43,8 +29,6 @@ interface Edit {
 }
 
 const HTML_DETECT = /^\s*<(?:!doctype\s+html|html)\b/i;
-const STYLE_OPEN = /<style\b[^>]{0,2000}>/gi;
-const SIMPLE_SELECTOR = /^(?:[a-z][a-z0-9-]*|\.[\w-]+|#[\w-]+)$/i;
 const HIDDEN_TEXT_SAMPLE = 200;
 
 /** Treat content as HTML only on an explicit content type or a doctype/`<html>` prefix. */
@@ -53,168 +37,39 @@ export function isHtml(text: string, contentType?: string): boolean {
   return HTML_DETECT.test(text);
 }
 
-function parseDecls(style: string): Decls {
-  const decls: Decls = new Map();
-  for (const part of style.split(";")) {
-    const colon = part.indexOf(":");
-    if (colon <= 0) continue;
-    const prop = part.slice(0, colon).trim().toLowerCase();
-    const value = part
-      .slice(colon + 1)
-      .replace(/!\s*important/i, "")
-      .trim()
-      .toLowerCase();
-    if (prop) decls.set(prop, value);
-  }
-  return decls;
-}
-
-const NAMED_COLORS: Record<string, string> = { white: "#ffffff", black: "#000000" };
-
-function normalizeColor(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
-  const v = raw.replace(/\s+/g, "");
-  if (NAMED_COLORS[v]) return NAMED_COLORS[v];
-  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/.exec(v);
-  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
-  if (/^#[0-9a-f]{6}$/.test(v)) return v;
-  const rgb = /^rgba?\((\d{1,3}),(\d{1,3}),(\d{1,3})(?:,[\d.]+%?)?\)$/.exec(v);
-  if (rgb) {
-    return `#${[rgb[1], rgb[2], rgb[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("")}`;
-  }
-  return v || undefined;
-}
-
-/** First colour-looking token of a `background` shorthand. */
-function backgroundColor(decls: Decls): string | undefined {
-  const explicit = decls.get("background-color");
-  if (explicit) return normalizeColor(explicit);
-  const shorthand = decls.get("background");
-  if (!shorthand) return undefined;
-  const token = /(#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b)/.exec(shorthand);
-  return token ? normalizeColor(token[1]) : undefined;
-}
-
-function offscreenPx(value: string | undefined): boolean {
-  if (!value) return false;
-  const m = /^-(\d+(?:\.\d+)?)(px|em|rem)?$/.exec(value);
-  if (!m) return false;
-  const magnitude = Number(m[1]) * (m[2] === "em" || m[2] === "rem" ? 16 : 1);
-  return magnitude >= 999;
-}
-
-/** The first hiding technique a declaration set uses, as a finding id, or null. */
-function hidingReason(decls: Decls): string | null {
-  if (decls.size === 0) return null;
-  if (decls.get("display") === "none") return "html-display-none";
-  const visibility = decls.get("visibility");
-  if (visibility === "hidden" || visibility === "collapse") return "html-visibility-hidden";
-  const fontSize = decls.get("font-size");
-  if (fontSize !== undefined && /^0+(?:\.0*)?(?:px|pt|em|rem|%|ex|ch|vw|vh)?$/.test(fontSize)) {
-    return "html-font-size-0";
-  }
-  const opacity = decls.get("opacity");
-  if (opacity !== undefined && /^(?:0+(?:\.0*)?|\.0+|0+%)$/.test(opacity)) return "html-opacity-0";
-  const fg = normalizeColor(decls.get("color"));
-  if (fg !== undefined && fg === backgroundColor(decls)) return "html-color-match";
-  const position = decls.get("position");
-  if (
-    (position === "absolute" || position === "fixed") &&
-    ["left", "top", "right", "bottom"].some((side) => offscreenPx(decls.get(side)))
-  ) {
-    return "html-offscreen";
-  }
-  return null;
-}
-
-function addRule(map: Map<string, IndexedRule[]>, key: string, rule: IndexedRule): void {
-  const list = map.get(key);
-  if (list) list.push(rule);
-  else map.set(key, [rule]);
-}
-
-/** Register one CSS rule: simple selectors into the index, complex hiding ones as `unresolved_css`. */
-function indexRule(index: CssIndex, prelude: string, body: string, findings: FindingSet): void {
-  const decls = parseDecls(body);
-  const hides = hidingReason(decls) !== null;
-  const rule: IndexedRule = { order: index.size++, decls };
-  for (const selector of prelude.split(",").map((s) => s.trim())) {
-    if (!selector) continue;
-    if (!SIMPLE_SELECTOR.test(selector)) {
-      if (hides) findings.add("unresolved_css", "low", `${selector} {${body}}`);
-      continue;
-    }
-    if (selector.startsWith(".")) addRule(index.cls, selector.slice(1), rule);
-    else if (selector.startsWith("#")) addRule(index.id, selector.slice(1), rule);
-    else addRule(index.type, selector.toLowerCase(), rule);
-  }
-}
-
 /**
- * Walk the innermost `prelude { body }` blocks of a stylesheet with linear
- * `indexOf` scans (a regex here retries from every offset on brace-free input).
- * Descends into `@media`-style wrappers; skips other at-rules.
+ * Prepass: text of REAL `<style>` elements, as the parser sees them — never a
+ * regex over raw source, so a `<style>` inside a script string is not a
+ * stylesheet and a `</stylex>` inside CSS does not end one.
  */
-function forEachCssRule(css: string, visit: (prelude: string, body: string) => void): void {
-  let start = 0;
-  let close = -1;
-  for (let open = css.indexOf("{"); open !== -1; open = css.indexOf("{", open + 1)) {
-    if (close < open) close = css.indexOf("}", open + 1);
-    if (close === -1) return;
-    const nextOpen = css.indexOf("{", open + 1);
-    if (nextOpen !== -1 && nextOpen < close) {
-      start = open + 1; // wrapper block (e.g. @media): its rules follow
-      continue;
-    }
-    // Drop anything before the last `;`/`}` (e.g. `@import …;`, a closed wrapper).
-    const prelude = css.slice(start, open).split(/[;}]/).pop()?.trim() ?? "";
-    if (prelude && !prelude.startsWith("@")) visit(prelude, css.slice(open + 1, close));
-    start = close + 1;
-  }
-}
-
-function buildCssIndex(src: string, findings: FindingSet): CssIndex {
-  const index: CssIndex = { type: new Map(), cls: new Map(), id: new Map(), size: 0 };
-  if (!/<style\b/i.test(src)) return index;
-  const lower = src.toLowerCase();
-  STYLE_OPEN.lastIndex = 0;
-  for (let open = STYLE_OPEN.exec(src); open !== null; open = STYLE_OPEN.exec(src)) {
-    const bodyStart = open.index + open[0].length;
-    const bodyEnd = lower.indexOf("</style", bodyStart);
-    if (bodyEnd === -1) break; // unclosed: no further complete stylesheet
-    const css = src.slice(bodyStart, bodyEnd).replace(/\/\*[\s\S]*?\*\//g, "");
-    forEachCssRule(css, (prelude, body) => indexRule(index, prelude, body, findings));
-    STYLE_OPEN.lastIndex = bodyEnd;
-  }
-  return index;
-}
-
-/** Specificity ranks of the supported simple selectors. */
-const TYPE_RANK = 0;
-const CLASS_RANK = 1;
-const ID_RANK = 2;
-
-/** Stylesheet declarations applying to an element: specificity first, then source order. */
-function cascade(name: string, attribs: Record<string, string>, css: CssIndex): Decls {
-  const matched: Array<{ rank: number; rule: IndexedRule }> = [];
-  const collect = (rank: number, rules: IndexedRule[] | undefined) => {
-    for (const rule of rules ?? []) matched.push({ rank, rule });
-  };
-  collect(TYPE_RANK, css.type.get(name));
-  for (const cls of new Set((attribs.class ?? "").split(/\s+/))) if (cls) collect(CLASS_RANK, css.cls.get(cls));
-  if (attribs.id) collect(ID_RANK, css.id.get(attribs.id));
-  matched.sort((x, y) => x.rank - y.rank || x.rule.order - y.rule.order);
-  const decls: Decls = new Map();
-  for (const { rule } of matched) for (const [k, v] of rule.decls) decls.set(k, v);
-  return decls;
+function collectStylesheets(src: string): string[] {
+  if (!/<style\b/i.test(src)) return [];
+  const sheets: string[] = [];
+  let depth = 0;
+  let current = "";
+  const parser = new Parser(
+    {
+      onopentag(name) {
+        if (name === "style" && depth++ === 0) current = "";
+      },
+      ontext(chunk) {
+        if (depth > 0) current += chunk;
+      },
+      onclosetag(name) {
+        if (name === "style" && depth > 0 && --depth === 0) sheets.push(current);
+      },
+    },
+    { decodeEntities: true },
+  );
+  parser.write(src);
+  parser.end();
+  return sheets;
 }
 
 function elementReason(name: string, attribs: Record<string, string>, css: CssIndex): string | null {
   if (name === "script") return "html-script";
   if (Object.hasOwn(attribs, "hidden")) return "html-hidden-attr";
-  const decls = css.size > 0 ? cascade(name, attribs, css) : new Map<string, string>();
-  if (attribs.style) for (const [k, v] of parseDecls(attribs.style)) decls.set(k, v); // inline wins
-  return hidingReason(decls);
+  return hidingReason(resolveDecls(name, attribs, css));
 }
 
 function escapeText(text: string): string {
@@ -232,7 +87,7 @@ interface OpenElement {
  * if the parser itself throws (the caller falls back — test-plan #X3).
  */
 export function htmlLayer(src: string, findings: FindingSet, apply: boolean): string {
-  const css = buildCssIndex(src, findings);
+  const css = buildCssIndex(collectStylesheets(src), findings);
   const rtl = hasRtl(src);
   const edits: Edit[] = [];
   const stack: OpenElement[] = [];

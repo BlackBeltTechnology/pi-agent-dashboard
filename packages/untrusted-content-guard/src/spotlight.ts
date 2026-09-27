@@ -21,14 +21,22 @@ export function newMarker(): string {
   return [...randomBytes(8)].map((b) => ALPHABET[b % ALPHABET.length]).join("");
 }
 
+/** A `<` that starts `<<untrusted` / `<</untrusted` (whitespace/slash tolerant). */
+const DELIMITER_START = /<(?=[<\s/]{0,8}untrusted)/gi;
 /**
- * Defuse delimiter syntax inside content: every `<` that could start
- * `<<untrusted` / `<</untrusted` becomes `‹`, and so does a trailing `<` run,
- * so a delimiter cannot be assembled across two adjacent content blocks.
+ * A `<` whose remainder up to the END of the block is a prefix of a delimiter
+ * (`<`, `<<unt`, `<</untruste`, …) — it could be completed by the next block.
+ */
+const DELIMITER_PREFIX_AT_END = /<(?=[<\s/]{0,8}(?:u(?:n(?:t(?:r(?:u(?:s(?:t(?:e(?:d)?)?)?)?)?)?)?)?)?$)/gi;
+
+/**
+ * Defuse delimiter syntax inside content: every `<` that starts a delimiter, or
+ * a delimiter prefix at the end of the block, becomes `‹`. A delimiter can then
+ * be neither written inline nor assembled across two adjacent content blocks.
  * Bounded lookahead keeps it linear on `<<<<…` runs.
  */
 export function escapeDelimiters(text: string): string {
-  return text.replace(/<(?=[<\s/]{0,8}untrusted)/gi, "‹").replace(/<(?=[<\s/]{0,8}$)/g, "‹");
+  return text.replace(DELIMITER_START, "‹").replace(DELIMITER_PREFIX_AT_END, "‹");
 }
 
 export function openDelimiter(source: string, marker: string): string {

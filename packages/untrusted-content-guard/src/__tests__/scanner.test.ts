@@ -143,11 +143,49 @@ describe("hidden-HTML layer", () => {
     expect(byId.cleaned).not.toContain(">A<");
   });
 
-  it("stays linear on pathological unclosed <style> / brace-free CSS", () => {
-    const evil = `<html>${"<style>a".repeat(20_000)}${"x".repeat(200_000)}`;
-    const t0 = performance.now();
-    scan(evil, { mode: "strip" });
-    expect(performance.now() - t0).toBeLessThan(2_000);
+  it("honours !important over specificity and strips CSS comments inside declarations", () => {
+    const important = scan(
+      '<html><style>.x{display:none!important}#i{display:block}</style><p id="i" class="x">A</p></html>',
+      { mode: "strip" },
+    );
+    expect(important.cleaned).not.toContain(">A<");
+    const inlineComment = scan('<html><p style="display:/**/none">A</p></html>', { mode: "strip" });
+    expect(inlineComment.cleaned).not.toContain(">A<");
+    const sheetComment = scan("<html><style>.x{display:/* c */none}</style><p class=\"x\">A</p></html>", {
+      mode: "strip",
+    });
+    expect(sheetComment.cleaned).not.toContain(">A<");
+  });
+
+  it("reads stylesheets from real <style> elements only", () => {
+    // A <style> inside a script string is not a stylesheet: the visible <p> stays byte-identical.
+    const fake = '<html><script>var s = "<style>.x{display:none}</style>";</script><p class="x">A</p></html>';
+    expect(scan(fake, { mode: "strip" }).cleaned).toBe('<html><p class="x">A</p></html>');
+    // `</stylex>` inside a CSS comment does not end the stylesheet: the later rule still applies.
+    const early = '<html><style>/* </stylex> */ .x{display:none}</style><p class="x">A</p></html>';
+    expect(scan(early, { mode: "strip" }).cleaned).not.toContain(">A<");
+  });
+
+  const msPer100KB = (input: string) => {
+    scan(input, { mode: "strip" }); // warm-up
+    const times = [0, 1, 2].map(() => {
+      const t0 = performance.now();
+      scan(input, { mode: "strip" });
+      return performance.now() - t0;
+    });
+    times.sort((a, b) => a - b);
+    return (times[1] as number) / (input.length / (100 * 1024));
+  };
+
+  it("stays within the latency bound on a rule-count × element-count cascade", () => {
+    const rules = ".x{color:red}".repeat(2000);
+    const elements = '<p class="x">t</p>'.repeat(2000);
+    expect(msPer100KB(`<html><style>${rules}</style>${elements}</html>`)).toBeLessThanOrEqual(25);
+  });
+
+  it("stays within the latency bound on unclosed <style / brace-free CSS", () => {
+    expect(msPer100KB(`<html>${"<style ".repeat(40_000)}`)).toBeLessThanOrEqual(25);
+    expect(msPer100KB(`<html><style>${"a".repeat(300_000)}</style></html>`)).toBeLessThanOrEqual(25);
   });
 
   it("#E11 reports a complex hiding selector as low unresolved_css and keeps the text", () => {
