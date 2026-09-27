@@ -28,8 +28,9 @@ import { recordPathDenial } from "./access-denials.js";
 import { grantedSubjects } from "./access-grants.js";
 import { offeredAncestorLadder } from "./ancestor-ladder.js";
 import { type HoldTarget, holdDenial } from "./denial-hold.js";
-import { isUngrantableSubject } from "./forbidden-subjects.js";
+import { isUngrantableSubject, realpathNearestAncestor } from "./forbidden-subjects.js";
 import type { Resolution } from "./grant-coordinator.js";
+import type { FloodReason, PreconditionReason, RefusalReason } from "./pending-grant-registry.js";
 
 /** The grantable subject of a refused path: its containing directory. */
 function grantableSubjectOf(resolved: string): string {
@@ -83,6 +84,100 @@ export interface DenialRemedy {
    * conditional, which is how body assertions rot.
    */
   ancestors: string[];
+  /**
+   * Why the operator was or was not asked (design D5). Present only when the
+   * site passed `disclosure: true` (an authenticated or genuinely local caller):
+   * it reveals the same prompting posture `/api/health` withholds from others.
+   */
+  promptOutcome?: PromptOutcome;
+}
+
+/**
+ * The closed set a denial body names (see change: surface-denial-remedy-in-previews,
+ * design D5). The client mirrors it; `unavailable` is the catch-all.
+ */
+export type PromptOutcome =
+  | "cannot-ask"
+  | "off"
+  | "not-enforced"
+  | "ineligible"
+  | "busy"
+  | "throttled"
+  | "recently-answered"
+  | "allowed-elsewhere"
+  | "declined"
+  | "unanswered"
+  | "ungrantable"
+  | "grant-failed"
+  | "allowed-but-refused"
+  | "unavailable";
+
+/**
+ * The registry's typed reasons. A `Record` keyed by the union is exhaustive at
+ * compile time: a reason added to any of the three unions without a row here
+ * fails the build instead of falling to `unavailable`.
+ */
+const TYPED_REASON_OUTCOMES: Record<PreconditionReason | RefusalReason | FloodReason, PromptOutcome> = {
+  disabled: "off",
+  "report-mode": "not-enforced",
+  ineligible: "ineligible",
+  "no-audience": "unavailable",
+  "channel-concurrent": "busy",
+  "concurrent-cap": "busy",
+  "plane-rate": "throttled",
+  "channel-rate": "throttled",
+  capacity: "throttled",
+  "channel-share": "throttled",
+  "deferred-share": "throttled",
+  backoff: "recently-answered",
+};
+
+/** The coordinator's untyped `Resolution.reason` literals, each with an explicit row. */
+const COORDINATOR_REASON_OUTCOMES: Readonly<Record<string, PromptOutcome>> = {
+  "no-coordinator": "off",
+  "unknown-plane": "unavailable",
+  "not-held": "unavailable",
+  "waiters-full": "throttled",
+  "broadcast-failed": "throttled",
+  "allow-once-not-shared": "allowed-elsewhere",
+  denied: "declined",
+  "refused-by-prior-refusal": "declined",
+  expired: "unanswered",
+  aborted: "unanswered",
+  "not-promptable": "ungrantable",
+  "settle-failed": "grant-failed",
+};
+
+/**
+ * The explicit row for a deny reason, or `undefined` when none exists. Split
+ * from `promptOutcomeOf` so a test can assert every emitted literal has a row
+ * of its own rather than silently reaching the default.
+ */
+export function promptOutcomeRow(reason: string): PromptOutcome | undefined {
+  if (Object.hasOwn(TYPED_REASON_OUTCOMES, reason)) {
+    return TYPED_REASON_OUTCOMES[reason as keyof typeof TYPED_REASON_OUTCOMES];
+  }
+  if (Object.hasOwn(COORDINATOR_REASON_OUTCOMES, reason)) return COORDINATOR_REASON_OUTCOMES[reason];
+  if (reason === "persist-failed:forbidden") return "ungrantable";
+  if (reason.startsWith("persist-failed:")) return "grant-failed";
+  return undefined;
+}
+
+/** A deny reason's outcome; a literal not emitted today is `unavailable`. */
+export function promptOutcomeOf(reason: string): PromptOutcome {
+  return promptOutcomeRow(reason) ?? "unavailable";
+}
+
+/**
+ * The outcome for one denial, first match (design D5): an ungrantable subject,
+ * then a site that can never suspend, then the reason, then an allow verdict the
+ * re-evaluation refused.
+ */
+function outcomeFor(resolution: Resolution, held: boolean): PromptOutcome {
+  if (resolution.kind === "deny" && resolution.reason === "not-promptable") return "ungrantable";
+  if (!held) return "cannot-ask";
+  // Only reached for an allow when the re-evaluation refused it.
+  return resolution.kind === "deny" ? promptOutcomeOf(resolution.reason) : "allowed-but-refused";
 }
 
 /**
@@ -112,6 +207,13 @@ export async function evaluateContainment(
      * at once, exactly as before. See change: add-access-grant-dialog.
      */
     hold?: HoldTarget;
+    /**
+     * Include `promptOutcome` in the remedy. Computed by the route from the
+     * shared disclosure predicate (`canDiscloseAccessPosture`); a separate option
+     * because holdless sites disclose too. See change:
+     * surface-denial-remedy-in-previews.
+     */
+    disclosure?: boolean;
   },
 ): Promise<ContainmentDecision & { remedy?: DenialRemedy }> {
   // Layers ①/② first — untouched and still authoritative (design D1) — then the
@@ -141,7 +243,12 @@ export async function evaluateContainment(
   // `subjectKind` decides what the remedy names — see `remedySubject`. The
   // default ("file") is right for the majority of sites (a refused file read);
   // directory-only and polymorphic sites must say so explicitly.
-  const subject = await remedySubject(resolved, opts.subjectKind ?? "file");
+  //
+  // Symlinks are resolved in the chosen subject FIRST, so the ladder, the
+  // recorded denial, the body and the dialog all derive from the one string a
+  // grant would store (`/tmp` → `/private/tmp`). Resolving a symlink never
+  // widens: it names the same resource (design D6).
+  const subject = realpathNearestAncestor(await remedySubject(resolved, opts.subjectKind ?? "file"));
   let ancestors: string[] = [];
   try {
     ancestors = await offeredAncestorLadder(subject);
@@ -172,9 +279,9 @@ export async function evaluateContainment(
     { plane: "filesystem", rawSubject: entry.subject, ancestors, origin: opts.session ?? "unknown" },
     opts.hold,
   );
-  if (resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution))) {
-    return { allowed: true, viaGrant: true };
-  }
+  const reEvaluated = resolution.kind === "allow" && (await reEvaluate(resolved, anchors, resolution));
+  if (reEvaluated) return { allowed: true, viaGrant: true };
+  if (opts.disclosure) remedy.promptOutcome = outcomeFor(resolution, opts.hold !== undefined);
   return { ...decision, remedy };
 }
 

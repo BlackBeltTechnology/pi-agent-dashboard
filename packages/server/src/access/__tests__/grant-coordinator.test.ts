@@ -7,6 +7,7 @@ import {
   GrantCoordinator,
   type GrantCoordinatorDeps,
 } from "../grant-coordinator.js";
+import { type PromptOutcome, promptOutcomeOf, promptOutcomeRow } from "../containment-gate.js";
 import { GRANT_ENTRY_TTL_MS } from "../pending-grant-registry.js";
 
 /**
@@ -415,3 +416,80 @@ describe("robustness", () => {
 function net(): DenialContext {
   return { plane: "network", rawSubject: "1.2.3.4", origin: "network", channel: "1.2.3.4", requestHoldsCapability: false };
 }
+
+describe("joined requests report their own reason; the dialog names the joiner (change: surface-denial-remedy-in-previews, D5)", () => {
+  it("#E20 an eligible joiner blocked by its own one-dialog bound is denied channel-concurrent, never the stale ineligible", async () => {
+    const c = make();
+    const open = c.onDenial(fsDenial({ rawSubject: "/work/a" }), true); // sock-A: one dialog open
+    await c.onDenial(fsDenial({ rawSubject: "/work/b", channel: "source:127.0.0.0/24", requestHoldsCapability: false }), true)
+      .result;
+    const joined = await c.onDenial(fsDenial({ rawSubject: "/work/b" }), true).result;
+    expect(joined).toEqual({ kind: "deny", reason: "channel-concurrent" });
+    expect(promptOutcomeOf((joined as { reason: string }).reason)).toBe("busy");
+    open.abort();
+  });
+
+  it("an ineligible joiner reports ineligible, not not-held", async () => {
+    const c = make();
+    const open = c.onDenial(fsDenial(), true);
+    const joined = await c.onDenial(fsDenial({ channel: "source:x", requestHoldsCapability: false }), true).result;
+    expect(joined).toEqual({ kind: "deny", reason: "ineligible" });
+    open.abort();
+  });
+
+  it("#E21 a dialog raised by a joiner is attributed to the joiner's session", async () => {
+    const errors: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => void errors.push(a.join(" ")));
+    const c = make();
+    await c.onDenial(fsDenial({ origin: "X", channel: "source:x", requestHoldsCapability: false }), true).result;
+    const hold = c.onDenial(fsDenial({ origin: "Y" }), true);
+    expect(hold.held).toBe(true);
+    await c.onResponse(answer("allow-always"));
+    await hold.result;
+    expect(grant).toHaveBeenCalledWith(expect.objectContaining({ origin: "Y" }));
+    expect(errors.some((l) => l.includes("[access-grant] persisted") && l.includes('origin="Y"'))).toBe(true);
+    spy.mockRestore();
+  });
+});
+
+describe("#E5 promptOutcome: every reason emitted today has an explicit row", () => {
+  const EMITTED: Record<string, PromptOutcome> = {
+    disabled: "off",
+    "report-mode": "not-enforced",
+    "no-coordinator": "off",
+    ineligible: "ineligible",
+    "no-audience": "unavailable",
+    "unknown-plane": "unavailable",
+    "not-held": "unavailable",
+    "channel-concurrent": "busy",
+    "concurrent-cap": "busy",
+    "plane-rate": "throttled",
+    "channel-rate": "throttled",
+    capacity: "throttled",
+    "channel-share": "throttled",
+    "deferred-share": "throttled",
+    "waiters-full": "throttled",
+    "broadcast-failed": "throttled",
+    backoff: "recently-answered",
+    "allow-once-not-shared": "allowed-elsewhere",
+    denied: "declined",
+    "refused-by-prior-refusal": "declined",
+    expired: "unanswered",
+    aborted: "unanswered",
+    "not-promptable": "ungrantable",
+    "persist-failed:forbidden": "ungrantable",
+    "persist-failed:write-failed": "grant-failed",
+    "settle-failed": "grant-failed",
+  };
+
+  it.each(Object.entries(EMITTED))("%s → %s, from an explicit row", (reason, outcome) => {
+    expect(promptOutcomeRow(reason)).toBe(outcome);
+  });
+
+  it("an unknown literal falls to unavailable, and only it", () => {
+    expect(promptOutcomeRow("something-new")).toBeUndefined();
+    expect(promptOutcomeOf("something-new")).toBe("unavailable");
+    // Inherited object keys are not rows.
+    expect(promptOutcomeRow("toString")).toBeUndefined();
+  });
+});

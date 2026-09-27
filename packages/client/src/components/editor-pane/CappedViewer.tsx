@@ -13,6 +13,7 @@
  */
 import { MAX_PREVIEW_BYTES } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { useEffect, useState } from "react";
+import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { TooLargePreview } from "./TooLargePreview.js";
@@ -39,7 +40,12 @@ export function CappedViewer({ viewer, ...props }: Props) {
   useEffect(() => {
     if (!gated || size !== null) return;
     let active = true;
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(props.cwd)}&path=${encodeURIComponent(props.path)}`)
+    // ALWAYS opted out of the access-grant dialog, whatever the provenance:
+    // this metadata read runs before the viewer mounts, and an Allow once spent
+    // on it would leave the viewer's own content request refused. On a refusal
+    // the size is 0 and the viewer mounts; its request is the one that asks.
+    // See change: surface-denial-remedy-in-previews (D4).
+    fetchWithoutGrantPrompt(`${getApiBase()}/api/file?cwd=${encodeURIComponent(props.cwd)}&path=${encodeURIComponent(props.path)}`)
       .then((res) => res.json())
       .then((body) => {
         if (!active) return;

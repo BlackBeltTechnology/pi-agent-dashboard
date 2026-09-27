@@ -8,8 +8,12 @@ import { useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { MermaidBlock } from "../preview/MermaidBlock.js";
 import type { ViewerProps } from "./types.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 export default function MermaidViewer({ cwd, path }: ViewerProps) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [code, setCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,14 +21,14 @@ export default function MermaidViewer({ cwd, path }: ViewerProps) {
     let active = true;
     setCode(null);
     setError(null);
-    fetch(`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
+    previewFetch(`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((t) => active && setCode(t))
       .catch((e) => active && setError(e instanceof Error ? e.message : "failed to load"));
     return () => {
       active = false;
     };
-  }, [cwd, path]);
+  }, [cwd, path, previewFetch]);
 
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
   if (code === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">Loading…</div>;

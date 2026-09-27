@@ -77,6 +77,21 @@ export function isGenuinelyLocal(ip: string, headers: HeaderBag): boolean {
 }
 
 /**
+ * May this request see the access-prompting posture (host-gate mode, whether
+ * prompting is on, why a denial was not asked about)? Authenticated OR
+ * genuinely local — stricter than the network guard, because a trusted-CIDR or
+ * local-token caller with no credential must not learn it. One predicate for
+ * `/api/health`'s `accessGrants` block and every denial body's `promptOutcome`.
+ * See change: surface-denial-remedy-in-previews (design D5).
+ */
+export function canDiscloseAccessPosture(request: { ip: string; headers: unknown }): boolean {
+  return (
+    (request as { isAuthenticated?: boolean }).isAuthenticated === true ||
+    isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>)
+  );
+}
+
+/**
  * Is the request `Host` header a loopback host name — `localhost`,
  * `127.0.0.1`, `[::1]` (or bare `::1`), any port? Fail-closed on anything
  * unparseable (no port stripping unless the suffix is all digits, so

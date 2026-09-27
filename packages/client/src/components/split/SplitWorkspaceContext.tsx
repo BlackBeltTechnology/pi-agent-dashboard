@@ -53,9 +53,17 @@ export interface SplitWorkspaceContextValue {
    * `line`. `restrictCsp` marks a canvas auto-open (no user click) so document
    * viewers inject a restrictive CSP (auto-canvas S34). `background` (agent
    * auto-open while the editor is already shown) adds the tab silently — no
-   * active-tab change, no pending scroll, marked unread.
+   * active-tab change, no pending scroll, marked unread. `autoOpened` marks an
+   * agent (canvas auto-open) as the opener — provenance, independent of both:
+   * a viewer it mounts opts out of the access-grant dialog (see change:
+   * surface-denial-remedy-in-previews, D4).
    */
-  openInSplit: (relPath: string, line?: number, restrictCsp?: boolean, opts?: { background?: boolean }) => void;
+  openInSplit: (
+    relPath: string,
+    line?: number,
+    restrictCsp?: boolean,
+    opts?: { background?: boolean; autoOpened?: boolean },
+  ) => void;
   /** Open a loopback dev-server URL in the `live-server` split viewer (auto-launched). */
   openLiveTarget: (url: string, opts?: { background?: boolean }) => void;
   /** Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). */
@@ -202,13 +210,20 @@ export function SplitWorkspaceProvider({
   }, [split.mode, updateSplit]);
 
   const openInSplit = useCallback(
-    (relPath: string, line?: number, restrictCsp?: boolean, opts?: { background?: boolean }) => {
+    (relPath: string, line?: number, restrictCsp?: boolean, opts?: { background?: boolean; autoOpened?: boolean }) => {
       if (!relPath) return;
       const viewer = fileKind(absOf(cwd, relPath)).viewer;
       // Background only applies when the editor is already shown; from `closed`
       // there is no reading context to protect → reveal + activate.
       const background = opts?.background === true && split.mode !== "closed";
-      dispatch({ type: "openFile", path: relPath, viewer, restrictCsp, activate: !background });
+      dispatch({
+        type: "openFile",
+        path: relPath,
+        viewer,
+        restrictCsp,
+        activate: !background,
+        autoOpened: opts?.autoOpened === true,
+      });
       ensureRevealed();
       // A background tab is not activated; a stashed scroll would jump when the
       // user later opens it — so only foreground opens set pendingScroll.

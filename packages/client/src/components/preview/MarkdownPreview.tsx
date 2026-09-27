@@ -8,6 +8,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { readTextUrl } from "./raw-url.js";
 import { dirname } from "./resolve-local-image-src.js";
 import { logRejection } from "../../lib/report-error.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 
@@ -16,6 +17,9 @@ interface Props {
 }
 
 export function MarkdownPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +30,7 @@ export function MarkdownPreview({ target }: Props) {
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(readTextUrl(target));
+        const res = await previewFetch(readTextUrl(target));
         const body = await res.json();
         if (cancelled) return;
         if (body.success && body.data?.type === "file") {
@@ -41,7 +45,7 @@ export function MarkdownPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, previewFetch]);
 
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
