@@ -42,7 +42,8 @@ function hostAllowed(host: string, allowHosts: readonly string[]): boolean {
   });
 }
 
-function checkImage(url: string, allowHosts: readonly string[], findings: FindingSet): void {
+/** Report a query-string image to a non-allowlisted host (LOW `tracking-image`). */
+export function checkImage(url: string, allowHosts: readonly string[], findings: FindingSet): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -58,7 +59,8 @@ function isMixedScript(word: string): boolean {
   return LATIN.test(word) && CONFUSABLE_SCRIPT.test(word);
 }
 
-function checkConfusable(text: string, findings: FindingSet): void {
+/** Report mixed-script words in a domain or link text (LOW `confusable`). */
+export function checkConfusable(text: string, findings: FindingSet): void {
   for (const word of text.split(/[\s.\-_/]+/)) {
     if (word && isMixedScript(word)) findings.add("confusable", "low", word);
   }
@@ -67,6 +69,21 @@ function checkConfusable(text: string, findings: FindingSet): void {
 export interface UrlLayerOptions {
   replaceData: boolean;
   allowHosts: readonly string[];
+}
+
+const HOST_OF = /^\s*https?:\/\/([^\s/?#:"'<>)\]]+)/i;
+const DATA_VALUE = /^\s*data:([a-z]+\/[a-z0-9.+-]+)?((?:;[a-z0-9-]+(?:=[^;,\s"')]*)?)*),(.*)$/is;
+
+/** Hostname of an absolute http(s) URL, as written (never punycoded), or undefined. */
+export function hostOf(url: string): string | undefined {
+  return HOST_OF.exec(url)?.[1];
+}
+
+/** Placeholder for an attribute value that IS a `data:` URL, or null. */
+export function dataUrlPlaceholder(value: string): string | null {
+  const m = DATA_VALUE.exec(value);
+  if (!m) return null;
+  return `[data-url removed: ${(m[1] ?? "text/plain").toLowerCase()}, ${dataBytes(m[2] as string, (m[3] as string).trim())} bytes]`;
 }
 
 function replaceDataUrls(text: string, findings: FindingSet): string {

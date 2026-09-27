@@ -4,10 +4,11 @@
  * Fixed order:
  *   1. size cap (2 MiB → truncate + HIGH `oversize_truncated`);
  *   2. HTML layer when the content is HTML — hidden ranges removed, each
- *      remaining decoded text node run through 3–4 and rewritten in place;
+ *      remaining decoded text node run through 3–5 and rewritten in place, and
+ *      URL checks on decoded attributes / `<a>` text (design D1 amendment);
  *   3. Unicode (plain text only here — never entity-decoded);
  *   4. ANSI;
- *   5. URL;
+ *   5. URL (plain text only here);
  *   6. phrase rules (low, advisory).
  *
  * Pure: the same input + options always yields the same output and findings.
@@ -59,22 +60,23 @@ export function scan(input: string, options: ScanOptions = {}): ScanResult {
   const findings = new FindingSet();
   const capped = capSize(input, findings, options.maxChars ?? MAX_SCAN_CHARS);
 
+  const allowHosts = options.allowHosts ?? [];
   let html = isHtml(capped, options.contentType);
-  let text: string;
+  let text: string | undefined;
   if (html) {
     try {
-      text = htmlLayer(capped, findings, apply);
+      // The HTML layer runs Unicode/ANSI/URL itself, on decoded text and attributes.
+      text = htmlLayer(capped, findings, { apply, allowHosts });
     } catch (err) {
       // Parser failure: fall back to the plain-text layers on the raw source.
       findings.add("html_parse_failed", "high", err instanceof Error ? err.message : String(err));
       html = false;
-      text = ansiLayer(unicodeLayer(capped, findings), findings);
     }
-  } else {
-    text = ansiLayer(unicodeLayer(capped, findings), findings);
   }
-
-  text = urlLayer(text, findings, { replaceData: apply, allowHosts: options.allowHosts ?? [] });
+  if (text === undefined) {
+    text = ansiLayer(unicodeLayer(capped, findings), findings);
+    text = urlLayer(text, findings, { replaceData: apply, allowHosts });
+  }
   phraseLayer(text, findings);
 
   return { cleaned: apply ? text : capped, findings: findings.list(), html };

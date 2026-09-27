@@ -8,7 +8,11 @@
  *   2. a visible text node whose DECODED text the Unicode/ANSI layers change →
  *      only that node's source range is rewritten with the cleaned text,
  *      re-escaping `&`, `<`, `>`.
- * Every other byte stays identical.
+ *   3. a URL-bearing attribute whose DECODED value is a `data:` URL → only that
+ *      value's source range is replaced by a quoted placeholder.
+ * Every other byte stays identical. URL checks (data:, tracking images,
+ * confusables) run here on decoded attributes, decoded `<a>` text and each
+ * decoded text node — never on the serialized document (design D1 amendment).
  *
  * Styles come from inline `style` and from embedded `<style>` rules whose
  * selector is a single type, `.class` or `#id` (or a comma list of those).
@@ -21,6 +25,7 @@ import { ansiLayer } from "./ansi.js";
 import { buildCssIndex, type CssIndex, hidingReason, resolveDecls } from "./css.js";
 import type { FindingSet } from "./findings.js";
 import { hasRtl, unicodeLayer } from "./unicode.js";
+import { checkConfusable, checkImage, dataUrlPlaceholder, hostOf, urlLayer } from "./url.js";
 
 interface Edit {
   start: number;
@@ -30,6 +35,9 @@ interface Edit {
 
 const HTML_DETECT = /^\s*<(?:!doctype\s+html|html)\b/i;
 const HIDDEN_TEXT_SAMPLE = 200;
+const ANCHOR_TEXT_MAX = 1000;
+/** Attributes whose (decoded) value is a URL. */
+const URL_ATTRIBUTES = new Set(["href", "src", "action", "formaction", "poster", "background", "cite", "data", "xlink:href"]);
 
 /** Treat content as HTML only on an explicit content type or a doctype/`<html>` prefix. */
 export function isHtml(text: string, contentType?: string): boolean {
@@ -76,9 +84,75 @@ function escapeText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+interface HiddenElement {
+  depth: number;
+  reason: string;
+  hasText: boolean;
+  sample: string;
+}
+
+/** Record content found inside a hidden element (any non-whitespace makes it removable). */
+function noteHidden(hidden: HiddenElement, content: string): void {
+  if (/\S/.test(content)) hidden.hasText = true;
+  if (hidden.sample.length < HIDDEN_TEXT_SAMPLE) hidden.sample += content;
+}
+
+/** Apply non-overlapping source-range edits; everything between them is copied byte-for-byte. */
+function applyEdits(src: string, edits: Edit[]): string {
+  if (edits.length === 0) return src;
+  edits.sort((a, b) => a.start - b.start);
+  let out = "";
+  let last = 0;
+  for (const edit of edits) {
+    if (edit.start < last) continue; // defensive: never apply overlapping ranges
+    out += src.slice(last, edit.start) + edit.text;
+    last = edit.end;
+  }
+  return out + src.slice(last);
+}
+
 interface OpenElement {
   name: string;
   start: number;
+  /** This element opened the outermost tracked `<a>`. */
+  anchor?: boolean;
+}
+
+/** Source range of one attribute's VALUE inside an open tag (quotes included), or null. */
+function attributeValueRange(src: string, tagStart: number, tagEnd: number, attr: string): { start: number; end: number } | null {
+  const tag = src.slice(tagStart, tagEnd);
+  const name = attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`[\\s"'/]${name}\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>"'=<\`]+)`, "i").exec(tag);
+  if (!m) return null;
+  const valueStart = m.index + m[0].length - (m[1] as string).length;
+  return { start: tagStart + valueStart, end: tagStart + m.index + m[0].length };
+}
+
+/**
+ * URL checks on an element's DECODED attributes (design D1 amendment): a
+ * `data:` value → HIGH `data-url` + a value-only edit; `<img src>` →
+ * tracking-image; any absolute URL host → confusable.
+ */
+function checkAttributes(
+  src: string,
+  tag: { name: string; start: number; end: number; attribs: Record<string, string> },
+  allowHosts: readonly string[],
+  findings: FindingSet,
+  edits: Edit[],
+): void {
+  for (const [attr, value] of Object.entries(tag.attribs)) {
+    if (!URL_ATTRIBUTES.has(attr)) continue;
+    const placeholder = dataUrlPlaceholder(value);
+    if (placeholder) {
+      findings.add("data-url", "high", value.slice(0, 60));
+      const range = attributeValueRange(src, tag.start, tag.end, attr);
+      if (range) edits.push({ ...range, text: `"${placeholder}"` });
+      continue;
+    }
+    if (tag.name === "img" && attr === "src") checkImage(value, allowHosts, findings);
+    const host = hostOf(value);
+    if (host) checkConfusable(host, findings);
+  }
 }
 
 /**
@@ -86,17 +160,23 @@ interface OpenElement {
  * else the source unchanged; findings are recorded in both cases. Throws only
  * if the parser itself throws (the caller falls back — test-plan #X3).
  */
-export function htmlLayer(src: string, findings: FindingSet, apply: boolean): string {
+export function htmlLayer(
+  src: string,
+  findings: FindingSet,
+  opts: { apply: boolean; allowHosts: readonly string[] },
+): string {
   const css = buildCssIndex(collectStylesheets(src), findings);
   const rtl = hasRtl(src);
   const edits: Edit[] = [];
   const stack: OpenElement[] = [];
-  let hidden: { depth: number; reason: string; hasText: boolean; sample: string } | null = null;
+  let hidden: HiddenElement | null = null;
   let text: { start: number; end: number; decoded: string } | null = null;
+  let anchorText: string | null = null;
 
   const flushText = () => {
     if (!text) return;
-    const cleaned = ansiLayer(unicodeLayer(text.decoded, findings, rtl), findings);
+    const plain = ansiLayer(unicodeLayer(text.decoded, findings, rtl), findings);
+    const cleaned = urlLayer(plain, findings, { replaceData: true, allowHosts: opts.allowHosts });
     if (cleaned !== text.decoded) edits.push({ start: text.start, end: text.end, text: escapeText(cleaned) });
     text = null;
   };
@@ -105,14 +185,28 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
     {
       onopentag(name, attribs) {
         flushText();
-        stack.push({ name, start: parser.startIndex });
+        const element: OpenElement = { name, start: parser.startIndex };
+        stack.push(element);
         if (hidden) return;
         const reason = elementReason(name, attribs, css);
-        if (reason) hidden = { depth: stack.length - 1, reason, hasText: false, sample: "" };
+        if (reason) {
+          hidden = { depth: stack.length - 1, reason, hasText: false, sample: "" };
+          return;
+        }
+        const tag = { name, start: parser.startIndex, end: parser.endIndex + 1, attribs };
+        checkAttributes(src, tag, opts.allowHosts, findings, edits);
+        if (name === "a" && anchorText === null) {
+          anchorText = "";
+          element.anchor = true;
+        }
       },
       onclosetag(_name, isImplied) {
         flushText();
         const element = stack.pop();
+        if (element?.anchor && anchorText !== null) {
+          checkConfusable(anchorText, findings);
+          anchorText = null;
+        }
         if (!element || !hidden || hidden.depth !== stack.length) return;
         // Implied close (sibling / parent close / EOF) ends at the trigger's start.
         const end = isImplied ? parser.startIndex : parser.endIndex + 1;
@@ -124,11 +218,11 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
       },
       ontext(chunk) {
         if (hidden) {
-          if (/\S/.test(chunk)) hidden.hasText = true;
-          if (hidden.sample.length < HIDDEN_TEXT_SAMPLE) hidden.sample += chunk;
+          noteHidden(hidden, chunk);
           return;
         }
         if (stack[stack.length - 1]?.name === "style") return; // CSS text: never HTML-escape it
+        if (anchorText !== null && anchorText.length < ANCHOR_TEXT_MAX) anchorText += chunk;
         if (text && parser.startIndex === text.end) {
           text.decoded += chunk;
           text.end = parser.endIndex + 1;
@@ -141,9 +235,7 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
         flushText();
         if (!/\S/.test(data)) return;
         if (hidden) {
-          // A comment inside a hidden element is hidden content: the element goes.
-          hidden.hasText = true;
-          if (hidden.sample.length < HIDDEN_TEXT_SAMPLE) hidden.sample += data;
+          noteHidden(hidden, data); // a comment inside a hidden element is hidden content
           return;
         }
         edits.push({ start: parser.startIndex, end: parser.endIndex + 1, text: "" });
@@ -161,14 +253,5 @@ export function htmlLayer(src: string, findings: FindingSet, apply: boolean): st
   parser.write(src);
   parser.end();
 
-  if (!apply || edits.length === 0) return src;
-  edits.sort((a, b) => a.start - b.start);
-  let out = "";
-  let last = 0;
-  for (const edit of edits) {
-    if (edit.start < last) continue; // defensive: never apply overlapping ranges
-    out += src.slice(last, edit.start) + edit.text;
-    last = edit.end;
-  }
-  return out + src.slice(last);
+  return opts.apply ? applyEdits(src, edits) : src;
 }

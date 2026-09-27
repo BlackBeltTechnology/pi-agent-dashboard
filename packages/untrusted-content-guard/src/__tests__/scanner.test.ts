@@ -289,6 +289,51 @@ describe("url layer", () => {
   });
 });
 
+describe("URL checks on decoded HTML (design D1 amendment)", () => {
+  it("detects an entity-encoded data: URL in an attribute and rewrites only that value", () => {
+    const doc = '<html><p class="k">x &amp; y</p><a href="data&#58;text/html,%3Cscript%3E">go</a></html>';
+    const warn = scan(doc, { mode: "warn" });
+    expect(warn.findings).toEqual([expect.objectContaining({ layer: "data-url", severity: "high", count: 1 })]);
+    expect(warn.cleaned).toBe(doc);
+    expect(scan(doc, { mode: "strip" }).cleaned).toBe(
+      '<html><p class="k">x &amp; y</p><a href="[data-url removed: text/html, 8 bytes]">go</a></html>',
+    );
+  });
+
+  it("counts a literal data: attribute exactly once", () => {
+    const r = scan('<html><img src="data:image/png;base64,AAAA"></html>', { mode: "strip" });
+    expect(r.findings).toEqual([expect.objectContaining({ layer: "data-url", count: 1 })]);
+    expect(r.cleaned).toBe('<html><img src="[data-url removed: image/png, 3 bytes]"></html>');
+  });
+
+  it("replaces a data: URL inside a visible text node", () => {
+    const r = scan("<html><p>see data:text/plain,hi there</p></html>", { mode: "strip" });
+    expect(r.cleaned).toBe("<html><p>see [data-url removed: text/plain, 2 bytes] there</p></html>");
+  });
+
+  it("checks decoded, nested and entity-encoded anchor text for confusables", () => {
+    for (const doc of [
+      '<html><a href="/x"><span>p\u0430ypal</span></a></html>',
+      '<html><a href="/x">p&#x430;ypal</a></html>',
+      '<html><a href="https://p&#x430;ypal.com/">login</a></html>',
+    ]) {
+      expect(scan(doc).findings, doc).toEqual([expect.objectContaining({ layer: "confusable", severity: "low" })]);
+    }
+  });
+
+  it("reports an entity-encoded query-string <img> once, on the decoded URL", () => {
+    const r = scan('<html><img src="https://t.co/p.gif?u=1&amp;v=2"></html>', { mode: "strip" });
+    expect(r.findings).toEqual([expect.objectContaining({ layer: "tracking-image", severity: "low", count: 1 })]);
+    expect(scan('<html><img src="https://t.co/p.gif?u=1"></html>', { allowHosts: ["t.co"] }).findings).toEqual([]);
+  });
+
+  it("skips URL checks inside hidden elements (the element is removed whole)", () => {
+    const r = scan('<html><div hidden><a href="data:text/plain,x">x</a></div><p>ok</p></html>', { mode: "strip" });
+    expect(r.findings.map((f) => f.layer)).toEqual(["html-hidden-attr"]);
+    expect(r.cleaned).toBe("<html><p>ok</p></html>");
+  });
+});
+
 describe("pipeline invariants", () => {
   const corpus = [
     "hi\u{E0069}\u{E0067}",
