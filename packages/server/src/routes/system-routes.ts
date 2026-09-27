@@ -1007,7 +1007,7 @@ export function registerSystemRoutes(
       // (no local path / git / failure detail) for unauthenticated remote callers. Drives
       // ONLY the Settings → Updates section; pi-core gates are unchanged.
       // See change: electron-runtime-overlay-updates (D10).
-      runtime: mayReadAccess ? runtimeHealth.get() : redactRuntimeHealth(runtimeHealth.get()),
+      runtime: canDiscloseAccessPosture(request) ? runtimeHealth.get() : redactRuntimeHealth(runtimeHealth.get()),
       // Boot parent PID (static, captured at module load) + live parent PID
       // (reparenting-aware, read fresh per request) + boot-parent liveness.
       // Powers Electron zombie detection: POSIX compares live `ppid` against
