@@ -16,6 +16,7 @@
     "access": "public"
   },
   "exports": {
+    "./*.mjs": "./src/*.mjs",
     "./*.js": "./src/*.ts",
     "./*": "./src/*",
     "./dashboard-plugin/*.js": "./src/dashboard-plugin/*.ts",
