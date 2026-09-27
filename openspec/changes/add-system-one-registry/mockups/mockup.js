@@ -1,3 +1,4 @@
+// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: throwaway HTML mockup (approved design reference), not product code
 // Mockup behaviour for the Decision models settings section. Data mirrors the
 // spec catalog (system-one-settings-ui) and config shape (system-one-config).
 "use strict";
@@ -164,7 +165,7 @@ function chainOp(btn) {
     const [gone] = chain.splice(i, 1);
     announce(`${gone} removed from chain`);
   } else if (op === "add") {
-    const v = $("#" + btn.dataset.sel).value;
+    const v = $(`#${btn.dataset.sel}`).value;
     if (!v || !backends[v]) return;
     chain.push(v);
     announce(`${v} added at position ${chain.length}`);
@@ -329,11 +330,11 @@ function renderAll() { renderSwitch(); renderPresets(); renderBackends(); render
 let lastFocus = null;
 function openDialog(id) {
   lastFocus = document.activeElement;
-  const s = $("#" + id); s.hidden = false;
+  const s = $(`#${id}`); s.hidden = false;
   const first = s.querySelector("#confirm-cancel, input:checked, input, button");
-  first && first.focus();
+  first?.focus();
 }
-function closeDialog(id) { $("#" + id).hidden = true; lastFocus && lastFocus.focus(); }
+function closeDialog(id) { $(`#${id}`).hidden = true; lastFocus?.focus(); }
 function trap(e) {
   const s = [...document.querySelectorAll(".scrim")].find((x) => !x.hidden);
   if (!s) return;
@@ -363,7 +364,7 @@ document.addEventListener("click", (e) => {
   if (act === "discard" || act === "reload") location.reload();
   if (t.dataset.run) {
     const c = consumers.find((x) => x.id === t.dataset.run);
-    const bk = $("#tb-" + CSS.escape(c.id)).value;
+    const bk = $(`#tb-${CSS.escape(c.id)}`).value;
     const n = Math.min(c.cases, 500);
     const run = (state.test[c.id] = { backend: bk, running: true, done: 0 });
     renderConsumers();
@@ -371,7 +372,7 @@ document.addEventListener("click", (e) => {
       run.done = Math.min(n, run.done + Math.ceil(n / 8));
       if (run.done >= n) { clearInterval(run.timer); run.running = false; run.result = true; announce(`Test finished on ${bk}`); }
       renderConsumers();
-      if (!run.running) { const b = document.querySelector(`[data-savecal="${CSS.escape(c.id)}"]`); b && b.focus(); }
+      if (!run.running) { const b = document.querySelector(`[data-savecal="${CSS.escape(c.id)}"]`); b?.focus(); }
     }, 350);
   }
   if (t.dataset.cancel) {

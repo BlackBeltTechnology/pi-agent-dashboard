@@ -86,54 +86,70 @@ function normCapabilities(v: unknown): Capabilities | undefined {
   return out;
 }
 
+type Common = Pick<Backend, "timeoutMs" | "capabilities">;
+
+function normHttp(id: string, v: Plain, file: string, common: Common): Backend | null {
+  const url = str(own(v, "url"));
+  if (!url || !parseBackendUrl(url)) {
+    warnOnce(`${file}: backend "${id}" needs an http: or https: url; ignoring it`);
+    return null;
+  }
+  const keyRef = str(own(v, "keyRef"));
+  return { kind: "http", url, model: str(own(v, "model")) ?? "", ...(keyRef ? { keyRef } : {}), ...common };
+}
+
+const validPort = (p: unknown): p is number => Number.isInteger(p) && (p as number) > 0 && (p as number) < 65536;
+
+function normManaged(id: string, v: Plain, file: string, common: Common): Backend | null {
+  const engine = own(v, "engine");
+  if (engine !== "von" && engine !== "laya") {
+    warnOnce(`${file}: managed backend "${id}" needs engine "von" or "laya"; ignoring it`);
+    return null;
+  }
+  const port = own(v, "port");
+  const checkpoint = str(own(v, "checkpoint"));
+  return {
+    kind: "managed",
+    engine,
+    ...(checkpoint ? { checkpoint } : {}),
+    ...(validPort(port) ? { port } : {}),
+    ...(own(v, "autostart") === true ? { autostart: true } : {}),
+    ...common,
+  };
+}
+
+function normLlm(id: string, v: Plain, file: string, common: Common): Backend | null {
+  const role = str(own(v, "role"));
+  if (!role) {
+    warnOnce(`${file}: llm backend "${id}" needs a role; ignoring it`);
+    return null;
+  }
+  return { kind: "llm", role, ...common };
+}
+
+const KIND_NORMALIZERS: Record<string, (id: string, v: Plain, file: string, common: Common) => Backend | null> = {
+  http: normHttp,
+  managed: normManaged,
+  llm: normLlm,
+};
+
 export function normBackend(id: string, v: unknown, file: string): Backend | null {
   if (!BACKEND_ID.test(id)) {
     warnOnce(`${file}: backend id "${id}" is invalid; ignoring it`);
     return null;
   }
   if (!isObj(v)) return null;
-  for (const k of KEY_LIKE)
-    if (Object.hasOwn(v, k)) warnOnce(`${file}: backend "${id}" has key-like field "${k}"; ignored (keys never live in the config)`);
+  for (const k of KEY_LIKE.filter((k) => Object.hasOwn(v, k)))
+    warnOnce(`${file}: backend "${id}" has key-like field "${k}"; ignored (keys never live in the config)`);
   const kind = own(v, "kind");
+  const norm = typeof kind === "string" && Object.hasOwn(KIND_NORMALIZERS, kind) ? KIND_NORMALIZERS[kind] : undefined;
+  if (!norm) {
+    warnOnce(`${file}: backend "${id}" has unknown kind ${JSON.stringify(kind)}; ignoring it`);
+    return null;
+  }
   const timeoutMs = posNum(own(v, "timeoutMs"));
   const capabilities = normCapabilities(own(v, "capabilities"));
-  const common = { ...(timeoutMs ? { timeoutMs } : {}), ...(capabilities ? { capabilities } : {}) };
-  if (kind === "http") {
-    const url = str(own(v, "url"));
-    if (!url || !parseBackendUrl(url)) {
-      warnOnce(`${file}: backend "${id}" needs an http: or https: url; ignoring it`);
-      return null;
-    }
-    const keyRef = str(own(v, "keyRef"));
-    return { kind, url, model: str(own(v, "model")) ?? "", ...(keyRef ? { keyRef } : {}), ...common };
-  }
-  if (kind === "managed") {
-    const engine = own(v, "engine");
-    if (engine !== "von" && engine !== "laya") {
-      warnOnce(`${file}: managed backend "${id}" needs engine "von" or "laya"; ignoring it`);
-      return null;
-    }
-    const port = own(v, "port");
-    const checkpoint = str(own(v, "checkpoint"));
-    return {
-      kind,
-      engine,
-      ...(checkpoint ? { checkpoint } : {}),
-      ...(Number.isInteger(port) && (port as number) > 0 && (port as number) < 65536 ? { port: port as number } : {}),
-      ...(own(v, "autostart") === true ? { autostart: true } : {}),
-      ...common,
-    };
-  }
-  if (kind === "llm") {
-    const role = str(own(v, "role"));
-    if (!role) {
-      warnOnce(`${file}: llm backend "${id}" needs a role; ignoring it`);
-      return null;
-    }
-    return { kind, role, ...common };
-  }
-  warnOnce(`${file}: backend "${id}" has unknown kind ${JSON.stringify(kind)}; ignoring it`);
-  return null;
+  return norm(id, v, file, { ...(timeoutMs ? { timeoutMs } : {}), ...(capabilities ? { capabilities } : {}) });
 }
 
 function normChain(v: unknown): string[] {
@@ -165,73 +181,71 @@ function normCalibration(v: unknown): CalibrationRecord | null {
   return { mode, thresholds, model, measuredAt: str(own(v, "measuredAt")) ?? "" };
 }
 
+/** Normalize every own entry of an object-valued key into a null-prototype map. */
+function mapOwn<T>(raw: Plain, key: string, norm: (k: string, v: unknown) => T | null): Record<string, T> {
+  const out = map<T>();
+  const src = own(raw, key);
+  if (!isObj(src)) return out;
+  for (const k of Object.keys(src)) {
+    const v = norm(k, own(src, k));
+    if (v) out[k] = v;
+  }
+  return out;
+}
+
 /** Normalize a parsed user layer into a full config. Exported for the plugin server. */
 export function normalizeUser(raw: Plain | null, file: string): SystemOneConfig {
-  const cfg: SystemOneConfig = { version: 1, allowOffMachine: false, backends: map(), presets: map(), activePreset: "", calibration: map() };
-  if (!raw) return cfg;
-  cfg.allowOffMachine = own(raw, "allowOffMachine") === true;
-  const backends = own(raw, "backends");
-  if (isObj(backends))
-    for (const id of Object.keys(backends)) {
-      const b = normBackend(id, own(backends, id), file);
-      if (b) cfg.backends[id] = b;
-    }
-  const presets = own(raw, "presets");
-  if (isObj(presets))
-    for (const name of Object.keys(presets)) {
-      const p = normPreset(own(presets, name));
-      if (p) cfg.presets[name] = p;
-    }
-  cfg.activePreset = str(own(raw, "activePreset")) ?? "";
-  const cal = own(raw, "calibration");
-  if (isObj(cal))
-    for (const k of Object.keys(cal)) {
-      const r = normCalibration(own(cal, k));
-      if (r) cfg.calibration[k] = r;
-    }
-  return cfg;
+  if (!raw) return { version: 1, allowOffMachine: false, backends: map(), presets: map(), activePreset: "", calibration: map() };
+  return {
+    version: 1,
+    allowOffMachine: own(raw, "allowOffMachine") === true,
+    backends: mapOwn(raw, "backends", (id, v) => normBackend(id, v, file)),
+    presets: mapOwn(raw, "presets", (_n, v) => normPreset(v)),
+    activePreset: str(own(raw, "activePreset")) ?? "",
+    calibration: mapOwn(raw, "calibration", (_k, v) => normCalibration(v)),
+  };
 }
 
 const PROJECT_RULE = "project files may only set presets.<activePreset>.consumers.<id>.chain";
 
+/** Warn once for every key of `obj` outside `allowed`, prefixed by `path`. */
+function warnIgnored(file: string, obj: Plain, allowed: string[], path: string): void {
+  for (const k of Object.keys(obj)) if (!allowed.includes(k)) warnOnce(`${file}: ignoring "${path}${k}" (${PROJECT_RULE})`);
+}
+
+/** Project chain entries kept only when user-defined AND on-machine (no LlmCaller here → llm is off-machine). */
+function projectChain(cfg: SystemOneConfig, cid: string, raw: unknown, file: string): string[] {
+  return normChain(raw).filter((id) => {
+    const b = Object.hasOwn(cfg.backends, id) ? cfg.backends[id] : undefined;
+    const why = !b ? "not a backend in the user config" : isOffMachine(b) ? "a project cannot select an off-machine backend" : null;
+    if (why) warnOnce(`${file}: dropping "${id}" from consumer "${cid}": ${why}`);
+    return why === null;
+  });
+}
+
+function applyProjectConsumers(cfg: SystemOneConfig, name: string, consumers: Plain, file: string): void {
+  for (const cid of Object.keys(consumers)) {
+    const c = own(consumers, cid);
+    if (!isObj(c)) continue;
+    warnIgnored(file, c, ["chain"], `presets.${name}.consumers.${cid}.`);
+    if (!Object.hasOwn(cfg.presets, name)) cfg.presets[name] = { chain: [] };
+    const target = cfg.presets[name];
+    target.consumers ??= map();
+    target.consumers[cid] = { chain: projectChain(cfg, cid, own(c, "chain"), file) };
+  }
+}
+
 /** Merge the permitted project keys onto `cfg` (mutates). */
 function applyProject(cfg: SystemOneConfig, raw: Plain, file: string): void {
-  for (const k of Object.keys(raw)) if (k !== "version" && k !== "presets") warnOnce(`${file}: ignoring "${k}" (${PROJECT_RULE})`);
+  warnIgnored(file, raw, ["version", "presets"], "");
   const presets = own(raw, "presets");
   if (!isObj(presets)) return;
-  for (const name of Object.keys(presets)) {
-    if (name !== cfg.activePreset) {
-      warnOnce(`${file}: ignoring "presets.${name}" (${PROJECT_RULE})`);
-      continue;
-    }
-    const p = own(presets, name);
-    if (!isObj(p)) continue;
-    for (const k of Object.keys(p)) if (k !== "consumers") warnOnce(`${file}: ignoring "presets.${name}.${k}" (${PROJECT_RULE})`);
-    const consumers = own(p, "consumers");
-    if (!isObj(consumers)) continue;
-    for (const cid of Object.keys(consumers)) {
-      const c = own(consumers, cid);
-      if (!isObj(c)) continue;
-      for (const k of Object.keys(c)) if (k !== "chain") warnOnce(`${file}: ignoring "presets.${name}.consumers.${cid}.${k}" (${PROJECT_RULE})`);
-      const chain = normChain(own(c, "chain")).filter((id) => {
-        const b = Object.hasOwn(cfg.backends, id) ? cfg.backends[id] : undefined;
-        if (!b) {
-          warnOnce(`${file}: dropping "${id}" from consumer "${cid}": not a backend in the user config`);
-          return false;
-        }
-        // No LlmCaller here: an `llm` entry counts as off-machine for projects.
-        if (isOffMachine(b)) {
-          warnOnce(`${file}: dropping "${id}" from consumer "${cid}": a project cannot select an off-machine backend`);
-          return false;
-        }
-        return true;
-      });
-      if (!Object.hasOwn(cfg.presets, name)) cfg.presets[name] = { chain: [] };
-      const target = cfg.presets[name];
-      target.consumers ??= map();
-      target.consumers[cid] = { chain };
-    }
-  }
+  warnIgnored(file, presets, [cfg.activePreset], "presets.");
+  const p = Object.hasOwn(presets, cfg.activePreset) ? own(presets, cfg.activePreset) : undefined;
+  if (!isObj(p)) return;
+  warnIgnored(file, p, ["consumers"], `presets.${cfg.activePreset}.`);
+  const consumers = own(p, "consumers");
+  if (isObj(consumers)) applyProjectConsumers(cfg, cfg.activePreset, consumers, file);
 }
 
 export interface LoadOptions {

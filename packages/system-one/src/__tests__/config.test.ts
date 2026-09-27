@@ -9,9 +9,9 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, userConfigPath } from "../config.js";
-import { freshState } from "./helpers/config.js";
 import { predict } from "../predict.js";
 import type { ConsumerDeclaration } from "../types.js";
+import { freshState } from "./helpers/config.js";
 import { type FakeBackend, interceptOffMachine, startFakeBackend } from "./helpers/fake-backend.js";
 
 let warn: { mock: { calls: unknown[][] }; mockRestore(): void };
@@ -54,35 +54,44 @@ describe("E12 layering (2.1)", () => {
   const projects: Pj[] = ["valid", "invalid", "absent"];
   const args = ["none", "untrusted", "trusted"] as const;
 
-  for (const u of users)
-    for (const pj of projects)
-      for (const a of args) {
-        it(`user=${u} project=${pj} arg=${a}`, () => {
-          if (u === "valid") writeUser(USER);
-          if (u === "invalid") writeUser("{nope");
-          if (u === "v2") writeUser({ ...USER, version: 2 });
-          const cwd = projectDir(pj === "valid" ? PROJ : pj === "invalid" ? "{nope" : undefined);
-          const project = a === "none" ? undefined : { cwd, trusted: a === "trusted" };
+  const USER_TEXT: Record<U, unknown | string | undefined> = { valid: USER, invalid: "{nope", absent: undefined, v2: { ...USER, version: 2 } };
+  const PROJ_TEXT: Record<Pj, unknown | string | undefined> = { valid: PROJ, invalid: "{nope", absent: undefined };
 
-          const cfg = loadConfig({ project });
-          loadConfig({ project }); // a second load must not re-warn
+  /** Spec'd chain for consumer `c`: the project applies only over a valid user layer with a trusted, valid project. */
+  function expectedChain(u: U, pj: Pj, a: (typeof args)[number]): string[] | undefined {
+    if (u !== "valid") return undefined;
+    return pj === "valid" && a === "trusted" ? [] : ["local-von"];
+  }
+  /** One warning per bad layer. A trusted, valid project over an absent user layer names a non-active preset → one. */
+  function expectedProjectWarnings(u: U, pj: Pj, a: (typeof args)[number]): number {
+    if (a !== "trusted") return 0;
+    return pj === "invalid" || (pj === "valid" && u !== "valid") ? 1 : 0;
+  }
+  const expected = (u: U, pj: Pj, a: (typeof args)[number]) => ({
+    activePreset: u === "valid" ? "p" : "",
+    chain: expectedChain(u, pj, a),
+    userWarnings: u === "invalid" || u === "v2" ? 1 : 0,
+    projectWarnings: expectedProjectWarnings(u, pj, a),
+  });
 
-          const userOk = u === "valid";
-          const projApplied = userOk && pj === "valid" && a === "trusted";
-          expect(cfg.activePreset).toBe(userOk ? "p" : "");
-          const chain = cfg.presets.p?.consumers?.c?.chain;
-          if (userOk) expect(chain).toEqual(projApplied ? [] : ["local-von"]);
-          else expect(chain).toBeUndefined();
+  const cells = users.flatMap((u) => projects.flatMap((pj) => args.map((a) => [u, pj, a] as const)));
+  for (const [u, pj, a] of cells) {
+    it(`user=${u} project=${pj} arg=${a}`, () => {
+      if (USER_TEXT[u] !== undefined) writeUser(USER_TEXT[u]);
+      const cwd = projectDir(PROJ_TEXT[pj]);
+      const project = a === "none" ? undefined : { cwd, trusted: a === "trusted" };
 
-          const w = warnings();
-          const expectUserWarn = u === "invalid" || u === "v2" ? 1 : 0;
-          // A trusted, valid project over an absent user layer names a preset that
-          // is not active -> that key is ignored with one warning.
-          const expectProjWarn = a === "trusted" && (pj === "invalid" || (pj === "valid" && !userOk)) ? 1 : 0;
-          expect(w.filter((m) => m.includes(userConfigPath()))).toHaveLength(expectUserWarn);
-          expect(w.filter((m) => m.includes(join(cwd, ".pi", "system-one.json")))).toHaveLength(expectProjWarn);
-        });
-      }
+      const cfg = loadConfig({ project });
+      loadConfig({ project }); // a second load must not re-warn
+
+      const want = expected(u, pj, a);
+      expect(cfg.activePreset).toBe(want.activePreset);
+      expect(cfg.presets.p?.consumers?.c?.chain).toEqual(want.chain);
+      const w = warnings();
+      expect(w.filter((m) => m.includes(userConfigPath()))).toHaveLength(want.userWarnings);
+      expect(w.filter((m) => m.includes(join(cwd, ".pi", "system-one.json")))).toHaveLength(want.projectWarnings);
+    });
+  }
 });
 
 describe("E13 project override limits (2.2)", () => {

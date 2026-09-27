@@ -1,3 +1,5 @@
+// biome-ignore-all lint/correctness/noUndeclaredDependencies: mockup probe, run from the repo root where playwright + @axe-core/playwright are dev deps
+// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: linear scripted probe of test-plan F1–F8
 // UX probe for the System-1 settings mockup: scripted flows mirroring test-plan F1–F8,
 // axe (WCAG 2.2 AA) in dark + light across states, target sizes at 375 px.
 // Usage (from repo root so playwright resolves): node <this> <url> <outDir>
@@ -134,7 +136,7 @@ const consumer = (id) => `details.consumer[data-id="${id}"]`;
   await browser.close();
 
   const pass = results.filter((r) => r.ok).length;
-  for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.id}${r.ok || !r.detail ? "" : "  → " + r.detail}`);
+  for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.id}${r.ok || !r.detail ? "" : `  → ${r.detail}`}`);
   console.log(`\nSCORE ${pass}/${results.length}`);
   process.exit(pass === results.length ? 0 : 1);
 })().catch((err) => {

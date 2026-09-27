@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { predict } from "../predict.js";
-import type { ConsumerDeclaration, FailurePolicy, Questions } from "../types.js";
+import type { ConsumerDeclaration, FailurePolicy, PredictResult, Questions } from "../types.js";
 import { chainConfig, freshState, writeUserConfig } from "./helpers/config.js";
 import { autoAnswer, type FakeBackend, interceptOffMachine, startFakeBackend } from "./helpers/fake-backend.js";
 
@@ -190,10 +190,10 @@ describe("E6 host egress classification (3.6)", () => {
           chainConfig({ b: url }, sw === undefined ? {} : { allowOffMachine: sw });
           const r = await ask();
           expect(r.ok).toBe(false);
-          const skipped = r.attempts[0].outcome === "off-machine";
-          expect(skipped).toBe(!onMachine && sw !== true);
-          if (!onMachine && sw !== true) expect(icpt.offMachine).toHaveLength(0);
-          if (!onMachine && sw === true) expect(icpt.offMachine).toHaveLength(1);
+          const blocked = !onMachine && sw !== true;
+          expect(r.attempts[0].outcome === "off-machine").toBe(blocked);
+          // Off-machine + allowed → exactly one intercepted request; every other cell sends none off-machine.
+          expect(icpt.offMachine).toHaveLength(!onMachine && sw === true ? 1 : 0);
         } finally {
           icpt.restore();
         }
@@ -234,29 +234,35 @@ describe("E8 chain resolution (3.8)", () => {
 
 describe("E9 mode (3.9)", () => {
   type Cal = "none" | "shadow" | "enforce-m1" | "enforce-m1-answer-m2";
-  for (const cal of ["none", "shadow", "enforce-m1", "enforce-m1-answer-m2"] as Cal[])
-    for (const answering of ["A", "B"]) {
-      it(`calibration=${cal} answering=${answering}`, async () => {
-        const A = await fake();
-        const B = await fake();
-        A.respondWith((b) => autoAnswer(b, cal === "enforce-m1-answer-m2" ? "m2" : "m1"));
-        B.respondWith((b) => autoAnswer(b, "m1"));
-        const calibration: Record<string, unknown> = {};
-        if (cal === "shadow") calibration["A::c"] = { mode: "shadow", thresholds: { n: 0.6 }, model: "m1", measuredAt: "t" };
-        if (cal.startsWith("enforce")) calibration["A::c"] = { mode: "enforce", thresholds: { n: 0.6 }, model: "m1", measuredAt: "t" };
-        writeUserConfig({
-          backends: { A: { kind: "http", url: A.url, model: "a" }, B: { kind: "http", url: B.url, model: "b" } },
-          presets: { p: { chain: answering === "A" ? ["A"] : ["B"] } },
-          calibration,
-        });
-        const r = await ask();
-        expect(r.ok).toBe(true);
-        if (!r.ok) return;
-        const enforce = cal === "enforce-m1" && answering === "A";
-        expect(r.mode).toBe(enforce ? "enforce" : "shadow");
-        expect(r.thresholds).toEqual(enforce || (cal === "shadow" && answering === "A") ? { n: 0.6 } : {});
+  const RECORD = { thresholds: { n: 0.6 }, model: "m1", measuredAt: "t" };
+  const calibrationFor = (cal: Cal): Record<string, unknown> =>
+    cal === "none" ? {} : { "A::c": { ...RECORD, mode: cal === "shadow" ? "shadow" : "enforce" } };
+  /** Spec: enforce only for (A, m1 = m1); thresholds whenever A's record applies (model matches). */
+  const expectedFor = (cal: Cal, answering: string) => ({
+    mode: cal === "enforce-m1" && answering === "A" ? "enforce" : "shadow",
+    thresholds: answering === "A" && (cal === "enforce-m1" || cal === "shadow") ? { n: 0.6 } : {},
+  });
+
+  const cells = (["none", "shadow", "enforce-m1", "enforce-m1-answer-m2"] as Cal[]).flatMap((cal) => ["A", "B"].map((answering) => [cal, answering] as const));
+  for (const [cal, answering] of cells) {
+    it(`calibration=${cal} answering=${answering}`, async () => {
+      const A = await fake();
+      const B = await fake();
+      A.respondWith((b) => autoAnswer(b, cal === "enforce-m1-answer-m2" ? "m2" : "m1"));
+      B.respondWith((b) => autoAnswer(b, "m1"));
+      writeUserConfig({
+        backends: { A: { kind: "http", url: A.url, model: "a" }, B: { kind: "http", url: B.url, model: "b" } },
+        presets: { p: { chain: [answering] } },
+        calibration: calibrationFor(cal),
       });
-    }
+      const r = await ask();
+      expect(r.ok).toBe(true);
+      const ok = r as Extract<PredictResult, { ok: true }>;
+      const want = expectedFor(cal, answering);
+      expect(ok.mode).toBe(want.mode);
+      expect(ok.thresholds).toEqual(want.thresholds);
+    });
+  }
 });
 
 describe("X1 timeout fall-through (3.11)", () => {

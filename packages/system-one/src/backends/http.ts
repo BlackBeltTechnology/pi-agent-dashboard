@@ -33,7 +33,7 @@ export async function callHttp(c: HttpCall): Promise<RawOutcome> {
         signal: scope.signal,
       });
       if (!res.ok) return { ok: false, outcome: "error" };
-      const body: any = await res.json();
+      const body = (await res.json()) as { model?: unknown; answers?: unknown } | null;
       const model = typeof body?.model === "string" && body.model ? body.model : c.model;
       return { ok: true, raw: body?.answers, model };
     })().catch((): RawOutcome => ({ ok: false, outcome: scope.timedOut() ? "timeout" : "error" }));

@@ -58,21 +58,25 @@ describe("E17 key sources (2.6)", () => {
     catalog: { model: "jev-1.13.0" }, // inherits TYPESAFE_API_KEY
     none: { model: "custom" },
   } as const;
-  for (const [refKind, backend] of Object.entries(refs))
-    for (const env of [true, false])
-      for (const file of [true, false]) {
-        it(`keyRef=${refKind} env=${env} file=${file}`, async () => {
-          const name = refKind === "explicit" ? "MY_KEY" : "TYPESAFE_API_KEY";
-          if (env) process.env[name] = "ENVKEY";
-          if (file) writeKey(name, "FILEKEY");
-          writeUser(backend);
-          const got = await bearer();
-          if (refKind === "none") expect(got).toBeUndefined();
-          else if (env) expect(got).toBe("Bearer ENVKEY");
-          else if (file) expect(got).toBe("Bearer FILEKEY");
-          else expect(got).toBeUndefined();
-        });
-      }
+  /** Spec'd header: env wins, else file, else none; no keyRef → never a header. */
+  function expectedBearer(refKind: string, env: boolean, file: boolean): string | undefined {
+    if (refKind === "none") return undefined;
+    if (env) return "Bearer ENVKEY";
+    return file ? "Bearer FILEKEY" : undefined;
+  }
+
+  const cells = Object.entries(refs).flatMap(([refKind, backend]) =>
+    [true, false].flatMap((env) => [true, false].map((file) => ({ refKind, backend, env, file }))),
+  );
+  for (const { refKind, backend, env, file } of cells) {
+    it(`keyRef=${refKind} env=${env} file=${file}`, async () => {
+      const name = refKind === "explicit" ? "MY_KEY" : "TYPESAFE_API_KEY";
+      if (env) process.env[name] = "ENVKEY";
+      if (file) writeKey(name, "FILEKEY");
+      writeUser(backend);
+      expect(await bearer()).toBe(expectedBearer(refKind, env, file));
+    });
+  }
 
   it("creates auth.json with mode 0600 and reports status without the key", () => {
     writeKey("TYPESAFE_API_KEY", "ts_TESTKEY123");

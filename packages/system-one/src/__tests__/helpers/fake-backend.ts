@@ -46,6 +46,34 @@ export function autoAnswer(body: any, model = "fake-1"): unknown {
   return { model, answers };
 }
 
+function send(res: ServerResponse, status: number, payload: unknown): void {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(payload));
+}
+
+function dispatch(reply: Reply, req: IncomingMessage, res: ServerResponse, body: unknown): void {
+  switch (reply.kind) {
+    case "answer":
+      if (reply.delayMs) setTimeout(() => send(res, reply.status ?? 200, reply.body), reply.delayMs);
+      else send(res, reply.status ?? 200, reply.body);
+      return;
+    case "delay":
+      setTimeout(() => send(res, 200, reply.body ?? autoAnswer(body)), reply.ms);
+      return;
+    case "destroy":
+      res.writeHead(200, { "content-type": "application/json" });
+      res.write('{"model":"fake-1","answ');
+      setTimeout(() => req.socket.destroy(), 5);
+      return;
+    case "redirect":
+      res.writeHead(302, { location: reply.location });
+      res.end();
+      return;
+    case "status":
+      send(res, reply.status, reply.body ?? { error: "x" });
+  }
+}
+
 export async function startFakeBackend(path = "/v1/systemone"): Promise<FakeBackend> {
   const queue: Reply[] = [];
   let last: Reply | null = null;
@@ -68,30 +96,7 @@ export async function startFakeBackend(path = "/v1/systemone"): Promise<FakeBack
         ? { kind: "answer", body: fn(body) }
         : (queue.shift() ?? last ?? { kind: "answer", body: autoAnswer(body) });
       if (!fn) last = reply;
-      const send = (status: number, payload: unknown) => {
-        res.writeHead(status, { "content-type": "application/json" });
-        res.end(JSON.stringify(payload));
-      };
-      switch (reply.kind) {
-        case "answer":
-          if (reply.delayMs) setTimeout(() => send(reply.status ?? 200, reply.body), reply.delayMs);
-          else send(reply.status ?? 200, reply.body);
-          return;
-        case "delay":
-          setTimeout(() => send(200, reply.body ?? autoAnswer(body)), reply.ms);
-          return;
-        case "destroy":
-          res.writeHead(200, { "content-type": "application/json" });
-          res.write('{"model":"fake-1","answ');
-          setTimeout(() => req.socket.destroy(), 5);
-          return;
-        case "redirect":
-          res.writeHead(302, { location: reply.location });
-          res.end();
-          return;
-        case "status":
-          send(reply.status, reply.body ?? { error: "x" });
-      }
+      dispatch(reply, req, res, body);
     });
   });
   server.on("connection", (s: Socket) => {

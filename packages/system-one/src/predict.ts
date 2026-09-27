@@ -6,17 +6,18 @@
  * `mode`/`thresholds`/`policy` and never allows or blocks anything itself
  * (design D4). See change: add-system-one-registry.
  */
+
+import type { RawOutcome } from "./backends/attempt.js";
 import { callHttp } from "./backends/http.js";
 import { callLlm } from "./backends/llm.js";
-import type { RawOutcome } from "./backends/attempt.js";
-import { effectiveCapabilities, effectiveKeyRef, backendModel } from "./catalog.js";
 import { fitsCapabilities } from "./capabilities.js";
+import { backendModel, effectiveCapabilities, effectiveKeyRef } from "./catalog.js";
 import { loadConfig } from "./config.js";
 import { logDecision } from "./decision-log.js";
 import { isOffMachine } from "./egress.js";
 import { resolveKey } from "./keys.js";
 import { CONSUMER_ID, registerConsumer } from "./registry.js";
-import type { Attempt, FailReason, PredictRequest, PredictResult, SystemOneConfig } from "./types.js";
+import type { Answers, Attempt, Backend, FailReason, LlmCaller, Mode, PredictRequest, PredictResult, SystemOneConfig } from "./types.js";
 import { normalizeAnswers } from "./validate.js";
 import { warnOnce } from "./warn.js";
 
@@ -35,9 +36,62 @@ export function resolveChain(cfg: SystemOneConfig, consumerId: string): string[]
   });
 }
 
+/** Why `b` must be skipped before any request, or null to call it. */
+function gate(b: Backend, cfg: SystemOneConfig, req: PredictRequest): FailReason | null {
+  if (b.kind === "llm" && !req.llmCaller) return "no-backend";
+  if (!cfg.allowOffMachine && isOffMachine(b, req.llmCaller)) return "off-machine";
+  if (!fitsCapabilities(effectiveCapabilities(b), req.state, req.questions)) return "capability";
+  if (b.kind === "managed" && !b.port) return "no-backend";
+  return null;
+}
+
+/** One network attempt against an already-gated backend. */
+function call(b: Backend, req: PredictRequest): Promise<RawOutcome> {
+  const { state, questions, signal } = req;
+  if (b.kind === "llm") return callLlm(req.llmCaller as LlmCaller, b.role, state, questions, b.timeoutMs ?? LLM_TIMEOUT_MS, signal);
+  const url = b.kind === "managed" ? `http://127.0.0.1:${b.port}/v1/systemone` : b.url;
+  const keyRef = effectiveKeyRef(b);
+  return callHttp({
+    url,
+    model: backendModel(b) ?? "",
+    key: keyRef ? resolveKey(keyRef) : undefined,
+    timeoutMs: b.timeoutMs ?? HTTP_TIMEOUT_MS,
+    state,
+    questions,
+    signal,
+  });
+}
+
+/** `mode` + `thresholds` from the exact `<backend>::<consumer>` record whose model matches. */
+function calibrationFor(cfg: SystemOneConfig, backendId: string, consumerId: string, model: string): { mode: Mode; thresholds: Record<string, number> } {
+  const key = `${backendId}::${consumerId}`;
+  const rec = Object.hasOwn(cfg.calibration, key) ? cfg.calibration[key] : undefined;
+  if (!rec || rec.model !== model) return { mode: "shadow", thresholds: {} };
+  return { mode: rec.mode === "enforce" ? "enforce" : "shadow", thresholds: { ...rec.thresholds } };
+}
+
+type AttemptResult =
+  | { ok: true; answers: Answers; model: string; latencyMs: number }
+  | { ok: false; outcome: Exclude<FailReason, "no-backend">; latencyMs: number };
+
+/** Call + validate one gated backend; a malformed answer is an `error` attempt. */
+async function attempt(b: Backend, req: PredictRequest): Promise<AttemptResult> {
+  const a0 = performance.now();
+  const out = await call(b, req);
+  const latencyMs = performance.now() - a0;
+  if (!out.ok) return { ok: false, outcome: out.outcome, latencyMs };
+  const answers = normalizeAnswers(req.questions, out.raw);
+  return answers ? { ok: true, answers, model: out.model, latencyMs } : { ok: false, outcome: "error", latencyMs };
+}
+
+function chainFor(cfg: SystemOneConfig, req: PredictRequest): string[] {
+  if (req.onlyBackend === undefined) return resolveChain(cfg, req.consumer.id);
+  return Object.hasOwn(cfg.backends, req.onlyBackend) ? [req.onlyBackend] : [];
+}
+
 export async function predict(req: PredictRequest): Promise<PredictResult> {
   const t0 = performance.now();
-  const { consumer, state, questions, signal, llmCaller } = req;
+  const { consumer, state, signal } = req;
   const policy = consumer.failurePolicy;
   const attempts: Attempt[] = [];
   const fail = (reason: FailReason): PredictResult => {
@@ -47,77 +101,28 @@ export async function predict(req: PredictRequest): Promise<PredictResult> {
 
   if (typeof consumer.id !== "string" || !CONSUMER_ID.test(consumer.id)) return { ok: false, reason: "error", policy, attempts };
   registerConsumer(consumer);
-
   const cfg = loadConfig({ project: req.project });
-  const chain = req.onlyBackend !== undefined
-    ? Object.hasOwn(cfg.backends, req.onlyBackend) ? [req.onlyBackend] : []
-    : resolveChain(cfg, consumer.id);
 
   let last: FailReason = "no-backend";
-  for (const backendId of chain) {
+  for (const backendId of chainFor(cfg, req)) {
     if (signal?.aborted) return fail("timeout");
     const b = cfg.backends[backendId];
-    const skip = (outcome: FailReason) => {
-      attempts.push({ backendId, outcome, latencyMs: 0 });
-      last = outcome;
-    };
-    if (b.kind === "llm" && !llmCaller) {
-      skip("no-backend");
+    const skip = gate(b, cfg, req);
+    if (skip) {
+      attempts.push({ backendId, outcome: skip, latencyMs: 0 });
+      last = skip;
       continue;
     }
-    if (!cfg.allowOffMachine && isOffMachine(b, llmCaller)) {
-      skip("off-machine");
-      continue;
-    }
-    if (!fitsCapabilities(effectiveCapabilities(b), state, questions)) {
-      skip("capability");
-      continue;
-    }
-    if (b.kind === "managed" && !b.port) {
-      skip("no-backend");
-      continue;
-    }
-
-    const a0 = performance.now();
-    let out: RawOutcome;
-    if (b.kind === "llm") {
-      out = await callLlm(llmCaller!, b.role, state, questions, b.timeoutMs ?? LLM_TIMEOUT_MS, signal);
-    } else {
-      const url = b.kind === "managed" ? `http://127.0.0.1:${b.port}/v1/systemone` : b.url;
-      const keyRef = effectiveKeyRef(b);
-      out = await callHttp({
-        url,
-        model: backendModel(b) ?? "",
-        key: keyRef ? resolveKey(keyRef) : undefined,
-        timeoutMs: b.timeoutMs ?? HTTP_TIMEOUT_MS,
-        state,
-        questions,
-        signal,
-      });
-    }
-    const latencyMs = performance.now() - a0;
-
-    if (!out.ok) {
-      attempts.push({ backendId, outcome: out.outcome, latencyMs });
-      last = out.outcome;
+    const a = await attempt(b, req);
+    attempts.push({ backendId, outcome: a.ok ? "ok" : a.outcome, latencyMs: a.latencyMs });
+    if (!a.ok) {
+      last = a.outcome;
       if (signal?.aborted) return fail("timeout");
       continue;
     }
-    const answers = normalizeAnswers(questions, out.raw);
-    if (!answers) {
-      attempts.push({ backendId, outcome: "error", latencyMs });
-      last = "error";
-      continue;
-    }
-    attempts.push({ backendId, outcome: "ok", latencyMs });
-
-    const key = `${backendId}::${consumer.id}`;
-    const rec = Object.hasOwn(cfg.calibration, key) ? cfg.calibration[key] : undefined;
-    const applies = rec !== undefined && rec.model === out.model;
-    const mode = applies && rec.mode === "enforce" ? "enforce" : "shadow";
-    const thresholds = applies ? { ...rec.thresholds } : {};
-    logDecision({ consumerId: consumer.id, attempts, model: out.model, mode, answers }, state);
-    return { ok: true, answers, backendId, model: out.model, mode, thresholds, latencyMs: performance.now() - t0, attempts };
+    const { mode, thresholds } = calibrationFor(cfg, backendId, consumer.id, a.model);
+    logDecision({ consumerId: consumer.id, attempts, model: a.model, mode, answers: a.answers }, state);
+    return { ok: true, answers: a.answers, backendId, model: a.model, mode, thresholds, latencyMs: performance.now() - t0, attempts };
   }
   return fail(last);
 }
