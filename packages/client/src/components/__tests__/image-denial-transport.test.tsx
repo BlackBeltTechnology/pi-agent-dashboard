@@ -40,7 +40,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const png = () => new Response(new Blob(["png"]), { status: 200 });
+// A string body, not a jsdom `Blob`: some jsdom builds lack `Blob.stream()`,
+// which undici's `Response` needs, so `new Response(new Blob(…))` fails there.
+const png = () => new Response("png", { status: 200 });
 
 describe("#E39 image blob ownership", () => {
   it("(a) a caller srcUrl is never fetched and never revoked", () => {

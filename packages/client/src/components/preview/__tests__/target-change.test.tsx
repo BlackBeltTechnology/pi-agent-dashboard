@@ -79,7 +79,7 @@ describe("an ask does not carry to the next target", () => {
 
 describe("ImagePreview full: a decode failure does not stick to the next target", () => {
   it("corrupt a.png → valid b.png renders b", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(new Blob(["x"]), { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("x", { status: 200 })));
     const { container, rerender } = render(<ImagePreview target={{ kind: "file", cwd: "/p", path: "a.png" }} variant="full" />);
     await waitFor(() => expect(container.querySelector("img")).toBeTruthy());
     fireEvent.error(container.querySelector("img") as HTMLImageElement);
