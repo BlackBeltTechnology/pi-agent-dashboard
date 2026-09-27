@@ -5,7 +5,11 @@
 //
 // `files` negation is order-sensitive in npm-packlist and a JSON array cannot
 // carry that warning, so the packed set (on CI's npm, the npm that publishes) is
-// the guard. ci-level, behind RUN_CI_SCENARIOS=1 — npm pack of the root is too
+// the guard. It caught one on its first CI run: on npm <=11 (CI's npm 10, the
+// publisher's npm 11) a bare `"AGENTS.md"` include matches at ANY depth and
+// beats `!packages/**/AGENTS.md`, leaking every directory AGENTS.md; npm 12
+// does not. Hence the anchored `"/AGENTS.md"` in the root `files`.
+// ci-level, behind RUN_CI_SCENARIOS=1 — npm pack of the root is too
 // CPU-heavy for the parallel unit suite.
 // Exemplar: scripts/__tests__/kb-packaging.test.mjs.
 import { describe, expect, it } from "vitest";

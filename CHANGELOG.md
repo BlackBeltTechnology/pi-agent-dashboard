@@ -85,8 +85,10 @@ see [`docs/release-process.md`](docs/release-process.md).
   tests, fixtures or DOX sidecars.** Its `files` list now excludes
   `__tests__`, `__fixtures__`, `__mocks__`, `*.test.*`, `*.spec.*`,
   `AGENTS.md` and `*.AGENTS.md` under `packages/` (the root `AGENTS.md` still
-  ships). This removes 1248 files and 8.3 MB unpacked (1816 → 568 files,
-  14.5 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
+  ships, now as the anchored `/AGENTS.md`: on npm <=11 a bare `AGENTS.md`
+  include matched at any depth and defeated the exclusion). With npm 11, the
+  publishing npm, this removes 1259 files and 8.4 MB unpacked (1831 → 572
+  files, 14.6 → 6.2 MB). The publish check (`scripts/verify-published-imports.mjs`)
   now applies its full rules to the root package. Root-shipped copies of
   workspace sources are credited with the runtime dependencies of workspaces
   the root reaches at runtime; this is an explicit, counted exception for

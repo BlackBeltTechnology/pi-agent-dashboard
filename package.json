@@ -47,7 +47,7 @@
     "packages/extension/tsconfig.json",
     "packages/dist/",
     "docs/architecture.md",
-    "AGENTS.md",
+    "/AGENTS.md",
     "README.md",
     "LICENSE",
     "!packages/**/__tests__",
