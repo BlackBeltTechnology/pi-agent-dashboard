@@ -113,6 +113,7 @@ import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { initAutoUpdater, downloadAndInstall, quitAndInstall } from "./lib/app-updater.js";
+import { installQuitGuard } from "./lib/quit-guard.js";
 import { handleCheckForUpdates, setupAppMenu } from "./lib/app-menu.js";
 import {
   parsePreferOverride,
@@ -530,7 +531,11 @@ function startUpdaters(): void {
         buttons: ["Restart Now", "Later"],
         defaultId: 0,
       }).then(({ response }) => {
-        if (response === 0) quitAndInstall();
+        if (response === 0) {
+          // Let quitAndInstall's app.quit() through the quit guard + close handler.
+          isQuitting = true;
+          quitAndInstall();
+        }
       });
     },
     // Errors are logged with a severity tier inside app-updater's error
@@ -567,6 +572,10 @@ function requestQuit(): void {
     app.quit();
   });
 }
+
+// App menu Quit / Cmd+Q / Dock Quit → the full quit (stop server, tray, exit),
+// not just a hidden window. See lib/quit-guard.ts.
+installQuitGuard(app, { isQuitting: () => isQuitting, requestQuit });
 
 async function main(): Promise<void> {
   // Single-instance lock

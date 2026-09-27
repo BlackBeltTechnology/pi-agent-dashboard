@@ -28,6 +28,7 @@ export default defineConfig({
 			"src/__tests__/update-min-system-version.test.ts",
 			"src/__tests__/build-config-parity.test.ts",
 			"src/__tests__/shared-mjs-exports.test.ts",
+			"src/__tests__/tray-icon-asset.test.ts",
 			"src/__tests__/forge-config-windows-version.test.ts",
 			// Launch-source precedence is shipped contract too, and the resolver
 			// takes every probe by injection (pure). See change:
