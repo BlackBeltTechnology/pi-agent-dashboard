@@ -17,8 +17,12 @@ import {
   PinnedSourceUnavailableError,
   BundledServerMissingError,
   getBundledCliPath,
+  getOverlayCliPath,
+  getLocalCliPath,
+  getServerReadyDeadlineMs,
   type LaunchSourceOpts,
   type LaunchSourceProbes,
+  type RuntimeLaunchInputs,
 } from "../launch-source.js";
 
 function makeProbes(overrides: Partial<LaunchSourceProbes> = {}): Partial<LaunchSourceProbes> {
@@ -162,7 +166,7 @@ describe("parsePreferOverride", () => {
     expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: "" })).toBeNull();
   });
 
-  it.each(["attach", "bundled", "devMonorepo"] as const)(
+  it.each(["attach", "bundled", "devMonorepo", "localLink", "overlay"] as const)(
     "accepts known source kind '%s'",
     (kind) => {
       expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: kind })).toBe(kind);
@@ -178,7 +182,15 @@ describe("parsePreferOverride", () => {
     warnSpy.mockRestore();
   });
 
-  it("rejects pre-R3 source kinds (piExtension, npmGlobal, extracted)", () => {
+  it("rejects pre-R3 source kinds (piExtension, npmGlobal, extracted) + the runtime-overlay non-kinds", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const bad of ["local", "npm", "github"]) {
+      expect(parsePreferOverride({ DASHBOARD_PREFER_SOURCE: bad })).toBeNull();
+    }
+    warnSpy.mockRestore();
+  });
+
+  it("rejects pre-R3 source kinds (piExtension, npmGlobal, extracted) individually", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     for (const removed of ["piExtension", "npmGlobal", "extracted"]) {
       expect(
@@ -186,5 +198,195 @@ describe("parsePreferOverride", () => {
       ).toBeNull();
     }
     warnSpy.mockRestore();
+  });
+});
+
+// ── runtime overlay + local link (E4) ─────────────────────────────────────────
+// See change: electron-runtime-overlay-updates (D4).
+
+describe("selectLaunchSource — runtime-overlay precedence (E4)", () => {
+  const LOCAL_ROOT = "/r/co";
+  const OVERLAY_ROOT = "/home/u/.pi/dashboard/runtime/versions/0.9.1";
+  type Src = "bundled" | "npm" | "github" | "local";
+
+  const rows: Array<[boolean, boolean, Src, boolean, boolean]> = [];
+  for (const health of [true, false])
+    for (const devMono of [true, false])
+      for (const src of ["bundled", "npm", "github", "local"] as const)
+        for (const gateOk of [true, false])
+          for (const skipAttach of [false, true]) rows.push([health, devMono, src, gateOk, skipAttach]);
+
+  function expected(health: boolean, devMono: boolean, src: Src, gateOk: boolean, skipAttach: boolean) {
+    if (health && !skipAttach) return "attach";
+    if (devMono) return "devMonorepo";
+    if (src === "local" && gateOk) return "localLink";
+    if ((src === "npm" || src === "github") && gateOk) return "overlay";
+    return "bundled";
+  }
+
+  function assertRuntimeShape(result: Awaited<ReturnType<typeof selectLaunchSource>>) {
+    if (result.kind === "localLink") {
+      expect(result).toEqual({
+        kind: "localLink",
+        cliPath: getLocalCliPath(LOCAL_ROOT),
+        cwd: LOCAL_ROOT,
+        runtimeId: `local:${LOCAL_ROOT}`,
+      });
+    }
+    if (result.kind === "overlay") {
+      expect(result).toEqual({
+        kind: "overlay",
+        cliPath: getOverlayCliPath(OVERLAY_ROOT),
+        cwd: OVERLAY_ROOT,
+        runtimeId: "0.9.1",
+      });
+    }
+  }
+
+  function assertFallThrough(onFallThrough: ReturnType<typeof vi.fn>, considered: boolean, src: Src) {
+    if (!considered) {
+      expect(onFallThrough).not.toHaveBeenCalled();
+      return;
+    }
+    expect(onFallThrough).toHaveBeenCalledTimes(1);
+    expect(onFallThrough).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtimeId: src === "local" ? `local:${LOCAL_ROOT}` : "0.9.1",
+        reason: "requires_app >=1.0.0",
+      }),
+    );
+  }
+
+  it.each(rows)(
+    "health=%s devMonorepo=%s source=%s gateOk=%s skipAttach=%s",
+    async (health, devMono, src, gateOk, skipAttach) => {
+      const probes = makeProbes({
+        healthProbe: vi.fn().mockResolvedValue(
+          health ? { running: true, starter: "Electron", url: "http://localhost:8000" } : { running: false },
+        ),
+        existsSync: vi.fn().mockReturnValue(true),
+      });
+      const onFallThrough = vi.fn();
+      const runtime: RuntimeLaunchInputs = {
+        effectiveSource: src,
+        local: { runtimeId: `local:${LOCAL_ROOT}`, root: LOCAL_ROOT },
+        overlays: [{ runtimeId: "0.9.1", root: OVERLAY_ROOT }],
+        gate: () => (gateOk ? { ok: true } : { ok: false, code: "requires_app", message: "requires_app >=1.0.0" }),
+        onFallThrough,
+      };
+      const result = await selectLaunchSource(
+        baseOpts({ isPackaged: !devMono, cwd: "/repo", probes, runtime, skipAttach }),
+      );
+      const want = expected(health, devMono, src, gateOk, skipAttach);
+      expect(result.kind).toBe(want);
+      if (skipAttach) {
+        expect(result.kind).not.toBe("attach");
+        expect(probes.healthProbe).not.toHaveBeenCalled();
+      }
+      assertRuntimeShape(result);
+      // A gate failure on a considered candidate falls through AND records lastFailure.
+      assertFallThrough(onFallThrough, want === "bundled" && src !== "bundled" && !gateOk, src);
+    },
+  );
+
+  it("tries overlays in the given order (pending before current) and falls through per candidate", async () => {
+    const onFallThrough = vi.fn();
+    const result = await selectLaunchSource(
+      baseOpts({
+        probes: makeProbes({ existsSync: vi.fn().mockReturnValue(true) }),
+        runtime: {
+          effectiveSource: "npm",
+          overlays: [
+            { runtimeId: "0.9.2", root: "/rt/versions/0.9.2" },
+            { runtimeId: "0.9.1", root: "/rt/versions/0.9.1" },
+          ],
+          gate: (c) =>
+            c.runtimeId === "0.9.2"
+              ? { ok: false, code: "node_engines", message: "node_engines ^26" }
+              : { ok: true },
+          onFallThrough,
+        },
+      }),
+    );
+    expect(result).toMatchObject({ kind: "overlay", runtimeId: "0.9.1" });
+    expect(onFallThrough).toHaveBeenCalledTimes(1);
+    expect(onFallThrough).toHaveBeenCalledWith({ kind: "overlay", runtimeId: "0.9.2", reason: "node_engines ^26" });
+  });
+
+  it("an overlay whose server entry is missing falls through with missing_file", async () => {
+    const onFallThrough = vi.fn();
+    const bundledCli = getBundledCliPath("/fake/resources");
+    const result = await selectLaunchSource(
+      baseOpts({
+        probes: makeProbes({ existsSync: vi.fn().mockImplementation((p: string) => p === bundledCli) }),
+        runtime: {
+          effectiveSource: "github",
+          overlays: [{ runtimeId: "0.9.1", root: "/rt/versions/0.9.1" }],
+          gate: () => ({ ok: true }),
+          onFallThrough,
+        },
+      }),
+    );
+    expect(result.kind).toBe("bundled");
+    expect(onFallThrough).toHaveBeenCalledWith(
+      expect.objectContaining({ runtimeId: "0.9.1", reason: expect.stringContaining("missing_file") }),
+    );
+  });
+
+  it("a linked checkout whose server entry is missing falls through with missing_file", async () => {
+    const onFallThrough = vi.fn();
+    const bundledCli = getBundledCliPath("/fake/resources");
+    const result = await selectLaunchSource(
+      baseOpts({
+        probes: makeProbes({ existsSync: vi.fn().mockImplementation((p: string) => p === bundledCli) }),
+        runtime: {
+          effectiveSource: "local",
+          local: { runtimeId: "local:/r/co", root: "/r/co" },
+          overlays: [{ runtimeId: "0.9.1", root: "/rt/versions/0.9.1" }],
+          gate: () => ({ ok: true }),
+          onFallThrough,
+        },
+      }),
+    );
+    expect(result.kind).toBe("bundled");
+    expect(onFallThrough).toHaveBeenCalledTimes(1);
+    expect(onFallThrough).toHaveBeenCalledWith({
+      kind: "localLink",
+      runtimeId: "local:/r/co",
+      reason: `missing_file ${getLocalCliPath("/r/co")}`,
+    });
+  });
+
+  it("no runtime inputs → today's behaviour (bundled)", async () => {
+    const cliPath = getBundledCliPath("/fake/resources");
+    const result = await selectLaunchSource(
+      baseOpts({ probes: makeProbes({ existsSync: vi.fn().mockImplementation((p: string) => p === cliPath) }) }),
+    );
+    expect(result.kind).toBe("bundled");
+  });
+
+  it("pinned localLink throws when the effective source is not local", async () => {
+    await expect(
+      selectLaunchSource(
+        baseOpts({
+          preferOverride: "localLink",
+          probes: makeProbes({ existsSync: vi.fn().mockReturnValue(true) }),
+          runtime: { effectiveSource: "npm", local: { runtimeId: "local:/r/co", root: "/r/co" } },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(PinnedSourceUnavailableError);
+  });
+});
+
+// ── deadline mapping (E23) ────────────────────────────────────────────────────
+
+describe("getServerReadyDeadlineMs (E23)", () => {
+  it.each([
+    ["devMonorepo", 60_000],
+    ["localLink", 60_000],
+    ["overlay", 15_000],
+    ["bundled", 15_000],
+  ] as const)("%s → %d ms", (kind, ms) => {
+    expect(getServerReadyDeadlineMs(kind)).toBe(ms);
   });
 });

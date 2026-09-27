@@ -1307,7 +1307,13 @@ importers:
       bonjour-service:
         specifier: 1.4.2
         version: 1.4.2
+      semver:
+        specifier: ^7.7.1
+        version: 7.8.5
     devDependencies:
+      '@types/semver':
+        specifier: ^7.7.0
+        version: 7.8.0
       memfs:
         specifier: ^4.57.2
         version: 4.68.1

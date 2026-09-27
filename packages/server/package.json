@@ -20,6 +20,30 @@
     "recommended": "0.86.1",
     "maximum": null
   },
+  "piDashboard": {
+    "minShellVersion": "0.8.0",
+    "bundledPlugins": [
+      "roles-plugin",
+      "flows-plugin",
+      "flows-anthropic-bridge-plugin",
+      "automation-plugin",
+      "goal-plugin",
+      "subagents-plugin",
+      "kb-plugin",
+      "hermes-memory-plugin",
+      "grammar-plugin",
+      "blackhole-plugin",
+      "gmail-plugin",
+      "mcp-server-plugin",
+      "apple-tools",
+      "mcp-client-plugin",
+      "cost-estimator",
+      "quota-plugin",
+      "browser-plugin",
+      "chat-gateway",
+      "system-one-plugin"
+    ]
+  },
   "main": "src/cli.ts",
   "bin": {
     "pi-dashboard": "bin/pi-dashboard.mjs"

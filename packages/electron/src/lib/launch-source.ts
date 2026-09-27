@@ -8,8 +8,16 @@
  *                     just attach the BrowserWindow.
  *   2. devMonorepo  — running from the checked-out monorepo
  *                     (ELECTRON_DEV=1 gated; not a packaged-app code path).
- *   3. bundled      — spawn the server from `<resourcesPath>/server/`;
- *                     immutable, no extraction, no install.
+ *   3. localLink    — a user-linked checkout (effective runtime source
+ *                     `local`), run in place.
+ *   4. overlay      — a staged runtime release (effective source `npm` or
+ *                     `github`); pending before current.
+ *   5. bundled      — spawn the server from `<resourcesPath>/server/`;
+ *                     immutable, no extraction, no install. Last fallback.
+ *
+ * `localLink` / `overlay` candidates that fail their gate (compat + preflight)
+ * fall through to the next kind and are reported via `onFallThrough`
+ * (`lastFailure`). See change: electron-runtime-overlay-updates (D4).
  *
  * Pre-R3 source kinds (`piExtension`, `npmGlobal`, `extracted`) are gone:
  * they only existed to defend against runtime-install / mutable-managed-dir
@@ -28,6 +36,8 @@ import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
 
 export type { LaunchSource, SourceKind };
 
@@ -37,6 +47,8 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
   "attach",
   "devMonorepo",
   "bundled",
+  "localLink",
+  "overlay",
 ]);
 
 // ── Server-startup deadlines ─────────────────────────────────────────────────
@@ -54,10 +66,13 @@ export const SERVER_READY_DEADLINE_DEV_MS = 60_000;
 
 /**
  * Returns the readiness deadline for the given launch-source kind.
- * Pure helper. `devMonorepo` → 60s; everything else (`bundled`, `attach`) → 15s.
+ * Pure helper. `devMonorepo` / `localLink` (TS checkout cold boot) → 60s;
+ * everything else (`bundled`, `overlay` — installed-tree shape, `attach`) → 15s.
  */
 export function getServerReadyDeadlineMs(sourceKind: string): number {
-  return sourceKind === "devMonorepo" ? SERVER_READY_DEADLINE_DEV_MS : SERVER_READY_DEADLINE_MS;
+  return sourceKind === "devMonorepo" || sourceKind === "localLink"
+    ? SERVER_READY_DEADLINE_DEV_MS
+    : SERVER_READY_DEADLINE_MS;
 }
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -117,6 +132,29 @@ export interface LaunchSourceProbes {
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
+/** A `localLink` / `overlay` launch candidate, identified by its runtime id. */
+interface RuntimeCandidate {
+  runtimeId: string;
+  /** Checkout root (localLink) or `versions/<X>/` (overlay). */
+  root: string;
+}
+
+/**
+ * Runtime-overlay inputs, computed by the caller from `request.json` +
+ * `state.json` (pending/attempts/bad handling lives there, not here).
+ * Absent → today's `attach → devMonorepo → bundled` behaviour.
+ */
+export interface RuntimeLaunchInputs {
+  effectiveSource: EffectiveSource;
+  local?: RuntimeCandidate;
+  /** Overlay candidates in preference order (pending before current). */
+  overlays?: RuntimeCandidate[];
+  /** Compat gate + preflight (D6). Absent → only the server entry is checked. */
+  gate?: (candidate: RuntimeCandidate & { kind: "localLink" | "overlay" }) => RuntimeGateResult;
+  /** Called for each considered candidate that fails and falls through (`lastFailure`). */
+  onFallThrough?: (failure: { kind: "localLink" | "overlay"; runtimeId: string; reason: string }) => void;
+}
+
 export interface LaunchSourceOpts {
   isPackaged: boolean;
   cwd: string;
@@ -124,6 +162,9 @@ export interface LaunchSourceOpts {
   resourcesPath: string;
   port?: number;
   probes?: Partial<LaunchSourceProbes>;
+  /** Runtime activation: never attach, even if a server still answers health. */
+  skipAttach?: boolean;
+  runtime?: RuntimeLaunchInputs;
 }
 
 // ── Default probe implementations ─────────────────────────────────────────────
@@ -237,27 +278,74 @@ function probeBundled(
   return { kind: "bundled", cliPath, cwd };
 }
 
+/** Server entry of a staged overlay root (`versions/<X>/`). */
+export function getOverlayCliPath(root: string): string {
+  return path.join(root, "node_modules", "@blackbelt-technology", "pi-dashboard-server", "src", "cli.ts");
+}
+
+/** Server entry of a linked monorepo checkout. */
+export function getLocalCliPath(root: string): string {
+  return path.join(root, "packages", "server", "src", "cli.ts");
+}
+
+function tryRuntimeCandidate(
+  kind: "localLink" | "overlay",
+  candidate: RuntimeCandidate,
+  runtime: RuntimeLaunchInputs,
+  probes: LaunchSourceProbes,
+): LaunchSource | null {
+  const cliPath = kind === "localLink" ? getLocalCliPath(candidate.root) : getOverlayCliPath(candidate.root);
+  const gate: RuntimeGateResult = !probes.existsSync(cliPath)
+    ? { ok: false, code: "missing_file", path: cliPath, message: `missing_file ${cliPath}` }
+    : (runtime.gate?.({ ...candidate, kind }) ?? { ok: true });
+  if (!gate.ok) {
+    runtime.onFallThrough?.({ kind, runtimeId: candidate.runtimeId, reason: gate.message });
+    return null;
+  }
+  return { kind, cliPath, cwd: candidate.root, runtimeId: candidate.runtimeId };
+}
+
+function probeLocalLink(opts: LaunchSourceOpts, probes: LaunchSourceProbes): LaunchSource | null {
+  const rt = opts.runtime;
+  if (!rt?.local || rt.effectiveSource !== "local") return null;
+  return tryRuntimeCandidate("localLink", rt.local, rt, probes);
+}
+
+function probeOverlay(opts: LaunchSourceOpts, probes: LaunchSourceProbes): LaunchSource | null {
+  const rt = opts.runtime;
+  if (!rt?.overlays || (rt.effectiveSource !== "npm" && rt.effectiveSource !== "github")) return null;
+  for (const candidate of rt.overlays) {
+    const source = tryRuntimeCandidate("overlay", candidate, rt, probes);
+    if (source) return source;
+  }
+  return null;
+}
+
 // ── Main resolver ─────────────────────────────────────────────────────────────
 
 /**
  * Resolve the best available `LaunchSource` for this Electron session.
  *
- * Returns `{ kind: "attach", ... }` when a running server is detected.
- * Otherwise probes `devMonorepo` (dev-only) then `bundled` (the packaged
- * code path). Throws `BundledServerMissingError` if no source resolves.
+ * Returns `{ kind: "attach", ... }` when a running server is detected
+ * (never with `skipAttach`). Otherwise probes `devMonorepo` (dev-only),
+ * `localLink`, `overlay`, then `bundled` (the packaged code path). Throws
+ * `BundledServerMissingError` if no source resolves.
  */
 export async function selectLaunchSource(opts: LaunchSourceOpts): Promise<LaunchSource> {
   const probes = buildProbes(opts.probes);
   const port = opts.port ?? 8000;
 
-  // 1. Health probe — already running?
-  const health = await probes.healthProbe(port);
-  if (health.running && health.url) {
-    return {
-      kind: "attach",
-      url: health.url,
-      starter: health.starter ?? "Standalone",
-    };
+  // 1. Health probe — already running? Skipped for runtime activation, where
+  //    the old server may still answer and must never be attached/committed.
+  if (!opts.skipAttach) {
+    const health = await probes.healthProbe(port);
+    if (health.running && health.url) {
+      return {
+        kind: "attach",
+        url: health.url,
+        starter: health.starter ?? "Standalone",
+      };
+    }
   }
 
   // 2. Override pin?
@@ -268,7 +356,7 @@ export async function selectLaunchSource(opts: LaunchSourceOpts): Promise<Launch
   }
 
   // 3. Walk the priority chain.
-  const chain: SourceKind[] = ["devMonorepo", "bundled"];
+  const chain: SourceKind[] = ["devMonorepo", "localLink", "overlay", "bundled"];
   for (const kind of chain) {
     const source = trySource(kind, opts, probes);
     if (source) return source;
@@ -287,6 +375,10 @@ function trySource(
       return null; // handled separately
     case "devMonorepo":
       return probeDevMonorepo(opts, probes);
+    case "localLink":
+      return probeLocalLink(opts, probes);
+    case "overlay":
+      return probeOverlay(opts, probes);
     case "bundled":
       return probeBundled(opts, probes);
   }

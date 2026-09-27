@@ -1,9 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import forgeConfig from "../../forge.config.js";
+import {
+  materializeBundledPlugins,
+  readBundledPluginIds,
+} from "../../../shared/src/runtime-overlay/materialize-plugins.mjs";
 
 /**
  * Build-config parity lint (change: fix-electron-auto-update-pipeline, §3.6).
@@ -61,3 +66,80 @@ describe("build-config parity", () => {
     }
   });
 });
+
+/**
+ * Single first-party plugin list (change: electron-runtime-overlay-updates,
+ * test-plan E22). `packages/server/package.json#piDashboard.bundledPlugins` is
+ * the ONE list: `bundle-server.mjs` (the bundle) and the runtime-overlay
+ * stager both derive it through the shared `materialize-plugins.mjs` helper.
+ */
+describe("bundled plugin list — single source of truth (E22)", () => {
+  const repoRoot = path.resolve(electronRoot, "..", "..");
+  const serverPkgPath = path.join(repoRoot, "packages", "server", "package.json");
+  const bundleScript = readFileSync(path.join(electronRoot, "scripts", "bundle-server.mjs"), "utf8");
+
+  it("server package.json declares piDashboard.bundledPlugins as a non-empty id list", () => {
+    const ids = readBundledPluginIds(serverPkgPath);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(existsSync(path.join(repoRoot, "packages", id, "package.json"))).toBe(true);
+    }
+  });
+
+  it("bundle-server.mjs carries no hardcoded plugin list and derives it via the shared helper", () => {
+    expect(bundleScript).not.toMatch(/const BUNDLED_PLUGINS\s*=\s*\[/);
+    expect(bundleScript).toContain("readBundledPluginIds(");
+    expect(bundleScript).toContain("materializeBundledPlugins(");
+  });
+
+  it("the materialize helper copies exactly the declared ids; removing one removes it", () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "e22-"));
+    try {
+      const src = path.join(tmp, "packages");
+      for (const id of ["a-plugin", "b-plugin", "c-plugin", "fixture-plugin"]) {
+        mkdirSync(path.join(src, id, "node_modules", "dep"), { recursive: true });
+        writeFileSync(
+          path.join(src, id, "package.json"),
+          JSON.stringify({ name: id, ...(id === "fixture-plugin" ? { "pi-dashboard-plugin": { fixture: true } } : {}) }),
+        );
+      }
+      const pkg = path.join(tmp, "server-package.json");
+      const declare = (ids: string[]) =>
+        writeFileSync(pkg, JSON.stringify({ piDashboard: { bundledPlugins: ids } }));
+      const run = (dest: string) =>
+        materializeBundledPlugins({
+          ids: readBundledPluginIds(pkg),
+          resolveSource: (id: string) => path.join(src, id),
+          destDir: dest,
+        });
+
+      declare(["a-plugin", "b-plugin", "c-plugin", "fixture-plugin"]);
+      const full = path.join(tmp, "full");
+      expect(run(full)).toEqual(["a-plugin", "b-plugin", "c-plugin"]);
+      expect(readdirSync(full).sort()).toEqual(["a-plugin", "b-plugin", "c-plugin"]);
+      // node_modules never copied into the materialized plugin.
+      expect(readdirSync(path.join(full, "a-plugin"))).toEqual(["package.json"]);
+
+      declare(["a-plugin", "c-plugin"]);
+      const reduced = path.join(tmp, "reduced");
+      expect(run(reduced)).toEqual(["a-plugin", "c-plugin"]);
+      expect(readdirSync(reduced).sort()).toEqual(["a-plugin", "c-plugin"]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("readBundledPluginIds rejects a missing or malformed field", () => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "e22-bad-"));
+    try {
+      const pkg = path.join(tmp, "package.json");
+      writeFileSync(pkg, JSON.stringify({ name: "x" }));
+      expect(() => readBundledPluginIds(pkg)).toThrow(/bundledPlugins/);
+      writeFileSync(pkg, JSON.stringify({ piDashboard: { bundledPlugins: ["ok", 3] } }));
+      expect(() => readBundledPluginIds(pkg)).toThrow(/bundledPlugins/);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+

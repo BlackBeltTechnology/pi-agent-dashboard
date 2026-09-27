@@ -1,8 +1,10 @@
 /**
  * Repo-level invariant: every non-fixture *runtime plugin* in `packages/*`
- * MUST be listed in the `BUNDLED_PLUGINS` array of
- * `packages/electron/scripts/bundle-server.mjs`, and every entry in that
- * array MUST correspond to an existing non-fixture runtime plugin.
+ * MUST be listed in `packages/server/package.json#piDashboard.bundledPlugins`
+ * (the single first-party plugin list, read by
+ * `packages/electron/scripts/bundle-server.mjs` and the runtime-overlay
+ * stager — see change: electron-runtime-overlay-updates), and every entry in
+ * that list MUST correspond to an existing non-fixture runtime plugin.
  *
  * Why: `bundle-server.mjs` copies each `BUNDLED_PLUGINS` dir into the
  * Electron bundle's `resources/plugins/`. A runtime plugin added to
@@ -18,13 +20,14 @@
  *   - `pi-dashboard-plugin.fixture !== true`, AND
  *   - the dir is not bundled as a workspace package (BUNDLED_WORKSPACE_PKGS).
  *
- * If this test fails: add the missing plugin dir to `BUNDLED_PLUGINS`
+ * If this test fails: add the missing plugin dir to `piDashboard.bundledPlugins`
  * (kb-plugin case), or remove the stale entry (honcho case).
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { readBundledPluginIds } from "../runtime-overlay/materialize-plugins.mjs";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -36,6 +39,7 @@ const BUNDLE_SCRIPT = path.join(
   "scripts",
   "bundle-server.mjs",
 );
+const SERVER_PKG_JSON = path.join(REPO_ROOT, "packages", "server", "package.json");
 
 /** Extract a `const NAME = [ "a", "b" ]` string-literal array from a source file. */
 function readStringArray(source: string, name: string): string[] {
@@ -63,9 +67,9 @@ function discoverRuntimePluginDirs(excludeWorkspacePkgs: string[]): string[] {
     .sort();
 }
 
-describe("bundle-server BUNDLED_PLUGINS completeness", () => {
+describe("piDashboard.bundledPlugins completeness", () => {
   const source = fs.readFileSync(BUNDLE_SCRIPT, "utf8");
-  const bundled = readStringArray(source, "BUNDLED_PLUGINS");
+  const bundled = readBundledPluginIds(SERVER_PKG_JSON);
   const workspacePkgs = readStringArray(source, "BUNDLED_WORKSPACE_PKGS");
   const expected = discoverRuntimePluginDirs(workspacePkgs);
 
