@@ -19,6 +19,31 @@ export interface StreamCompletionOpts {
   signal?: AbortSignal;
 }
 
+/**
+ * Adapt route-level `streamSimple` opts (see model-proxy-routes.ts) to pi-ai's
+ * `streamSimple(model, context, options)` call. pi-ai's `Context` field is
+ * `systemPrompt` — passing `system` silently drops the client's system prompt.
+ */
+export interface RouteStreamOpts {
+  model: unknown;
+  messages: unknown[];
+  system?: string;
+  tools?: unknown[];
+  [option: string]: unknown;
+}
+
+export function callPiAiStreamSimple(
+  fn: PiAiModule["streamSimple"],
+  opts: RouteStreamOpts,
+): ReturnType<PiAiModule["streamSimple"]> {
+  const context = {
+    messages: opts.messages,
+    ...(opts.system !== undefined ? { systemPrompt: opts.system } : {}),
+    ...(opts.tools ? { tools: opts.tools } : {}),
+  };
+  return fn(opts.model, context, opts);
+}
+
 export interface RegistryLike {
   getApiKeyAndHeaders(model: any): Promise<{ apiKey: string; headers: Record<string, string> }>;
 }

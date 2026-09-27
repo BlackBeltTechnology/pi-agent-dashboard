@@ -129,6 +129,7 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
 import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
@@ -2140,7 +2141,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         streamSimple: (opts: any) => {
           const fn = getStreamSimpleFn();
           if (!fn) throw new Error("streamSimple not available");
-          return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+          return callPiAiStreamSimple(fn, opts);
         },
       });
 
@@ -3149,7 +3150,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               streamSimple: (opts: any) => {
                 const fn = getStreamSimpleFn();
                 if (!fn) throw new Error("streamSimple not available");
-                return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+                return callPiAiStreamSimple(fn, opts);
               },
             });
             await sf.listen({ port: proxyCfg.secondPort, host: "127.0.0.1" });

@@ -187,8 +187,12 @@ export function registerModelProxyRoutes(
       const creds = await registry.getApiKeyAndHeaders(model);
       const controller = new AbortController();
 
-      // Abort on client disconnect
-      request.raw.on("close", () => controller.abort());
+      // Abort on client disconnect. Listen on the RESPONSE: on modern Node
+      // `request.raw` emits "close" once the body is consumed (before this
+      // listener attaches), so it never signals a disconnect.
+      reply.raw.on("close", () => {
+        if (!reply.raw.writableFinished) controller.abort();
+      });
 
       const streamSimple = deps.streamSimple;
       if (!streamSimple) {
@@ -253,6 +257,15 @@ export function registerModelProxyRoutes(
     } catch (err: any) {
       if (err.name === "AbortError") return; // Client disconnected
       maybeLog(config, { ts: new Date().toISOString(), requestId, apiKeyId, model: modelId, format: "openai", status: 500, durationMs: Date.now() - startTime, error: err.message });
+      if (reply.raw.headersSent) {
+        // Mid-stream failure: a 500 can no longer be sent (Fastify would throw
+        // ERR_HTTP_HEADERS_SENT and the client would hang). End the SSE stream
+        // exactly as an upstream `error` event does.
+        const errorEvent = { type: "error", error: { errorMessage: err.message } };
+        for (const chunk of eventToSSEChunks(errorEvent, modelId, msgId, new ToolCallIndexTracker())) reply.raw.write(chunk);
+        reply.raw.end();
+        return;
+      }
       return reply.code(500).send({ error: { message: err.message || "Internal error", type: "api_error" } });
     } finally {
       release?.();
@@ -310,7 +323,10 @@ export function registerModelProxyRoutes(
 
       const creds = await registry.getApiKeyAndHeaders(model);
       const controller = new AbortController();
-      request.raw.on("close", () => controller.abort());
+      // Abort on client disconnect (see /v1/chat/completions note).
+      reply.raw.on("close", () => {
+        if (!reply.raw.writableFinished) controller.abort();
+      });
 
       const streamSimple = deps.streamSimple;
       if (!streamSimple) {
@@ -373,6 +389,13 @@ export function registerModelProxyRoutes(
     } catch (err: any) {
       if (err.name === "AbortError") return;
       maybeLog(config, { ts: new Date().toISOString(), requestId, apiKeyId, model: modelId, format: "anthropic", status: 500, durationMs: Date.now() - startTime, error: err.message });
+      if (reply.raw.headersSent) {
+        // Mid-stream failure (see /v1/chat/completions note).
+        const errorEvent = { type: "error", error: { errorMessage: err.message } };
+        for (const chunk of eventToAnthropicSSE(errorEvent, modelId, msgId, new AnthropicBlockTracker())) reply.raw.write(chunk);
+        reply.raw.end();
+        return;
+      }
       return reply.code(500).send({ error: { type: "api_error", message: err.message || "Internal error" } });
     } finally {
       release?.();
