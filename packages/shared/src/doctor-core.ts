@@ -426,6 +426,7 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   // (older Electron Doctor renderers) keeps section mapping.
   "pi CLI": "pi-tooling",
   "openspec CLI": "pi-tooling",
+  "Spawn runtime (resolved)": "runtime",
   // server
   "Dashboard server code": "server",
   "Offline packages bundle": "server",
@@ -519,6 +520,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
       ? undefined
       : "`openspec` is not on your shell `$PATH`. Dashboard-started sessions still work; manual terminal use does not. Fix: `npm i -g @fission-ai/openspec`, or add the dashboard's `server/node_modules/.bin` to your PATH.",
   // Legacy aliases (kept so older renderers don't lose suggestions).
+  "Spawn runtime (resolved)": (status, detail) => SUGGESTIONS["Session runtime (resolved)"]?.(status, detail),
   "pi CLI": (status) =>
     status === "ok" ? undefined : "`pi` not found. Run the setup wizard (Help → Setup) to install it under `~/.pi-dashboard`.",
   "openspec CLI": (status) =>

@@ -232,6 +232,11 @@
       "reason": "log-only: console/server log line, never rendered in the dashboard UI"
     },
     {
+      "file": "packages/shared/src/doctor-core.ts",
+      "text": "Spawn runtime (resolved)",
+      "reason": "internal: legacy check-name alias key in SECTION_OF/SUGGESTIONS so older renderers still map the renamed check; never emitted as a check name"
+    },
+    {
       "file": "packages/shared/src/platform/detached-spawn.ts",
       "text": "spawn failed: no PID",
       "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"

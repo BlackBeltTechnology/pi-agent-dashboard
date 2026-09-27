@@ -360,7 +360,7 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         res.writeHead(500, { "content-type": "text/plain" });
-        res.end("Failed to restart session: " + msg);
+        res.end("Failed to restart the server: " + msg);
       }
       return;
     }
