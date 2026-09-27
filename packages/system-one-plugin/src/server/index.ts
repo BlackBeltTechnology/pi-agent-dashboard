@@ -15,7 +15,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   const supervisor = new Supervisor(
     defaultDeps(() => (ctx.fastify.server.address() as AddressInfo | null)?.port),
   );
-  mountSystemOneRoutes(ctx.fastify, {
+  await mountSystemOneRoutes(ctx.fastify, {
     networkGuard: ctx.networkGuard,
     llmCaller: createServerLlmCaller(ctx.modelRuntime),
     managed: supervisor,

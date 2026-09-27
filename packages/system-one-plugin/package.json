@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-system-one-plugin",
   "version": "0.8.0",
-  "description": "Dashboard surface for System-1 decision models — settings section (backends, presets, per-consumer overrides, Test/calibration, key entry), /api/system-one/* routes, and the managed local Von/Laya supervisor.",
+  "description": "Dashboard surface for System-1 decision models \u2014 settings section (backends, presets, per-consumer overrides, Test/calibration, key entry), /api/system-one/* routes, and the managed local Von/Laya supervisor.",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
@@ -57,7 +57,8 @@
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@blackbelt-technology/pi-system-one": "^0.8.0"
+    "@blackbelt-technology/pi-system-one": "^0.8.0",
+    "@fastify/rate-limit": "^11.2.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

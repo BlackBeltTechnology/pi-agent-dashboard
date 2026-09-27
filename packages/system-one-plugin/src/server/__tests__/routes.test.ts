@@ -49,7 +49,7 @@ beforeEach(async () => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
   managedState = "stopped";
   app = Fastify();
-  mountSystemOneRoutes(app, { networkGuard: async () => {}, llmCaller, managed });
+  await mountSystemOneRoutes(app, { networkGuard: async () => {}, llmCaller, managed });
   await app.ready();
 });
 afterEach(async () => {

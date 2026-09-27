@@ -1356,6 +1356,9 @@ importers:
       '@blackbelt-technology/pi-system-one':
         specifier: ^0.8.0
         version: link:../system-one
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
       fastify:
         specifier: ^5.0.0
         version: 5.12.1

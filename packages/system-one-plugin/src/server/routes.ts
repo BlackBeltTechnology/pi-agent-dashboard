@@ -34,6 +34,7 @@ import {
   userConfigPath,
   writeKey,
 } from "@blackbelt-technology/pi-system-one";
+import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { mergeWrite, readRaw, StaleRevisionError } from "./config-io.js";
 import { listConsumers, loadFixtures } from "./consumers.js";
@@ -145,7 +146,21 @@ function validateCalibration(body: Record<string, unknown>): CalibrationInput {
   };
 }
 
-export function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteDeps): void {
+/**
+ * Mount the routes inside an encapsulated scope carrying a request rate limit
+ * (recognized by CodeQL js/missing-rate-limiting; same pattern as
+ * mcp-server-plugin). Loopback is allow-listed so same-host use is never
+ * throttled; remote callers (tunnel) get a generous per-ip ceiling.
+ * Returns the registration promise; routes exist after `app.ready()`.
+ */
+export async function mountSystemOneRoutes(app: FastifyInstance, deps: SystemOneRouteDeps): Promise<void> {
+  await app.register(async (scope) => {
+    await scope.register(rateLimit, { global: true, max: 600, timeWindow: "1 minute", allowList: ["127.0.0.1", "::1"] });
+    mountInScope(scope, deps);
+  });
+}
+
+function mountInScope(app: FastifyInstance, deps: SystemOneRouteDeps): void {
   const guard = { preHandler: deps.networkGuard };
 
   app.get("/api/system-one/config", async () => {
