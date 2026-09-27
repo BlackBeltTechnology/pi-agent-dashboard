@@ -76,8 +76,8 @@ export interface OAuthFlow {
   rejectInput?: (error: Error) => void;
   preAnswers: string[];
   /**
-   * Secret-bearing fragments of every answer submitted to this flow (the value
-   * and, for a pasted URL, its query values). Server-only, never serialised;
+   * Secret-bearing fragments of every answer submitted to this flow (the
+   * non-empty value and, for a pasted URL, its non-empty query/hash values). Server-only, never serialised;
    * cleared when the flow ends. Used to withhold an error message that echoes
    * the input. See change: expose-plugin-credential-and-oauth-seams.
    */
@@ -352,9 +352,6 @@ function createFlowInteraction(flow: OAuthFlow, hooks: InteractionHooks): LoginI
 
 // ── Input echo guard ─────────────────────────────────────────────────────────
 
-/** Fragments shorter than this are too generic to treat as secret-bearing. */
-const MIN_SECRET_FRAGMENT = 4;
-
 /** Message reported instead of an error that contains submitted input. */
 export const WITHHELD_ERROR_MESSAGE = "Sign-in failed (details withheld: the error echoed submitted input)";
 
@@ -367,7 +364,9 @@ function recordSubmitted(flow: OAuthFlow, value: string): void {
       for (const v of new URLSearchParams(url.hash.slice(1)).values()) fragments.push(v);
     }
   } catch { /* not a URL */ }
-  for (const f of fragments) if (f.length >= MIN_SECRET_FRAGMENT) flow.submitted.push(f);
+  // Every non-empty fragment, however short: over-withholding only hides error
+  // detail, under-withholding leaks a code.
+  for (const f of fragments) if (f.length > 0) flow.submitted.push(f);
 }
 
 /**
@@ -376,7 +375,21 @@ function recordSubmitted(flow: OAuthFlow, value: string): void {
  * such an error is replaced whole — no partial redaction.
  */
 export function withholdEchoedInput(error: string, submitted: readonly string[]): string {
-  return submitted.some((f) => error.includes(f)) ? WITHHELD_ERROR_MESSAGE : error;
+  return submitted.some((f) => quotes(error, f)) ? WITHHELD_ERROR_MESSAGE : error;
+}
+
+/** Fragments at least this long match as plain substrings. */
+const SUBSTRING_MATCH_MIN = 4;
+
+/**
+ * Does `error` quote `fragment`? Long fragments match anywhere; a short one
+ * (e.g. a 3-char code) only as a whole token — otherwise a one-letter URL
+ * param such as `state=s` would withhold every message containing an `s`.
+ */
+function quotes(error: string, fragment: string): boolean {
+  if (fragment.length >= SUBSTRING_MATCH_MIN) return error.includes(fragment);
+  const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`).test(error);
 }
 
 // ── Flow start ───────────────────────────────────────────────────────────────

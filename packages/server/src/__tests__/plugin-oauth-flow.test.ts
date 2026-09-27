@@ -208,6 +208,22 @@ describe("flow routes serve plugin flows", () => {
     }
   });
 
+  it("E17c: a short submitted code quoted by the error is withheld too", async () => {
+    const echoing: OAuthLoginFlow = {
+      name: "Short",
+      async login(ix) {
+        ix.notify({ type: "auth_url", url: "https://example.test/authorize" });
+        const answer = await ix.prompt({ type: "manual_code", message: "Paste" });
+        throw new Error(`invalid code ${answer}`);
+      },
+    };
+    const res = await pluginBegin("k", echoing).result;
+    if (!res.ok) throw new Error("start failed");
+    res.flow.resolveInput!("abc");
+    await res.flow.settled;
+    expect(getFlow(res.flow.id)).toMatchObject({ status: "error", error: WITHHELD_ERROR_MESSAGE });
+  });
+
   it("an error that does not quote the input passes through unchanged", async () => {
     const res = await pluginBegin("k", manualFlow(cred())).result;
     if (!res.ok) throw new Error("start failed");
