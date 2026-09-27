@@ -294,7 +294,7 @@ export function ComposerSessionActions({
               label={i18nT("common.explore", undefined, "Explore")}
               onClick={() => setExploreOpen(true)}
               disabled={streaming}
-              title={streaming ? "Session is streaming" : undefined}
+              title={streaming ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : undefined}
               testId="composer-explore-btn"
               variant="info"
             />

@@ -45,6 +45,10 @@ async function setAllTasks(done: boolean): Promise<void> {
 }
 
 test.describe("OpenSpec lifecycle bar", () => {
+  // Shared fixture: reset to its committed unchecked state in case an earlier
+  // run died before F12's `finally` restore.
+  test.beforeAll(async () => { await setAllTasks(false); });
+
   test("F9: segment press on a board card opens the artifact, never drags the card", async ({ page }) => {
     const card = await openBoard(page);
     const columnOf = () =>
