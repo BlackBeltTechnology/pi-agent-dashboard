@@ -2,6 +2,7 @@
  * Dashboard HTTP + WebSocket server.
  */
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,7 @@ import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@b
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -24,6 +26,13 @@ import {
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import {
+  deriveEffectiveSource,
+  deriveLocalIdentity,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -188,19 +197,6 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { PUBLIC_PAIRING_PREFIXES, registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
-import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
-import { buildRuntimeHealth } from "./runtime-overlay/runtime-health.js";
-import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
-import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
-import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
-import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
-import {
-  deriveEffectiveSource,
-  deriveLocalIdentity,
-  getRuntimeOverlayDir,
-  readRuntimeRequest,
-  readRuntimeState,
-} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
@@ -212,6 +208,7 @@ import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
+import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
@@ -219,6 +216,10 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { buildRuntimeHealth } from "./runtime-overlay/runtime-health.js";
+import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
+import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
+import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
 import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
@@ -402,6 +403,31 @@ export interface DashboardServer {
   sessionOrderManager: SessionOrderManager;
 }
 
+
+/**
+ * pi-coding-agent version as resolved from this server (its `exports` hide
+ * package.json, so walk the resolution paths). Cached. See change:
+ * electron-runtime-overlay-updates.
+ */
+let piVersionCache: string | null | undefined;
+function resolvedPiVersion(): string | undefined {
+  if (piVersionCache === undefined) {
+    piVersionCache = null;
+    for (const dir of createRequire(import.meta.url).resolve.paths("@earendil-works/pi-coding-agent") ?? []) {
+      const file = path.join(dir, "@earendil-works", "pi-coding-agent", "package.json");
+      try {
+        const v = (JSON.parse(readFileSync(file, "utf8")) as { version?: unknown }).version;
+        if (typeof v === "string") {
+          piVersionCache = v;
+          break;
+        }
+      } catch {
+        // not in this node_modules — keep walking
+      }
+    }
+  }
+  return piVersionCache ?? undefined;
+}
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
@@ -2059,6 +2085,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       stage: (version, source, onProgress) => stageRuntime({ dir: runtimeDir, version, source, deps: stagerDeps, onProgress }),
       exclusive: (fn) => packageManagerWrapper.runExclusive(fn),
       runtimeHealth: runtimeHealthNow,
+      piVersion: resolvedPiVersion,
       broadcast: (msg) => browserGateway.broadcastToAll(msg),
     });
     // Scheduled notify-only check (Electron only): once shortly after boot,

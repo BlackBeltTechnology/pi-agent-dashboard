@@ -23,6 +23,7 @@ import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
 import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
 import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
+import { RuntimeUpdateBadge } from "./components/packages/RuntimeUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
 import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 // Flow components are no longer imported by the shell. They render
@@ -2022,6 +2023,7 @@ export default function App() {
       headerExtra={
         <div className="flex items-center gap-2">
           {launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource === "electron" && <RuntimeUpdateBadge />}
           <ServerSelector
             currentHost={currentServerHost}
             currentPort={currentServerPort}

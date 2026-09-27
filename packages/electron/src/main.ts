@@ -113,7 +113,7 @@ import { createTray, destroyTray, type TrayOwnership } from "./lib/tray.js";
 import { startUpdateChecker } from "./lib/update-checker.js";
 import { notifyUpdatesAvailable } from "./lib/update-notifier.js";
 import { initAutoUpdater, downloadAndInstall, quitAndInstall } from "./lib/app-updater.js";
-import { setupAppMenu } from "./lib/app-menu.js";
+import { handleCheckForUpdates, setupAppMenu } from "./lib/app-menu.js";
 import {
   parsePreferOverride,
   PinnedSourceUnavailableError,
@@ -394,6 +394,11 @@ function registerPiDashboardIpc(): void {
   ipcMain.handle("dashboard:read-server-log", async (_event, payload: { lines?: number } = {}) => {
     return readServerLogTail(payload?.lines ?? 20);
   });
+
+  // Settings → Dashboard runtime "Check for app update" (requires_app refusal).
+  // No renderer input. See change: electron-runtime-overlay-updates.
+  ipcMain.removeHandler("dashboard:check-app-update");
+  ipcMain.handle("dashboard:check-app-update", () => handleCheckForUpdates());
 
   ipcMain.removeHandler("dashboard:probe-server");
   ipcMain.handle("dashboard:probe-server", async (_event, payload: { url?: unknown } = {}) => {

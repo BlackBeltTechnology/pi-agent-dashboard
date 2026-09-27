@@ -70,13 +70,13 @@
 
 ## 7. Client
 
-- [ ] 7.1 Test (test-plan #F1): new `packages/client/src/components/__tests__/RuntimeUpdatesSection.test.tsx`, harness from `UnifiedPackagesSection.test.tsx` (exemplar). Input: source local, `/r/co`, abc123 dirty. Trigger: render. Observable: path/SHA/dirty shown; no editable path input; "Set from the app menu".
-- [ ] 7.2 Test (test-plan #F2): same file. Input: `available 0.9.1`. Trigger: Update, progress events, Activate. Observable: Update → progress → Activate; Activate disabled until `pending=0.9.1`.
-- [ ] 7.3 Test (test-plan #F3): same file. Input: refusal `requires_app >=0.10.0`. Trigger: render. Observable: "Requires app update ≥0.10.0" + link calling the whole-app update check.
-- [ ] 7.4 Test (test-plan #F4): same file. Input: `lastFailure {0.9.1, "health timeout"}`. Trigger: render. Observable: failure line visible; Roll back / Use bundled enabled.
-- [ ] 7.5 Test (test-plan #E21): extend `packages/client/src/components/__tests__/PiUpdateBadge.test.tsx` + `UnifiedPackagesSection.test.tsx` (exemplars). Input: Electron starter, `runtime.updatable=true`. Trigger: render. Observable: Core group + `PiUpdateBadge` still hidden.
-- [ ] 7.6 Implement the Settings → Updates section (source, channel/pin, read-only local, status, pi version, Check now / Update / Activate / Roll back / Use bundled, last failure) and a runtime update badge driven only by `runtime.updatable`.
-- [ ] 7.7 Test (test-plan #X14): new `tests/e2e/runtime-updates-remote-local.spec.ts`, harness from `tests/e2e/blackhole-settings.spec.ts` (exemplar; port from `.pi-test-harness.json`). Input: remote client via the harness port. Trigger: UI + direct POST attempts. Observable: no path input; POST rejected; `/api/health.runtime.source` unchanged.
+- [x] 7.1 Test (test-plan #F1): new `packages/client/src/components/__tests__/RuntimeUpdatesSection.test.tsx`, harness from `UnifiedPackagesSection.test.tsx` (exemplar). Input: source local, `/r/co`, abc123 dirty. Trigger: render. Observable: path/SHA/dirty shown; no editable path input; "Set from the app menu".
+- [x] 7.2 Test (test-plan #F2): same file. Input: `available 0.9.1`. Trigger: Update, progress events, Activate. Observable: Update → progress → Activate; Activate disabled until `pending=0.9.1`.
+- [x] 7.3 Test (test-plan #F3): same file. Input: refusal `requires_app >=0.10.0`. Trigger: render. Observable: "Requires app update ≥0.10.0" + link calling the whole-app update check.
+- [x] 7.4 Test (test-plan #F4): same file. Input: `lastFailure {0.9.1, "health timeout"}`. Trigger: render. Observable: failure line visible; Roll back / Use bundled enabled.
+- [x] 7.5 Test (test-plan #E21): extend `packages/client/src/components/__tests__/PiUpdateBadge.test.tsx` + `UnifiedPackagesSection.test.tsx` (exemplars). Input: Electron starter, `runtime.updatable=true`. Trigger: render. Observable: Core group + `PiUpdateBadge` still hidden.
+- [x] 7.6 Implement the Settings → Updates section (source, channel/pin, read-only local, status, pi version, Check now / Update / Activate / Roll back / Use bundled, last failure) and a runtime update badge driven only by `runtime.updatable`.
+- [x] 7.7 Test (test-plan #X14): new `tests/e2e/runtime-updates-remote-local.spec.ts`, harness from `tests/e2e/blackhole-settings.spec.ts` (exemplar; port from `.pi-test-harness.json`). Input: remote client via the harness port. Trigger: UI + direct POST attempts. Observable: no path input; POST rejected; `/api/health.runtime.source` unchanged.
 - [ ] 7.8 Manual QA (test-plan: manual-only, #F7): review the visual polish of Settings → Updates on all 4 themes.
 
 ## 8. Electron end-to-end

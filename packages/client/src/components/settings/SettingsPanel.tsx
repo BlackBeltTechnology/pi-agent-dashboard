@@ -68,6 +68,8 @@ import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDi
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
+import { useLaunchSource } from "../../hooks/useLaunchSource.js";
+import { RuntimeUpdatesSection } from "../packages/RuntimeUpdatesSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
@@ -2377,6 +2379,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
 
             {activeTab === "packages" && (
               <>
+                <ElectronRuntimeUpdates />
                 <UnifiedPackagesSection />
                 <GlobalPackagesBrowseAndDialogs />
               </>
@@ -3433,6 +3436,11 @@ function ListenInterfaceField({
       )}
     </div>
   );
+}
+
+/** Runtime overlay updates are desktop-app only. See change: electron-runtime-overlay-updates. */
+function ElectronRuntimeUpdates() {
+  return useLaunchSource() === "electron" ? <RuntimeUpdatesSection /> : null;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

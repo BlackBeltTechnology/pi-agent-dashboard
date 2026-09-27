@@ -43,6 +43,8 @@ export interface RuntimeRouteDeps {
   checker: Pick<RuntimeUpdateChecker, "check" | "peek" | "invalidate">;
   stage: (version: string, source: StageSource, onProgress: (p: StageProgress) => void) => Promise<{ root: string }>;
   runtimeHealth: () => RuntimeHealth;
+  /** pi-coding-agent version the running server resolves (Settings display). */
+  piVersion?: () => string | undefined;
   /**
    * Shared package-manager lock (`PackageManagerWrapper.runExclusive`): staging
    * never overlaps a pi-core/package install. Default: run directly.
@@ -198,6 +200,7 @@ export function registerRuntimeRoutes(fastify: FastifyInstance, deps: RuntimeRou
       success: true,
       data: {
         runtime: deps.runtimeHealth(),
+        piVersion: deps.piVersion?.() ?? null,
         source: deriveEffectiveSource(req, state),
         channel: req?.channel ?? "stable",
         pin: req?.pin ?? null,

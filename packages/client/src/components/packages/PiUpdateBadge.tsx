@@ -7,12 +7,17 @@ import React from "react";
 import { Icon } from "@mdi/react";
 import { mdiArrowUpBold } from "@mdi/js";
 import { useLocation } from "wouter";
+import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePiCoreVersions } from "../../hooks/usePiCoreVersions.js";
 
 export function PiUpdateBadge() {
 	const { status } = usePiCoreVersions();
 	const [, navigate] = useLocation();
+	// Electron bundles pi core; runtime updates live in Settings → Packages →
+	// Dashboard runtime, never in this badge (E21).
+	const launchSource = useLaunchSource();
 
+	if (launchSource === "electron") return null;
 	if (!status || status.updatesAvailable === 0) return null;
 
 	const count = status.updatesAvailable;

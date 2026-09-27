@@ -24,7 +24,7 @@ function isDevMode(): boolean {
  * the up-to-date / error dialog. The update-available case is handled by the
  * `update-available` event listener registered in main.ts (no duplication).
  */
-async function handleCheckForUpdates(): Promise<void> {
+export async function handleCheckForUpdates(): Promise<void> {
   const result = await checkForUpdatesNow();
   if (result.type === "up-to-date") {
     dialog.showMessageBox({

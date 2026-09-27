@@ -51,6 +51,9 @@ vi.mock("../../hooks/usePackageOperations.js", () => ({
 	}),
 }));
 
+const launchSourceMock = vi.fn<() => string | null>(() => null);
+vi.mock("../../hooks/useLaunchSource.js", () => ({ useLaunchSource: () => launchSourceMock() }));
+
 vi.mock("../../lib/api/api-context.js", () => ({
 	getApiBase: () => "",
 }));
@@ -108,6 +111,14 @@ describe("UnifiedPackagesSection", () => {
 		expect(screen.getByText("Core")).toBeTruthy();
 		expect(screen.getByText("Recommended Extensions")).toBeTruthy();
 		expect(screen.getByText("Other Packages")).toBeTruthy();
+	});
+
+	it("E21: Electron hides the Core group even when the runtime is updatable", () => {
+		launchSourceMock.mockReturnValue("electron");
+		render(<UnifiedPackagesSection />);
+		expect(screen.queryByText("Core")).toBeNull();
+		expect(screen.getByText("Other Packages")).toBeTruthy();
+		launchSourceMock.mockReturnValue(null);
 	});
 
 	it("renders core packages with Update button when updateAvailable", () => {

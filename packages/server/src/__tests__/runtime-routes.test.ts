@@ -41,6 +41,7 @@ async function build(starter: Starter, over: Partial<RuntimeRouteDeps> = {}): Pr
     checker: checkerMock as unknown as RuntimeRouteDeps["checker"],
     stage: stage as unknown as RuntimeRouteDeps["stage"],
     runtimeHealth: () => ({ origin: "bundled", id: "bundled", version: "0.9.0", updatable: starter === "electron" }),
+    piVersion: () => "0.86.1",
     ...over,
   });
   await app.ready();
@@ -262,6 +263,12 @@ describe("update / activate / rollback", () => {
     selectRuntimeSource(dir, { source: "npm" });
     patchRuntimeState(dir, { current: "0.9.1", previous: "0.9.0" });
     expect((await post("/api/runtime/rollback", { to: "previous" })).statusCode).toBe(409);
+  });
+
+  it("status reports the resolved pi version", async () => {
+    await build("electron");
+    const res = await app.inject({ method: "GET", url: "/api/runtime/status" });
+    expect(res.json().data.piVersion).toBe("0.86.1");
   });
 
   it("status uses the cached check; refresh=true forces it", async () => {
