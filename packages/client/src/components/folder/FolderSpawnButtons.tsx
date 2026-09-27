@@ -4,13 +4,14 @@
  * Renders two spawn buttons in a Create tray positioned OUTSIDE the directory
  * card's bordered surface (a sibling below the card — see
  * `SessionList.renderGroup`):
- *   - `+ New Session` (green) — always rendered.
- *   - `+ New Worktree` (orange) — rendered only when `showWorktree` holds.
+ *   - `+ New Session` (`--tint-green-*`) — always rendered.
+ *   - `+ New Worktree` (`--tint-orange-*`) — rendered only when `showWorktree` holds.
  *
  * A responsive grid: two columns when the worktree button shows, collapsing to
  * a single column at the mobile breakpoint. Props + `data-testid`s unchanged.
  *
- * See change: elevate-folder-spawn-buttons; redesign-directory-card (D3).
+ * See change: elevate-folder-spawn-buttons; redesign-directory-card (D3);
+ * align-ui-with-theme-tokens (identity tints, D2).
  */
 
 import { mdiPlus, mdiSourceBranchPlus } from "@mdi/js";
@@ -45,7 +46,7 @@ export function FolderSpawnButtons({
         className={`focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 ${
           spawningDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
-            : "text-green-400 border-green-500/45 bg-green-500/5 hover:text-green-300 hover:bg-green-500/10"
+            : "text-[var(--tint-green-fg)] border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))]"
         }`}
         title={i18nT("session.newPiSession", undefined, "New pi session")}
       >
@@ -57,7 +58,7 @@ export function FolderSpawnButtons({
           type="button"
           onClick={(e) => { e.stopPropagation(); onSpawnWorktree!(); }}
           data-testid="folder-spawn-worktree-btn"
-          className="focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 text-orange-400 border-orange-500/45 bg-orange-500/5 hover:text-orange-300 hover:bg-orange-500/10"
+          className="focus-ring w-full text-[13px] font-bold px-3 py-2.5 min-h-[44px] sm:min-h-0 rounded-xl border flex items-center justify-center gap-1.5 text-[var(--tint-orange-fg)] border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] hover:bg-[color-mix(in_srgb,var(--tint-orange-bg)_70%,var(--tint-orange-border))]"
           title={i18nT("git.newPiSessionInAGit", undefined, "New pi session in a git worktree")}
         >
           <Icon path={mdiSourceBranchPlus} size={0.6} /> {i18nT("worktree.newWorktree2", undefined, "New Worktree")}

@@ -6,6 +6,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 |------|---------|
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute out-of-cwd `write`) never prompts; video/PDF click-to-ask; outcomes via paired-device bearer (disclosure). Flips enforce+prompting, restores stores; `promptBudget` paces 5/min. #F2/#F3 at L1 (premise unreachable). See change: surface-denial-remedy-in-previews. |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
+| `helpers/computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs`: `measureText` (canvas-resolved fg over composited bg stack), `contrastFailures`, `sizeFailures`, `buttonBoxes`, `resolveColor`, `ownBackground`, `colorDistance`, `buttonsWithoutFocusIndicator`, `setThemeMode`. See change: align-ui-with-theme-tokens. |
+| `fixtures/severity-baseline.json` | Computed `--severity-{success,warning,info,error}-{bg,fg}` for all 18 theme×mode combos, captured BEFORE the tint aliasing; E1 in `severity-contrast.spec.ts` asserts equality. See change: align-ui-with-theme-tokens. |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → grant → admitted… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
@@ -189,6 +191,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3).… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour… → see `tool-output-links.spec.ts.AGENTS.md` |
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
+| `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10, X1). Computed contrast (canvas + composited ancestors — axe passes semi-transparent fills), 11/12 px floors, 44/32 px targets, focus rings, axe per surface: tray, card chips + 320 px wrap, worktree dialog (toggle/collision/Create, routed `branch_exists`), goal detail + automation dialog seeded via `page.route`, faux select/confirm, dashboard tray, OpenSpec board create controls, Manage Worktrees. See change: align-ui-with-theme-tokens. |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level… → see `worktree-init-feedback.spec.ts.AGENTS.md` |

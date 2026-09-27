@@ -85,7 +85,14 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
 
   if (session.resuming) {
-    return <span className="text-yellow-400">{i18nT("common.resuming", undefined, "Resuming…")}</span>;
+    // Status colour on the SHAPE, never the word (D2b): `--status-working` is
+    // 1.84:1 as text in light. See change: align-ui-with-theme-tokens.
+    return (
+      <span className="inline-flex items-center gap-1 text-[var(--text-secondary)]" data-testid="activity-resuming">
+        <StatusDot status="working" />
+        {i18nT("common.resuming", undefined, "Resuming…")}
+      </span>
+    );
   }
 
   // Ended sessions have no activity, so this slot used to be blank (it
@@ -97,7 +104,7 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
   if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5"><Icon path={mdiCommentQuestion} size={0.5} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
+    return <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5"><StatusGlyph status="needs-you" path={mdiCommentQuestion} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
   }
 
   if (retryAttempt !== undefined) {
@@ -105,20 +112,52 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
   }
 
   if (session.currentTool) {
-    return <span className="text-[var(--status-working)] truncate inline-flex items-center gap-0.5"><Icon path={mdiFlash} size={0.5} /> {session.currentTool}</span>;
+    return <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5"><StatusGlyph status="working" path={mdiFlash} /> {session.currentTool}</span>;
   }
 
   if (session.status === "streaming") {
-    return <span className="text-[var(--status-working)]">{i18nT("session.thinking", undefined, "Thinking…")}</span>;
+    return (
+      <span className="inline-flex items-center gap-1 text-[var(--text-secondary)]">
+        <StatusDot status="working" />
+        {i18nT("session.thinking", undefined, "Thinking…")}
+      </span>
+    );
   }
 
   if (session.status === "idle" || session.status === "active") {
     // Turn-finished passive state: distinct "Idle" label, never "Waiting for
     // input". See change: improve-dashboard-attention-routing.
-    return <span className="text-[var(--text-tertiary)]">{i18nT("status.idle", undefined, "Idle")}</span>;
+    return <span className="text-[var(--text-secondary)]">{i18nT("status.idle", undefined, "Idle")}</span>;
   }
 
   return null;
+}
+
+/**
+ * Status colour carriers for the activity slot: the `--status-*` token paints
+ * a decorative (aria-hidden) dot or glyph, and the adjacent word stays
+ * `--text-secondary`. See change: align-ui-with-theme-tokens (D2b).
+ */
+function StatusDot({ status }: { status: "working" | "needs-you" }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-status-dot={status}
+      className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${status === "working" ? "bg-[var(--status-working)]" : "bg-[var(--status-needs-you)]"}`}
+    />
+  );
+}
+
+function StatusGlyph({ status, path }: { status: "working" | "needs-you"; path: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-status-dot={status}
+      className={`inline-flex flex-shrink-0 ${status === "working" ? "text-[var(--status-working)]" : "text-[var(--status-needs-you)]"}`}
+    >
+      <Icon path={path} size={0.5} />
+    </span>
+  );
 }
 
 /**
@@ -259,7 +298,7 @@ function HostPressureIndicator({ session }: { session: DashboardSession }) {
       data-testid={`session-host-pressure-${session.id}`}
       data-host-pressure={d.state}
       title={formatHostPressureTooltip(d)}
-      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${
+      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] rounded-full border ${
         isError
           ? "bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border-[var(--severity-error-border)]"
           : "bg-[var(--severity-warning-bg)] text-[var(--severity-warning-fg)] border-[var(--severity-warning-border)]"
@@ -332,7 +371,7 @@ function EndedReasonPill({ session }: { session: DashboardSession }) {
     <span
       data-testid={`session-ended-reason-${session.id}`}
       data-closed-reason={safeReason}
-      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full border ${klass}`}
+      className={`flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] rounded-full border ${klass}`}
       title={i18nT(title.key, undefined, title.fallback)}
     >
       {glyph ? <span aria-hidden="true">{glyph}</span> : null}
@@ -353,7 +392,7 @@ function MovedBadge({ session }: { session: DashboardSession }) {
   return (
     <span
       data-testid={`session-moved-badge-${session.id}`}
-      className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+      className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
       title={i18nT("session.movedToTitle", { target }, `Moved to ${target}`)}
     >
       <Icon path={mdiArrowRightCircleOutline} size={0.4} />
@@ -373,7 +412,7 @@ function OriginDeviceChip({ session }: { session: DashboardSession }) {
   return (
     <span
       data-testid={`session-origin-${session.id}`}
-      className="flex-shrink-0 inline-flex items-center gap-0.5 max-w-[10rem] text-[10px] text-[var(--text-tertiary)]"
+      className="flex-shrink-0 inline-flex items-center gap-0.5 max-w-[10rem] text-[11px] text-[var(--text-tertiary)]"
       title={i18nT("session.originDeviceTitle", { device }, `Runs on remote device ${device}`)}
     >
       <Icon path={mdiRemoteDesktop} size={0.4} />
@@ -418,7 +457,7 @@ export function GitInfo({ session }: { session: DashboardSession }) {
     <div className="text-[11px] mt-0.5 ml-4 flex items-center gap-1.5 text-[var(--text-tertiary)]">
       <Icon path={mdiSourceBranch} size={0.5} />
       {session.gitBranchUrl ? (
-        <a href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline truncate">
+        <a href={session.gitBranchUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline truncate">
           {session.gitBranch}
         </a>
       ) : (
@@ -426,9 +465,9 @@ export function GitInfo({ session }: { session: DashboardSession }) {
       )}
       {session.gitPrNumber != null && (
         <>
-          <span className="text-[var(--text-muted)]">·</span>
+          <span aria-hidden="true" className="text-[var(--text-muted)]">·</span>
           {session.gitPrUrl ? (
-            <a href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+            <a href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline">
               #{session.gitPrNumber}
             </a>
           ) : (
@@ -470,7 +509,7 @@ export function WorktreePill({ session }: { session: DashboardSession }) {
     <span
       data-testid="worktree-pill"
       title={title}
-      className="inline-flex items-center px-1.5 py-px rounded-full text-[9px] uppercase tracking-wider border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)]"
+      className="inline-flex items-center px-1.5 py-px rounded-full text-[11px] font-semibold border border-[var(--tint-orange-border)] text-[var(--tint-orange-fg)] bg-[var(--tint-orange-bg)]"
     >
       <span>worktree</span>
     </span>
@@ -587,15 +626,15 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
   // No branch info at all: show dimmed icon (with "Init git" if confirmed not a repo)
   if (!branchName) {
     return (
-      <div className="text-[11px] flex items-center gap-1.5 text-[var(--text-muted)]">
+      <div className="text-[11px] flex items-center gap-1.5 text-[var(--text-secondary)]">
         <button
           onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
-          className="flex items-center gap-1 hover:text-[var(--text-secondary)] transition-colors"
+          className="focus-ring flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
           title={showInitGit ? i18nT("git.initializeRepo", undefined, "Initialize git repository") : i18nT("git.gitBranches", undefined, "Git branches")}
           data-testid="git-init-btn"
         >
           <Icon path={mdiSourceBranch} size={0.5} />
-          {showInitGit && <span className="text-[10px]">{i18nT("git.initGit", undefined, "Init git")}</span>}
+          {showInitGit && <span className="text-[12px]">{i18nT("git.initGit", undefined, "Init git")}</span>}
         </button>
       </div>
     );
@@ -605,14 +644,14 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
     <div className="text-[11px] flex items-center gap-1.5 text-[var(--text-tertiary)]">
       <button
         onClick={(e) => { e.stopPropagation(); onBranchClick?.(); }}
-        className="flex items-center gap-1 hover:text-blue-400 transition-colors"
+        className="focus-ring flex items-center gap-1 hover:text-[var(--link)] transition-colors"
         title={i18nT("git.switchBranch", undefined, "Switch branch")}
         data-testid="git-branch-btn"
       >
         <Icon path={mdiSourceBranch} size={0.5} />
       </button>
       {branchUrl ? (
-        <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline truncate">
+        <a href={branchUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline truncate">
           {branchName}
         </a>
       ) : (
@@ -620,9 +659,9 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
       )}
       {prNumber != null && (
         <>
-          <span className="text-[var(--text-muted)]">·</span>
+          <span aria-hidden="true" className="text-[var(--text-muted)]">·</span>
           {prUrl ? (
-            <a href={prUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+            <a href={prUrl} target="_blank" rel="noopener noreferrer" className="focus-ring text-[var(--link)] hover:underline">
               #{prNumber}
             </a>
           ) : (
@@ -638,7 +677,7 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
           type="button"
           data-testid="group-commit-btn"
           onClick={(e) => { e.stopPropagation(); openCommitDialog(cwd, anySessionId); }}
-          className="text-[10px] text-blue-400 hover:underline"
+          className="focus-ring text-[12px] text-[var(--link)] hover:underline"
           title={i18nT("common.commitChanges", undefined, "Commit changes")}
         >
           {i18nT("git.commit", undefined, "Commit")}
@@ -903,7 +942,7 @@ export function SessionCard({
         data-session-id={session.id}
         onClick={() => onSelect(session.id)}
         className={`relative isolate px-4 py-3 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] transition-all duration-200 ${
-          isSelected ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30" : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
+          isSelected ? "border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] ring-1 ring-[var(--tint-blue-border)]" : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
         } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       >
         {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
@@ -922,7 +961,7 @@ export function SessionCard({
             {getSessionDisplayName(session)}
           </span>
           <span
-            className="text-[11px] text-[var(--text-muted)] flex-shrink-0"
+            className="text-[11px] text-[var(--text-secondary)] flex-shrink-0"
             title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
           >
             {formatRelativeTime(now - selectBadgeTimestamp(session))}
@@ -948,7 +987,7 @@ export function SessionCard({
             return (
               <span
                 data-testid="queue-count-badge"
-                className="flex-shrink-0 inline-flex items-center px-1.5 py-0 text-[10px] rounded-full bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                className="flex-shrink-0 inline-flex items-center px-1.5 py-0 text-[11px] font-semibold rounded-full bg-[var(--tint-blue-bg)] text-[var(--tint-blue-fg)] border border-[var(--tint-blue-border)]"
                 title={i18nT("session.queuedMessages", { count: totalQueued }, `${totalQueued} queued message${totalQueued === 1 ? "" : "s"}`)}
               >
                 {totalQueued}
@@ -975,7 +1014,7 @@ export function SessionCard({
         {/* Mirror in SessionHeader.tsx → MobileHeader (mobile-header-attached-chip). */}
         {showOpenspec && session.attachedProposal && (
           <div
-            className="mt-1 flex items-center gap-1 text-[11px] text-blue-400"
+            className="mt-1 flex items-center gap-1 text-[11px] text-[var(--link)]"
             data-testid="mobile-card-attached-chip"
             title={i18nT("session.attachedProposal", { proposal: session.attachedProposal }, "Attached: {proposal}")}
           >
@@ -1036,7 +1075,7 @@ export function SessionCard({
          See change: session-card-directory-rail. */
       className={`group/card relative isolate pl-1.5 pr-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 before:content-[''] before:absolute before:-left-[11px] before:top-[19px] before:w-[9px] before:h-0.5 before:rounded-full before:bg-[var(--rail-directory)] ${
         isSelected
-          ? "border-blue-500/60 bg-blue-500/5 ring-1 ring-blue-500/30 card-selected-ring"
+          ? "border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] ring-1 ring-[var(--tint-blue-border)] card-selected-ring"
           : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
       } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       data-testid="session-card-desktop"
@@ -1108,8 +1147,9 @@ export function SessionCard({
         )}
         {canRename && !isRenaming && (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}
-            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5 flex-shrink-0"
+            className="focus-ring inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             title={i18nT("session.renameSession", undefined, "Rename session")}
           >
             <Icon path={mdiPencilOutline} size={0.45} />
@@ -1120,7 +1160,7 @@ export function SessionCard({
             identical buttons with one effect. It now lives once, in the owning
             folder's actions menu. See change: add-folder-actions-menu (D1). */}
         <span
-          className="text-[10px] text-[var(--text-muted)]"
+          className="text-[11px] text-[var(--text-secondary)]"
           title={i18nT("session.startedAtTime", { time: new Date(session.startedAt).toLocaleString() }, "Started {time}")}
         >
           {formatRelativeTime(now - selectBadgeTimestamp(session))}
@@ -1136,7 +1176,7 @@ export function SessionCard({
               if (session.status === "ended") onArchive(session.id);
               else setArchiveConfirmOpen(true);
             }}
-            className="text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] rounded p-0.5 flex-shrink-0"
+            className="focus-ring inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded flex-shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             title={i18nT("session.archiveSession", undefined, "Archive session")}
             data-testid="session-archive-btn"
           >
@@ -1154,7 +1194,7 @@ export function SessionCard({
               onShutdown(session.id);
             }}
             disabled={session.closing}
-            className="text-[var(--text-muted)] hover:text-red-400 p-0.5 flex-shrink-0 disabled:cursor-default disabled:hover:text-[var(--text-muted)]"
+            className="focus-ring inline-flex items-center justify-center min-h-[44px] min-w-[44px] sm:min-h-[32px] sm:min-w-[32px] rounded flex-shrink-0 text-[var(--text-secondary)] hover:bg-[var(--tint-red-bg)] hover:text-[var(--tint-red-fg)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
             title={session.closing ? i18nT("session.closing", undefined, "Closing…") : i18nT("session.exitPiSession", undefined, "Exit pi session")}
             data-testid="session-close-btn"
           >
@@ -1163,8 +1203,11 @@ export function SessionCard({
         )}
       </div>
 
-      {/* Line 2: model + thinking level + source/fork right-aligned */}
-      <div className="flex items-center mt-0.5 gap-1.5">
+      {/* Line 2: model + thinking level + source/fork right-aligned. Wraps:
+          the action chips are 32 px targets now, so a narrow sidebar must
+          push them to a second row rather than clip them.
+          See change: align-ui-with-theme-tokens (D5, test-plan F9). */}
+      <div className="flex flex-wrap items-center mt-0.5 gap-1.5">
         {session.model && (
           <span className="text-xs text-[var(--text-tertiary)] truncate">
             {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
@@ -1182,19 +1225,19 @@ export function SessionCard({
               <button
                 onClick={(e) => { e.stopPropagation(); onResume("continue"); }}
                 disabled={session.resuming || session.cwdMissing === true}
-                className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))] disabled:opacity-50 disabled:cursor-not-allowed"
                 title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.resumeTitle", undefined, "Resume session (continue same session)")}
               >
-                <Icon path={mdiPlayCircleOutline} size={0.35} className="inline mr-px" />{i18nT("session.resume", undefined, "Resume")}
+                <Icon path={mdiPlayCircleOutline} size={0.5} className="flex-shrink-0" />{i18nT("session.resume", undefined, "Resume")}
               </button>
             )}
             <button
               onClick={(e) => { e.stopPropagation(); onResume("fork"); }}
               disabled={session.resuming || session.cwdMissing === true}
-              className="text-[9px] px-1 py-px rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] text-[var(--tint-blue-fg)] hover:bg-[color-mix(in_srgb,var(--tint-blue-bg)_70%,var(--tint-blue-border))] disabled:opacity-50 disabled:cursor-not-allowed"
               title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.forkTitle", undefined, "Fork session (new session from this point)")}
             >
-              <Icon path={mdiSourceFork} size={0.35} className="inline mr-px" />{i18nT("session.fork", undefined, "Fork")}
+              <Icon path={mdiSourceFork} size={0.5} className="flex-shrink-0" />{i18nT("session.fork", undefined, "Fork")}
             </button>
           </>
         )}
@@ -1205,11 +1248,11 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnSibling(session); }}
             disabled={!!session.cwdMissing}
-            className="text-[9px] px-1 py-px rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-green-border)] bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)] hover:bg-[color-mix(in_srgb,var(--tint-green-bg)_70%,var(--tint-green-border))] disabled:opacity-50 disabled:cursor-not-allowed"
             title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnSiblingTitle", undefined, "+Session clean sibling in same folder")}
             data-testid="session-card-spawn-sibling"
           >
-            <Icon path={mdiPlus} size={0.35} className="inline mr-px" />{i18nT("session.session", undefined, "Session")}
+            <Icon path={mdiPlus} size={0.5} className="flex-shrink-0" />{i18nT("session.session", undefined, "Session")}
           </button>
         )}
         {/* +Worktree — create git worktree (if needed) + spawn session inside
@@ -1228,11 +1271,11 @@ export function SessionCard({
           <button
             onClick={(e) => { e.stopPropagation(); onSpawnWorktree(session); }}
             disabled={!!session.cwdMissing}
-            className="text-[9px] px-1 py-px rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create git worktree + spawn session inside it")}
+            className="focus-ring inline-flex items-center gap-0.5 text-[12px] font-semibold min-h-[44px] sm:min-h-[32px] px-2.5 rounded-md border border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] text-[var(--tint-orange-fg)] hover:bg-[color-mix(in_srgb,var(--tint-orange-bg)_70%,var(--tint-orange-border))] disabled:opacity-50 disabled:cursor-not-allowed"
+            title={session.cwdMissing ? i18nT("session.cwdMissing", undefined, "session's directory no longer exists") : i18nT("session.spawnWorktreeTitle", undefined, "Create a git worktree and start a new session in it")}
             data-testid="session-card-spawn-worktree"
           >
-            <Icon path={mdiSourceBranchPlus} size={0.35} className="inline mr-px" />{i18nT("worktree.worktree", undefined, "Worktree")}
+            <Icon path={mdiSourceBranchPlus} size={0.5} className="flex-shrink-0" />{i18nT("worktree.worktree", undefined, "Worktree")}
           </button>
         )}
       </div>
@@ -1521,13 +1564,13 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
   const pill = hasActivity ? formatCountsPill(activity.length, processes.length) : null;
 
   let lineIcon = mdiPlay;
-  let lineIconClass = "text-green-400";
+  let lineIconClass = "text-[var(--status-working)]";
   let lineText: string;
   if (primary) {
     lineText = truncateCommand(primary.command, 60);
   } else if (hasProcesses) {
     lineIcon = mdiAlertOutline;
-    lineIconClass = "text-amber-500/80";
+    lineIconClass = "text-[var(--severity-warning-fg)]";
     lineText = i18nT(
       "session.backgroundProcessCount",
       { count: processes.length },
@@ -1545,7 +1588,7 @@ function ProcessSubcard({ activity, processes, onKill, onAbortTool, now, collaps
           {lineText}
         </span>
         {pill ? (
-          <span className="flex-shrink-0 text-[10px] text-[var(--text-tertiary)] tabular-nums" data-testid="process-counts-pill">
+          <span className="flex-shrink-0 text-[11px] text-[var(--text-tertiary)] tabular-nums" data-testid="process-counts-pill">
             [{pill}]
           </span>
         ) : null}
@@ -1588,7 +1631,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
-          className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)] hover:text-[var(--text-secondary)]"
+          className="focus-ring mt-1 inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] rounded-full text-[12px] border border-[var(--border-subtle)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           data-testid="background-drawer-chip"
           aria-label={i18nT("session.backgroundProcessesTapToView", { count: processes.length }, "{count} background processes — tap to view")}
         >
@@ -1648,7 +1691,7 @@ function ProcessSafetyChip({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); setSheetOpen(true); }}
-        className="mt-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] border border-amber-500/30 text-amber-500 bg-amber-500/10 hover:bg-amber-500/20 focus-ring"
+        className="mt-1.5 inline-flex items-center gap-1 px-2.5 min-h-[44px] sm:min-h-[32px] rounded-full text-[12px] font-semibold border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)] bg-[var(--severity-warning-bg)] hover:bg-[color-mix(in_srgb,var(--severity-warning-bg)_70%,var(--severity-warning-border))] focus-ring"
         data-testid="process-safety-chip"
       >
         <Icon path={mdiAlertOutline} size={0.4} className="flex-shrink-0" />
@@ -1730,7 +1773,7 @@ function OpenSpecDisabledPanel({
   const control = targetsSettings ? onOpenSettings : onSeekToFolder;
   return (
     <div className="mt-1 space-y-1" data-testid="session-openspec-disabled">
-      <p data-testid="session-openspec-disabled-reason" className="text-[10px] leading-snug text-[var(--text-tertiary)]">
+      <p data-testid="session-openspec-disabled-reason" className="text-[12px] leading-snug text-[var(--text-secondary)]">
         {reasonText}
       </p>
       {control && (
@@ -1741,7 +1784,7 @@ function OpenSpecDisabledPanel({
             e.stopPropagation();
             control();
           }}
-          className="focus-ring rounded px-1.5 py-0.5 text-[10px] border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+          className="focus-ring rounded-md px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
         >
           {targetsSettings
             ? i18nT("openspec.remediateOpenSettings", undefined, "Open OpenSpec settings")

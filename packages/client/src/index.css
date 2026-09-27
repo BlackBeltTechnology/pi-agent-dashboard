@@ -156,18 +156,40 @@
      tokyo-night light `info` (that theme's own body text is already sub-AA at
      3.5:1, so no derived tint can beat it). See change:
      unify-message-severity-colors, design.md D4/D6. */
-  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
-  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
-  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
-  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
-  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
-  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
-  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
-  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
-  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
-  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
-  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
-  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  /* Identity tints — same bg 10% / fg 46% / border 40% color-mix recipe as
+     the severity triples, keyed by HUE instead of meaning: pi/new session =
+     green, worktree = orange, fork/links/selected = blue, goals = purple,
+     destructive = red. A tint fg is only ever painted on its OWN tint bg.
+     The four accent severity triples below are aliases of the matching tint
+     (values byte-identical after resolution). See change:
+     align-ui-with-theme-tokens (design D1). */
+  --tint-green-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --tint-green-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --tint-green-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --tint-orange-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --tint-orange-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --tint-orange-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --tint-blue-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --tint-blue-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --tint-blue-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --tint-purple-bg: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary));
+  --tint-purple-fg: color-mix(in srgb, var(--accent-purple) 46%, var(--text-primary));
+  --tint-purple-border: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+  --tint-red-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --tint-red-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --tint-red-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-error-bg: var(--tint-red-bg);
+  --severity-error-fg: var(--tint-red-fg);
+  --severity-error-border: var(--tint-red-border);
+  --severity-warning-bg: var(--tint-orange-bg);
+  --severity-warning-fg: var(--tint-orange-fg);
+  --severity-warning-border: var(--tint-orange-border);
+  --severity-success-bg: var(--tint-green-bg);
+  --severity-success-fg: var(--tint-green-fg);
+  --severity-success-border: var(--tint-green-border);
+  --severity-info-bg: var(--tint-blue-bg);
+  --severity-info-fg: var(--tint-blue-fg);
+  --severity-info-border: var(--tint-blue-border);
   --severity-neutral-bg: var(--bg-tertiary);
   --severity-neutral-fg: var(--text-secondary);
   --severity-neutral-border: var(--border-primary);

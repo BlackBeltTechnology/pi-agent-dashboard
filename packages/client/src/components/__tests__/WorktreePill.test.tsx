@@ -111,8 +111,14 @@ describe("WorktreePill (standalone)", () => {
     const classes = pill.className;
     expect(classes).toContain("inline-flex");
     expect(classes).toContain("rounded-full");
-    expect(classes).toContain("uppercase");
-    expect(classes).toContain("text-[9px]");
+    // 11 px dense-metadata floor + the orange identity tint, no uppercase-
+    // muted (9 px uppercase --text-muted measured ~2.2:1). See change:
+    // align-ui-with-theme-tokens (task 2.2, design D3/D5).
+    expect(classes).toContain("text-[11px]");
+    expect(classes).toContain("bg-[var(--tint-orange-bg)]");
+    expect(classes).toContain("text-[var(--tint-orange-fg)]");
+    expect(classes).not.toContain("uppercase");
+    expect(classes).not.toContain("text-[var(--text-muted)]");
   });
 });
 

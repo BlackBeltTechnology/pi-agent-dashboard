@@ -43,3 +43,5 @@ Access page passes `selectedCwd` to `AccessPromptsSection` (YOLO default scope).
 
 - Props `groupByPrefs`, `onSetDefaultGroupBy`; renders `DefaultGroupingField` first in Session list section (disabled until prefs known). See change: session-list-group-by.
 Renders `CardSectionsSection` after `DisplayPrefsSection` on General. See change: configurable-session-card-sections.
+
+See change: align-ui-with-theme-tokens. User-facing hints say new/start sessions, never spawn (keys unchanged).

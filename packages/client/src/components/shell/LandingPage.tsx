@@ -173,7 +173,7 @@ export function LandingPage({
             <Card
               step={2}
               title={t("landing.addFolder", undefined, "Add folder")}
-              description={t("landing.addFolderDescription", undefined, "Pin a project directory to the sidebar so you can spawn sessions inside it.")}
+              description={t("landing.addFolderDescription", undefined, "Pin a project directory to the sidebar so you can start new sessions inside it.")}
               hint={step2 === "locked" ? t("landing.requiresCredentials", undefined, "Requires: credentials") : undefined}
               ctaLabel={t("landing.addFolderCta", undefined, "Add folder...")}
               ctaTestId="onboarding-step-2-cta"

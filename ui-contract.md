@@ -40,15 +40,45 @@ hand-write a per-theme severity color.
 | Family | Tokens | Use for |
 |---|---|---|
 | severity | `--severity-{error,warning,success,info,neutral}-{bg,fg,border}` | any state message, badge, or callout |
-| status | `--status-{needs-you,working,idle,error,notice}` | session lifecycle state only |
+| identity tint | `--tint-{green,orange,blue,purple,red}-{bg,fg,border}` | identity accents on action chips, trays, pills |
+| status | `--status-{needs-you,working,idle,error,notice}` | session lifecycle state only — shapes and dots, never text |
 | warn alias | `--warn-{bg,border,fg,body}` | pre-existing alias of the warning family |
 
-**Rule:** a new surface uses a *severity* token, not `--accent-red` directly.
-Raw accents are reserved for the status family and for chart/graph series.
+**Rule:** a new surface uses a *severity* or *tint* token, not `--accent-red`
+directly and never a Tailwind palette class (`text-green-400`,
+`bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the
+status family and for chart/graph series.
 
-**Known debt (do not copy):** `SessionCard.tsx` contains off-token literals
-`border-blue-500/30`, `border-green-500/30`, `border-orange-500/30`. New work
-uses `--severity-*-border`.
+### Colour roles
+
+Pick the family by **meaning**, not by hue. `--severity-{success,warning,info,error}-*`
+are aliases of `--tint-{green,orange,blue,red}-*` (same values), but the names
+keep the meanings apart. See change: align-ui-with-theme-tokens.
+
+| Meaning | Token | Examples |
+|---|---|---|
+| identity: pi / new session | `--tint-green-*` | tray New Session, card `+ Session`, automation "armed" badge |
+| identity: worktree | `--tint-orange-*` | tray New Worktree, card Worktree chip, worktree badge |
+| identity: fork, links, selected toggle | `--tint-blue-*` | card Fork, pressed source toggle, selected session card |
+| identity: goals | `--tint-purple-*` | goal `+ New session`, subgoal add |
+| destructive | `--tint-red-*` | goal delete, unlink |
+| severity (warning / error / success / info) | `--severity-*` | collision / orphan warnings, error text |
+| session status (working / idle / needs-you / ended) | `--status-*` | status **shapes and dots only** |
+
+- **Tint pairing:** a `--tint-X-fg` is only ever painted on its own
+  `--tint-X-bg` fill (a filled chip / button / pill) — never directly on a card
+  or page surface (as low as 3.4:1 on tokyo-night light).
+- **Status colour on shape, not text:** `--status-working` is 1.84:1 as text in
+  light. Status words ("Resuming…", "Thinking…", "Idle") render
+  `--text-secondary` beside an `aria-hidden` `--status-*` dot or glyph.
+- **`--text-muted` is decoration only:** allowed in `disabled:` variants (WCAG
+  1.4.3 exempts them) and on `aria-hidden="true"` elements (separators,
+  glyphs). Headings, labels and help text use `--text-primary` /
+  `--text-secondary`; timestamps and counts are information →
+  `--text-secondary`.
+
+**Tinted action recipe:** `border border-[var(--tint-X-border)] bg-[var(--tint-X-bg)]
+text-[var(--tint-X-fg)] hover:bg-[color-mix(in_srgb,var(--tint-X-bg)_70%,var(--tint-X-border))]`.
 
 ## Spacing scale
 
@@ -76,6 +106,12 @@ legitimate — pick by role, not by taste.
 **Floor:** anything below `text-[11px]` must be non-essential — never the only
 carrier of a state, an error, or an action label.
 
+**Aligned action surfaces** (tray, session card, worktree dialog/list, goal
+detail, prompt renderers, automation dialog, OpenSpec board create controls):
+nothing below 11 px; buttons, labels, links and help text ≥ 12 px
+(`text-[12px]`); dense metadata (model, path, cost) may stay 11 px. The micro
+and chip steps above are legacy and not used on these surfaces.
+
 ## Radius
 
 `rounded` (chips, inputs) · `rounded-md` (buttons, small panels) ·
@@ -101,10 +137,13 @@ drop it on a raised surface.
 |---|---|
 | card root | `rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)]` + raised elevation |
 | inset panel | `rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-subtle)]` |
-| chip / pill | `rounded-full px-1.5 py-0.5 text-[10px] bg-[var(--bg-tertiary)]` |
+| chip / pill | `rounded-full px-1.5 py-0.5 text-[11px] bg-[var(--bg-tertiary)]` (identity pill: tint triple) |
+| action chip | `focus-ring inline-flex items-center gap-0.5 rounded-md border px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold` + tinted action recipe |
 | severity callout | `rounded-md border bg-[var(--severity-X-bg)] border-[var(--severity-X-border)] text-[var(--severity-X-fg)]` |
-| primary button | `rounded-md bg-[var(--accent-primary)] px-3 py-1.5 text-sm` |
-| secondary button | `rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` |
+| primary button | `focus-ring rounded-md bg-[var(--accent-solid)] px-3 min-h-[44px] sm:min-h-[36px] text-white font-semibold disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)]` — `--accent-solid` is theme-invariant (white on it is 5.17:1 everywhere); `--accent-primary` is NOT a white-text fill (3.68:1) |
+| secondary button | `focus-ring rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] px-3 min-h-[44px] sm:min-h-[36px]` |
+| section heading | `text-[12px] font-semibold text-[var(--text-secondary)]` — no uppercase + `--text-muted` |
+| field label | `text-[12px] font-semibold text-[var(--text-primary)]` |
 | dialog | scrim `bg-[var(--bg-overlay)]` + panel at card recipe, `max-w-*`, one primary action |
 | input | `rounded border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] px-3 py-1.5 text-sm` + persistent label above |
 
@@ -119,6 +158,9 @@ which is why they also carry a shape (below).
 1. Text contrast ≥ 4.5:1 (≥ 3:1 large); UI/non-text ≥ 3:1 — verified in **both**
    themes.
 2. Interactive targets ≥ 24×24 px; primary actions ≥ 44×44 px (Fitts's Law).
+   On the aligned action surfaces: every button ≥ 44×44 below `sm`, and ≥ 32 px
+   tall from `sm:` (chips/toggles `sm:min-h-[32px]`, form buttons
+   `sm:min-h-[36px]`, icon-only `min-w-[44px] sm:min-w-[32px]`).
 3. Visible focus indicator via `--focus-ring` on every focusable element.
 4. **State is never carried by color alone** (WCAG 1.4.1). The house pattern is
    `StatusShapeBadge` — `data-status-shape` renders a distinct *shape* per
@@ -143,6 +185,12 @@ which is why they also carry a shape (below).
 
 **Known debt (do not copy):** `BranchSwitchDialog.tsx` ships with no `role`,
 `aria-modal`, or labelled title. New dialogs must not inherit that.
+
+## Terminology
+
+| Say | Never say (user-facing) | Notes |
+|---|---|---|
+| new session (noun) · start (verb) · restart (for respawn) | spawn, respawn | Internal identifiers keep their names: protocol messages (`spawn_session`), functions, config keys (`spawnStrategy`), testids, i18n KEYS. Gate: `packages/client/src/lib/__tests__/ui-copy-no-spawn.test.ts` (log-only literals in `ui-copy-allowlist.json`). |
 
 ## Anti-slop guardrails
 

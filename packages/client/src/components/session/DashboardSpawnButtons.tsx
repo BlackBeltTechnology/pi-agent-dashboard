@@ -2,7 +2,7 @@
  * Elevated dashboard-scope spawn-button stack for the sidebar.
  *
  * Renders full-width stacked line buttons mirroring `FolderSpawnButtons`:
- *   - `+ Add Folder` (blue) — always rendered; pins a top-level folder
+ *   - `+ Add Folder` (`--tint-blue-*`) — always rendered; pins a top-level folder
  *     (dashboard scope) or adds a folder to a workspace (workspace scope).
  *   - `+ New Workspace` (neutral) — rendered only when `onNewWorkspace` is
  *     provided.
@@ -11,7 +11,8 @@
  * Workspace scope: rendered Add-Folder-only at the bottom of each expanded
  * workspace body.
  *
- * See change: elevate-dashboard-add-buttons.
+ * See change: elevate-dashboard-add-buttons; align-ui-with-theme-tokens (tints,
+ * 12 px text, 44/32 px targets, focus-ring).
  */
 
 import { mdiFolderPlus, mdiViewGridPlus } from "@mdi/js";
@@ -37,13 +38,14 @@ export function DashboardSpawnButtons({
   return (
     <div className="flex flex-col gap-1">
       <button
+        type="button"
         onClick={(e) => { e.stopPropagation(); onAddFolder(); }}
         disabled={addFolderDisabled}
         data-testid={addFolderTestId}
-        className={`w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 ${
+        className={`focus-ring w-full text-[12px] font-semibold px-2.5 py-1 min-h-[44px] sm:min-h-[32px] rounded-md border flex items-center justify-center gap-0.5 ${
           addFolderDisabled
             ? "border-[var(--border-secondary)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
-            : "text-blue-500 border-blue-500/40 bg-blue-500/5 hover:text-blue-400 hover:border-blue-500/70"
+            : "text-[var(--tint-blue-fg)] border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] hover:bg-[color-mix(in_srgb,var(--tint-blue-bg)_70%,var(--tint-blue-border))]"
         }`}
         title={i18nT("folders.addAFolder", undefined, "Add a folder")}
       >
@@ -52,9 +54,10 @@ export function DashboardSpawnButtons({
 
       {onNewWorkspace && (
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onNewWorkspace(); }}
           data-testid="dashboard-new-workspace-btn"
-          className="w-full text-xs px-2 py-1 rounded border flex items-center justify-center gap-0.5 text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
+          className="focus-ring w-full text-[12px] font-semibold px-2.5 py-1 min-h-[44px] sm:min-h-[32px] rounded-md border flex items-center justify-center gap-0.5 text-[var(--text-secondary)] border-[var(--border-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-[var(--border-primary)]"
           title={i18nT("folders.newWorkspace3", undefined, "New workspace")}
         >
           <Icon path={mdiViewGridPlus} size={0.6} /> {i18nT("folders.newWorkspace2", undefined, "New Workspace")}

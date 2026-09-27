@@ -112,6 +112,7 @@
     "appdmg": "^0.6.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
     "@biomejs/biome": "2.5.11",
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",

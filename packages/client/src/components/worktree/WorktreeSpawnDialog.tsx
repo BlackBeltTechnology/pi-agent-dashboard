@@ -436,14 +436,14 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
   if (loadError) {
     return (
       <DialogChrome onCancel={onCancel} title={i18nT("worktree.worktreeSession", undefined, "+Worktree Session")}>
-        <div className="text-red-400" data-testid="worktree-dialog-load-error">{loadError}</div>
+        <div className="text-[13px] text-[var(--severity-error-fg)]" data-testid="worktree-dialog-load-error">{loadError}</div>
       </DialogChrome>
     );
   }
   if (!data) {
     return (
       <DialogChrome onCancel={onCancel} title={i18nT("worktree.worktreeSession", undefined, "+Worktree Session")}>
-        <div className="text-[var(--text-muted)]" data-testid="worktree-dialog-loading">{i18nT("common.loading2", undefined, "Loading…")}</div>
+        <div className="text-[var(--text-secondary)]" data-testid="worktree-dialog-loading">{i18nT("common.loading2", undefined, "Loading…")}</div>
       </DialogChrome>
     );
   }
@@ -454,7 +454,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     <DialogChrome onCancel={onCancel} title={i18nT("worktree.worktreeSession", undefined, "+Worktree Session")}>
       {/* ── existing worktrees ─────────────────────────────────────── */}
       <section className="mb-6" data-testid="worktree-dialog-existing">
-        <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
+        <h4 className="text-[12px] font-semibold text-[var(--text-secondary)] mb-2">
           {i18nT("worktree.existingWorktreesOfThisRepo", undefined, "Existing worktrees of this repo")}
         </h4>
         {/* §1 is delegated to the shared list (change: manage-worktrees-filter-cleanup). */}
@@ -467,21 +467,22 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
 
       {/* ── create new ─────────────────────────────────────────────── */}
       <section data-testid="worktree-dialog-create">
-        <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
+        <h4 className="text-[12px] font-semibold text-[var(--text-secondary)] mb-2">
           {i18nT("worktree.createANewWorktree", undefined, "Create a new worktree")}
         </h4>
 
         {/* Source mode toggle. Ternary (change: worktree-checkout-existing-branch)
             widening the binary toggle from add-worktree-from-pull-request. */}
-        <div className="flex gap-2 mb-3" data-testid="worktree-source-toggle">
+        <div className="flex flex-wrap gap-2 mb-3" data-testid="worktree-source-toggle">
           <button
             type="button"
             onClick={() => setSourceMode("fork")}
             data-testid="worktree-source-fork"
-            className={`px-2 py-0.5 text-[11px] rounded border ${
+            aria-pressed={sourceMode === "fork"}
+            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
               sourceMode === "fork"
-                ? "border-blue-500 text-blue-400 bg-blue-500/10"
-                : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                ? "border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)] bg-[var(--tint-blue-bg)]"
+                : "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             }`}
           >
             {i18nT("git.forkToNewBranch", undefined, "Fork to new branch")}
@@ -490,10 +491,11 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             type="button"
             onClick={() => setSourceMode("checkout")}
             data-testid="worktree-source-checkout"
-            className={`px-2 py-0.5 text-[11px] rounded border ${
+            aria-pressed={sourceMode === "checkout"}
+            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
               sourceMode === "checkout"
-                ? "border-blue-500 text-blue-400 bg-blue-500/10"
-                : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                ? "border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)] bg-[var(--tint-blue-bg)]"
+                : "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             }`}
           >
             {i18nT("git.checkOutExistingBranch", undefined, "Check out existing branch")}
@@ -503,18 +505,19 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             onClick={() => !ghUnavailable && setSourceMode("pr")}
             disabled={!!ghUnavailable}
             data-testid="worktree-source-pr"
-            className={`px-2 py-0.5 text-[11px] rounded border ${
+            aria-pressed={sourceMode === "pr"}
+            className={`focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border ${
               ghUnavailable
-                ? "border-[var(--border-subtle)] text-[var(--text-muted)] opacity-50 cursor-not-allowed"
+                ? "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] opacity-50 cursor-not-allowed"
                 : sourceMode === "pr"
-                  ? "border-blue-500 text-blue-400 bg-blue-500/10"
-                  : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  ? "border-[var(--tint-blue-border)] text-[var(--tint-blue-fg)] bg-[var(--tint-blue-bg)]"
+                  : "border-[var(--border-secondary)] text-[var(--text-secondary)] bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
             }`}
           >
             {i18nT("common.fromAPullRequest", undefined, "From a pull request")}
           </button>
           {ghUnavailable && (
-            <span className="text-[10px] text-[var(--text-muted)] self-center" data-testid="worktree-gh-hint">
+            <span className="text-[12px] text-[var(--text-secondary)] self-center" data-testid="worktree-gh-hint">
               {ghUnavailable === "gh_not_found"
                 ? "Install gh to checkout PRs"
                 : "Authenticate gh to checkout PRs"}
@@ -530,7 +533,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                     the branch to check out), "Base branch" in fork mode
                     (the picker selects the fork base).
                     See change: worktree-checkout-existing-branch. */}
-                <span className="text-[11px] text-[var(--text-tertiary)]">
+                <span className="text-[12px] font-semibold text-[var(--text-primary)]">
                   {checkoutMode ? "Branch" : "Base branch"}
                 </span>
                 <BranchCombobox
@@ -546,7 +549,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                   the existing branch). See change: worktree-checkout-existing-branch. */}
               {!checkoutMode && (
                 <label className="block">
-                  <span className="text-[11px] text-[var(--text-tertiary)]">{i18nT("git.newBranchName", undefined, "New branch name")}</span>
+                  <span className="text-[12px] font-semibold text-[var(--text-primary)]">{i18nT("git.newBranchName", undefined, "New branch name")}</span>
                   <input
                     data-testid="worktree-new-branch-input"
                     value={newBranch}
@@ -559,10 +562,10 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                       warn-fork-branch-collision-before-submit. */}
                   {forkCollision && (
                     <div
-                      className="mt-1 p-2 rounded border border-yellow-500/40 bg-yellow-500/5 text-[11px]"
+                      className="mt-1 p-2.5 rounded-md border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[13px]"
                       data-testid="worktree-fork-collision"
                     >
-                      <p className="text-yellow-300">
+                      <p className="text-[var(--severity-warning-fg)]">
                         {forkCollision.holder
                           ? `Branch "${forkCollision.name}" already exists and is checked out at ${forkCollision.holder.path}.`
                           : `Branch "${forkCollision.name}" already exists with no worktree — forking it will fail.`}
@@ -573,9 +576,9 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                             type="button"
                             onClick={() => handleSpawnExisting(forkCollision.holder as WorktreeEntry)}
                             data-testid="worktree-collision-spawn"
-                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10"
+                            className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
                           >
-                            {i18nT("git.spawnIntoThatWorktree", undefined, "Spawn into that worktree →")}
+                            {i18nT("git.spawnIntoThatWorktree", undefined, "New session in that worktree →")}
                           </button>
                         ) : (
                           <button
@@ -583,7 +586,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                             disabled={submitting}
                             onClick={handleReuseAsCheckout}
                             data-testid="worktree-collision-checkout"
-                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10 disabled:opacity-50"
+                            className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
                           >
                             {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
                           </button>
@@ -596,7 +599,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             </>
           ) : (
             <label className="block">
-              <span className="text-[11px] text-[var(--text-tertiary)]">{i18nT("git.pullRequest", undefined, "Pull request")}</span>
+              <span className="text-[12px] font-semibold text-[var(--text-primary)]">{i18nT("git.pullRequest", undefined, "Pull request")}</span>
               <PrCombobox
                 cwd={cwd}
                 value={selectedPr}
@@ -612,7 +615,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           )}
 
           <label className="block">
-            <span className="text-[11px] text-[var(--text-tertiary)]">{i18nT("common.path", undefined, "Path")}</span>
+            <span className="text-[12px] font-semibold text-[var(--text-primary)]">{i18nT("common.path", undefined, "Path")}</span>
             <input
               data-testid="worktree-path-input"
               value={effectivePath}
@@ -635,14 +638,14 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             orphanLikely:true. See change: openspec-worktree-spawn-button. */}
         {(orphanDetected || submitError?.orphanLikely) && (
           <div
-            className="mt-3 p-2 rounded border border-yellow-500/40 bg-yellow-500/5 text-[11px]"
+            className="mt-3 p-2.5 rounded-md border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] text-[13px]"
             data-testid="worktree-dialog-orphan-warning"
           >
-            <p className="text-yellow-300">
+            <p className="text-[var(--severity-warning-fg)]">
               {i18nT("common.thisPathExistsButIsnT", undefined, "This path exists but isn't a registered worktree — likely an orphan from a previous failed attempt.")}
             </p>
             {orphanError && (
-              <p className="mt-1 text-red-400" data-testid="worktree-dialog-orphan-error">
+              <p className="mt-1 text-[var(--severity-error-fg)]" data-testid="worktree-dialog-orphan-error">
                 <span className="font-mono">{orphanError.code}</span>: {orphanError.message}
               </p>
             )}
@@ -652,7 +655,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                 disabled={cleaningOrphan}
                 onClick={() => handleCleanOrphan(!!submitError?.orphanLikely)}
                 data-testid="worktree-dialog-orphan-cleanup"
-                className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10 disabled:opacity-50"
+                className="focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)] disabled:opacity-50"
               >
                 {cleaningOrphan ? "Cleaning…" : submitError?.orphanLikely ? "Clean up + retry" : "Clean up"}
               </button>
@@ -660,8 +663,10 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
           </div>
         )}
         {submitError && (
-          <div className="mt-3 text-[11px]" data-testid="worktree-dialog-error">
-            <div className={errorClass(submitError.code)}>
+          <div className="mt-3 text-[12px]" data-testid="worktree-dialog-error">
+            {/* Every submit error is error severity; the code prints beside it.
+                See change: align-ui-with-theme-tokens (D2, test-plan X1). */}
+            <div className="text-[var(--severity-error-fg)]">
               <span className="font-mono">{submitError.code}</span>: {submitError.error}
             </div>
             {/* branch_exists recovery: the branch lingers without a worktree.
@@ -672,15 +677,15 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                 type="button"
                 onClick={handleReuseAsCheckout}
                 data-testid="worktree-dialog-branch-reuse"
-                className="mt-1 px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10"
+                className="mt-1 focus-ring inline-flex items-center px-2.5 min-h-[44px] sm:min-h-[32px] text-[12px] font-semibold rounded-md border border-[var(--severity-warning-border)] bg-[var(--bg-secondary)] text-[var(--severity-warning-fg)] hover:bg-[var(--severity-warning-bg)]"
               >
                 {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
               </button>
             )}
             {submitError.stderr && (
               <details className="mt-1">
-                <summary className="text-[var(--text-muted)] cursor-pointer">{i18nT("git.gitStderr", undefined, "git stderr")}</summary>
-                <pre className="mt-1 text-[10px] whitespace-pre-wrap bg-[var(--bg-tertiary)] p-2 rounded border border-[var(--border-subtle)] max-h-32 overflow-auto">{submitError.stderr}</pre>
+                <summary className="focus-ring text-[var(--text-secondary)] cursor-pointer">{i18nT("git.gitStderr", undefined, "git stderr")}</summary>
+                <pre className="mt-1 text-[11px] whitespace-pre-wrap bg-[var(--bg-tertiary)] p-2 rounded border border-[var(--border-subtle)] max-h-32 overflow-auto">{submitError.stderr}</pre>
               </details>
             )}
           </div>
@@ -691,7 +696,7 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             type="button"
             onClick={onCancel}
             data-testid="worktree-dialog-cancel"
-            className="px-3 py-1 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           >
             {i18nT("common.cancel", undefined, "Cancel")}
           </button>
@@ -700,18 +705,18 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
             disabled={!canSubmit || orphanDetected || cleaningOrphan}
             onClick={() => void handleCreateAndSpawn()}
             data-testid="worktree-dialog-create-submit"
-            className="px-3 py-1 text-sm rounded bg-blue-500/80 hover:bg-blue-500 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-muted)] text-white"
+            className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed"
           >
             {submitting ? "Creating…" : "Create +Session →"}
           </button>
         </div>
 
-        <p className="mt-3 text-[10px] text-[var(--text-muted)]">
+        <p className="mt-3 text-[12px] text-[var(--text-secondary)]">
           {i18nT("worktree.newWorktreesStartCleanCopy", undefined, "New worktrees start clean — copy")} <code className="font-mono">.env</code> {i18nT("packages.andRunInstallStepsManually", undefined, "and run install steps manually.")}
         </p>
         {data.head.hasSubmodules && (
           <p
-            className="mt-1 text-[10px] text-yellow-400/80"
+            className="mt-1 text-[12px] text-[var(--severity-warning-fg)]"
             data-testid="worktree-dialog-submodule-note"
           >
             {i18nT("packages.thisRepoUsesSubmodulesTheyWill", undefined, "This repo uses submodules; they will not be initialized in the new worktree.")}
@@ -738,21 +743,6 @@ function DialogChrome({
         {children}
     </Dialog>
   );
-}
-
-/** Map a stable error code to a tailwind tone. */
-function errorClass(code: string): string {
-  switch (code) {
-    case "branch_in_use":
-    case "branch_exists":
-    case "path_exists":
-      return "text-yellow-400";
-    case "base_not_found":
-    case "cwd_invalid":
-      return "text-orange-400";
-    default:
-      return "text-red-400";
-  }
 }
 
 /** Tiny path-join that works with `/` and `\` separators safely. */

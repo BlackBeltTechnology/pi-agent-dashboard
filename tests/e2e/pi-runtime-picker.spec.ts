@@ -106,7 +106,7 @@ function buildBody(s: StubState) {
     inSync,
     consumerDiverged,
     divergenceMessage: consumerDiverged
-      ? `pi runtime mismatch: sessions spawn pi ${spawn?.version ?? "unknown"} while the server imports pi ${module?.version ?? "unknown"}.`
+      ? `pi runtime mismatch: new sessions run pi ${spawn?.version ?? "unknown"} while the server imports pi ${module?.version ?? "unknown"}.`
       : null,
     installSetDiverged: versions.length > 1,
     installSetVersions: versions,
@@ -511,7 +511,7 @@ test.describe("pi runtime picker", () => {
 
     const row = page.getByTestId("pi-runtime-status-row");
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(row).toContainText("Sessions spawn");
+    await expect(row).toContainText("New sessions");
     await expect(row).toContainText("Server imports");
     await expect(row).toContainText("0.84.1");
     // Healthy compatibility → the advisory renders nothing while the row

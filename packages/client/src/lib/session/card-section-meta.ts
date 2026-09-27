@@ -81,7 +81,7 @@ const CARD_SECTION_META: readonly CardSectionMeta[] = [
     id: "spawn",
     group: "lines",
     label: () => i18nT("cardSections.labelSpawn", undefined, "+Session / +Worktree buttons"),
-    description: () => i18nT("cardSections.descSpawn", undefined, "Quick sibling and worktree spawn."),
+    description: () => i18nT("cardSections.descSpawn", undefined, "Quick new-session and new-worktree buttons."),
   },
 ];
 
