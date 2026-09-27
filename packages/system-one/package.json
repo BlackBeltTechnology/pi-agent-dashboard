@@ -1,0 +1,28 @@
+{
+  "name": "@blackbelt-technology/pi-system-one",
+  "version": "0.8.0",
+  "private": true,
+  "description": "System-1 decision adapter: predict() over choice/score/noul via a user-controlled registry of typed decision backends (hosted, managed-local, chat-role fallback). Node built-ins only; usable from pi extensions and the dashboard server.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/system-one"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src/",
+    "!src/__tests__",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.19"
+  }
+}
