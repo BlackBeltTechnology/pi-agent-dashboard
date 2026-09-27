@@ -17,6 +17,8 @@ const originalFetch = globalThis.fetch;
 function mockFileRead(content: string) {
   globalThis.fetch = vi.fn(() =>
     Promise.resolve({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve({ success: true, data: { type: "file", content, mtime: 1 } }),
     }),
   ) as unknown as typeof fetch;

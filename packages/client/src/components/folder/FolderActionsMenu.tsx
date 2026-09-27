@@ -90,14 +90,27 @@ export interface FolderMenuItem {
   node?: React.ReactNode;
 }
 
+/**
+ * A single-choice group rendered FIRST in the menu as `role="menuitemradio"`
+ * items (the folder's Group-by choice). The menu opens with focus on the
+ * checked item; selecting closes the menu and returns focus to the trigger.
+ * See change: session-list-group-by.
+ */
+export interface FolderMenuRadioGroup {
+  id: string;
+  label: string;
+  items: { id: string; label: string; description?: string; checked: boolean; onSelect: () => void }[];
+}
+
 interface Props {
   cwd: string;
   items: FolderMenuItem[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  radioGroup?: FolderMenuRadioGroup;
 }
 
-export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
+export function FolderActionsMenu({ cwd, items, open, onOpenChange, radioGroup }: Props) {
   // Plugin contributions for THIS folder, already ordered by (pluginId, id) and
   // collision-resolved by the registry. Host items keep their declared order
   // and lead within each group.
@@ -168,7 +181,20 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
     };
   }, [open, onOpenChange]);
 
-  /** Roving focus across the rendered `role="menuitem"` nodes. */
+  // Keyed on presence, not identity: the host rebuilds `radioGroup` every
+  // render, which must not steal focus from roving navigation.
+  const hasRadioGroup = radioGroup != null;
+  // Open with focus on the checked radio (session-list-group-by). Re-runs when
+  // the desktop panel's first measure lands — a `visibility:hidden` node
+  // cannot take focus.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `triggerRect` / `isMobile` re-run the focus once the panel is visible.
+  React.useEffect(() => {
+    if (!open || !hasRadioGroup) return;
+    const checked = panelRef.current?.querySelector<HTMLElement>("[role='menuitemradio'][aria-checked='true']");
+    checked?.focus();
+  }, [open, hasRadioGroup, triggerRect, isMobile]);
+
+  /** Roving focus across the rendered `role="menuitem"` / `menuitemradio` nodes. */
   function onPanelKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -177,7 +203,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const nodes = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? [],
+      panelRef.current?.querySelectorAll<HTMLElement>("[role='menuitem'], [role='menuitemradio']") ?? [],
     );
     if (nodes.length === 0) return;
     e.preventDefault();
@@ -205,6 +231,40 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
           : "fixed z-popover min-w-[220px] overflow-y-auto overflow-x-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg"
       }
     >
+      {radioGroup && (
+        <div role="group" aria-label={radioGroup.label} data-testid={`folder-menu-radio-group-${radioGroup.id}`}>
+          <div aria-hidden="true" className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+            {radioGroup.label}
+          </div>
+          {radioGroup.items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={item.checked}
+              data-testid={`folder-menu-radio-${item.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                close(true);
+                item.onSelect();
+              }}
+              className="flex w-full min-h-[44px] md:min-h-[30px] items-center gap-2 px-3 py-1.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-ring focus:bg-[var(--bg-hover)]"
+            >
+              <span
+                aria-hidden="true"
+                className={`inline-flex h-3 w-3 flex-none items-center justify-center rounded-full border-[1.5px] ${item.checked ? "border-[var(--accent-blue)]" : "border-[var(--text-muted)]"}`}
+              >
+                {item.checked && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-blue)]" />}
+              </span>
+              <span className="truncate">{item.label}</span>
+              {item.description && (
+                <span className="ml-auto shrink-0 pl-2 text-[10px] text-[var(--text-muted)]">{item.description}</span>
+              )}
+            </button>
+          ))}
+          <div aria-hidden="true" className="mx-1 my-1 h-px bg-[var(--border-subtle)]" />
+        </div>
+      )}
       {FOLDER_MENU_GROUPS.map((group) => {
         const groupItems = allItems.filter((i) => i.group === group);
         if (groupItems.length === 0) return null;

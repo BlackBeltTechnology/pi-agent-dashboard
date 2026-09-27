@@ -12,12 +12,16 @@ import { DiagramPreview } from "./DiagramPreview.js";
 import { MermaidBlock } from "./MermaidBlock.js";
 import { renderUrl } from "./raw-url.js";
 import { logRejection } from "../../lib/report-error.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
 }
 
 export function AsciiDocPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +32,7 @@ export function AsciiDocPreview({ target }: Props) {
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(renderUrl(target));
+        const res = await previewFetch(renderUrl(target));
         const body = await res.json();
         if (cancelled) return;
         if (body.success && typeof body.data?.html === "string") {
@@ -50,7 +54,7 @@ export function AsciiDocPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, previewFetch]);
 
   const segments = useMemo<AdocSegment[]>(() => {
     if (!html) return [];

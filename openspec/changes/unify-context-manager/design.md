@@ -482,6 +482,25 @@ becoming lessons.
   configuration (mode, URL/key, managed install status) and a store-hygiene
   view that is read-only for the old stores.
 
+## Superseded proposals and carry-overs
+
+Four earlier changes are superseded; none had started implementation
+(0 tasks done, no open session or worktree on 2026-09-24).
+
+| Change | Carried over | Phase |
+|---|---|---|
+| `consolidate-retrieval-planes` | Direction only ("wrap" → fork) | — |
+| `memory-retrieval-injection` | Category pinning → pinned tier; "injected ⇒ used" → `fired`/`followed`; prompt sanitising before FTS → `prompt` triggers; fail-safe → chassis fail-open | 1, 3 |
+| `distill-hermes-memory-into-skills` | Shareability gate (`target ≠ user` + scrub), `project IS NULL` exclusion, cross-dedup against lessons and sidecars, human-confirmed routing; maturity as a triage feature | 5 |
+| `add-automatic-session-kb-index` | Lifecycle-triggered ingest (`LiveIdle`/`Ended`, mtime fallback), watermark + hash idempotency, subagent sessions excluded by default, distiller `signal` facet on session chunks | 2 |
+| `add-automatic-session-kb-index` | The shared scrub module (`scrub.ts`), also imported by `add-lora-dataset-export-skill` | 3 |
+
+Related but not superseded: `add-system-one-registry` (it amends D11 so the
+miner consumes its adapter; the amendment lands with that change),
+`add-kb-semantic-annotation-plane` (D4), `add-untrusted-content-guard` (D8),
+`add-codegraph-code-plane` (the `code` scope), `add-session-step-table`
+(a candidate source for task 2.1 eval cases and the miner's labels).
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |

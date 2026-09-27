@@ -1,0 +1,47 @@
+/* Token snapshot copied 1:1 from packages/client/src/index.css (:root + [data-theme="light"]).
+   Only vars the mockup uses. NEW tokens proposed by this change are marked NEW. */
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --text-primary: #e5e5e5;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #919191;
+  --text-muted: #585858;
+  --border-secondary: #333333;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --rail-directory: rgba(255, 255, 255, 0.22);
+  --accent-blue: #3b82f6;
+  --accent-green: #22c55e;
+  --accent-yellow: #eab308;
+  --accent-red: #ef4444;
+  --accent-purple: #a855f7;
+  --status-needs-you: var(--accent-purple);
+  --status-working: var(--accent-yellow);
+  --status-idle: var(--accent-green);
+  --status-error: var(--accent-red);
+  /* NEW: today unread cyan is hardcoded in .card-stripes-unread (cyan-400). Promote to a token. */
+  --status-unread: #22d3ee;
+  --shadow-card: rgba(0, 0, 0, 0.4);
+  --elevation-rim: rgba(255, 255, 255, 0.10);
+  --focus-ring: var(--accent-blue);
+}
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-tertiary: #636363;
+  --text-muted: #aaaaaa;
+  --border-secondary: #cccccc;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --rail-directory: rgba(0, 0, 0, 0.18);
+  --status-unread: #0891b2; /* NEW: cyan-600 for AA on light */
+  /* NOTE: real index.css does NOT override --status-* in light; amber #eab308 on white is
+     ~1.9:1 (fails WCAG 1.4.11). Mockup stays faithful; lane TEXT never uses status color. */
+  --shadow-card: rgba(0, 0, 0, 0.08);
+  --elevation-rim: rgba(255, 255, 255, 0.9);
+}

@@ -62,7 +62,7 @@ export const RELOAD_COMPACTING_MESSAGE =
 const RELOAD_NO_PATH_MESSAGE =
   "No reload path available for this session (no headless process, no bridge connection).";
 const RELOAD_SESSION_NOT_FOUND_MESSAGE = "Session not found";
-export const RELOAD_IN_PROGRESS_MESSAGE = "A reload is already in progress for this session.";
+const RELOAD_IN_PROGRESS_MESSAGE = "A reload is already in progress for this session.";
 
 /**
  * Deadline for the bridge's terminal `/reload` feedback after a forward. Above
@@ -70,7 +70,7 @@ export const RELOAD_IN_PROGRESS_MESSAGE = "A reload is already in progress for t
  * race into a double feedback.
  */
 export const FORWARDED_RELOAD_DEADLINE_MS = 75_000;
-export const RELOAD_DEADLINE_MESSAGE =
+const RELOAD_DEADLINE_MESSAGE =
   "Reload did not report completion within 75 s — check the pi terminal.";
 
 /** What `dispatchReload` actually did. Returned for fan-out accounting. */

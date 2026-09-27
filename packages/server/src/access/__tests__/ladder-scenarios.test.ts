@@ -6,9 +6,9 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { offeredAncestorLadder } from "../ancestor-ladder.js";
-import { isUngrantableSubject } from "../forbidden-subjects.js";
+import { forbiddenGrantSubjects, isUngrantableSubject } from "../forbidden-subjects.js";
 
 let home: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -86,5 +86,51 @@ describe("ladder edge cases", () => {
     fs.symlinkSync(path.join(home, "nowhere"), dangling);
     expect(await offeredAncestorLadder(path.join(dangling, "sub"), { homedir: home })).toEqual([]);
     expect(await offeredAncestorLadder(path.join(home, "work", "not-yet"), { homedir: home })).toEqual([]);
+  });
+});
+
+describe("platform-scoped forbidden list (change: surface-denial-remedy-in-previews)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("#E23 POSIX entries: no Windows junk, the server cwd and its parent stay grantable", () => {
+    if (process.platform === "win32") return; // POSIX-host scenario; Windows is #E24's smoke
+    const cwd = mk("proj", "srv");
+    // Pin the server cwd below the fixture home: the old junk entries were
+    // `<cwd>/C:\Windows`, which made the cwd and its ancestors ungrantable.
+    vi.spyOn(process, "cwd").mockReturnValue(cwd);
+    const { whole, sensitive } = forbiddenGrantSubjects({ homedir: home });
+    for (const entry of [...whole, ...sensitive]) {
+      expect(entry).not.toContain("\\");
+      expect(entry).not.toMatch(/^[A-Za-z]:/);
+    }
+    expect(isUngrantableSubject(cwd, { homedir: home })).toBe(false);
+    expect(isUngrantableSubject(path.dirname(cwd), { homedir: home })).toBe(false);
+    expect(isUngrantableSubject(path.dirname(home), { homedir: home })).toBe(true);
+  });
+
+  it("Windows entries come from the environment, not the POSIX list", () => {
+    const { whole } = forbiddenGrantSubjects({
+      homedir: "D:\\Users\\op",
+      platform: "win32",
+      env: { SystemRoot: "D:\\Windows", ProgramFiles: "D:\\Programs" },
+    });
+    expect(whole).toContain("D:\\Windows");
+    expect(whole).toContain("D:\\Programs");
+    expect(whole).toContain("C:\\ProgramData"); // unset variable → literal fallback
+    expect(whole).toContain("D:\\");
+    expect(whole.some((e) => e.startsWith("/") || /\\(etc|usr|var)$/.test(e))).toBe(false);
+  });
+
+  it("the predicates use Windows semantics end to end under a simulated win32", () => {
+    const env = {
+      homedir: "D:\\Users\\op",
+      platform: "win32" as const,
+      env: { SystemRoot: "D:\\Windows" },
+    };
+    expect(isUngrantableSubject("d:\\windows", env)).toBe(true); // exact, case-insensitive
+    expect(isUngrantableSubject("D:\\Users", env)).toBe(true); // contains $HOME
+    expect(isUngrantableSubject("D:\\Users\\op\\.ssh\\keys", env)).toBe(true); // under a sensitive dir
+    expect(isUngrantableSubject("D:\\Users\\op\\proj", env)).toBe(false);
+    expect(isUngrantableSubject("E:\\data", env)).toBe(false);
   });
 });

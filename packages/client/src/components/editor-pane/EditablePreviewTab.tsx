@@ -18,6 +18,7 @@ import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -35,6 +36,9 @@ interface Props {
 }
 
 export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const { t } = useI18n();
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -48,7 +52,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
     let active = true;
     setError(null);
     setConflict(false);
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
+    previewFetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
       .then((res) => res.json())
       .then((body) => {
         if (!active) return;
@@ -65,7 +69,7 @@ export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) 
     return () => {
       active = false;
     };
-  }, [cwd, path, t]);
+  }, [cwd, path, t, previewFetch]);
 
   // Load the raw text only when Edit is first entered (Preview does its own
   // fetch), and lazily so the preview path stays content-free.

@@ -1,6 +1,8 @@
 /**
  * Directory and preference handlers: pin, unpin, reorder, openspec, pi-gateway forwards.
  */
+
+import { isGroupByMode } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { isValidSectionId } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import { archiveCompleted as openspecArchiveCompleted } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
@@ -217,6 +219,43 @@ export function handleResetFolderCardSections(
 ): void {
   if (typeof msg.path !== "string" || msg.path.length === 0) return;
   if (ctx.preferencesStore?.resetFolderCardSections?.(msg.path)) broadcastCardSections(ctx);
+}
+
+// ── session-list grouping (session-list-group-by) ────────────────
+//
+// Same contract as `set_folder_collapsed`: the store validates the enums and
+// canonicalizes `msg.path`, returning true only on a real mutation, so
+// invalid / no-op input emits no broadcast. One aggregate message keeps the
+// client state atomic.
+
+function broadcastGroupByPrefs(ctx: BrowserHandlerContext): void {
+  if (!ctx.preferencesStore?.getGroupByPrefs) return;
+  ctx.broadcast({ type: "group_by_prefs_updated", ...ctx.preferencesStore.getGroupByPrefs() });
+}
+
+export function handleSetFolderGroupBy(
+  msg: Extract<BrowserToServerMessage, { type: "set_folder_group_by" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  // `mode` must be EXACTLY null ("use default") or a valid enum — a missing /
+  // undefined `mode` is malformed, never an implicit "clear the override".
+  if (typeof msg.path !== "string" || (msg.mode !== null && !isGroupByMode(msg.mode))) return;
+  if (ctx.preferencesStore?.setFolderGroupBy?.(msg.path, msg.mode)) broadcastGroupByPrefs(ctx);
+}
+
+export function handleSetDefaultGroupBy(
+  msg: Extract<BrowserToServerMessage, { type: "set_default_group_by" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (ctx.preferencesStore?.setDefaultGroupBy?.(msg.mode)) broadcastGroupByPrefs(ctx);
+}
+
+export function handleSetLaneCollapsed(
+  msg: Extract<BrowserToServerMessage, { type: "set_lane_collapsed" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  if (typeof msg.path !== "string" || typeof msg.collapsed !== "boolean") return;
+  if (ctx.preferencesStore?.setLaneCollapsed?.(msg.path, msg.lane, msg.collapsed)) broadcastGroupByPrefs(ctx);
 }
 
 export function handleAddFolderToWorkspace(
