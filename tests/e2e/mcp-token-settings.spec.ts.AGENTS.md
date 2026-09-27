@@ -5,3 +5,5 @@ L3 spec for the Settings → Paired Devices MCP-client token flow (change: mcp-l
 The harness browser is docker-gateway-sourced (never loopback), so the D5 operator guard admits it ONLY via a login session: the spec narrows the seeded config (`trustedNetworks: []`, `bypassUrls: ["/v1/"]` — the seed's trust-any `bypassHosts` otherwise returns from the auth hook BEFORE the cookie branch, so `authVia` never lands), arms a session cookie signed with the KNOWN e2e secret seeded by `docker/test-entrypoint.sh` (PI_E2E_OAUTH=1), attaches the cookie to both the browser context and every `request` call, and restores the seed values in `afterAll`. Safe against racing: `workers: 1`. F1/F2 mint `claude-code` rows that F3 drains (no registry reset exists in the helpers).
 
 Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 for the Settings → Paired Devices MCP-client token flow (change:
+
+See change: align-ui-with-theme-tokens. F2/F3 Dismiss click scoped to `mcp-token-result` + `exact: true` — page-global match also hit folder "Dismiss the OpenSpec offer" buttons when shard order left folders pinned.
