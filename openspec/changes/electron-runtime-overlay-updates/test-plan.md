@@ -73,6 +73,7 @@ Hard gate resolved (answered): the checker only notifies (staging and activation
 | X13 | Local link loop | end-to-end | electron | automated | packaged app; app menu picks the repo checkout (built) | pick, edit a server log string, POST `/api/restart` | health `origin:local`, `gitSha` = HEAD; after restart the new log string appears in server.log |
 | X14 | Remote client cannot enable local | end-to-end | L3 | automated | dashboard reached via the harness port as a remote client | UI + direct POST attempts | No path input rendered; POST rejected; `/api/health.runtime.source` unchanged |
 | X15 | Cross-OS activation (Windows file locks, AppImage paths) | multi-OS runtime | — | manual-only | Windows 11 + Linux AppImage installs | Update → Activate → Roll back | [judgment: needs real OS installs; no CI harness for native Windows/AppImage overlay] |
+| X17 | Unpublished bundled plugin blocks the release | workflow assertion | ci | automated | a release X where one `bundledPlugins` package is absent from the registry at X | release gate step (task 2.7) | The release fails naming the missing package; no `runtime-lock.json`/runtime asset is published for X |
 | X16 | GitHub asset + beta dist-tag published | workflow assertion | ci | automated | release workflow on a prerelease tag | publish job | The asset + `.sha512` are attached; `npm dist-tag ls` shows `beta` = tag version; the manifest version equals the tag |
 
 ---
