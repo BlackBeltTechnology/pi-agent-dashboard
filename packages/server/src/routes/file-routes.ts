@@ -430,7 +430,7 @@ export function registerFileRoutes(
         // Classify by extension + a bounded sniff (first 1024 bytes) so binary
         // files are not slurped whole just to discriminate. Content is returned
         // for text-renderable kinds (monaco / markdown viewers) AND any
-        // `editable` kind (currently `.csv`, so Monaco Edit can load the raw
+        // `editable` kind (`.csv`, `.adoc`, so Monaco Edit can load the raw
         // text); image / pdf / binary / office tabs fetch their own bytes.
         // Binary spreadsheets (`.xlsx`/`.xls`) stay `editable:false` → no
         // `content` (no binary-bytes-in-JSON leak).
@@ -468,8 +468,10 @@ export function registerFileRoutes(
             mimeType: kindResult.mimeType,
             size: stat.size,
             // mtime drives the editor's optimistic-concurrency check on write.
+            // Full precision: the write side compares `mtimeMs` exactly, so a
+            // rounded token 409s on every sub-ms mtime (APFS/ext4).
             // See change: directory-settings-page-and-scoped-md-editing.
-            mtime: Math.round(stat.mtimeMs),
+            mtime: stat.mtimeMs,
             ...(content !== undefined ? { content } : {}),
           },
         } satisfies ApiResponse;

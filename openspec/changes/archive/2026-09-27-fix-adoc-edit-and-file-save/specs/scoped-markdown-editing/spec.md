@@ -1,43 +1,4 @@
-# scoped-markdown-editing Specification
-
-## Purpose
-Defines the editable markdown surface (Instructions page) for directory and global scope: a Monaco buffer + scope-bounded file picker, persisted via `POST /api/file/write` with mtime conflict detection, gated by a scope-aware `isWritableMdTarget` write allowlist (cwd tree for directory scope, `~/.pi/agent` for global).
-
-## Requirements
-
-### Requirement: Instructions page SHALL edit markdown in directory and global scope
-
-An `Instructions` page SHALL be mounted in the directory settings page (directory scope) and in the global settings page under Advanced (global scope). The page SHALL present a scope-bounded file picker and an editable markdown surface backed by a Monaco buffer. Editing SHALL persist through `POST /api/file/write`.
-
-Directory scope SHALL offer markdown files under the folder cwd and its `.pi/` tree. Global scope SHALL offer markdown files under `~/.pi/agent`.
-
-#### Scenario: Edit and save a project instruction file
-- **GIVEN** the Instructions page is open in directory settings for cwd `/Users/u/proj`
-- **AND** the user picks `AGENTS.md` from the scoped picker
-- **WHEN** the user edits the buffer and clicks Save
-- **THEN** the dashboard issues `POST /api/file/write` for `/Users/u/proj/AGENTS.md`
-- **AND** on success the dirty state clears
-
-#### Scenario: Edit a global pi instruction file
-- **GIVEN** the Instructions page is open in global settings → Advanced
-- **AND** the user picks a markdown file under `~/.pi/agent`
-- **WHEN** the user edits and saves
-- **THEN** the write targets the file under `~/.pi/agent` and succeeds
-
-### Requirement: Save SHALL be dirty-gated with an unsaved-changes guard
-
-The Instructions page SHALL expose a Save Bar enabled only when the buffer is dirty, with Save and Discard actions. Navigating away while dirty SHALL prompt an unsaved-changes confirmation (mirroring the global settings save contract).
-
-#### Scenario: Save Bar gating
-- **GIVEN** a freshly loaded, unmodified markdown buffer
-- **THEN** the Save and Discard actions are disabled
-- **WHEN** the user types a change
-- **THEN** Save and Discard become enabled
-
-#### Scenario: Unsaved-changes guard blocks navigation
-- **GIVEN** the buffer is dirty
-- **WHEN** the user attempts to navigate away
-- **THEN** an unsaved-changes confirmation is shown before the navigation proceeds
+## MODIFIED Requirements
 
 ### Requirement: Concurrent-edit conflicts SHALL be detected by mtime
 

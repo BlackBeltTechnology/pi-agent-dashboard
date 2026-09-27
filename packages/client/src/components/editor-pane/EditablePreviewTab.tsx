@@ -1,27 +1,23 @@
 /**
- * Editable spreadsheet tab — the `.csv` Preview/Edit toggle (D4), generalizing
- * the markdown Preview/Edit affordance to an `editable` non-markdown kind.
+ * Generic Preview/Edit tab for `editable` text-backed non-markdown kinds
+ * (`.csv`, `.adoc`). Generalizes the markdown Preview/Edit affordance.
  *
- * Preview mounts the `SpreadsheetPreview` grid (its own `/api/file/sheet`
- * fetch); Edit mounts a plain Monaco text buffer (`MarkdownEditor`, a generic
- * controlled Monaco editor) over the raw CSV loaded from `/api/file` `content`.
+ * Preview mounts the caller's `preview` node (it does its own fetch); Edit
+ * mounts a plain Monaco text buffer (`MarkdownEditor`, a generic controlled
+ * Monaco editor) over the raw text loaded from `/api/file` `content`.
  * Save posts to `/api/file/write` with the loaded mtime (optimistic
  * concurrency): 200 clears dirty, 409 surfaces the shared changed-on-disk
- * banner and leaves disk untouched.
- *
- * Only `.csv` reaches this tab today (the sole `editable` spreadsheet); binary
- * `.xlsx`/`.xls` render the read-only grid directly.
+ * banner and leaves disk untouched. Returning to Preview remounts `preview`,
+ * so it re-renders the saved file.
  *
  * See change: open-view-command-in-editor-pane (D4).
  */
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
-import { SpreadsheetPreview } from "../preview/SpreadsheetPreview.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
-import type { ViewerProps } from "./types.js";
 
 const MarkdownEditor = lazy(() =>
   import("./MarkdownEditor.js").then((m) => ({ default: m.MarkdownEditor })),
@@ -29,7 +25,16 @@ const MarkdownEditor = lazy(() =>
 
 const basename = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1);
 
-export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
+interface Props {
+  cwd: string;
+  path: string;
+  /** Rendered view shown in Preview mode. */
+  preview: ReactNode;
+  /** `data-testid` prefix: `<p>-preview-toggle`, `<p>-edit-toggle`, `<p>-save-btn`, `<p>-dirty-dot`. */
+  testIdPrefix: string;
+}
+
+export function EditablePreviewTab({ cwd, path, preview, testIdPrefix }: Props) {
   const { t } = useI18n();
   const [content, setContent] = useState<string | null>(null);
   const [buffer, setBuffer] = useState("");
@@ -62,8 +67,8 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
     };
   }, [cwd, path, t]);
 
-  // Load the raw text only when Edit is first entered (Preview uses the grid's
-  // own fetch), and lazily so the grid path stays content-free.
+  // Load the raw text only when Edit is first entered (Preview does its own
+  // fetch), and lazily so the preview path stays content-free.
   useEffect(() => {
     if (mode === "edit" && content === null) load();
   }, [mode, content, load]);
@@ -103,7 +108,7 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
       <div className="flex shrink-0 items-center gap-1 border-b border-[var(--border-primary)] px-2 py-1 text-xs">
         <button
           type="button"
-          data-testid="csv-preview-toggle"
+          data-testid={`${testIdPrefix}-preview-toggle`}
           onClick={() => setMode("preview")}
           aria-pressed={mode === "preview"}
           className={[
@@ -116,7 +121,7 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
         </button>
         <button
           type="button"
-          data-testid="csv-edit-toggle"
+          data-testid={`${testIdPrefix}-edit-toggle`}
           onClick={() => setMode("edit")}
           aria-pressed={mode === "edit"}
           className={[
@@ -127,12 +132,12 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
           <Icon path={mdiPencilOutline} size={0.55} />
           <span>{t("common.edit", undefined, "Edit")}</span>
         </button>
-        {dirty && <span data-testid="csv-dirty-dot" className="ml-1 h-1.5 w-1.5 rounded-full bg-[var(--accent-yellow)]" />}
+        {dirty && <span data-testid={`${testIdPrefix}-dirty-dot`} className="ml-1 h-1.5 w-1.5 rounded-full bg-[var(--accent-yellow)]" />}
         <span className="flex-1" />
         {mode === "edit" && (
           <button
             type="button"
-            data-testid="csv-save-btn"
+            data-testid={`${testIdPrefix}-save-btn`}
             onClick={onSave}
             disabled={!dirty || saving || mtime === null}
             className="flex items-center gap-1 rounded bg-[var(--accent-blue)] px-2 py-0.5 text-white disabled:opacity-40"
@@ -164,7 +169,7 @@ export default function EditableSpreadsheetTab({ cwd, path }: ViewerProps) {
             </Suspense>
           )
         ) : (
-          <SpreadsheetPreview target={{ kind: "file", cwd, path }} />
+          preview
         )}
       </div>
     </div>

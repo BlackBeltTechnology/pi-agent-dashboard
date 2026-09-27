@@ -8,13 +8,7 @@ import { createHash } from "node:crypto";
 import zlib from "node:zlib";
 import { resolveKrokiEndpoint, type KrokiConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createSemaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
-
-// Lazy DOMPurify loader to avoid jsdom side-effects at server boot (mirrors eml.ts pattern)
-type DomPurify = (typeof import("isomorphic-dompurify"))["default"];
-let _purify: DomPurify | null = null;
-async function getPurify(): Promise<DomPurify> {
-  return (_purify ??= (await import("isomorphic-dompurify")).default);
-}
+import { loadPurify } from "./purify.js";
 
 /** 512 KB pre-deflate source size cap (design D3) */
 export const DIAGRAM_SOURCE_CAP = 512 * 1024;
@@ -36,7 +30,7 @@ export function encodeDiagramSource(source: string): string {
 const MAX_DIAGRAM_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB response cap
 
 async function sanitizeSvg(svg: string): Promise<string> {
-  const purify = await getPurify();
+  const purify = await loadPurify();
   return purify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true },
     FORBID_TAGS: ["foreignObject", "script", "style"],
