@@ -81,10 +81,13 @@ export function CanvasDriver({ state }: Props) {
       return;
     }
     if (key === lastKeyRef.current) return;
+    // mobile: do not yank — the tap-to-open chip below handles it. The key is
+    // NOT consumed while gated, so the target still opens once the viewport
+    // grows (tier is an effect dep).
+    if (!gateAllowsAutoOpen(tier)) return;
     lastKeyRef.current = key;
     // Agent auto-open → background (add silently while the editor is shown).
-    if (gateAllowsAutoOpen(tier)) openTarget(state, true);
-    // mobile: do not yank — the tap-to-open chip below handles it.
+    openTarget(state, true);
   }, [key, tier, openTarget, state]);
 
   const showMobileChip = tier === "mobile" && state.target != null;

@@ -44,6 +44,19 @@ describe("DiagramPreview", () => {
     });
   });
 
+  it("inline mode sizes the viewport to the diagram instead of a fixed-height parent", async () => {
+    global.fetch = vi.fn().mockImplementation(async () => ({
+      ok: true,
+      json: async () => ({ success: true, data: { svg: '<svg xmlns="http://www.w3.org/2000/svg" style="width:900px;height:1200px"/>' } }),
+    })) as any;
+    render(<DiagramPreview target={target} sourceText="@startuml\nA->B\n@enduml" inline />);
+    const viewport = await screen.findByTestId("diagram-preview-viewport");
+    expect(viewport.className).not.toContain("h-full");
+    // SVG scales to the column width and keeps its aspect ratio (overrides Kroki's inline size).
+    expect(screen.getByTestId("diagram-svg-container").className).toContain("[&_svg]:max-w-full");
+    expect(screen.getByTestId("diagram-svg-container").className).toContain("[&_svg]:!h-auto");
+  });
+
   it("falls back to source text with notice on decline/unavailable (test-plan #F2)", async () => {
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
       if (url.includes("/api/file?")) {

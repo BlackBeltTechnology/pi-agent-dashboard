@@ -1100,7 +1100,8 @@ export function registerFileRoutes(
 
       try {
         const adoc = getAsciidoctor();
-        const html = adoc.convert(source, { safe: "secure", standalone: false });
+        // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
+        const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
         return { success: true, data: { html: String(html) } } satisfies ApiResponse;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "render failed";
