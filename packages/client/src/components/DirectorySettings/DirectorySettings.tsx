@@ -3,7 +3,8 @@
  * global <SettingsPanel> layout (back-arrow header + left nav rail that
  * degrades to a horizontal scroller on mobile + page content area).
  *
- * Pages: instructions, packages, and a `RESOURCES` group of per-type card
+ * Pages: instructions, packages, cards (Session cards — see change:
+ * configurable-session-card-sections), and a `RESOURCES` group of per-type card
  * pages — Skills / Agents / Extensions / Prompts / Themes. Each resource page
  * renders a <ResourceGridPanel> (card grid across local+global scope with a
  * search + `All/Local/Global` scope filter). The active page is URL-driven
@@ -13,7 +14,7 @@
  * resources-card-tabs.
  */
 
-import { mdiArrowLeft, mdiBookOpenPageVariant, mdiFileDocumentOutline, mdiPackageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
+import { mdiArrowLeft, mdiBookOpenPageVariant, mdiCardsOutline, mdiFileDocumentOutline, mdiPackageVariant, mdiPalette, mdiPuzzleOutline, mdiRobotOutline, mdiTextBoxOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useMemo } from "react";
 import { useLocation } from "wouter";
@@ -24,11 +25,12 @@ import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
 import { DirectoryYoloAction } from "../access-grant/YoloActivation.js";
 import { countResources } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
+import { CardSectionsPage } from "./CardSectionsPage.js";
 import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
 
 export type DirectorySettingsResourcePage = "skills" | "agents" | "extensions" | "prompts" | "themes";
-export type DirectorySettingsPage = "instructions" | "packages" | DirectorySettingsResourcePage;
+export type DirectorySettingsPage = "instructions" | "packages" | "cards" | DirectorySettingsResourcePage;
 
 /** Resource-page id → the singular `PiResource.type` its grid renders. */
 
@@ -58,6 +60,8 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
   const topItems: { id: DirectorySettingsPage; label: string; icon: string }[] = [
     { id: "instructions", label: i18nT("common.instructions", undefined, "Instructions"), icon: mdiFileDocumentOutline },
     { id: "packages", label: i18nT("packages.packages", undefined, "Packages"), icon: mdiPackageVariant },
+    // See change: configurable-session-card-sections (D9).
+    { id: "cards", label: i18nT("cardSections.pageTitle", undefined, "Session cards"), icon: mdiCardsOutline },
   ];
   const resourceItems: { id: DirectorySettingsResourcePage; label: string; icon: string }[] = [
     { id: "skills", label: i18nT("common.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
@@ -156,6 +160,7 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
         >
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
           {page === "packages" && <PackagesPage cwd={cwd} />}
+          {page === "cards" && <CardSectionsPage cwd={cwd} />}
           {page in RESOURCE_PAGE_TYPE && (
             <ScopedResourceGrid
               page={page as DirectorySettingsResourcePage}

@@ -3,7 +3,9 @@
 ## Purpose
 
 Group desktop session card sections into translucent inset panels (subcards) with capsule legend titles. Each subcard wraps a related cluster of controls (OPENSPEC / WORKSPACE / PROCESS / MEMORY / FLOWS) and hides itself when empty. Mobile layout unchanged. Reserves plugin slots `session-card-memory` and `workspace-action-bar`, replaces the round status dot with a status-colored source icon, and turns the card's left gutter into the drag handle.
+
 ## Requirements
+
 ### Requirement: Subcard wrapper component renders translucent inset panel with capsule legend title
 The desktop session card SHALL group related controls inside `SessionSubcard` wrappers. Each `SessionSubcard` SHALL render a translucent inset panel using `color-mix` over the card body color, with a small uppercase capsule (pill) legend overhanging the panel's top border (fieldset-legend style).
 
@@ -129,12 +131,18 @@ The shell's `FlowsSubcard` wrapper SHALL call `useSlotHasClaimsForSession("sessi
 - **THEN** no `SessionSubcard` titled `FLOWS` SHALL appear in the DOM
 
 ### Requirement: Mobile session card layout is unchanged
-The mobile branch of `SessionCard.tsx` (gated by `useMobile()`) SHALL NOT use `SessionSubcard` wrappers. Mobile cards SHALL retain their flat row layout, identical to the layout prior to this change.
+The mobile branch of `SessionCard.tsx` (gated by `useMobile()`) SHALL NOT use `SessionSubcard` wrappers. Mobile cards SHALL retain their flat row layout, except that any section resolved hidden by the `session-card-section-visibility` capability SHALL be omitted, and the PROCESS safety chip SHALL apply identically.
 
 #### Scenario: Mobile card renders no subcard panels
 - **WHEN** `useMobile()` returns true and a session card is rendered
 - **THEN** no element with class token `bg-[var(--bg-surface)]` AND inset border styling characteristic of `SessionSubcard` SHALL appear inside the card
 - **AND** no centered uppercase title element with content matching `OPENSPEC|WORKSPACE|PROCESS|MEMORY|FLOWS` SHALL appear
+
+#### Scenario: Mobile card omits hidden sections
+- **GIVEN** `useMobile()` returns true and folder `/a` hides `tags` and `process`
+- **AND** a session in `/a` has tags and an in-flight bash tool
+- **WHEN** its card renders
+- **THEN** neither the tags strip nor the process rows SHALL render
 
 ### Requirement: Outer card chrome and pulse animations are preserved
 The outer `<li>` element of the session card SHALL retain its existing classes for selection accent (`border-blue-500/60`, `ring-1 ring-blue-500/30` when selected), background (`bg-[var(--bg-tertiary)]`), rounded corners (`rounded-xl`), shadow, and pulse animations (`card-working-pulse`, `card-unread-pulse`) per the `session-card-status` and `sleek-card-design` capabilities.
@@ -495,4 +503,3 @@ distinguish each reason.
 
 - **WHEN** the subcard renders disabled for `BROKEN`
 - **THEN** the reason text SHALL differ from the text rendered for each `STALE` reason
-
