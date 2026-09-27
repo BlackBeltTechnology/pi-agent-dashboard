@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
+import { gotoDashboard } from "./helpers/index.js";
 import { REPO_ROOT } from "./lifecycle.js";
 
 /**
@@ -67,6 +68,8 @@ async function gotoSection(page: Page): Promise<void> {
 
 test.describe("system-one settings section (L3)", () => {
   test.beforeEach(async ({ page }) => {
+    // Arms the first-launch dismissals (chat-view onboarding) before any route.
+    await gotoDashboard(page);
     await putConfig(page);
   });
 
@@ -210,7 +213,8 @@ test.describe("system-one settings section (L3)", () => {
 
     await row.getByLabel(/Enforce: the feature acts on answers/).check();
     await row.getByTestId("save-calibration-system-one:selftest").click();
-    const dialog = page.getByRole("dialog");
+    // Settings is itself a role=dialog overlay; address the confirm by its accessible name.
+    const dialog = page.getByRole("dialog", { name: /^Enforce kev for system-one:selftest\?$/ });
     await expect(dialog).toContainText("kev");
     await expect(dialog).toContainText("kev-0.4");
     await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -218,7 +222,7 @@ test.describe("system-one settings section (L3)", () => {
     expect(calibrations).toHaveLength(0);
 
     await row.getByTestId("save-calibration-system-one:selftest").click();
-    await page.getByRole("dialog").getByRole("button", { name: "Enforce" }).click();
+    await dialog.getByRole("button", { name: "Enforce" }).click();
     await expect.poll(() => calibrations.length).toBe(1);
     expect(calibrations[0]).toMatchObject({ backendId: "kev", mode: "enforce", model: "kev-0.4", confirm: true, thresholds: { q: 0.62 } });
   });
