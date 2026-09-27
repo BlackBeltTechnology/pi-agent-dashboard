@@ -114,9 +114,9 @@ Write each test first and see it fail before the implementation task it covers. 
 
 ### Manual verification (deferred post-merge)
 
-- [ ] 5.62 Manually verify preview-denial-remedy · notice copy: every notice variant in light and dark theme; a human reads each; expect a human judgment that the wording is clear, fits the pane and does not steer the verdict (no automatable observable) (test-plan: manual-only, test-plan #M1)
+- [x] 5.62 **DEFERRED — not yet run** (manual-only; post-merge human check). Manually verify preview-denial-remedy · notice copy: every notice variant in light and dark theme; a human reads each; expect a human judgment that the wording is clear, fits the pane and does not steer the verdict (no automatable observable) (test-plan: manual-only, test-plan #M1)
 
 ## 6. Closeout
 
-- [ ] 6.1 Run `review-code` on the full diff before commit
+- [x] 6.1 Run `review-code` on the full diff before commit — ship-it step 4.5, reviewer `openai-codex/gpt-5.6-sol` (operator-chosen; `@review` = author model): round 1 five blocking (fixed), round 2 one blocking (fixed, TDD); hard cap reached → operator adjudicated and approved the round-2 fix
 - [x] 6.2 Update the `AGENTS.md` rows for every touched and added file (`packages/server/src/access/`, `packages/server/src/routes/`, `packages/client/src/lib/access-grants/`, `packages/client/src/lib/layout/`, `packages/client/src/components/preview/`, `packages/client/src/components/editor-pane/`, `packages/client/src/components/canvas/`, `packages/client/src/components/split/`) with `See change: surface-denial-remedy-in-previews`
