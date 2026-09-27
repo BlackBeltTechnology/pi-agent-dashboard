@@ -1430,14 +1430,12 @@ export function createBrowserGateway(
         });
       }
       // Card-section visibility precedes `sessions_snapshot` so cards never
-      // mount with a section that is hidden one frame later. Sent only when
-      // any preference exists (absent = all visible, the client default).
+      // mount with a section that is hidden one frame later. Sent
+      // UNCONDITIONALLY (incl. `{}`), like `collapsed_folders_updated`: a
+      // reconnecting browser must drop state reset while it was offline.
       // See change: configurable-session-card-sections.
       if (typeof preferencesStore.getCardSections === "function") {
-        const cardSections = preferencesStore.getCardSections();
-        if (cardSections.global || cardSections.folders) {
-          sendTo(ws, { type: "card_sections_updated", cardSections });
-        }
+        sendTo(ws, { type: "card_sections_updated", cardSections: preferencesStore.getCardSections() });
       }
       sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
       // Send favorite models snapshot on connect. Guarded with `typeof` so

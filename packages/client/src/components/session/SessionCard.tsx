@@ -984,7 +984,7 @@ export function SessionCard({
           </div>
         )}
         {/* OpenSpec activity badge */}
-        {(session.openspecPhase || session.openspecChange) ? (
+        {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
           <OpenSpecActivityBadge
             phase={session.openspecPhase ?? undefined}
             changeName={session.openspecChange ?? undefined}
@@ -1259,7 +1259,7 @@ export function SessionCard({
       </div>
 
       {/* OpenSpec activity badge */}
-      {(session.openspecPhase || session.openspecChange) ? (
+      {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
         <OpenSpecActivityBadge
           phase={session.openspecPhase ?? undefined}
           changeName={session.openspecChange ?? undefined}

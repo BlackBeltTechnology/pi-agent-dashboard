@@ -160,6 +160,26 @@ describe("SessionCard desktop gating", () => {
   });
 });
 
+describe("OpenSpec activity badge follows the openspec section", () => {
+  const withChange = { openspecChange: "feat-xyz" } as Partial<DashboardSession>;
+
+  it("desktop: shown by default, hidden with openspec", () => {
+    renderCard({}, { session: withChange });
+    expect(screen.queryByText(/feat-xyz/)).not.toBeNull();
+    cleanup();
+    renderCard({ folders: { [CWD]: { openspec: false } } }, { session: withChange });
+    expect(screen.queryByText(/feat-xyz/)).toBeNull();
+  });
+
+  it("mobile: hidden with openspec, including the attached-proposal chip", async () => {
+    const { useMobile } = await import("../../hooks/useMobile.js");
+    (useMobile as ReturnType<typeof vi.fn>).mockReturnValue(true);
+    renderCard({ folders: { [CWD]: { openspec: false } } }, { session: { ...withChange, attachedProposal: "feat-xyz" } });
+    expect(screen.queryByText(/feat-xyz/)).toBeNull();
+    expect(screen.queryByTestId("mobile-card-attached-chip")).toBeNull();
+  });
+});
+
 describe("PROCESS safety chip", () => {
   it("hidden PROCESS + 1 background process → chip, no subcard", () => {
     renderCard({ folders: { [CWD]: { process: false } } }, { processes: [PROC] });

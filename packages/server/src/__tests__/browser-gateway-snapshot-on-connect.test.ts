@@ -455,7 +455,7 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     return sentMessages(ws);
   }
 
-  it("card_sections_updated is sent before sessions_snapshot when non-empty", () => {
+  it("card_sections_updated is sent before sessions_snapshot", () => {
     const prefs = { folders: { "/a": { git: false } } };
     const msgs = connectWithCardSections(prefs);
     const types = msgs.map((m) => m.type as string);
@@ -465,9 +465,10 @@ describe("browser-gateway on-connect bootstrap ordering (E10)", () => {
     expect((msgs[idx] as { cardSections: unknown }).cardSections).toEqual(prefs);
   });
 
-  it("card_sections_updated is omitted on connect when no preference exists", () => {
-    const types = connectWithCardSections({}).map((m) => m.type as string);
-    expect(types).not.toContain("card_sections_updated");
+  it("card_sections_updated is sent (empty) on connect so a reconnect clears stale client state", () => {
+    const msgs = connectWithCardSections({});
+    const msg = msgs.find((m) => m.type === "card_sections_updated") as { cardSections: unknown } | undefined;
+    expect(msg?.cardSections).toEqual({});
   });
 });
 
