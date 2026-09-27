@@ -104,7 +104,7 @@ describe("extension wiring", () => {
       content: [{ type: "text", text: '<html><span style="display:none">x</span>ok</html>' }],
       details: { untrusted: true },
     })) as { content: Array<{ text: string }> };
-    expect(out.content[0]?.text).toMatch(/^<<untrusted source="stub_fetch" id="\w{8}">>\n<html>ok<\/html>\n/);
+    expect(out.content[0]?.text).toMatch(/^<<untrusted source="stub_fetch" id="[\w-]{8}">>\n<html>ok<\/html>\n/);
     expect(out.content[0]?.text).toContain("[guard] 1 hidden span removed (html-display-none)");
   });
 

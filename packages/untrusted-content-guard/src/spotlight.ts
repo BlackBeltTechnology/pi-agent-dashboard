@@ -14,11 +14,9 @@ export const GUIDELINE =
 /** Findings that are not removed spans (they describe the scan itself). */
 const META_FINDINGS = new Set(["oversize_truncated", "html_parse_failed"]);
 
-const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-/** Random 8-char base62 marker. */
+/** Random 8-char base64url marker (48 bits; unbiased — no modulo over the bytes). */
 export function newMarker(): string {
-  return [...randomBytes(8)].map((b) => ALPHABET[b % ALPHABET.length]).join("");
+  return randomBytes(6).toString("base64url");
 }
 
 /** A `<` that starts `<<untrusted` / `<</untrusted` (whitespace/slash tolerant). */
