@@ -69,6 +69,9 @@ export default defineConfig({
       "packages/system-one-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
+      // demo-plugin fixture: bridge fixture-gate contract. See change:
+      // expose-plugin-credential-and-oauth-seams (D8).
+      "packages/demo-plugin",
       "packages/grammar-plugin",
       // kb-plugin carries the KB folder slot's state→menu-item contract; it was
       // collected by no project, so its suite never ran. A gate no CI job runs

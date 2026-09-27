@@ -1151,6 +1151,10 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
 
+##### Private request/reply lane
+
+Bridge→server request, separate from the fire-and-forget channel above. Bridge entry `requestPluginServer(pluginId,type,payload)` from `@blackbelt-technology/dashboard-plugin-runtime/bridge`; core bridge installs fn at `Symbol.for("pi-dashboard.pluginRequest")`. Server `ctx.registerPiRequestHandler(type,handler)` — single owner per `(pluginId,type)`, duplicate throws. Wire `plugin_request` → host-internal `plugin_reply` on the SAME socket. Never `pi.events`; never the priority-gated `sendExtensionMessage`. Caps 256 KiB each way; timeout 15 s. Codes `no_handler`/`timeout`/`disconnected`/`request_too_large`/`reply_too_large`/`reply_not_serializable`/`unavailable`. `sessionId` from socket key, never payload. Trust: private = unobservable + unforgeable, NOT authenticated; handlers authorize on payload. Same change adds `ctx.credentials` store + `ctx.oauth.startFlow` + `createLoopbackCallback` — see [`plugin-seams.md`](plugin-seams.md). See change: expose-plugin-credential-and-oauth-seams.
+
 #### Goal Session Supervisor (`add-goal-session-supervisor`)
 
 Goal feature = session supervisor over host's existing session-lifecycle mechanism. Clean split: host owns mechanism (spawn + spawn-token correlation via `linkByToken` + death signal via `dispatchPluginSessionEnded`/`sessionManager.onUnregister` + kill via `abortSpawnedRun` + resume via `spawnPiSession` continue-mode). Goal plugin/server adds pursuit policy only.

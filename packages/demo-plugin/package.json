@@ -8,6 +8,14 @@
     ".": {
       "types": "./src/client.tsx",
       "default": "./src/client.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    },
+    "./bridge": {
+      "types": "./src/bridge/index.ts",
+      "default": "./src/bridge/index.ts"
     }
   },
   "pi-dashboard-plugin": {
@@ -16,6 +24,8 @@
     "priority": 1000,
     "fixture": true,
     "client": "./src/client.tsx",
+    "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
     "claims": [
       {
         "slot": "settings-section",

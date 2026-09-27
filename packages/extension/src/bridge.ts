@@ -72,6 +72,7 @@ import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
@@ -1081,6 +1082,22 @@ function initBridge(pi: ExtensionAPI) {
   // than the value, so all ~100 `connection.send(...)` sites follow the session
   // to its new dashboard without being rewritten (task 9.4).
   // biome-ignore lint/style/useConst: reassigned by the move command below.
+  // Private plugin request/reply lane (bridge half). The global symbol is
+  // installed only while the socket is open; a close fails pending calls
+  // `disconnected`. See change: expose-plugin-credential-and-oauth-seams (D7).
+  // Non-buffering send: a request must never be replayed after a reconnect.
+  const pluginRequests = createPluginRequestClient({ send: (m) => connection.sendIfOpen(m) });
+  let uninstallPluginRequest: (() => void) | null = null;
+  const pluginLaneUp = (): void => {
+    uninstallPluginRequest?.();
+    uninstallPluginRequest = installPluginRequest(pluginRequests.request);
+  };
+  const pluginLaneDown = (): void => {
+    uninstallPluginRequest?.();
+    uninstallPluginRequest = null;
+    pluginRequests.failAll("disconnected");
+  };
+
   let connection = new ConnectionManager({
     url: dashboardUrl,
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
@@ -1127,6 +1144,16 @@ function initBridge(pi: ExtensionAPI) {
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).
     getSessionId: () => sessionId,
+    // Lane lifecycle follows the CURRENT connection only: after a
+    // `/dashboard-connect` move, `connection` is rebound to the target.
+    onOpen: () => {
+      if (!isActive() || connection !== primaryConnection) return;
+      pluginLaneUp();
+    },
+    onClose: () => {
+      if (connection !== primaryConnection) return;
+      pluginLaneDown();
+    },
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
@@ -1193,6 +1220,11 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
+      if (msg.type === "plugin_reply") {
+        // Resolves the caller's Promise only — never re-emitted on pi.events.
+        pluginRequests.handleReply(msg);
+        return;
+      }
       if (msg.type === "mcp_token_minted") {
         // D5: the minted MCP bearer arrives on the session-private lane. The
         // delivery module assigns it to this process's env and triggers the
@@ -1621,6 +1653,8 @@ function initBridge(pi: ExtensionAPI) {
       connection.send({ type: "session_heartbeat", sessionId, agentRunning: false });
     }),
   });
+  // The lane's lifecycle hooks compare against this to ignore a moved-away origin.
+  const primaryConnection = connection;
 
   // Track connection so future bridge incarnations can disconnect it
   getBridgeState().connections!.push(connection);
@@ -1922,7 +1956,17 @@ function initBridge(pi: ExtensionAPI) {
             url,
             headers: localTokenHeaders(url),
             getSessionId: () => sessionId,
-            onMessage: (data) => handler(data),
+            onMessage: (data) => {
+              // Plugin lane replies resolve the caller's Promise only.
+              if ((data as { type?: unknown } | null)?.type === "plugin_reply") {
+                pluginRequests.handleReply(data as { requestId?: unknown });
+                return;
+              }
+              handler(data);
+            },
+            onClose: () => {
+              if (connection === targetManager) pluginLaneDown();
+            },
             // The move REBINDS `connection` to this manager, so without this
             // every post-move force-close would be silent again.
             onWatchdogFire: (w) => {
@@ -1934,6 +1978,7 @@ function initBridge(pi: ExtensionAPI) {
             // provisional registration is announced, and a send before the
             // socket is live would be silently dropped.
             onOpen: () => {
+              if (connection === targetManager) pluginLaneUp();
               targetManager?.send({
                 type: "session_register",
                 sessionId,
@@ -1975,6 +2020,9 @@ function initBridge(pi: ExtensionAPI) {
       // Rebind: from here every `connection.send(...)` in this module reaches
       // the new dashboard.
       if (targetManager) connection = targetManager;
+      // The origin's close already took the plugin lane down; bring it up on
+      // the target now that it is the current connection.
+      if (connection.isConnected) pluginLaneUp();
       dashboardUrl = resolved.endpoint;
       registeredInstanceId = expectInstanceId;
       console.error(`[dashboard] moved to ${describeConnectTarget(parsed)} (${expectInstanceId})`);

@@ -227,6 +227,8 @@
     "packages/demo-plugin": {
       "entry": [
         "src/client.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

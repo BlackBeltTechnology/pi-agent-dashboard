@@ -128,6 +128,12 @@ export interface ConnectionManagerOptions {
    * before the socket is live is silently dropped (task 9.4).
    */
   onOpen?: () => void;
+  /**
+   * Fired whenever the live socket goes away — a drop or an intentional
+   * `disconnect()`. Lets request/reply callers fail pending work fast.
+   * See change: expose-plugin-credential-and-oauth-seams (D7).
+   */
+  onClose?: () => void;
   onReconnect?: () => void;
   /**
    * Fired after the buffered frames queued during a drop have been flushed
@@ -198,6 +204,7 @@ export class ConnectionManager {
   private hasConnectedBefore = false;
   private onMessage?: (data: unknown) => void | Promise<void>;
   private onOpen?: () => void;
+  private onClose?: () => void;
   private onReconnect?: () => void;
   private onPostFlush?: () => void;
   private onRegisterRejected?: (sessionId: string, reason: string) => void;
@@ -406,6 +413,7 @@ export class ConnectionManager {
     this.onWatchdogFire = options.onWatchdogFire;
     this.onMessage = options.onMessage;
     this.onOpen = options.onOpen;
+    this.onClose = options.onClose;
     this.onReconnect = options.onReconnect;
     this.onPostFlush = options.onPostFlush;
     this.onRegisterRejected = options.onRegisterRejected;
@@ -457,6 +465,27 @@ export class ConnectionManager {
       this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
+      this.fireClose();
+    }
+  }
+
+  private fireClose(): void {
+    try { this.onClose?.(); } catch { /* a listener must not break teardown */ }
+  }
+
+  /**
+   * Send only when the socket is OPEN — never buffers. For request frames
+   * whose caller must learn synchronously that nothing was sent (a buffered
+   * request could execute after reconnect with its reply dropped).
+   * See change: expose-plugin-credential-and-oauth-seams (D7).
+   */
+  sendIfOpen(message: unknown): boolean {
+    if (this.ws?.readyState !== 1) return false;
+    try {
+      this.ws.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -932,6 +961,7 @@ export class ConnectionManager {
     ws.onopen = null;
     ws.onmessage = null;
     try { ws.close(); } catch { /* ignore — may already be closed */ }
+    this.fireClose();
     if (!this.intentionalClose) {
       this.scheduleReconnect();
     }
