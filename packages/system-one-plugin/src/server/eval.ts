@@ -54,9 +54,11 @@ function auc(pairs: Array<{ score: number; label: boolean }>): number | null {
 }
 
 /** Cut maximising accuracy of `score >= cut ⇒ true`; ties → closest to 0.5. */
-function bestThreshold(pairs: Array<{ score: number; label: boolean }>): number | null {
+export function bestThreshold(pairs: Array<{ score: number; label: boolean }>): number | null {
   if (!pairs.length) return null;
-  const cuts = [...new Set([0.5, ...pairs.map((p) => p.score)])].sort((a, b) => a - b);
+  // Observed scores, 0.5, and a cut just above the maximum (all-negative fixtures classify perfectly there).
+  const max = Math.max(...pairs.map((p) => p.score));
+  const cuts = [...new Set([0.5, max + 1e-9, ...pairs.map((p) => p.score)])].sort((a, b) => a - b);
   let best = 0.5;
   let bestAcc = -1;
   for (const cut of cuts) {

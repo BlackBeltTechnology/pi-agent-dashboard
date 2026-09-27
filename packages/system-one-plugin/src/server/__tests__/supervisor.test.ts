@@ -203,6 +203,45 @@ describe("E31 argv (6.4)", () => {
   }
 });
 
+describe("stop during install (review)", () => {
+  it("terminates the installer and never launches the engine", async () => {
+    writeUser({ m: { kind: "managed", engine: "von", port: 18415 } });
+    const calls: string[] = [];
+    let installer: any = null;
+    const spawn = vi.fn((cmd: string) => {
+      calls.push(cmd);
+      const c: any = new EventEmitter();
+      c.stdout = new EventEmitter();
+      c.stderr = new EventEmitter();
+      c.pid = 5151;
+      c.exitCode = null;
+      c.signalCode = null;
+      if (cmd.endsWith("uv")) installer = c; // never exits on its own
+      return c;
+    });
+    const signals: string[] = [];
+    const s = new Supervisor(
+      deps({
+        spawn: spawn as any,
+        portFree: async () => true,
+        signal: (child: any, sig) => {
+          signals.push(sig);
+          child.exitCode = 1;
+          child.emit("exit", null, sig);
+        },
+      }),
+    );
+    const starting = s.start("m");
+    await vi.waitFor(() => expect(installer).not.toBeNull());
+    expect(s.status("m").state).toBe("installing");
+    expect((await s.stop("m")).state).toBe("stopped");
+    expect(signals).toContain("SIGTERM");
+    await starting;
+    expect(calls.filter((c) => !c.endsWith("uv"))).toEqual([]);
+    expect(s.status("m").state).toBe("stopped");
+  });
+});
+
 describe("X10 health + failure (6.5)", () => {
   it("ready via /v1/models", async () => {
     installShims();

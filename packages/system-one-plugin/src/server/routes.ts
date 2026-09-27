@@ -122,6 +122,7 @@ function validateCalibration(body: Record<string, unknown>): CalibrationInput {
   const { backendId, consumerId, mode, model, baseRevision, confirm } = body;
   const checks: Array<[boolean, string]> = [
     [typeof backendId === "string" && BACKEND_ID.test(backendId), "invalid-backend-id"],
+    [typeof backendId === "string" && Object.hasOwn(loadConfig().backends, backendId), "unknown-backend"],
     [typeof consumerId === "string" && listConsumers().some((c) => c.id === consumerId), "unknown-consumer"],
     [mode === "shadow" || mode === "enforce", "invalid-mode"],
     [typeof model === "string" && model.length > 0, "model-required"],

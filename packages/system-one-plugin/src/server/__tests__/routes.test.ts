@@ -176,6 +176,18 @@ describe("E22 calibration route (5.4)", () => {
   });
 });
 
+describe("calibration rejects an unknown backend (review)", () => {
+  it("400 unknown-backend, nothing written", async () => {
+    registerConsumer("c");
+    writeUser({ backends: { b: { kind: "http", url: "http://127.0.0.1:9/v1/systemone", model: "x" } }, presets: { p: { chain: ["b"] } }, activePreset: "p" });
+    const rev = (await req("GET", "/api/system-one/config")).body.revision;
+    const r = await req("POST", "/api/system-one/calibration", { backendId: "ghost", consumerId: "c", mode: "shadow", thresholds: {}, model: "m", baseRevision: rev });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toBe("unknown-backend");
+    expect(JSON.parse(readFileSync(userConfigPath(), "utf8")).calibration).toBeUndefined();
+  });
+});
+
 describe("E23 URL validation (5.5)", () => {
   for (const [url, ok] of [
     ["file:///etc/passwd", false],

@@ -113,7 +113,9 @@ export function createServerLlmCaller(runtime: PluginModelRuntime | undefined, p
     },
     async call({ role, state, questions, signal }: { role: string; state: string; questions: Questions; signal: AbortSignal }) {
       if (!runtime) throw new Error("no-model-runtime");
-      const r = resolveRoleRef(role, providersPath);
+      // Bind to the resolution `isLocal` classified (prepare); a role retargeted
+      // since then must not change where this call's bytes go.
+      const r = cache.get(role) ?? resolveRoleRef(role, providersPath);
       if (!r) throw new Error("role-unassigned");
       const registry = await runtime.getModelRegistry();
       const model = registry ? await registry.find(r.provider, r.modelId) : null;

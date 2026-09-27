@@ -148,6 +148,19 @@ describe("E14 project cannot retarget to hosted (2.3)", () => {
   });
 });
 
+describe("E14b fully rejected project chain (review)", () => {
+  it("a project chain whose every id is dropped leaves the user's chain in force", () => {
+    writeUser({
+      ...USER,
+      allowOffMachine: true,
+      backends: { ...USER.backends, jev: { kind: "http", url: "https://api.typesafe.ai/v1/systemone", model: "jev-1.13.0" } },
+    });
+    const cwd = projectDir({ version: 1, presets: { p: { consumers: { c: { chain: ["jev"] } } } } });
+    const cfg = loadConfig({ project: { cwd, trusted: true } });
+    expect(cfg.presets.p.consumers?.c.chain).toEqual(["local-von"]);
+  });
+});
+
 describe("E15 prototype pollution (2.4)", () => {
   it("drops __proto__/constructor/prototype at any depth", () => {
     writeUser(USER);

@@ -64,5 +64,13 @@ export function withOverride(draft: Draft, consumerId: string, chain: string[] |
   return { ...draft, presets: { ...draft.presets, [draft.activePreset]: { ...p, consumers } } };
 }
 
+/** Copy of `draft` without preset `name`; the active preset is never removed (activePreset must not dangle). */
+export function withoutPreset(draft: Draft, name: string): Draft {
+  if (name === draft.activePreset || !Object.hasOwn(draft.presets, name)) return draft;
+  const presets = { ...draft.presets };
+  delete presets[name];
+  return { ...draft, presets };
+}
+
 /** Stable comparison for the Save Bar dirty flag. */
 export const sameDraft = (a: Draft | null, b: Draft | null): boolean => JSON.stringify(a) === JSON.stringify(b);

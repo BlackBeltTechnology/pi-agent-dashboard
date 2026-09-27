@@ -228,10 +228,14 @@ function applyProjectConsumers(cfg: SystemOneConfig, name: string, consumers: Pl
     const c = own(consumers, cid);
     if (!isObj(c)) continue;
     warnIgnored(file, c, ["chain"], `presets.${name}.consumers.${cid}.`);
+    const raw = own(c, "chain");
+    const chain = projectChain(cfg, cid, raw, file);
+    // Every requested id dropped → no override: the user's chain stays in force.
+    if (chain.length === 0 && normChain(raw).length > 0) continue;
     if (!Object.hasOwn(cfg.presets, name)) cfg.presets[name] = { chain: [] };
     const target = cfg.presets[name];
     target.consumers ??= map();
-    target.consumers[cid] = { chain: projectChain(cfg, cid, own(c, "chain"), file) };
+    target.consumers[cid] = { chain };
   }
 }
 

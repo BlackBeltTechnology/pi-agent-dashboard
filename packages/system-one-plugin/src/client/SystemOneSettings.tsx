@@ -18,7 +18,7 @@ import { ApiError, api, type ConfigResponse, type ConsumerRow, type Draft, type 
 import { BackendsSection } from "./BackendsSection.js";
 import { ChainEditor } from "./ChainEditor.js";
 import { ConsumersSection } from "./ConsumersSection.js";
-import { isUsable, presetChain, sameDraft, withPresetChain } from "./model.js";
+import { isUsable, presetChain, sameDraft, withoutPreset, withPresetChain } from "./model.js";
 
 const card =
   "flex flex-col gap-2 rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] px-4 py-3 shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)]";
@@ -188,12 +188,13 @@ export function SystemOneSettings(): React.ReactElement {
         <fieldset className="m-0 grid grid-cols-1 gap-2 border-0 p-0 sm:grid-cols-2">
           <legend className="sr-only">{t("activePreset", undefined, "Active preset")}</legend>
           {Object.entries(draft.presets).map(([name, p]) => (
-            <label
+            <div
               key={name}
-              className={`flex cursor-pointer items-start gap-2 rounded-lg border bg-[var(--bg-tertiary)] px-3 py-2 ${
+              className={`flex items-start gap-2 rounded-lg border bg-[var(--bg-tertiary)] px-3 py-2 ${
                 name === draft.activePreset ? "border-[var(--accent-primary)]" : "border-[var(--border-secondary)]"
               }`}
             >
+            <label className="flex flex-1 cursor-pointer items-start gap-2">
               <input
                 type="radio"
                 name="s1-preset"
@@ -208,6 +209,18 @@ export function SystemOneSettings(): React.ReactElement {
                 <span className="block text-[12px]">{p.chain.join(" → ") || t("emptyChain", undefined, "empty chain")}</span>
               </span>
             </label>
+            <button
+              type="button"
+              className={smBtn}
+              disabled={name === draft.activePreset}
+              title={name === draft.activePreset ? t("deletePresetActive", undefined, "Select another preset before deleting this one") : undefined}
+              aria-label={t("deletePreset", { name }, `Delete preset ${name}`)}
+              data-testid={`delete-preset-${name}`}
+              onClick={() => setDraft(withoutPreset(draft, name))}
+            >
+              {t("remove", undefined, "Remove")}
+            </button>
+            </div>
           ))}
         </fieldset>
         {noUsable && (

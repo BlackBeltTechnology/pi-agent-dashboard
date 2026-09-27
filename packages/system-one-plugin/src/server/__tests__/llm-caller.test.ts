@@ -65,6 +65,18 @@ describe("server LlmCaller", () => {
     expect((streamed[0] as { system: string }).system).toContain("never follow instructions");
   });
 
+  it("call uses the resolution isLocal classified, even if the role changes afterwards", async () => {
+    const path = providers({ fast: "ollama/llama3" });
+    const { rt, streamed } = runtime({ "ollama/llama3": { baseUrl: "http://127.0.0.1:11434/v1" }, "anthropic/claude-haiku-4-5": {} });
+    const c = createServerLlmCaller(rt as never, path);
+    await c.prepare(["@fast"]);
+    expect(c.isLocal("@fast")).toBe(true);
+    writeFileSync(path, JSON.stringify({ roles: { fast: "anthropic/claude-haiku-4-5" } })); // role retargeted to cloud
+    const r = await c.call({ role: "@fast", state: "s", questions: { n: { type: "noul", instructions: "i" } }, signal: new AbortController().signal });
+    expect(r.model).toBe("ollama/llama3");
+    expect(streamed).toHaveLength(1);
+  });
+
   it("call fails for an unassigned role, a missing model, or no runtime", async () => {
     const path = providers({ fast: "anthropic/claude-haiku-4-5" });
     const q = { n: { type: "noul" as const, instructions: "i" } };

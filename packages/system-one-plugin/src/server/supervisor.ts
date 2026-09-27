@@ -147,6 +147,8 @@ export function defaultDeps(dashboardPort?: () => number | undefined): Superviso
 interface Entry {
   status: ManagedStatus;
   child?: ChildProcess;
+  /** The running `uv tool install`, killable by stop/shutdown. */
+  installer?: ChildProcess;
   lines: string[];
   settled?: Promise<ManagedStatus>;
   stopping?: boolean;
@@ -268,7 +270,9 @@ export class Supervisor implements ManagedControl {
     const bin = join(binDir(), eng.bin);
     if (!existsSync(bin)) {
       e.status = { state: "installing", port };
+      e.stopping = false;
       const ok = await this.install(e, uv, eng.package);
+      if (e.stopping) return this.status(id); // stopped during install: never launch
       if (!ok || !existsSync(bin)) return this.fail(e, "install-failed");
     }
     this.launch(id, e, b, bin, port);
@@ -321,8 +325,13 @@ export class Supervisor implements ManagedControl {
       });
       p.stdout?.on("data", (c) => this.pushLog(e, String(c)));
       p.stderr?.on("data", (c) => this.pushLog(e, String(c)));
-      p.once("error", () => resolve(false));
-      p.once("exit", (code) => resolve(code === 0));
+      e.installer = p;
+      const done = (ok: boolean) => {
+        if (e.installer === p) e.installer = undefined;
+        resolve(ok);
+      };
+      p.once("error", () => done(false));
+      p.once("exit", (code) => done(code === 0));
     });
   }
 
@@ -395,6 +404,13 @@ export class Supervisor implements ManagedControl {
 
   async stop(id: string): Promise<ManagedStatus> {
     const e = this.entry(id);
+    if (e.installer) {
+      e.stopping = true;
+      await this.terminate(e, e.installer);
+      e.installer = undefined;
+      e.status = { state: "stopped" };
+      return this.status(id);
+    }
     const child = e.child;
     if (!child) {
       if (e.status.state !== "failed") e.status = { state: "stopped" };
@@ -411,7 +427,7 @@ export class Supervisor implements ManagedControl {
   /** Server shutdown: SIGTERM every child now; SIGKILL survivors after the grace period. */
   stopAllSync(): void {
     for (const e of this.entries.values()) {
-      const child = e.child;
+      const child = e.child ?? e.installer;
       if (!child?.pid) continue;
       e.stopping = true;
       try {

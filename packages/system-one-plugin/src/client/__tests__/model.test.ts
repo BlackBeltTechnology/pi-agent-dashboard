@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { BackendView, Draft } from "../api.js";
-import { move, seedOverride, unusableReason, withOverride, withPresetChain } from "../model.js";
+import { move, seedOverride, unusableReason, withOverride, withoutPreset, withPresetChain } from "../model.js";
 
 const caps = (ctx: number | null) => ({ maxContextTokens: ctx, maxOptions: null, languages: null, primitives: null });
 const view = (over: Partial<BackendView> = {}): BackendView => ({
@@ -42,6 +42,14 @@ describe("seedOverride (spec: override seeding drops incompatible backends)", ()
   it("starts from the preset chain minus backends the consumer cannot use", () => {
     expect(seedOverride(["von", "laya"], { id: "c", failurePolicy: "fail-open", requires: { minContextTokens: 4000 } }, views)).toEqual(["von"]);
     expect(seedOverride(["von", "laya"], { id: "c", failurePolicy: "fail-open" }, views)).toEqual(["von", "laya"]);
+  });
+});
+
+describe("withoutPreset (spec: presets editable and deletable; activePreset never dangles)", () => {
+  it("removes a non-active preset and refuses the active one", () => {
+    const two: Draft = { ...draft, presets: { ...draft.presets, hosted: { chain: ["jev"] } } };
+    expect(Object.keys(withoutPreset(two, "hosted").presets)).toEqual(["p"]);
+    expect(withoutPreset(two, "p")).toBe(two);
   });
 });
 
