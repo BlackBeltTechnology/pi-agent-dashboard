@@ -6,7 +6,6 @@ import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
-import { PairingApprovalHost } from "./components/pairing-approval/PairingApprovalHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
@@ -136,6 +135,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // render site gets its OWN `Suspense`; in particular the
 // `shellRenderers.renderDiff` callback below needs a local boundary or its
 // suspension escapes into the shell.
+// Pairing approval host: own chunk, off the cold-landing entry (mdi-chunk-size
+// cap). See change: add-pairing-approval-dialog.
+const PairingApprovalHost = lazy(() =>
+  import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
+);
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
@@ -2740,7 +2744,11 @@ export default function App() {
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
   // Pairing approval dialog: mounted beside the grant host in BOTH returns.
   // See change: add-pairing-approval-dialog.
-  const pairingApprovalHost = <PairingApprovalHost onMessage={onMessage} ws={ws} />;
+  const pairingApprovalHost = (
+    <Suspense fallback={null}>
+      <PairingApprovalHost onMessage={onMessage} ws={ws} />
+    </Suspense>
+  );
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>

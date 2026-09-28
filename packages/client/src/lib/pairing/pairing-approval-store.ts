@@ -9,7 +9,7 @@
  *   later"); the host does not reopen them on its own.
  * - `preferred` — a pendingId the operator asked to Review; shown first.
  */
-import type { PendingPairing } from "./pairing-api.js";
+import type { PendingPairing } from "./pairing-approval-api.js";
 
 export interface PairingApprovalState {
   pending: readonly PendingPairing[];

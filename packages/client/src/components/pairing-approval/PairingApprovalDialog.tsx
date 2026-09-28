@@ -17,7 +17,7 @@ import { Icon } from "@mdi/react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { describeUserAgent, deviceNameFromUserAgent } from "../../lib/pairing/describe-user-agent.js";
-import type { ApprovePendingOutcome, PendingPairing } from "../../lib/pairing/pairing-api.js";
+import type { ApprovePendingOutcome, PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
 
 const CODE_DIGITS = 8;
 /** Server bound on the device label (UTF-8 bytes, `MAX_DEVICE_LABEL_BYTES`). */

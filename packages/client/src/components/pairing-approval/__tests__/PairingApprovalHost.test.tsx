@@ -10,7 +10,7 @@ import type {
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GrantPromptStore } from "../../../lib/access-grants/grant-prompt-store.js";
-import type { PendingPairing } from "../../../lib/pairing/pairing-api.js";
+import type { PendingPairing } from "../../../lib/pairing/pairing-approval-api.js";
 import { PairingApprovalStore } from "../../../lib/pairing/pairing-approval-store.js";
 import { PairingApprovalHost } from "../PairingApprovalHost.js";
 

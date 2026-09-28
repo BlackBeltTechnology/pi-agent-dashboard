@@ -4,7 +4,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ApprovePendingOutcome, PendingPairing } from "../../../lib/pairing/pairing-api.js";
+import type { ApprovePendingOutcome, PendingPairing } from "../../../lib/pairing/pairing-approval-api.js";
 import { PairingApprovalDialog } from "../PairingApprovalDialog.js";
 
 const NOW = 1_000_000;

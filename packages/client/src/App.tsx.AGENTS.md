@@ -23,4 +23,4 @@ See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSessio
 
 ## add-pairing-approval-dialog
 
-`pairingApprovalHost` (`<PairingApprovalHost onMessage ws />`) mounted beside `grantPromptHost` in BOTH returns. See change: add-pairing-approval-dialog.
+`pairingApprovalHost` (lazy `PairingApprovalHost` in `<Suspense fallback={null}>` — own chunk, off the entry gzip cap; mount-time fetch covers hints before load) mounted beside `grantPromptHost` in BOTH returns. See change: add-pairing-approval-dialog.

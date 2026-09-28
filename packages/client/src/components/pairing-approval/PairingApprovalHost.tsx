@@ -19,8 +19,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getDeviceBearer } from "../../lib/pairing/device-auth.js";
-import type { PendingPairing } from "../../lib/pairing/pairing-api.js";
-import * as pairingApi from "../../lib/pairing/pairing-api.js";
+import type { PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
+import * as pairingApi from "../../lib/pairing/pairing-approval-api.js";
 import { type PairingApprovalStore, pairingApprovalStore } from "../../lib/pairing/pairing-approval-store.js";
 import { Toast, useToast } from "../primitives/Toast.js";
 import { PairingApprovalDialog } from "./PairingApprovalDialog.js";
