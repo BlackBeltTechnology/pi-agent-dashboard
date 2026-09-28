@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ElectronApplication } from "@playwright/test";
 import { expect, test } from "@playwright/test";
-import { isPortInUse, launchElectron, makeThrowawayHome, REPO_ROOT } from "./electron-lifecycle.js";
+import { isPortInUse, launchElectron, makeThrowawayHome, REPO_ROOT, resolvePackagedBinary } from "./electron-lifecycle.js";
 
 const PORT = Number(process.env.PW_ELECTRON_LOCAL_LINK_PORT ?? 18_950);
 const CLI = path.join(REPO_ROOT, "packages", "server", "src", "cli.ts");
@@ -59,11 +59,26 @@ async function clickAppMenu(app: ElectronApplication, label: string): Promise<vo
   }, label);
 }
 
+/**
+ * The app's own bundled server (`resources/server/…/cli.ts`). CI's electron-e2e
+ * job packages with `electron-forge package` only (no `bundle-server`), so that
+ * app cannot cold-launch a server; X13 needs a full `npm run electron:build`.
+ */
+function hasBundledServer(): boolean {
+  const bin = resolvePackagedBinary();
+  const resources =
+    process.platform === "darwin" ? path.resolve(path.dirname(bin), "..", "Resources") : path.join(path.dirname(bin), "resources");
+  return fs.existsSync(
+    path.join(resources, "server", "node_modules", "@blackbelt-technology", "pi-dashboard-server", "src", "cli.ts"),
+  );
+}
+
 let app: ElectronApplication | undefined;
 let home: string | undefined;
 
 test.beforeAll(async () => {
   test.skip(await isPortInUse(PORT), `port ${PORT} in use`);
+  test.skip(!hasBundledServer(), "packaged app has no bundled server (forge package only) — run `npm run electron:build`");
   const ready =
     fs.existsSync(path.join(REPO_ROOT, "packages", "client", "dist", "index.html")) &&
     fs.existsSync(path.join(REPO_ROOT, "node_modules"));
