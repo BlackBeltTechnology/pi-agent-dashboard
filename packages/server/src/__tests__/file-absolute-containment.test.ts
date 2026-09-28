@@ -4,27 +4,48 @@
  * an absolute path outside every session cwd is rejected exactly as a
  * traversal attempt. See change: unify-file-link-openability.
  */
-import { describe, it, expect, afterAll, afterEach, beforeAll, beforeEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import fsp from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
-import { registerFileRoutes } from "../routes/file-routes.js";
+import { execFile } from "node:child_process";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { buildGitFixtures, type GitFixtures } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-fixtures.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { __resetAccessGrants, recordGrant } from "../access/access-grants.js";
+import { registerFileRoutes } from "../routes/file-routes.js";
+
+/**
+ * Task 3.0 / design D7: containment denials gained ADDITIVE remedy fields
+ * (`reason`, `hint`, `subject`, `denialId`, `ancestors`). The pre-existing
+ * fields are still pinned exactly — `error` is byte-identical and `success` is
+ * still `false` — while the additive ones are asserted by SHAPE, because
+ * `denialId` is an opaque per-denial UUID. This is strictly more assertion than
+ * the previous `toEqual({ success, error })`, never less: no status code and no
+ * error string is relaxed.
+ */
+function expectContainmentDenial(body: any, error: string): void {
+  expect(body).toMatchObject({ success: false, error });
+  expect(typeof body.reason).toBe("string");
+  expect(typeof body.hint).toBe("string");
+  expect(typeof body.subject).toBe("string");
+  expect(typeof body.denialId).toBe("string");
+  expect(body.denialId.length).toBeGreaterThan(0);
+  expect(Array.isArray(body.ancestors)).toBe(true);
+}
+
 
 const execFileAsync = promisify(execFile);
 async function git(cwd: string, ...args: string[]): Promise<void> {
   await execFileAsync("git", ["-C", cwd, ...args]);
 }
 
-function makeApp(cwds: string[], pinned: string[] = []): FastifyInstance {
+function makeApp(cwds: string[], pinned: string[] = [], prefs?: any): FastifyInstance {
   const app = Fastify({ logger: false });
   registerFileRoutes(app, {
     sessionManager: { listAll: () => cwds.map((cwd) => ({ cwd })) } as any,
-    preferencesStore: { getPinnedDirectories: () => pinned } as any,
+    preferencesStore: prefs ?? ({ getPinnedDirectories: () => pinned } as any),
     networkGuard: async () => undefined,
   });
   return app;
@@ -75,7 +96,7 @@ describe("GET /api/file — absolute path containment", () => {
       url: `/api/file?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent("/etc/passwd")}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(res.json(), "path outside working directory");
   });
 
   it("rejects a file:// URI pointing outside every session cwd", async () => {
@@ -84,7 +105,7 @@ describe("GET /api/file — absolute path containment", () => {
       url: `/api/file?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent("file:///etc/passwd")}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(res.json(), "path outside working directory");
   });
 
   it("rejects a file:// URI with percent-encoded traversal segments", async () => {
@@ -96,7 +117,7 @@ describe("GET /api/file — absolute path containment", () => {
       url: `/api/file?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(encoded)}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(res.json(), "path outside working directory");
   });
 
   it("behaves as cwd-only when cwd has no git (parent-tree read rejected)", async () => {
@@ -107,7 +128,7 @@ describe("GET /api/file — absolute path containment", () => {
       url: `/api/file?cwd=${encodeURIComponent(tmp)}&path=${encodeURIComponent(parentFile)}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(res.json(), "path outside working directory");
   });
 });
 
@@ -158,7 +179,7 @@ describe("GET /api/file — git-root widening (worktree sessions)", () => {
         url: `/api/file?cwd=${encodeURIComponent(worktree)}&path=${encodeURIComponent(target)}`,
       });
       expect(res.statusCode).toBe(403);
-      expect(res.json()).toEqual({ success: false, error: "path outside working directory" });
+      expectContainmentDenial(res.json(), "path outside working directory");
     } finally {
       await fsp.rm(outside, { recursive: true, force: true });
     }
@@ -194,13 +215,18 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
     expect(res.json()).toEqual({ success: true, data: { exists: true } });
   });
 
-  it("keeps the 'unknown cwd' string for an unregistered cwd", async () => {
+  it("keeps the 'unknown cwd' string for an unregistered cwd (fields additive)", async () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/file/exists?cwd=${encodeURIComponent("/nope")}&path=${encodeURIComponent("/nope/x")}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "unknown cwd" });
+    const body = res.json();
+    // Task 3.1/3.3a (design D7/D18): pre-existing fields stay byte-identical
+    // (`success:false`, `error:"unknown cwd"`), `reason`/`hint` are additive.
+    expect(body).toMatchObject({ success: false, error: "unknown cwd" });
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
   });
 
   it("keeps the 'path outside cwd' string for an out-of-anchor probe", async () => {
@@ -209,7 +235,7 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
       url: `/api/file/exists?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent("/etc/passwd")}`,
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toEqual({ success: false, error: "path outside cwd" });
+    expectContainmentDenial(res.json(), "path outside cwd");
   });
 
   it("rejects a relative probe (resolved against server cwd, not request cwd)", async () => {
@@ -220,7 +246,16 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
       url: `/api/file/exists?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent("here.txt")}`,
     });
     expect(res.statusCode).toBe(403);
+    // Pre-containment guard: this refusal happens BEFORE `resolved`/anchors are
+    // computed, so it is not a containment denial and carries NO remedy fields.
+    // Asserted explicitly rather than merely omitted — the absence is the
+    // contract (a remedy here would name a subject no denial ever named).
     expect(res.json()).toEqual({ success: false, error: "path outside cwd" });
+    expect(res.json()).not.toHaveProperty("denialId");
+    expect(res.json()).not.toHaveProperty("subject");
+    // This site also gains no reason/hint: the absence is the contract (task 3.3a).
+    expect(res.json()).not.toHaveProperty("reason");
+    expect(res.json()).not.toHaveProperty("hint");
   });
 
   // E23 — layer ② is PER ANCHOR, so a pinned directory keeps the widening it
@@ -252,6 +287,74 @@ describe("GET /api/file/exists — pinned-dir anchor + strings preserved", () =>
     } finally {
       await fsp.rm(repo, { recursive: true, force: true });
     }
+  });
+});
+
+// Task 3.4 / E14 (design D7, D18, D19) — accepting a cwd-allowlist denial's
+// remedy pins the refused directory through the PRE-EXISTING pinned-directory
+// store; a filesystem PATH grant is an independent plane and never feeds the
+// cwd allow-list. See change: add-access-grants-and-review.
+describe("cwd-allowlist denial — pin remedy vs path grant (3.4)", () => {
+  let app: FastifyInstance;
+  let dir: string;
+  let savedStore: string | undefined;
+
+  beforeEach(async () => {
+    dir = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "file-pin-")));
+    await fsp.writeFile(path.join(dir, "here.txt"), "x\n");
+    savedStore = process.env.PI_ACCESS_GRANTS_STORE;
+    process.env.PI_ACCESS_GRANTS_STORE = path.join(dir, "access-grants.json");
+    __resetAccessGrants();
+  });
+
+  afterEach(async () => {
+    await app?.close();
+    __resetAccessGrants();
+    if (savedStore === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+    else process.env.PI_ACCESS_GRANTS_STORE = savedStore;
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+
+  it("accepting the remedy pins the refused directory → retry is admitted", async () => {
+    const pinnedDirs: string[] = [];
+    const prefs = {
+      getPinnedDirectories: () => [...pinnedDirs],
+      pinDirectory: (p: string) => {
+        pinnedDirs.push(p);
+      },
+    };
+    // `dir` is neither a session cwd nor pinned to start.
+    app = makeApp([], [], prefs);
+    await app.ready();
+
+    const url = `/api/file/exists?cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(path.join(dir, "here.txt"))}`;
+    const denied = await app.inject({ method: "GET", url });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ success: false, error: "unknown cwd" });
+    expect(typeof denied.json().reason).toBe("string");
+    expect(typeof denied.json().hint).toBe("string");
+
+    // Accepting the offered remedy == the pre-existing pin write path.
+    prefs.pinDirectory(dir);
+
+    const retry = await app.inject({ method: "GET", url });
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toEqual({ success: true, data: { exists: true } });
+  });
+
+  it("a path grant alone never pins a cwd → the cwd stays refused", async () => {
+    const recorded = recordGrant({ subject: dir, scope: "project", origin: "test" });
+    expect(recorded.ok).toBe(true);
+
+    app = makeApp([], []); // no pin — only the path grant exists
+    await app.ready();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/file/exists?cwd=${encodeURIComponent(dir)}&path=${encodeURIComponent(path.join(dir, "here.txt"))}`,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ success: false, error: "unknown cwd" });
   });
 });
 
@@ -289,7 +392,7 @@ describe("GET /api/file — submodule session vs superproject (E24)", () => {
       url: `/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path.join(fx.superproject, ".env"))}`,
     });
     expect(denied.statusCode).toBe(403);
-    expect(denied.json()).toEqual({ success: false, error: "path outside working directory" });
+    expectContainmentDenial(denied.json(), "path outside working directory");
   });
 });
 
@@ -342,6 +445,6 @@ describe("GET /api/file — `~/.pi` anchor preserved on read/raw/render (E26)", 
 
     const exists = await app.inject({ method: "GET", url: `/api/file/exists?${q}` });
     expect(exists.statusCode).toBe(403);
-    expect(exists.json()).toEqual({ success: false, error: "path outside cwd" });
+    expectContainmentDenial(exists.json(), "path outside cwd");
   });
 });

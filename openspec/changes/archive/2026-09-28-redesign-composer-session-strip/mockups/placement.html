@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Composer: strip placement + attach/detach + worktree</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* composer card replica (CommandInput): card > textarea > toolbar */
+.card { background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:12px; padding:8px; display:flex; flex-direction:column; gap:6px; }
+.card:focus-within { border-color:var(--accent); }
+.ta { border:0; outline:0; resize:none; background:transparent; color:var(--text-primary); font:inherit; font-size:14px; min-height:40px; padding:6px 8px; }
+.ta::placeholder { color:var(--text-muted); }
+.tb { display:flex; align-items:center; gap:10px; font-size:13px; color:var(--text-secondary); }
+.tb .sp { flex:1; }
+.tb .seg2 { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; }
+.tb .seg2 span { padding:4px 10px; } .tb .seg2 .on { background:var(--accent-soft); color:var(--text-primary); }
+.tb .send { width:40px; height:36px; border-radius:8px; background:var(--accent-solid, #2563eb); display:grid; place-items:center; color:#fff; }
+.mono { font-family:ui-monospace, Menlo, monospace; }
+.ctxrow { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:2px 2px 0; }
+.ctxrow.bottom { border-top:1px solid var(--border-primary); padding-top:8px; }
+.status-below { display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center; padding:6px 4px 0; }
+.status-below.flat .grp { background:transparent !important; border-color:transparent !important; }
+.hint { font-size:11px; color:var(--text-muted); margin-left:auto; }
+/* change chip (attach/detach live here) */
+.chip { font:inherit; font-size:11px; display:inline-flex; align-items:center; gap:6px; padding:3px 8px 3px 6px; border-radius:999px; min-height:24px; cursor:pointer;
+  background:var(--bg-surface); border:1px solid var(--border-subtle); color:var(--text-primary); }
+.chip.empty { background:transparent; border:1px dashed var(--border-secondary); color:var(--text-secondary); }
+.chip .nm { max-width:22ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chip .car { color:var(--text-muted); font-size:9px; }
+.pop { position:fixed; z-index:5; margin-top:4px; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:8px; padding:4px; min-width:220px; box-shadow:0 8px 24px rgba(0,0,0,.35); font-size:12px; }
+.pop button { all:unset; display:flex; gap:8px; width:100%; box-sizing:border-box; padding:6px 8px; border-radius:6px; cursor:pointer; color:var(--text-primary); }
+.pop button:hover, .pop button:focus-visible { background:var(--bg-hover); }
+.pop hr { border:0; border-top:1px solid var(--border-primary); margin:4px 0; }
+.pop .danger { color:var(--err); }
+.pop .cap { font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-tertiary); padding:4px 8px; }
+.rel { position:relative; display:inline-flex; }
+/* worktree identity segment */
+.wt { display:inline-flex; align-items:center; gap:6px; padding:0 9px; font-size:11px; color:var(--text-secondary); border-right:1px solid var(--border-subtle); white-space:nowrap; }
+.wt .br { color:var(--text-primary); max-width:24ch; overflow:hidden; text-overflow:ellipsis; }
+.wt .base { color:var(--text-muted); }
+.wt .dirty { color:var(--warn); } .wt .ahead { color:var(--accent-text); } .wt .behind { color:var(--err); }
+.ctrls { display:flex; flex-wrap:wrap; gap:14px; align-items:center; font-size:12px; color:var(--text-secondary); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Composer: strip placement · attach/detach · worktree</h1>
+  <label><input type="checkbox" id="light"> Light</label>
+  <label>Frame width <input type="range" id="w" min="360" max="1500" value="1500"></label>
+</header>
+<main>
+<section>
+  <div class="ctrls">
+    <label>Change <select id="osstate" class="ctl"><option value="none">not attached</option><option value="planning">PLANNING</option><option value="implementing" selected>IMPLEMENTING 12/39</option><option value="complete">COMPLETE</option></select></label>
+    <label>PR <select id="prstate" class="ctl"><option value="none">not pushed</option><option value="pushed">pushed, no PR</option><option value="draft">draft</option><option value="open" selected>open ✓</option><option value="failing">open ✕</option><option value="merged">merged</option></select></label>
+    <label>Worktree <select id="wtstate" class="ctl"><option value="clean">clean, in sync</option><option value="dirty" selected>3 changed, ↑2</option><option value="behind">↓4 behind base</option><option value="main">main checkout (no worktree)</option></select></label>
+  </div>
+  <p class="why" style="margin-top:8px">Attach and detach now live on the <b>change chip</b>. Unattached, it's a dashed <code>📎 Attach change…</code> button that opens the picker. Attached, the chip is the change name; clicking it opens Switch change… / Open proposal / Detach (the VS Code branch-picker model: the name <em>is</em> the switcher). The <code>⋯</code> keeps workflow actions only. The Git group starts with the <b>worktree identity</b>: branch, base, and dirty/ahead/behind from <code>gitStatus</code>; the tooltip shows <code>mainPath</code> and the worktree name.</p>
+</section>
+
+<section><h2>1 · Above the card (today's position)</h2>
+  <div class="frame"><div class="row vb va" id="p1s"></div>
+    <div class="card" style="margin-top:8px"><textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea><div class="tb" data-tb></div></div></div>
+</section>
+
+<section><h2>2 · Inside the card, top row (context-chip pattern: Copilot, Cursor, Claude.ai)</h2>
+  <div class="frame"><div class="card"><div class="ctxrow row vb va" id="p2s"></div>
+    <textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea><div class="tb" data-tb></div></div></div>
+</section>
+
+<section><h2>3 · Inside the card, footer below the toolbar</h2>
+  <div class="frame"><div class="card"><textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea><div class="tb" data-tb></div>
+    <div class="ctxrow bottom row vb va" id="p3s"></div></div></div>
+</section>
+
+<section><h2>4 · Split: change chip + OpenSpec inside, Git/Quota as a status bar below (VS Code model)</h2>
+  <div class="frame"><div class="card"><div class="ctxrow row vb va" id="p4a"></div>
+    <textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea><div class="tb" data-tb></div></div>
+    <div class="status-below flat row vb va" id="p4b"></div></div>
+  <ul class="notes">
+    <li>Message context (the attached change) sits where you type, like attached-file chips.</li>
+    <li>Session status (Git, Quota) sits in a quiet bar under the card, like the VS Code status bar: no fill, so it reads as status, not as controls.</li>
+  </ul>
+</section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+if (new URLSearchParams(location.search).get('theme')==='light'){document.documentElement.dataset.theme='light';$('#light').checked=true;}
+$('#light').onchange = (e) => document.documentElement.dataset.theme = e.target.checked ? 'light' : 'dark';
+$('#w').oninput = (e) => document.querySelectorAll('.frame').forEach(f => f.style.width = e.target.value + 'px');
+
+const TB = `<span>＋</span><span class="mono">anthropic/claude-opus-5-5 ▾</span><span class="mono">💡 medium</span><span class="seg2"><span class="on">⚑ Steer</span><span>≡ Queue</span></span><span class="sp"></span><span>▣</span><span class="send">➤</span>`;
+document.querySelectorAll('[data-tb]').forEach(t => t.innerHTML = TB);
+
+const SEGC = {done:'var(--status-idle)', current:'var(--status-working)', todo:'var(--text-muted)', skipped:'var(--status-idle)'};
+function seg(letter,name,state,o={}){ const tag=o.inert?'div':'button';
+  const fill=o.fill!=null?`<span class="openspec-seg-fill" style="width:${o.fill}%"></span>`:'';
+  const lbl=o.count?`<span class="openspec-seg-short openspec-seg-count">${o.count}</span><span class="openspec-seg-full">${name} <span class="openspec-seg-count">${o.count}</span></span>`:`<span class="openspec-seg-full">${name}</span><span class="openspec-seg-short">${letter}</span>`;
+  return `<${tag} class="openspec-seg${o.tasks?' openspec-seg-tasks':''}" data-state="${state}"${o.inert?' data-inert':''} style="--seg-color:${SEGC[state]}" aria-label="${name}, ${state}"><span class="openspec-seg-track" aria-hidden="true">${fill}</span><span class="openspec-seg-label" aria-hidden="true">${lbl}</span></${tag}>`; }
+function bar(st,tk){ return `<span class="openspec-lifecycle-bar" role="group" aria-label="OpenSpec lifecycle">`+seg('P','Proposal',st[0])+seg('D','Design',st[1])+seg('S','Specs',st[2])
+  +seg('T','Tasks',st[3],{tasks:true,fill:tk?Math.round(tk.c/tk.t*100):0,count:tk?`${tk.c}/${tk.t}`:null,inert:!tk})+seg('A','Archive',st[4],{inert:st[4]!=='current'})+`</span>`; }
+const more = `<button class="b icon act" aria-label="More OpenSpec actions" aria-haspopup="dialog" title="FF · Verify · Archive anyway… · Explore…">⋯</button>`;
+
+let popId = 0;
+function changeChip(attached){
+  const id = 'pop'+(++popId);
+  if (!attached) return `<span class="rel"><button class="chip empty" aria-haspopup="dialog" aria-expanded="false" data-pop="${id}">📎 Attach change…</button>
+    <div class="pop" id="${id}" hidden role="dialog" aria-label="Attach change"><div class="cap">Active changes</div><button>compact-openspec-lifecycle-bar</button><button>align-ui-with-theme-tokens</button><button>add-untrusted-content-guard</button><hr><button>＋ New change…</button></div></span>`;
+  return `<span class="rel"><button class="chip" aria-haspopup="dialog" aria-expanded="false" data-pop="${id}" title="Attached change: compact-openspec-lifecycle-bar">📎 <span class="nm">compact-openspec-lifecycle-bar</span><span class="car">▾</span></button>
+    <div class="pop" id="${id}" hidden role="dialog" aria-label="Attached change"><button>📄 Open proposal</button><button>⇄ Switch change…</button><hr><button class="danger">⊘ Detach</button></div></span>`;
+}
+function openspec(k, withLabel=true){
+  const lbl = withLabel ? `<span class="lbl" aria-hidden="true">OpenSpec</span>` : '';
+  if (k==='none') return `<div class="grp" role="group" aria-label="OpenSpec">${lbl}${changeChip(false)}<button class="b c-info act">◎ <span class="t">Explore</span></button></div>`;
+  const cfg = { planning:[['done','current','todo','todo','todo'],null,'› Continue'], implementing:[['done','skipped','done','current','todo'],{c:12,t:39},'▶ Apply'], complete:[['done','done','done','done','current'],{c:39,t:39},'⌫ Archive'] }[k];
+  return `<div class="grp" role="group" aria-label="OpenSpec">${lbl}${changeChip(true)}${bar(cfg[0],cfg[1])}<button class="b primary act">${cfg[2]}</button>${more}</div>`;
+}
+const PR = {
+  none:{seg:'',acts:`<button class="b c-warn act">⇧ <span class="t">Push</span></button>`},
+  pushed:{seg:'',acts:`<button class="b c-acc act">⇅ <span class="t">Open PR</span></button>`},
+  draft:{seg:`<a class="b c-mut pr" href="#">◌ #748 <span class="t">draft</span></a>`,acts:`<button class="b c-warn act">⇧ <span class="t">Push</span></button>`},
+  open:{seg:`<a class="b c-ok pr" href="#">● #747 <span class="t">open · ✓</span></a>`,acts:`<button class="b c-warn act">⇧ <span class="t">Push</span></button><button class="b c-ok act">⑂ <span class="t">Merge</span></button>`},
+  failing:{seg:`<a class="b c-err pr" href="#">● #742 <span class="t">open · ✕ 2</span></a>`,acts:`<button class="b c-warn act">⇧ <span class="t">Push</span></button><button class="b c-mut act" disabled title="Checks failing">⑂ <span class="t">Merge</span></button>`},
+  merged:{seg:`<a class="b c-pur pr" href="#">⑂ #745 <span class="t">merged</span></a>`,acts:''},
+};
+const WT = {
+  clean:  `<span class="dim" title="in sync">✓ clean</span>`,
+  dirty:  `<span class="dirty" title="3 changed files">● 3</span><span class="ahead" title="2 commits ahead">↑2</span>`,
+  behind: `<span class="behind" title="4 commits behind">↓4</span>`,
+};
+function git(pr, wt){
+  if (wt==='main') return '';
+  const p = PR[pr];
+  const ident = `<span class="wt" title="Worktree os-align-ui-with-theme-tokens · main: ~/Project/pi-agent-dashboard"><span aria-hidden="true">⎇</span><span class="br mono">os/align-ui-with-theme-tokens</span><span class="base">← develop</span>${WT[wt]}</span>`;
+  return `<div class="grp" role="group" aria-label="Git worktree"><span class="lbl" aria-hidden="true">Git</span>${ident}${p.seg}${p.acts}<button class="b c-err danger act" aria-label="Close worktree" title="Close worktree">✕</button></div>`;
+}
+const QUOTA = `<div class="grp info" role="group" aria-label="Quota"><span class="lbl" aria-hidden="true">Quota</span><span class="q"><b>Anthropic</b> 7d <span class="bar"><i style="width:41%"></i></span> 41%</span><span class="q"><b>OpenCode</b> 30d <span class="bar"><i class="e" style="width:87%"></i></span> 87%</span></div>`;
+
+function render(){
+  popId = 0;
+  const os=$('#osstate').value, pr=$('#prstate').value, wt=$('#wtstate').value;
+  const all = openspec(os)+git(pr,wt)+QUOTA;
+  $('#p1s').innerHTML = all; $('#p2s').innerHTML = all; $('#p3s').innerHTML = all;
+  $('#p4a').innerHTML = openspec(os,false);
+  $('#p4b').innerHTML = git(pr,wt)+QUOTA+`<span class="hint">85% context</span>`;
+  document.querySelectorAll('[data-pop]').forEach(b => b.onclick = (e) => { e.stopPropagation();
+    const pop = document.getElementById(b.dataset.pop); const open = pop.hidden; closeAll(); pop.hidden = !open; const r = b.getBoundingClientRect(); pop.style.left = r.left+'px'; pop.style.top = (r.bottom+4)+'px'; if (open) pop.querySelector('button')?.focus(); b.setAttribute('aria-expanded', String(open)); });
+}
+function closeAll(){ document.querySelectorAll('.pop').forEach(p => p.hidden = true); document.querySelectorAll('[data-pop]').forEach(b => b.setAttribute('aria-expanded','false')); }
+document.addEventListener('click', e => { if (!e.target.closest('.pop')) closeAll(); }); window.addEventListener('scroll', closeAll, true); document.addEventListener('keydown', e => { if (e.key==='Escape') closeAll(); });
+['#osstate','#prstate','#wtstate'].forEach(s => $(s).onchange = render);
+render();
+</script>
+</body>
+</html>

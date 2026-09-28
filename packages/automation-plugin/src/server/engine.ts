@@ -701,7 +701,7 @@ export function createEngine(deps: EngineDeps): Engine {
       .then((res) => {
         if (!res.success) {
           warn(`[engine] spawn failed for ${c.key}/${c.runId}: ${res.message ?? "unknown"}`);
-          finalizeChild(c, { status: "error", error: res.message ?? "spawn failed" });
+          finalizeChild(c, { status: "error", error: res.message ?? "session start failed" });
           return;
         }
         // Capture the process handle so Stop can kill the child even before its
@@ -1011,7 +1011,7 @@ export function createEngine(deps: EngineDeps): Engine {
     if (specs.length === 0) return null; // defensive: schema forbids this
     const warning =
       truncated > 0
-        ? `bounded to ${bound} concurrent spawn(s); ${truncated} child(ren) not spawned`
+        ? `bounded to ${bound} concurrent session(s); ${truncated} child(ren) not started`
         : undefined;
 
     const parentRec = storeStartParentRun(scopeBase, automation.name, {

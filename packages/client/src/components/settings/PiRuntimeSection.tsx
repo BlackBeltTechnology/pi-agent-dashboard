@@ -225,7 +225,7 @@ export function PiRuntimeSection() {
 						<ConsumerLane
 							testId="pi-lane-spawn"
 							accent="var(--accent-blue, #3b82f6)"
-							title={i18nT("piRuntime.laneSpawn", undefined, "Sessions spawn")}
+							title={i18nT("piRuntime.laneSpawn", undefined, "New sessions")}
 							version={data.spawn.version}
 							path={data.spawn.path}
 							pinned={data.spawn.pinned}
@@ -336,7 +336,7 @@ export function PiRuntimeSection() {
 						{i18nT(
 							"piRuntime.applyNote",
 							undefined,
-							"A spawn change affects newly started sessions only. An import change needs a server restart.",
+							"A session-runtime change affects newly started sessions only. An import change needs a server restart.",
 						)}
 					</p>
 					<p className="text-[11px] text-[var(--text-tertiary)]">
@@ -423,7 +423,7 @@ export function PiRuntimeSection() {
 									label={i18nT(
 										"piRuntime.customSpawn",
 										undefined,
-										"Custom spawn entry (pi)",
+										"Custom start entry (pi)",
 									)}
 									value={spawnCustom}
 									onChange={setSpawnCustom}
@@ -531,7 +531,7 @@ function CandidateRow(props: {
 			<div className="flex gap-2">
 				<SelectCell
 					testId={`${props.testId}-spawn`}
-					label={i18nT("piRuntime.colSpawn", undefined, "Spawn")}
+					label={i18nT("piRuntime.colSpawn", undefined, "New sessions")}
 					accent="var(--accent-blue, #3b82f6)"
 					checked={props.spawnSelected}
 					disabled={disabled}

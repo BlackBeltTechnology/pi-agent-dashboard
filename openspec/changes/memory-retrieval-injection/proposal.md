@@ -1,5 +1,21 @@
 # Query-aware retrieval injection for hermes memory
 
+> **SUPERSEDED (2026-09-24) by `openspec/changes/unify-context-manager`.**
+> Its target, `pi-hermes-memory`, is forked and retired by the umbrella (D1),
+> and query-aware injection becomes the manager's cue tier (D2, D5). Tier R
+> measured the distilled memory store as the weakest retriever (7% helpful vs
+> 34% raw session search; research doc §19), so ranking injection over it is
+> not the lever.
+>
+> **Carried over:**
+> - category pinning → the pinned tier (D2), phase 1 `context-manager-kernel`;
+> - "injection bumps a used signal" → `fired`/`followed` stats (D4/D5), phase 3;
+> - prompt sanitising and length-bounding before FTS → `prompt` triggers (D5),
+>   phase 3;
+> - fail-safe to no injection → the chassis fail-open rule (kernel K3).
+>
+> Kept for history; do not implement.
+
 ## Scope & Target (read first)
 
 **Implementation target is the external `pi-hermes-memory` npm package**, NOT this

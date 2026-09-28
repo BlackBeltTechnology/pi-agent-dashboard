@@ -163,12 +163,12 @@ describe("fileKind", () => {
     });
   });
 
-  it("E5 classifies .adoc and .asciidoc as the asciidoc viewer", () => {
+  it("E5 classifies .adoc and .asciidoc as the editable asciidoc viewer", () => {
     for (const ext of [".adoc", ".asciidoc"]) {
       expect(fileKind(abs(`doc${ext}`)), ext).toMatchObject({
         kind: "asciidoc",
         viewer: "asciidoc",
-        editable: false,
+        editable: true,
       });
     }
   });

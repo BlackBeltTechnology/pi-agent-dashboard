@@ -40,16 +40,24 @@ import type {
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
 import { ToolCallStep } from "./components/chat/ToolCallStep.js";
-import { PairLanding } from "./components/connectivity/PairLanding.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
+import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
+import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
-import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
+
+// `/pair` is a device-only landing; load it on demand so it stays off the
+// dashboard's cold-landing entry chunk (mdi-chunk-size gzip cap).
+// See change: add-pairing-approval-dialog.
+const PairLanding = React.lazy(() =>
+  import("./components/connectivity/PairLanding.js").then((m) => ({ default: m.PairLanding })),
+);
 
 // Global unhandled-rejection reporter — the regression guard for the promise
 // handling cleanup. Installed as the first executable statement so a rejection
@@ -100,6 +108,9 @@ registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.actionList, ActionList)
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.statusPill, StatusPill);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.popover, Popover);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.logBlock, LogBlock);
+// Generic OAuth sign-in flow body for plugin settings sections.
+// See change: expose-plugin-credential-and-oauth-seams (D6).
+registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.oauthFlow, OAuthFlowView);
 
 // `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
 // MinimalChatView) consume this to render tool calls with the same
@@ -159,6 +170,9 @@ registerUiPrimitive(
 // same-origin `/api/*` request carries the bearer.
 // See change: make-pairing-qr-camera-scannable.
 installDeviceAuthFetch();
+// Echo the in-memory access-prompt capability on same-origin `/api/*` requests
+// so a denied read can be held for a verdict. See change: add-access-grant-dialog.
+installGrantChannelFetch();
 
 // `/pair` — the phone-camera pairing landing. A scanned pairing QR opens
 // `https://<tls-endpoint>/pair#<payload>`; this route decodes the fragment and
@@ -178,7 +192,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <I18nProvider>
             <MobileProvider>
-              {isPairRoute ? <PairLanding /> : <App />}
+              {isPairRoute ? (
+                <React.Suspense fallback={null}>
+                  <PairLanding />
+                </React.Suspense>
+              ) : (
+                <App />
+              )}
             </MobileProvider>
           </I18nProvider>
         </ThemeProvider>

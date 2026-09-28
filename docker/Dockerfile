@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.85.1 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.86.1 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -182,6 +182,11 @@ COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY --chmod=0755 docker/supervise-daemon.sh /usr/local/bin/supervise-daemon.sh
 COPY docker/scripts ./docker/scripts
 
+# Opt-in: keep `fixture: true` plugin clients (demo-plugin) in the production
+# bundle. Empty by default, so the deployment image is unchanged; the test
+# overlay (compose.test.yml) passes "1". Visible to the RUN below as an env var.
+# See change: expose-plugin-credential-and-oauth-seams (D8).
+ARG PI_DASHBOARD_FIXTURE_PLUGINS=""
 # pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml
 # (so the npm/cli#4828 lockfile-nuke hack — which dropped
 # @rollup/rollup-linux-x64-gnu on the linux build — is no longer needed).

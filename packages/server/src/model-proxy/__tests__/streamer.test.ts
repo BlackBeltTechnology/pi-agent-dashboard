@@ -5,8 +5,8 @@
  *
  * See change: add-dashboard-model-proxy, tasks 6.2 + 6.3.
  */
-import { describe, it, expect, vi } from "vitest";
-import { streamCompletion } from "../streamer.js";
+import { describe, expect, it, vi } from "vitest";
+import { callPiAiStreamSimple, streamCompletion } from "../streamer.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -135,5 +135,107 @@ describe("streamCompletion", () => {
     expect(elapsed).toBeLessThan(200);
     // Only events before abort emitted
     expect(collected.length).toBeLessThanOrEqual(2);
+  });
+});
+
+// ── adopt-piai-factory-api-registry: deferral guard (test-plan #X11) ─────────
+
+/**
+ * The proxy route at `server.ts` builds its context with a `system:` key,
+ * while pi-ai's contract is `systemPrompt:`. Proxy system prompts are
+ * therefore ALREADY dropped today under 0.75.5.
+ *
+ * Repairing that turns them back on — a behaviour change that must not ride a
+ * compatibility change (design Non-Goals). This pins the current behaviour so
+ * a silent "fix" fails here instead of shipping unnoticed, and so a later
+ * deliberate repair has to delete this test on purpose.
+ */
+describe("deferral guard — the system:/systemPrompt: mismatch stays as-is", () => {
+  /** Verbatim copy of the route's context assembly (`server.ts`). */
+  const routeContext = (opts: any) => ({
+    messages: opts.messages,
+    system: opts.system,
+    tools: opts.tools,
+  });
+
+  it("X11: the proxy route still emits `system:`, NOT `systemPrompt:`", () => {
+    const ctx = routeContext({ messages: [], system: "ROUTE PROMPT", tools: [] });
+    expect(ctx).toHaveProperty("system", "ROUTE PROMPT");
+    expect(ctx).not.toHaveProperty("systemPrompt");
+  });
+
+  it("X11: the seam does not remap `system:` into the transcript", async () => {
+    const { adaptPiAi } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js"
+    );
+    const { FIXTURE_PATH, makeFactoryFixture } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/test-support/piai-factory-fixture.js"
+    );
+    const fx = makeFactoryFixture();
+    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+
+    const stream = module.streamSimple(
+      { provider: "anthropic", id: "claude-opus-5", api: "anthropic-messages" },
+      routeContext({ messages: [{ role: "user", content: "hi" }], system: "ROUTE PROMPT" }),
+      {},
+    );
+    for await (const _ of stream) {
+      // drain
+    }
+
+    // Unchanged from pre-change behaviour: the prompt does NOT reach the
+    // provider, because normalizeContext reads `systemPrompt`, not `system`.
+    expect(JSON.stringify(fx.dispatches[0].context)).not.toContain("ROUTE PROMPT");
+  });
+
+  // The OTHER caller is unaffected: `streamCompletion` already maps
+  // `system` -> `systemPrompt`, so only the direct route path drops it.
+  it("X11: streamCompletion still maps opts.system to systemPrompt, unchanged", async () => {
+    const streamSimple = vi.fn().mockReturnValue(fakeStream([]));
+    await streamCompletion(
+      { model: makeModel(), messages: [], system: "S" },
+      streamSimple as any,
+      makeRegistry(),
+    );
+    const [, contextArg] = streamSimple.mock.calls[0];
+    expect(contextArg.systemPrompt).toBe("S");
+  });
+});
+
+// ── Route adapter (server.ts /v1 wiring) ────────────────────────────────────
+
+describe("callPiAiStreamSimple", () => {
+  const routeOpts = (extra: Record<string, unknown> = {}) => ({
+    model: makeModel(),
+    messages: [{ role: "user", content: "hi" }],
+    apiKey: "sk-x",
+    headers: { h: "1" },
+    ...extra,
+  });
+
+  it("maps route `system` onto pi-ai Context.systemPrompt (not `system`)", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    callPiAiStreamSimple(fn, routeOpts({ system: "be terse" }));
+    const [modelArg, contextArg] = fn.mock.calls[0];
+    expect(modelArg).toEqual(makeModel());
+    expect(contextArg.systemPrompt).toBe("be terse");
+    expect(contextArg).not.toHaveProperty("system");
+  });
+
+  it("omits systemPrompt/tools when absent and forwards messages + options", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    const opts = routeOpts();
+    expect(callPiAiStreamSimple(fn, opts)).toBe("stream");
+    const [, contextArg, optionsArg] = fn.mock.calls[0];
+    expect(contextArg).toEqual({ messages: opts.messages });
+    expect(optionsArg.apiKey).toBe("sk-x");
+    expect(optionsArg.headers).toEqual({ h: "1" });
+  });
+
+  it("forwards tools on the context", () => {
+    const fn = vi.fn().mockReturnValue("stream");
+    const tools = [{ name: "t", description: "d", parameters: {} }];
+    callPiAiStreamSimple(fn, routeOpts({ tools }));
+    expect(fn.mock.calls[0][1].tools).toBe(tools);
   });
 });

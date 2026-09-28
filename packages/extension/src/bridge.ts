@@ -38,13 +38,19 @@ import { registerCanvasTool } from "./canvas-tool.js";
 import {
   buildUserMessageContent,
   createCommandHandler,
-  NO_RELOAD_PATH_REASON,
-  type ReloadOutcome,
   tryExecSlashTemplate,
   validateImages,
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager, type WatchdogFireInfo } from "./connection.js";
+import {
+  consumePendingReloadOnSessionStart,
+  createTerminalReload,
+  isBridgeReentry,
+  RELOAD_COMMAND_NAME,
+  releaseBridgeOwnerOnShutdown,
+  reloadCompletedFeedback,
+} from "./terminal-reload.js";
 import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
@@ -52,7 +58,7 @@ import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
-import { mapEventToProtocol } from "./event-forwarder.js";
+import { mapEventToProtocol, redactCompactionEntry } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -61,11 +67,14 @@ import {
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { runGitPollTick } from "./git-poll.js";
+import { createPrStatusScheduler, handleGitInfoRefresh, type PrStatusScheduler } from "./pr-status.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
@@ -219,7 +228,10 @@ function initBridge(pi: ExtensionAPI) {
   // If bridge is already active for a different pi instance (e.g. a subagent
   // loading extensions in the same process), skip initialization to avoid
   // invalidating the parent session's bridge connection and event forwarding.
-  if (prev.generation && prev.generation > 0 && prev.pi && prev.pi !== pi) {
+  // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
+  // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
+  // See change: fix-terminal-session-dashboard-reload (D4).
+  if (isBridgeReentry(prev, pi)) {
     return;
   }
 
@@ -326,7 +338,41 @@ function initBridge(pi: ExtensionAPI) {
     if (ownPgid !== undefined) selfSpawnedPgids.add(ownPgid);
   }
   let lastGitBranch: string | undefined;
-  let lastGitPrNumber: number | undefined;
+  let lastGitPrJson: string | undefined; // see change: redesign-composer-session-strip
+  // Async PR-status scheduler: `gh pr view` off the 30 s tick, own ≥120 s
+  // cadence + forced refresh on `git_info_refresh`. Timers are registered in
+  // the bridge-timer registry so a reload cannot leak them; probe completion
+  // re-runs the one git change-detector. See change:
+  // redesign-composer-session-strip (D5).
+  const unregisterTimer = (timer: ReturnType<typeof setTimeout>) => {
+    const timers = getBridgeState().timers;
+    const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
+    if (index !== -1) timers!.splice(index, 1);
+  };
+  const prStatus: PrStatusScheduler = createPrStatusScheduler({
+    probe: (cwd) => git.prStatusAsync({ cwd }),
+    // A reload starts a new bridge incarnation; the old scheduler must not
+    // keep probing into the new timer registry. See change:
+    // redesign-composer-session-strip (doubt-review #2).
+    alive: isActive,
+    onChange: () => {
+      if (isActive() && cachedCwd) sendGitInfoIfChanged(cachedCwd);
+    },
+    // One-shot timers leave the registry when they fire as well as when they
+    // are cleared, so a long-lived session never accumulates dead handles.
+    setTimer: (fn, ms) => {
+      const timer = setTimeout(() => {
+        unregisterTimer(timer);
+        fn();
+      }, ms);
+      getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
+      return timer;
+    },
+    clearTimer: (timer) => {
+      clearTimeout(timer);
+      unregisterTimer(timer);
+    },
+  });
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog
   let lastGitStatusJson: string | undefined; // see change: add-session-uncommitted-indicator-and-commit
   let lastCwdMissing: boolean | undefined; // see change: add-worktree-lifecycle-actions
@@ -450,10 +496,14 @@ function initBridge(pi: ExtensionAPI) {
   // Per-message generation for the coalescing barrier. Distinct from the
   // bridge-instance `generation` above, which only changes on `initBridge` and
   // so gives no intra-session ordering. Incremented on EVERY `message_start`
-  // (user and assistant): a retry chain or a new turn must reset the barrier
-  // too. Folded into the message key rather than compared standalone, because a
-  // `message_update` carries no generation of its own — an update can only be
-  // stamped with the counter's current value.
+  // (user, assistant and — for the barrier only — `system`): a retry chain or a
+  // new turn must reset the barrier too. A `system` message reaches the barrier
+  // and then returns, so it opens an identity no `message_update` can ever
+  // match (pi emits its start/end adjacently — see
+  // filter-system-role-message-forwarding design D2). Folded into the message
+  // key rather than compared standalone, because a `message_update` carries no
+  // generation of its own — an update can only be stamped with the counter's
+  // current value.
   // See change: coalesce-bridge-message-update-snapshots (D4).
   let assistantMessageGen = 0;
 
@@ -1068,6 +1118,22 @@ function initBridge(pi: ExtensionAPI) {
   // than the value, so all ~100 `connection.send(...)` sites follow the session
   // to its new dashboard without being rewritten (task 9.4).
   // biome-ignore lint/style/useConst: reassigned by the move command below.
+  // Private plugin request/reply lane (bridge half). The global symbol is
+  // installed only while the socket is open; a close fails pending calls
+  // `disconnected`. See change: expose-plugin-credential-and-oauth-seams (D7).
+  // Non-buffering send: a request must never be replayed after a reconnect.
+  const pluginRequests = createPluginRequestClient({ send: (m) => connection.sendIfOpen(m) });
+  let uninstallPluginRequest: (() => void) | null = null;
+  const pluginLaneUp = (): void => {
+    uninstallPluginRequest?.();
+    uninstallPluginRequest = installPluginRequest(pluginRequests.request);
+  };
+  const pluginLaneDown = (): void => {
+    uninstallPluginRequest?.();
+    uninstallPluginRequest = null;
+    pluginRequests.failAll("disconnected");
+  };
+
   let connection = new ConnectionManager({
     url: dashboardUrl,
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
@@ -1114,6 +1180,16 @@ function initBridge(pi: ExtensionAPI) {
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).
     getSessionId: () => sessionId,
+    // Lane lifecycle follows the CURRENT connection only: after a
+    // `/dashboard-connect` move, `connection` is rebound to the target.
+    onOpen: () => {
+      if (!isActive() || connection !== primaryConnection) return;
+      pluginLaneUp();
+    },
+    onClose: () => {
+      if (connection !== primaryConnection) return;
+      pluginLaneDown();
+    },
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
@@ -1180,6 +1256,11 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Legacy extension_ui_response removed — now handled by prompt_response → promptBus.respond()
+      if (msg.type === "plugin_reply") {
+        // Resolves the caller's Promise only — never re-emitted on pi.events.
+        pluginRequests.handleReply(msg);
+        return;
+      }
       if (msg.type === "mcp_token_minted") {
         // D5: the minted MCP bearer arrives on the session-private lane. The
         // delivery module assigns it to this process's env and triggers the
@@ -1273,6 +1354,10 @@ function initBridge(pi: ExtensionAPI) {
         getBridgeState().shouldStopAfterTurn = true;
         return;
       }
+      // Forced PR-status probe after a worktree Push / Open PR. The server
+      // only targets bridges whose cwd is inside the worktree. See change:
+      // redesign-composer-session-strip (D5).
+      if (handleGitInfoRefresh(msg, prStatus)) return;
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -1608,9 +1693,14 @@ function initBridge(pi: ExtensionAPI) {
       connection.send({ type: "session_heartbeat", sessionId, agentRunning: false });
     }),
   });
+  // The lane's lifecycle hooks compare against this to ignore a moved-away origin.
+  const primaryConnection = connection;
 
   // Track connection so future bridge incarnations can disconnect it
   getBridgeState().connections!.push(connection);
+
+  // See change: fix-terminal-session-dashboard-reload.
+  const terminalReload = createTerminalReload({ pi, getSessionId: () => sessionId });
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
@@ -1705,36 +1795,13 @@ function initBridge(pi: ExtensionAPI) {
         cachedCtx.compact(opts);
       }
     },
-    // Terminal-hosted fast path only. Dashboard-spawned headless sessions are
-    // reloaded by the SERVER writing `/__dashboard_reload` to their keeper UDS
-    // (`dispatchReload`), which needs no TUI bootstrap and no live bridge WS.
-    //
-    // The captured fn is single-use per process: it closes over the ctx of the
-    // invocation that captured it, and the first `ctx.reload()` invalidates
-    // that runner — so a SECOND call throws SYNCHRONOUSLY out of
-    // `assertActive()`, which a `.catch()` on the returned promise cannot
-    // catch. Hence the try/catch around BOTH the call and the await.
-    //
-    // Awaited, not fire-and-forget: returning `{ok:true}` before the promise
-    // settles means an async rejection lands AFTER `command_feedback
-    // {completed}` was already emitted — the exact false success this change
-    // removes.
-    // See change: fix-out-of-band-reload (design.md D5).
-    reload: async (): Promise<ReloadOutcome> => {
-      const reloadFn = (globalThis as any)[RELOAD_KEY] as (() => Promise<void>) | undefined;
-      if (!reloadFn) {
-        console.error("[dashboard] reload not available — type /__dashboard_reload in pi TUI once to bootstrap");
-        return { ok: false, reason: NO_RELOAD_PATH_REASON };
-      }
-      try {
-        await reloadFn();
-      } catch (err: any) {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.error("[dashboard] reload failed:", err);
-        return { ok: false, reason: `Reload failed: ${reason}` };
-      }
-      return { ok: true };
-    },
+    // Terminal-hosted path only. Dashboard-spawned headless sessions are
+    // reloaded by the SERVER via kill-and-respawn (`dispatchReload`).
+    // Self-dispatches `/__dashboard_reload <token>` in-process (pi >= 0.84.2);
+    // resolves `handedOff` on success, because the RELOADED instance reports
+    // `completed` after re-registering. See `terminal-reload.ts`.
+    // See change: fix-terminal-session-dashboard-reload (D1/D3/D4).
+    reload: terminalReload.reload,
     spawnNew: () => {
       connection.send({ type: "spawn_new_session", sessionId, cwd: process.cwd() });
     },
@@ -1760,15 +1827,15 @@ function initBridge(pi: ExtensionAPI) {
 
       // Extension-command dispatch (routing step 9). When matched, the helper
       // emits its own command_feedback events and we MUST NOT fall through.
-      // The `connection` arg enables Path C (headless RPC → server-routed
-      // dispatch via the keeper UDS); see change:
-      // add-rpc-stdin-dispatch-with-keeper-sidecar.
+      // One in-process `sendUserMessage({expandPromptTemplates:true})` works in
+      // every session shape; the old headless-only RPC path is retired.
+      // See change: retire-slash-dispatch-via-expand-prompt-templates.
       const handled = await tryDispatchExtensionCommand(
         pi,
         text,
         sessionId,
         (msg) => connection.send(msg),
-        connection,
+        delivery,
       );
       if (handled) {
         // Non-turn dispatch route: settle optimistic idle bubble (no message_start
@@ -1849,20 +1916,13 @@ function initBridge(pi: ExtensionAPI) {
     disarmRetryChain: () => retryTracker.noteExplicitRun(sessionId),
   });
 
-  // Reload support: extension events only provide ExtensionContext (no reload).
-  // ExtensionCommandContext (with reload()) is only available in command handlers.
-  // We register __dashboard_reload command; invoking /__dashboard_reload from pi TUI
-  // captures ctx.reload(). After first capture, dashboard-triggered reloads work.
-  // The captured fn is stored in globalThis to survive module reloads.
-  const RELOAD_KEY = "__pi_dashboard_reload_fn__";
-
-  pi.registerCommand("__dashboard_reload", {
-    handler: async (_args: string, ctx: any) => {
-      if (ctx?.reload) {
-        (globalThis as any)[RELOAD_KEY] = () => ctx.reload();
-        await ctx.reload();
-      }
-    },
+  // Reload support: only a command handler's ctx has `reload()`. The bridge
+  // self-dispatches this command (dashboard reload, token arg); a human may
+  // also type it in the TUI (no args, no dashboard feedback). Nothing callable
+  // is cached — every dispatch gets a fresh command ctx.
+  // See change: fix-terminal-session-dashboard-reload (D1/D3).
+  pi.registerCommand(RELOAD_COMMAND_NAME, {
+    handler: (args: string, ctx: any) => terminalReload.handleReloadCommand(args, ctx),
   });
 
   /**
@@ -1936,7 +1996,17 @@ function initBridge(pi: ExtensionAPI) {
             url,
             headers: localTokenHeaders(url),
             getSessionId: () => sessionId,
-            onMessage: (data) => handler(data),
+            onMessage: (data) => {
+              // Plugin lane replies resolve the caller's Promise only.
+              if ((data as { type?: unknown } | null)?.type === "plugin_reply") {
+                pluginRequests.handleReply(data as { requestId?: unknown });
+                return;
+              }
+              handler(data);
+            },
+            onClose: () => {
+              if (connection === targetManager) pluginLaneDown();
+            },
             // The move REBINDS `connection` to this manager, so without this
             // every post-move force-close would be silent again.
             onWatchdogFire: (w) => {
@@ -1948,6 +2018,7 @@ function initBridge(pi: ExtensionAPI) {
             // provisional registration is announced, and a send before the
             // socket is live would be silently dropped.
             onOpen: () => {
+              if (connection === targetManager) pluginLaneUp();
               targetManager?.send({
                 type: "session_register",
                 sessionId,
@@ -1989,6 +2060,9 @@ function initBridge(pi: ExtensionAPI) {
       // Rebind: from here every `connection.send(...)` in this module reaches
       // the new dashboard.
       if (targetManager) connection = targetManager;
+      // The origin's close already took the plugin lane down; bring it up on
+      // the target now that it is the current connection.
+      if (connection.isConnected) pluginLaneUp();
       dashboardUrl = resolved.endpoint;
       registeredInstanceId = expectInstanceId;
       console.error(`[dashboard] moved to ${describeConnectTarget(parsed)} (${expectInstanceId})`);
@@ -2024,6 +2098,7 @@ function initBridge(pi: ExtensionAPI) {
         `endpoint: ${dashboardUrl}`,
         `instance: ${registeredInstanceId ?? "unverified"}`,
         `pinned:   ${endpointPinned ? "yes (explicit configuration)" : "no (resolved from the $HOME rendezvous record)"}`,
+        `pr-probe: ${prStatus.invocations()} gh invocation(s) this bridge`,
       ];
       console.error(`[dashboard] where:\n${lines.join("\n")}`);
     },
@@ -2036,13 +2111,14 @@ function initBridge(pi: ExtensionAPI) {
       cachedCtx, cachedModelRegistry, cachedHasUI,
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
-      lastGitBranch, lastGitPrNumber, lastSessionName,
+      lastGitBranch, lastGitPrJson, lastSessionName,
       lastGitWorktreeJson,
       lastGitStatusJson,
       lastCwdMissing,
       hasRegisteredOnce,
       dashboardSpawned,
       selfSpawnedPgids,
+      prStatus,
     };
   }
   /** Sync BridgeContext mutations back to local variables */
@@ -2058,7 +2134,7 @@ function initBridge(pi: ExtensionAPI) {
     lastSessionDir = bc.lastSessionDir;
     lastFirstMessage = bc.lastFirstMessage;
     lastGitBranch = bc.lastGitBranch;
-    lastGitPrNumber = bc.lastGitPrNumber;
+    lastGitPrJson = bc.lastGitPrJson;
     lastSessionName = bc.lastSessionName;
     lastGitWorktreeJson = bc.lastGitWorktreeJson;
     lastGitStatusJson = bc.lastGitStatusJson;
@@ -2073,8 +2149,23 @@ function initBridge(pi: ExtensionAPI) {
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
 
   // ── add-auto-session-naming ──────────────────────────────────────────────
-  // Lazily acquire pi-ai's streamSimple the way the server's model-proxy does.
+  // Stream through pi's OWN `ctx.modelRegistry`, not a bare-imported pi-ai
+  // module (design D6). `ModelRuntime.streamSimple` already performs the full
+  // normalize → prepare → `provider.streamSimple` sequence with credentials pi
+  // has already resolved, so this is shorter than adapting a module AND it
+  // removes a compat surface instead of adding one.
+  //
+  // pi >= 0.85 exports no global `streamSimple` at all, so the old bare import
+  // silently yielded `undefined` and auto-naming never ran. The module import
+  // is kept only as a fallback for a pi older than `piCompatibility.minimum`.
+  // NOT cached across calls when it resolves from the registry: the registry
+  // is captured lazily, so caching a miss would pin auto-naming off for the
+  // whole session. See change: adopt-piai-factory-api-registry.
   async function loadStreamSimple(): Promise<StreamSimpleFn | undefined> {
+    const registry: any = cachedModelRegistry;
+    if (typeof registry?.streamSimple === "function") {
+      return registry.streamSimple.bind(registry) as StreamSimpleFn;
+    }
     if (piAiStreamSimple !== undefined) return piAiStreamSimple ?? undefined;
     try {
       const mod: any = await import("@earendil-works/pi-ai");
@@ -2410,6 +2501,17 @@ function initBridge(pi: ExtensionAPI) {
         // the agent-loop path would double-forward here). See change:
         // render-inline-reasoning-and-custom-entries (D2).
         if ((event as any).message?.role === "custom") return;
+        // pi >= 0.86.0 makes the system prompt/tool loadout transcript-backed:
+        // `agent-loop.js` emits the first request's `role:"system"` message with
+        // every prompt `section` and the full `toolsAdded` declaration list as a
+        // `message_start`/`message_end` pair (~150 KB per message, so both
+        // events cost ~2x that per session). The client has no `role:"system"`
+        // arm, so forwarding it is pure wire cost with no render. Return AFTER
+        // the barrier above (same placement as `custom`) so the barrier's
+        // contract — every `message_start` opens an identity — is unchanged.
+        // No version gate: pi < 0.86 never emits the role, so this is inert
+        // there. See change: filter-system-role-message-forwarding (D2).
+        if ((event as any).message?.role === "system") return;
         wrapAppendMessageForCtx(ctx);
         // Lazy retry (review round 1): if session_start ran before the
         // sessionManager exposed its persistence methods, the wrapper would
@@ -2517,6 +2619,10 @@ function initBridge(pi: ExtensionAPI) {
         // the message_start guard above. See change:
         // render-inline-reasoning-and-custom-entries (D2).
         if ((event as any).message?.role === "custom") return;
+        // Same pi >= 0.86.0 system-role drop as the `message_start` arm above,
+        // after the same barrier. See change:
+        // filter-system-role-message-forwarding (D2).
+        if ((event as any).message?.role === "system") return;
         wrapAppendMessageForCtx(ctx);
         const messageRef = (event as any).message;
         const nonce = messageRef && typeof messageRef === "object"
@@ -2634,7 +2740,25 @@ function initBridge(pi: ExtensionAPI) {
       // `snapshotDetails()` object feeds both — so stripping one carrier only
       // is a half-fix. `tool_execution_end` is terminal and stays fat.
       // See change: reduce-subagent-details-payload (D2, task 3.8).
-      const msg = mapEventToProtocol(sessionId, event);
+      //
+      // `session_compact` is forwarded WITHOUT its `compactionEntry`. pi >= 0.86
+      // fills that entry's `systemMessage` with the same prompt-sections +
+      // tool-declaration checkpoint the system-role arms above drop, and carries
+      // the compaction `summary` beside it. No dashboard consumer reads either:
+      // the client renders the divider from the event's presence and the badge
+      // from `reason`/`willRetry`/`estimatedPostCompactionTokens`; the server
+      // uses the event only to clear the `compacting` latch. Redact on a COPY —
+      // pi hands the SAME event object to every subscribed extension, so a
+      // `delete event.compactionEntry` would strip the field from unrelated
+      // extensions too. The redaction stays OUT of `mapEventToProtocol` (which
+      // is generic over every forwarded type). No version gate: the field is
+      // simply omitted wherever it is absent.
+      // See change: filter-system-role-message-forwarding (D6/D7).
+      const forwardEvent =
+        eventType === "session_compact"
+          ? redactCompactionEntry(event as Record<string, unknown>)
+          : event;
+      const msg = mapEventToProtocol(sessionId, forwardEvent);
       let heldByThrottle = false;
       if (eventType === "tool_execution_update") {
         msg.event.data = stripForForward(msg.event.data as Record<string, unknown>);
@@ -2850,6 +2974,11 @@ function initBridge(pi: ExtensionAPI) {
     // On session switch/fork (0.65.0+: event.reason replaces session_switch/session_fork events),
     // unregister the old session before re-registering the new one.
     const reason = _event?.reason;
+    // Synchronous compare-and-set BEFORE any await: this instance was loaded
+    // by a dashboard-requested reload → it owns the `/reload` `completed`,
+    // emitted after `replay_complete` below.
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    const reloadDelivered = consumePendingReloadOnSessionStart(reason, newSessionId);
     if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
       // Clear any latched abort for the OUTGOING session id. Otherwise a
       // latched old session that is resumed later would have its first
@@ -3401,6 +3530,10 @@ function initBridge(pi: ExtensionAPI) {
     // Replay full session history so the dashboard has all messages
     replaySessionEntries();
     connection.send({ type: "replay_complete", sessionId });
+    // After replay_complete: inside the replay window the server may drop
+    // forwarded events without insert or broadcast (`skipReplayInsert`).
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    if (reloadDelivered) connection.send(reloadCompletedFeedback(sessionId));
     // If agent is mid-turn (e.g. reload during streaming), send synthetic agent_start
     if (getBridgeState().isAgentStreaming) {
       connection.send(mapEventToProtocol(sessionId, { type: "agent_start" }));
@@ -3778,8 +3911,11 @@ function initBridge(pi: ExtensionAPI) {
 
   }));
 
-  pi.on("session_shutdown", safe(async () => {
+  pi.on("session_shutdown", safe(async (event: any) => {
     if (!isActive()) return;
+    // Let the reloaded instance (fresh ExtensionAPI) pass the re-entry guard.
+    // See change: fix-terminal-session-dashboard-reload (D4).
+    releaseBridgeOwnerOnShutdown(getBridgeState(), event?.reason);
     getBridgeState().isAgentStreaming = false;
     stopMetricsMonitor();
     if (heartbeatTimer) {

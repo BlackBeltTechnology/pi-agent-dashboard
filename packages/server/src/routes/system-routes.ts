@@ -2,6 +2,7 @@
  * System REST API routes: config, health, shutdown, tunnel.
  */
 
+import { fixturePluginsEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,20 +23,22 @@ import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology
 import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import type { AccessGrantHealth } from "../access/access-health.js";
 import {
   computeBindReachability,
   getLastBindReachability,
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { localhostGuard } from "../auth/localhost-guard.js";
+import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
+import { getRegistryError } from "../auth/provider-auth-registry.js";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import type { DirectoryService } from "../directory-service.js";
 import {
   type ClientBuildSnapshot,
   readClientBuildSnapshot,
   runtimePluginRegistryHash,
 } from "../lib/client-dist.js";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
@@ -59,15 +62,15 @@ import {
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
 import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
-import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { ServerConfig } from "../server.js";
+import { serverHeapTelemetry } from "../server-heap-telemetry.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
 import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
-import { blockEvents } from "../tunnel/tunnel-block-events.js";
+import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
@@ -172,6 +175,18 @@ export function registerSystemRoutes(
     // self-records); `/api/health` reads its snapshot additively.
     // See change: attribute-openspec-poll-eventloop-stalls.
     eventLoopSpikes?: EventLoopSpikeMetrics;
+    // Access-grant prompting counters; `/api/health` reads them additively into
+    // `accessGrants`, failure-isolated like every other telemetry read.
+    // See change: add-access-grant-dialog (task 9.3).
+    readAccessGrants?: () => AccessGrantHealth;
+    // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
+    // `trustPosture` health field. Falls back to the boot list when unwired.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    readTrustedNetworks?: () => string[];
+    // Push config / transport-init errors. Wired only while push is enabled;
+    // served as `push.errors` behind `canDiscloseAccessPosture`.
+    // See change: add-server-push-notifications.
+    readPushErrors?: () => readonly string[];
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
     // DERIVED from the store's exported TrimStats, never restated inline: an
@@ -204,7 +219,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -221,7 +236,10 @@ export function registerSystemRoutes(
   // The plugin set is process-stable (`discoverPlugins` is cached and only the
   // build-side vite-plugin clears it), so a registration-time snapshot is both
   // cheaper and equivalent. See change: add-served-build-coherence-and-hash-parity.
-  const bundleHash = runtimePluginRegistryHash(!config.dev);
+  // Fixture clients are part of a production build only under the opt-in
+  // PI_DASHBOARD_FIXTURE_PLUGINS gate (docker test harness) — the same rule
+  // the vite plugin applied. See change: expose-plugin-credential-and-oauth-seams (D8).
+  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled());
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -387,14 +405,81 @@ export function registerSystemRoutes(
     },
   );
 
-  // Recent network-guard denials for the "Trust this network?" banner.
-  // Anti-poisoning buffer; trust/remove itself goes through PUT /api/config
-  // (config.trustedNetworks). Auth-gated.
+  // Recent network-guard denials = the pending-access-request queue. The same
+  // anti-poisoning buffer backs the "Trust this network?" banner; reading it is
+  // auth-gated (networkGuard), so an untrusted peer cannot enumerate it.
+  // See change: add-access-grants-and-review.
   fastify.get(
     "/api/tunnel/block-events",
     { preHandler: networkGuard },
     async () => {
       return { success: true, data: { events: blockEvents.list() } } satisfies ApiResponse;
+    },
+  );
+
+  // Accept a pending access request. The denial IS the request (design D5), so
+  // this path performs exactly one write: the recorded socket peer is added to
+  // trusted networks through the EXISTING config write path
+  // (`writeConfigPartial`, the same one `PUT /api/config` uses). The ledger is
+  // never mutated and never mutates policy.
+  //
+  // ACCEPT-PATH SECURITY REVIEW (task 4.9) — this is the one action that widens
+  // network trust, so the checks and their rationale:
+  //   * The peer must be PRESENT in the ledger. An IP with no recorded pending
+  //     request is refused, so this is not a generic "trust any host" endpoint.
+  //   * `trustable:false` (loopback / proxy-terminated) is REFUSED: its socket
+  //     peer is the tunnel/reverse-proxy itself, and trusting it would trust
+  //     every client behind it (task 4.7).
+  //   * The value written is the ledger's recorded socket peer
+  //     (`request.ip` at denial time), never a caller-supplied network. A
+  //     spoofed `X-Forwarded-For` cannot become the accepted value, and the
+  //     caller cannot widen the blast radius to a subnet through this path.
+  //   * Auth-gated by `networkGuard` like every sibling route, so an
+  //     unauthenticated remote cannot accept. A genuinely-local process is
+  //     trusted by the pre-existing loopback model (design D15's stated limit).
+  //   * The mutating-origin gate (`createMutationOriginGate`) runs BESIDE this
+  //     route for every `/api/*` POST, so a cross-site page cannot drive an
+  //     accept even in the operator's own browser.
+  //   * On a config-write failure the failure is REPORTED (design D11) rather
+  //     than claiming a grant that did not persist; the pending entry stays
+  //     queued for a retry.
+  //   * Every accept is AUDITED (STRIDE: Repudiation) — the widening action is
+  //     recorded server-side, not just in the persisted config.
+  fastify.post<{ Body: { ip?: unknown } }>(
+    "/api/tunnel/block-events",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const ip = request.body?.ip;
+      if (typeof ip !== "string" || ip.length === 0) {
+        return reply.code(400).send({ success: false, error: "ip required" });
+      }
+      const entry = blockEvents.list().find((e) => e.ip === ip);
+      if (!entry) {
+        return reply
+          .code(404)
+          .send({ success: false, error: "no pending access request for that peer" });
+      }
+      if (acceptTargetFor(entry) === null) {
+        return reply.code(403).send({
+          success: false,
+          error: "not_acceptable",
+          reason: "Loopback or proxy-terminated peer — trusting it would trust the whole tunnel.",
+        });
+      }
+      // The canonical UI write path for host trust is `auth.bypassHosts` (the
+      // trusted-networks spec forbids the UI writing top-level
+      // `config.trustedNetworks` directly); the guard merges both at runtime.
+      const existing = readConfigRedacted().auth?.bypassHosts ?? [];
+      if (!existing.includes(ip)) {
+        const written = writeConfigPartial({ auth: { bypassHosts: [...existing, ip] } });
+        if (!written.success) {
+          return reply.code(500).send({ success: false, error: written.error });
+        }
+      }
+      // Audit the one action that widens network trust. `ip` is the guard's
+      // recorded socket peer (server-derived), so it needs no sanitizing.
+      console.log(`[network-trust] accepted pending request ip=${ip}`);
+      return { success: true } satisfies ApiResponse;
     },
   );
 
@@ -835,7 +920,11 @@ export function registerSystemRoutes(
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
 
   // Health endpoint — includes server + agent process metrics
-  fastify.get("/api/health", async () => {
+  fastify.get("/api/health", async (request, reply) => {
+    // The payload is caller-dependent (`accessGrants`, `trustPosture`,
+    // `push` are disclosure-gated): never let a cache replay it to another
+    // caller. See change: add-server-push-notifications.
+    reply.header("Cache-Control", "no-store, private");
     const mem = process.memoryUsage();
     // Telemetry reads are failure-isolated so a throwing provider can never
     // turn /api/health into a 500. See change: instrument-session-hydration-timing.
@@ -847,6 +936,38 @@ export function registerSystemRoutes(
     try { eventLoopSpikesSnap = eventLoopSpikes?.snapshot() ?? eventLoopSpikesSnap; } catch { /* keep empty */ }
     let notifyLogStats = { evictedEntries: 0, bySession: {} as Record<string, number> };
     try { notifyLogStats = browserGateway?.getNotifyLogStats?.() ?? notifyLogStats; } catch { /* keep zeros */ }
+    // Provider-OAuth readiness. Failure-isolated like the other telemetry reads:
+    // when the pi runtime exposes no provider definitions, sign-in is
+    // unavailable but EVERY other route keeps serving, and the message names
+    // the resolved pi-coding-agent version so the operator can see a version
+    // skew rather than a bare symptom.
+    // See change: delegate-provider-oauth-to-pi-ai (D3).
+    let accessGrants: AccessGrantHealth | null = null;
+    // `/api/health` is unguarded (tunnel-reachable): `accessGrants` names the
+    // host-gate mode, YOLO state and whether an operator is online, so it is
+    // served only to an authenticated or genuinely-local caller.
+    if (canDiscloseAccessPosture(request)) {
+      try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
+    }
+    // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
+    // admits tunnel traffic. Same disclosure gate as `accessGrants`.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    let trustPosture: { trustedHasLoopback: boolean } | null = null;
+    if (canDiscloseAccessPosture(request)) {
+      try {
+        const trusted = readTrustedNetworks?.() ?? config.resolvedTrustedNetworks ?? [];
+        trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
+      } catch { /* keep null */ }
+    }
+    // Push errors name local config (file paths, missing keys): same
+    // disclosure gate. Absent key when undisclosable or push is disabled.
+    // See change: add-server-push-notifications.
+    let push: { errors: string[] } | null = null;
+    if (readPushErrors && canDiscloseAccessPosture(request)) {
+      try { push = { errors: [...readPushErrors()] }; } catch { /* keep null */ }
+    }
+    let providerAuthError: string | null = null;
+    try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();
     const agentMetrics = activeSessions
       .filter(s => s.processMetrics)
@@ -858,6 +979,13 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
+      // Access-grant prompting counters (additive; null when unwired or on a
+      // throwing read). See change: add-access-grant-dialog (task 9.3).
+      accessGrants,
+      // Loopback-trusted-entry posture (additive; null unless disclosable).
+      // See change: fix-trusted-network-tunnel-bypass (D3).
+      trustPosture,
+      ...(push ? { push } : {}),
       // Rendezvous instance id (NOT the Ed25519 `identity`): names which
       // same-HOME instance answered, so a bridge can tell its own dashboard
       // from a foreign listener on a recycled port. An IDENTIFIER, never a
@@ -886,6 +1014,9 @@ export function registerSystemRoutes(
       // Count of pi WebSocket connections held by the pi-gateway. Feeds the
       // bridge-orphan promotion below and future Doctor advisories.
       activeBridgeCount: piGateway?.connectionCount() ?? 0,
+      /** `{ error: null }` when the OAuth registry built; otherwise the reason
+       * (naming the resolved pi-coding-agent version) sign-in is unavailable. */
+      providerAuth: { error: providerAuthError },
       // Bridge-contention observability: `bridgeContentionCount` is cumulative
       // for the process lifetime (a rule firing too often), while
       // `contendedSessionIds` is what an operator needs mid-incident and

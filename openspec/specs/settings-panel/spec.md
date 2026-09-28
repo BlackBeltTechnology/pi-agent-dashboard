@@ -26,16 +26,19 @@ When the panel holds unsaved edits, a dismissal gesture SHALL prompt before disc
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
+The nav groups SHALL render in this order: Models, Dashboard, Network, Extensions, Resources, Advanced. The Models group SHALL render FIRST because it holds the settings that decide which model every session, agent and flow runs on (see "Models nav group"). The default page when no `:page` is given SHALL remain General.
+
 The panel SHALL provide these pages (nav groups in brackets):
+- **Promoted plugin pages** [Models]: plugin settings pages promoted per "Models nav group", each addressed at `/settings/plugins/<pluginId>`
 - **General** [Dashboard]: Interface language, `dashboardName`, display preferences
 - **Server** [Dashboard]: `port`, `piPort`, `autoShutdown`, `shutdownIdleSeconds`, `tunnel.enabled`, `tunnel.watchdog.*`, memory limits (`memoryLimits.*`)
 - **Sessions** [Dashboard]: `defaultModel`, `spawnStrategy`, reattach/ordering, `askUserPromptTimeoutSeconds`, `spawnRegisterTimeoutMs`, `gitWorktreeEnabled`, retry policy
 - **Remote Servers** [Network]: known servers, network discovery
 - **Gateway** [Network]: tunnel provider and mode (self-managed save)
 - **Security** [Network]: `auth.providers`, `auth.allowedUsers`, `auth.bypassUrls`, `auth.bypassHosts` (Trusted Networks)
-- **Providers** [Extensions]: Provider Authentication, LLM Providers, API Proxy
+- **Providers** [Models]: Providers (one list of everything credentialed, plus an Add-provider dialog), API Proxy
 - **Packages** [Extensions]: installed pi packages
-- **Plugins** [Extensions]: plugin activation index and per-plugin settings pages
+- **Plugins** [Extensions]: plugin activation index and per-plugin settings pages that are not promoted
 - **OpenSpec** [Extensions]: background polling tuning
 - **Developer** [Advanced]: `devBuildOnReload`, `keeperLog.capturePiOutput`, diagnostics, tools, spawn failures, canvas types
 
@@ -48,7 +51,7 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 #### Scenario: Page layout with nav rail
 - **WHEN** the user navigates to `/settings/general`
 - **THEN** the panel SHALL display a fixed header (back, "Settings" title, Restart)
-- **AND** a left nav rail listing the pages grouped under Dashboard / Network / Extensions / Advanced
+- **AND** a left nav rail listing the pages grouped under Models / Dashboard / Network / Extensions / Resources / Advanced, with Models first
 - **AND** the active page's content beside the rail
 - **AND** the General page SHALL be selected when no `:page` is given
 
@@ -398,29 +401,29 @@ The settings panel SHALL include a "Packages" section for managing globally inst
 - **THEN** the package is updated via `POST /api/packages/update` with the package source and `scope: "global"`
 
 ### Requirement: Provider save refreshes available models
-When LLM providers are saved via the Settings panel, the server SHALL broadcast a `credentials_updated` message to all connected pi sessions. This MUST cause the model registry to refresh and push updated `models_list` messages back to the dashboard client, keeping every session-scoped model selector current.
+When a custom provider is written from the Settings panel — through a single-provider create, update, or delete, or the retained whole-map write — the server SHALL broadcast a `credentials_updated` message to all connected pi sessions. This MUST cause the model registry to refresh and push updated `models_list` messages back to the dashboard client, keeping every session-scoped model selector current.
 
 The Settings panel's **Default Model** selector SHALL NOT depend on that broadcast for its own correctness. It is sourced from the union of the session-independent `GET /api/models` catalogue and the per-session model lists, and the catalogue half is refreshed by the panel's own refetch, so the selector SHALL display the updated model list without requiring a server restart **and without requiring any connected pi session**.
 
 #### Scenario: Saving new provider populates model selector
-- **WHEN** the user adds a new LLM provider and clicks Save
+- **WHEN** the user adds a new custom provider from the Add-provider dialog
 - **THEN** the server broadcasts `credentials_updated` to all sessions
 - **AND** each session's bridge refreshes its model registry
 - **AND** each session-scoped model selector shows models from the new provider
 
 #### Scenario: Saving new provider populates the Default Model selector
-- **WHEN** the user adds a new LLM provider and clicks Save
+- **WHEN** the user adds a new custom provider from the Add-provider dialog
 - **THEN** the Settings panel refetches `GET /api/models`
 - **AND** the Default Model selector shows models from the new provider
 - **AND** this holds whether or not any pi session is connected
 
 #### Scenario: Removing a provider updates model selector
-- **WHEN** the user removes an LLM provider and clicks Save
+- **WHEN** the user removes a custom provider from its row
 - **THEN** models from the removed provider no longer appear in the Default Model selector, unless a live session still reports them
 - **AND** they no longer appear in session-scoped selectors once each bridge has refreshed
 
 #### Scenario: Models available immediately after save
-- **WHEN** the user saves provider changes and opens the Default Model selector
+- **WHEN** the user writes a provider change and opens the Default Model selector
 - **THEN** models from all configured providers are listed
 - **AND** no server restart is required
 
@@ -579,7 +582,7 @@ Using a hardcoded `/api/preferences/display` path SHALL NOT be acceptable — it
 
 ### Requirement: Save button applies changes
 
-The panel SHALL persist changes via a single Save action that fans out to every dirty backing store. Each settings source (`config.json` via `PUT /api/config`, LLM providers via `PUT /api/providers`, display preferences via `PATCH /api/preferences/display`, worktree auto-init pref, OpenSpec profile via `POST /api/openspec/config`, and each plugin settings section) SHALL contribute a draft and a baseline. On Save the panel SHALL commit only sources whose draft differs from their baseline. For the `config.json` source the panel SHALL compute a field-level diff and send only changed fields. Save SHALL NOT claim cross-store atomicity: it SHALL commit each dirty source independently, re-baseline sources that succeed, and keep sources that fail in the dirty state with a Retry affordance.
+The panel SHALL persist changes via a single Save action that fans out to every dirty backing store. Each settings source (`config.json` via `PUT /api/config`, display preferences via `PATCH /api/preferences/display`, worktree auto-init pref, OpenSpec profile via `POST /api/openspec/config`, and each plugin settings section) SHALL contribute a draft and a baseline. Provider credentials and custom provider endpoints SHALL NOT be a source: they are written at the point of edit, not fanned out from Save. On Save the panel SHALL commit only sources whose draft differs from their baseline. For the `config.json` source the panel SHALL compute a field-level diff and send only changed fields. Save SHALL NOT claim cross-store atomicity: it SHALL commit each dirty source independently, re-baseline sources that succeed, and keep sources that fail in the dirty state with a Retry affordance.
 
 #### Scenario: Save sends only changed fields
 - **WHEN** the user edits one or more `config.json` settings fields and saves
@@ -597,7 +600,14 @@ The panel SHALL persist changes via a single Save action that fans out to every 
 - **AND** SHALL keep the failed source dirty
 - **AND** SHALL surface a per-source error with a Retry affordance and NOT discard the failed source's edits
 
+#### Scenario: Provider writes are not part of the fan-out
+- **WHEN** the user has written a provider credential or a custom endpoint and then clicks Save for other dirty sources
+- **THEN** the fan-out SHALL NOT include any provider write
+- **AND** the already-written provider state SHALL be unaffected by Save or Discard
+
 ### Requirement: Settings Save Bar
+
+Provider credentials and custom provider endpoints are NOT a Save Bar source: they commit on their own action at the point of edit and SHALL NOT contribute a draft, a baseline, or an unsaved-changes count.
 
 The panel SHALL render a Save Bar that is present only when the draft is dirty (any source's draft differs from its baseline) and absent when the draft is clean. The Save Bar SHALL display the count of unsaved changes, a **Discard** action, and a **Save** action. The Save action SHALL always be interactive while the bar is visible (the bar's presence is the dirty signal; the Save control is never shown disabled-because-clean). The Save Bar SHALL reflect four states: **dirty** (idle, awaiting save), **saving** (in flight), **saved** (success — the bar dismisses as the draft re-baselines clean), and **error** (one or more sources failed — Retry offered).
 
@@ -607,6 +617,16 @@ The Save Bar SHALL additionally name every page that holds unsaved edits. Each n
 - **WHEN** the user opens Settings and makes no edits
 - **THEN** no Save Bar SHALL be shown
 - **AND** no unsaved-changes prompt SHALL fire on navigation
+
+#### Scenario: A provider write does not open the Save Bar
+- **WHEN** the user adds, edits, or removes a provider credential or a custom endpoint
+- **THEN** the write SHALL commit on its own action
+- **AND** the Save Bar SHALL NOT appear on account of that write
+
+#### Scenario: The Providers page keeps its dirty attribution for other sources
+- **WHEN** the user edits an API-Proxy control, whose config key is attributed to the Providers page
+- **THEN** the Save Bar SHALL appear naming the Providers page
+- **AND** the navigation guard SHALL still fire for that edit
 
 #### Scenario: Bar appears on first edit
 - **WHEN** the user changes any setting from its loaded value
@@ -769,31 +789,16 @@ The Settings panel General tab SHALL render a "Capture pi session output (debug)
 - **WHEN** the General tab is displayed
 - **THEN** the toggle SHALL appear in the same region as the diagnostics sections, not under an unrelated section
 
-### Requirement: LLM-provider save rejects empty provider names
-
-When the user saves LLM providers from the Settings panel, the save SHALL NOT silently discard a provider whose `name` is empty or whitespace-only. If any LLM-provider row has a blank name, the save task for the LLM-providers source SHALL fail with a visible error message identifying the problem, and SHALL leave the LLM-providers source dirty so the user can correct it. A provider row with a non-blank name and the other fields populated SHALL be persisted normally.
-
-#### Scenario: Blank-name provider blocks save with error
-- **WHEN** the user adds an LLM provider, fills Base URL and API Key, leaves the Name blank, and clicks Save
-- **THEN** the LLM-providers save task SHALL report an error indicating the provider name is required
-- **AND** the provider row SHALL remain in the panel (not silently dropped)
-- **AND** the LLM-providers source SHALL stay dirty
-
-#### Scenario: Named provider saves normally
-- **WHEN** the user adds an LLM provider with a non-blank Name, Base URL, and API Key, and clicks Save
-- **THEN** the provider SHALL be persisted to `~/.pi/agent/providers.json`
-- **AND** the LLM-providers source SHALL become clean
-
 ### Requirement: Provider save never persists the masked sentinel as an apiKey
 
-The server `PUT /api/providers` merge SHALL treat the masked sentinel value (`***`) as "keep the existing key" only when the named provider already exists in `~/.pi/agent/providers.json`. When an incoming provider's `apiKey` equals the masked sentinel but the provider is NOT present in the existing file, the merge SHALL NOT write the literal string `***` as the apiKey; it SHALL reject the write (or persist an empty key) so the credential is never corrupted to the sentinel.
+A provider write — whether the whole-map write or a single-provider write — SHALL treat the masked sentinel value (`***`) as "keep the existing key" only when the named provider already exists in `~/.pi/agent/providers.json`. When an incoming provider's `apiKey` equals the masked sentinel but the provider is NOT present in the existing file, the write SHALL NOT persist the literal string `***` as the apiKey; it SHALL reject the write (or persist an empty key) so the credential is never corrupted to the sentinel.
 
 #### Scenario: Masked key preserved when provider exists
-- **WHEN** the existing file has `proxy` with `apiKey: "sk-real"` and the client PUTs `proxy` with `apiKey: "***"` and a changed `baseUrl`
+- **WHEN** the existing file has `proxy` with `apiKey: "sk-real"` and the client writes `proxy` with `apiKey: "***"` and a changed `baseUrl`
 - **THEN** the persisted `proxy.apiKey` SHALL remain `"sk-real"`
 
 #### Scenario: Masked key without existing entry is not corrupted
-- **WHEN** the client PUTs a `proxy` provider with `apiKey: "***"` and the existing file has no `proxy` entry
+- **WHEN** the client writes a `proxy` provider with `apiKey: "***"` and the existing file has no `proxy` entry
 - **THEN** the server SHALL NOT persist `proxy.apiKey === "***"`
 - **AND** the response SHALL indicate the key is required (or the entry SHALL be stored with no usable key) rather than silently writing the sentinel
 
@@ -819,15 +824,20 @@ name/description search filter SHALL be provided.
 
 ### Requirement: Plugins nav group lists enabled plugins with settings
 
-The `plugins` entry in the settings navigation rail SHALL be expandable. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS, sorted alphabetically by display name. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
+The `plugins` entry in the settings navigation rail SHALL be expandable. Its children SHALL be exactly those plugins that are **enabled in config** AND CONTRIBUTE SETTINGS AND are NOT PROMOTED into another nav group (see "Models nav group"), sorted alphabetically by display name. An ENABLED promoted plugin SHALL instead appear in the Plugins subtree, sorted by display name together with the children, as a pointer row naming its destination group (e.g. "Roles ↗ Models"); the pointer SHALL never be marked active, and activating it SHALL navigate to the same `/settings/plugins/<pluginId>` URL. A DISABLED promoted plugin SHALL render no Plugins pointer; it appears only in the Models group. "Contributes settings" SHALL mean the plugin registers at least one `settings-section` refs claim OR has a `settings-section` intent in the intent store — the same predicate that governs route eligibility and the activation-index affordance. `PluginRow.claims` is manifest-derived and does NOT carry intents, so a claims-only test would strand an intent-only contribution: rendered by the slot, but with no nav child and no reachable route. Each child SHALL link to `/settings/plugins/<pluginId>` and SHALL display a status dot reflecting the plugin's health (`loaded`, `not loaded`, `error`).
 
 Membership SHALL key on the plugin's `enabled` flag, NOT on `loaded`. A plugin that is enabled but failed to load, or has unsatisfied requirements, SHALL remain listed.
 
-A disabled plugin SHALL NOT appear as a nav child. It SHALL remain reachable from the plugin activation index, which SHALL indicate that the plugin is absent from the navigation because it is disabled.
+A disabled plugin SHALL NOT appear as a nav child. A disabled plugin that is NOT promoted SHALL remain reachable from the plugin activation index, which SHALL indicate that the plugin is absent from the navigation because it is disabled. A disabled PROMOTED plugin is governed by "Models nav group" instead.
 
 #### Scenario: Enabled plugin with settings is listed
-- **WHEN** plugin `roles` is enabled and claims `settings-section`
-- **THEN** the `Plugins` nav group SHALL contain a `Roles` child linking to `/settings/plugins/roles`
+- **WHEN** plugin `flows` is enabled, claims `settings-section`, and is not promoted
+- **THEN** the `Plugins` nav group SHALL contain a `Flows` child linking to `/settings/plugins/flows`
+
+#### Scenario: Promoted plugin is a pointer, not a child
+- **WHEN** plugin `roles` is enabled and its `settings-section` claim is honoured as promoted into `models`
+- **THEN** the `Plugins` subtree SHALL render a `Roles ↗ Models` pointer row instead of a regular child
+- **AND** the Models group SHALL contain the `Model roles` entry
 
 #### Scenario: Intent-only plugin is listed and routable
 - **WHEN** plugin `x` is enabled, registers NO `settings-section` refs claim, and a `settings-section` intent for `x` is present in the intent store
@@ -852,8 +862,8 @@ A disabled plugin SHALL NOT appear as a nav child. It SHALL remain reachable fro
 - **THEN** the `Flows` nav child SHALL be removed from the rail without a page reload
 
 #### Scenario: The open plugin child is the active nav entry
-- **WHEN** the user is on `/settings/plugins/roles`
-- **THEN** exactly one nav entry SHALL be marked active: the `Roles` child
+- **WHEN** the user is on `/settings/plugins/flows`
+- **THEN** exactly one nav entry SHALL be marked active: the `Flows` child
 - **AND** the parent `Plugins` entry SHALL NOT be marked active
 
 #### Scenario: The parent entry is active only on the index
@@ -1678,3 +1688,71 @@ observable so a divergence between configured and running value is visible.
 #### Scenario: A configured value that is not yet running is visible
 - **WHEN** the configured ceiling differs from the running process's effective ceiling
 - **THEN** the panel SHALL surface that the running value differs
+
+### Requirement: Models nav group
+
+The settings navigation SHALL render a **Models** group as its FIRST group. It SHALL contain the built-in **Providers** page followed by every PROMOTED plugin page, ordered by the promotion's `order` (ascending, default 1000), then `nav.label`, then plugin id. The group SHALL render even when no plugin is promoted (Providers alone).
+
+A plugin page is PROMOTED into a group when ALL of the following hold: the plugin declares a `settings-section` claim carrying a `nav` hint whose `group` names that group; the group id is on the host's promotion allowlist, which SHALL contain exactly `models`; the plugin is TRUSTED — its npm package name is in the `@blackbelt-technology/` scope, the host's existing scope-based trust signal (NOT manifest `priority`, which is plugin-authored and doubles as slot render order); and `nav.label` does not collide with any RESERVED label — every built-in settings page label and every nav group label, in the English source AND in every shipped locale (a static set, so the outcome never depends on the active language) — compared after Unicode NFKC normalisation, trimming and case-folding. Among promoted hints, labels SHALL also be unique: when two promoted hints collide, the one that sorts first (by `order`, then plugin id) wins and the other plugin SHALL remain an ordinary Plugins child. First-party status SHALL be computed once by the server and exposed on the `GET /api/plugins` row as a boolean `firstParty`; the client SHALL NOT re-derive it. (`firstParty` is deliberately not named `trusted`: the server's spawn/abort hooks use a different, `priority`-based gate.) A hint failing any condition SHALL be ignored and the plugin SHALL remain an ordinary Plugins child. When a plugin declares more than one `nav`-bearing `settings-section` claim, the first one in manifest order that satisfies every condition SHALL be honoured; the rest SHALL be ignored.
+
+A promoted entry SHALL use `nav.label` as its rail label, the host's generic plugin icon (the hint carries no icon), and the same health dot (`loaded` / `not loaded` / `error`) a Plugins child shows, and SHALL link to `/settings/plugins/<pluginId>` — promotion changes placement, never the URL. On that URL the promoted entry, not the Plugins pointer row, SHALL be the single active nav entry.
+
+A promoted plugin that is installed but DISABLED SHALL remain in the Models group, rendered dimmed with an "off" marker, and its page SHALL render the disabled notice with a re-enable affordance. Its plugin activation index row SHALL state that it is shown in the Models group (not that it is absent from the navigation). A promoted plugin that is not installed SHALL NOT appear.
+
+The Save Bar dirty-page label for a promoted page SHALL read `<Group> › <nav.label>` (e.g. `Models › Model roles`), and its dirty dot SHALL render on the promoted entry.
+
+#### Scenario: Models group is first and holds Providers
+- **WHEN** the user opens `/settings`
+- **THEN** the first nav group SHALL be `Models`
+- **AND** it SHALL contain `Providers`, and the `Extensions` group SHALL NOT contain `Providers`
+
+#### Scenario: Trusted plugin is promoted
+- **WHEN** plugin `roles` (package `@blackbelt-technology/pi-dashboard-roles-plugin`) is enabled and claims `{ slot: "settings-section", nav: { group: "models", label: "Model roles" } }`
+- **THEN** the Models group SHALL contain a `Model roles` entry linking to `/settings/plugins/roles`
+
+#### Scenario: Untrusted plugin hint is ignored
+- **WHEN** plugin `x` from package `acme-dashboard-x` declares `priority: 100` and claims `settings-section` with `nav: { group: "models", label: "Model roles" }`
+- **THEN** the Models group SHALL NOT contain an entry for `x`
+- **AND** `x` SHALL be listed as an ordinary Plugins child
+
+#### Scenario: Non-allowlisted group is ignored
+- **WHEN** a first-party plugin claims `settings-section` with `nav: { group: "dashboard", label: "Foo" }`
+- **THEN** no Dashboard entry SHALL be added for it
+- **AND** it SHALL be listed as an ordinary Plugins child
+
+#### Scenario: Label colliding with a built-in page is ignored
+- **WHEN** a first-party plugin claims `settings-section` with `nav: { group: "models", label: " providers " }` or `label: "Security"`
+- **THEN** the Models group SHALL NOT gain an entry with that label
+- **AND** the plugin SHALL be listed as an ordinary Plugins child
+
+#### Scenario: Group label and locale label are reserved
+- **WHEN** a first-party plugin claims `nav: { group: "models", label: "Dashboard" }` or the Hungarian label of a built-in page
+- **THEN** the hint SHALL be ignored regardless of the active locale
+
+#### Scenario: Duplicate promoted labels
+- **WHEN** first-party plugins `a` and `b` both claim `nav: { group: "models", label: "Budget" }` with equal `order`
+- **THEN** the Models group SHALL contain one `Budget` entry, for plugin `a`
+- **AND** `b` SHALL be listed as an ordinary Plugins child
+
+#### Scenario: Failed promoted plugin shows an error dot
+- **WHEN** promoted plugin `roles` is enabled and its status is `{ loaded: false, error: "..." }`
+- **THEN** its Models entry SHALL show an error-state health dot
+
+#### Scenario: First eligible hint wins
+- **WHEN** a first-party plugin declares two `settings-section` claims, the first with `nav.group: "dashboard"` and the second with `nav: { group: "models", label: "Model roles" }`
+- **THEN** the plugin SHALL be promoted into Models as `Model roles`
+
+#### Scenario: Promoted entry is the active entry
+- **WHEN** the user is on `/settings/plugins/roles` and `roles` is promoted
+- **THEN** exactly one nav entry SHALL be marked active: `Models › Model roles`
+
+#### Scenario: Disabled promoted plugin stays reachable
+- **WHEN** promoted plugin `roles` is disabled in config
+- **THEN** the Models group SHALL still list `Model roles` with an "off" marker
+- **AND** `/settings/plugins/roles` SHALL render the disabled notice and a re-enable affordance, without mounting the plugin body
+- **AND** the Plugins subtree SHALL render no `Roles` pointer
+- **AND** the activation index row for `roles` SHALL state it is shown in the Models group
+
+#### Scenario: Save Bar names the promoted page
+- **WHEN** the user edits a role assignment on the promoted page without saving
+- **THEN** the Save Bar SHALL list `Models › Model roles` as dirty and the promoted entry SHALL show a dirty dot

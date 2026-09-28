@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Composer: action button alignment</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+.card { background:var(--bg-tertiary); border:1px solid var(--border-secondary); border-radius:12px; padding:8px 10px 6px; container-type:inline-size; }
+.card:focus-within { border-color:color-mix(in srgb,var(--accent) 60%,transparent); }
+.ta { display:block; width:100%; border:0; outline:0; resize:none; background:transparent; color:var(--text-primary); font:inherit; font-size:14px; line-height:20px; padding:9px 6px; min-height:38px; max-height:120px; }
+.ta::placeholder { color:var(--text-muted); }
+.ib { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; gap:6px; height:30px; min-width:34px; padding:0 8px; border-radius:8px; color:var(--text-secondary); font-size:13px; cursor:pointer; }
+.ib:hover { background:var(--bg-hover); }
+.ib:focus-visible, .act:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.mono { font-family:ui-monospace, Menlo, monospace; }
+.seg2 { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; height:30px; font-size:13px; }
+.seg2 span { padding:0 10px; display:inline-flex; align-items:center; color:var(--text-secondary); } .seg2 .on { background:var(--accent-soft); color:var(--text-primary); }
+/* action button: 40px square desktop, 44px on coarse pointers (WCAG 2.5.5 AAA / Apple HIG) */
+.act { all:unset; box-sizing:border-box; width:40px; height:40px; border-radius:10px; display:inline-grid; place-items:center; color:#fff; cursor:pointer; background:var(--accent-solid,#2563eb); font-size:16px; flex-shrink:0; }
+.act.stop { background:#dc2626; }
+.act[disabled] { background:var(--bg-surface); color:var(--text-muted); cursor:not-allowed; }
+@media (pointer:coarse) { .act { width:44px; height:44px; } }
+.row2 { display:flex; align-items:center; gap:6px; }
+.sp { flex:1; }
+/* split stop: [■ | after turn] */
+.split { display:inline-flex; align-items:stretch; height:40px; border-radius:10px; overflow:hidden; }
+.split .act { border-radius:0; }
+.split .aft { all:unset; box-sizing:border-box; display:inline-flex; align-items:center; gap:4px; padding:0 10px; font-size:12px; background:color-mix(in srgb,#dc2626 18%,transparent); color:var(--text-primary); cursor:pointer; border-right:1px solid color-mix(in srgb,#dc2626 40%,transparent); }
+.split .aft:hover { background:color-mix(in srgb,#dc2626 28%,transparent); }
+
+/* ── BEFORE: today's structure (textarea row, then one flex row incl. 44px button) ── */
+.before .tb { display:flex; align-items:center; gap:6px; padding-top:4px; }
+.before .act { width:44px; height:44px; }
+.before .ta { box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 70%,transparent); border-radius:10px; } /* the double focus ring */
+
+/* ── A: input row = [textarea | terminal · send], bottom-aligned; toolbar row = message settings only ── */
+.va2 .inrow { display:flex; align-items:flex-end; gap:4px; }
+.va2 .inrow .ta { flex:1; }
+.va2 .inrow .tools { display:flex; align-items:center; gap:4px; padding-bottom:0; }
+.va2 .tb { display:flex; align-items:center; gap:6px; padding-top:2px; border-top:1px solid var(--border-subtle); margin-top:6px; padding-top:6px; }
+
+/* ── B: right rail spanning both rows; send pinned bottom-right, terminal top-right ── */
+.vb2 .grid { display:grid; grid-template-columns:1fr auto; grid-template-rows:auto auto; column-gap:8px; }
+.vb2 .ta { grid-column:1; grid-row:1; }
+.vb2 .tb { grid-column:1; grid-row:2; display:flex; align-items:center; gap:6px; padding-top:4px; }
+.vb2 .rail { grid-column:2; grid-row:1 / span 2; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; gap:6px; padding:2px 0; }
+
+.more { display:none !important; }
+.ib.mono { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:28ch; min-width:0; flex-shrink:1; }
+/* container fold (mirrors @[44rem]) */
+@container (width < 44rem) { .fold { display:none !important; } .more { display:inline-flex !important; } .aft .t { display:none; } }
+.ctrls { display:flex; flex-wrap:wrap; gap:14px; align-items:center; font-size:12px; color:var(--text-secondary); }
+.strip { margin-bottom:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Composer: send / stop / terminal alignment</h1>
+  <label><input type="checkbox" id="light"> Light</label>
+  <label>Frame width <input type="range" id="w" min="360" max="1500" value="1500"></label>
+</header>
+<main>
+<section>
+  <div class="ctrls">
+    <label>Session <select id="st" class="ctl"><option value="idle">idle (send)</option><option value="empty">idle, empty draft</option><option value="streaming" selected>streaming (stop + after turn)</option></select></label>
+    <label><input type="checkbox" id="multi"> Multi-line draft</label>
+  </div>
+  <p class="why" style="margin-top:8px">The context strip stays <b>above</b> the card (placement 1). Only the inside of the card changes. Toggle multi-line to see which layout keeps Send next to the text as it grows.</p>
+</section>
+
+<section><h2>0 · Today</h2>
+  <p class="why">The 44px action button sits in the same row as 30px items, so the row grows and the button pushes up toward the textarea. Terminal and "after turn" float right. The textarea has its own focus ring inside the card's focus border.</p>
+  <div class="frame before"><div class="card"><textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea>
+    <div class="tb" data-tb="before"></div></div></div>
+</section>
+
+<section><h2>A · Actions in the input row, bottom-aligned (Slack / iMessage / Telegram)</h2>
+  <p class="why">Row 1 is the text field with the terminal and Send/Stop on its right, aligned to the field's <b>bottom</b>, so they follow the last line as the draft grows. Row 2 has only message settings (＋, model, thinking, Steer/Queue), all 30px, divided by a hairline. Stop and "after turn" become one split button.</p>
+  <div class="frame va2"><div class="card">
+    <div class="inrow"><textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea><span class="tools" data-tools></span></div>
+    <div class="tb" data-tb="a"></div></div></div>
+</section>
+
+<section><h2>B · Right rail spanning the card (terminal top-right, Send bottom-right)</h2>
+  <p class="why">A two-column grid: the text field and settings row on the left, a rail on the right. The terminal sits at the top of the rail and Send/Stop is pinned to the bottom-right corner (the ChatGPT/Claude.ai corner), so both rows stay 30px.</p>
+  <div class="frame vb2"><div class="card"><div class="grid">
+    <textarea class="ta" rows="1" placeholder="Message, /command, !shell, or @file…"></textarea>
+    <div class="tb" data-tb="b"></div>
+    <div class="rail" data-rail></div></div></div></div>
+</section>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+if (new URLSearchParams(location.search).get('theme')==='light'){document.documentElement.dataset.theme='light';$('#light').checked=true;}
+$('#light').onchange = (e) => document.documentElement.dataset.theme = e.target.checked ? 'light' : 'dark';
+$('#w').oninput = (e) => document.querySelectorAll('.frame').forEach(f => f.style.width = e.target.value + 'px');
+
+const settings = `<button class="ib" aria-label="Attach">＋</button><button class="ib mono">anthropic/claude-opus-5-5 ▾</button><button class="ib mono fold">💡 medium</button><span class="seg2 fold" role="radiogroup" aria-label="Delivery"><span class="on">⚑ Steer</span><span>≡ Queue</span></span><button class="ib more" aria-label="More">⋯</button>`;
+const term = `<button class="ib fold" aria-label="Open inline terminal" title="Open inline terminal">▣</button>`;
+function action(st){
+  if (st==='streaming') return `<span class="split"><button class="aft" title="Stop after turn: finish this turn, then end cleanly" aria-label="Stop after turn">◎ <span class="t">after turn</span></button><button class="act stop" aria-label="Stop">■</button></span>`;
+  return `<button class="act" aria-label="Send"${st==='empty'?' disabled':''}>➤</button>`;
+}
+function beforeAction(st){
+  if (st==='streaming') return `<button class="ib" aria-label="Stop after turn">◎ after turn</button><button class="act stop" aria-label="Stop">■</button>`;
+  return `<button class="act" aria-label="Send"${st==='empty'?' disabled':''}>➤</button>`;
+}
+function render(){
+  const st = $('#st').value;
+  $('[data-tb="before"]').innerHTML = settings + `<span class="sp"></span>` + term + beforeAction(st);
+  $('[data-tools]').innerHTML = term + action(st);
+  $('[data-tb="a"]').innerHTML = settings;
+  $('[data-tb="b"]').innerHTML = settings;
+  $('[data-rail]').innerHTML = term + action(st);
+  const txt = $('#multi').checked ? "Please review the composer layout.\nKeep the strip above the card.\nAlign send with the text field.\nThen run the E2E suite." : (st==='empty' ? '' : 'Please review the composer layout.');
+  document.querySelectorAll('.ta').forEach(t => { t.value = txt; t.style.height='38px'; t.style.height = Math.min(t.scrollHeight,120)+'px'; });
+}
+['#st','#multi'].forEach(s => $(s).onchange = render);
+document.querySelectorAll('.ta').forEach(t => t.addEventListener('input', () => { t.style.height='38px'; t.style.height=Math.min(t.scrollHeight,120)+'px'; }));
+render();
+</script>
+</body>
+</html>

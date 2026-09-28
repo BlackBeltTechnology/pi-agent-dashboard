@@ -49,8 +49,6 @@ function makeFakeKeeperManager(): { km: KeeperManager; calls: SpawnCall[] } {
       calls.push({ piArgs });
       return spawnResult;
     },
-    writeRpc: async () => true,
-    writeRpcToSockPath: async () => true,
     killKeeper: () => true,
     discoverExistingKeepers: async () => [],
     isKeeperAlive: () => false,

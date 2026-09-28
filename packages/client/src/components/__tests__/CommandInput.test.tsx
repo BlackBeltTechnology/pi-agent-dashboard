@@ -1265,3 +1265,61 @@ describe("CommandInput v2 — mobile adaptation (T4)", () => {
     expect(send.className).toContain("min-h-[44px]");
   });
 });
+
+// ── redesign-composer-session-strip (D7) ────────────────────────────────────
+// test-plan #E15 / #E16 / #E17 (tasks 8.15–8.17, 6.1–6.3).
+
+describe("CommandInput — input row / settings row (#E15)", () => {
+  it("send + terminal live in the input row; ＋ / model / thinking / delivery in the settings row", () => {
+    const { getByTestId } = renderInput({
+      draft: "x",
+      onDraftChange: vi.fn(),
+      onSelectModel: vi.fn(),
+      models: [{ provider: "anthropic", id: "claude-4" }] as any,
+      onSelectThinkingLevel: vi.fn(),
+      onOpenInlineTerminal: vi.fn(),
+    });
+    const input = getByTestId("composer-input-row");
+    const settings = getByTestId("composer-settings-row");
+    expect(input.contains(getByTestId("send-button"))).toBe(true);
+    expect(input.querySelector("textarea")).not.toBeNull();
+    // The inline terminal (desktop) sits in the input row; the folded copy is in ⋯.
+    expect(input.querySelector('[data-testid="open-inline-terminal-button"]')).not.toBeNull();
+    for (const id of ["attach-button", "model-selector-button", "thinking-level-button", "delivery-control"]) {
+      expect(settings.querySelector(`[data-testid="${id}"]`), id).not.toBeNull();
+    }
+    expect(settings.querySelector('[data-testid="send-button"]')).toBeNull();
+  });
+});
+
+describe("CommandInput — split stop-after-turn control (#E16)", () => {
+  it("stop-after-turn is the immediate previous sibling of stop in one split; click sends stop-after-turn, not abort; pill shows", () => {
+    const onStopAfterTurn = vi.fn();
+    const onAbort = vi.fn();
+    const { getByTestId, queryByTestId } = renderInput({ sessionStatus: "streaming", onStopAfterTurn, onAbort });
+    const sat = getByTestId("stop-after-turn-button");
+    const stop = getByTestId("stop-button");
+    const split = getByTestId("stop-split");
+    expect(sat.parentElement).toBe(split);
+    expect(stop.parentElement).toBe(split);
+    expect(sat.nextElementSibling).toBe(stop);
+    expect(stop.className).toContain("min-h-[44px]");
+    expect(sat.getAttribute("aria-label")).toBe("Stop after turn");
+    fireEvent.click(sat);
+    expect(onStopAfterTurn).toHaveBeenCalledTimes(1);
+    expect(onAbort).not.toHaveBeenCalled();
+    expect(getByTestId("stop-after-turn-pill")).toBeTruthy();
+    expect(queryByTestId("stop-after-turn-button")).toBeNull();
+  });
+});
+
+describe("CommandInput — single focus indicator (#E17)", () => {
+  it("textarea has no focus-ring; focused card uses the full-accent border, not the 60% mix", () => {
+    const { textarea, getByTestId } = renderInput();
+    expect(textarea.className).not.toContain("focus-ring");
+    fireEvent.focus(textarea);
+    const card = getByTestId("composer-card");
+    expect(card.className).toContain("border-[var(--accent)]");
+    expect(card.className).not.toContain("_60%");
+  });
+});

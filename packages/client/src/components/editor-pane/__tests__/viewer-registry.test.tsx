@@ -36,7 +36,12 @@ beforeEach(() => {
     onchange: null,
   })) as unknown as typeof window.matchMedia;
   globalThis.fetch = vi.fn(() =>
-    Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("<h1>hi</h1>") }),
+    Promise.resolve({
+      ok: true,
+      status: 200,
+      text: () => Promise.resolve("<h1>hi</h1>"),
+      blob: () => Promise.resolve(new Blob(["png"])),
+    }),
   ) as unknown as typeof fetch;
 });
 
@@ -136,9 +141,12 @@ describe("viewerRegistry — preview/* delegation", () => {
     expect(a?.hasAttribute("controls")).toBe(true);
   });
 
-  it("image mounts the full pan/zoom variant (zoom controls present)", () => {
-    const { getByLabelText } = renderKind("image");
-    expect(getByLabelText("Zoom in")).toBeTruthy();
+  it("image mounts the full pan/zoom variant (zoom controls present)", async () => {
+    // Same-origin: the image loads through fetch → blob: (surface-denial-remedy-in-previews, D1).
+    URL.createObjectURL = vi.fn(() => "blob:img");
+    URL.revokeObjectURL = vi.fn();
+    const { findByLabelText, getByLabelText } = renderKind("image");
+    expect(await findByLabelText("Zoom in")).toBeTruthy();
     expect(getByLabelText("Zoom out")).toBeTruthy();
   });
 
@@ -291,3 +299,37 @@ type _NoOverlap = _AssertNever<Extract<(typeof OPEN_PATH_VIEWERS)[number],(typeo
     expect(compile('"monaco","image","diff"')).not.toBe(0);
   });
 }, 120_000);
+
+describe("viewerRegistry — asciidoc scroll container", () => {
+  it("wraps AsciiDocPreview in its own scroll container (editor pane supplies none)", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, data: { html: "<h2>x</h2>" } }),
+      }),
+    ) as unknown as typeof fetch;
+    const { container } = renderKind("asciidoc");
+    await waitFor(() => expect(container.querySelector(".asciidoc-body")).not.toBeNull());
+    const scroller = container.querySelector(".asciidoc-body")?.closest(".overflow-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toContain("min-h-0");
+  });
+});
+
+describe("viewerRegistry — docx scroll container", () => {
+  it("wraps DocxPreview in its own scroll container (editor pane supplies none)", async () => {
+    globalThis.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, data: { mode: "html", html: "<p>x</p>", truncated: false } }),
+      }),
+    ) as unknown as typeof fetch;
+    const { container } = renderKind("docx");
+    await waitFor(() => expect(container.querySelector(".asciidoc-body")).not.toBeNull());
+    const scroller = container.querySelector(".asciidoc-body")?.closest(".overflow-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toContain("min-h-0");
+  });
+});

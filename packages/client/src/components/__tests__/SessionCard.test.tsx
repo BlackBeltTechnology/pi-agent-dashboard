@@ -98,9 +98,10 @@ describe("SessionCard", () => {
       <SessionCard session={session} {...defaultProps} selectedId="test-session" />
     );
     const card = container.firstChild as HTMLElement;
-    // Current selected-state styling uses a full blue border + blue tint
-    // + ring, not the older `border-l-blue-500` left-accent.
-    expect(card.className).toContain("border-blue-500/60");
+    // Current selected-state styling uses a full blue-tint border + tint bg
+    // + ring (`--tint-blue-*`), not the older `border-l-blue-500` left-accent.
+    // See change: align-ui-with-theme-tokens (D2).
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
   });
 
   it("should call onSelect when clicked", () => {
@@ -1037,9 +1038,9 @@ describe("SessionCard subcard structure", () => {
       <SessionCard session={session} {...defaultProps} selectedId="test-session" />,
     );
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("border-blue-500/60");
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
     expect(card.className).toContain("ring-1");
-    expect(card.className).toContain("ring-blue-500/30");
+    expect(card.className).toContain("ring-[var(--tint-blue-border)]");
   });
 
   // §7 pauses ALL animations while the dashboard is visible but idle, so the
@@ -1055,8 +1056,8 @@ describe("SessionCard subcard structure", () => {
     );
     const card = container.querySelector("[data-testid='session-card-desktop']") as HTMLElement;
     expect(card.className).toContain("ring-1");
-    expect(card.className).toContain("ring-blue-500/30");
-    expect(card.className).toContain("border-blue-500/60");
+    expect(card.className).toContain("ring-[var(--tint-blue-border)]");
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
     expect(card.className).not.toMatch(/\banimate-[a-z]/);
   });
 
@@ -1454,7 +1455,7 @@ describe("SessionCard — +Worktree button (session-card-plus-session-button)", 
     const btn = screen.getByTestId("session-card-spawn-worktree");
     expect(btn).toBeTruthy();
     expect(btn.textContent).toContain("Worktree");
-    expect((btn as HTMLButtonElement).title).toBe("Create git worktree + spawn session inside it");
+    expect((btn as HTMLButtonElement).title).toBe("Create a git worktree and start a new session in it");
   });
 
   it("7.x absent when no handler", () => {
@@ -1864,5 +1865,107 @@ describe("SessionCard — archive affordance (archive-sessions-lazy-load)", () =
     expect(send).toHaveBeenCalledWith({ type: "archive_session", sessionId: "s1" });
     act(() => result.current.handleUnarchiveSession("s1"));
     expect(send).toHaveBeenCalledWith({ type: "unarchive_session", sessionId: "s1" });
+  });
+});
+
+// Portal bubbling: React events from the body-portalled `⋯` Popover bubble
+// through the React tree to the card's `onClick={onSelect}`. Menu items stop
+// propagation. See change: compact-openspec-lifecycle-bar (test-plan F4).
+describe("SessionCard OpenSpec ⋯ menu", () => {
+  it("selecting Explore… opens the dialog without selecting the card (F4)", async () => {
+    const { makeRunConfig, RunConfigHarness } = await import("../../test-support/runConfigHarness.js");
+    const onSelect = vi.fn();
+    const session = makeSession({ attachedProposal: "add-auth", status: "idle" });
+    const changes = [{
+      name: "add-auth",
+      status: "in-progress" as const,
+      completedTasks: 12,
+      totalTasks: 39,
+      artifacts: [
+        { id: "proposal", status: "done" as const },
+        { id: "design", status: "done" as const },
+        { id: "specs", status: "done" as const },
+      ],
+    }];
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <SessionCard session={session} {...defaultProps} selectedId="other" onSelect={onSelect}
+          openspecChanges={changes} openspecInitialized
+          onSendPrompt={() => {}} onAttachProposal={() => {}} onDetachProposal={() => {}} />
+      </RunConfigHarness>,
+    );
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    fireEvent.click(screen.getByTestId("explore-menu-item"));
+    expect(screen.getByTestId("explore-textarea")).toBeTruthy();
+    expect(onSelect).toHaveBeenCalledTimes(0);
+  });
+});
+
+// ── redesign-composer-session-strip: one filled primary + working gate ────────
+// test-plan #E13 (task 8.13), #F7 card half (task 8.30), tasks 3.4 / 5.3.
+
+describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
+  const done = [
+    { id: "proposal" as const, status: "done" as const },
+    { id: "design" as const, status: "done" as const },
+    { id: "specs" as const, status: "done" as const },
+  ];
+  const COMPLETE = { name: "add-auth", status: "complete" as const, completedTasks: 3, totalTasks: 3, artifacts: done };
+  const IMPLEMENTING = { name: "add-auth", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: done };
+  const wtSession = (checks: "passing" | "failing", over: Partial<DashboardSession> = {}) =>
+    makeSession({
+      cwd: "/repo/.worktrees/feat",
+      gitWorktree: { mainPath: "/repo", name: "feat" },
+      attachedProposal: "add-auth",
+      gitPrNumber: 747,
+      gitPrUrl: "https://gh/pr/747",
+      gitPrState: "open",
+      gitPrDraft: false,
+      gitPrChecks: checks,
+      gitPrCheckedAt: Date.now() - 60_000,
+      ...over,
+    });
+  const renderCard = (session: DashboardSession, change: typeof COMPLETE | typeof IMPLEMENTING, isRetrying = false) =>
+    render(
+      <SessionCard
+        session={session}
+        {...defaultProps}
+        openspecChanges={[change]}
+        onSendPrompt={() => {}}
+        onAttachProposal={() => {}}
+        onDetachProposal={() => {}}
+        isRetrying={isRetrying}
+      />,
+    );
+  const filled = () => Array.from(document.querySelectorAll("[data-emphasis='filled']")).map((e) => e.getAttribute("data-testid"));
+
+  it.each([
+    ["COMPLETE + passing", COMPLETE, "passing", "worktree-action-merge"],
+    ["IMPLEMENTING + passing", IMPLEMENTING, "passing", "apply-btn"],
+    ["COMPLETE + failing", COMPLETE, "failing", "archive-btn"],
+  ] as const)("%s → exactly one filled primary: %s", (_n, change, checks, expected) => {
+    renderCard(wtSession(checks), change);
+    expect(filled()).toEqual([expected]);
+  });
+
+  it.each([
+    ["streaming", "streaming", false],
+    ["retrying", "active", true],
+  ] as const)("%s → OpenSpec primary, Push and Merge gated (aria-disabled, focusable, reason)", (_n, status, retrying) => {
+    renderCard(wtSession("passing", { status }), COMPLETE, retrying);
+    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+      const el = screen.getByTestId(id) as HTMLButtonElement;
+      expect(el.getAttribute("aria-disabled"), id).toBe("true");
+      expect(el.disabled, id).toBe(false);
+      expect(el.getAttribute("title"), id).toBe("Session is streaming");
+    }
+    expect(filled()).toEqual([]);
+  });
+
+  it("idle → nothing gated", () => {
+    renderCard(wtSession("passing"), COMPLETE);
+    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+      expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBeNull();
+    }
   });
 });

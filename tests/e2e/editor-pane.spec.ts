@@ -117,7 +117,7 @@ test.describe("internal Monaco editor pane", () => {
 // full}, split-{chat,editor}-pane, split-divider, split-fold-{chat,editor},
 // editor-peek, chat-peek.
 //
-// The harness emits recurring "Pi session spawned in tmux" toasts at
+// The harness emits recurring "Pi session started in tmux" toasts at
 // `fixed top-4 right-4` that overlap the header switch and intercept pointer
 // events (documented harness noise — see tool-created-files.spec.ts). Every
 // header interaction dismisses visible toasts and retries, so the click lands

@@ -9,3 +9,5 @@ Transcript capping: `capTranscript(s, capBytes)` (byte-measured tail cap; the `â
 Retention contract: a dead EPHEMERAL inline PTY leaves a bounded transcript tombstone (`TOMBSTONE_CAP=64`) so a closed card can still show its output; `releaseTranscript` suppresses that stickily (`RELEASED_TTL_MS=60_000`) so a late exit cannot re-tombstone a card the user already closed. `sawInput` records whether the user ever typed into the PTY (resize/title frames do not count).
 
 See change: preserve-inline-terminal-transcript, fit-attachments-for-display.
+
+PTY env `{ ...process.env, ...hints }` passes through `normalizeEnvPathKey` before `augmentEnvWithGitSource` (bundled-source PATH write no longer duplicates win32 `Path`). See change: fix-windows-path-env-key-casing.

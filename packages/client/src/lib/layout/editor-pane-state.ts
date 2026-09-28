@@ -34,6 +34,14 @@ export interface OpenFile {
    * non-disruptive-file-open.
    */
   unread?: boolean;
+  /**
+   * An agent (canvas auto-open), not the operator, made this tab active last.
+   * A viewer mounted for an auto-opened tab opts out of the access-grant dialog.
+   * Decided by the action that activates the tab (design D4 tab rules);
+   * persisted; seeded from `restrictCsp` for tabs saved before the field
+   * existed. See change: surface-denial-remedy-in-previews.
+   */
+  autoOpened?: boolean;
 }
 
 export interface EditorPaneState {
@@ -56,6 +64,8 @@ export type EditorPaneAction =
        * `activeIndex`, marking it `unread`. See change: non-disruptive-file-open.
        */
       activate?: boolean;
+      /** An agent (canvas auto-open) issued this open, not the operator. */
+      autoOpened?: boolean;
     }
   | { type: "closeTab"; index: number }
   // Close the tab addressed by its full path (stable across index shifts).
@@ -116,6 +126,18 @@ function setUnreadAt(openFiles: OpenFile[], index: number): OpenFile[] {
 }
 
 /**
+ * Activate the tab at `index`: clear `unread` and set its provenance. Returns
+ * the SAME array when nothing changes (no churn).
+ */
+function activateAt(openFiles: OpenFile[], index: number, autoOpened: boolean): OpenFile[] {
+  const cleared = clearUnreadAt(openFiles, index);
+  if (index < 0 || index >= cleared.length || (cleared[index].autoOpened ?? false) === autoOpened) return cleared;
+  const next = cleared === openFiles ? [...openFiles] : cleared;
+  next[index] = { ...next[index], autoOpened };
+  return next;
+}
+
+/**
  * `openFile` reducer case — extracted so the switch stays under the cognitive
  * complexity budget. Handles the focus-intent matrix: foreground (default)
  * activates + clears unread; background (`activate:false`) adds/re-signals a tab
@@ -125,16 +147,33 @@ function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction
   // Reveal the file's row: expand its ancestor dir chain (#5).
   const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(action.path));
   const activate = action.activate !== false; // default true (foreground)
+  const autoOpened = action.autoOpened === true;
   const existing = state.openFiles.findIndex((f) => f.path === action.path);
   if (existing >= 0) {
     // Foreground: activate the existing tab + clear its unread (invariant).
-    if (activate) return { ...state, openFiles: clearUnreadAt(state.openFiles, existing), activeIndex: existing, treeOpenRoots };
+    // Provenance (design D4): an auto-open of the ALREADY-active tab mounts
+    // nothing, so it changes nothing; any other activation stamps who did it —
+    // otherwise an agent could re-focus an operator-opened file and raise a
+    // dialog through the remount.
+    if (activate) {
+      const openFiles =
+        autoOpened && existing === state.activeIndex
+          ? clearUnreadAt(state.openFiles, existing)
+          : activateAt(state.openFiles, existing, autoOpened);
+      return { ...state, openFiles, activeIndex: existing, treeOpenRoots };
+    }
     // Background on the ACTIVE tab → no-op (active tab is never unread).
     if (existing === state.activeIndex) return { ...state, treeOpenRoots };
     // Background on an inactive open tab → re-signal unread, keep active.
     return { ...state, openFiles: setUnreadAt(state.openFiles, existing), treeOpenRoots };
   }
-  const tab: OpenFile = { path: action.path, viewer: action.viewer, addedAt: Date.now(), restrictCsp: action.restrictCsp };
+  const tab: OpenFile = {
+    path: action.path,
+    viewer: action.viewer,
+    addedAt: Date.now(),
+    restrictCsp: action.restrictCsp,
+    autoOpened,
+  };
   // Background new tab → push unread, keep the current active tab.
   if (!activate) return { ...state, openFiles: [...state.openFiles, { ...tab, unread: true }], activeIndex: state.activeIndex, treeOpenRoots };
   const openFiles = [...state.openFiles, tab];
@@ -146,7 +185,7 @@ function reduceOpenFile(state: EditorPaneState, action: Extract<EditorPaneAction
  * complexity budget. Removes the tab and re-points `activeIndex`, then enforces
  * the active-tab-never-unread invariant on the tab it lands on.
  */
-function reduceCloseTab(state: EditorPaneState, index: number): EditorPaneState {
+function reduceCloseTab(state: EditorPaneState, index: number, byOperator: boolean): EditorPaneState {
   if (index < 0 || index >= state.openFiles.length) return state;
   const openFiles = state.openFiles.filter((_, i) => i !== index);
   let activeIndex: number;
@@ -161,8 +200,16 @@ function reduceCloseTab(state: EditorPaneState, index: number): EditorPaneState 
   } else {
     activeIndex = state.activeIndex;
   }
-  // Invariant: whatever tab activeIndex now lands on must not be unread.
-  return { ...state, openFiles: clearUnreadAt(openFiles, activeIndex), activeIndex };
+  // Invariant: whatever tab activeIndex now lands on must not be unread. An
+  // OPERATOR close that moves activation onto another tab makes that tab
+  // operator-activated; the terminal reconcile (`closeByPath`) is not an
+  // operator action and leaves provenance alone (design D4).
+  const reactivated = byOperator && index === state.activeIndex;
+  return {
+    ...state,
+    openFiles: reactivated ? activateAt(openFiles, activeIndex, false) : clearUnreadAt(openFiles, activeIndex),
+    activeIndex,
+  };
 }
 
 /** Pure reducer — the single mutation point for pane state. */
@@ -177,18 +224,19 @@ export function editorPaneReducer(state: EditorPaneState, action: EditorPaneActi
     case "closeByPath": {
       const index = state.openFiles.findIndex((f) => f.path === action.path);
       if (index < 0) return state;
-      return reduceCloseTab(state, index);
+      return reduceCloseTab(state, index, false);
     }
 
     case "closeTab":
-      return reduceCloseTab(state, action.index);
+      return reduceCloseTab(state, action.index, true);
 
     case "setActive": {
       if (action.index < 0 || action.index >= state.openFiles.length) return state;
       // Reveal the newly-active tab's row: expand its ancestor dir chain (#5).
       const treeOpenRoots = mergeRoots(state.treeOpenRoots, ancestorDirs(state.openFiles[action.index].path));
-      // Invariant: the newly-active tab is never unread.
-      return { ...state, openFiles: clearUnreadAt(state.openFiles, action.index), activeIndex: action.index, treeOpenRoots };
+      // Invariant: the newly-active tab is never unread. A tab click is an
+      // operator action: the tab becomes operator-activated (design D4).
+      return { ...state, openFiles: activateAt(state.openFiles, action.index, false), activeIndex: action.index, treeOpenRoots };
     }
 
     case "toggleTreeRoot": {
@@ -243,7 +291,9 @@ function isValidState(v: unknown): v is EditorPaneState {
     // (stay valid); a corrupt non-boolean (e.g. `unread: 42`) is rejected so it
     // never renders as a stray dot.
     const unreadOk = file.unread === undefined || typeof file.unread === "boolean";
-    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer) && unreadOk;
+    // Same rule for `autoOpened` (surface-denial-remedy-in-previews).
+    const autoOk = file.autoOpened === undefined || typeof file.autoOpened === "boolean";
+    return typeof file.path === "string" && VALID_VIEWERS.has(file.viewer) && unreadOk && autoOk;
   });
   if (!filesOk) return false;
   // activeIndex must address an open tab, or be -1 only when no tabs are open.
@@ -263,7 +313,13 @@ export function loadEditorPaneState(sessionId: string): EditorPaneState {
       console.error(`[editor-pane] discarding corrupt state for session ${sessionId}`);
       return EMPTY_PANE_STATE;
     }
-    return parsed;
+    // Tabs saved before `autoOpened` existed are seeded from `restrictCsp`,
+    // erring closed: a canvas auto-open (and a pre-change mobile chip tap) set
+    // it, so such a tab loads opted out once (design D4).
+    return {
+      ...parsed,
+      openFiles: parsed.openFiles.map((f) => (f.autoOpened === undefined ? { ...f, autoOpened: f.restrictCsp === true } : f)),
+    };
   } catch (err) {
     console.error(`[editor-pane] failed to read state for session ${sessionId}`, err);
     return EMPTY_PANE_STATE;

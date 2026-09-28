@@ -6,13 +6,14 @@
  *
  * See change: add-openspec-change-grouping.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { registerOpenSpecGroupRoutes } from "../routes/openspec-group-routes.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createOpenSpecGroupStore, type OpenSpecGroupStore } from "../openspec/openspec-group-store.js";
+import { registerOpenSpecGroupRoutes } from "../routes/openspec-group-routes.js";
 
 const PASSTHRU_GUARD = async () => {};
 const DENY_GUARD = async (_req: any, reply: any) => {
@@ -91,7 +92,10 @@ describe("openspec group REST routes", () => {
       expect(res.statusCode).toBe(403);
       const body = JSON.parse(res.payload);
       expect(body.success).toBe(false);
-      expect(body.error).toMatch(/cwd/i);
+      // Task 3.1 (design D7/D18): `error` byte-identical, `reason`/`hint` additive.
+      expect(body.error).toBe("cwd not allowed");
+      expect(typeof body.reason).toBe("string");
+      expect(typeof body.hint).toBe("string");
     } finally {
       await fs.rm(otherDir, { recursive: true, force: true });
     }

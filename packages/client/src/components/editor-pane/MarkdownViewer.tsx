@@ -15,7 +15,10 @@ import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
+import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
+import { DenialNotice } from "../preview/DenialNotice.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { dirname } from "../preview/resolve-local-image-src.js";
@@ -39,15 +42,30 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
+  // A refused / failed LOAD renders `DenialNotice`; save errors keep `error`.
+  // Opted out unless operator provenance is declared; Ask for access re-runs the
+  // load once, eligibly (surface-denial-remedy-in-previews, D4).
+  const [loadFailure, setLoadFailure] = useState<DenialFailure | null>(null);
+  const { fetch: previewFetch, optedOut } = usePreviewFetch();
+  const url = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+  // The ask belongs to ONE target: a new target starts un-asked (fail closed).
+  const [askedUrl, setAskedUrl] = useState<string | null>(null);
+  const asked = askedUrl === url;
 
   const load = useCallback(() => {
     let active = true;
     setContent(null);
     setError(null);
+    setLoadFailure(null);
     setConflict(false);
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
-      .then((res) => res.json())
-      .then((body) => {
+    denialFetch(asked ? eligibleFetch : previewFetch, url, asked ? false : optedOut)
+      .then(async (r) => {
+        if (!active) return;
+        if (r.kind !== "ok") {
+          setLoadFailure(r);
+          return;
+        }
+        const body = await r.response.json();
         if (!active) return;
         if (!body.success || body.data?.type !== "file") {
           setError(body.error ?? t("editor.failedToLoadFile", undefined, "Failed to load file"));
@@ -62,7 +80,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     return () => {
       active = false;
     };
-  }, [cwd, path]);
+  }, [url, asked, previewFetch, optedOut]);
 
   useEffect(() => load(), [load]);
 
@@ -95,6 +113,9 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     }
   }, [cwd, path, buffer, mtime, saving]);
 
+  if (loadFailure) {
+    return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
+  }
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
   if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("common.loading2", undefined, "Loading…")}</div>;
 

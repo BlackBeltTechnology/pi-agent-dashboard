@@ -22,6 +22,7 @@
  *
  * See change: add-knip-dead-code-oracle.
  */
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -187,14 +188,49 @@ const SKIP_DIRS = new Set([
 ]);
 
 /**
- * Every manifest in the tree, walked from the filesystem.
+ * Every workspace manifest, preferring git's index.
  *
- * Deliberately NOT `git ls-files`: the Docker harness image carries the source
- * but not `.git` (it is in .dockerignore), so a git-backed walk aborts with
- * "not a git repository" there — caught by the harness run, which is the whole
- * reason that check exists.
+ * The SKIP_DIRS walk below is a DENYLIST, and a denylist loses to the next
+ * build artifact nobody thought to add: a locally built
+ * `packages/electron/resources/server` bundle (gitignored) contributed 12
+ * phantom workspaces and reddened this check plus `lint-harness-scoping`.
+ * Tracked-ness is the property actually wanted, so ask git first.
+ *
+ * The walk REMAINS the fallback, deliberately: the Docker harness image
+ * carries the source but not `.git` (it is in .dockerignore), so a
+ * git-only derivation aborts with "not a git repository" there — caught by
+ * the harness run, which is the whole reason that check exists.
  */
-export function readWorkspacePackages(root, dir = ".", out = []) {
+export function readWorkspacePackages(root) {
+  return trackedWorkspacePackages(root) ?? walkWorkspacePackages(root);
+}
+
+/** Manifests from `git ls-files`; null outside a git checkout (Docker harness). */
+function trackedWorkspacePackages(root) {
+  let listed;
+  try {
+    listed = execFileSync("git", ["ls-files", "-z", "--", "*package.json"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+  const out = [];
+  for (const rel of listed.split("\0").filter(Boolean)) {
+    if (path.posix.basename(rel) !== "package.json") continue;
+    try {
+      out.push({ dir: path.posix.dirname(rel), pkg: JSON.parse(readFileSync(path.join(root, rel), "utf8")) });
+    } catch {
+      /* an unparseable manifest is not this script's problem */
+    }
+  }
+  return out;
+}
+
+function walkWorkspacePackages(root, dir = ".", out = []) {
   const abs = path.join(root, dir);
   let entries;
   try {
@@ -211,7 +247,7 @@ export function readWorkspacePackages(root, dir = ".", out = []) {
   }
   for (const e of entries) {
     if (!e.isDirectory() || SKIP_DIRS.has(e.name)) continue;
-    readWorkspacePackages(root, dir === "." ? e.name : `${dir}/${e.name}`, out);
+    walkWorkspacePackages(root, dir === "." ? e.name : `${dir}/${e.name}`, out);
   }
   return out;
 }

@@ -12,6 +12,11 @@
     "packages/pi-forms-bpmn/.pi/skills/**",
     "packages/browser-plugin/src/server/relay/vendor/**"
   ],
+  "ignoreIssues": {
+    "packages/server/src/pi/pi-resource-activation.ts": [
+      "types"
+    ]
+  },
   "rules": {
     "unlisted": "off",
     "binaries": "off",
@@ -222,6 +227,8 @@
     "packages/demo-plugin": {
       "entry": [
         "src/client.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -316,6 +323,18 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/gmail-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/goal-plugin": {
       "entry": [
         "src/client/index.tsx",
@@ -352,6 +371,16 @@
       ]
     },
     "packages/image-fit-extension": {
+      "entry": [
+        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/untrusted-content-guard": {
       "entry": [
         "src/extension.ts",
         "**/vitest.config.ts",
@@ -462,6 +491,28 @@
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}",
         "**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/system-one": {
+      "entry": [
+        "src/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/system-one-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/server/__tests__/fixtures/fake-engine.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
       ],
       "project": [
         "src/**/*.{ts,tsx,mjs}"

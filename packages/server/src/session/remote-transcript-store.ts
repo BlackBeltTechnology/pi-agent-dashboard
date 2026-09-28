@@ -23,6 +23,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+// Type-only: erased at compile time, so this does not couple the store to the
+// read module at runtime (`retained-transcript.ts` imports this module's type).
+import type { RetainedTranscriptState } from "./retained-transcript.js";
 
 /**
  * A safe filename component: alphanumerics, dash, underscore, bounded.
@@ -72,8 +75,32 @@ export interface RemoteTranscriptStore {
     entries: string[],
     meta: { restarted: boolean; complete: boolean },
   ): void;
-  read(sessionId: string): RetainedTranscript;
+  /**
+   * Async since the retained offload (`fs.promises`): the synchronous
+   * `readFileSync` of a 44 MB transcript was a main-thread stall in its own
+   * right. See change: offload-retained-transcript-replay (D5).
+   */
+  read(sessionId: string): Promise<RetainedTranscript>;
+  /**
+   * The same bytes as `read`, without the store's entries projection, plus
+   * both marker samples. `read` is implemented on top of this, so the two
+   * cannot disagree about completeness.
+   */
+  readRaw(sessionId: string): Promise<RemoteTranscriptRawRead>;
+  /**
+   * `complete | incomplete | absent` for `sessionId`, WITHOUT reading the
+   * file body. For a caller that wants only the state (the archived-open
+   * stamp), reading a 44 MB transcript to answer a boolean is pure waste.
+   */
+  completenessOf(sessionId: string): Promise<RetainedTranscriptState>;
   forget(sessionId: string): void;
+}
+
+/** `readRaw`'s result: verbatim text + completeness, no entries projection. */
+interface RemoteTranscriptRawRead {
+  raw: string;
+  complete: boolean;
+  retained: boolean;
 }
 
 export function createRemoteTranscriptStore(
@@ -97,6 +124,92 @@ export function createRemoteTranscriptStore(
   // stay byte-identical to what the origin holds, so completeness cannot be
   // recorded inside it.
   const markerFor = (sessionId: string): string => `${fileFor(sessionId)}.complete`;
+
+  /**
+   * Is a completion marker present AND readable?
+   *
+   * `fs.promises.access` REJECTS on ENOENT where `existsSync` merely returned
+   * `false`, so both outcomes have to be caught here — and both mean the same
+   * thing (`no completion recorded`), which is emphatically not `absent`. That
+   * distinction is what keeps a missing marker on the `incomplete` side of the
+   * three-state contract.
+   *
+   * `R_OK`, not the default `F_OK`: a marker that EXISTS but cannot be read is
+   * not a completion we can trust, and `F_OK` would answer `complete` for it.
+   */
+  async function markerExists(sessionId: string): Promise<boolean> {
+    try {
+      await fs.promises.access(markerFor(sessionId), fs.constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Sample the marker BEFORE and AFTER the content read and take the
+   * conjunction.
+   *
+   * `append` writes the body then the marker (completion race), and on a
+   * restart rewrites the body then CLEARS the marker (restart race).
+   * Marker-first alone fixes only the first; marker-last alone only the
+   * second. The conjunction resolves both to `complete: false`, i.e. a whole
+   * transcript may briefly read `incomplete` — the conservative direction the
+   * three-state contract tolerates, self-healing on the next read.
+   */
+  async function readRaw(sessionId: string): Promise<RemoteTranscriptRawRead> {
+    const markerBefore = await markerExists(sessionId);
+    const file = fileFor(sessionId);
+
+    // Read BYTES, not a decoded string: the byte count is compared against the
+    // file's size below, and decoding first would make that comparison lossy for
+    // invalid UTF-8 (every replacement character is 3 bytes).
+    let bytes: Buffer;
+    try {
+      bytes = await fs.promises.readFile(file);
+    } catch (err) {
+      // The restart path `rmSync`s before it `writeFileSync`s, and this read
+      // runs on the threadpool — so a read landing inside that window gets
+      // ENOENT and would report “no transfer ever happened” for a session that
+      // is merely mid-restart. One retry after a macrotask yield closes a
+      // window two adjacent synchronous `fs` calls wide; a genuinely absent
+      // transcript costs one extra failed `open`.
+      // A non-ENOENT failure (EACCES, EISDIR, or the refused-id throw from
+      // `fileFor`) is the ordinary `retained: false` mapping.
+      if ((err as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
+        return { raw: "", complete: false, retained: false };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        bytes = await fs.promises.readFile(file);
+      } catch {
+        return { raw: "", complete: false, retained: false };
+      }
+    }
+
+    // The byte count is a THIRD conjunct, and it is not redundant with the two
+    // marker samples. `append` rewrites the body with a synchronous
+    // `writeFileSync` while a restart that also sets `complete:true` leaves the
+    // pre-existing marker in place — and `readFile` runs on the threadpool, so
+    // it CAN open the file mid-write and return a truncated prefix while BOTH
+    // marker samples read `true`. Main-thread JS cannot be interleaved, so the
+    // write has necessarily finished by the time this continuation runs: a
+    // short read against a longer file proves the bytes are not the whole
+    // current body. Reporting a whole transcript as `incomplete` is the only
+    // direction the three-state contract tolerates, and the next read corrects
+    // it. See change: offload-retained-transcript-replay (D5).
+    let sizeAfter: number | null;
+    try {
+      sizeAfter = (await fs.promises.stat(file)).size;
+    } catch {
+      // The file moved underneath us; we cannot vouch for what we read.
+      sizeAfter = null;
+    }
+    const wholeBody = sizeAfter !== null && sizeAfter === bytes.length;
+
+    const complete = markerBefore && wholeBody && (await markerExists(sessionId));
+    return { raw: bytes.toString("utf8"), complete, retained: true };
+  }
 
   return {
     append(sessionId, entries, meta) {
@@ -139,20 +252,44 @@ export function createRemoteTranscriptStore(
       else if (meta.restarted) fs.rmSync(markerFor(sessionId), { force: true });
     },
 
-    read(sessionId) {
-      let raw: string;
-      try {
-        raw = fs.readFileSync(fileFor(sessionId), "utf8");
-      } catch {
-        // Absent OR unreadable. Both are "we cannot show a transcript", and
-        // neither is "this transfer was truncated" — `retained:false`.
-        return { entries: [], complete: false, retained: false };
-      }
+    async read(sessionId) {
+      const { raw, complete, retained } = await readRaw(sessionId);
+      if (!retained) return { entries: [], complete: false, retained: false };
+      // Deliberately NOT the shared `splitTranscriptLines`: that is
+      // `raw.trim().split("\n")`, which turns `""` into `[""]` (an
+      // empty-origin transcript IS reachable — the bridge emits one), drops
+      // interior blanks, and strips a leading BOM off entry 0. The HTTP
+      // `entries` surface is byte-for-byte what it is today.
+      // See change: offload-retained-transcript-replay (D1/D5, task 2.2).
       return {
         entries: raw.split("\n").filter((l) => l.length > 0),
-        complete: fs.existsSync(markerFor(sessionId)),
+        complete,
         retained: true,
       };
+    },
+
+    readRaw,
+
+    async completenessOf(sessionId) {
+      // Marker + a REGULAR, READABLE file — never the body. The probe has to
+      // match `readRaw`'s mapping exactly or this store would hold two truths:
+      // `stat().isFile()` rejects a DIRECTORY (which `readFile` fails on with
+      // EISDIR) and `R_OK` rejects an unreadable file (which `readFile` fails
+      // on with EACCES) — both of which `read`/`readRaw` report as `absent`.
+      // `access` alone would call a directory readable; `stat` alone would
+      // call a chmod-000 file readable.
+      // See change: offload-retained-transcript-replay (D5, task 6.30).
+      try {
+        const target = fileFor(sessionId);
+        const stat = await fs.promises.stat(target);
+        if (!stat.isFile()) return "absent";
+        await fs.promises.access(target, fs.constants.R_OK);
+      } catch {
+        // Absent, unreadable, a directory, or a refused id — all “we cannot
+        // show a transcript”.
+        return "absent";
+      }
+      return (await markerExists(sessionId)) ? "complete" : "incomplete";
     },
 
     forget(sessionId) {

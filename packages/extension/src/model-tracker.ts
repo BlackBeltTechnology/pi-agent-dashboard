@@ -2,7 +2,7 @@
  * Model and thinking-level change detection.
  * Sends model_update only when values actually change.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { BridgeContext } from "./bridge-context.js";
@@ -43,11 +43,20 @@ export function sendSessionNameIfChanged(bc: BridgeContext): void {
 }
 
 /**
- * Send git_info_update if branch, PR, or worktree state has changed since last send.
+ * Send git_info_update if branch, PR tuple, worktree or status changed since
+ * last send. The ONE change-detector: the git-poll tick, reconnect and the
+ * PR-status scheduler's probe completion all call it. The PR tuple comes from
+ * the async scheduler's cache — no `gh` runs here.
+ * See change: redesign-composer-session-strip (D5).
  */
 export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
   const info = gatherGitInfo(cwd);
   if (!info) return;
+  // Sync: may reset the tuple (branch change → all-null) and START a probe;
+  // never waits for it.
+  bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: info.gitBranch });
+  const pr = bc.prStatus?.tuple() ?? {};
+  const nextPrJson = JSON.stringify(pr);
   // Worktree state diff: serialise to a stable string. `"null"` marks an
   // explicit "cwd is not a worktree" so a subsequent transition into a
   // worktree still counts as a change.
@@ -60,18 +69,20 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
   const nextStatusJson = status ? JSON.stringify(status) : "null";
   if (
     info.gitBranch === bc.lastGitBranch &&
-    info.gitPrNumber === bc.lastGitPrNumber &&
+    nextPrJson === bc.lastGitPrJson &&
     nextWorktreeJson === bc.lastGitWorktreeJson &&
     nextStatusJson === bc.lastGitStatusJson
   ) return;
   bc.lastGitBranch = info.gitBranch;
-  bc.lastGitPrNumber = info.gitPrNumber;
+  bc.lastGitPrJson = nextPrJson;
   bc.lastGitWorktreeJson = nextWorktreeJson;
   bc.lastGitStatusJson = nextStatusJson;
   bc.connection.send({
     type: "git_info_update",
     sessionId: bc.sessionId,
     ...info,
+    // Always the full cached tuple; unknown fields are omitted.
+    ...pr,
     // `info` present ⇒ branch resolved ⇒ cwd is a confirmed git repo.
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: true,
@@ -109,17 +120,18 @@ const PI_PKG = "@earendil-works/pi-coding-agent";
  * `resolveEntry`/`readFile`/`fileExists` are injectable for tests.
  */
 export function readPkgVersionByWalkUp(
-  pkgName: string,
+  pkgName: string | readonly string[],
   resolveEntry: (spec: string) => string,
   readFile: (p: string) => string = (p) => readFileSync(p, "utf8"),
   fileExists: (p: string) => boolean = existsSync,
 ): string | undefined {
-  let dir = dirname(resolveEntry(pkgName));
+  const names = typeof pkgName === "string" ? [pkgName] : pkgName;
+  let dir = dirname(resolveEntry(names[0]));
   for (let i = 0; i < 10; i++) {
     const candidate = join(dir, "package.json");
     if (fileExists(candidate)) {
       const parsed = JSON.parse(readFile(candidate)) as { name?: string; version?: string };
-      if (parsed.name === pkgName) {
+      if (parsed.name !== undefined && names.includes(parsed.name)) {
         return typeof parsed.version === "string" ? parsed.version : undefined;
       }
     }
@@ -141,6 +153,75 @@ export function readPkgVersionByWalkUp(
  */
 export function defaultReadPiVersion(): string | undefined {
   return readPkgVersionByWalkUp(PI_PKG, (spec) => fileURLToPath(import.meta.resolve(spec)));
+}
+
+/**
+ * Both pi package identities a bridge can be running inside. The dashboard's
+ * resolver prefers earendil, but a hoisted/transitive `.bin/pi` (e.g.
+ * pi-flows') or a user-launched session can point at the mariozechner build.
+ */
+const PI_PKG_NAMES = [PI_PKG, "@mariozechner/pi-coding-agent"] as const;
+
+/** Injectable filesystem probes for {@link readRunningPiVersion}. */
+export interface ReadRunningPiVersionFs {
+  readFile?: (p: string) => string;
+  fileExists?: (p: string) => boolean;
+  /** Resolve a symlink chain. Defaults to `fs.realpathSync`. */
+  realpath?: (p: string) => string;
+}
+
+/**
+ * Read the version of the pi process this bridge runs INSIDE, anchored on
+ * `process.argv[1]` (pi's CLI entry) rather than a by-name resolution.
+ *
+ * Why argv, not {@link defaultReadPiVersion}: this monorepo hoists a pinned
+ * earendil copy at the root, so by-name resolution can read the hoisted NEW
+ * version while the session actually runs an OLD host pi (or a `@mariozechner`
+ * build) — waving through a `sendUserMessage` that hard-codes
+ * `expandPromptTemplates:false` and silently turns the slash into an LLM turn.
+ * `process.argv[1]` is the entry node was started with, so the walk-up always
+ * lands on the manifest of the running copy.
+ *
+ * Whole body in try/catch → `undefined`: a missing argv[1], a bun-compiled
+ * binary with no reachable manifest, or an unreadable/invalid manifest. A
+ * caller must treat `undefined` as "assume new", never as "too old".
+ *
+ * `argv[1]` is REALPATH-ed first, and that is load-bearing: a pi installed as a
+ * bin shim is a SYMLINK (`node_modules/.bin/pi` → `../@…/dist/cli.js`;
+ * `/usr/local/bin/pi` → `../lib/node_modules/…/cli.js`) and Node does NOT
+ * resolve it for `argv[1]`. Walking from the symlink's directory finds no pi
+ * manifest within the depth bound, so the reader would answer `undefined`,
+ * the gate would "assume new", and an OLD pi would receive the raw slash as a
+ * model turn — the exact silent regression this reader exists to prevent.
+ * A failed realpath (deleted symlink target, virtual path) falls back to the
+ * literal entry rather than aborting the read.
+ *
+ * The `fs` probes are injectable for tests. See change:
+ * retire-slash-dispatch-via-expand-prompt-templates (design D3).
+ */
+export function readRunningPiVersion(
+  argv1: string | undefined = process.argv[1],
+  fs: ReadRunningPiVersionFs = {},
+): string | undefined {
+  try {
+    if (!argv1) return undefined;
+    let entry = argv1;
+    try {
+      entry = (fs.realpath ?? realpathSync)(argv1);
+    } catch {
+      // Symlink target gone / non-existent path: keep the literal entry so the
+      // walk-up still has a chance (and still fails closed to `undefined`).
+      entry = argv1;
+    }
+    return readPkgVersionByWalkUp(
+      PI_PKG_NAMES,
+      () => entry,
+      fs.readFile ?? ((p) => readFileSync(p, "utf8")),
+      fs.fileExists ?? existsSync,
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -185,7 +266,7 @@ export function resetReconnectCaches(bc: BridgeContext): void {
   // Defensive: reset git so a reconnect through a stale state cache
   // doesn't surface stale branch info if .meta.json wasn't persisted yet.
   bc.lastGitBranch = undefined;
-  bc.lastGitPrNumber = undefined;
+  bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
   bc.lastGitStatusJson = undefined;
 }

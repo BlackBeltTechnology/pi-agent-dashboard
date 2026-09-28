@@ -285,3 +285,18 @@ describe("reconcileAgentLiveness", () => {
     expect(reconcileAgentLiveness("idle", false)).toBeNull();
   });
 });
+
+/**
+ * The payload the bridge actually forwards (its `compactionEntry` redacted)
+ * still clears the `compacting` latch.
+ *
+ * See change: filter-system-role-message-forwarding (E11).
+ */
+describe("E11: a redacted session_compact payload still clears the latch", () => {
+  it("returns the compacting-clearing update, identical to the pre-change result", () => {
+    const updates = extractSessionUpdates(
+      makeEvent("session_compact", { reason: "threshold", willRetry: false, fromExtension: false }),
+    );
+    expect(updates).toEqual({ compacting: false });
+  });
+});

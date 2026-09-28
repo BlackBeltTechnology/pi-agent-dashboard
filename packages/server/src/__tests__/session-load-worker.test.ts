@@ -11,7 +11,7 @@
  * See change: offload-session-events-load-to-worker.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
@@ -238,6 +238,126 @@ describe("session-load-worker-pool — fallback + parity", () => {
       expect(out.events).toEqual(inProcessEvents("sess-tree", file, 200_000));
     } finally {
       await pool.dispose();
+    }
+  });
+});
+
+/**
+ * The `raw` arm: the retained path's input. It must be the FILE arm's body
+ * minus the `fs` read, so identical bytes produce identical events by
+ * construction rather than by assertion — which is also what closes the BOM
+ * divergence (the file arm's `.trim()` dropped U+FEFF; the store's split kept
+ * it, and `JSON.parse` then failed the header check and yielded zero events).
+ * See change: offload-retained-transcript-replay (D1, tasks 6.1–6.4).
+ */
+describe("session-load-worker — raw-text arm parity", () => {
+  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), "session-load-raw-")); });
+  afterEach(() => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  const raw = (file: string) => readFileSync(file, "utf8");
+
+  it("E1 text-fed replay is deep-equal to file-fed replay (tree branch)", () => {
+    const file = treeFixture();
+    const fromFile = loadAndReplay({ jobId: 1, sessionId: "sess-tree", sessionFile: file, knownContextWindow: 200_000 });
+    const fromRaw = loadAndReplay({ jobId: 2, sessionId: "sess-tree", raw: raw(file), knownContextWindow: 200_000 });
+    expect(fromFile.success).toBe(true);
+    expect(fromRaw.success).toBe(true);
+    expect(fromRaw.events).toEqual(fromFile.events);
+    expect(fromRaw.events.length).toBeGreaterThan(0);
+  });
+
+  it("E2 a leading U+FEFF yields the full array on BOTH arms, never []", () => {
+    const file = writeSession("bom.jsonl", [
+      { type: "session", id: "sess-bom", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp" },
+      { type: "message", id: "b1", parentId: null, timestamp: "2025-01-01T00:00:01Z", message: { role: "user", content: "hello" } },
+    ]);
+    // The SAME bytes on both arms — BOM first.
+    const bommed = `\uFEFF${raw(file)}`;
+    const bomFile = join(tmpDir, "bom-file.jsonl");
+    writeFileSync(bomFile, bommed);
+
+    const fromFile = loadAndReplay({ jobId: 3, sessionId: "sess-bom", sessionFile: bomFile });
+    const fromRaw = loadAndReplay({ jobId: 4, sessionId: "sess-bom", raw: bommed });
+    // One shared splitter, so the BOM is stripped on both. Before this change
+    // the retained side kept it, `JSON.parse` threw on entry 0, the header
+    // check failed, and the whole transcript degraded to zero events.
+    expect(fromRaw.events.length).toBeGreaterThan(0);
+    expect(fromFile.events.length).toBeGreaterThan(0);
+    expect(fromRaw.events).toEqual(fromFile.events);
+  });
+
+  it("E3 linear-fallback transcripts are deep-equal and non-empty on both arms", () => {
+    const file = linearFixture();
+    const fromFile = loadAndReplay({ jobId: 5, sessionId: "sess-linear", sessionFile: file });
+    const fromRaw = loadAndReplay({ jobId: 6, sessionId: "sess-linear", raw: raw(file) });
+    expect(fromRaw.events).toEqual(fromFile.events);
+    expect(fromRaw.events.length).toBeGreaterThan(0);
+  });
+
+  it("E4 exactly one arm must be set — neither and both are invalid_request", () => {
+    const file = treeFixture();
+    const bytes = raw(file);
+    const id = "sess-tree";
+
+    expect(loadAndReplay({ jobId: 7, sessionId: id })).toMatchObject({
+      success: false,
+      error: "invalid_request",
+      events: [],
+    });
+    expect(loadAndReplay({ jobId: 8, sessionId: id, raw: bytes, sessionFile: file })).toMatchObject({
+      success: false,
+      error: "invalid_request",
+      events: [],
+    });
+    expect(loadAndReplay({ jobId: 9, sessionId: id, raw: bytes }).success).toBe(true);
+    expect(loadAndReplay({ jobId: 10, sessionId: id, sessionFile: file }).success).toBe(true);
+  });
+});
+
+/**
+ * The retained arm must inherit the local path's worker governance, not a
+ * second mechanism: same `useLoadWorker` switch, same in-process fallback on a
+ * spawn failure. See change: offload-retained-transcript-replay (D2, tasks
+ * 6.20–6.21 / test-plan #X1, #X2).
+ */
+describe("session-load-worker-pool — raw arm governance", () => {
+  beforeEach(() => { tmpDir = mkdtempSync(join(tmpdir(), "session-load-rawpool-")); });
+  afterEach(() => { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } });
+
+  it("X1 falls back in-process for a raw arm when the worker cannot be spawned", async () => {
+    const file = treeFixture();
+    const expected = replayEntriesAsEvents("sess-tree", loadSessionEntries(file), 200_000).map((m) => m.event);
+    const pool = createSessionLoadWorkerPool({
+      useWorker: true,
+      workerUrlOverride: "file:///definitely/does/not/exist/session-load-worker.mjs",
+      timeoutMs: 250,
+    });
+    try {
+      const { result } = pool.load({ sessionId: "sess-tree", raw: readFileSync(file, "utf8"), knownContextWindow: 200_000 });
+      const out = await result;
+      expect(out.success).toBe(true);
+      expect(out.events).toEqual(expected);
+    } finally {
+      await pool.dispose();
+    }
+  });
+
+  it("X2 useWorker=false hydrates a raw arm in-process, identically to the worker path", async () => {
+    const file = treeFixture();
+    const bytes = readFileSync(file, "utf8");
+    const spawned = createSessionLoadWorkerPool({ useWorker: true, size: 1, timeoutMs: 15_000 });
+    const inProcess = createSessionLoadWorkerPool({ useWorker: false });
+    try {
+      const a = await spawned.load({ sessionId: "sess-tree", raw: bytes, knownContextWindow: 200_000 }).result;
+      const b = await inProcess.load({ sessionId: "sess-tree", raw: bytes, knownContextWindow: 200_000 }).result;
+      expect(a.success).toBe(true);
+      expect(a.events).toEqual(b.events);
+      expect(a.events.length).toBeGreaterThan(0);
+      // `useWorker:false` builds no slots at all — nothing was spawned.
+      expect(inProcess.inFlight()).toBe(0);
+    } finally {
+      await spawned.dispose();
+      await inProcess.dispose();
     }
   });
 });

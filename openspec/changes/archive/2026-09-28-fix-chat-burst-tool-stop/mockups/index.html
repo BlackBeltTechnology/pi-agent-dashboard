@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fix-chat-burst-tool-stop — mockup</title>
+<style>
+/* Token copy of packages/client/src/index.css (mockup only — names are the contract). */
+:root{
+  --bg-primary:#0a0a0a;--bg-secondary:#141414;--bg-tertiary:#1e1e1e;--bg-surface:#2a2a2a;--bg-hover:rgba(255,255,255,.06);--bg-code:#1a1a1a;
+  --text-primary:#e5e5e5;--text-secondary:#b0b0b0;--text-tertiary:#919191;--text-muted:#585858;
+  --border-primary:#252525;--border-secondary:#333;--border-subtle:rgba(255,255,255,.06);
+  --accent-green:#22c55e;--accent-yellow:#eab308;--accent-red:#ef4444;--accent-orange:#f97316;--accent-primary:#3b82f6;
+  --focus-ring:var(--accent-primary);
+}
+[data-theme="light"]{
+  --bg-primary:#fff;--bg-secondary:#fafafa;--bg-tertiary:#f0f0f0;--bg-surface:#e0e0e0;--bg-hover:rgba(0,0,0,.04);--bg-code:#f5f5f5;
+  --text-primary:#1a1a1a;--text-secondary:#444;--text-tertiary:#636363;--text-muted:#aaa;
+  --border-primary:#e0e0e0;--border-secondary:#ccc;--border-subtle:rgba(0,0,0,.06);--accent-primary:#2563eb;
+}
+:root,[data-theme="light"]{
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --severity-warning-bg:color-mix(in srgb,var(--accent-orange) 10%,var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb,var(--accent-orange) 46%,var(--text-primary));
+  --severity-warning-border:color-mix(in srgb,var(--accent-orange) 40%,transparent);
+  --severity-success-fg:color-mix(in srgb,var(--accent-green) 46%,var(--text-primary));
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-secondary);font:13px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+code,.mono{font-family:'SF Mono',Menlo,Monaco,Consolas,monospace}
+h1{font-size:18px;color:var(--text-primary);margin:0 0 4px}
+h2{font-size:13px;color:var(--text-primary);margin:0 0 8px;font-weight:600}
+p.note{margin:4px 0 0;font-size:11px;color:var(--text-tertiary)}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+.toolbar{max-width:100%;position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 16px;background:var(--bg-secondary);border-bottom:1px solid var(--border-primary)}
+.toolbar fieldset{border:0;margin:0;padding:0;display:flex;gap:4px;align-items:center}
+.toolbar legend{float:left;margin-right:6px;font-size:11px;color:var(--text-tertiary)}
+.seg{border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-secondary);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
+.seg[aria-pressed="true"]{background:var(--accent-primary);border-color:var(--accent-primary);color:#fff}
+.seg:focus-visible,.ctl:focus-visible,.toggle:focus-visible,.act:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr));gap:16px;margin-top:16px}
+.card{border:1px solid var(--border-secondary);background:var(--bg-secondary);border-radius:12px;padding:12px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 4px 8px rgba(0,0,0,.25)}
+.chat{background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:8px;padding:10px 0;margin-top:8px}
+.chat.mobile{width:375px;max-width:100%}
+.msg{margin:0 16px 8px;padding:8px 10px;border-radius:12px;background:var(--bg-tertiary);color:var(--text-primary);font-size:13px}
+.act{border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-secondary);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer}
+.acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+svg{width:1em;height:1em;fill:currentColor;flex-shrink:0}
+
+/* ── Burst frame (mirrors GroupFrame) ── */
+.burst{margin:0 16px;border-left:2px solid var(--border-secondary);padding-left:12px}
+.mobile .burst,.mobile .row{margin:0 8px}
+.hdr{display:flex;align-items:center;gap:4px;border-radius:4px}
+.toggle{flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:none;border:0;padding:2px 0;color:var(--text-tertiary);font-size:12px;text-align:left;cursor:pointer;border-radius:4px}
+.toggle:hover{color:var(--text-secondary)}
+.mobile .toggle{min-height:44px}
+.chev{margin-left:auto;color:var(--text-muted);display:inline-flex;font-size:15px}
+.glyph{display:inline-flex;font-size:14px}
+.running .glyph{color:var(--accent-yellow);animation:pulse 1.8s ease-in-out infinite}
+.running .glyph svg{animation:spin 1s linear infinite}
+.done .glyph{color:var(--severity-success-fg)}
+.shimmer{position:relative;overflow:hidden}
+.shimmer::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 20%,rgba(250,204,21,.10) 45%,rgba(250,204,21,.16) 50%,rgba(250,204,21,.10) 55%,transparent 80%);background-size:250% 100%;animation:sweep 2.2s linear infinite}
+.title{font-weight:500;color:var(--text-secondary);white-space:nowrap}
+.pill{padding:2px 6px;border-radius:999px;background:var(--bg-tertiary);color:var(--text-tertiary);font-size:10px;font-weight:500;white-space:nowrap}
+.live{display:flex;align-items:center;gap:4px;min-width:0;color:var(--text-tertiary)}
+.live span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.body{margin-top:4px;display:flex;flex-direction:column;gap:2px}
+.row{margin:0 16px 0 0;border-left:2px solid var(--border-secondary);padding-left:12px}
+.row .toggle .st{display:inline-flex;font-size:13px}
+.row.r-running .st{color:var(--accent-yellow)} .row.r-running .st svg{animation:spin 1s linear infinite}
+.row.r-complete .st{color:var(--severity-success-fg)}
+.el{font-size:11px;color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+
+/* ── Stop control (ToolStopControl) ── */
+.ctl{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:24px;min-height:24px;padding:0 4px;border-radius:6px;border:1px solid transparent;background:transparent;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}
+.ctl svg{font-size:13px}
+.mobile .ctl{min-width:44px;min-height:44px;padding:0 10px;font-size:12px}
+.mobile .ctl svg{font-size:17px}
+.ctl.idle{color:var(--severity-error-fg)}
+.ctl.idle:hover{background:var(--severity-error-bg);border-color:var(--severity-error-border)}
+.ctl.labeled.idle{border-color:var(--severity-error-border)}
+.ctl.aborting{color:var(--severity-warning-fg);background:var(--severity-warning-bg);border-color:var(--severity-warning-border);animation:pulse 1.4s ease-in-out infinite}
+.ctl.arming,.ctl.killing{color:var(--text-tertiary);background:var(--bg-tertiary);border-color:var(--border-secondary);cursor:not-allowed}
+.ctl.killing svg{animation:spin 1s linear infinite}
+.lbl{display:none}.labeled .lbl{display:inline}
+.mobile .labeled .lbl{display:none} /* mobile: icon-only, keeps live command readable */
+
+/* ── Before (today) ── */
+.today .ctl{display:none}
+
+/* log */
+.log{margin-top:8px;font:11px/1.5 'SF Mono',Menlo,monospace;background:var(--bg-code);border:1px solid var(--border-subtle);border-radius:6px;padding:6px 8px;min-height:44px;max-height:110px;overflow:auto;color:var(--text-secondary)}
+.log .w{color:var(--severity-warning-fg)} .log .e{color:var(--severity-error-fg)} .log .i{color:var(--text-tertiary)}
+table.states{border-collapse:collapse;width:100%;font-size:12px}
+table.states th,table.states td{border-bottom:1px solid var(--border-primary);padding:6px 4px;text-align:left;vertical-align:middle}
+table.states th{color:var(--text-tertiary);font-weight:500;font-size:11px}
+.bad{color:var(--severity-error-fg);font-weight:600}.good{color:var(--severity-success-fg);font-weight:600}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{50%{opacity:.55}}
+@keyframes sweep{from{background-position:150% 0}to{background-position:-100% 0}}
+.rm *, .rm *::after{animation:none!important}
+@media (prefers-reduced-motion:reduce){*,*::after{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="toolbar" role="toolbar" aria-label="Mockup controls">
+  <strong style="color:var(--text-primary)">fix-chat-burst-tool-stop</strong>
+  <fieldset><legend>Theme</legend><button class="seg" data-g="theme" data-v="dark">Dark</button><button class="seg" data-g="theme" data-v="light">Light</button></fieldset>
+  <fieldset><legend>Header</legend><button class="seg" data-g="variant" data-v="A">A · icon only</button><button class="seg" data-g="variant" data-v="B">B · icon + label</button></fieldset>
+  <fieldset><legend>Escalation</legend><button class="seg" data-g="esc" data-v="0">Immediate</button><button class="seg" data-g="esc" data-v="600">600 ms arm</button><button class="seg" data-g="esc" data-v="3000">3 s grace</button></fieldset>
+  <fieldset><legend>Viewport</legend><button class="seg" data-g="vp" data-v="desktop">Desktop</button><button class="seg" data-g="vp" data-v="mobile">Mobile 375</button></fieldset>
+  <fieldset><legend>Motion</legend><button class="seg" data-g="rm" data-v="off">On</button><button class="seg" data-g="rm" data-v="on">Reduced</button></fieldset>
+</div>
+
+<div class="wrap" id="root">
+  <h1>Stop a running tool from the chat view</h1>
+  <p class="note">Click the controls. Header and running-row stop share one state per burst. Wire messages appear in each scene's log. Recommended defaults are pre-selected: <b>B · icon + label</b>, <b>600 ms arm</b>.</p>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="s1">
+      <h2 id="s1">1 · Collapsed running burst (<code>toolGroupDefaultCollapsed</code> on, or mobile)</h2>
+      <div class="chat" data-vp>
+        <div class="msg">run the full client test suite and tell me what fails</div>
+        <div id="b1"></div>
+      </div>
+      <div class="acts"><button class="act" data-finish="b1">Tool finishes</button><button class="act" data-reset="b1">Reset</button></div>
+      <div class="log" id="b1-log" aria-live="polite"></div>
+      <p class="note">Header toggle and stop are siblings → clicking Stop never expands the burst. Stop sits at the trailing edge, after the chevron.</p>
+    </section>
+
+    <section class="card" aria-labelledby="s2">
+      <h2 id="s2">2 · Expanded burst — 2 done + 1 running (shared state)</h2>
+      <div class="chat" data-vp>
+        <div class="msg">why does the chat Stop do nothing?</div>
+        <div id="b2"></div>
+      </div>
+      <div class="acts"><button class="act" data-finish="b2">Tool finishes</button><button class="act" data-reset="b2">Reset</button></div>
+      <div class="log" id="b2-log" aria-live="polite"></div>
+      <p class="note">Click the <em>row</em> Stop: the header escalates too. Collapse + re-expand while Killing: the row stays Killing.</p>
+    </section>
+
+    <section class="card" aria-labelledby="s3">
+      <h2 id="s3">3 · Today (before) — same data, no reachable stop</h2>
+      <div class="chat today" data-vp>
+        <div class="msg">run the full client test suite and tell me what fails</div>
+        <div id="b3"></div>
+      </div>
+      <p class="note"><span class="bad">Defect:</span> handlers never reach <code>ToolBurstGroup</code>; the only stop in view is the session card's activity bar.</p>
+    </section>
+
+    <section class="card" aria-labelledby="s4">
+      <h2 id="s4">4 · State catalogue (shape + label + colour)</h2>
+      <table class="states" id="states"></table>
+      <p class="note">Every state differs by glyph shape, not only colour (WCAG 1.4.1). Arming and Killing are <code>disabled</code>; Force stop pulse stops under reduced motion.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+const P={loading:"M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z",stop:"M18,18H6V6H18V18Z",sand:"M6,2H18V8H18V8L14,12L18,16V16H18V22H6V16H6V16L10,12L6,8V8H6V2M16,16.5L12,12.5L8,16.5V20H16V16.5M12,11.5L16,7.5V4H8V7.5L12,11.5M10,6H14V6.75L12,8.75L10,6.75V6Z",alert:"M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z",down:"M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z",right:"M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z",console:"M13,19V16H21V19H13M8.5,13L2.47,7H6.71L11.67,11.95C12.25,12.54 12.25,13.5 11.67,14.07L6.74,19H2.5L8.5,13Z",check:"M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z",file:"M6,2A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6M6,4H13V9H18V20H6V4M8,12V14H16V12H8M8,16V18H13V16H8Z",mag:"M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"};
+const ic=(p)=>`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${P[p]}"/></svg>`;
+const opt={theme:"dark",variant:"B",esc:"600",vp:"desktop",rm:"off"};
+const LBL={idle:"Stop",arming:"Stopping…",aborting:"Force stop",killing:"Killing…"};
+const ARIA={idle:"Stop — aborts the current turn",arming:"Stopping…",aborting:"Force stop — kill the process",killing:"Killing process..."};
+const GL={idle:"stop",arming:"sand",aborting:"alert",killing:"loading"};
+
+const bursts={
+  b1:{members:[{tool:"bash",icon:"console",sum:"$ npm test -- packages/client",status:"running"}],expanded:false,stop:"idle"},
+  b2:{members:[{tool:"read",icon:"file",sum:"packages/client/src/components/chat/ToolBurstGroup.tsx",status:"complete",dur:"0.1s"},{tool:"grep",icon:"mag",sum:"grep handleAbortTool packages/client/src",status:"complete",dur:"0.3s"},{tool:"bash",icon:"console",sum:"$ npx vitest run ToolBurstGroup",status:"running"}],expanded:true,stop:"idle"},
+  b3:{members:[{tool:"bash",icon:"console",sum:"$ npm test -- packages/client",status:"running"}],expanded:false,stop:"idle",today:true},
+};
+const initial=JSON.parse(JSON.stringify(bursts));
+const timers={};
+function log(id,cls,msg){const el=document.getElementById(id+"-log");if(!el)return;const t=new Date().toLocaleTimeString([], {hour12:false});el.insertAdjacentHTML("beforeend",`<div class="${cls}">${t}  ${msg}</div>`);el.scrollTop=el.scrollHeight}
+
+function ctl(id,where,st,labeled){
+  const dis=st==="arming"||st==="killing";
+  const tid=(where==="hdr"?"tool-burst-":"tool-")+({idle:"stop",arming:"force-stop",aborting:"force-stop",killing:"killing"}[st])+"-button";
+  return `<button type="button" class="ctl ${st} ${labeled?"labeled":""}" data-ctl="${id}" ${dis?"disabled":""} aria-label="${ARIA[st]}" title="${ARIA[st]}" data-testid="${tid}">${ic(GL[st])}<span class="lbl">${LBL[st]}</span></button>`;
+}
+function render(id){
+  const b=bursts[id],el=document.getElementById(id);
+  const running=b.members.some(m=>m.status==="running");
+  const done=b.members.filter(m=>m.status!=="running").length;
+  const live=b.members.find(m=>m.status==="running");
+  const show=running&&!b.today;
+  let title,meta,glyph;
+  if(running){glyph=ic("loading");title=`<span class="title">Working</span>`;meta=`<span class="pill">${done} done</span>${live?`<span class="live">${ic("console")}<span class="mono">${live.sum}</span></span>`:""}`}
+  else{glyph=ic("check");title=`<span class="title">${b.members.length} tool calls</span>`;meta=`<span class="pill">✓ done</span>`}
+  const rows=b.members.map(m=>`<div class="row r-${m.status}"><div class="hdr"><button type="button" class="toggle"><span class="st">${ic(m.status==="running"?"loading":"check")}</span><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.sum}</span><span class="el">${m.dur||"12s"}</span><span class="chev">${ic("right")}</span></button>${m.status==="running"&&show?ctl(id,"row",b.stop,false):""}</div></div>`).join("");
+  el.innerHTML=`<div class="burst ${running?"running":"done"}" data-testid="tool-burst-group">
+    <div class="hdr ${running?"shimmer":""}">
+      <button type="button" class="toggle" data-toggle="${id}" aria-expanded="${b.expanded}" data-testid="tool-burst-header"><span class="glyph">${glyph}</span>${title}${meta}<span class="chev">${ic(b.expanded?"down":"right")}</span></button>
+      ${show?ctl(id,"hdr",b.stop,opt.variant==="B"):""}
+    </div>
+    ${b.expanded?`<div class="body" data-testid="tool-burst-body">${rows}</div>`:""}
+  </div>`;
+}
+function renderAll(){Object.keys(bursts).forEach(render);renderStates()}
+function press(id){
+  const b=bursts[id];
+  if(b.stop==="idle"){
+    log(id,"e","→ send {type:\"abort\", sessionId}");
+    const d=+opt.esc;
+    if(d===0){b.stop="aborting"}else{b.stop="arming";log(id,"i",d===600?"  Force stop armed in 600 ms (double-click guard)":"  Force stop offered after 3 s if still running");timers[id]=setTimeout(()=>{if(bursts[id].stop==="arming"){bursts[id].stop="aborting";render(id)}},d)}
+  }else if(b.stop==="aborting"){b.stop="killing";log(id,"w","→ send {type:\"force_kill\", sessionId}")}
+  else return; // arming/killing: disabled — guard
+  render(id);
+}
+document.addEventListener("click",e=>{
+  const c=e.target.closest("[data-ctl]");if(c){press(c.dataset.ctl);return}
+  const t=e.target.closest("[data-toggle]");if(t){const b=bursts[t.dataset.toggle];b.expanded=!b.expanded;render(t.dataset.toggle);return}
+  const f=e.target.closest("[data-finish]");if(f){const id=f.dataset.finish;bursts[id].members.forEach(m=>{if(m.status==="running"){m.status="complete";m.dur="14.2s"}});clearTimeout(timers[id]);bursts[id].stop="idle";log(id,"i","← tool_execution_end → controls removed, state reset");render(id);return}
+  const r=e.target.closest("[data-reset]");if(r){const id=r.dataset.reset;clearTimeout(timers[id]);bursts[id]=JSON.parse(JSON.stringify(initial[id]));document.getElementById(id+"-log").innerHTML="";render(id);return}
+  const s=e.target.closest(".seg");if(s){opt[s.dataset.g]=s.dataset.v;applyOpts()}
+});
+function applyOpts(){
+  document.documentElement.dataset.theme=opt.theme;
+  document.body.classList.toggle("rm",opt.rm==="on");
+  document.querySelectorAll("[data-vp]").forEach(n=>n.classList.toggle("mobile",opt.vp==="mobile"));
+  document.querySelectorAll(".seg").forEach(s=>s.setAttribute("aria-pressed",String(opt[s.dataset.g]===s.dataset.v)));
+  renderAll();
+}
+function renderStates(){
+  const rows=["idle","arming","aborting","killing"].map(st=>`<tr><td><code>${st}</code></td><td>${ctl("x","hdr",st,false).replace("data-ctl","data-demo")}</td><td>${ctl("x","hdr",st,true).replace("data-ctl","data-demo")}</td><td>${{idle:"square",arming:"hourglass, disabled",aborting:"triangle, pulse",killing:"spinner, disabled"}[st]}</td><td>${{idle:"--severity-error-*",arming:"--text-tertiary / --bg-tertiary",aborting:"--severity-warning-*",killing:"--text-tertiary / --bg-tertiary"}[st]}</td></tr>`).join("");
+  document.getElementById("states").innerHTML=`<tr><th>state</th><th>A · icon</th><th>B · label</th><th>shape</th><th>tokens</th></tr>${rows}`;
+}
+applyOpts();
+</script>
+</body>
+</html>

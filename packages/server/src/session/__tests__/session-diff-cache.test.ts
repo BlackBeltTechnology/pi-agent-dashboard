@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { djb2, SessionDiffCache } from "../session-diff-cache.js";
 
 describe("djb2", () => {
@@ -58,5 +58,80 @@ describe("SessionDiffCache — TTL + single-flight (6.5)", () => {
     await cache.run("k", compute);
     await cache.run("k", compute);
     expect(compute).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── Byte budget + expiry on access (fix-session-diff-heap-retention D2/D4) ──
+
+type Sized = { n: number };
+const sized = (n: number) => async (): Promise<Sized> => ({ n });
+function budgetCache(maxBytes = 100, ttlMs = 1000): SessionDiffCache<Sized> {
+  return new SessionDiffCache<Sized>(ttlMs, 100, { maxBytes, sizeOf: (v) => v.n });
+}
+
+describe("SessionDiffCache — byte budget", () => {
+  it("E5/E6: evicts oldest only once the budget is exceeded", async () => {
+    const cache = budgetCache(100);
+    await cache.run("a", sized(40));
+    await cache.run("b", sized(40));
+    await cache.run("c", sized(20));
+    expect(cache.size).toBe(3);
+    expect(cache.totalBytes).toBe(100);
+
+    await cache.run("d", sized(1));
+    expect(cache.size).toBe(3);
+    expect(cache.totalBytes).toBe(61);
+    // "a" (oldest) was evicted → recomputes.
+    const again = vi.fn(sized(40));
+    await cache.run("a", again);
+    expect(again).toHaveBeenCalledTimes(1);
+  });
+
+  it("E7/E8: a single over-budget entry stays cached until displaced", async () => {
+    const cache = budgetCache(100);
+    await cache.run("a", sized(30));
+    const computeB = vi.fn(sized(150));
+    await cache.run("b", computeB);
+    expect(cache.size).toBe(1);
+    expect(cache.totalBytes).toBe(150);
+    await cache.run("b", computeB);
+    expect(computeB).toHaveBeenCalledTimes(1);
+
+    await cache.run("c", sized(10));
+    expect(cache.size).toBe(1);
+    expect(cache.totalBytes).toBe(10);
+  });
+});
+
+describe("SessionDiffCache — expiry on access + accounting", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("E9: expired entries are released on the next access, below maxEntries", async () => {
+    vi.useFakeTimers();
+    const cache = budgetCache(1000, 2000);
+    await cache.run("k1", sized(50));
+    vi.advanceTimersByTime(2001);
+    await cache.run("k2", sized(7));
+    expect(cache.size).toBe(1);
+    expect(cache.totalBytes).toBe(7);
+  });
+
+  it("E10: overwriting an expired key does not double-count bytes", async () => {
+    vi.useFakeTimers();
+    const cache = budgetCache(1000, 2000);
+    await cache.run("k1", sized(50));
+    vi.advanceTimersByTime(2001);
+    await cache.run("k1", sized(70));
+    expect(cache.size).toBe(1);
+    expect(cache.totalBytes).toBe(70);
+  });
+
+  it("E12: default ctor is count-capped only (no byte eviction)", async () => {
+    const cache = new SessionDiffCache<Sized>();
+    for (let i = 0; i < 101; i++) await cache.run(`k${i}`, sized(10_000_000));
+    expect(cache.size).toBe(100);
+    expect(cache.totalBytes).toBe(0);
   });
 });

@@ -20,6 +20,8 @@
 @source "../../goal-plugin/src/client";
 @source "../../automation-plugin/src/client";
 @source "../../mcp-client-plugin/src/client";
+@source "../../system-one-plugin/src/client";
+@source "../../gmail-plugin/src/client";
 
 /* Shared font-size for code/diff payload inside tool-call renderers.
    See change: unify-tool-renderer-code-font-size. Keeps Read/Write/Edit/
@@ -45,6 +47,20 @@
 @utility z-dialog { z-index: var(--z-dialog); }
 @utility z-toast { z-index: var(--z-toast); }
 @utility z-lightbox { z-index: var(--z-lightbox); }
+
+/* Tinted action recipe (ui-contract.md "Tint action recipe"): tint fg on its
+   own tint bg + tint border; hover mixes the bg 70% toward the border. One
+   class per identity hue. Lives in CSS rather than four arbitrary-value
+   classes per call site so the recipe stays out of the JS index chunk
+   (mdi-chunk-size cap). Hover is gated on (hover: hover) like Tailwind's.
+   `tap-target`: 44px min height on touch, 32px from sm: up.
+   See change: align-ui-with-theme-tokens. */
+@utility tint-action-green { color: var(--tint-green-fg); border-color: var(--tint-green-border); background-color: var(--tint-green-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-green-bg) 70%, var(--tint-green-border)); } } }
+@utility tint-action-orange { color: var(--tint-orange-fg); border-color: var(--tint-orange-border); background-color: var(--tint-orange-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-orange-bg) 70%, var(--tint-orange-border)); } } }
+@utility tint-action-blue { color: var(--tint-blue-fg); border-color: var(--tint-blue-border); background-color: var(--tint-blue-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-blue-bg) 70%, var(--tint-blue-border)); } } }
+@utility tint-action-purple { color: var(--tint-purple-fg); border-color: var(--tint-purple-border); background-color: var(--tint-purple-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-purple-bg) 70%, var(--tint-purple-border)); } } }
+@utility tint-action-red { color: var(--tint-red-fg); border-color: var(--tint-red-border); background-color: var(--tint-red-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-red-bg) 70%, var(--tint-red-border)); } } }
+@utility tap-target { min-height: 44px; @media (width >= 40rem) { min-height: 32px; } }
 
 /* ── Theme Variables ─────────────────────────────────────────── */
 
@@ -106,6 +122,11 @@
   --accent-purple: #a855f7;
   --accent-orange: #f97316;
   --accent-primary: #3b82f6;
+  /* Stronger primary for white-text fills: white on #3b82f6 is 3.68:1 (under
+     the 4.5:1 text floor); white on #2563eb is 5.17:1. Component code
+     previously hardcoded bg-blue-600 to get this; the token names it.
+     See change: redesign-providers-settings-page. */
+  --accent-primary-strong: #2563eb;
   --link: #60a5fa;
   --link-hover: #93bbfd;
 
@@ -133,6 +154,9 @@
   /* Non-error info: model returned only reasoning, no answer.
      See change: fix-gemini-subagent-silent-tool-schema-failure. */
   --status-notice: var(--accent-blue);
+  /* Unread / "To review": the cyan formerly hardcoded in .card-stripes-unread.
+     See change: session-list-group-by. */
+  --status-unread: #22d3ee;
 
   /* Message-severity tokens — single color source of truth for every toast /
      banner surface. Each accent tier is a triple derived from one base accent
@@ -148,18 +172,40 @@
      tokyo-night light `info` (that theme's own body text is already sub-AA at
      3.5:1, so no derived tint can beat it). See change:
      unify-message-severity-colors, design.md D4/D6. */
-  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
-  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
-  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
-  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
-  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
-  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
-  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
-  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
-  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
-  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
-  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
-  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  /* Identity tints — same bg 10% / fg 46% / border 40% color-mix recipe as
+     the severity triples, keyed by HUE instead of meaning: pi/new session =
+     green, worktree = orange, fork/links/selected = blue, goals = purple,
+     destructive = red. A tint fg is only ever painted on its OWN tint bg.
+     The four accent severity triples below are aliases of the matching tint
+     (values byte-identical after resolution). See change:
+     align-ui-with-theme-tokens (design D1). */
+  --tint-green-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --tint-green-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --tint-green-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --tint-orange-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --tint-orange-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --tint-orange-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --tint-blue-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --tint-blue-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --tint-blue-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --tint-purple-bg: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary));
+  --tint-purple-fg: color-mix(in srgb, var(--accent-purple) 46%, var(--text-primary));
+  --tint-purple-border: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+  --tint-red-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --tint-red-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --tint-red-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-error-bg: var(--tint-red-bg);
+  --severity-error-fg: var(--tint-red-fg);
+  --severity-error-border: var(--tint-red-border);
+  --severity-warning-bg: var(--tint-orange-bg);
+  --severity-warning-fg: var(--tint-orange-fg);
+  --severity-warning-border: var(--tint-orange-border);
+  --severity-success-bg: var(--tint-green-bg);
+  --severity-success-fg: var(--tint-green-fg);
+  --severity-success-border: var(--tint-green-border);
+  --severity-info-bg: var(--tint-blue-bg);
+  --severity-info-fg: var(--tint-blue-fg);
+  --severity-info-border: var(--tint-blue-border);
   --severity-neutral-bg: var(--bg-tertiary);
   --severity-neutral-fg: var(--text-secondary);
   --severity-neutral-border: var(--border-primary);
@@ -188,8 +234,11 @@
   --elevation-rim: rgba(255, 255, 255, 0.10);
 
   /* Selected-card iridescent ring alphas.
-     See change: redesign-session-card-and-composer (1.1). */
-  --neon-rim-alpha: 0.45;
+     See change: redesign-session-card-and-composer (1.1).
+     3px rim at 0.75 carries the selection signal on its own; the glow is
+     masked to outside the card edge. See change: fix-selected-card-light-wash. */
+  --neon-rim-width: 3px;
+  --neon-rim-alpha: 0.75;
   --neon-glow-alpha: 0.10;
   --neon-glow-blur: 8px;
   --neon-glow-opacity: 0.42;
@@ -197,6 +246,9 @@
 }
 
 [data-theme="light"] {
+  /* Unread / "To review" (darker cyan for contrast on white).
+     See change: session-list-group-by. */
+  --status-unread: #0891b2;
   /* Backgrounds */
   --bg-primary: #ffffff;       /* page background */
   --bg-secondary: #fafafa;     /* panels, sidebar */
@@ -229,6 +281,7 @@
 
   /* Accents stay the same */
   --accent-primary: #2563eb;
+  --accent-primary-strong: #2563eb; /* same value in light — already clears 5.17:1 under white */
   --link: #2563eb;
   --link-hover: #1d4ed8;
 
@@ -250,11 +303,13 @@
   --elevation-rim: rgba(255, 255, 255, 0.9);
 
   /* Light-theme override of the iridescent ring alphas.
-     See change: redesign-session-card-and-composer (1.1). */
-  --neon-rim-alpha: 0.50;
-  --neon-glow-alpha: 0.18;
+     See change: redesign-session-card-and-composer (1.1).
+     Halo boosted: only the band OUTSIDE the card shows now, so it needs more
+     weight to read on white. See change: fix-selected-card-light-wash. */
+  --neon-rim-alpha: 0.75;
+  --neon-glow-alpha: 0.30;
   --neon-glow-blur: 11px;
-  --neon-glow-opacity: 0.52;
+  --neon-glow-opacity: 0.65;
   --neon-bg-tint: rgba(37, 99, 235, 0.035);
 }
 
@@ -538,8 +593,8 @@ body {
 /* unread — cyan (cyan-400) */
 .card-stripes-unread::before {
   background-image:
-    repeating-linear-gradient(90deg, transparent 0 60px, rgba(34, 211, 238, 0.20) 230px, transparent 400px 460px),
-    linear-gradient(rgba(34, 211, 238, 0.05), rgba(34, 211, 238, 0.05));
+    repeating-linear-gradient(90deg, transparent 0 60px, color-mix(in srgb, var(--status-unread) 20%, transparent) 230px, transparent 400px 460px),
+    linear-gradient(color-mix(in srgb, var(--status-unread) 5%, transparent), color-mix(in srgb, var(--status-unread) 5%, transparent));
 }
 /* ask_user — purple (purple-500 rgb(168 85 247)) */
 .card-stripes-input::before {
@@ -581,6 +636,13 @@ body {
 }
 .group-collapse > * {
   overflow: hidden;
+  /* Push the clip box's right edge 14px past the cards (content width
+     unchanged) so the selected card's outside-only glow halo
+     (`.card-glow-mask-outer`, 14px) is not cut. Horizontal only: vertical
+     padding would keep a collapsed (0fr) group from reaching 0 height.
+     See change: fix-selected-card-light-wash. */
+  padding-right: 14px;
+  margin-right: -14px;
 }
 
 /* Markdown search highlights */
@@ -711,14 +773,37 @@ mark.markdown-search-highlight-active {
    blur on the LAYER then spreads a soft halo just beyond the card. An inner
    layer (.card-glow-fx, tight + sharper) plus a wider outer layer
    (.card-glow-fx-outer, larger blur, lower opacity) read as a double glow
-   border. Both sit behind the crisp rim (z-index -2/-3 < -1). */
+   border. Both sit behind the crisp rim (z-index -2/-3 < -1).
+   Each glow sits inside a STATIC `.card-glow-mask` wrapper whose content box
+   equals the card rect; the content-box xor mask carves the card interior out,
+   so the blurred conic shows ONLY outside the card edge (it used to paint over
+   the whole interior, between the card background and its content, washing
+   light-mode text). The mask lives on the wrapper because the conic rotates.
+   Insets below are relative to the wrapper and keep the previous visual extent
+   (inner -2px, outer -7px from the card edge). See change:
+   fix-selected-card-light-wash. */
+.card-glow-mask {
+  position: absolute;
+  inset: -6px;
+  padding: 6px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -2;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+.card-glow-mask-outer {
+  inset: -14px;
+  padding: 14px;
+  z-index: -3;
+}
 .card-glow-fx {
   position: absolute;
-  inset: -2px;
+  inset: 4px;
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
-  z-index: -2;
   filter: blur(var(--neon-glow-blur));
   opacity: var(--neon-glow-opacity);
   /* Query container so the rotating child can size to the LARGER edge (cqmax)
@@ -726,8 +811,7 @@ mark.markdown-search-highlight-active {
   container-type: size;
 }
 .card-glow-fx-outer {
-  inset: -7px;
-  z-index: -3;
+  inset: 7px;
   filter: blur(calc(var(--neon-glow-blur) * 2));
   opacity: calc(var(--neon-glow-opacity) * 0.7);
 }
@@ -764,12 +848,12 @@ mark.markdown-search-highlight-active {
    The dropdown menu lives unclipped on the card root, so this never clips it. */
 .card-ring-fx {
   position: absolute;
-  inset: -1px;
+  inset: calc(-1 * var(--neon-rim-width));
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
   z-index: -1;
-  padding: 1px;
+  padding: var(--neon-rim-width);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -802,6 +886,7 @@ mark.markdown-search-highlight-active {
    force position: relative. Declared after that rule so source order wins. */
 .card-stripes-fx,
 .card-ring-fx,
+.card-glow-mask,
 .card-glow-fx {
   position: absolute;
 }
@@ -816,8 +901,8 @@ mark.markdown-search-highlight-active {
 }
 .card-stripes-fx,
 .card-ring-fx { z-index: -1; }
-.card-glow-fx { z-index: -2; }
-.card-glow-fx-outer { z-index: -3; }
+.card-glow-mask { z-index: -2; }
+.card-glow-mask-outer { z-index: -3; }
 
 @keyframes neon-breathe {
   0%, 100% { opacity: 0.35; }
@@ -843,7 +928,7 @@ mark.markdown-search-highlight-active {
     background: rgba(96, 165, 250, 0.5);
     animation: none;
   }
-  .card-glow-fx { display: none; }
+  .card-glow-mask { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -851,41 +936,83 @@ mark.markdown-search-highlight-active {
   .card-glow-fx::before { animation: none; }
 }
 
-/* ── OpenSpec stepper node opaque base ────────────────────────
-   See change: redesign-session-card-and-composer (1.6).
-   Two-layer background — the inner linear-gradient tint stacks
-   over an opaque var(--bg-tertiary) base so the connecting line
-   between nodes can never bleed through the node interior. */
-.openspec-stepper-node-base {
-  background:
-    linear-gradient(var(--bg-tertiary), var(--bg-tertiary)),
-    var(--bg-tertiary);
-  background-color: var(--bg-tertiary);
+/* ── OpenSpec lifecycle bar ──────────────────────────────────
+   5 segments (Proposal · Design · Specs · Tasks · Archive). Each segment =
+   6 px track + label, ≥24 px hit row. Colour comes from `--seg-color`, set
+   inline from `statusPresentation(kind).tokenVar` — no raw hex. Container
+   query swaps labels to letters below 250 px of bar width (strict `<`).
+   See change: compact-openspec-lifecycle-bar. */
+.openspec-lifecycle-bar {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  container-type: inline-size;
 }
-/* Opacity cross-fade of two pre-painted box-shadow rings instead of animating
-   box-shadow itself (non-composited — repaints every frame). Base ring painted
-   once on the node; a larger static ring on the ::after cross-fades in/out.
-   Reuses the chat-stream-glow-pulse pattern. See change:
-   reduce-chat-render-cpu-umbrella (Phase 1, task 2.4). */
-@keyframes openspec-stepper-pulse-current {
-  0%, 100% { opacity: 0; }
-  50%      { opacity: 1; }
+.openspec-seg {
+  all: unset;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 18px;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 3px;
+  border-radius: 4px;
+  cursor: pointer;
 }
-.openspec-stepper-node-current {
-  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+.openspec-seg-tasks { flex: 1 1 0; min-width: 44px; }
+.openspec-seg[data-inert] { cursor: default; }
+.openspec-seg:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.openspec-seg-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
 }
-.openspec-stepper-node-current::after {
-  content: "";
+.openspec-seg-fill {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.30);
-  opacity: 0;
-  animation: openspec-stepper-pulse-current 2.4s ease-in-out infinite;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--seg-color);
+}
+.openspec-seg-label {
+  font-size: 9px;
+  line-height: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.openspec-seg-count { font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; font-size: 10px; }
+.openspec-seg-short { display: none; }
+@container (width < 250px) {
+  .openspec-seg-full { display: none; }
+  .openspec-seg-short { display: inline; }
+}
+.openspec-seg[data-state="done"] .openspec-seg-track { background: var(--seg-color); }
+.openspec-seg[data-state="done"] .openspec-seg-label,
+.openspec-seg[data-state="skipped"] .openspec-seg-label { color: var(--seg-color); }
+.openspec-seg[data-state="current"] .openspec-seg-label { color: var(--seg-color); font-weight: 600; }
+.openspec-seg[data-state="current"] .openspec-seg-track { background: color-mix(in srgb, var(--seg-color) 30%, transparent); }
+.openspec-seg[data-state="current"]:not(.openspec-seg-tasks) .openspec-seg-track {
+  background: var(--seg-color);
+  animation: openspec-seg-pulse 1.6s ease-in-out infinite;
+}
+.openspec-seg[data-state="skipped"] .openspec-seg-track {
+  background: repeating-linear-gradient(135deg, var(--seg-color) 0 3px, transparent 3px 6px);
+}
+.openspec-seg:not([data-inert]):hover .openspec-seg-track { filter: brightness(1.35); }
+.openspec-seg:not([data-inert]):hover .openspec-seg-label { color: var(--text-primary); }
+@keyframes openspec-seg-pulse {
+  50% { opacity: 0.55; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .openspec-stepper-node-current::after { animation: none; opacity: 0; }
+  .openspec-seg .openspec-seg-track { animation: none !important; }
 }
 
 /* ── OpenSpec board responsive column layout ──────────────────
@@ -1022,4 +1149,53 @@ mark.markdown-search-highlight-active {
 @media (prefers-reduced-motion: reduce) {
   [data-testid="replay-in-flight-pill"] .animate-spin,
   [data-testid="replay-in-flight-pill"] svg { animation: none; }
+}
+
+/* ── Session-list Group-by lanes (change: session-list-group-by) ──────────
+   Hold countdown: a held card (demoted out of Working, still displayed there)
+   shows a 2px underline in the DESTINATION lane colour shrinking over the hold
+   window. Static at 50% under reduced motion. */
+.lane-hold-bar {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--lane-dest, var(--status-working));
+  transform-origin: left;
+  opacity: 0.8;
+  pointer-events: none;
+  animation: lane-hold-shrink var(--lane-hold-ms, 3000ms) linear forwards;
+}
+@keyframes lane-hold-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lane-hold-bar { animation: none; transform: scaleX(0.5); }
+}
+/* Coarse pointer / narrow: 44px targets for lane headers; the mode chip keeps
+   its 18px visual and grows only its hit area. */
+@media (pointer: coarse), (max-width: 760px) {
+  .lane-header-btn { min-height: 44px; }
+  .group-by-chip { position: relative; }
+  .group-by-chip::after { content: ""; position: absolute; inset: -13px -6px; }
+}
+
+/* Composer context strip groups (ToolbarGroup, dashboard-plugin-runtime).
+   A group whose content element is empty — e.g. the Status fieldset when every
+   badge claim renders null (error-boundary / provider layers emit no DOM) —
+   hides entirely, label included. Browsers without :has() keep today's
+   behaviour (empty label visible). See change: redesign-composer-session-strip (D8). */
+[data-group]:has(> [data-group-content]:empty) {
+  display: none;
+}
+
+/* Composer lifecycle-bar box: a definite inline size under the stepper's
+   250px container-query cutoff, so the composer bar is always in letters mode
+   while the session card keeps full labels. See change:
+   redesign-composer-session-strip (D2). */
+:root {
+  --composer-lifecycle-w: 9.5rem;
 }

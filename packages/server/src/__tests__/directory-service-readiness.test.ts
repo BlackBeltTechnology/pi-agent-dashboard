@@ -101,6 +101,7 @@ function makePrefs(opts: {
     moveFolderToWorkspace: vi.fn(() => false),
     reorderWorkspaceFolders: vi.fn(),
     reorderWorkspaces: vi.fn(),
+    onWorkspacesChanged: vi.fn(() => () => {}),
     flush: vi.fn(),
     getDisplayPrefs: () => undefined,
     getOpenSpecUpdateSignature: () => opts.recordedSignature,

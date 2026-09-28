@@ -45,9 +45,13 @@ export default defineConfig({
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",
+      "packages/untrusted-content-guard",
       "packages/mockup-loop",
       "packages/nano-banana",
       "packages/video-production",
+      // music-production (change: add-music-production-skills): skill-text and
+      // repo-wiring invariants. Its Python behaviour runs in ci.yml music-pytest.
+      "packages/music-production",
       // deck3d: deterministic markdown → 3D deck engine. Browser-driving suites
       // self-skip without chromium, so the plain job stays green.
       "packages/deck3d",
@@ -60,8 +64,15 @@ export default defineConfig({
       "packages/flows-plugin",
       "packages/flows-anthropic-bridge-plugin",
       "packages/roles-plugin",
+      // System-1 decision adapter + its settings/supervisor plugin.
+      // See change: add-system-one-registry.
+      "packages/system-one",
+      "packages/system-one-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
+      // demo-plugin fixture: bridge fixture-gate contract. See change:
+      // expose-plugin-credential-and-oauth-seams (D8).
+      "packages/demo-plugin",
       "packages/grammar-plugin",
       // kb-plugin carries the KB folder slot's state→menu-item contract; it was
       // collected by no project, so its suite never ran. A gate no CI job runs
@@ -72,6 +83,7 @@ export default defineConfig({
       // workstream 2c. A package absent here never runs its tests.
       "packages/browser-plugin",
       "packages/blackhole-plugin",
+      "packages/gmail-plugin",
       // chat-gateway (change: add-chat-gateway): the inbound chat control plane.
       // A package absent here never runs its tests — its L1 suites (allowedRoots
       // containment, binding precedence, auth decision table, edit throttle,

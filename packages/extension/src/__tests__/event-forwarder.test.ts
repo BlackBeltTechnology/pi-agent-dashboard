@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapEventToProtocol } from "../event-forwarder.js";
+import { mapEventToProtocol, redactCompactionEntry } from "../event-forwarder.js";
 
 describe("mapEventToProtocol", () => {
   const sessionId = "test-session-1";
@@ -115,5 +115,81 @@ describe("mapEventToProtocol", () => {
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("signal");
     expect(JSON.parse(serialized).event.data.text).toBe("hello");
+  });
+});
+
+/**
+ * `redactCompactionEntry` — the bridge's `session_compact` forwarding policy
+ * (applied at the bridge's session_compact handling site, NOT inside the
+ * generic `mapEventToProtocol`; design D7).
+ *
+ * See change: filter-system-role-message-forwarding (D6/D7, E7–E9, X1, X3).
+ */
+describe("redactCompactionEntry", () => {
+  const sessionId = "test-session-1";
+
+  it("E7: strips compactionEntry and leaks neither marker", () => {
+    const piEvent: Record<string, unknown> = {
+      type: "session_compact",
+      reason: "threshold",
+      compactionEntry: {
+        systemMessage: { sections: { persona: "SYSPROMPT-MARKER" } },
+        summary: `${"s".repeat(64 * 1024)}SUMMARY-MARKER`,
+      },
+    };
+    const result = mapEventToProtocol(sessionId, redactCompactionEntry(piEvent));
+
+    expect("compactionEntry" in (result.event.data as Record<string, unknown>)).toBe(false);
+    const wire = JSON.stringify(result);
+    expect(wire).not.toContain("SYSPROMPT-MARKER");
+    expect(wire).not.toContain("SUMMARY-MARKER");
+  });
+
+  it("E8: every consumer-visible field survives redaction", () => {
+    const piEvent: Record<string, unknown> = {
+      type: "session_compact",
+      reason: "threshold",
+      willRetry: false,
+      fromExtension: false,
+      compactionEntry: { summary: "gone" },
+    };
+    const result = mapEventToProtocol(sessionId, redactCompactionEntry(piEvent));
+    const data = result.event.data as Record<string, unknown>;
+
+    expect(result.event.eventType).toBe("session_compact");
+    expect(data.reason).toBe("threshold");
+    expect(data.willRetry).toBe(false);
+    expect(data.fromExtension).toBe(false);
+  });
+
+  it("E9: an absent compactionEntry is not fabricated", () => {
+    const piEvent: Record<string, unknown> = { type: "session_compact", reason: "manual" };
+    const redacted = redactCompactionEntry(piEvent);
+
+    expect(redacted).toEqual({ type: "session_compact", reason: "manual" });
+    expect("compactionEntry" in redacted).toBe(false);
+  });
+
+  it("X1: pi's event object is untouched and the forwarded payload is a distinct object", () => {
+    const original: Record<string, unknown> = {
+      type: "session_compact",
+      compactionEntry: { systemMessage: { sections: {} }, summary: "kept" },
+    };
+    const redacted = redactCompactionEntry(original);
+
+    expect(redacted).not.toBe(original);
+    expect("compactionEntry" in original).toBe(true);
+    expect((original.compactionEntry as Record<string, unknown>).summary).toBe("kept");
+  });
+
+  it("X3: a malformed compactionEntry (null / string) is dropped without throwing", () => {
+    for (const compactionEntry of [null, "not-an-object"]) {
+      const piEvent: Record<string, unknown> = { type: "session_compact", compactionEntry };
+      let redacted: Record<string, unknown> | undefined;
+      expect(() => {
+        redacted = redactCompactionEntry(piEvent);
+      }).not.toThrow();
+      expect("compactionEntry" in (redacted as Record<string, unknown>)).toBe(false);
+    }
   });
 });

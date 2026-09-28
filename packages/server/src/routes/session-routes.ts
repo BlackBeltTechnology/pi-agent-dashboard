@@ -5,12 +5,15 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { evaluateContainment } from "../access/containment-gate.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
+import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { RemoteTranscriptStore } from "../session/remote-transcript-store.js";
 import { decideRetainedRead, readRetainedState } from "../session/retained-transcript.js";
 import { decodeCursor, type SessionArchive } from "../session/session-archive.js";
-import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
+import { buildSessionDiffCached, type SessionDiffResult, sessionDiffResultSize } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { resolveDiffSource } from "../session/session-diff-source.js";
 import { findSessionCustomEntry, findSessionToolCallPayload } from "../session/session-file-reader.js";
@@ -57,7 +60,12 @@ export function registerSessionRoutes(
   // so repeated UI polls of an unchanged session skip recompute, and concurrent
   // identical requests coalesce onto one git computation. See change:
   // fix-session-diff-eventloop-block.
-  const sessionDiffCache = new SessionDiffCache<SessionDiffResult>();
+  // Byte-budgeted (64 MiB, estimated) so cached diffs cannot grow the heap
+  // unbounded. See change: fix-session-diff-heap-retention (D2).
+  const sessionDiffCache = new SessionDiffCache<SessionDiffResult>(2000, 100, {
+    maxBytes: 64 * 1024 * 1024,
+    sizeOf: sessionDiffResultSize,
+  });
 
   fastify.get("/api/sessions", async () => {
     const sessions = sessionManager.listAll();
@@ -119,7 +127,7 @@ export function registerSessionRoutes(
       // See change: serve-retained-remote-transcripts (task 2.2).
       const enriched =
         remoteTranscriptStore && !originOf(item).local
-          ? { ...item, retainedTranscript: readRetainedState(remoteTranscriptStore, item.id).state }
+          ? { ...item, retainedTranscript: await remoteTranscriptStore.completenessOf(item.id) }
           : item;
       return { success: true, data: { item: enriched } } satisfies ApiResponse;
     },
@@ -345,7 +353,7 @@ export function registerSessionRoutes(
       // verbatim entries, so synthesizing dashboard events here would parse a
       // transcript (up to a 44.1 MB observed maximum) to produce output that is
       // then discarded. See CodeRabbit #663, thread 5.
-      const retained = readRetainedState(remoteTranscriptStore, sessionId);
+      const retained = await readRetainedState(remoteTranscriptStore, sessionId);
       // `state` rides alongside the entries rather than being inferred from
       // their emptiness: an empty COMPLETE transfer and a never-started one are
       // both zero entries and are not the same fact (task 1.2).
@@ -389,14 +397,36 @@ export function registerSessionRoutes(
       // Resolve and ensure path is within cwd
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);
       const rel = relative(session.cwd, absPath);
+      let viaGrant = false;
       if (rel.startsWith("..") || isAbsolute(rel)) {
-        reply.code(403);
-        return { success: false, error: "path outside session directory" } satisfies ApiResponse;
+        // The tenth containment site (design D19). A path grant admits here
+        // exactly as it does at the file-routes sites; the refusal string is
+        // unchanged when no grant covers it.
+        const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
+          site: "session-routes:session-file",
+          hold: { request, reply },
+          disclosure: canDiscloseAccessPosture(request),
+          session: sessionId,
+        });
+        if (!sessionDecision.allowed) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory", ...sessionDecision.remedy } as ApiResponse;
+        }
+        viaGrant = sessionDecision.viaGrant;
       }
       try {
-        const content = await readFile(absPath, "utf-8");
+        // A grant-admitted read is verified against the open handle (design D14,
+        // task 2.8): without it a granted FIFO would block this read, and a path
+        // swapped after the containment check would be served.
+        const content = viaGrant
+          ? await readFileVerifiedUtf8(absPath)
+          : await readFile(absPath, "utf-8");
         return { success: true, data: { content } } satisfies ApiResponse;
-      } catch {
+      } catch (err) {
+        if (err instanceof VerifiedReadRefused) {
+          reply.code(403);
+          return { success: false, error: "path outside session directory" } as ApiResponse;
+        }
         reply.code(404);
         return { success: false, error: "file not found" } satisfies ApiResponse;
       }

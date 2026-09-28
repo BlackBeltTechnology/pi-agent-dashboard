@@ -216,8 +216,10 @@ export interface SpawnResult {
    * RPC keeper UDS / named-pipe path. Set on every successful headless
    * spawn (the keeper is the only spawn mechanism for `--mode rpc`).
    * Callers pass this to `headlessPidRegistry.register(..., { keeperPid,
-   * keeperSockPath })` so later `writeRpc` / `killBySessionId` calls can
-   * locate the keeper. `pid` IS the keeper PID, so `keeperPid` is implicit.
+   * keeperSockPath })` so `killBySessionId` can find the keeper. `pid` IS the
+   * keeper PID, so `keeperPid` is implicit. The registry's `writeRpc` (the
+   * former consumer of this path) was removed by change
+   * retire-slash-dispatch-via-expand-prompt-templates.
    * See change: add-rpc-stdin-dispatch-with-keeper-sidecar,
    * enable-rpc-keeper-by-default.
    */
@@ -777,10 +779,10 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
     return {
       success: true,
       dashboardSpawned: true,
-      message: `Pi session spawned in tmux (${exists ? "new window" : "new session"})`,
+      message: `Pi session started in tmux (${exists ? "new window" : "new session"})`,
     };
   } catch (err: any) {
-    return { success: false, code: "TMUX_MISSING", message: `Failed to spawn session: ${err.message}` };
+    return { success: false, code: "TMUX_MISSING", message: `Failed to start session: ${err.message}` };
   }
 }
 
@@ -796,9 +798,9 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"], tmuxHeapNodeOptions(env));
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
-    return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
+    return { success: true, dashboardSpawned: true, message: "Pi session started via WSL tmux" };
   } catch (err: any) {
-    return { success: false, code: "TMUX_MISSING", message: `Failed to spawn via WSL tmux (wsl-tmux mechanism): ${err.message}` };
+    return { success: false, code: "TMUX_MISSING", message: `Failed to start via WSL tmux (wsl-tmux mechanism): ${err.message}` };
   }
 }
 
@@ -853,7 +855,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
   return {
     success: true,
     dashboardSpawned: true,
-    message: "Pi session spawned in Windows Terminal",
+    message: "Pi session started in Windows Terminal",
     pid: r.pid,
     process: r.process,
   };
@@ -958,7 +960,7 @@ async function spawnHeadlessViaKeeper(
     return {
       success: false,
       code: "SPAWN_ERRNO",
-      message: `Failed to spawn RPC keeper: ${result.error ?? "unknown error"}`,
+      message: `Failed to start RPC keeper: ${result.error ?? "unknown error"}`,
     };
   }
 
@@ -980,7 +982,7 @@ async function spawnHeadlessViaKeeper(
   return {
     success: true,
     dashboardSpawned: true,
-    message: `Pi session spawned via RPC keeper (keeper pid ${result.pid}, transport ${transportId.slice(0, 8)})`,
+    message: `Pi session started via RPC keeper (keeper pid ${result.pid}, transport ${transportId.slice(0, 8)})`,
     pid: result.pid,
     process: result.process,
     keeperSockPath: result.sockPath,

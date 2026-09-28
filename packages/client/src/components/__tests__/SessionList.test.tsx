@@ -1017,7 +1017,7 @@ describe("SessionList folder actions menu", () => {
   });
 
   // E2 — top-level folder outside a workspace.
-  it("E2: workspace group carries add-to-workspace; directory group carries pin, sort, settings", () => {
+  it("E2: workspace group carries add-to-workspace; directory group carries pin, settings", () => {
     renderList({
       onPinDirectory: () => {},
       onOpenDirectorySettings: () => {},
@@ -1027,7 +1027,8 @@ describe("SessionList folder actions menu", () => {
     expect(panel.querySelector("[data-testid='folder-menu-group-workspace']")).toBeTruthy();
     expect(screen.getByTestId(`add-to-workspace-btn-${CWD}`)).toBeTruthy();
     expect(screen.getByTestId("folder-menu-item-pin")).toBeTruthy();
-    expect(screen.getByTestId("folder-menu-item-urgency-sort")).toBeTruthy();
+    // Urgency sort retired (session-list-group-by) — superseded by Group by.
+    expect(screen.queryByTestId("folder-menu-item-urgency-sort")).toBeNull();
     expect(screen.getByTestId("folder-menu-item-directory-settings")).toBeTruthy();
     expect(screen.queryByTestId("folder-menu-item-remove-from-workspace")).toBeNull();
   });
@@ -1556,5 +1557,39 @@ describe("SessionList — ended paging release + exhausted (close-registry-frame
       }),
     );
     expect(screen.getByTestId(`folder-ended-more-${CWD}`)).toBeTruthy();
+  });
+});
+
+// See change: show-session-history-load-state (test-plan #F10).
+describe("SessionList history-phase routing", () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+  });
+
+  it("#F10 only the session present in historyPhaseMap gets a ring", async () => {
+    const CWD = "/home/user/project";
+    const { hook } = memoryLocation({ path: "/", static: true });
+    const { container } = render(
+      <Router hook={hook}>
+        <ThemeProvider>
+          <SessionList
+            sessions={[
+              makeSession({ id: "A", cwd: CWD, status: "idle" }),
+              makeSession({ id: "B", cwd: CWD, status: "idle" }),
+              makeSession({ id: "C", cwd: CWD, status: "idle" }),
+            ]}
+            onSelect={() => {}}
+            historyPhaseMap={new Map([["B", { phase: "loading", startedAt: Date.now() }]])}
+          />
+        </ThemeProvider>
+      </Router>,
+    );
+    const ringFor = (id: string) =>
+      container.querySelector(`[data-session-id="${id}"] [data-testid="session-history-ring"]`);
+    await waitFor(() => expect(ringFor("B")).not.toBeNull());
+    expect(container.querySelector('[data-session-id="A"]')).not.toBeNull();
+    expect(ringFor("A")).toBeNull();
+    expect(ringFor("C")).toBeNull();
   });
 });

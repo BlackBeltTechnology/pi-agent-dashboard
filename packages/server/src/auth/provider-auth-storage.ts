@@ -2,25 +2,35 @@
  * Read/write ~/.pi/agent/auth.json for pi provider credentials.
  * Uses lockfile + atomic write to avoid race conditions with running pi sessions.
  *
- * The OAuth provider list derives from the local handler registry
- * (`getAllHandlers()` in provider-auth-handlers.ts). The API-key list
+ * The OAuth provider list derives from the pi runtime's provider registry
+ * (`getOAuthRegistry()`), unioned with any id that already holds a stored
+ * `{ type: "oauth" }` credential — so a credential pi wrote for a provider the
+ * dashboard has no flow for is still visible and removable. The API-key list
  * derives from the bridge-pushed catalogue (provider-catalogue-cache.ts).
- * See change: replace-hardcoded-provider-lists.
+ * See changes: replace-hardcoded-provider-lists, delegate-provider-oauth-to-pi-ai.
  */
 
-import { createHash } from "node:crypto";
-import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-
-const _require = createRequire(import.meta.url);
-const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
+import { isDeepStrictEqual } from "node:util";
 
 import type { ProviderAuthStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { getLatestCatalogue } from "../package/provider-catalogue-cache.js";
-import { getAllHandlers, type ProviderHandler } from "./provider-auth-handlers.js";
+import {
+  getOAuthRegistry,
+  type OAuthRegistryEntry,
+} from "./provider-auth-handlers.js";
+import {
+  type CheckedJsonRead,
+  corruptUnbackedRefusal as corruptUnbackedRefusal_,
+  LOCK_OPTIONS,
+  type NotPromise,
+  _resetQuarantineDedupForTests as _resetLockedJsonQuarantineDedup,
+  readJsonChecked,
+  withLockedJsonFile,
+  writeJsonAtomic,
+} from "./locked-json-file.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,243 +48,173 @@ interface OAuthProviderMeta {
   flowType: "auth_code" | "device_code";
 }
 
-// ── Lock helpers (proper-lockfile) ───────────────────────────────────────────
+// ── Locked file I/O ──────────────────────────────────────────────────────────
 //
-// Upgraded from mkdir-based lock to proper-lockfile to match pi-coding-agent's
-// AuthStorage lock convention. See change: add-dashboard-model-proxy task 2.5.
+// Lock (pi-coupled `LOCK_OPTIONS`, contained compromise, sync-only critical
+// section), checked read, quarantine and atomic write live in
+// locked-json-file.ts, shared with the plugin credential store. auth.json
+// behaviour is unchanged. See changes: fix-provider-auth-lock-contention,
+// fix-corrupt-auth-json-500, harden-auth-json-lock-coordination,
+// expose-plugin-credential-and-oauth-seams (D1).
+
+const LOG_TAG = "provider-auth";
+
+export { LOCK_OPTIONS };
 
 /**
- * Lock options, carried verbatim across the sync→async switch.
- *
- * `realpath: false` is load-bearing: the async `lock()` defaults it to `true`,
- * and resolving symlinks would have the dashboard and pi lock DIFFERENT
- * lockfiles on a symlinked home (docker volume, network mount) — silently
- * dropping the mutual exclusion this lock exists for.
- * See change: fix-provider-auth-lock-contention.
+ * Lock window for the internal OAuth refresh path: pi's 15 s refresh timeout
+ * signal plus margin, and below `LOCK_OPTIONS.stale`. Long enough that a proxy
+ * request waits out a concurrent pi refresh and adopts its result.
+ * See change: harden-auth-json-lock-coordination (D4).
  */
-const LOCK_OPTIONS = { stale: 10_000, realpath: false } as const;
+const REFRESH_LOCK_BUDGET_MS = 20_000;
+let refreshLockBudgetMs = REFRESH_LOCK_BUDGET_MS;
 
-/** Total window the lock-held condition is retried before the write fails. */
-const LOCK_RETRY_BUDGET_MS = 2_000;
+/** Test seam: shorten the refresh-path lock window; `null` restores the default. */
+export function _setRefreshLockBudgetForTests(ms: number | null): void {
+  refreshLockBudgetMs = ms ?? REFRESH_LOCK_BUDGET_MS;
+}
 
-/**
- * Await between attempts. The cap matters more than the growth: several writers
- * queued behind one holder have to drain in sequence inside the budget.
- */
-const LOCK_RETRY_BACKOFF_MS = [25, 50, 100] as const;
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/**
- * Acquire the auth.json lock, retrying ONLY the lock-already-held condition
- * (`ELOCKED`) for a bounded window.
- *
- * Deliberately NOT proper-lockfile's own `retries` option: its retry driver
- * re-runs on ANY truthy error, so an `EACCES`/`EPERM` would silently consume
- * the whole window before surfacing. Every other lock or I/O failure must
- * propagate immediately.
- *
- * The wait is an awaited timer, never `Atomics.wait`: a blocked event loop
- * would stall every HTTP request and WebSocket frame for the whole wait.
- * See change: fix-provider-auth-lock-contention.
- */
-async function acquireAuthLock(): Promise<() => Promise<void>> {
-  const deadline = Date.now() + LOCK_RETRY_BUDGET_MS;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await _lockfile.lock(AUTH_PATH, LOCK_OPTIONS);
-    } catch (err) {
-      if ((err as { code?: unknown } | null)?.code !== "ELOCKED") throw err;
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) throw err;
-      const backoff = LOCK_RETRY_BACKOFF_MS[Math.min(attempt, LOCK_RETRY_BACKOFF_MS.length - 1)];
-      await sleep(Math.min(backoff, remaining));
-    }
-  }
+export interface WithLockOptions {
+  /** Window the lock-held condition is retried. Default: the 2 s interactive window. */
+  budgetMs?: number;
+  /** Pre-create an empty 0600 `auth.json` when absent. The refresh path passes `false`. */
+  createIfMissing?: boolean;
 }
 
 /**
- * Run `fn` while holding a proper-lockfile lock on auth.json.
- * Ensures the file exists (lockfile requires the target to exist).
+ * Run `fn` while holding the auth.json lock. `fn` MUST be synchronous
+ * (`NotPromise<T>`); see `withLockedJsonFile`.
+ * See change: harden-auth-json-lock-coordination (D2).
  */
-async function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  if (!fs.existsSync(AUTH_PATH)) {
-    // Create empty auth file so lockfile can lock it. 0600 explicitly: without
-    // it the placeholder lands at 0666 & ~umask (≈0644) and writeAuthJson's
-    // permission preservation carries that onto every later write — the
-    // credential file would be group/world-readable. See change:
-    // fix-corrupt-auth-json-500.
-    try { fs.writeFileSync(AUTH_PATH, "{}\n", { flag: "wx", mode: 0o600 }); } catch { /* race-safe */ }
-  }
-
-  const release = await acquireAuthLock();
-  try {
-    return await fn();
-  } finally {
-    // `release()` is a promise on the async API: the previous sync
-    // `try { release(); } catch {}` could not catch an unlock failure
-    // (`ERELEASED`, `EACCES`), which instead surfaced as an unhandled rejection
-    // and took the process down. See change: fix-provider-auth-lock-contention.
-    try { await release(); } catch { /* ignore cleanup errors */ }
-  }
+export function withLock<T>(fn: () => T & NotPromise<T>, opts: WithLockOptions = {}): Promise<T> {
+  return withLockedJsonFile(AUTH_PATH, fn, { ...opts, logTag: LOG_TAG });
 }
 
-// ── File operations ──────────────────────────────────────────────────────────
-
-// ── Corrupt-content recovery ──────────────────────────────────────────
-//
-// auth.json is shared with pi processes and can be truncated/emptied by an
-// interrupted write. Read tolerance and write safety are SPLIT: a read never
-// fails on bad content (it quarantines a copy and returns {}), a write never
-// destroys bytes it could not first copy aside. See change:
-// fix-corrupt-auth-json-500.
-
-/**
- * Internal carrier of a checked read. `quarantined: true` means a backup of
- * these exact bytes exists on disk — NOT that this call performed the copy.
- */
-interface CheckedAuthRead {
-  data: AuthData;
-  /** Bytes were readable but not a JSON plain object. */
-  corrupt: boolean;
-  /** A backup of these exact bytes exists on disk (this call, or a dedup hit). */
-  quarantined: boolean;
-}
-
-/** In-process dedup of quarantined content: sha256 hex → recorded only on a successful copy. */
-const quarantinedBackups = new Set<string>();
-
-/** Test seam: clear the quarantine dedup set between assertions. */
+/** Test seam: clear the quarantine dedup between assertions. */
 export function _resetQuarantineDedupForTests(): void {
-  quarantinedBackups.clear();
+  _resetLockedJsonQuarantineDedup();
 }
 
-/** `YYYYMMDDTHHMMSSsssZ` — sortable, millisecond precision, and NTFS-safe (no `:`). */
-function quarantineStamp(date = new Date()): string {
-  return date.toISOString().replace(/[-:]/g, "").replace(".", "");
-}
-
-/**
- * Copy the bad bytes to `auth.json.corrupt-<stamp>[-N]` and report success.
- *
- * The bytes WRITTEN are the exact bytes that were read and hashed — never a
- * fresh re-read of the file. A `copyFileSync` here would re-read the CURRENT
- * file, and on the unlocked read path pi can replace auth.json in between,
- * yielding a backup of content Y while the dedup set records sha256(X) — the
- * one scenario where the write-path refusal could then destroy X with no real
- * backup of X. Writing the in-memory buffer is byte-exact by construction and
- * is a COPY, never a rename: pi replaces auth.json atomically, so a read→rename
- * is a TOCTOU that can move away a file that became valid between our read and
- * the rename.
- *
- * The `wx` flag means two dashboards (or a crash-looping pi) on one $HOME never
- * overwrite an existing backup; on EEXIST a `-1`, `-2`, … suffix is appended.
- * Mode 0600: truncated credential files usually still contain intact secrets.
- *
- * Returns true also on a DEDUP HIT — the flag means "a backup of these exact
- * bytes was made earlier in this process", not "this call performed the copy"
- * and not "the backup still exists". The hash is recorded only after a
- * successful write so a failed write is retried, never latched.
- */
-function quarantineCorruptAuthFile(bytes: Buffer): boolean {
-  const digest = createHash("sha256").update(bytes).digest("hex");
-  if (quarantinedBackups.has(digest)) return true;
-
-  const base = `${AUTH_PATH}.corrupt-${quarantineStamp()}`;
-  let target = base;
-  for (let n = 1; ; n++) {
-    try {
-      fs.writeFileSync(target, bytes, { flag: "wx", mode: 0o600 });
-    } catch (err: any) {
-      if (err?.code === "EEXIST") { target = `${base}-${n}`; continue; }
-      // A failed exclusive create can leave an empty/partial file behind;
-      // remove it so the retry reuses the same name instead of stacking -N.
-      try { fs.unlinkSync(target); } catch { /* best-effort cleanup */ }
-      console.warn(`[provider-auth] Could not quarantine corrupt auth.json: write ${target} failed:`, err?.message ?? err);
-      return false;
-    }
-    quarantinedBackups.add(digest);
-    // One announcement: path + reason. Never the file's contents.
-    console.warn(`[provider-auth] auth.json is corrupt (unparseable content); quarantined a byte-exact copy to ${target}`);
-    return true;
-  }
-}
-
-/** Parse with BOM tolerance; non-plain-object JSON is corrupt by definition. */
-function parseAuthData(raw: string): AuthData {
-  const stripped = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  const parsed: unknown = JSON.parse(stripped);
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new SyntaxError("auth.json content is not a JSON object");
-  }
-  return parsed as AuthData;
-}
-
-/**
- * Checked read. Content failures (empty/truncated/non-object) never throw:
- * they quarantine the bytes and return `{}` with `corrupt: true`. Read
- * failures (EACCES, EISDIR, …) are NOT content failures and still throw —
- * an unreadable file is a deployment bug, not corruption. ENOENT keeps its
- * meaning: `{}`, corrupt: false.
- */
-function readAuthJsonChecked(): CheckedAuthRead {
-  let bytes: Buffer;
-  try {
-    bytes = fs.readFileSync(AUTH_PATH);
-  } catch (err: any) {
-    if (err.code === "ENOENT") return { data: {}, corrupt: false, quarantined: false };
-    throw err;
-  }
-  try {
-    return { data: parseAuthData(bytes.toString("utf-8")), corrupt: false, quarantined: false };
-  } catch (err: any) {
-    if (!(err instanceof SyntaxError)) throw err;
-    const quarantined = quarantineCorruptAuthFile(bytes);
-    return { data: {}, corrupt: true, quarantined };
-  }
+function readAuthJsonChecked(): CheckedJsonRead<AuthData> {
+  return readJsonChecked<AuthData>(AUTH_PATH, LOG_TAG);
 }
 
 export function readAuthJson(): AuthData {
   return readAuthJsonChecked().data;
 }
 
-/** Write-path refusal reason. Names the file, never any credential material. */
 function corruptUnbackedRefusal(): Error {
-  return new Error(
-    `Refusing to write credentials: ${AUTH_PATH} is corrupt and could not be backed up. ` +
-    `Fix or remove the file manually, then try again.`,
-  );
+  return corruptUnbackedRefusal_(AUTH_PATH);
 }
 
 function writeAuthJson(data: AuthData, forceMode?: number): void {
-  fs.mkdirSync(AUTH_DIR, { recursive: true });
-  const tmp = AUTH_PATH + ".tmp";
-  const content = JSON.stringify(data, null, 2) + "\n";
+  writeJsonAtomic(AUTH_PATH, data, forceMode);
+}
 
-  // Preserve existing permissions or use 0600 for new file — with group/world
-  // bits always cleared: a legacy 0644 credential file must not stay
-  // group/world-readable forever just because preservation copies its mode
-  // forward. A corrupt-file repair forces 0600 outright: the corrupt file may
-  // carry arbitrary wider bits. See change: fix-corrupt-auth-json-500.
-  let mode = 0o600;
-  if (forceMode !== undefined) {
-    mode = forceMode;
-  } else {
-    try {
-      mode = fs.statSync(AUTH_PATH).mode & 0o777 & 0o700;
-    } catch { /* file doesn't exist yet */ }
+// ── Internal OAuth refresh: locked snapshot + compare-and-swap ─────────────
+//
+// The model proxy refreshes OAuth credentials WITHOUT holding the lock across
+// its network call (so interactive writes never starve). Its starting point is
+// a locked read (pi writes auth.json in place — an unlocked read can be torn),
+// and its persist is a compare-and-swap. Neither ever creates auth.json.
+// Messages name the provider and the outcome only, never credential material.
+// See change: harden-auth-json-lock-coordination (D3, D4).
+
+/** auth.json holds unparseable content; the refresh declines to proceed. */
+export class AuthJsonCorruptError extends Error {
+  readonly code = "provider_auth.auth_json_corrupt";
+  constructor(provider: string) {
+    super(`Cannot refresh OAuth credential for "${provider}": auth.json is corrupt (unparseable content)`);
+    this.name = "AuthJsonCorruptError";
   }
+}
 
-  fs.writeFileSync(tmp, content, { mode });
-  // writeFileSync's mode applies only at CREATION: a auth.json.tmp surviving
-  // from a crashed earlier write (e.g. 0644 from an older build) would keep
-  // its mode through the rename and publish the credential world-readable.
-  fs.chmodSync(tmp, mode);
-  fs.renameSync(tmp, AUTH_PATH);
+export type LockedCredentialRead =
+  | { outcome: "ok"; credential: OAuthCredential }
+  | { outcome: "removed" }
+  | { outcome: "replaced" }
+  | { outcome: "corrupt" };
+
+const refreshLockOptions = (): WithLockOptions => ({ budgetMs: refreshLockBudgetMs, createIfMissing: false });
+
+/**
+ * Read one provider's credential under the lock (refresh-path window, never
+ * creates auth.json). Never throws on content: corrupt bytes are quarantined
+ * by `readAuthJsonChecked` exactly as on every read, and reported as `corrupt`.
+ * An absent auth.json reads as `{}` → `removed`. I/O and lock errors propagate.
+ */
+export async function readCredentialLocked(provider: string): Promise<LockedCredentialRead> {
+  return withLock((): LockedCredentialRead => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt) return { outcome: "corrupt" };
+    const stored = checked.data[provider];
+    if (!stored) return { outcome: "removed" };
+    if (stored.type !== "oauth") return { outcome: "replaced" };
+    return { outcome: "ok", credential: stored };
+  }, refreshLockOptions());
+}
+
+export type RefreshedOAuthWrite =
+  | { outcome: "written"; credential: OAuthCredential }
+  | { outcome: "changed"; credential: OAuthCredential }
+  | { outcome: "removed" }
+  | { outcome: "replaced" };
+
+/**
+ * Compare-and-swap persist of a refreshed OAuth credential. Under the lock,
+ * writes `next` only when the stored credential is deep-equal — in EVERY field,
+ * opaque ones such as `enterpriseUrl` included — to `snapshot`, the credential
+ * the refresh started from. Otherwise nothing is written: disk wins.
+ * Absent file / missing key → `removed` (never recreated); non-OAuth →
+ * `replaced` (never adopted as a token); corrupt → throws, never written over.
+ */
+export async function writeRefreshedOAuth(
+  provider: string,
+  next: OAuthCredential,
+  snapshot: OAuthCredential,
+): Promise<RefreshedOAuthWrite> {
+  return withLock((): RefreshedOAuthWrite => {
+    const checked = readAuthJsonChecked();
+    if (checked.corrupt) throw new AuthJsonCorruptError(provider);
+    const data = checked.data;
+    const stored = data[provider];
+    if (!stored) return { outcome: "removed" };
+    if (stored.type !== "oauth") return { outcome: "replaced" };
+    if (!isDeepStrictEqual(stored, snapshot)) return { outcome: "changed", credential: stored };
+    data[provider] = next;
+    writeAuthJson(data);
+    return { outcome: "written", credential: next };
+  }, refreshLockOptions());
 }
 
 // ── Public API: write/remove ─────────────────────────────────────────────────
+
+/**
+ * Thrown when a credential write would replace a stored credential of a
+ * DIFFERENT `type` under the same auth.json key (D2): an api-key save over a
+ * stored OAuth login, or a completed OAuth sign-in over a stored api key.
+ * Throws rather than returning because `writeCredential` is `void` and every
+ * call site ignores return values — a return-valued refusal would be silent.
+ * `code` is the stable machine code the client translates; `storedType` names
+ * the STORED credential's type (what the caller must remove first).
+ * See change: redesign-providers-settings-page (D2).
+ */
+export class CredentialTypeConflictError extends Error {
+  readonly code = "provider_auth.credential_type_conflict";
+  readonly provider: string;
+  readonly storedType: AuthCredential["type"];
+
+  constructor(provider: string, storedType: AuthCredential["type"], attemptedKind: AuthCredential["type"]) {
+    super(
+      `"${provider}" already holds a ${storedType} credential. ` +
+      `Remove it before writing a ${attemptedKind} credential.`,
+    );
+    this.name = "CredentialTypeConflictError";
+    this.provider = provider;
+    this.storedType = storedType;
+  }
+}
 
 /**
  * Persist one provider credential.
@@ -288,17 +228,39 @@ export async function writeCredential(provider: string, credential: AuthCredenti
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
+    // D2 — refuse the cross-type clobber. Several UI rows resolve to ONE
+    // storage key (`anthropic-api` → `anthropic`), so a different-type write
+    // here would silently destroy a stored subscription login or key. Same-type
+    // writes (api-key overwrite, OAuth token refresh) are unaffected.
+    // See change: redesign-providers-settings-page (D2).
+    const stored = data[provider];
+    if (stored && stored.type !== credential.type) {
+      throw new CredentialTypeConflictError(provider, stored.type, credential.type);
+    }
     data[provider] = credential;
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
   });
 }
 
-/** Remove one provider credential. Async — see `writeCredential`. */
-export async function removeCredential(provider: string): Promise<void> {
+/** Remove one provider credential. Async — see `writeCredential`.
+ *
+ *  `expectedKind` carries the kind of the UI row the removal was addressed to
+ *  ("oauth" for a handler id, "api_key" otherwise — including an `<id>-api`
+ *  twin). A stored credential of a DIFFERENT type refuses the same way a write
+ *  does (D2/X2): a delete addressed to the api-key row must not revoke the
+ *  sibling's OAuth login. Removing the credential the row owns — or removing
+ *  when nothing is stored — succeeds. Omitting `expectedKind` keeps the
+ *  unguarded legacy behavior for any caller that has no row kind.
+ */
+export async function removeCredential(provider: string, expectedKind?: AuthCredential["type"]): Promise<void> {
   await withLock(() => {
     const checked = readAuthJsonChecked();
     if (checked.corrupt && !checked.quarantined) throw corruptUnbackedRefusal();
     const data = checked.data;
+    const stored = data[provider];
+    if (stored && expectedKind && stored.type !== expectedKind) {
+      throw new CredentialTypeConflictError(provider, stored.type, expectedKind);
+    }
     delete data[provider];
     writeAuthJson(data, checked.corrupt ? 0o600 : undefined);
   });
@@ -307,37 +269,93 @@ export async function removeCredential(provider: string): Promise<void> {
 // ── Pure status builder (testable) ───────────────────────────────────────────
 
 /**
+ * Every id treated as an OAuth row: the runtime registry ∪ any id already
+ * holding a stored `{ type: "oauth" }` credential.
+ *
+ * `_buildAuthStatus`, `resolveAuthJsonKey` and the DELETE route's row-kind
+ * check all read THIS ONE union, so a row's kind cannot differ between "what
+ * the list shows" and "what a removal addresses". A credential pi wrote for a
+ * provider the dashboard has no flow for is therefore visible and removable,
+ * not invisible-and-stuck.
+ * See change: delegate-provider-oauth-to-pi-ai (D1).
+ */
+export function oauthIdSet(authData: AuthData = readAuthJson()): Set<string> {
+  return oauthIdsFrom(getOAuthRegistry(), authData);
+}
+
+/**
+ * The same union, from an EXPLICIT registry — keeps `_buildAuthStatus` pure and
+ * testable while the production call site ({@link oauthIdSet}) reads the live
+ * one. The two must agree: in production `oauthEntries` IS the live registry.
+ */
+export function oauthIdsFrom(
+  entries: readonly OAuthRegistryEntry[],
+  authData: AuthData,
+): Set<string> {
+  const ids = new Set(entries.map((e) => e.id));
+  for (const [id, cred] of Object.entries(authData)) {
+    if (cred?.type === "oauth") ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * A permanent key obtained through an OAuth handshake (what OpenRouter issues)
+ * stores `refresh: ""` and a meaningless `expires`. Emit `null` so clients
+ * apply ONE null-check instead of provider-specific knowledge.
+ * See change: delegate-provider-oauth-to-pi-ai (D4).
+ */
+function oauthRowExpires(cred: OAuthCredential): number | null {
+  return cred.refresh ? cred.expires : null;
+}
+
+/**
  * Pure derivation of `ProviderAuthStatus[]` from auth.json data, the
- * bridge-pushed provider catalogue, and the local OAuth handler set.
+ * bridge-pushed provider catalogue, and the OAuth registry.
  * No I/O. See change: replace-hardcoded-provider-lists.
  */
 export function _buildAuthStatus(
   catalogue: ProviderInfo[],
   authData: AuthData,
-  oauthHandlers: ProviderHandler[],
+  oauthEntries: OAuthRegistryEntry[],
 ): ProviderAuthStatus[] {
   const statuses: ProviderAuthStatus[] = [];
-  const oauthIds = new Set(oauthHandlers.map((h) => h.providerId));
+  const oauthIds = oauthIdsFrom(oauthEntries, authData);
 
-  // OAuth rows from local handler registry.
-  for (const h of oauthHandlers) {
-    const cred = authData[h.providerId];
-    if (cred && cred.type === "oauth") {
+  const pushOAuthRow = (
+    id: string,
+    name: string,
+    flowType: "auth_code" | "device_code",
+  ): void => {
+    const cred = authData[id];
+    if (cred?.type === "oauth") {
       statuses.push({
-        id: h.providerId,
-        name: h.displayName,
-        flowType: h.flowType,
+        id,
+        name,
+        flowType,
         authenticated: true,
-        expires: (cred as OAuthCredential).expires,
+        expires: oauthRowExpires(cred),
+        configured: true,
+        source: "stored",
       });
     } else {
-      statuses.push({
-        id: h.providerId,
-        name: h.displayName,
-        flowType: h.flowType,
-        authenticated: false,
-      });
+      statuses.push({ id, name, flowType, authenticated: false, configured: false });
     }
+  };
+
+  // OAuth rows from the runtime registry.
+  const registryIds = new Set<string>();
+  for (const entry of oauthEntries) {
+    registryIds.add(entry.id);
+    pushOAuthRow(entry.id, entry.name, entry.flowType);
+  }
+
+  // Stored OAuth credentials the registry does not list: written by pi (or an
+  // older dashboard) for a provider with no dashboard flow. Still connected —
+  // and still removable — just not re-loginable from here.
+  for (const [id, cred] of Object.entries(authData)) {
+    if (cred?.type !== "oauth" || registryIds.has(id)) continue;
+    pushOAuthRow(id, id, "device_code");
   }
 
   // API-key rows from bridge-pushed catalogue.
@@ -356,13 +374,41 @@ export function _buildAuthStatus(
     const authJsonKey = entry.id;
     const cred = authData[authJsonKey];
     const hasStoredKey = !!(cred && cred.type === "api_key" && (cred as ApiKeyCredential).key);
+    // D1 — one rule for EVERY api-key row, twin or not.
+    //
+    // `source: "stored"` is excluded as catalogue evidence because a stored
+    // credential of ANY kind sets `entry.configured` with `source: "stored"`.
+    // Without the exclusion, an OAuth credential on a catalogue id with no
+    // dashboard handler emits a phantom `api_key` row — `configured: true`, no
+    // `maskedKey` — whose Remove would delete that OAuth credential.
+    // `hasStoredKey` already covers every stored api-*key* credential, so the
+    // exclusion loses nothing.
+    //
+    // `source == null` is likewise not evidence: the bridge's fallback branch
+    // sets `configured` with no `source`, and treating `undefined !== "stored"`
+    // as evidence would reopen the clobber against an older pi.
+    const rowConfigured =
+      hasStoredKey ||
+      !!entry.ambient ||
+      (entry.configured && entry.source != null && entry.source !== "stored");
 
     const row: ProviderAuthStatus = {
       id: uiId,
       name: displayName,
       flowType: "api_key",
       authenticated: hasStoredKey || !!entry.ambient,
+      configured: rowConfigured,
     };
+    // `source` mirrors the catalogue's evidence whenever the row is configured
+    // by it; `stored` evidence sets it through `hasStoredKey` instead.
+    //
+    // A STORED key outranks the catalogue's own `source`. pi-ai reports
+    // `source: "environment"` whenever the env var is also set, so a provider
+    // with BOTH a key in auth.json and the env var exported would otherwise be
+    // labelled `environment` while carrying a `maskedKey` — contradicting the
+    // status contract, which reserves `stored` for auth.json-backed rows.
+    if (hasStoredKey) row.source = "stored";
+    else if (rowConfigured && entry.source != null) row.source = entry.source;
     if (hasStoredKey) {
       const key = (cred as ApiKeyCredential).key;
       row.maskedKey = key.length >= 12 ? `${key.slice(0, 5)}...${key.slice(-3)}` : "****";
@@ -380,14 +426,16 @@ export function _buildAuthStatus(
 // ── Public API: status / OAuth meta / id resolution ─────────────────────────
 
 export function getAuthStatus(): ProviderAuthStatus[] {
-  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getAllHandlers());
+  return _buildAuthStatus(getLatestCatalogue(), readAuthJson(), getOAuthRegistry());
 }
 
-export function getOAuthProvidersMeta(): OAuthProviderMeta[] {
-  return getAllHandlers().map((h) => ({
-    id: h.providerId,
-    name: h.displayName,
-    flowType: h.flowType,
+export function getOAuthProvidersMeta(
+  entries: readonly OAuthRegistryEntry[] = getOAuthRegistry(),
+): OAuthProviderMeta[] {
+  return entries.map((e) => ({
+    id: e.id,
+    name: e.name,
+    flowType: e.flowType,
   }));
 }
 
@@ -401,11 +449,10 @@ export function getOAuthProvidersMeta(): OAuthProviderMeta[] {
  * matching the previous behavior.
  */
 export function resolveAuthJsonKey(providerId: string): string {
-  const oauthIds = new Set(getAllHandlers().map((h) => h.providerId));
-  // <id>-api suffix → strip suffix iff the bare id is an OAuth handler.
+  // <id>-api suffix → strip suffix iff the bare id is an OAuth id.
   if (providerId.endsWith("-api")) {
     const bare = providerId.slice(0, -"-api".length);
-    if (oauthIds.has(bare)) return bare;
+    if (oauthIdSet().has(bare)) return bare;
   }
   return providerId;
 }

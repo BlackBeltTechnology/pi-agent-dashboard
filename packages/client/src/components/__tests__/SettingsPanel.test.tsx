@@ -574,49 +574,72 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("blank-name LLM provider blocks save with an error and stays dirty", async () => {
-    // Regression: a provider row with an empty name must NOT be silently
-    // dropped. The save fails with a visible error and the source stays dirty
-    // (PUT /api/providers never fires). See change: fix-custom-provider-save-and-auth.
-    let putProvidersCalled = false;
+  it("F8: a custom-endpoint write never opens the Save Bar and survives Discard", async () => {
+    // The Providers page keeps its Save-bar attribution for OTHER sources
+    // (modelProxy), but provider credentials/endpoints are written at the
+    // point of edit and are NOT a draft source. See change:
+    // redesign-providers-settings-page (settings-panel spec, F8).
+    let patchCalls = 0;
+    let stored: Record<string, any> = {};
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && !options?.method) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
       }
-      if (url === "/api/providers" && options?.method === "PUT") {
-        putProvidersCalled = true;
-        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      if (url.includes("/api/providers") && options?.method === "PATCH") {
+        patchCalls += 1;
+        // Model the server: the entry is persisted before the response.
+        const name = decodeURIComponent(url.split("/api/providers/")[1]);
+        const body = JSON.parse(options.body);
+        stored[name] = { baseUrl: body.baseUrl, apiKey: body.apiKey, api: body.api };
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
       }
-      if (url === "/api/providers") {
-        return Promise.resolve({ json: () => Promise.resolve({ success: true, providers: {} }) });
+      if (url.includes("/api/providers")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, providers: stored, health: {} }) });
       }
-      if (url === "/api/provider-auth/status") {
-        return Promise.resolve({ json: () => Promise.resolve([]) });
+      if (url.includes("/api/provider-auth/status")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url.includes("/api/provider-auth/catalogue-ready")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ready: true }) });
+      }
+      if (url.includes("/api/models")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ status: "ok", models: [] }) });
       }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
     setPath("/settings/providers");
 
     render(<SettingsPanel />);
-    await waitFor(() => screen.getByRole("button", { name: "Add Provider" }));
+    await waitFor(() => screen.getByTestId("add-provider-button"));
 
-    // Add a provider, leave the Name blank but fill Base URL + API Key.
-    fireEvent.click(screen.getByRole("button", { name: "Add Provider" }));
-    fireEvent.change(screen.getByPlaceholderText("https://api.example.com/v1"), {
-      target: { value: "https://proxy.example.com/v1" },
+    // Add a custom endpoint through the dialog.
+    fireEvent.click(screen.getByTestId("add-provider-button"));
+    fireEvent.click(await screen.findByText(/custom endpoint/i));
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "local-vllm" } });
+    fireEvent.change(screen.getByLabelText(/base url/i), { target: { value: "http://localhost:8000/v1" } });
+    fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: "sk-x" } });
+    fireEvent.click(screen.getByTestId("dialog-submit"));
+
+    // The write committed on its own action: the row renders and NO Save Bar
+    // appeared.
+    await waitFor(() => expect(screen.getByText("local-vllm")).toBeTruthy());
+    expect(patchCalls).toBe(1);
+    expect(screen.queryByTestId("settings-save-bar")).toBeNull();
+
+    // An unrelated dirty field opens the Save Bar; Discard must NOT revert the
+    // already-written provider state (no re-issue, row stays).
+    setPath("/settings/general");
+    await waitFor(() => screen.getByText("Interface"));
+    fireEvent.change(screen.getByText("PWA Display Name").closest("div")!.querySelector("input")!, {
+      target: { value: "renamed" },
     });
-    fireEvent.change(screen.getByPlaceholderText("sk-... or $ENV_VAR_NAME"), {
-      target: { value: "sk-real-123" },
-    });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    fireEvent.click(screen.getByTestId("discard-btn"));
+    await waitFor(() => expect(screen.queryByTestId("settings-save-bar")).toBeNull());
 
-    // Save bar appears (the new row makes the source dirty).
-    await waitFor(() => screen.getByTestId("save-btn"));
-    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
-
-    // Error surfaced; PUT never fired; row not dropped; source stays dirty.
-    await waitFor(() => expect(screen.getByText(/Provider name is required/)).toBeTruthy());
-    expect(putProvidersCalled).toBe(false);
-    expect(screen.getByTestId("settings-save-bar")).toBeTruthy();
+    setPath("/settings/providers");
+    await waitFor(() => expect(screen.getByText("local-vllm")).toBeTruthy());
+    expect(patchCalls).toBe(1);
   });
 
   it("does NOT include modelProxy in the save payload when unchanged", async () => {
@@ -1188,9 +1211,15 @@ describe("SettingsPanel model catalogue", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve([
-            { id: "openai", name: "OpenAI", flowType: "api_key", authenticated: apiKeyAuthenticated },
+            { id: "openai", name: "OpenAI", flowType: "api_key", authenticated: apiKeyAuthenticated, configured: apiKeyAuthenticated },
           ]),
         });
+      }
+      if (url === "/api/providers") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, providers: {}, health: {} }) });
+      }
+      if (url.includes("/api/provider-auth/catalogue-ready")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ ready: true }) });
       }
       if (url === "/api/provider-auth/api-key") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
@@ -1207,7 +1236,9 @@ describe("SettingsPanel model catalogue", () => {
 
   const catalogueCalls = (mock: any) => mock.mock.calls.filter((c: any[]) => c[0] === "/api/models").length;
 
-  // X7: an API-key save issues exactly one new GET /api/models, off its response.
+  // X7: an API-key save issues exactly one new GET /api/models, off its
+  // response — the write path now flows through the Add-provider dialog and
+  // the section's single dispatch funnel.
   it("refetches the catalogue after an API-key save", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const fetchMock = mockFetchProvidersPage(false);
@@ -1216,9 +1247,10 @@ describe("SettingsPanel model catalogue", () => {
     render(<SettingsPanel />);
     await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(1));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Add Key/ }));
-    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "sk-test" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+    fireEvent.click(await screen.findByTestId("add-provider-button"));
+    fireEvent.click(await screen.findByText("OpenAI"));
+    fireEvent.change(await screen.findByLabelText(/api key/i), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByTestId("dialog-submit"));
 
     await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(2));
     // Triggered by the save's response, not by a timer: no further elapsed time
@@ -1431,5 +1463,107 @@ describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => 
     expect(putBody.sessionList).toBeDefined();
     expect(putBody.sessionList.archiveAfterDays).toBe(14);
     expect(putBody.sessionList.archiveSweepIntervalMinutes).toBe(1);
+  });
+});
+
+// Models nav group + promoted plugin entries.
+// See change: promote-model-roles-settings (test-plan #F1, #F4, #X1).
+describe("SettingsPanel Models nav group", () => {
+  const rolesNav = { group: "models", label: "Model roles", description: "Pick which model answers each @role." };
+  function rolesRow(o: { firstParty?: boolean; nav?: boolean; status?: Record<string, unknown> } = {}) {
+    return {
+      id: "roles",
+      displayName: "Roles",
+      priority: 100,
+      ...(o.firstParty === undefined ? {} : { firstParty: o.firstParty }),
+      hasServer: true,
+      hasBridge: false,
+      hasClient: true,
+      claims: [
+        { slot: "settings-section", component: "BuiltInRolesSettings", ...(o.nav === false ? {} : { nav: rolesNav }) },
+      ],
+      requires: null,
+      status: { id: "roles", displayName: "Roles", enabled: true, loaded: true, claims: 1, ...(o.status ?? {}) },
+    };
+  }
+  function mockFetchWithPlugins(rows: unknown[]) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url.endsWith("/api/plugins")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, plugins: rows }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+  const groupItems = (groupEl: Element) =>
+    Array.from(groupEl.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim());
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/general");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("F1: Models is the first group, holding Providers then Model roles; General stays active", async () => {
+    vi.stubGlobal("fetch", mockFetchWithPlugins([rolesRow({ firstParty: true })]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-promoted-roles")).toBeTruthy());
+    const groups = rail.querySelectorAll("[data-testid^='settings-nav-group-']");
+    expect(groups[0].getAttribute("data-testid")).toBe("settings-nav-group-models");
+    expect(groups[0].textContent).toContain("Models");
+    expect(groupItems(groups[0])).toEqual(["Providers", "Model roles"]);
+    const ext = within(rail).getByTestId("settings-nav-group-extensions");
+    expect(groupItems(ext)).not.toContain("Providers");
+    const active = rail.querySelectorAll("[aria-current='page']");
+    expect(active).toHaveLength(1);
+    expect(active[0].textContent).toContain("General");
+  });
+
+  it("F4: a promoted entry carries the same error health dot a Plugins child uses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithPlugins([rolesRow({ firstParty: true, status: { loaded: false, error: "boom" } })]),
+    );
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const dot = await within(rail).findByTestId("nav-plugin-status-roles");
+    expect(dot.className).toContain("--accent-red");
+    expect(dot.getAttribute("aria-label")).toBe("error");
+    expect(within(rail).getByTestId("nav-promoted-roles").contains(dot)).toBe(true);
+  });
+
+  it("X1: an older server (no firstParty, no nav) leaves Providers alone in Models", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", mockFetchWithPlugins([rolesRow({ nav: false })]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-plugin-roles")).toBeTruthy());
+    expect(groupItems(within(rail).getByTestId("settings-nav-group-models"))).toEqual(["Providers"]);
+    expect(within(rail).queryByTestId("nav-promoted-roles")).toBeNull();
+    expect(within(rail).getByTestId("nav-plugin-roles").textContent).toContain("Roles");
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it("every built-in rail label is in the reserved promotion-label set (drift guard)", async () => {
+    const { RESERVED_SETTINGS_LABELS, foldSettingsLabel } = await import("../../lib/settings-promotions.js");
+    vi.stubGlobal("fetch", mockFetchWithPlugins([]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const labels = Array.from(rail.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim());
+    const groupLabels = Array.from(rail.querySelectorAll("[data-testid^='settings-nav-group-label-']")).map(
+      (el) => (el.textContent ?? "").trim(),
+    );
+    expect(groupLabels.length).toBe(6);
+    for (const label of [...labels, ...groupLabels]) {
+      expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel(label))).toBe(true);
+    }
   });
 });

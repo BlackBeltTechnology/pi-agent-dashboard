@@ -3,8 +3,9 @@
  * Avoids passing 14+ closure variables to every extracted function.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ConnectionManager } from "./connection.js";
 import { shouldSkipByPrefilter } from "./auto-session-namer.js";
+import type { ConnectionManager } from "./connection.js";
+import type { PrStatusScheduler } from "./pr-status.js";
 
 export interface BridgeContext {
   pi: ExtensionAPI;
@@ -28,7 +29,18 @@ export interface BridgeContext {
   lastSessionDir: string | undefined;
   lastFirstMessage: string | undefined;
   lastGitBranch: string | undefined;
-  lastGitPrNumber: number | undefined;
+  /**
+   * Last serialized PR tuple (`PrTuple`) sent via `git_info_update`, or
+   * `undefined` when nothing sent yet. Replaces `lastGitPrNumber`.
+   * See change: redesign-composer-session-strip (D5).
+   */
+  lastGitPrJson: string | undefined;
+  /**
+   * Per-bridge async PR-status scheduler (stable reference across
+   * `syncBc()` snapshots). Absent in unit-test contexts that don't need it.
+   * See change: redesign-composer-session-strip (D5).
+   */
+  prStatus?: PrStatusScheduler;
   /**
    * Last serialized `GitWorktreeInfo` snapshot sent to the server, or
    * the literal string `"null"` when we explicitly cleared worktree
@@ -143,23 +155,6 @@ export function isExtensionSlashCommand(
   if (cmdName.startsWith("__")) return false;
   if (DASHBOARD_NATIVE_COMMANDS.has(cmdName)) return false;
   return commandList.some((c) => c?.name === cmdName && c?.source === "extension");
-}
-
-/**
- * Feature-detect upstream `pi.dispatchCommand(text, opts)` (pi 0.71+).
- * Returns true iff `dispatchCommand` resolves to a function on the supplied
- * object. Fast path uses a direct `typeof` access; when that is false an
- * `in`-operator fallback with a guarded `typeof` detects getter-backed /
- * Proxy-hidden properties. Returns false for null/undefined and non-functions.
- * See change: resolve-global-prompt-templates-from-dashboard.
- */
-export function hasDispatchCommand(pi: unknown): boolean {
-  if (pi == null) return false;
-  if (typeof (pi as any).dispatchCommand === "function") return true;
-  if ("dispatchCommand" in (pi as object)) {
-    return typeof (pi as any).dispatchCommand === "function";
-  }
-  return false;
 }
 
 /**

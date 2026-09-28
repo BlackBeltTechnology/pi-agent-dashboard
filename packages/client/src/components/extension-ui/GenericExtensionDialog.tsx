@@ -25,7 +25,7 @@ import { mdiClose } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { resolveMdiIcon } from "../../lib/preview/mdi-icon-lookup.js";
+import { useMdiIconByKey } from "../../lib/preview/mdi-icon-lookup.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 
 interface Props {
@@ -70,7 +70,7 @@ export function GenericExtensionDialog({ module, rows, onDispatch, onClose }: Pr
 }
 
 function ModuleHeader({ module, onClose }: { module: ExtensionUiModule; onClose: () => void }) {
-  const iconPath = resolveMdiIcon(module.icon);
+  const iconPath = useMdiIconByKey(module.icon);
   return (
     <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-primary)]">
       {iconPath && <Icon path={iconPath} size={0.7} className="text-[var(--text-secondary)]" />}
@@ -104,7 +104,7 @@ function ActionToolbar({ actions, onDispatch }: { actions: UiAction[]; onDispatc
 
 function ActionButton({ action, onDispatch, compact }: { action: UiAction; onDispatch: Props["onDispatch"]; compact?: boolean }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const iconPath = resolveMdiIcon(action.icon);
+  const iconPath = useMdiIconByKey(action.icon);
   const variantClass =
     action.variant === "danger"
       ? "bg-red-600 hover:bg-red-500 text-[var(--text-primary)]"

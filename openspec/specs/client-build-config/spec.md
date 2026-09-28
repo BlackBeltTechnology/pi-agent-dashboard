@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change polish-header-logo-and-card-stripes. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Vite publicDir resolves to the project-root public/ directory
 The Vite build configuration in `packages/client/vite.config.ts` SHALL set `publicDir` to a value that resolves (relative to the configured `root`) to the project-root `public/` directory containing `icon-192.png`, `icon-512.png`, `manifest.json`, and `sw.js`. With `root: "src"`, the correct relative value is `"../../../public"` (three `../` hops). The previous value `"../../public"` resolved to a non-existent `packages/public/` directory, causing Vite to silently skip copying static assets and producing a `dist/` without favicons, the PWA manifest, or the service worker.
 
@@ -105,40 +107,33 @@ change.
 
 ### Requirement: @mdi/js is isolated from the eager entry chunk
 
-The `@mdi/js` icon set SHALL NOT be inlined into the client `index` entry chunk, and
-the build SHALL NOT report a `dynamic import will not move module into another chunk`
-warning for `@mdi/js`.
+The full `@mdi/js` icon set SHALL NOT be part of the cold-landing load. It SHALL NOT be inlined into the client `index` entry chunk, and the landing document (`index.html`) SHALL NOT reference it through the entry script, a `modulepreload` link, or any chunk those statically import. The build SHALL NOT report a `dynamic import will not move module into another chunk` warning for `@mdi/js`.
 
-- `@mdi/js` SHALL be assigned its own `manualChunks` entry in
-  `packages/client/vite.config.ts`, so the icon set is emitted as a dedicated `mdi`
-  chunk rather than inlined into `index`.
-- The two dynamic `import("@mdi/js")` sites (`ActionList.tsx`, `StatusPill.tsx`) SHALL be
-  converted to static imports so no module is imported both dynamically and statically —
-  a `manualChunks` entry alone does NOT silence that warning.
-- The icon-by-key resolver SHALL keep resolving arbitrary extension-supplied keys (the
-  full namespace is retained; no tree-shaking).
+- Icons imported by name (e.g. `import { mdiRefresh } from "@mdi/js"`) SHALL stay static and tree-shaken, so only the icons the shell actually names ship in the eager graph.
+- Resolving an icon from a runtime key string (extension-UI module/action icons, footer-segment icons, `ActionList`, `StatusPill`) SHALL load the full icon set on demand, the first time any key is resolved. The loaded set SHALL be shared by all resolvers and loaded at most once per page.
+- The icon-by-key resolver SHALL keep resolving arbitrary extension-supplied keys (the full namespace stays available once loaded). Until the set has loaded, a key-resolved icon SHALL render nothing (no placeholder), then render the icon once the set is available, without throwing. An unknown key SHALL render nothing both before and after the set loads.
 
-This requirement does NOT cover the oversized-chunk (>700 kB) aggregate warning;
-`chunkSizeWarningLimit` remains at 700 and that warning is an accepted, documented notice
-(`monaco` is intentionally large and lazy).
+This requirement does NOT cover the oversized-chunk (>700 kB) aggregate warning. `chunkSizeWarningLimit` stays at 700, and that warning remains an accepted, documented notice (the lazy full-icon-set chunk and `monaco` are intentionally large and lazy).
 
 #### Scenario: @mdi/js is a dedicated chunk, out of the entry chunk
 
 - **WHEN** the production build runs (`npm run build`)
-- **THEN** a `mdi-*.js` chunk is emitted in `dist/assets`
-- **AND** the main entry chunk (resolved from `index.html`) does NOT contain `@mdi/js`
-  icon export markers (e.g. `mdiZodiacAquarius`)
-- **AND** the gzipped `index` chunk is ≤ 900 KB (baseline ~1388 KB before this change)
+- **THEN** no chunk referenced by `index.html` (entry script or `modulepreload`), nor any chunk transitively statically imported by them, contains the `@mdi/js` export marker `mdiZodiacAquarius`
+- **AND** a separately loadable chunk containing `mdiZodiacAquarius` is emitted in `dist/assets`
+- **AND** the gzipped `index` chunk is ≤ 900 KB
 
 #### Scenario: No @mdi/js dynamic-import warning
 
 - **WHEN** the production build runs
-- **THEN** the build log contains no `dynamic import will not move module into another
-  chunk` line naming `@mdi/js`
+- **THEN** the build log contains no `dynamic import will not move module into another chunk` line naming `@mdi/js`
 
 #### Scenario: Icon-by-key still resolves arbitrary keys
 
-- **WHEN** an `ActionList` / `StatusPill` renders with a valid MDI key (e.g. `mdiRefresh`)
-- **THEN** the corresponding icon path renders
+- **WHEN** an `ActionList` / `StatusPill` / extension-UI surface renders with a valid MDI key (e.g. `mdiRefresh`)
+- **THEN** the corresponding icon path renders once the icon set has loaded
 - **AND** an unknown key renders nothing without throwing
 
+#### Scenario: Icon set loads once
+
+- **WHEN** several key-resolved icons mount on the same page
+- **THEN** the full icon set is fetched at most once

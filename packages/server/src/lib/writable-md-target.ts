@@ -16,7 +16,7 @@
  * Every target is realpath-normalized first (via `safeRealpath`), so symlink
  * and `..` traversal that escapes the allowed subtree is collapsed and rejected
  * before the containment check. The final on-disk target's extension must be
- * `.md` / `.mdx` — a same-dir symlink to a `.txt` is therefore rejected too.
+ * writable (`WRITABLE_MD_EXTENSIONS`) — a same-dir symlink to a `.txt` is rejected too.
  *
  * See change: directory-settings-page-and-scoped-md-editing.
  */
@@ -25,8 +25,11 @@ import os from "node:os";
 import path from "node:path";
 import { safeRealpath, within } from "./path-containment.js";
 
-/** Writable markdown extensions. Mirrors `WRITABLE_MARKDOWN_EXTENSIONS` in shared `file-kind`. */
-const WRITABLE_MD_EXTENSIONS = new Set([".md", ".mdx"]);
+/**
+ * Writable text-doc extensions: markdown (mirrors `WRITABLE_MARKDOWN_EXTENSIONS`
+ * in shared `file-kind`) plus the other `editable` text kinds — AsciiDoc and CSV.
+ */
+const WRITABLE_MD_EXTENSIONS = new Set([".md", ".mdx", ".adoc", ".asciidoc", ".csv"]);
 
 /** Lowercased extension including the leading dot, or `""` when none (dotfiles count as none). */
 function extOf(p: string): string {

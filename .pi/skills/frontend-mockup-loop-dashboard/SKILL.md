@@ -12,7 +12,7 @@ Use when designing or refining any surface in packages/client (or src/client) of
 1. LOAD the generic loop first: /skill:frontend-mockup-loop. Follow its 7 steps (GROUND, CONTRACT, MOCKUP, TEST, FIX, PROMOTE, LEARN) and use its tools (serve_mockup, score_mockup, init_ui_contract). The bindings below override only the dashboard-specific details.
 2. GROUND binding: read the authoritative component source (e.g. packages/client/src/components/SessionCard.tsx) and capture exact classes (rounded-xl shadow-md border px-4 py-3) + CSS vars (--bg-tertiary #1e1e1e dark / #fff light, --bg-primary #0a0a0a, container #141414). Delegate harvest per the debug-dashboard skill's references/isolated-verification.md.
 3. CONTRACT binding: the token authority is the theme-system skill (4 themes: studio, earth, athlete, gradient; CSS custom properties --background/--primary/--radius). ui-contract.md references those vars; new tokens get added to the theme layer first. Per-change scope: write openspec/changes/<name>/mockups/ui-plan.md (surfaces -> tokens -> states).
-4. MOCKUP binding: mockups for a proposal go to openspec/changes/<name>/mockups/. Serve live + hand back local + LAN URL; verify dark AND light.
+4. MOCKUP binding: change exists -> mockups go to openspec/changes/<name>/mockups/ (no marker row). No change yet (explore mode) -> write mockups/<slug>/ (or a single mockups/<name>.html) and add a mockups/AGENTS.md row whose Purpose cell ends exactly `Pending change: <intent>` right before the closing ` |` — spelling and casing exact, intent a short human hint with no | and no backticks. The marker makes it adoptable: openspec/config.yaml rules.proposal and plan-proposal Step 1b move it into the change when its proposal is created. Mockups not meant for a change get no marker. Serve live + hand back local + LAN URL; verify dark AND light.
 5. PROMOTE binding: NEVER verify against the live :8000 server — it runs MAIN-repo code; worktree edits never load. Use isolated verification (debug-dashboard skill → references/isolated-verification.md: temp HOME, non-8000 ports, PI_DASHBOARD_NO_MDNS=1, openspec poll enabled:false). Confirm live root via lsof -i:8000 before/after; original PID must be unchanged.
 
 ## Pitfalls
@@ -25,4 +25,4 @@ Use when designing or refining any surface in packages/client (or src/client) of
 1. Generic frontend-mockup-loop rubric passes (contrast, responsive, anti-slop) in both themes at 3 breakpoints.
 2. ui-contract.md / ui-plan.md values reference theme-system CSS vars, not raw hex.
 3. Promote happened in an isolated env on non-8000 ports; lsof -i:8000 still shows the original live server PID unchanged.
-4. Mockups landed under openspec/changes/<name>/mockups/.
+4. Mockups landed under openspec/changes/<name>/mockups/, or (no change yet) under mockups/ with a `Pending change: <intent>` row.

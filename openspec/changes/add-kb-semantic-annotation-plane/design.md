@@ -214,6 +214,20 @@ the vendored subset is curated to what a code/docs repo uses.
   cost, and it de-risks this larger change by proving the typed-edge graph model
   first. Recommendation: extract Tier-1a as `add-kb-deterministic-provenance-edges`
   and land it first; this change then adds only the genuinely prose-latent layer.
+- **Second producer of the `kb:` block (coordination with
+  `unify-context-manager`, D4).** Lesson files (`<repo>/.pi/lessons/`,
+  `~/.pi/agent/lessons/`) write the same §9.4 shape: top-level
+  `type: kb:Lesson`, `kb.relations[]` over a closed predicate set
+  (`kb:about`, `kb:fixes`, `kb:supersedes`, `kb:decidedIn`, `kb:replacedBy`)
+  with `source: deterministic`, objects taken from observed tool events. They
+  need no annotator run or review queue, so the indexer must accept
+  `source: deterministic` edges as graph truth and keep the predicate
+  vocabulary shared. Evidence to weigh before relying on prose-latent
+  relations for retrieval: in the ontology ablation over 856 memory entries
+  (research doc `docs/research/unified-context-manager-exploration.md` §19),
+  an entity field plus an entity-overlap boost did not improve hit@5 (19/56 →
+  17/56) or firing precision; measure annotation value on the Tier R eval
+  before making it a ranking signal.
 
 ## 8. Grounded ontology — corpus-derived, not a schema.org dump
 

@@ -1,6 +1,6 @@
 /**
- * KeeperManager — server-side helper for spawning, writing to, killing,
- * and discovering RPC keeper sidecars.
+ * KeeperManager — server-side helper for spawning, killing, and discovering
+ * RPC keeper sidecars.
  *
  * One keeper process per headless session. The keeper itself is
  * `keeper.cjs` (CJS-pure). KeeperManager bridges between the dashboard
@@ -21,7 +21,6 @@ import {
   truncateSync,
   unlinkSync,
 } from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,16 +196,6 @@ export interface KeeperManager {
     piArgs?: string[],
     piCmd?: string[],
   ): Promise<KeeperSpawnResult>;
-  /** Connect to keeper UDS, write `line + \n`, close. Never throws. */
-  writeRpc(sessionId: string, line: string): Promise<boolean>;
-  /**
-   * Connect to an arbitrary UDS / named-pipe path, write `line + \n`, close.
-   * Used by `headless-pid-registry.writeRpc` so the registry can delegate
-   * line-write semantics (3-attempt retry with backoffs, never throws)
-   * without re-implementing the connect logic. Returns false on all-attempts-failed.
-   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6).
-   */
-  writeRpcToSockPath(sockPath: string, line: string): Promise<boolean>;
   /** SIGTERM the keeper PID for `sessionId` (via process-group on Unix). */
   killKeeper(sessionId: string): boolean;
   /** Scan sessions dir; return live keeper+pi pairs; unlink stale entries. */
@@ -262,8 +251,6 @@ export interface KeeperManagerOptions {
   platform?: NodeJS.Platform;
   /** Test seam — override `spawnDetached`. */
   spawnDetached?: (opts: SpawnDetachedOptions) => Promise<SpawnDetachedResult>;
-  /** Test seam — override `net.createConnection`. */
-  createConnection?: typeof net.createConnection;
   /**
    * Keeper-log rotation cap in bytes (sweep gate + `runawayFiles` threshold
    * base). Default 128 MiB. The composition root passes
@@ -281,13 +268,6 @@ export interface KeeperManagerOptions {
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
-
-/** Per-attempt connect timeout for `writeRpc`. */
-const WRITE_RPC_ATTEMPT_TIMEOUT_MS = 350;
-/** Backoffs before retry attempts 2 and 3. Task 4.3. */
-const WRITE_RPC_RETRY_DELAYS_MS = [50, 150];
-/** Total attempts including the initial one. */
-const WRITE_RPC_MAX_ATTEMPTS = 3;
 
 export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperManager {
   const sessionsDir = opts.sessionsDir ?? defaultSessionsDir();
@@ -308,7 +288,6 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       return piPid === null ? true : isProcessAlive(piPid);
     });
   const spawnDetached = opts.spawnDetached ?? defaultSpawnDetached;
-  const createConnection = opts.createConnection ?? net.createConnection;
   // Keeper-log maintenance thresholds (design D7: read at server start from
   // the injected options, not per call — a config change needs a restart to
   // re-scope the sweep, which is the documented semantics).
@@ -403,57 +382,6 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       sockPath: sockPathFor(sessionsDir, sessionId, platform),
       process: r.process,
     };
-  }
-
-  function tryConnectAndWrite(sockPath: string, line: string, timeoutMs: number): Promise<boolean> {
-    return new Promise((resolve) => {
-      let settled = false;
-      const settle = (ok: boolean): void => {
-        if (settled) return;
-        settled = true;
-        resolve(ok);
-      };
-
-      let sock: net.Socket;
-      try {
-        sock = createConnection(sockPath);
-      } catch {
-        settle(false);
-        return;
-      }
-
-      const timer = setTimeout(() => {
-        try { sock.destroy(); } catch { /* ignore */ }
-        settle(false);
-      }, timeoutMs);
-
-      sock.once("connect", () => {
-        sock.end(line.endsWith("\n") ? line : line + "\n", "utf8", () => {
-          clearTimeout(timer);
-          settle(true);
-        });
-      });
-      sock.once("error", () => {
-        clearTimeout(timer);
-        settle(false);
-      });
-    });
-  }
-
-  async function writeRpcToSockPath(sockPath: string, line: string): Promise<boolean> {
-    for (let attempt = 0; attempt < WRITE_RPC_MAX_ATTEMPTS; attempt++) {
-      if (attempt > 0) {
-        await new Promise((r) => setTimeout(r, WRITE_RPC_RETRY_DELAYS_MS[attempt - 1]));
-      }
-      const ok = await tryConnectAndWrite(sockPath, line, WRITE_RPC_ATTEMPT_TIMEOUT_MS).catch(() => false);
-      if (ok) return true;
-    }
-    return false;
-  }
-
-  async function writeRpc(sessionId: string, line: string): Promise<boolean> {
-    const sockPath = sockPathFor(sessionsDir, sessionId, platform);
-    return writeRpcToSockPath(sockPath, line);
   }
 
   function killKeeper(sessionId: string): boolean {
@@ -693,8 +621,6 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
 
   return {
     spawnKeeperFor,
-    writeRpc,
-    writeRpcToSockPath,
     killKeeper,
     discoverExistingKeepers,
     isKeeperAlive,

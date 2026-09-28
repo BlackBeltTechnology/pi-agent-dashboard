@@ -2,7 +2,9 @@
 
 ## Purpose
 Defines the editable markdown surface (Instructions page) for directory and global scope: a Monaco buffer + scope-bounded file picker, persisted via `POST /api/file/write` with mtime conflict detection, gated by a scope-aware `isWritableMdTarget` write allowlist (cwd tree for directory scope, `~/.pi/agent` for global).
+
 ## Requirements
+
 ### Requirement: Instructions page SHALL edit markdown in directory and global scope
 
 An `Instructions` page SHALL be mounted in the directory settings page (directory scope) and in the global settings page under Advanced (global scope). The page SHALL present a scope-bounded file picker and an editable markdown surface backed by a Monaco buffer. Editing SHALL persist through `POST /api/file/write`.
@@ -39,7 +41,7 @@ The Instructions page SHALL expose a Save Bar enabled only when the buffer is di
 
 ### Requirement: Concurrent-edit conflicts SHALL be detected by mtime
 
-`POST /api/file/write` SHALL carry the mtime the buffer was loaded at. When the on-disk mtime differs, the server SHALL respond `409 Conflict` and the write SHALL NOT clobber the file. The page SHALL surface the conflict to the user.
+`POST /api/file/write` SHALL carry the mtime the buffer was loaded at. The mtime token SHALL be full precision (`stat.mtimeMs`) on every read endpoint that feeds a save and on the write-side comparison; a rounded token SHALL NOT be used. When the on-disk mtime differs, the server SHALL respond `409 Conflict` and the write SHALL NOT clobber the file. The page SHALL surface the conflict to the user.
 
 #### Scenario: External change produces a 409
 - **GIVEN** a markdown buffer loaded at mtime T
@@ -51,7 +53,7 @@ The Instructions page SHALL expose a Save Bar enabled only when the buffer is di
 
 ### Requirement: Write target authorization SHALL be allowlist-bounded
 
-The server SHALL gate every markdown write through an `isWritableMdTarget(absPath, { cwd? })` check (realpath-normalized; resolves symlinks via async filesystem I/O). With a `cwd`, allowed targets SHALL be `<cwd>/**/*.md` and `<cwd>/.pi/**`. Without a `cwd` (global scope), allowed targets SHALL be limited to `~/.pi/agent/**/*.md`. Paths SHALL be realpath-normalized before the check; symlink or `..` escape and non-markdown targets SHALL be rejected with `403`.
+The server SHALL gate every text-document write through an `isWritableMdTarget(absPath, { cwd? })` check (realpath-normalized; resolves symlinks via async filesystem I/O). Writable extensions SHALL be exactly the `editable` text kinds: `.md`, `.mdx`, `.adoc`, `.asciidoc`, `.csv`, checked on the realpath target. With a `cwd`, allowed targets SHALL be files of those extensions under `<cwd>/**` (including `<cwd>/.pi/**`). Without a `cwd` (global scope), allowed targets SHALL be limited to `~/.pi/agent/**/*.md`. Paths SHALL be realpath-normalized before the check; symlink or `..` escape and targets of any other extension SHALL be rejected with `403`.
 
 The file picker SHALL only offer candidates that satisfy the same allowlist, so the UI can never present a target the guard rejects.
 
@@ -74,3 +76,13 @@ The file picker SHALL only offer candidates that satisfy the same allowlist, so 
 - **THEN** the check fails because the target is not under `~/.pi/agent`
 - **AND** the server responds `403`
 
+#### Scenario: In-scope editable text docs are writable
+- **GIVEN** `<cwd>/guide.adoc`, `<cwd>/guide.asciidoc` and `<cwd>/data.csv` exist
+- **WHEN** the server evaluates `isWritableMdTarget` with that `cwd`
+- **THEN** the check passes for each
+
+#### Scenario: AsciiDoc traversal escape is rejected
+- **GIVEN** a write request for `<cwd>/../sibling/evil.adoc`
+- **WHEN** the server evaluates `isWritableMdTarget`
+- **THEN** the check fails
+- **AND** the server responds `403`

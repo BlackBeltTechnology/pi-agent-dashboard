@@ -82,3 +82,43 @@ describe("CanvasDriver — mobile chip tap is foreground", () => {
     expect(api?.paneState.openFiles[0].unread).toBeUndefined();
   });
 });
+
+describe("#E30 canvas provenance source (change: surface-denial-remedy-in-previews, D4)", () => {
+  const tabOf = (path: string) => api?.paneState.openFiles.find((f) => f.path === path);
+
+  it("(a) the auto-open effect opens the tab as auto-opened; restrictCsp unchanged", () => {
+    render(<Harness initial={EMPTY_CANVAS_STATE} />);
+    act(() => setCanvasState(fileState("agent.png")));
+    expect(tabOf("agent.png")).toMatchObject({ autoOpened: true, restrictCsp: true });
+  });
+
+  it("(b) a chip tap opens it as operator-opened; restrictCsp unchanged", () => {
+    tier = "mobile";
+    render(<Harness initial={fileState("tapped.png")} />);
+    fireEvent.click(screen.getByTestId("canvas-file-chip"));
+    expect(tabOf("tapped.png")).toMatchObject({ autoOpened: false, restrictCsp: true });
+  });
+});
+
+describe("CanvasDriver — target withheld by the mobile gate opens once the viewport grows", () => {
+  it("mobile → desktop resize auto-opens the pending target (key not consumed while gated)", () => {
+    tier = "mobile";
+    const s = fileState("b.ts");
+    render(<Harness initial={s} />);
+    expect(api?.paneState.openFiles).toHaveLength(0);
+
+    // Viewport grows to desktop: same target/version, tier changes → re-render.
+    tier = "desktop";
+    act(() => setCanvasState({ ...s }));
+    expect(api?.paneState.openFiles.map((f) => f.path)).toEqual(["b.ts"]);
+  });
+
+  it("does not re-open an already-opened target on an unrelated re-render", () => {
+    const s = fileState("b.ts");
+    render(<Harness initial={s} />);
+    expect(api?.paneState.openFiles).toHaveLength(1);
+    act(() => api?.dispatch({ type: "closeTab", index: 0 }));
+    act(() => setCanvasState({ ...s }));
+    expect(api?.paneState.openFiles ?? []).toHaveLength(0);
+  });
+});

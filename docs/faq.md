@@ -427,6 +427,35 @@ Real mitigation: bind to the Tailscale NIC. Settings → Server → Listen Inter
 
 See change: warn-unreachable-trusted-networks.
 
+## Why does my tunnel / tailnet device now need to sign in?
+
+Symptom: device via zrok / ngrok / `tailscale serve` gets 403 `network_not_allowed` (or login redirect, WS 401/403). `trustedNetworks` contains `127.0.0.1` (or `127.0.0.0/8`, `127.*`, `0.0.0.0/0`, `::1`).
+
+Cause: tunnel agent relays from `127.0.0.1` socket. Injects `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Real-IP` / `Forwarded`.
+- Loopback-range peer + any such header = relayed loopback.
+- Relayed loopback never matches a trusted entry. Predicate: `isTrustedSource` in `packages/server/src/auth/localhost-guard.ts`.
+- Before fix: loopback entry let every public tunnel visitor in, no sign-in.
+
+Also affected: same-host reverse proxy (nginx / Caddy / Traefik TLS front) setting `X-Forwarded-*`, admitted only by loopback entry. Indistinguishable from tunnel agent.
+
+Unaffected:
+- Genuine local use (loopback peer, no forwarding header). Trusted without any entry.
+- LAN CIDR entries (e.g. `192.168.16.0/24`).
+
+Loopback entry now inert. Redundant for local, ignored for tunnel.
+- Server logs once: `[trusted-networks] "127.0.0.1" covers loopback — ignored for tunnel-relayed requests; local requests are already trusted`.
+- `/api/health` field `trustPosture.trustedHasLoopback`. Authenticated or genuinely-local caller only; else `null`.
+- Relayed-loopback denial raises no "Trust 127.0.0.1?" prompt (would trust whole tunnel).
+
+Remedy:
+- Pair device (device bearer). See next entry.
+- Or sign in (OAuth). See [How do I set up OAuth authentication for external access?](#how-do-i-set-up-oauth-authentication-for-external-access).
+- Optional: drop loopback entry from `trustedNetworks` / `auth.bypassHosts` (`~/.pi/dashboard/config.json`, Settings → Servers). No migration. Leftover entry harmless.
+
+Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
+
+See change: fix-trusted-network-tunnel-bypass.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
@@ -1152,7 +1181,7 @@ Headless command line:
 
 Detached spawn (`platform/detached-spawn.ts`): `spawnDetached` uses `detached: true` on every OS. Windows emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, skips `AssignProcessToJobObject` → child excluded from parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Pi sessions survive dashboard restart on all platforms (matches Unix PGID behavior). `headlessPidRegistry` reconciles survivors at `~/.pi/dashboard/headless-pids.json` on server boot.
 
-Reload path selection (`shouldInterceptReload`): headless sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → `piGateway.sendToSession` → bridge `__dashboard_reload` command (captures `ctx.reload` from pi's `ExtensionCommandContext` since `ExtensionContext` has no `reload()`).
+Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, gated pi >= 0.84.2; handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
 
 Cross-refs:
 - docs/architecture.md:1147
@@ -1261,18 +1290,15 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Pi 0.74 `ExtensionAPI` exposes no `dispatchCommand`. Bridge cannot reach `session.prompt` from inside pi.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), gated on running pi >= 0.84.2. No session-kind probe, no keeper UDS route.
 
-Dashboard spawns three session types:
+Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-- **Headless RPC (dashboard-spawned)**: works. Server writes JSON-line to per-session keeper UDS (`~/.pi/dashboard/sessions/<sid>.rpc.sock` Unix; `\\.\pipe\pi-rpc-<sid>` Windows). Keeper forwards to pi's stdin. pi `--mode rpc` runs `session.prompt()` → dispatch.
-- **Tmux / Windows Terminal**: cannot work via dashboard chat. User's terminal owns pi's stdin; no UDS route. Use pi TUI directly for slash commands.
+Below pi 0.84.2: no dispatch. Gate emits `command_feedback {status:"error", message:"Extension slash commands from the dashboard require pi 0.84.2+"}` and the raw slash never reaches the model.
 
-Three-way decision lives in `packages/extension/src/slash-dispatch.ts::tryDispatchExtensionCommand` (Path B → Path C → Path D).
+Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 
-Activates the full Path B behavior automatically once upstream `pi.dispatchCommand` ships in pi 0.75+.
-
-See change: `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`. See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md` § "Path C".
+See also `docs/architecture.md` § "RPC keeper sidecar" and `docs/slash-command.md`.
 
 ## Why does session resume fail with "RPC keeper exited within crash window (code 1)"?
 

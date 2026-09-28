@@ -57,3 +57,24 @@ describe("buildSpawnEnvForArgv", () => {
     expect(env?.ELECTRON_RUN_AS_NODE).toBe("1");
   });
 });
+
+describe("buildSpawnEnvForArgv PATH key casing (#720)", () => {
+  const pathKeys = (env: NodeJS.ProcessEnv | undefined) =>
+    Object.keys(env ?? {}).filter((k) => k.toUpperCase() === "PATH");
+
+  it("E15: a caller Path in any casing replaces the inherited PATH on win32", () => {
+    const env = buildSpawnEnvForArgv("node", { Path: "C:\\caller" }, { platform: "win32" });
+    expect(pathKeys(env)).toEqual(["PATH"]);
+    expect(env?.PATH).toBe("C:\\caller");
+  });
+
+  it("E16: an empty caller Path clears PATH on win32", () => {
+    const env = buildSpawnEnvForArgv("node", { Path: "" }, { platform: "win32" });
+    expect(pathKeys(env)).toEqual(["PATH"]);
+    expect(env?.PATH).toBe("");
+  });
+
+  it("E17: no ctxEnv and non-Electron exec still returns undefined", () => {
+    expect(buildSpawnEnvForArgv("node", undefined, {})).toBeUndefined();
+  });
+});

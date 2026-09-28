@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Decision models (System 1)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+<script src="theme-init.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 16 16"><path d="M8 1.5 1.5 7H3v7h4v-4h2v4h4V7h1.5z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 16 16"><path d="M12.5 13H4a3.5 3.5 0 0 1-.4-7A4.5 4.5 0 0 1 12.2 6 3.5 3.5 0 0 1 12.5 13z"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 3 3 8.5l1.2 1.1L7.2 6.4V13h1.6V6.4l3 3.2L13 8.5z"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 13 3 7.5l1.2-1.1 3 3.2V3h1.6v6.6l3-3.2L13 7.5z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="m4.2 3 3.8 3.8L11.8 3 13 4.2 9.2 8l3.8 3.8-1.2 1.2L8 9.2 4.2 13 3 11.8 6.8 8 3 4.2z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><path d="M8 1 15.5 14h-15zm-.8 5v4h1.6V6zm0 5v1.6h1.6V11z"/></symbol>
+  <symbol id="i-err" viewBox="0 0 16 16"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm-.8 3.5h1.6v4.5H7.2zm0 5.5h1.6v1.6H7.2z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 16 16"><path d="M10.5 1a4.5 4.5 0 0 0-4.3 5.8L1 12v3h3v-1.5h1.5V12H7l1.6-1.6A4.5 4.5 0 1 0 10.5 1zm1 2.5a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></symbol>
+</svg>
+
+<!-- Mockup-only controls. Not part of the product UI. -->
+<aside class="demo" aria-label="Mockup controls">
+  <strong class="demo-title">Mockup controls</strong>
+  <button type="button" class="btn sm" id="demo-theme">Switch to light</button>
+  <label>Managed runtime
+    <select id="demo-runtime">
+      <option value="ok">uv found (macOS)</option>
+      <option value="uv-missing">uv missing</option>
+      <option value="windows">Windows</option>
+    </select>
+  </label>
+  <label>Jev key
+    <select id="demo-key">
+      <option value="none">not set</option>
+      <option value="file">set in file</option>
+      <option value="env">set in env</option>
+    </select>
+  </label>
+  <label class="check-row"><input type="checkbox" id="demo-conflict"> Next save gets 409</label>
+</aside>
+
+<div class="shell">
+  <nav class="settings-nav" aria-label="Settings sections">
+    <a href="#">General</a>
+    <a href="#">Providers</a>
+    <a href="#">Roles</a>
+    <a href="#">Blackhole</a>
+    <a href="#" aria-current="page">Decision models</a>
+  </nav>
+
+  <main class="section" id="main">
+    <header class="section-head">
+      <h1>Decision models (System 1)</h1>
+      <p class="lead">Small, fast models that answer yes/no and pick-one questions for other dashboard features. Answers stay advisory until you measure a backend with <strong>Test</strong> and save it as <em>enforce</em>.</p>
+      <p class="path"><code>~/.pi/agent/system-one.json</code></p>
+    </header>
+
+    <!-- S1 Privacy -->
+    <section class="card" aria-labelledby="h-privacy">
+      <h2 id="h-privacy" class="card-title">Where data may go</h2>
+      <div class="switch-row">
+        <button type="button" role="switch" id="sw-off" aria-checked="false" aria-describedby="sw-off-desc" class="switch"><span class="knob"></span></button>
+        <div>
+          <label for="sw-off" class="switch-label">Allow off-machine backends</label>
+          <p id="sw-off-desc" class="hint"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- S2 Preset + default chain -->
+    <section class="card" aria-labelledby="h-preset">
+      <h2 id="h-preset" class="card-title">Preset</h2>
+      <fieldset class="presets">
+        <legend class="sr-only">Active preset</legend>
+        <div id="preset-list" class="preset-list"></div>
+      </fieldset>
+      <div id="preset-warning" role="status"></div>
+      <h3 class="sub-title" id="h-chain">Default chain for <span id="chain-preset-name"></span></h3>
+      <p class="hint">Backends are tried top to bottom. The first one that answers wins. Consumers without an override use this chain.</p>
+      <div id="default-chain"></div>
+    </section>
+
+    <!-- S3 Backends -->
+    <section class="card" aria-labelledby="h-backends">
+      <div class="card-head">
+        <h2 id="h-backends" class="card-title">Backends</h2>
+        <button type="button" class="btn" id="add-backend">Add backend</button>
+      </div>
+      <div id="runtime-callout"></div>
+      <ul id="backend-list" class="rows"></ul>
+    </section>
+
+    <!-- S4 Consumers -->
+    <section class="card" aria-labelledby="h-consumers">
+      <h2 id="h-consumers" class="card-title">Consumers</h2>
+      <p class="hint">Features that asked a question at least once. Each consumer can override the preset chain and be measured with Test.</p>
+      <div id="consumer-list"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Host Save Bar (existing component, shown for context) -->
+<div class="savebar" id="savebar" hidden role="region" aria-label="Unsaved changes">
+  <div class="savebar-msg" id="savebar-msg"></div>
+  <div class="savebar-actions" id="savebar-actions"></div>
+</div>
+
+<!-- Enforce confirmation -->
+<div class="scrim" id="confirm" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+    <h2 id="confirm-title" class="dialog-title"></h2>
+    <div id="confirm-body" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="confirm-ok">Enforce</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add backend -->
+<div class="scrim" id="addbk" hidden>
+  <form class="dialog" role="dialog" aria-modal="true" aria-labelledby="addbk-title" id="addbk-form">
+    <h2 id="addbk-title" class="dialog-title">Add backend</h2>
+    <fieldset class="kind-pick">
+      <legend class="field-label">Kind</legend>
+      <label><input type="radio" name="kind" value="managed" checked> Managed engine <span class="hint-inline">Dashboard installs and runs Von or Laya on this machine</span></label>
+      <label><input type="radio" name="kind" value="http"> HTTP endpoint <span class="hint-inline">A System-1 server you run, local or remote</span></label>
+      <label><input type="radio" name="kind" value="llm"> Chat model role <span class="hint-inline">Slow fallback through a role such as @fast</span></label>
+    </fieldset>
+    <div class="field"><label class="field-label" for="bk-id">Backend id</label><input class="input" id="bk-id" value="von-2" spellcheck="false"></div>
+    <div class="field" data-kind="managed"><label class="field-label" for="bk-engine">Engine</label>
+      <select class="input" id="bk-engine"><option>von (von-1.2)</option><option>laya (laya)</option><option>laya (laya-multilingual)</option><option>laya (laya-typed-decisions)</option></select>
+      <p class="hint">Port is picked from 18400–18499 on first start.</p></div>
+    <div class="field" data-kind="http" hidden><label class="field-label" for="bk-url">URL</label><input class="input" id="bk-url" placeholder="http://127.0.0.1:18480/v1/systemone" spellcheck="false">
+      <p class="hint" id="bk-url-class">Only http and https. Where the URL points decides on-machine vs off-machine.</p></div>
+    <div class="field" data-kind="http" hidden><label class="field-label" for="bk-model">Model</label><input class="input" id="bk-model" placeholder="kev" spellcheck="false">
+      <p class="hint">Unknown models get unknown capabilities and are offered to every consumer.</p></div>
+    <div class="field" data-kind="llm" hidden><label class="field-label" for="bk-role">Role</label><select class="input" id="bk-role"><option>@fast</option><option>@default</option></select></div>
+    <div class="dialog-actions">
+      <button type="button" class="btn" id="addbk-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Add backend</button>
+    </div>
+  </form>
+</div>
+
+<div class="sr-only" aria-live="polite" id="live"></div>
+<script src="mockup.js"></script>
+</body>
+</html>

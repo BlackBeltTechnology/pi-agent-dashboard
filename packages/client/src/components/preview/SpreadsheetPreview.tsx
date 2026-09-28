@@ -12,6 +12,7 @@ import { logRejection } from "../../lib/report-error.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, sheetUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -33,6 +34,9 @@ interface SheetPayload {
 }
 
 export function SpreadsheetPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [data, setData] = useState<SheetPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -47,7 +51,7 @@ export function SpreadsheetPreview({ target }: Props) {
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(sheetUrl(target));
+        const res = await previewFetch(sheetUrl(target));
         const body = await res.json();
         if (cancelled) return;
         if (body.success && Array.isArray(body.data?.sheets)) {
@@ -63,7 +67,7 @@ export function SpreadsheetPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path]);
+  }, [target.cwd, target.path, previewFetch]);
 
   if (failed) return <FallbackPreview target={target} />;
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;

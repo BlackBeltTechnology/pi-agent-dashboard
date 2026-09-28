@@ -12,18 +12,13 @@ import type { InternalAuthStorage } from "./internal-auth-storage.js";
 import { isOauthIncompatible } from "./oauth-compat.js";
 
 /**
- * Minimal surface expected from the pi-ai module (runtime-resolved).
- * Using `any` for Model<Api> since pi-ai types are not available at compile time.
+ * Minimal surface expected from pi-ai. Declared in the compatibility seam
+ * (`packages/shared/src/piai-compat/types.ts`) and re-exported here for
+ * existing importers. On a factory runtime it is SYNTHESIZED by the seam,
+ * not the raw module. See change: adopt-piai-factory-api-registry (D1).
  */
-export interface PiAiModule {
-  registerBuiltInApiProviders: () => void;
-  getModels: (provider: string) => any[];
-  getProviders: () => string[];
-  getModel: (provider: string, modelId: string) => any;
-  registerApiProvider: (provider: any, sourceId?: string) => void;
-  unregisterApiProviders: (sourceId: string) => void;
-  streamSimple: (model: any, context: any, options?: any) => AsyncIterable<any>;
-}
+export type { PiAiModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
+import type { PiAiModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
 
 export interface CustomProviderEntry {
   baseUrl: string;

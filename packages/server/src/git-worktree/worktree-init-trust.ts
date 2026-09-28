@@ -94,3 +94,40 @@ export function recordTrust(repoRoot: string, hash: string, scope: TrustScope = 
   map[key] = true;
   save(map);
 }
+
+/**
+ * Revoke trust for this `repoRoot + hash` from BOTH stores. Idempotent.
+ *
+ * A subject may hold session trust, project trust, or both; revoke clears the
+ * in-memory session entry (so the grant dies without a process restart) AND
+ * deletes the persisted project entry. A key absent from both is a no-op and
+ * leaves the store file untouched.
+ * See change: add-access-grants-and-review (task 6.1).
+ */
+/**
+ * Revoke one recorded fingerprint, or — when `hash` is omitted or empty — EVERY
+ * fingerprint recorded for `repoRoot`.
+ *
+ * The all-fingerprints form is what the Access tab calls: the aggregate drops
+ * hashes, so the tab lists one row per REPO and cannot name one. Deleting only
+ * the literal `repoRoot\0` key matched nothing, which made the tab's revoke a
+ * silent no-op that still returned `{success:true}` while `isTrusted` stayed
+ * true — the button appeared to work and revoked nothing (found by the task 8.7
+ * review; the route comment already claimed this semantics, unimplemented).
+ */
+export function revokeTrust(repoRoot: string, hash?: string): void {
+  const matches = (key: string): boolean =>
+    hash ? key === trustKey(repoRoot, hash) : key.startsWith(trustKey(repoRoot, ""));
+
+  for (const key of [...sessionTrust]) if (matches(key)) sessionTrust.delete(key);
+
+  const map = load();
+  let changed = false;
+  for (const key of Object.keys(map)) {
+    if (matches(key)) {
+      delete map[key];
+      changed = true;
+    }
+  }
+  if (changed) save(map);
+}

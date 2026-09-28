@@ -381,16 +381,21 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 alignItems: "center",
                 gap: 4,
                 background: "transparent",
-                border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
+                // Borderless: the host `ToolbarGroup` (info variant) is the
+                // container now. See change: redesign-composer-session-strip.
+                border: 0,
                 borderRadius: 4,
-                padding: "0 4px",
+                padding: "0 6px",
+                minHeight: 24,
                 lineHeight: 1.4,
                 fontSize: 10,
                 cursor: "pointer",
                 whiteSpace: "nowrap",
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
                 opacity: dimmed ? 0.5 : 1,
-                boxShadow: ringed ? "inset 0 0 0 1px var(--accent, #3b82f6)" : undefined,
+                boxShadow: ringed
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
+                  : undefined,
               }}
             >
               <span style={{ fontWeight: 600 }}>{providerLabel(p.provider)}</span>

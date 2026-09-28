@@ -32,6 +32,7 @@ import {
 import type { ChildProcess, SpawnOptions } from "node:child_process"; // ban:child_process-ok — types only
 import { spawnNodeScript } from "./platform/node-spawn.js";
 import { ToolResolver } from "./platform/binary-lookup.js";
+import { normalizeEnvPathKey } from "./platform/env-path-key.js";
 import { isDashboardRunning } from "./server-identity.js";
 
 // ── Errors ──────────────────────────────────────────────────────────────────
@@ -242,7 +243,10 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
     env["DASHBOARD_STARTER"] = opts.starter;
   }
   if (opts.env) {
-    for (const [k, v] of Object.entries(opts.env)) {
+    // Normalize the overlay's PATH key (win32) so a caller `Path` replaces
+    // the base `PATH` rather than duplicating it. baseEnv is already
+    // normalized by buildSpawnEnv. See change: fix-windows-path-env-key-casing.
+    for (const [k, v] of Object.entries(normalizeEnvPathKey(opts.env))) {
       if (typeof v === "string") env[k] = v;
       else if (v === undefined) delete env[k];
     }

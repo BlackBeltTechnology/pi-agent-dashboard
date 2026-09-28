@@ -50,7 +50,7 @@ afterEach(() => {
   cleanup();
 });
 
-function renderAt(page: "instructions" | "packages" | "skills" | "agents", path = buildFolderSettingsUrl(CWD, page)) {
+function renderAt(page: "instructions" | "packages" | "cards" | "skills" | "agents", path = buildFolderSettingsUrl(CWD, page)) {
   const { hook, history } = memoryLocation({ path, record: true });
   const utils = render(
     <Router hook={hook}>
@@ -67,6 +67,12 @@ describe("DirectorySettings", () => {
     expect(screen.getByTestId("directory-settings-nav")).toBeTruthy();
     expect(screen.getByText("Directory Settings")).toBeTruthy();
     expect(screen.getByText(CWD)).toBeTruthy();
+  });
+
+  // See change: add-access-grant-dialog (8b.7a) - pre-scoped YOLO entry point.
+  it("carries the pre-scoped YOLO action on every page", () => {
+    renderAt("skills");
+    expect(screen.getByTestId("directory-yolo-toggle").textContent).toMatch(/this folder/);
   });
 
   it("renders the nav with a RESOURCES group of five per-type items and no combined Resources item", () => {
@@ -86,6 +92,13 @@ describe("DirectorySettings", () => {
     expect(screen.getByTestId("instructions-page")).toBeTruthy();
     expect(screen.queryByTestId("directory-settings-packages")).toBeNull();
     expect(screen.queryByTestId("resource-grid-panel")).toBeNull();
+  });
+
+  // See change: configurable-session-card-sections.
+  it("renders the Session cards page on the cards page, with a nav item", () => {
+    renderAt("cards");
+    expect(screen.getByTestId("card-sections-page")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Session cards/ }).getAttribute("aria-current")).toBe("page");
   });
 
   it("renders the packages surface on the packages page", () => {

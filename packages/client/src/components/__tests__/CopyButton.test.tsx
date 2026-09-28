@@ -129,6 +129,38 @@ describe("CopyButton", () => {
     expect(document.querySelector("textarea")).toBeNull();
   });
 
+  // Teardown race: the 1500 ms revert is a REAL timer in every suite that
+  // clicks a copy button without fake timers (MarkdownContent, ChatView,
+  // SkillInvocationCard, SessionBanner, ToolsSection). Those files finish in
+  // far less than 1500 ms, so an uncleared timer fires after vitest tore the
+  // jsdom environment down — `ReferenceError: window is not defined`, charged
+  // to whichever suite happened to be draining. Unmount must cancel it.
+  it("cancels the pending revert timer on unmount", async () => {
+    const view = renderButton();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Copy"));
+    });
+    expect(vi.getTimerCount()).toBe(1);
+
+    view.unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // Rapid re-click must not leave the first timer orphaned either.
+  it("keeps a single revert timer across repeated clicks", async () => {
+    renderButton();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Copy"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Copy"));
+    });
+
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
   it("fails silently when neither path is available", async () => {
     Object.assign(navigator, { clipboard: undefined });
     Reflect.deleteProperty(document, "execCommand");

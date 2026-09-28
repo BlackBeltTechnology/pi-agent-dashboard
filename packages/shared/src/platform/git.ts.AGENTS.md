@@ -12,7 +12,7 @@ Recipe-based git API. Thin wrappers over `run()` / `runAsync()` (runner.ts). No 
 
 ## Async (`runAsync`) variants — hot request paths, no `spawnSync`
 
-`diffAll` / `diffAllOr` (batched whole-worktree diff; callers split per file on `diff --git` header boundaries), `isGitRepoOrAsync`, `statusPorcelainOrAsync`, `numstatOrAsync`, `headShaOrAsync`. Used by `/api/session-diff` so no synchronous git blocks the event loop. See change: fix-session-diff-eventloop-block.
+`diffAll` (batched whole-worktree diff; callers split per file on `diff --git` header boundaries; `GIT_DIFF_ALL.maxBuffer` = 32 MiB → `output-too-large` past it; `diffAllOr` removed — sole caller needs the error kind. See change: fix-session-diff-heap-retention), `isGitRepoOrAsync`, `statusPorcelainOrAsync`, `numstatOrAsync`, `headShaOrAsync`. Used by `/api/session-diff` so no synchronous git blocks the event loop. See change: fix-session-diff-eventloop-block.
 
 ## Checkout-root resolution
 
@@ -39,3 +39,5 @@ Binding: `isBoundCheckout(candidate, commonDir, {timeout?})`, `isBoundCheckoutAs
 ## Parser
 
 `parseGitStatusV2(stdout)` → `GitStatus` (pure). Parses `git status --porcelain=v2 --branch`: `1`/`2`/`u`/`?` lines + `# branch.ab`. Reused by bridge broadcast AND server `getGitStatus`. See changes: add-change-summary-table, add-session-uncommitted-indicator-and-commit.
+
+`GH_PR_NUMBER`/`prNumber`/`prNumberOr` removed. Adds `GH_PR_STATUS` (`gh pr view --json number,url,state,isDraft,statusCheckRollup`, 20 s, no tolerate), `classifyPrStatus(Result) → PrStatusProbe` (parsed / absent on `no pull requests found` / failure), `prStatusAsync({cwd})`, types `GhPrViewJson`, `PrStatus`, `PrStatusProbe`, `GH_PR_STATUS_TIMEOUT`. See change: redesign-composer-session-strip.

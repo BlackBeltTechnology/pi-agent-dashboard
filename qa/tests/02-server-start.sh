@@ -4,6 +4,17 @@ set -euo pipefail
 
 echo "=== Test: Server start ==="
 
+# Cold-boot detection for the O(1)-boot assertion below (test-plan #P1).
+# The registry-lazy claim is only observable when THIS script starts the
+# server; a pre-existing instance already has an initialized registry, so the
+# check would be a false red. Probe first, start second.
+PRE_EXISTING=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/health 2>/dev/null || echo "000")
+COLD_BOOT=1
+if [ "$PRE_EXISTING" = "200" ]; then
+  COLD_BOOT=0
+  echo "WARN: a server was already running — the O(1)-boot assertion (P1) will be skipped"
+fi
+
 # Source nvm
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -76,6 +87,77 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       exit 1
     fi
     echo "No blocking pi compatibility error"
+
+    # --- O(1) boot: the model registry stays UNINITIALIZED (test-plan #P1) --
+    # See change: adopt-piai-factory-api-registry.
+    #
+    # Regression this pins: materializing pi-ai's built-in catalogue at boot
+    # (rather than on first model request) makes every cold start pay a full
+    # pi-ai import — the exact cost the lazy `getModelRegistry()` exists to
+    # avoid. Nothing has requested a model yet at this point in the script, so
+    # the proxy must still report the uninitialized state.
+    if [ "$COLD_BOOT" = "1" ]; then
+      BOOT_VERDICT=$(printf '%s' "$HEALTH_JSON" | node -e '
+        let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+          let j;try{j=JSON.parse(s)}catch{console.log("FAIL: /api/health body is not JSON");return;}
+          const p=j.proxy;
+          if(!p||typeof p!=="object"){console.log("FAIL: proxy block missing from /api/health");return;}
+          if(p.status!=="degraded"){
+            console.log("FAIL: model registry already initialized at boot (proxy.status="+p.status+") — pi-ai must load lazily on first model request, not at startup");
+            return;
+          }
+          if(!/not yet initialized/i.test(String(p.reason||""))){
+            console.log("FAIL: proxy degraded at boot for the WRONG reason: "+p.reason);
+            return;
+          }
+          console.log("OK: model registry uninitialized at boot (proxy degraded, reason="+p.reason+")");
+        });
+      ')
+      case "$BOOT_VERDICT" in
+        OK*) echo "$BOOT_VERDICT" ;;
+        *) echo "$BOOT_VERDICT"; exit 1 ;;
+      esac
+    else
+      echo "SKIP: O(1)-boot assertion (P1) — not a cold boot"
+    fi
+
+    # --- Credential-independent catalogue (test-plan #X12) ----------------
+    # See change: adopt-piai-factory-api-registry (task 6.25).
+    #
+    # The catalogue must track whichever pi-ai is installed WITHOUT needing
+    # provider credentials, or a fresh install shows an empty picker. The three
+    # ids below are served by pi-ai >= 0.85 and absent from the 0.75.5 table
+    # this change replaces, so their presence IS the runtime-tracking proof.
+    # `annotated=1` lists unreachable models too, hence credential-free.
+    #
+    # Retried: this first model request is what initializes the registry, so
+    # the first call may legitimately race its own lazy construction.
+    CATALOGUE_VERDICT=""
+    for _ in $(seq 1 20); do
+      CATALOGUE_JSON=$(curl -fsS "http://localhost:8000/api/models?annotated=1" 2>/dev/null || true)
+      if [ -n "$CATALOGUE_JSON" ]; then
+        CATALOGUE_VERDICT=$(printf '%s' "$CATALOGUE_JSON" | node -e '
+          let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+            let j;try{j=JSON.parse(s)}catch{console.log("RETRY");return;}
+            if(!Array.isArray(j.data)){console.log("RETRY");return;}
+            const ids=new Set(j.data.map(r=>r.id));
+            const want=["anthropic/claude-opus-5","zai/glm-5.3","deepseek/deepseek-flash"];
+            const missing=want.filter(w=>!ids.has(w));
+            if(missing.length){
+              console.log("FAIL: /api/models?annotated=1 is missing "+missing.join(", ")+" (catalogue is not tracking the installed pi-ai; got "+ids.size+" models)");
+              return;
+            }
+            console.log("OK: catalogue tracks the installed pi-ai — "+ids.size+" models incl. "+want.join(", "));
+          });
+        ')
+      fi
+      [ "$CATALOGUE_VERDICT" = "RETRY" ] || [ -z "$CATALOGUE_VERDICT" ] || break
+      sleep 1
+    done
+    case "$CATALOGUE_VERDICT" in
+      OK*) echo "$CATALOGUE_VERDICT" ;;
+      *) echo "${CATALOGUE_VERDICT:-FAIL: /api/models never returned a usable body}"; exit 1 ;;
+    esac
 
     # --- Retention + heap-headroom health fields (test-plan #T8) -----------
     # See change: bound-event-store-by-bytes (D4).

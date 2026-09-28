@@ -50,6 +50,11 @@ function realOrResolved(p: string): string {
   }
 }
 
+/** Symlink-resolved canonical path (nearest-existing-ancestor fallback). */
+export function canonicalizePath(p: string): string {
+  return realOrResolved(p);
+}
+
 /** Path-segment-aware containment: `/repos/proj-2` is NOT inside `/repos/proj`. */
 function contains(root: string, candidate: string): boolean {
   if (candidate === root) return true;

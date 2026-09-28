@@ -16,14 +16,20 @@
  *
  * See change: add-extension-ui-modal.
  */
-import React, { useState } from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup, act } from "@testing-library/react";
-import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
-import { resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
-import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-afterEach(() => cleanup());
+import { __resetMdiIconSetForTests } from "@blackbelt-technology/pi-dashboard-client-utils/mdi-by-key";
+import type { ExtensionUiModule } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { mdiCheck } from "@mdi/js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import React, { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GenericExtensionDialog } from "../components/extension-ui/GenericExtensionDialog.js";
+import { loadMdiIconSet, resolveMdiIcon } from "../lib/preview/mdi-icon-lookup.js";
+
+afterEach(() => {
+  cleanup();
+  __resetMdiIconSetForTests();
+});
 
 const baseTableModule: ExtensionUiModule = {
   kind: "management-modal",
@@ -271,7 +277,44 @@ describe("GenericExtensionDialog — close behavior", () => {
   });
 });
 
+describe("GenericExtensionDialog — lazy key-resolved icons (test-plan #E6)", () => {
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
+  it("renders the module icon once the set loads; an unknown action key renders no icon", async () => {
+    const module: ExtensionUiModule = {
+      ...baseTableModule,
+      icon: "mdiCheck",
+      view: {
+        ...baseTableModule.view,
+        actions: [{ id: "bogus", label: "Bogus", event: "judo:bogus", icon: "mdiTotallyMadeUpName" }],
+      } as ExtensionUiModule["view"],
+    };
+    const { getByText } = render(
+      <GenericExtensionDialog module={module} rows={[]} onDispatch={vi.fn()} onClose={() => {}} />,
+    );
+    // Nothing before the lazy set loads (no placeholder, no eager set).
+    expect(document.body.querySelector(`svg path[d="${mdiCheck}"]`)).toBeNull();
+    await waitFor(() =>
+      // The dialog renders through a portal, so query the document.
+      expect(document.body.querySelector(`svg path[d="${mdiCheck}"]`)).toBeTruthy(),
+    );
+    const actionButton = getByText("Bogus").closest("button");
+    expect(actionButton).toBeTruthy();
+    expect(actionButton?.querySelector("svg")).toBeNull();
+  });
+});
+
 describe("resolveMdiIcon — fallback for unknown keys", () => {
+  // resolveMdiIcon is synchronous over the lazily-loaded set: preload it.
+  beforeEach(async () => {
+    await loadMdiIconSet();
+  });
+
+  it("the test reset clears the SAME set the render sites read (no vacuous E6)", () => {
+    expect(resolveMdiIcon("mdiCheck")).not.toBeNull();
+    __resetMdiIconSetForTests();
+    expect(resolveMdiIcon("mdiCheck")).toBeNull();
+  });
+
   it("returns null for unknown / mistyped / missing keys", () => {
     expect(resolveMdiIcon(undefined)).toBeNull();
     expect(resolveMdiIcon("")).toBeNull();

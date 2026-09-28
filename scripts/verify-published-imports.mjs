@@ -36,7 +36,7 @@
  * See change: cleanup-undeclared-dependencies.
  */
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { builtinModules } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -111,27 +111,6 @@ export const ALLOWLIST = [
     specifier,
     reason:
       "Declared in the nested .pi/skills/openforms-mui/tools/package.json (a self-contained Vite library) and installed at runtime by scripts/ensure-openforms-deps.mjs; the workspace-root manifest deliberately omits it.",
-  })),
-  // browser-plugin vendors playwright-core's CDP relay VERBATIM (Apache-2.0,
-  // per-file SHA-256 in relay/vendor/NOTICE, byte-integrity-gated by
-  // vendor-integrity.test.ts). Upstream addresses its own helpers through
-  // playwright's internal aliases, and `playwright-core/**` is under a
-  // never-edit rule precisely so a refresh stays a re-copy — so these cannot be
-  // rewritten to relative specifiers without breaking the integrity manifest.
-  // They are not third-party packages at all: tsconfig.base.json `paths` (plus
-  // the package's vitest resolve.alias) map each one INTO the vendored
-  // relay/vendor/shims/ that ship in the same package. Declaring them as
-  // dependencies would write four unresolvable names into a published manifest.
-  ...[
-    "@isomorphic/manualPromise",
-    "@isomorphic/time",
-    "@isomorphic/timeoutRunner",
-    "@utils/wsServer",
-  ].map((specifier) => ({
-    workspace: "packages/browser-plugin",
-    specifier,
-    reason:
-      "Playwright-internal alias resolved by tsconfig.base.json `paths` to the vendored relay/vendor/shims/ that ship in this same package; not a registry package. The importing files are verbatim upstream under a never-edit + SHA-256 integrity rule, so the specifier cannot be rewritten.",
   })),
 ];
 
@@ -263,23 +242,40 @@ export function extractSpecifiers(text, fileName) {
     }
   };
 
-  const visit = (node) => {
+  // Classification is split from the traversal: holding the whole if/else chain
+  // inside the recursive visitor pushed it past the complexity budget, and the
+  // AST shapes it recognises are independent of the walk itself.
+  const declSpecifier = (node) => {
     // import x from "y"  /  export * from "y"
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
-      add(node.moduleSpecifier);
-    }
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) return node.moduleSpecifier;
     // import x = require("y")
-    else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
-      add(node.moduleReference.expression);
-    } else if (ts.isCallExpression(node)) {
-      // import("y")
-      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) add(node.arguments[0]);
-      // require("y")
-      else if (ts.isIdentifier(node.expression) && node.expression.text === "require") add(node.arguments[0]);
-    }
-    ts.forEachChild(node, visit);
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) return node.moduleReference.expression;
+    return undefined;
   };
-  visit(source);
+  const callSpecifier = (node) => {
+    if (!ts.isCallExpression(node)) return undefined;
+    // import("y")
+    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) return node.arguments[0];
+    // require("y")
+    if (ts.isIdentifier(node.expression) && node.expression.text === "require") return node.arguments[0];
+    return undefined;
+  };
+  // Iterative (explicit stack), not recursive: a bundled CJS chunk (the
+  // client's lazy full-@mdi/js set) opens with a `e.a=e.b=…=void 0` chain deep
+  // enough to overflow a recursive walk on Node 22, though the parser accepts
+  // it. Children are pushed in reverse so they pop in source order.
+  // See change: harden-ios-safari-memory-and-ws-diagnostics.
+  const stack = [source];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    const spec = declSpecifier(node) ?? callSpecifier(node);
+    if (spec) add(spec);
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
 
   return { specifiers, parseError: null };
 }
@@ -287,6 +283,57 @@ export function extractSpecifiers(text, fileName) {
 /* ------------------------------------------------------------------ *
  * Workspace discovery + packing
  * ------------------------------------------------------------------ */
+
+/**
+ * The repository-root package when it is published (not `private`), else null.
+ *
+ * A normal workspace record: the root gets the FULL rule set. It is a
+ * meta-package shipping copies of `packages/server/src/` etc., so its copied
+ * sources earn reachable-workspace credit (`reachableWorkspaces`) in
+ * `analyzeRepository`. See changes: fix-ship-tsconfig-base, check-root-package-imports.
+ */
+export function rootPackage(root = REPO_ROOT) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  if (manifest.private === true) return null;
+  return { dir: root, rel: ".", name: manifest.name ?? ".", manifest };
+}
+
+const runtimeDeps = (m) => RUNTIME_FIELDS.flatMap((f) => Object.keys(m?.[f] ?? {}));
+
+/**
+ * Workspaces the root meta-package reaches at runtime: `packages/<dir>` -> manifest.
+ *
+ * Closure over `RUNTIME_FIELDS` of dependency names that resolve to a
+ * `packages/*` workspace in this repo (private or not), starting from the root's
+ * runtime deps. Cycle-safe; an unparseable workspace manifest is skipped, never
+ * thrown. See change: check-root-package-imports.
+ */
+export function reachableWorkspaces(root, rootManifest) {
+  const byName = new Map();
+  const base = join(root, "packages");
+  for (const dir of existsSync(base) ? readdirSync(base).sort() : []) {
+    try {
+      const manifest = JSON.parse(readFileSync(join(base, dir, "package.json"), "utf8"));
+      if (typeof manifest?.name === "string") byName.set(manifest.name, { rel: `packages/${dir}`, manifest });
+    } catch {
+      // no manifest, or malformed: not a workspace we can credit
+    }
+  }
+  const reached = new Map();
+  const queue = runtimeDeps(rootManifest);
+  for (let name = queue.shift(); name !== undefined; name = queue.shift()) {
+    const ws = byName.get(name);
+    if (!ws || reached.has(ws.rel)) continue;
+    reached.set(ws.rel, ws.manifest);
+    queue.push(...runtimeDeps(ws.manifest));
+  }
+  return reached;
+}
 
 /** Every workspace under `packages/` that does not declare `"private": true`. */
 export function listWorkspaces(root = REPO_ROOT) {
@@ -333,13 +380,35 @@ export function parsePackOutput(stdout) {
 }
 
 /**
+ * The packed paths from an `npm pack --json` payload, or null when none is readable.
+ *
+ * npm emits an array for a leaf workspace but an object keyed by package name at a
+ * workspace root. Reading only the array form turned the root into `[]` - a vacuous
+ * pass - so a payload with no `files` list is null (reported `pack-failed`), never
+ * an empty set. See change: fix-ship-tsconfig-base.
+ */
+export function packEntryFiles(parsed, name) {
+  if (parsed === null || typeof parsed !== "object") return null;
+  const candidates = Array.isArray(parsed) ? parsed : [parsed, ...Object.values(parsed)];
+  const withFiles = candidates.filter((c) => c && Array.isArray(c.files));
+  // With a name, only the entry for THAT package counts: a multi-workspace payload
+  // must never let one package's files stand in for another's.
+  if (name === undefined) return withFiles[0] ? withFiles[0].files.map((f) => f.path) : null;
+  // npm's root payload is keyed by package name and its entry may omit `name`.
+  const keyed = Array.isArray(parsed) ? undefined : parsed[name];
+  const entry =
+    withFiles.find((c) => c.name === name) ?? (keyed && Array.isArray(keyed.files) ? keyed : undefined);
+  return entry ? entry.files.map((f) => f.path) : null;
+}
+
+/**
  * Derive the packed file list via `npm pack --dry-run --json`.
  *
  * A non-zero exit is reported as an error rather than an empty file set: a
  * workspace whose pack fails must fail the run, not silently contribute zero
  * findings.
  */
-export async function packWorkspace(dir) {
+export async function packWorkspace(dir, name) {
   try {
     // Bounded: a workspace's `prepack`/`prepare` lifecycle script runs here, and
     // one that hangs would stall `analyzeRepository` forever and blow the CI
@@ -351,8 +420,9 @@ export async function packWorkspace(dir) {
     });
     const parsed = parsePackOutput(stdout);
     if (parsed === null) return { files: [], error: "could not locate JSON payload in `npm pack --json` output" };
-    const entry = Array.isArray(parsed) ? parsed[0] : parsed;
-    return { files: (entry?.files ?? []).map((f) => f.path), error: null };
+    const files = packEntryFiles(parsed, name);
+    if (files === null) return { files: [], error: `\`npm pack --json\` payload carries no \`files\` list${name ? ` for ${name}` : ""}` };
+    return { files, error: null };
   } catch (err) {
     return { files: [], error: (err.stderr || err.message || String(err)).trim().split("\n").slice(-4).join(" ") };
   }
@@ -395,13 +465,148 @@ function relativeResolves(spec, fromFile, packedSet) {
   return false;
 }
 
-/** Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files. */
-export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}) {
+/**
+ * Classify ONE specifier found in a shipped file.
+ *
+ * Split out of `analyzeWorkspace` to keep that function's branch chain under the
+ * complexity budget: the rules here are a flat decision table, while the caller
+ * owns the traversal and the accumulation.
+ */
+function specifierFinding({ wsRel, rel, value, line, allowed, declared, devOnly, packedSet }) {
+  const where = `${rel}:${line}`;
+  if (allowed.has(value)) return null;
+
+  if (isRelative(value)) {
+    if (relativeResolves(value, rel, packedSet)) return null;
+    return finding("error", "dangling-relative-import", wsRel, where, value,
+      `relative import "${value}" has no target in the packed file set; it will fail for a consumer`);
+  }
+
+  const pkg = packageNameOf(value);
+  if (pkg === null || isBuiltin(pkg) || isBuiltin(value)) return null;
+  if (allowed.has(pkg) || declared.has(pkg)) return null;
+
+  return devOnly.has(pkg)
+    ? finding("error", "dev-only-import", wsRel, where, pkg,
+        `"${pkg}" is declared only in devDependencies, which npm does not install for a consumer; a shipped file may not import it`)
+    : finding("error", "undeclared-import", wsRel, where, pkg,
+        `"${pkg}" is imported by a shipped file but declared in none of ${RUNTIME_FIELDS.join(", ")}`);
+}
+
+const TSCONFIG_FILE = /(?:^|\/)tsconfig[^/]*\.json$/;
+
+/** The packed path a relative `extends` lands on, or null. `.json` is appended only when absent, as TS does. */
+function tsconfigExtendsTarget(entry, fromFile, packedSet) {
+  const target = join(dirname(fromFile), entry).split("\\").join("/");
+  if (packedSet.has(target)) return target;
+  if (!target.endsWith(".json") && packedSet.has(`${target}.json`)) return `${target}.json`;
+  return null;
+}
+
+/** Relative `extends` entries of a JSONC tsconfig, or `{ error }` when it will not parse. */
+function relativeExtendsOf(abs) {
+  const { config, error } = ts.parseConfigFileTextToJson(abs, readFileSync(abs, "utf8"));
+  if (error) return { error: ts.flattenDiagnosticMessageText(error.messageText, " ") };
+  if (config === null || typeof config !== "object") return { error: "not a JSON object" };
+  // TS normalises slashes before its `./` / `../` test, so `.\\base.json` is relative too.
+  return {
+    entries: [config.extends ?? []].flat().filter((e) => typeof e === "string" && isRelative(e.replaceAll("\\", "/"))),
+  };
+}
+
+/**
+ * Every shipped `tsconfig*.json` whose relative `extends` has no target in the
+ * tarball. A consumer's jiti/tsc follows the chain and dies on the missing file
+ * (0.8.0: `packages/server/tsconfig.json` -> unshipped `../../tsconfig.base.json`).
+ * Package-name `extends` are out of scope. See change: fix-ship-tsconfig-base.
+ */
+export function tsconfigExtendsFindings(ws, packedFiles) {
   const findings = [];
   const packedSet = new Set(packedFiles);
-  const m = ws.manifest;
-  const declared = new Set(RUNTIME_FIELDS.flatMap((f) => Object.keys(m[f] ?? {})));
-  const devOnly = new Set(Object.keys(m.devDependencies ?? {}).filter((d) => !declared.has(d)));
+  // Worklist over the inheritance chain: a packed base config (any name) that a
+  // shipped tsconfig extends is itself loaded by TS, so its own `extends` must
+  // resolve too. `visited` makes a cyclic chain terminate.
+  const queue = packedFiles.filter((rel) => TSCONFIG_FILE.test(rel));
+  const visited = new Set();
+  for (let rel = queue.shift(); rel !== undefined; rel = queue.shift()) {
+    if (visited.has(rel)) continue;
+    visited.add(rel);
+    const abs = join(ws.dir, rel);
+    if (!existsSync(abs)) continue;
+    const { entries, error } = relativeExtendsOf(abs);
+    if (error) {
+      findings.push(finding("warning", "unparseable-tsconfig", ws.rel, rel, null,
+        `shipped tsconfig could not be parsed, so its extends chain is unknown: ${error}`));
+      continue;
+    }
+    for (const e of entries) {
+      const target = tsconfigExtendsTarget(e.replaceAll("\\", "/"), rel, packedSet);
+      if (target !== null) {
+        queue.push(target);
+        continue;
+      }
+      findings.push(finding("error", "dangling-tsconfig-extends", ws.rel, rel, e,
+        `tsconfig extends "${e}" has no target in the packed file set; jiti/tsc will fail for a consumer`));
+    }
+  }
+  return findings;
+}
+
+/**
+ * The declaration scope for one shipped file: `declared` / `devOnly` sets plus
+ * `creditOnly` (names satisfied ONLY through reachable-workspace credit).
+ *
+ * META-PACKAGE EXCEPTION - reliance on npm hoisting, made explicit. The root's
+ * `pi-dashboard` bin runs the root tarball's OWN copy of `packages/<dir>/src`,
+ * whose bare imports resolve from the root's `node_modules` only because npm
+ * hoists the deps of the root's workspace deps there. So a root-shipped file
+ * under `packages/<dir>/` also counts as declared its workspace's runtime deps -
+ * but only when that workspace is reachable (`credit.byDir`). Known limit: this
+ * reads the LOCAL manifests; releases are lockstep, so they match the published
+ * ones. Outside `packages/`, or with no reachable manifest (`packages/dist/`),
+ * no credit applies. See change: check-root-package-imports.
+ */
+function declarationScope(m, owner) {
+  const own = new Set(runtimeDeps(m));
+  const declared = new Set([...own, ...runtimeDeps(owner)]);
+  const dev = [...Object.keys(m.devDependencies ?? {}), ...Object.keys(owner?.devDependencies ?? {})];
+  return {
+    declared,
+    devOnly: new Set(dev.filter((d) => !declared.has(d))),
+    creditOnly: new Set([...declared].filter((d) => !own.has(d))),
+  };
+}
+
+/** `rel` -> its (cached) `declarationScope`; the owner is looked up only when `credit` is given. */
+function scopeResolver(manifest, credit) {
+  const scopes = new Map();
+  return (rel) => {
+    const dir = credit ? /^packages\/[^/]+(?=\/)/.exec(rel)?.[0] : undefined;
+    const owner = dir ? credit.byDir.get(dir) : undefined;
+    const key = owner ? dir : "";
+    if (!scopes.has(key)) scopes.set(key, declarationScope(manifest, owner));
+    return scopes.get(key);
+  };
+}
+
+/** A clean (finding-free) specifier that ONLY the reachable-workspace credit satisfied. */
+const creditedImport = (value, allowed, creditOnly) => {
+  const pkg = packageNameOf(value);
+  // Mirror `specifierFinding`: an allowlist entry matches the exact specifier OR its package.
+  return creditOnly.has(pkg) && !allowed.has(value) && !allowed.has(pkg);
+};
+
+/**
+ * Analyse one already-packed workspace. Pure: no I/O beyond reading shipped files.
+ *
+ * `credit` is passed for the ROOT only: `{ byDir: Map<"packages/<dir>", manifest>,
+ * credited: number }`; `credited` is incremented per import satisfied solely by
+ * the credit (see `declarationScope`).
+ */
+export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST, credit } = {}) {
+  const findings = [];
+  const packedSet = new Set(packedFiles);
+  const scopeOf = scopeResolver(ws.manifest, credit);
   const allowed = new Set(
     allowlist.filter((e) => e.workspace === ws.rel || e.workspace === ws.name).map((e) => e.specifier),
   );
@@ -420,38 +625,15 @@ export function analyzeWorkspace(ws, packedFiles, { allowlist = ALLOWLIST } = {}
       continue;
     }
 
+    const { declared, devOnly, creditOnly } = scopeOf(rel);
     for (const { value, line } of specifiers) {
-      const where = `${rel}:${line}`;
-      if (allowed.has(value)) continue;
-
-      if (isRelative(value)) {
-        if (!relativeResolves(value, rel, packedSet)) {
-          findings.push(
-            finding("error", "dangling-relative-import", ws.rel, where, value,
-              `relative import "${value}" has no target in the packed file set; it will fail for a consumer`),
-          );
-        }
-        continue;
-      }
-
-      const pkg = packageNameOf(value);
-      if (pkg === null || isBuiltin(pkg) || isBuiltin(value)) continue;
-      if (allowed.has(pkg)) continue;
-      if (declared.has(pkg)) continue;
-
-      if (devOnly.has(pkg)) {
-        findings.push(
-          finding("error", "dev-only-import", ws.rel, where, pkg,
-            `"${pkg}" is declared only in devDependencies, which npm does not install for a consumer; a shipped file may not import it`),
-        );
-      } else {
-        findings.push(
-          finding("error", "undeclared-import", ws.rel, where, pkg,
-            `"${pkg}" is imported by a shipped file but declared in none of ${RUNTIME_FIELDS.join(", ")}`),
-        );
-      }
+      const f = specifierFinding({ wsRel: ws.rel, rel, value, line, allowed, declared, devOnly, packedSet });
+      if (f) findings.push(f);
+      // `creditOnly` is empty unless `credit` was passed, so this never touches an absent `credit`.
+      else if (creditedImport(value, allowed, creditOnly)) credit.credited++;
     }
   }
+  findings.push(...tsconfigExtendsFindings(ws, packedFiles));
   return findings;
 }
 
@@ -486,13 +668,15 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new TypeError(`concurrency must be a positive integer, received ${concurrency}`);
   }
-  const workspaces = listWorkspaces(root);
+  const rootPkg = rootPackage(root);
+  const workspaces = [...listWorkspaces(root), ...(rootPkg ? [rootPkg] : [])];
   const findings = [...validateAllowlist(allowlist)];
+  const credit = rootPkg ? { byDir: reachableWorkspaces(root, rootPkg.manifest), credited: 0 } : undefined;
 
   const queue = [...workspaces];
   const runner = async () => {
     for (let ws = queue.shift(); ws; ws = queue.shift()) {
-      const { files, error } = await packWorkspace(ws.dir);
+      const { files, error } = await packWorkspace(ws.dir, ws.manifest.name);
       if (error) {
         findings.push(
           finding("error", "pack-failed", ws.rel, "package.json", null,
@@ -500,14 +684,21 @@ export async function analyzeRepository(root = REPO_ROOT, { allowlist = ALLOWLIS
         );
         continue;
       }
-      findings.push(...analyzeWorkspace(ws, files, { allowlist }));
+      findings.push(...analyzeWorkspace(ws, files, { allowlist, credit: ws === rootPkg ? credit : undefined }));
       findings.push(...verifyDeclaredRanges(ws, root));
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length || 1) }, runner));
 
   findings.sort((a, b) => `${a.workspace}${a.file}${a.specifier}`.localeCompare(`${b.workspace}${b.file}${b.specifier}`));
-  return { workspaces, findings };
+  return { workspaces, findings, credited: credit?.credited ?? 0 };
+}
+
+/** The CLI's closing summary line; names the meta-package credit count so the exception stays visible. */
+export function formatSummary({ workspaces, findings, credited = 0 }) {
+  const errors = findings.filter((f) => f.severity === "error").length;
+  const warnings = findings.length - errors;
+  return `${workspaces.length} non-private workspace(s) checked · ${errors} error(s) · ${warnings} warning(s) · ${credited} root import(s) credited via reachable workspace`;
 }
 
 export function formatFinding(f) {
@@ -516,14 +707,10 @@ export function formatFinding(f) {
 }
 
 async function main() {
-  const { workspaces, findings } = await analyzeRepository();
-  for (const f of findings) console.log(formatFinding(f));
-  const errors = findings.filter((f) => f.severity === "error");
-  const warnings = findings.filter((f) => f.severity === "warning");
-  console.log(
-    `\n${workspaces.length} non-private workspace(s) checked · ${errors.length} error(s) · ${warnings.length} warning(s)`,
-  );
-  process.exit(errors.length > 0 ? 1 : 0);
+  const result = await analyzeRepository();
+  for (const f of result.findings) console.log(formatFinding(f));
+  console.log(`\n${formatSummary(result)}`);
+  process.exit(result.findings.some((f) => f.severity === "error") ? 1 : 0);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) await main();

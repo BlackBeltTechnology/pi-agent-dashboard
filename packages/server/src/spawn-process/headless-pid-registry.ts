@@ -13,14 +13,12 @@ import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
 import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 /**
- * Minimal interface the registry depends on for keeper-mediated writes
- * and orphan reconciliation. Implemented by `KeeperManager` in
- * `rpc-keeper/keeper-manager.ts`. Injected via
- * `HeadlessPidRegistryOptions.keeperManager` to avoid a circular dep at
+ * Minimal interface the registry depends on for orphan reconciliation.
+ * Implemented by `KeeperManager` in `rpc-keeper/keeper-manager.ts`. Injected
+ * via `HeadlessPidRegistryOptions.keeperManager` to avoid a circular dep at
  * module load. See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6).
  */
 export interface KeeperWriter {
-  writeRpcToSockPath(sockPath: string, line: string): Promise<boolean>;
   /**
    * `piPid` is optional and present only when the keeper's pi-PID sidecar named
    * a live process. Kept optional so structurally-compatible test fakes stay
@@ -62,14 +60,16 @@ export interface HeadlessEntry {
    * RPC keeper sidecar PID. Set at register-time when the entry was
    * spawned through `spawnHeadlessViaKeeper`. In keeper mode this equals
    * `entry.pid` (the keeper IS the spawned child); the explicit field
-   * makes the keeper-vs-non-keeper branch unambiguous in `killBySessionId`
-   * and `writeRpc`. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
+   * makes the keeper-vs-non-keeper branch unambiguous in `killBySessionId`.
+   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
    */
   keeperPid?: number;
   /**
    * Absolute UDS / named-pipe path the keeper listens on. Set at
-   * register-time alongside `keeperPid`. Used by `writeRpc` to forward
-   * `dispatch_extension_command` lines without re-deriving the path.
+   * register-time alongside `keeperPid`. Retained as keeper bookkeeping
+   * (`hasKeeper`, cleanup reconciliation) — no server-side RPC line is
+   * written for `dispatch_extension_command` since change
+   * `retire-slash-dispatch-via-expand-prompt-templates`.
    */
   keeperSockPath?: string;
   /**
@@ -136,7 +136,7 @@ export interface HeadlessPidRegistry {
    * is the server-minted UUID injected into the spawned process's env;
    * storing it lets `linkByToken` resolve identity precisely later.
    * The optional `keeperOpts` marks this entry as keeper-mediated and
-   * stores the keeper PID + socket path for `writeRpc` / `killBySessionId`.
+   * stores the keeper PID + socket path for `killBySessionId`.
    * See change: spawn-correlation-token, add-rpc-stdin-dispatch-with-keeper-sidecar.
    */
   register(
@@ -238,14 +238,6 @@ export interface HeadlessPidRegistry {
   /** Clean up orphan processes from a previous server instance. */
   cleanupOrphans(): Promise<void>;
   /**
-   * Connect to the keeper UDS for `sessionId` and write `line + \n`.
-   * Returns false if no entry, no keeper for this session, or if the
-   * 3-attempt write to the socket fails. Never throws. Used by the
-   * server's dispatch handler to forward extension slash commands to pi.
-   * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6/8).
-   */
-  writeRpc(sessionId: string, line: string): Promise<boolean>;
-  /**
    * Async startup pass: scan the sessions dir for live keeper sidecars
    * (via the injected `KeeperManager.discoverExistingKeepers`) and
    * reconcile them with the in-memory registry. Live keepers whose
@@ -261,9 +253,9 @@ export interface HeadlessPidRegistry {
    */
   cleanupKeeperOrphans(): Promise<string[]>;
   /**
-   * Inject the keeper writer / discoverer after construction. Necessary
-   * because `browser-gateway.ts` constructs the registry before the
-   * server creates the `KeeperManager`. Pass `null` to clear (used by tests).
+   * Inject the keeper discoverer after construction. Necessary because
+   * `browser-gateway.ts` constructs the registry before the server creates
+   * the `KeeperManager`. Pass `null` to clear (used by tests).
    */
   setKeeperWriter(writer: KeeperWriter | null): void;
 }
@@ -272,8 +264,8 @@ export interface HeadlessPidRegistryOptions {
   pidFilePath?: string;
   /**
    * Optional `KeeperWriter` (typically a `KeeperManager`) wired so the
-   * registry can delegate UDS writes and orphan reconciliation. May be
-   * supplied after construction via `setKeeperWriter` instead.
+   * registry can delegate orphan reconciliation. May be supplied after
+   * construction via `setKeeperWriter` instead.
    * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6).
    */
   keeperManager?: KeeperWriter;
@@ -578,12 +570,6 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
 
     setKeeperWriter(writer: KeeperWriter | null) {
       keeperWriter = writer;
-    },
-
-    async writeRpc(sessionId: string, line: string): Promise<boolean> {
-      const entry = findBySessionId(sessionId);
-      if (!entry || !entry.keeperSockPath || !keeperWriter) return false;
-      return keeperWriter.writeRpcToSockPath(entry.keeperSockPath, line);
     },
 
     async cleanupKeeperOrphans(): Promise<string[]> {

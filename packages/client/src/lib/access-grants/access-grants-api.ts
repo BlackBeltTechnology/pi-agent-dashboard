@@ -1,0 +1,113 @@
+/**
+ * Client transport for the Settings → Access review surface (change:
+ * add-access-grants-and-review).
+ *
+ * READ: one aggregate fetch, `GET /api/access/grants` (the server side of this
+ * change owns the route). Loading the tab performs ONLY this GET — rendering
+ * the page performs zero store writes (task 7.7).
+ *
+ * REVOKE: each store is revoked against ITS OWN write path (task 7.5):
+ * - path grants            → DELETE /api/access/grants
+ * - worktree-init trust    → DELETE /api/access/worktree-trust (also clears
+ *                            in-memory session trust server-side)
+ * - KB source trust        → DELETE /api/kb/source-trust — owned by the
+ *                            kb-plugin, which calls kb's own trust module.
+ * - project trust          → DELETE /api/access/project-trust — routed through
+ *                            the existing `persistTrustDecision` wrapper
+ *                            server-side (design D13). Revoke means DELETE the
+ *                            entry; a standing negative decision is never
+ *                            recorded in its place. Deliberately NOT
+ *                            `POST /api/resources/trust`: that route is gated on
+ *                            an outstanding trust challenge and takes an option
+ *                            id, so it cannot express a revoke.
+ * - trusted networks       → DELETE /api/access/trusted-network (per-entry;
+ *                            the server read-modify-writes the array, so no
+ *                            client snapshot is sent — task 4.5 #5)
+ * - auth bypass hosts      → DELETE /api/access/bypass-hosts (the
+ *                            `auth.bypassHosts` field, never trustedNetworks)
+ * - CORS origins           → DELETE /api/access/cors-origin (per-entry, as above)
+ * - pinned directories     → PATCH /api/preferences/pinned-directories (the
+ *                            preferences-store write path)
+ *
+ * No function here creates a grant (design D12).
+ */
+import { getApiBase } from "../api/api-context.js";
+import type { AccessEntry, AccessGrantSnapshot } from "./access-grants-types.js";
+
+/** Loose shape of the dashboard's `{ success, data, error }` envelope. */
+interface ApiEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  error?: string;
+}
+
+interface AccessSnapshotResult {
+  ok: boolean;
+  status: number;
+  snapshot?: AccessGrantSnapshot;
+  error?: string;
+}
+
+/** GET /api/access/grants. Never throws on HTTP errors (network errors do). */
+export async function fetchAccessSnapshot(): Promise<AccessSnapshotResult> {
+  const res = await fetch(`${getApiBase()}/api/access/grants`);
+  const body = (await res.json().catch(() => ({}))) as ApiEnvelope<AccessGrantSnapshot>;
+  return {
+    ok: res.ok && body?.success === true,
+    status: res.status,
+    snapshot: body?.data,
+    error: body?.error,
+  };
+}
+
+interface RevokeResult {
+  ok: boolean;
+  status: number;
+  error?: string;
+}
+
+/**
+ * Revoke one entry against its own store's write path. Every store now takes a
+ * PER-ENTRY request, so no client snapshot is needed: an array-valued store is
+ * read-modify-written server-side. That is what makes two concurrent revokes
+ * safe (previously the remaining list was computed client-side as
+ * displayed-list-minus-entry, so both revokes derived from the same stale array
+ * and the second resurrected the first's entry — task 4.5 #5).
+ */
+export async function revokeAccessEntry(entry: AccessEntry): Promise<RevokeResult> {
+  switch (entry.store) {
+    case "pathGrants":
+      return send("DELETE", "/api/access/grants", { subject: entry.subject, scope: entry.scope });
+    case "worktreeTrust":
+      return send("DELETE", "/api/access/worktree-trust", { subject: entry.subject });
+    case "kbTrust":
+      // Owned by the kb-plugin, which can call kb's own trust module.
+      return send("DELETE", "/api/kb/source-trust", { hash: entry.id });
+    case "projectTrust":
+      // Routed through the existing `persistTrustDecision` wrapper server-side,
+      // which writes `decision: null` into pi's store — and pi's `setMany`
+      // DELETES the key on null, so revocation removes the entry rather than
+      // recording a standing refusal (design D13). NOT `/api/resources/trust`:
+      // that route is gated on an outstanding trust challenge and takes an
+      // option id, so it cannot express a revoke.
+      return send("DELETE", "/api/access/project-trust", { subject: entry.subject });
+    case "trustedNetworks":
+      return send("DELETE", "/api/access/trusted-network", { network: entry.subject });
+    case "bypassHosts":
+      return send("DELETE", "/api/access/bypass-hosts", { host: entry.subject });
+    case "corsOrigins":
+      return send("DELETE", "/api/access/cors-origin", { origin: entry.subject });
+    case "pinnedDirectories":
+      return send("DELETE", "/api/access/pinned-directory", { subject: entry.subject });
+  }
+}
+
+async function send(method: string, path: string, body: unknown): Promise<RevokeResult> {
+  const res = await fetch(`${getApiBase()}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => ({}))) as ApiEnvelope<unknown>;
+  return { ok: res.ok && json?.success === true, status: res.status, error: json?.error };
+}

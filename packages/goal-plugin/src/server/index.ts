@@ -352,6 +352,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.onShutdown(() => {
     clearTimeout(bootReconcileTimer);
     goalSupervisor?.dispose();
+    // The store owns trailing-debounce timers, a cwd cache and the
+    // `goals_update` subscriber; without this a stopped instance kept
+    // broadcasting through a dead ctx and serving a stale cache.
+    store.dispose();
   });
 
   // Per-session latest snapshot cache.

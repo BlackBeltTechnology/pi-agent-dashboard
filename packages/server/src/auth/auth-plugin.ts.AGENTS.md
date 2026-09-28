@@ -7,3 +7,5 @@ Fastify plugin registers OAuth routes + `onRequest` JWT gate. Exports `registerA
 `validateWsUpgrade` opts narrowed (add-browser-relay D1): `scope?: CoreWsRouteScope | null`, `consumeTicket?: (ticket, scope: CoreWsRouteScope) => boolean`. Plugin scopes never reach this gate (the upgrade handler returns before the auth branches), so tickets stay core-only at the type level too. See change: add-browser-relay.
 
 `isBypassed` MOVED to the import-free leaf `bypass-urls.ts` and is RE-EXPORTED here, so this file's import surface (`auth-plugin.test.ts` imports it from `auth-plugin.js`) is unchanged. Reason: the universal network guard (change: add-universal-network-guard) needs the same `auth.bypassUrls` predicate, and importing it from this plugin would close a cycle (this plugin already imports `localhost-guard.ts`). One predicate, two callers — they MUST agree.
+
+See change: fix-trusted-network-tunnel-bypass — `onRequest` bypassHosts skip and `validateWsUpgrade` trusted branch use `isTrustedSource` (relayed-loopback peer never skips auth / never admits the WS, even with a loopback entry).

@@ -15,6 +15,7 @@ import {
   type ResolvedRuntime,
   resolvedFamilyEntries,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
 import {
   getDefaultSubprocessAdapter,
   type SubprocessAdapter,
@@ -109,8 +110,10 @@ function resolveViaRegistry(
  * the tool registry's `resolveModule`, not a static import).
  *
  * See change: consolidate-windows-spawn-and-platform-handlers.
+ * Exported for unit tests (env overlay; see change:
+ * fix-windows-path-env-key-casing).
  */
-function createSafePackageManagerClass(
+export function createSafePackageManagerClass(
   BaseClass: new (...args: any[]) => any,
   adapter: SubprocessAdapter,
   registry: ToolRegistry,
@@ -138,7 +141,12 @@ function createSafePackageManagerClass(
       return adapter.spawn(cmd, finalArgs, {
         cwd: options?.cwd,
         stdio: ["ignore", "pipe", "pipe"],
-        env: options?.env ? { ...process.env, ...options.env } : process.env,
+        // Normalize both sides' PATH key (win32) so a caller PATH in any
+        // casing replaces the inherited one. See change:
+        // fix-windows-path-env-key-casing.
+        env: options?.env
+          ? { ...normalizeEnvPathKey({ ...process.env }), ...normalizeEnvPathKey(options.env) }
+          : process.env,
       });
     }
 

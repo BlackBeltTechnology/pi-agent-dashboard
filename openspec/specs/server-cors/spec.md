@@ -1,7 +1,9 @@
 ## Purpose
 
 Configure cross-origin resource sharing so separately-hosted clients (loopback, the active tunnel, `*.share.zrok.io`, the neutral shell, and configured origins) can call the dashboard server, while authentication stays enforced independently.
+
 ## Requirements
+
 ### Requirement: CORS enabled on dashboard server
 The server SHALL register `@fastify/cors` to handle cross-origin requests from separately-hosted clients.
 
@@ -129,3 +131,58 @@ wildcard: tailscale, zerotier and ngrok.
 - **WHEN** an OAuth redirect URI is minted
 - **THEN** it SHALL still derive only from the primary provider's URL
 
+### Requirement: A refused CORS origin is observable
+
+A CORS origin refusal SHALL be recorded in the denial ledger so it is visible to a trusted client, rather than surfacing only as an opaque browser-side failure with no server-side trace.
+
+#### Scenario: Refused origin is recorded
+
+- **WHEN** an origin is refused by the CORS decision
+- **THEN** a ledger entry SHALL record the refusal with the refused origin
+
+#### Scenario: Recording does not alter the CORS decision
+
+- **WHEN** a refusal is recorded
+- **THEN** the CORS response SHALL be unchanged
+- **AND** allowed origins SHALL be unaffected
+
+### Requirement: Allowed CORS origins are reviewable and revocable
+
+Configured CORS origins SHALL be listed in `Settings → Access` with a revoke action that removes them through the existing configuration write path. Origins that are allowed structurally rather than by configuration — loopback, the active tunnel URL, and the neutral shell origin — SHALL be shown as non-revocable rather than offered a revoke action that could not take effect.
+
+#### Scenario: Configured origins are listed and revocable
+
+- **WHEN** the Access page is opened and CORS origins are configured
+- **THEN** each configured origin SHALL be listed with a revoke action
+
+#### Scenario: Structural allowances are shown as non-revocable
+
+- **WHEN** an origin is allowed because it is loopback, the active tunnel URL, or the neutral shell origin
+- **THEN** it SHALL be presented without a revoke action
+
+### Requirement: An origin denial may be answered by prompt
+
+A recorded CORS origin denial MAY raise a dialog naming the denied origin, so the
+operator can admit it without first having to diagnose an opaque browser failure.
+An allow-always verdict SHALL add the origin to the configured allowed origins.
+The denied request SHALL NOT be suspended.
+
+The origin SHALL be displayed exactly as received, escaped for display, so a
+crafted origin string cannot misrepresent itself in the dialog.
+
+#### Scenario: Allow always admits the origin
+
+- **WHEN** an operator answers allow-always on an origin denial
+- **THEN** the origin SHALL be added to the configured allowed origins
+- **AND** a subsequent request from it SHALL be admitted
+
+#### Scenario: The origin is rendered safely
+
+- **WHEN** a dialog displays a denied origin
+- **THEN** the value SHALL be escaped and SHALL NOT be interpreted as markup
+
+#### Scenario: The wildcard admission path is not widened
+
+- **WHEN** a verdict admits an origin
+- **THEN** exactly that origin SHALL be added
+- **AND** no wildcard or pattern SHALL be created from it

@@ -8,21 +8,22 @@
  *
  * See change: add-openspec-change-grouping (tasks 3.1–3.13).
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import type { NetworkGuard } from "./route-deps.js";
+
 import type {
   ApiResponse,
   OpenSpecGroupsFile,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   ConcurrentEditError,
   GroupNotFoundError,
+  type OpenSpecGroupStore,
   UnknownGroupIdError,
   UnsupportedSchemaVersionError,
-  type OpenSpecGroupStore,
 } from "../openspec/openspec-group-store.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 export interface OpenSpecGroupRoutesDeps {
   sessionManager: SessionManager;
@@ -53,7 +54,16 @@ export function registerOpenSpecGroupRoutes(
     for (const d of preferencesStore.getPinnedDirectories()) known.add(d);
     if (!known.has(cwd)) {
       reply.code(403);
-      reply.send({ success: false, error: "cwd not allowed" } satisfies ApiResponse);
+      // Additive remedy fields beside the unchanged `error` (design D7/D18):
+      // the known-cwd set already includes pinned directories, so pinning the
+      // refused directory is the offered remedy. See change:
+      // add-access-grants-and-review.
+      reply.send({
+        success: false,
+        error: "cwd not allowed",
+        reason: "cwd is not a known session or pinned directory.",
+        hint: "Pin this directory to allow it, or open a session rooted in it.",
+      } as unknown as ApiResponse);
       return true;
     }
     return false;

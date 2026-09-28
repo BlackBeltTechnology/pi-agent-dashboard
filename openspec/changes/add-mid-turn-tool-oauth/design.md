@@ -18,6 +18,11 @@ PATTERN B — LLM-provider OAuth (oauth-callback-server.ts)
   Trivial locally; breaks through a tunnel (loopback resolves on the wrong machine).
 ```
 
+> **Note (change `delegate-provider-oauth-to-pi-ai`):** `oauth-callback-server.ts` is DELETED.
+> PATTERN B reference now lives in git history only. Replacement pointer:
+> `packages/server/src/auth/provider-auth-adapter.ts` — dashboard delegates provider OAuth to
+> pi-ai's own `login()`; the client supplies an `AuthInteraction`, pi-ai owns the loopback listener.
+
 The rclone case is Pattern B in spirit. The remote wrinkle is the core tension, resolved by
 scope decision #1 (auth is local-only).
 

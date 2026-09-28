@@ -1,3 +1,7 @@
 # openspec-artifact-dialog.spec.ts — index
 
-L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog off the board `stepper-node-*` badges (fixture `sample-git/openspec` change `e2e-artifact-demo`). F1-F7 (dialog over view, URL/history unchanged, flex full-height, Esc/backdrop/back close, focus return, resize-close, reload-ephemeral), E7 (board+composer+header sites via attach), E8 (archive reader isolation), E9 (mobile navigates).
+L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog off the board `stepper-segment-*` badges (fixture `sample-git/openspec` change `e2e-artifact-demo`). F1-F7 (dialog over view, URL/history unchanged, flex full-height, Esc/backdrop/back close, focus return, resize-close, reload-ephemeral), E7 (board+composer+header sites via attach), E8 (archive reader isolation), E9 (mobile navigates).
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): L3 openspec-artifact-dialog-desktop.
+
+Board badge queries scoped to `openspec-board`; composer site uses `composer-stepper-segment-proposal`. See change: redesign-composer-session-strip.

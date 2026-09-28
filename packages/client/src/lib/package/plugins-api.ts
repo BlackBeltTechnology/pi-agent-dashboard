@@ -25,8 +25,16 @@ export interface PluginRowStatus {
 
 export interface PluginRow {
   id: string;
+  /** Absolute directory the plugin was discovered from ("" when unknown). */
+  packageDir?: string;
   displayName: string;
   priority: number;
+  /**
+   * True iff the plugin's npm package is in the `@blackbelt-technology/`
+   * scope (server-computed; absent on older servers => treat as false).
+   * See change: promote-model-roles-settings.
+   */
+  firstParty?: boolean;
   hasServer: boolean;
   hasBridge: boolean;
   hasClient: boolean;
@@ -36,6 +44,8 @@ export interface PluginRow {
     tab?: string;
     command?: string;
     toolName?: string;
+    /** settings-section nav promotion hint. See change: promote-model-roles-settings. */
+    nav?: { group: string; label: string; description?: string; order?: number };
   }>;
   requires?: {
     piExtensions?: string[];

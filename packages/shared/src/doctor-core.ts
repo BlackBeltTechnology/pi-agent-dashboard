@@ -409,7 +409,7 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   // runtime
   Electron: "runtime",
   "System Node.js": "runtime",
-  "Spawn runtime (resolved)": "runtime",
+  "Session runtime (resolved)": "runtime",
   "Bundled Node.js": "runtime",
   "Bundled npm": "runtime",
   "Managed Node runtime": "runtime",
@@ -426,6 +426,7 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   // (older Electron Doctor renderers) keeps section mapping.
   "pi CLI": "pi-tooling",
   "openspec CLI": "pi-tooling",
+  "Spawn runtime (resolved)": "runtime",
   // server
   "Dashboard server code": "server",
   "Offline packages bundle": "server",
@@ -494,10 +495,10 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
     status === "ok"
       ? undefined
       : "Managed Node runtime missing under `~/.pi-dashboard/node`. Re-run the setup wizard (Help → Setup).",
-  "Spawn runtime (resolved)": (status) =>
+  "Session runtime (resolved)": (status) =>
     status === "ok"
       ? undefined
-      : "Run `node -v` in your terminal and compare against the resolved runtime, then pin the spawn Node deterministically via `runtime.override` in `~/.pi/dashboard/config.json`.",
+      : "Run `node -v` in your terminal and compare against the resolved runtime, then pin the session Node deterministically via `runtime.override` in `~/.pi/dashboard/config.json`.",
   "pi (library)": (status, _d, kind) =>
     status === "ok"
       ? undefined
@@ -507,7 +508,7 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "pi (CLI on PATH)": (status) =>
     status === "ok"
       ? undefined
-      : "`pi` is not on your shell `$PATH`. Dashboard-spawned sessions still work (the dashboard injects PATH for them), but you cannot run `pi` from a fresh terminal. Fix: `npm i -g @earendil-works/pi-coding-agent`, or add the dashboard's `server/node_modules/.bin` to your PATH.",
+      : "`pi` is not on your shell `$PATH`. Dashboard-started sessions still work (the dashboard injects PATH for them), but you cannot run `pi` from a fresh terminal. Fix: `npm i -g @earendil-works/pi-coding-agent`, or add the dashboard's `server/node_modules/.bin` to your PATH.",
   "openspec (library)": (status, _d, kind) =>
     status === "ok"
       ? undefined
@@ -517,8 +518,9 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   "openspec (CLI on PATH)": (status) =>
     status === "ok"
       ? undefined
-      : "`openspec` is not on your shell `$PATH`. Dashboard-spawned sessions still work; manual terminal use does not. Fix: `npm i -g @fission-ai/openspec`, or add the dashboard's `server/node_modules/.bin` to your PATH.",
+      : "`openspec` is not on your shell `$PATH`. Dashboard-started sessions still work; manual terminal use does not. Fix: `npm i -g @fission-ai/openspec`, or add the dashboard's `server/node_modules/.bin` to your PATH.",
   // Legacy aliases (kept so older renderers don't lose suggestions).
+  "Spawn runtime (resolved)": (status, detail) => SUGGESTIONS["Session runtime (resolved)"]?.(status, detail),
   "pi CLI": (status) =>
     status === "ok" ? undefined : "`pi` not found. Run the setup wizard (Help → Setup) to install it under `~/.pi-dashboard`.",
   "openspec CLI": (status) =>
@@ -1029,11 +1031,11 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         );
       }
       checks.push({
-        name: "Spawn runtime (resolved)",
+        name: "Session runtime (resolved)",
         section: "runtime",
         status: runtimeDivergence ? "warning" : "ok",
         message:
-          `pi sessions spawn ${rt.nodeBinary} — Node ${rt.version} (ABI ${rt.abi}, via ${rt.rung}${viaSuffix})` +
+          `pi sessions start with ${rt.nodeBinary} — Node ${rt.version} (ABI ${rt.abi}, via ${rt.rung}${viaSuffix})` +
           (runtimeDivergence
             ? `; differs from ${runtimeDivergence.source} Node at ${runtimeDivergence.path}`
             : "") +
@@ -1042,7 +1044,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
         ...(runtimeDivergence
           ? {
               suggestion:
-                "Run `node -v` in your terminal and compare against the resolved runtime; pin the spawn Node deterministically via `runtime.override` in `~/.pi/dashboard/config.json`.",
+                "Run `node -v` in your terminal and compare against the resolved runtime; pin the session Node deterministically via `runtime.override` in `~/.pi/dashboard/config.json`.",
             }
           : {}),
       });
@@ -1112,7 +1114,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             name: `ABI mismatch: ${moduleName}`,
             section: "pi-tooling",
             status: "error",
-            message: `${moduleName} was built for Node ABI ${m.builtAbi}, but the resolved spawn runtime (${rt.nodeBinary}, Node ${rt.version}) uses ABI ${rt.abi}`,
+            message: `${moduleName} was built for Node ABI ${m.builtAbi}, but the resolved session runtime (${rt.nodeBinary}, Node ${rt.version}) uses ABI ${rt.abi}`,
             detail: `${m.entry.path}\nReconciliation: ${action}`,
             suggestion:
               action === "rebuild"
@@ -1137,7 +1139,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
           name: "pi (library)",
           section: "pi-tooling",
           status: "error",
-          message: "Library not found — dashboard cannot spawn agent sessions",
+          message: "Library not found — dashboard cannot start agent sessions",
           code: "doctor.lib_not_found_pi",
           detail: "Searched override, bundled (server/node_modules), managed install, and system PATH",
           fixable: true,
@@ -1167,7 +1169,7 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
             status: "warning",
             message: "Not on $PATH — `pi` won't run from a fresh terminal",
             code: "doctor.pi_not_on_path",
-            detail: "Dashboard-spawned sessions still work (the dashboard injects PATH for them). Manual `pi` invocation in any other shell does not.",
+            detail: "Dashboard-started sessions still work (the dashboard injects PATH for them). Manual `pi` invocation in any other shell does not.",
             fixable: true,
           };
         }

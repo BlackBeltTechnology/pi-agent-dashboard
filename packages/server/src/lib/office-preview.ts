@@ -15,6 +15,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { loadPurify } from "./purify.js";
 
 /** Bounded-preview + size caps (design D3). Overridable per-call for tests. */
 export interface OfficeCaps {
@@ -216,7 +217,7 @@ export async function renderDocx(
       { buffer },
       { transformDocument: hyperlinkGuard, convertImage },
     );
-    const { default: DOMPurify } = await import("isomorphic-dompurify");
+    const DOMPurify = await loadPurify();
     const clean = DOMPurify.sanitize(result.value ?? "", {
       FORBID_TAGS: ["script", "style"],
     });

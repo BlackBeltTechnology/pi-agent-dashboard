@@ -107,6 +107,15 @@ describe("asciidoc-body typography scope", () => {
   });
 });
 
+describe("AsciiDoc latexmath", () => {
+  it("renders stem:[\\(...\\)] with KaTeX", async () => {
+    mockFetch({ success: true, data: { html: "<div class=\"paragraph\"><p>Given \\(n \\cdot c\\) msgs</p></div>" } });
+    render(<AsciiDocPreview target={{ kind: "file", cwd: "/proj", path: "doc.adoc" }} />);
+    await waitFor(() => expect(document.querySelector(".asciidoc-body .katex")).not.toBeNull());
+    expect(document.querySelector(".asciidoc-body")?.textContent).not.toContain("\\(");
+  });
+});
+
 describe("AsciiDoc diagram hydration (test-plan #E14, #F5)", () => {
   it("E14: adoc-sourced mermaid parity: mounts MermaidBlock with identical source", async () => {
     const mermaidCode = "graph TD;\n  A-->B;";

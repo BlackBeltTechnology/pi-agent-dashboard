@@ -7,7 +7,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
-import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -21,7 +21,7 @@ import { captureLifecycleTimestamp } from "./embed-lifecycle/lifecycle-event-cap
 import { composeWorktreePayload } from "./git-worktree/git-worktree-compose.js";
 import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js";
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
-import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
+import { invalidateCatalogue, setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
@@ -29,7 +29,7 @@ import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
-import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
+import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -176,6 +176,13 @@ export interface EventWiringDeps {
    */
   viewedSessionTracker?: ViewedSessionTracker;
   /**
+   * Optional push fan-out. Called from `stampUnreadIfTriggered` on every
+   * qualifying live trigger (fire-and-forget, never awaited). Push requires
+   * `viewedSessionTracker` too: the helper returns early without it.
+   * See change: add-server-push-notifications.
+   */
+  pushDispatcher?: import("./push/push-dispatcher.js").PushDispatcher;
+  /**
    * Optional client-correlation registry. When provided, the wiring
    * consumes the requestId for the resolved spawnToken after a successful
    * three-tier link and surfaces it on `session_added` as `spawnRequestId`,
@@ -198,6 +205,8 @@ export interface EventWiringDeps {
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
+  /** Private plugin request lane. See change: expose-plugin-credential-and-oauth-seams (D7). */
+  dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -272,9 +281,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingPluginRefRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
+    pushDispatcher,
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
+    dispatchPluginRequest,
     dispatchPluginRawEvent,
     metaPersistence,
     liveEpoch,
@@ -358,6 +369,20 @@ export function wireEvents(deps: EventWiringDeps): void {
   // WorktreeSpawnDialog after a successful POST /api/git/worktree) and
   // persist it to the session's .meta.json. See change:
   // add-worktree-spawn-dialog.
+  // D5 — when the LAST bridge disconnects, the held catalogue snapshot is no
+  // longer backed by a connected session and is invalidated, so the
+  // catalogue-ready signal (GET /api/provider-auth/catalogue-ready) stays
+  // truthful: `latest` used to be assigned-only and reported ready forever
+  // after the first push. `getConnectedSessionIds` filters on OPEN readyState,
+  // so a closed socket stops counting even while its reconnect-grace session
+  // is still registered. One session remaining keeps the snapshot.
+  // See change: redesign-providers-settings-page.
+  piGateway.onDisconnect = () => {
+    if (piGateway.getConnectedSessionIds().length === 0) {
+      invalidateCatalogue();
+    }
+  };
+
   piGateway.onSessionRegistered = (sessionId, cwd) => {
     // Registration wins over the archive: a bridge reattaching an archived id
     // drops its index row + broadcasts the decremented count before the live
@@ -653,10 +678,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (!isUnreadTrigger(eventType, before, after, payload)) return;
     if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
     const session = sessionManager.get(sessionId);
-    if (session && !session.unread) {
+    const unreadEdge = !!session && !session.unread;
+    if (unreadEdge) {
       sessionManager.update(sessionId, { unread: true });
       browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
     }
+    // Single push hook: fire-and-forget, the dispatcher applies the hybrid
+    // cadence. See change: add-server-push-notifications (Decision 10).
+    if (session) pushDispatcher?.fanout(sessionId, { eventType, after, payload, unreadEdge });
   }
 
   /**
@@ -793,6 +822,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // Private request/reply lane: answered with `plugin_reply` on this socket.
+    // See change: expose-plugin-credential-and-oauth-seams (D7).
+    if (msg.type === "plugin_request") {
+      dispatchPluginRequest?.(sessionId, msg);
+      return;
+    }
+
     if (msg.type === "event_forward") {
       // Raw-event fan-out to plugin onEvent subscribers (live + replay).
       // Fired before the core handling so plugins see every forwarded event.
@@ -801,6 +837,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Legacy queue_state event no longer emitted (bridge removed PromptQueue).
       // See change: add-followup-edit-and-steer-cancel.
       if (msg.event.eventType === "queue_state") return;
+      // Forwarded-reload settle, BEFORE the replay-skip early return so a
+      // terminal `/reload` feedback inside a replay window still settles and
+      // still reaches the client. Late feedback after the server's own
+      // deadline error is dropped. See change: fix-terminal-session-dashboard-reload (D5).
+      const reloadRoute = routeReloadFeedback(sessionId, msg.event, {
+        inReplaySkipWindow: replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId),
+        persistAndBroadcast: () => {
+          const seq = eventStore.insertEvent(sessionId, msg.event);
+          browserGateway.broadcastEvent(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? msg.event);
+        },
+      });
+      if (reloadRoute === "handled") return;
       // When canSkipWipe was true, the event store already has all events —
       // don't insert replayed events again (would cause exponential duplication)
       if (replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId)) {
@@ -1820,6 +1868,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.gitStatus !== undefined) {
         gitUpdates.gitStatus = msg.gitStatus;
       }
+      // PR status tuple (async bridge probe). Guarded: `null` clears (known
+      // no PR / branch change), absent (older bridge, or unknown after a
+      // fork) leaves the stored value untouched. Number/url above stay
+      // unconditional — the new bridge always sends them when known.
+      // See change: redesign-composer-session-strip (D5).
+      // The tuple is ATOMIC with the number: when no PR number is known
+      // (absent = unknown after a fork/resume, or null = no PR) the status
+      // fields are cleared too, so a stale "open · passing" can never outlive
+      // its PR. Cleared as `null` (not `undefined`) so the broadcast carries
+      // the clear. See change: redesign-composer-session-strip (doubt-review #1).
+      // A known number WITHOUT any status field comes from an older bridge
+      // (the new bridge always sends the whole tuple): drop any stored status
+      // so a stale rich tuple never pairs with a different PR number.
+      // See change: redesign-composer-session-strip (review round 1).
+      const PR_STATUS_KEYS = ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const;
+      const prKnown = msg.gitPrNumber != null;
+      const legacyNumberOnly = prKnown && PR_STATUS_KEYS.every((k) => msg[k] === undefined);
+      const stored = sessionManager.get(sessionId);
+      for (const key of PR_STATUS_KEYS) {
+        if (!prKnown) gitUpdates[key] = null;
+        else if (legacyNumberOnly) {
+          if (stored?.[key] != null) gitUpdates[key] = null;
+        } else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+      }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
       // See change: gate-session-worktree-button-on-git.
@@ -2289,26 +2361,38 @@ export function wireEvents(deps: EventWiringDeps): void {
       });
     }
 
-    // RPC keeper dispatch: bridge → server slash command forward.
-    // Fire-and-forget; the handler itself emits browser-bound
-    // `command_feedback` events on success and on every failure path.
-    // The terminal event is persisted via eventStore.insertEvent so it
-    // survives browser reattach (otherwise the chat pill stays "in progress").
-    // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 8).
+    // Tombstone for `dispatch_extension_command` (one release). The bridge
+    // dispatches extension slash commands in-process now
+    // (`sendUserMessage({expandPromptTemplates:true})`), so nothing sends this
+    // except a bridge that was NOT reloaded after this server restarted. It is
+    // answered with a TERMINAL `command_feedback` error so the chat pill
+    // converges instead of hanging on the bridge's persisted `started`.
+    // Both halves matter: `eventStore.insertEvent` persists AND
+    // `broadcastEvent` fans out — a broadcast-only terminal re-creates the
+    // stuck pill on browser reattach (the reason the now-deleted
+    // `dispatch-router.ts` stored first). No keeper socket is written.
+    // See change: retire-slash-dispatch-via-expand-prompt-templates (design D4).
     if (msg.type === "dispatch_extension_command") {
-      void handleDispatchExtensionCommand(msg, {
-        headlessPidRegistry: browserGateway.headlessPidRegistry,
-        emitCommandFeedback: (sid, command, status, message) => {
-          const event = {
-            eventType: "command_feedback",
-            timestamp: Date.now(),
-            data: message === undefined ? { command, status } : { command, status, message },
-          };
-          const seq = eventStore.insertEvent(sid, event);
-          const stored = eventStore.getEvent(sid, seq) ?? event;
-          browserGateway.broadcastEvent(sid, seq, stored);
-        },
-      });
+      const { sessionId: tombstoneSid, command } = msg;
+      console.warn(
+        `[event-wiring] tombstone: dispatch_extension_command sid=${tombstoneSid} ` +
+          `cmd=${command} — bridge outdated, reload the session`,
+      );
+      try {
+        const event = {
+          eventType: "command_feedback",
+          timestamp: Date.now(),
+          data: { command, status: "error", message: "bridge outdated — reload the session" },
+        };
+        const seq = eventStore.insertEvent(tombstoneSid, event);
+        const stored = eventStore.getEvent(tombstoneSid, seq) ?? event;
+        browserGateway.broadcastEvent(tombstoneSid, seq, stored);
+      } catch (err) {
+        // Best-effort: a store failure must not reject out of the WS handler
+        // (the retired router was invoked via `void` and would have produced an
+        // unhandled rejection). No seq ⇒ nothing safe to broadcast.
+        console.warn("[event-wiring] tombstone: failed to persist command_feedback", err);
+      }
     }
 
   };

@@ -12,16 +12,10 @@
 import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import { type ParsedMail, simpleParser } from "mailparser";
+import { loadPurify } from "./purify.js";
 
-// Lazy DOMPurify: `isomorphic-dompurify` constructs a jsdom window at import
-// time. Loading it statically would run that at server boot, so a broken/torn
-// jsdom install bricks startup. Deferring to first sanitize call scopes any such
-// failure to a single EML preview request instead. See change: add-eml-preview.
-type DomPurify = (typeof import("isomorphic-dompurify"))["default"];
-let _purify: DomPurify | null = null;
-async function getPurify(): Promise<DomPurify> {
-  return (_purify ??= (await import("isomorphic-dompurify")).default);
-}
+// Lazy DOMPurify via shared `loadPurify()` (./purify.ts): a broken jsdom fails a
+// single EML preview request, never server boot. See change: add-eml-preview.
 
 /** Hard size cap enforced before read (design D6). */
 export const EML_SIZE_CAP = 25 * 1024 * 1024;
@@ -73,20 +67,46 @@ export async function parseEmlBuffer(buf: Buffer): Promise<ParsedMail> {
  * Load + parse an `.eml`, memoized by path+mtime+size. On a key miss the file is
  * read and parsed; the LRU keeps at most `CACHE_MAX` entries. A changed mtime or
  * size produces a new key, so the stale entry is never returned (and ages out).
+ *
+ * `prefetched` OVERRIDES the cache: a caller that supplies bytes it read from its
+ * VERIFIED handle always gets a parse of THOSE bytes.
  */
-export async function loadParsedEml(absPath: string, stat: Stats): Promise<ParsedMail> {
+export async function loadParsedEml(
+  absPath: string,
+  stat: Stats,
+  prefetched?: Buffer,
+): Promise<ParsedMail> {
   const key = cacheKey(absPath, stat);
+
+  // A grant-admitted caller hands us the bytes it read from its VERIFIED handle
+  // (design D14), and those bytes are authoritative: parse THEM, never a cached
+  // parse keyed on path+mtime+size. Consulting the cache first would return a
+  // warm entry populated earlier from the PATHNAME while silently DISCARDING the
+  // verified bytes — exactly the guarantee this parameter exists to provide,
+  // and the opposite of it on any cache hit (task 4.5 round 2, B2).
+  if (prefetched) {
+    const parsed = await parseEmlBuffer(prefetched);
+    rememberParsed(key, parsed);
+    return parsed;
+  }
+
   const hitIdx = parseCache.findIndex((e) => e.key === key);
   if (hitIdx >= 0) {
     const [hit] = parseCache.splice(hitIdx, 1);
     parseCache.unshift(hit);
     return hit.parsed;
   }
-  const buf = await fs.readFile(absPath);
-  const parsed = await parseEmlBuffer(buf);
+  const parsed = await parseEmlBuffer(await fs.readFile(absPath));
+  rememberParsed(key, parsed);
+  return parsed;
+}
+
+/** Insert (or replace) `parsed` for `key`, keeping the LRU bounded and MRU-first. */
+function rememberParsed(key: string, parsed: ParsedMail): void {
+  const hitIdx = parseCache.findIndex((e) => e.key === key);
+  if (hitIdx >= 0) parseCache.splice(hitIdx, 1);
   parseCache.unshift({ key, parsed });
   if (parseCache.length > CACHE_MAX) parseCache.length = CACHE_MAX;
-  return parsed;
 }
 
 /** Test-only: drop all cached parses. */
@@ -163,7 +183,7 @@ export async function sanitizeBody(
   opts: { allowRemote: boolean },
 ): Promise<{ html: string; hasRemote: boolean }> {
   if (!rawHtml) return { html: "", hasRemote: false };
-  const DOMPurify = await getPurify();
+  const DOMPurify = await loadPurify();
   const bodyEl = DOMPurify.sanitize(rawHtml, {
     RETURN_DOM: true,
     WHOLE_DOCUMENT: false,

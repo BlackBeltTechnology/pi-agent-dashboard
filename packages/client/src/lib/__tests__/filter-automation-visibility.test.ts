@@ -6,9 +6,18 @@
  * be revealed via the "show hidden" toggle (same affordance as user-hidden
  * sessions). See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
-import { filterSessions } from "../session/session-grouping.js";
+
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { sessionFromMeta } from "../../../../server/src/session/session-scanner.js";
+// Deliberate cross-package import: E5 is an integration property — the SERVER
+// round-trip (project → restore) feeding the CLIENT board filter. Both halves
+// must be real code, or the guard cannot see a restore that drops the identity
+// and over-hides a run the user chose to show. The server projection/restore
+// are pure w.r.t. this path (no bridge, no I/O beyond a stat that tolerates a
+// missing file). See change: fix-automation-identity-persistence.
+import { sessionToMeta } from "../../../../server/src/session/session-to-meta.js";
+import { filterSessions } from "../session/session-grouping.js";
 
 function mk(partial: Partial<DashboardSession>): DashboardSession {
   return {
@@ -56,5 +65,17 @@ describe("filterSessions — automation visibility", () => {
   it("always keeps shown automation runs on the board", () => {
     const out = filterSessions([shownRun], false, false);
     expect(out.map((s) => s.id)).toEqual(["shownRun"]);
+  });
+
+  it("#E5 the visibility partition survives the persistence round-trip", () => {
+    // Each run is saved and rebuilt exactly as a restart does it — the fix must
+    // neither over-hide a shown run (identity lost) nor over-reveal a hidden one.
+    const rebuild = (s: DashboardSession): DashboardSession =>
+      sessionFromMeta(s.id, "/nonexistent/r.jsonl", s.cwd, sessionToMeta(s), s.startedAt);
+
+    const out = filterSessions([rebuild(hiddenRun), rebuild(shownRun)], false, false);
+    const ids = out.map((s) => s.id);
+    expect(ids).not.toContain("hiddenRun");
+    expect(ids).toContain("shownRun");
   });
 });

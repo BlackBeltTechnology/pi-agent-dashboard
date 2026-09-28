@@ -821,28 +821,47 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     );
   }
 
-  // Stop-after-turn slim secondary affordance (beside the action button).
+  // Stop-after-turn + Stop form ONE split control `[◎ after turn | ■]` while
+  // working; once requested, the pill replaces the left half. The label
+  // collapses to `◎` below `@[30rem]` (aria-label kept). Action button stays
+  // 44 px. See changes: adopt-pi-071-072-073-features,
+  // redesign-composer-session-strip (D7).
   const showStopAfterTurn = isWorking && onStopAfterTurn && stopState === "idle" && pendingPrompt !== "sending";
-  const stopAfterTurnNode = !showStopAfterTurn ? null : stopAfterTurnRequested ? (
-    <span
-      className="flex items-center gap-1 px-2 self-end text-xs text-[var(--text-muted)]"
-      data-testid="stop-after-turn-pill"
-    >
-      <Icon path={mdiStopCircleOutline} size={0.6} />
-      {t("command.stoppingAfterTurn", undefined, "stopping after this turn…")}
-    </span>
-  ) : (
-    <button
-      onClick={() => { onStopAfterTurn?.(); setStopAfterTurnRequested(true); }}
-      className="focus-ring flex items-center gap-1 self-end px-2 h-[30px] rounded-lg text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
-      title={t("command.stopAfterTurn", undefined, "Stop after turn — finish this turn, then end cleanly")}
-      aria-label={t("command.stopAfterTurn", undefined, "Stop after turn")}
-      data-testid="stop-after-turn-button"
-    >
-      <Icon path={mdiStopCircleOutline} size={0.6} />
-      <span className="hidden @[30rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
-    </button>
-  );
+  const actionCluster =
+    showStopAfterTurn && !stopAfterTurnRequested ? (
+      <div
+        data-testid="stop-split"
+        role="group"
+        aria-label={t("command.stopOptions", undefined, "Stop options")}
+        className="inline-flex items-stretch self-end rounded-lg [&>button:last-child]:rounded-l-none"
+      >
+        <button
+          type="button"
+          onClick={() => { onStopAfterTurn?.(); setStopAfterTurnRequested(true); }}
+          className="focus-ring flex items-center gap-1 px-2 min-h-[44px] rounded-l-lg text-xs text-red-300 bg-red-600/15 hover:bg-red-600/25 border-r border-red-900/60"
+          title={t("command.stopAfterTurn", undefined, "Stop after turn — finish this turn, then end cleanly")}
+          aria-label={t("command.stopAfterTurn", undefined, "Stop after turn")}
+          data-testid="stop-after-turn-button"
+        >
+          <Icon path={mdiStopCircleOutline} size={0.6} />
+          <span className="hidden @[30rem]:inline">{t("command.afterTurn", undefined, "after turn")}</span>
+        </button>
+        {actionButton}
+      </div>
+    ) : (
+      <>
+        {showStopAfterTurn && stopAfterTurnRequested && (
+          <span
+            className="flex items-center gap-1 px-2 self-end min-h-[44px] text-xs text-[var(--text-muted)]"
+            data-testid="stop-after-turn-pill"
+          >
+            <Icon path={mdiStopCircleOutline} size={0.6} />
+            {t("command.stoppingAfterTurn", undefined, "stopping after this turn…")}
+          </span>
+        )}
+        {actionButton}
+      </>
+    );
 
   // Delivery segmented control (Steer | Queue) — shared desktop + overflow.
   const deliveryControl = (
@@ -1033,13 +1052,19 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
         /* `min-h-0 overflow-y-auto`: absorbs the pane's height deficit by scrolling
            its own content, so the composer honours its `max-h-[40%]` bound without
            clipping the rows below it. See change: fix-quota-widget-clipping. */
+        /* ONE focus indicator: the card border at full `--accent` (3:1 non-text
+           contract); the textarea draws no ring of its own.
+           See change: redesign-composer-session-strip (D7). */
         className={`@container min-h-0 overflow-y-auto bg-[var(--bg-tertiary)] border rounded-xl px-2.5 pt-2 pb-1.5 transition-colors ${
-          focused ? "border-[color-mix(in_srgb,var(--accent-primary)_60%,transparent)]" : "border-[var(--border-secondary)]"
+          focused ? "border-[var(--accent)]" : "border-[var(--border-secondary)]"
         }`}
       >
         {/* Pasted-image error banner + thumbnail strip (attachments row). */}
         <ImagePreviewStrip images={pendingImages} error={imageError} onRemove={removeImage} />
 
+        {/* Input row: the text field with the controls that act on it
+            (terminal · send/stop), bottom-aligned so they follow the draft. */}
+        <div data-testid="composer-input-row" className="flex items-end gap-1.5">
         <textarea
           ref={inputRef}
           value={text}
@@ -1059,7 +1084,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
              is in flight AND the agent is NOT streaming (idle-send case). */
           disabled={disabled || pendingIdle}
           rows={1}
-          className="focus-ring block w-full bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none"
+          className="block flex-1 min-w-0 bg-transparent px-1.5 py-1 text-sm text-[var(--text-primary)] placeholder-gray-500 resize-none outline-none"
           style={{ minHeight: "38px", maxHeight: "120px" }}
           onInput={(e) => {
             const target = e.target as HTMLTextAreaElement;
@@ -1067,9 +1092,15 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             target.style.height = Math.min(target.scrollHeight, 120) + "px";
           }}
         />
+          {/* Terminal — desktop only (folded into ⋯ below @[44rem]). */}
+          <span className="hidden @[44rem]:inline-flex self-end">{terminalButton}</span>
+          {actionCluster}
+        </div>
 
-        {/* Inner toolbar. */}
-        <div className="flex items-center gap-1.5 pt-1">
+        <div aria-hidden="true" className="h-px bg-[var(--border-subtle)] my-1" />
+
+        {/* Settings row: message settings only (＋ · model · thinking · Steer|Queue). */}
+        <div data-testid="composer-settings-row" className="flex items-center gap-1.5">
           {/* ＋ attach menu. */}
           <div className="relative" ref={attachRef}>
             <button
@@ -1195,11 +1226,6 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             )}
           </div>
 
-          {/* Terminal — desktop only (mobile via ⋯). */}
-          <span className="hidden @[44rem]:inline-flex">{terminalButton}</span>
-
-          {stopAfterTurnNode}
-          {actionButton}
         </div>
       </div>
 

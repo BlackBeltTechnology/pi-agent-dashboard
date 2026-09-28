@@ -448,7 +448,7 @@ describe("settings page composition", () => {
     await waitFor(() => screen.getByText("Interface"));
 
     const row = screen.getByTestId("pi-runtime-status-row");
-    expect(within(row).getByText("Sessions spawn")).toBeTruthy();
+    expect(within(row).getByText("New sessions")).toBeTruthy();
     expect(within(row).getByText("Server imports")).toBeTruthy();
     expect(within(row).getAllByText("0.84.1")).toHaveLength(2);
     // The healthy fixture keeps the advisory hidden — the row is NOT gated on

@@ -1,9 +1,14 @@
+import { mdiRefresh } from "@mdi/js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, fireEvent, cleanup } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActionList } from "../ActionList.js";
+import { __resetMdiIconSetForTests, loadMdiIconSet } from "../mdi-by-key.js";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  __resetMdiIconSetForTests();
+});
 
 describe("ActionList", () => {
   it("renders nothing for empty actions", () => {
@@ -51,21 +56,30 @@ describe("ActionList", () => {
     expect(getByRole("button").getAttribute("title")).toBe("Run flow X");
   });
 
-  // Post static-conversion (change: shrink-client-index-chunk): mdi[key] is a
-  // synchronous lookup, so the icon path renders immediately with no useEffect.
-  it("renders the icon <path> synchronously for a valid mdi key (test-plan #S3)", () => {
+  // Lazy icon set (change: harden-ios-safari-memory-and-ws-diagnostics):
+  // the icon renders nothing until the full MDI set loads, then its path.
+  it("renders no icon and no placeholder before load, then the icon path (test-plan #E4)", async () => {
     const { container } = render(
       <ActionList actions={[{ label: "Refresh", icon: "mdiRefresh" }]} />,
     );
-    const p = container.querySelector("svg path");
-    expect(p).toBeTruthy();
-    expect(p?.getAttribute("d") ?? "").not.toBe("");
+    expect(container.querySelector("svg")).toBeNull();
+    // No placeholder slot: only the label <span> is rendered.
+    expect(container.querySelector('button')?.children).toHaveLength(1);
+    await waitFor(() => {
+      const p = container.querySelector("svg path");
+      expect(p).toBeTruthy();
+      expect(p?.getAttribute("d")).toBe(mdiRefresh);
+    });
   });
 
-  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", () => {
+  it("renders no icon and does not throw for an unknown mdi key (test-plan #S3)", async () => {
     const { container } = render(
       <ActionList actions={[{ label: "Nope", icon: "mdiNotAReal" }]} />,
     );
+    expect(container.querySelector("svg path")).toBeNull();
+    await act(async () => {
+      await loadMdiIconSet();
+    });
     expect(container.querySelector("svg path")).toBeNull();
     expect(container.querySelector("button")?.textContent).toContain("Nope");
   });

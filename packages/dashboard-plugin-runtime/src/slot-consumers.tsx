@@ -48,6 +48,19 @@ export function useSlotHasClaimsForSession(slotId: SlotId, session: DashboardSes
   return forSessionRendered(registry.getClaims(slotId), session).length > 0;
 }
 
+/**
+ * Session-agnostic presence check: `true` when ANY installed plugin claims
+ * `slotId` (no `shouldRender` / session predicate). Gates settings rows that
+ * only make sense when a contributing plugin exists.
+ * See change: configurable-session-card-sections (design D9).
+ */
+export function useSlotHasAnyClaims(slotId: SlotId): boolean {
+  useSlotClaimsVersion();
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return false;
+  return registry.getClaims(slotId).length > 0;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function renderClaim(
@@ -385,17 +398,93 @@ export function ComposerContextGroupSlot({ session }: { session: DashboardSessio
 }
 
 /**
- * Visual primitive for a `composer-context-group` contribution: a leading
- * divider, an uppercase label and the children rendered as ONE non-shrinking
- * flex item, so the strip's `flex-wrap` never orphans the label at a line end.
- * The classes mirror the host strip's private `Divider`/`GroupLabel` (in
- * `ComposerSessionActions`) so plugin groups are indistinguishable from
- * `GIT`/`STATUS`.
+ * One labelled group container for the composer context strip — shared by the
+ * host groups (OpenSpec / Git / Status) and every `composer-context-group`
+ * plugin, so all groups read the same.
  *
- * The host's own groups are deliberately NOT refactored onto this primitive —
- * `OPENSPEC` has no leading divider, `STATUS` wraps a `<fieldset>` (flow
- * content, illegal inside a `<span>`) and carries two test ids. See change:
- * move-quota-to-context-strip (design D3).
+ * Renders `<div data-group role="group" aria-labelledby>`: a leading label
+ * `<span id>` plus the children inside the content element. The content element is always rendered by the primitive (tag via
+ * `contentAs`, e.g. the Status `<fieldset disabled>`) and carries
+ * `data-group-content`, so the client's
+ * `[data-group]:has(> [data-group-content]:empty)` rule hides an empty group.
+ *
+ * Variants:
+ * - `actions`: solid outline, tertiary fill, label segment on the surface
+ *   colour, hairlines between direct child segments.
+ * - `info`: dashed outline, no fill — read-only readouts (e.g. Quota).
+ *
+ * Label test id: `labelTestId ?? (testId ? `${testId}-label` : undefined)` —
+ * never `"undefined-label"`. The group moves to the next strip line as a unit;
+ * a group wider than the strip wraps INSIDE its content, the label staying
+ * beside the first item. No `role="toolbar"` (no roving arrow keys).
+ * See change: redesign-composer-session-strip (D1).
+ */
+export function ToolbarGroup({
+  label,
+  variant = "actions",
+  testId,
+  labelTestId,
+  contentAs = "div",
+  contentProps,
+  className,
+  children,
+}: {
+  label: React.ReactNode;
+  variant?: "actions" | "info";
+  testId?: string;
+  labelTestId?: string;
+  /** Content element tag. `fieldset` lets the host disable a whole group. */
+  contentAs?: "div" | "fieldset";
+  /** Extra props for the content element (e.g. `disabled`, `data-testid`). */
+  contentProps?: { disabled?: boolean; "data-testid"?: string };
+  className?: string;
+  children?: React.ReactNode;
+}) {
+  const labelId = React.useId();
+  const isActions = variant === "actions";
+  const Content = contentAs;
+  return (
+    <div
+      data-group={variant}
+      data-testid={testId}
+      role="group"
+      aria-labelledby={labelId}
+      className={`toolbar-group inline-flex items-stretch min-w-0 flex-[0_1_auto] rounded-lg border min-h-7 ${
+        isActions
+          ? "border-[var(--border-secondary)] bg-[var(--bg-tertiary)]"
+          : "border-dashed border-[var(--border-secondary)] bg-transparent"
+      }${className ? ` ${className}` : ""}`}
+    >
+      <span
+        id={labelId}
+        data-testid={labelTestId ?? (testId ? `${testId}-label` : undefined)}
+        // Text pinned to the FIRST row (26 px = min-h-7 minus borders), so a
+        // group wrapping onto several rows keeps its label beside its first item.
+        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
+          isActions ? "bg-[var(--bg-surface)] border-r border-[var(--border-secondary)]" : ""
+        }`}
+      >
+        {label}
+      </span>
+      <Content
+        {...contentProps}
+        data-group-content=""
+        className={`toolbar-group-content m-0 min-w-0 border-0 p-0 px-0.5 flex flex-wrap items-center gap-y-0.5 [&>button]:min-h-6 [&>button]:min-w-6 [&>a]:min-h-6 ${
+          isActions ? "[&>*+*]:border-l [&>*+*]:border-[var(--border-subtle)]" : "gap-x-1"
+        }`}
+      >
+        {children}
+      </Content>
+    </div>
+  );
+}
+
+/**
+ * Visual primitive for a `composer-context-group` contribution. Same signature
+ * as before; now delegates to `ToolbarGroup` with the read-only `info`
+ * variant, so plugin groups become named `role="group"` regions that match
+ * the host groups. Plugins need no code change.
+ * See change: redesign-composer-session-strip (D1).
  */
 export function ComposerContextGroup({
   label,
@@ -407,19 +496,9 @@ export function ComposerContextGroup({
   testId?: string;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 shrink-0" data-testid={testId}>
-      <span
-        aria-hidden="true"
-        className="inline-block h-3 w-px bg-[var(--border-secondary)] mx-0.5 flex-shrink-0"
-      />
-      <span
-        data-testid={testId ? `${testId}-label` : undefined}
-        className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] mr-0.5 flex-shrink-0"
-      >
-        {label}
-      </span>
+    <ToolbarGroup label={label} variant="info" testId={testId}>
       {children}
-    </span>
+    </ToolbarGroup>
   );
 }
 

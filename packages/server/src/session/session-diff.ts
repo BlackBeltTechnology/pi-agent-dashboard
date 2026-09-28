@@ -515,6 +515,38 @@ interface GitEnrichmentContext {
   untracked: Set<string>;
 }
 
+/** Throttle window for the oversized-batched-diff warning (per cwd). */
+const OVERSIZE_WARN_WINDOW_MS = 10 * 60 * 1000;
+/** cwd → last warn epoch ms. Pruned on each warn → bounded by active oversized cwds. */
+const oversizeWarnedAt = new Map<string, number>();
+
+/**
+ * Log (at most once per cwd per window) that the whole-worktree diff exceeded
+ * the batched-diff limit and the session diff degrades to counts only.
+ * See change: fix-session-diff-heap-retention (D3).
+ */
+function warnBatchedDiffTooLarge(cwd: string, limitBytes: number): void {
+  const now = Date.now();
+  for (const [k, t] of oversizeWarnedAt) {
+    if (now - t >= OVERSIZE_WARN_WINDOW_MS) oversizeWarnedAt.delete(k);
+  }
+  if (oversizeWarnedAt.has(cwd)) return;
+  oversizeWarnedAt.set(cwd, now);
+  console.warn(`[session-diff] batched diff exceeded ${limitBytes} bytes in ${cwd}; serving counts only`);
+}
+
+/**
+ * Return an independent (sequential) copy of `s`. `chunk.trim()` of a
+ * `splitBatchedDiff` chunk is a V8 SLICED string that pins the whole batched
+ * `git diff` output (tens of MB) for as long as the cached result lives. Do NOT
+ * simplify this back to `.trim()` or a concat/slice trick — V8 may return a
+ * cons/sliced string for those. The Buffer round-trip always allocates, and is
+ * byte-identical for decoded git stdout. See change: fix-session-diff-heap-retention (D1).
+ */
+function flattenString(s: string): string {
+  return Buffer.from(s, "utf8").toString("utf8");
+}
+
 /** Run the async git spawns ONCE, producing a reusable `GitEnrichmentContext`. */
 export async function buildGitEnrichmentContext(
   cwd: string,
@@ -529,7 +561,11 @@ export async function buildGitEnrichmentContext(
   if (!(await git.isGitRepoOrAsync({ cwd }))) return empty;
   const numstatMap = await gitNumstat(cwd);
   // ONE batched content diff for the whole worktree (was O(files) spawns).
-  const diffMap = splitBatchedDiff(await git.diffAllOr({ cwd }));
+  // Over the recipe's byte limit → counts only (empty diff map) + a throttled
+  // warning; any other error keeps the silent "" fallback.
+  const res = await git.diffAll({ cwd });
+  if (!res.ok && res.error.kind === "output-too-large") warnBatchedDiffTooLarge(cwd, res.error.limitBytes);
+  const diffMap = splitBatchedDiff(res.ok ? res.value : "");
   // Untracked set: threaded from bulk porcelain when provided, else one async
   // porcelain probe (never a per-file sync `git status`).
   const untracked =
@@ -566,7 +602,7 @@ export function enrichFilesWithContext(
       // Tracked change → look up its section of the ONE batched diff.
       const chunk = diffMap.get(file.path);
       if (chunk !== undefined) {
-        return isRenderableTrackedDiff(chunk) ? { ...withCounts, gitDiff: chunk.trim() } : withCounts;
+        return isRenderableTrackedDiff(chunk) ? { ...withCounts, gitDiff: flattenString(chunk.trim()) } : withCounts;
       }
 
       // Not in the batched diff → untracked (new) file. `git diff HEAD` never
@@ -672,6 +708,37 @@ export interface SessionDiffResult {
   baseLabel?: string;
   totalAdditions?: number;
   totalDeletions?: number;
+}
+
+/** Per-node overhead (object/array/primitive) in the retained-size estimate. */
+const SIZE_NODE_OVERHEAD = 16;
+
+/**
+ * Allocation-free estimate of the heap a cached `SessionDiffResult` retains:
+ * an iterative walk over plain objects/arrays summing 2 bytes per string char
+ * (UTF-16 worst case) plus a constant per node. Covers every nested string
+ * (`gitDiff`, `changes[].content`, `edits`, …) without a field list and without
+ * materialising a copy (`JSON.stringify` would). Used as the cache `sizeOf`.
+ * See change: fix-session-diff-heap-retention (D2).
+ */
+export function sessionDiffResultSize(value: SessionDiffResult): number {
+  let bytes = 0;
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const v = stack.pop();
+    bytes += SIZE_NODE_OVERHEAD;
+    if (typeof v === "string") {
+      bytes += 2 * v.length;
+    } else if (Array.isArray(v)) {
+      for (const item of v) stack.push(item);
+    } else if (v !== null && typeof v === "object") {
+      for (const [k, item] of Object.entries(v)) {
+        bytes += 2 * k.length;
+        stack.push(item);
+      }
+    }
+  }
+  return bytes;
 }
 
 async function safeIsGitRepo(cwd: string): Promise<boolean> {

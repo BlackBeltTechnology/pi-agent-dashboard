@@ -48,6 +48,10 @@ const PI_MIN_TO_NODE_FLOOR: Record<string, { major: number; minor: number }> = {
   // `>=22.19.0`); the row is required by the EXACT-key lookup, not by a Node
   // move. See change: update-pi-core-0-85-adopt-apis.
   "0.85.1": { major: 22, minor: 19 },
+  // 0.86.1 also keeps `engines.node` at `>=22.19.0` — the bump exists for the
+  // bundled OAuth provider set (`meta`), not a Node move.
+  // See change: delegate-provider-oauth-to-pi-ai.
+  "0.86.1": { major: 22, minor: 19 },
 };
 
 function parseSemver(v: string): [number, number, number] | null {

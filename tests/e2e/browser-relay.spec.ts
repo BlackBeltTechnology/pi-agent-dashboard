@@ -291,3 +291,48 @@ test.describe("browser relay — live-view tile (F5, F10)", () => {
     await request.put("/api/browser/enabled", { data: { enabled: true } });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plugin LOAD, not relay behaviour.
+// See change: fix-browser-plugin-vendor-specifier-resolution (test-plan F1).
+//
+// The symptom that opened that change was THIS row rendering `error`:
+// `Failed to load plugin "browser": Cannot find module '@isomorphic/manualPromise'`.
+// The vendored relay's playwright-internal specifiers resolved only through
+// tsconfig `paths` + a vitest `resolve.alias` + JITI_TSCONFIG_PATHS, and an
+// npm / managed / Electron install has none of them. Typecheck, vitest and the
+// old X14 integrity test were all GREEN while production was broken, because
+// each supplied its own alias — which is why the assertion here is on the
+// RENDERED status the operator sees, on a harness whose plugin the real loader
+// loaded with no alias layer anywhere.
+test.describe("browser relay — plugin load (F1 of the vendor-specifier fix)", () => {
+  // Plugin status arrives over the bus on a seeded harness that saturates the
+  // browser's per-origin connection pool; see `gotoSettings` above.
+  test.setTimeout(180_000);
+
+  test("F1: the browser row converges to enabled, with no error badge", async ({ page }) => {
+    await gotoDashboard(page);
+    await page.getByTestId("settingsBtn").click();
+    await page.getByTestId("settingsContent").waitFor({ state: "visible", timeout: 15_000 });
+    await page
+      .getByTestId("settings-nav-rail")
+      .getByRole("button", { name: "Plugins", exact: true })
+      .click();
+    await page.getByTestId("plugins-section").waitFor({ state: "visible", timeout: 15_000 });
+
+    const row = page.getByTestId("plugin-row-browser");
+    await expect(row).toBeVisible({ timeout: 30_000 });
+
+    // The regression's own face: a failed load renders a copyable error block
+    // naming the unresolvable specifier. Its absence is the load-side contract.
+    await expect(page.getByTestId("plugin-status-error-browser")).toHaveCount(0);
+    await expect(page.getByTestId("plugin-toggle-error-browser")).toHaveCount(0);
+
+    // StatusPill's order is error -> !enabled -> !loaded -> enabled, so the
+    // `enabled` pill is only reachable when the plugin is BOTH enabled in config
+    // AND loaded at runtime — the two facts the harness's fake faucet supplies.
+    await expect(row.getByText("enabled", { exact: true })).toBeVisible({ timeout: 60_000 });
+    await expect(row.getByText("error", { exact: true })).toHaveCount(0);
+    await expect(row.getByText("not loaded", { exact: true })).toHaveCount(0);
+  });
+});

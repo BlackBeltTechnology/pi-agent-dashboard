@@ -90,6 +90,8 @@ function makeFakeCtx(opts: { knownCwds: string[] }) {
 }
 
 describe("goal-plugin composition root (fake ctx)", () => {
+  /** The suite-wide HOME installed by setup-home-perfile; restored per test. */
+  const fileHome = process.env.HOME!;
   let cwd: string;
   let app: FastifyInstance;
 
@@ -136,14 +138,45 @@ describe("goal-plugin composition root (fake ctx)", () => {
     }
     return cond();
   };
+  /** Read a goal back through the REST surface (store cache is write-through:
+   *  a field visible here was already fsync'd by `mutate`). */
+  const readRecord = async (
+    instance: FastifyInstance,
+    goalId: string,
+  ): Promise<Record<string, unknown> | undefined> => {
+    const res = await instance.inject({
+      method: "GET",
+      url: `/api/folders/goals?cwd=${encodeURIComponent(cwd)}`,
+    });
+    return (JSON.parse(res.payload).data as Array<Record<string, unknown>>).find((r) => r.id === goalId);
+  };
+  /** Bounded wait until the PERSISTED record satisfies `cond`. */
+  const waitForRecord = async (
+    instance: FastifyInstance,
+    goalId: string,
+    cond: (r: Record<string, unknown>) => boolean,
+  ): Promise<Record<string, unknown> | undefined> => {
+    for (let i = 0; i < 200; i++) {
+      const record = await readRecord(instance, goalId);
+      if (record && cond(record)) return record;
+      await flush();
+      await vi.advanceTimersByTimeAsync(100);
+    }
+    return undefined;
+  };
 
   beforeEach(() => {
     cwd = fs.mkdtempSync(path.join(os.tmpdir(), "goal-comp-root-"));
-    // The plugin's store uses the default per-HOME data dir — wipe it between
-    // tests so goals from earlier tests in this file can't leak into
-    // listAll-driven paths (reconcile, findCurrentDriverGoal).
+    // Per-TEST HOME. The store resolves its data dir once, from `os.homedir()`
+    // at construction, and nothing disposes the plugin instances a test
+    // leaves behind — under a per-FILE HOME their caches, debounce timers and
+    // in-flight writes all aimed at ONE shared goals dir, so a late write
+    // could land after the next test's wipe and poison whichever
+    // listAll-driven path ran next (reconcile, findCurrentDriverGoal). That
+    // is the "different test fails each run" flake. A fresh HOME per test
+    // makes the leak unobservable instead of merely unlikely.
     // See change: relocate-goal-product-to-plugin.
-    fs.rmSync(path.join(os.homedir(), ".pi", "dashboard", "goals"), { recursive: true, force: true });
+    process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "goal-comp-home-"));
     fs.mkdirSync(path.join(os.homedir(), ".pi", "dashboard", "goals"), { recursive: true });
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout"] });
   });
@@ -151,6 +184,8 @@ describe("goal-plugin composition root (fake ctx)", () => {
     vi.useRealTimers();
     if (app) await app.close();
     fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(process.env.HOME!, { recursive: true, force: true });
+    process.env.HOME = fileHome;
   });
 
   async function createGoal(
@@ -354,7 +389,21 @@ describe("goal-plugin composition root (fake ctx)", () => {
       payload: { spawn: true },
     });
     h1.captured.sessionResolved.forEach((h2) => h2("s1", { goalId }));
-    await settle(); // let the handover's fs writes land before any clock jump
+    // The handover's `setInFlightSpawn(null)` is fire-and-forget (index.ts
+    // step 8), and boot reconcile SKIPS any goal still carrying an in-flight
+    // spawn — so a fixed settle budget silently turned this scenario into a
+    // no-op assertion on a loaded runner. Gate on the persisted precondition
+    // boot #2 actually needs instead of on elapsed time.
+    expect(
+      await waitForRecord(
+        app,
+        goalId,
+        (r) =>
+          r.driverSessionId === "s1" &&
+          !r.inFlightSpawn &&
+          (r.status === "pursuing" || r.status === "respawning"),
+      ),
+    ).toBeDefined();
     await vi.advanceTimersByTimeAsync(35_000); // #1's boot reconcile: driver live → skip
     h1.captured.shutdown.forEach((fn) => fn()); // stop #1 (dispose + timer clear)
     await app.close();

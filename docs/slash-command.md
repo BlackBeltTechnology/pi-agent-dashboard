@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Documents how dashboard bridge routes typed `/foo` text from chat input to pi handlers. Records `pi.registerCommand`-based extension command bug rooted in pi 0.70 ExtensionAPI surface. Specifies two-step fix: dashboard-side stopgap now, upstream `pi.dispatchCommand` later.
+Documents how dashboard bridge routes typed `/foo` text from chat input to pi handlers. Extension command dispatch (step 9) is ONE in-process call — `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` — gated on running pi >= 0.84.2. Works in every session kind (dashboard headless, tmux, terminal, user-launched). Paths B/C/D retired by change `retire-slash-dispatch-via-expand-prompt-templates`.
 
 ## Routing Order
 
@@ -16,11 +16,19 @@ Documents how dashboard bridge routes typed `/foo` text from chat input to pi ha
 6. `/new` → `spawnNew()` callback
 7. `/model <provider/id>` → `setModel(provider, id)` callback
 8. `/<name>` matching user-defined flow from `getFlowsList()` → `pi.events.emit("flow:run", {flowName, task})`
-9. `/<name>` matching extension command (`source: "extension"` in `pi.getCommands()`, not in `DASHBOARD_NATIVE_COMMANDS`) → three-way decision: (B) `pi.dispatchCommand` when present → (C) headless RPC session with keeper → emit `dispatch_extension_command` to server, server writes RPC line to keeper UDS → (D) `command_feedback {status:"error"}` stopgap. Path C added by change `add-rpc-stdin-dispatch-with-keeper-sidecar`.
+9. `/<name>` matching extension command (`source: "extension"` in `pi.getCommands()`, not in `DASHBOARD_NATIVE_COMMANDS`) → gate running pi >= 0.84.2 → `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})`. Single in-process call; every session kind; no session-kind probe.
 10. `/` prefix fall-through → `expandPromptTemplateFromDisk` then `pi.sendUserMessage` (skills, prompt templates, unknown slashes)
 11. No prefix → `pi.sendUserMessage(text)` passthrough
 
-Steps 1-7 live in `parseSendPrompt`. Step 8 lives in `bridge.ts::sessionPrompt`. Step 9 added by this change. Steps 10-11 are existing fallbacks.
+Steps 1-7 live in `parseSendPrompt`. Step 8 lives in `bridge.ts::sessionPrompt`. Step 9 added by change `fix-extension-slash-commands-in-dashboard`; retired + replaced by change `retire-slash-dispatch-via-expand-prompt-templates`. Steps 10-11 are existing fallbacks and UNCHANGED.
+
+Step 9 history — Paths B/C/D RETIRED by change `retire-slash-dispatch-via-expand-prompt-templates`:
+
+- **Path B** (`pi.dispatchCommand`): never shipped upstream. Deleted.
+- **Path C** (bridge → `dispatch_extension_command` → server → keeper UDS → pi stdin): headless only. Deleted; `packages/server/src/rpc-keeper/dispatch-router.ts` deleted.
+- **Path D** (tmux / Windows-Terminal `command_feedback` error): replaced by the working in-process call.
+- Also deleted: `hasDispatchCommand` (`bridge-context.ts`), `connection` parameter + `DispatchConnection` type (`slash-dispatch.ts`), server write client (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc`).
+- Retained: `isHeadlessRpcSession` (live caller `bridge.ts` session registration `isHeadless:`).
 
 ## Surface Map
 
@@ -41,11 +49,13 @@ flowchart TD
   SP --> F{Flow fast-path:<br/>name in getFlowsList()?}
   F -->|yes| FR["pi.events.emit('flow:run',{flowName,task})"]
   F -->|no| X{Step 9 gate:<br/>isExtensionSlashCommand(text, getCommands())}
-  X -->|true, dispatchCommand present| DC["Path B: pi.dispatchCommand(text,{streamingBehavior:'followUp'})"]
-  X -->|true, dispatchCommand absent, isHeadlessRpcSession| RPC["Path C: connection.send({type:'dispatch_extension_command', sessionId, command, requestId})<br/>server -> keeper UDS -> pi.stdin -> session.prompt"]
-  X -->|true, dispatchCommand absent, non-headless| ER["Path D: emit command_feedback {status:'error'}"]
-  X -->|false| FB["expandPromptTemplateFromDisk -> pi.sendUserMessage(expanded,{deliverAs:'followUp'})"]
+  X -->|false| FB["steps 10-11:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage(expanded,{deliverAs:'followUp'})"]
+  X -->|true| G{running pi >= 0.84.2?}
+  G -->|no| OG["emit command_feedback {status:'error', message:'Extension slash commands from the dashboard require pi 0.84.2+'}<br/>NO sendUserMessage call"]
+  G -->|yes| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}<br/>sync throw -> {status:'error'}"]
 ```
+
+Old three-way gate retired: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper), Path D (tmux / Windows-Terminal error). Server keeps a one-release tombstone for `dispatch_extension_command` (see Telemetry). Detection stays inside the helper's try — a stale-ctx `getCommands()` throw returns `false` → fall-through.
 
 ## Pi 0.70 ExtensionAPI Constraint
 
@@ -55,7 +65,9 @@ Pi 0.70 `ExtensionAPI` exposes: `sendMessage`, `sendUserMessage`, `registerComma
 
 Slash dispatch privilege belongs to pi's external `prompt()` entry point (TUI input handler, RPC mode `case "prompt"`). Never delegated to extensions. `getCommands()` returns `SlashCommandInfo[]` with name + description but no handler reference.
 
-`pi.sendUserMessage` calls `agent-session.js::sendUserMessage` which calls `prompt(text, {expandPromptTemplates: false, ...})`. The `expandPromptTemplates: false` flag explicitly skips `_tryExecuteExtensionCommand`. Source comment at `agent-session.js:1002`: "Use prompt() with expandPromptTemplates: false to skip command handling and template expansion".
+`pi.sendUserMessage` calls `agent-session.js::sendUserMessage` which calls `prompt(text, {expandPromptTemplates: false, ...})` by default. The `expandPromptTemplates: false` flag explicitly skips `_tryExecuteExtensionCommand`. Source comment at `agent-session.js:1002`: "Use prompt() with expandPromptTemplates: false to skip command handling and template expansion".
+
+Default `expandPromptTemplates: false` behaviour — the bug this change fixed:
 
 ```mermaid
 sequenceDiagram
@@ -75,16 +87,20 @@ sequenceDiagram
   Note over H: handler never runs
 ```
 
+**Resolved (pi >= 0.84.2).** pi honors an explicit `expandPromptTemplates: true` on `sendUserMessage`. Core `AgentSession.prompt()` then runs `_tryExecuteExtensionCommand(text)` FIRST — before its compaction guard and before it consults `streamingBehavior`. Bridge passes the flag; handler runs in every session kind. Verified on pi 0.86.1: `dist/core/agent-session.js` L938/L945/L953 (`?? true`, `_tryExecuteExtensionCommand` first, compaction guard) and L1273/L1296 (`sendUserMessage` → `prompt(..., ?? false)`); `dist/core/extensions/loader.js` L284-287 (`assertActive()` + void call).
+
 ## Affected Commands Today
 
-Per `notes/preflight-empirical-checks.md` Q1 plus proposal Impact section. All `pi.registerCommand`-registered slash commands fall through to `sendUserMessage` in dashboard chat:
+Per `notes/preflight-empirical-checks.md` Q1 plus proposal Impact section. `pi.registerCommand`-registered slash commands previously fell through to `sendUserMessage` in dashboard chat; now dispatch in-process (step 9) in every session kind:
 
 - context-mode: `/ctx-stats`, `/ctx-doctor`
 - pi-web-access: `/websearch`, `/curator`, `/google-account`, `/search`
 - pi-subagents: `/agents`
-- pi-flows: `/flows`, `/flows:new`, `/flows:edit`, `/flows:delete`, `/roles`
+- pi-flows: `/flows`, `/flows:new`, `/flows:edit`, `/flows:delete`
 
-Flow buttons in kebab menu mask the bug because they route via `flow_management` ws message (separate handler in `bridge.ts`). Typed `/flows:new` in chat hits the broken path.
+Excluded by `isExtensionSlashCommand`: names in `DASHBOARD_NATIVE_COMMANDS` (`{"roles"}`) and `__`-prefixed names (`/__dashboard_reload`).
+
+Flow buttons in kebab menu mask the old bug because they route via `flow_management` ws message (separate handler in `bridge.ts`). Typed `/flows:new` in chat hit the broken path.
 
 Empirical proof: `echo '{"type":"prompt","message":"/flows:new","id":"1"}' | pi --mode rpc` dispatches correctly via `session.prompt`, returns `extension_ui_request` from pi-flows.
 
@@ -92,23 +108,23 @@ Empirical proof: `echo '{"type":"prompt","message":"/flows:new","id":"1"}' | pi 
 
 ### Decision 1: Dispatch path — Path B primary, Path D stopgap
 
-**Choice:** Add `pi.dispatchCommand(text, options?)` to upstream `ExtensionAPI`. Ship dashboard-side detection + error feedback as interim.
+**RETIRED** by change `retire-slash-dispatch-via-expand-prompt-templates`. Replaced by one in-process call at step 9: `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})`. Works in every session kind; no session-kind probe, no RPC route.
 
-**Rationale:** Pi already implements dispatch logic (`agent-session.js:798 _tryExecuteExtensionCommand`). Exposing it on ExtensionAPI is ~5 lines upstream. Bridge change is 3 lines. Stopgap avoids worst UX failure (silent send-to-LLM) without waiting on upstream release.
+Historical choice (Path B primary, Path D stopgap): add `pi.dispatchCommand(text, options?)` to upstream `ExtensionAPI`; ship dashboard-side detection + error feedback as interim. Pi already implemented dispatch logic (`agent-session.js:798 _tryExecuteExtensionCommand`). Path B never shipped. Path C (`add-rpc-stdin-dispatch-with-keeper-sidecar`) replaced it for headless sessions only. Both retired.
 
-**Rejected:**
-- Path A (bridge looks up handler via `getCommands()`): handler reference is private to runner, not on api object.
-- Path C (server bypasses bridge, writes RPC `prompt` to pi stdin): too invasive, splits session ops across bridge + server, requires stdin capture in `process-manager.ts` and rewiring `pi-gateway.ts`. **REOPENED in change `add-rpc-stdin-dispatch-with-keeper-sidecar`** after Path B failed to ship through pi 0.71 → 0.72 → 0.73 → 0.74. Scope narrowed to slash dispatch only via per-session keeper sidecar; dual-channel boundary made explicit; bridge owns everything else.
+**Rejected then:**
+- Path A (bridge looks up handler via `getCommands()`): handler reference private to runner, not on api object.
+- Path C (server bypasses bridge, writes RPC `prompt` to pi stdin): too invasive; splits session ops across bridge + server, requires stdin capture in `process-manager.ts` and rewiring `pi-gateway.ts`. Later reopened as the headless stopgap; retired here.
+
+Cross-reference: design.md Decision 1.
 
 ### Path C: server-routed via RPC keeper
 
-Applies to headless dashboard sessions only (tmux / Windows Terminal cannot use it — the user's terminal owns pi's stdin). Bridge probe: `process.env.PI_DASHBOARD_SPAWNED === "1"` AND argv contains `--mode rpc`.
+**RETIRED** by change `retire-slash-dispatch-via-expand-prompt-templates`. `packages/server/src/rpc-keeper/dispatch-router.ts` deleted; server write client removed (`keeperManager.writeRpc`, `keeperManager.writeRpcToSockPath`, `headlessPidRegistry.writeRpc`). It was the only dispatch consumer of the keeper UDS; keeper sidecar itself UNCHANGED (durable owner of pi's stdin across dashboard restarts).
 
-Flow: bridge emits `started`, sends `dispatch_extension_command {sessionId, command, requestId}` to server. Server's `dispatch-router.ts` writes `{"type":"prompt","message":"<command>","id":"<requestId>"}` to per-session keeper UDS via `headlessPidRegistry.writeRpc`. Keeper forwards to pi's stdin. Pi's `--mode rpc` calls `session.prompt(text, {expandPromptTemplates: true})` → `_tryExecuteExtensionCommand` runs handler. Server emits optimistic `command_feedback {completed}` on UDS write success, `{error}` on failure. Bridge MUST NOT emit a terminal event for Path C — server owns it.
+Historical (headless sessions only; tmux / Windows Terminal owned pi's stdin, no UDS route): bridge emitted `started`, sent `dispatch_extension_command {sessionId, command, requestId}` to server; server's `dispatch-router.ts` wrote `{"type":"prompt","message":"<command>","id":"<requestId>"}` to per-session keeper UDS via `headlessPidRegistry.writeRpc`; keeper forwarded to pi's stdin; pi `--mode rpc` called `session.prompt(text, {expandPromptTemplates: true})`. Server owned the terminal event. Was default as of change `enable-rpc-keeper-by-default` (was opt-in `useRpcKeeper` ≤ v0.5.4).
 
-Default headless dispatch path as of change `enable-rpc-keeper-by-default` (was opt-in via `useRpcKeeper` flag through v0.5.4). See `docs/architecture.md` § "RPC keeper sidecar" for three-process topology + dual-channel boundary.
-
-Cross-reference: design.md Decision 1; change `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`.
+Cross-reference: `docs/architecture.md` § "RPC keeper sidecar" for three-process topology + dual-channel boundary; changes `add-rpc-stdin-dispatch-with-keeper-sidecar`, `enable-rpc-keeper-by-default`, `retire-slash-dispatch-via-expand-prompt-templates`.
 
 ### Decision 2: Extension-command detection rule
 
@@ -122,58 +138,47 @@ Cross-reference: design.md Decision 2.
 
 ### Decision 3: Feature detection over version sniffing
 
-**Choice:** `typeof (pi as any).dispatchCommand === "function"` per call. No semver checks, no version strings.
+**SUPERSEDED** by change `retire-slash-dispatch-via-expand-prompt-templates` — replaced by a running-pi version gate (`>= 0.84.2`). `readRunningPiVersion()` (`packages/extension/src/model-tracker.ts`) anchors on `process.argv[1]` (pi's own CLI entry), walks up with `readPkgVersionByWalkUp`, accepts `@earendil-works/pi-coding-agent` OR `@mariozechner/pi-coding-agent`. A hoisted newer copy in `node_modules` can never mask an old running pi. `undefined` / unparseable version → treated as new + `console.warn` once per process.
 
-**Rationale:** Same bridge build works against pi 0.70 (stopgap fires) and pi 0.71+ (dispatch fires) without recompilation. Per-call detection keeps wiring identical between fresh-spawn and live-reload paths.
+Historical rule: `typeof pi.dispatchCommand === "function"` per call — existed only for the never-shipped Path B. No semver checks, no version strings.
 
-**Rejected:** Module-load-time cache — adds rare race risk on hot-reload of pi runtime; per-call cost is one typeof check.
-
-Cross-reference: design.md Decision 3.
+Cross-reference: design.md Decision 3 (D3).
 
 ### Decision 4: Telemetry events
 
-**Choice:** Emit `command_feedback {command, status: "started"}` before dispatch. Emit `status: "completed"` after `pi.dispatchCommand` resolves. Emit `status: "error", message` for stopgap path. Pi's own `extension_error` events forwarded by existing event-wiring path, not duplicated.
+**Choice (current):** EXACTLY ONE `command_feedback {command, status: "started"}` before the call; EXACTLY ONE terminal event after. `completed` immediately after the call returned — fire-and-forget, pi accepted the text for dispatch. `error` on a synchronous throw from pi's `assertActive()` (stale ctx) or below pi 0.84.2. Handler outcome NOT observable by the bridge — pi routes in-prompt failures to `runner.emitError`. Version read + `sendUserMessage` both sit inside the try, so no throw escapes between `started` and terminal.
 
-**Rationale:** Mirrors existing pattern for `/reload`, `/new`, `/model`, `/compact`. Client `event-reducer.ts` already renders `command_feedback`. Pi swallows handler exceptions internally — no per-command try/catch needed in bridge.
-
-**Rejected:** Bridge-side try/catch around `dispatchCommand` — duplicates pi's internal error handling, risks double-emit.
+**Rationale:** Mirrors existing pattern for `/reload`, `/new`, `/model`, `/compact`. Client `event-reducer.ts` renders `command_feedback`. `deliverAs` forwarded for uniformity but inert for an extension command — pi consults `streamingBehavior` only after the extension-command branch.
 
 Cross-reference: design.md Decision 4.
 
 ### Decision 5: Test shape
 
-**Choice:** New file `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`. Stub pi with both `dispatchCommand` (when present) and `sendUserMessage` (always present). Drive `command-handler.handle(...)` with payload table covering: extension cmd with dispatch, extension cmd without dispatch, skill cmd, prompt template, passthrough, `/compact`, `/flows:new`. Assert call counts on `dispatchCommand` and `sendUserMessage` plus `command_feedback` emissions.
+**Choice (current):** `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`. Stub pi `sendUserMessage` + `getCommands`. Payload table: extension cmd, skill cmd, prompt template, passthrough, `/compact`, `/flows:new`. Assert `sendUserMessage` called with `{expandPromptTemplates: true, deliverAs}`, `command_feedback` emission sequence, and old-pi gate emits `started` + `error` with NO `sendUserMessage` call. `pi-version-tracker.test.ts` covers the argv-anchored version read.
 
-**Rationale:** Pins contract that extension slash commands NEVER fall through to `sendUserMessage`. Same test covers Path B and Path D via the same call-count table.
-
-**Rejected:** End-to-end integration test against real pi process — flaky, slow, requires pinning extension versions.
+**Rationale:** Pins contract that extension slash commands route via the in-process call, never the passthrough. Pins the version gate.
 
 Cross-reference: design.md Decision 5.
 
 ## Two-Step Fix
+
+**RETIRED** by change `retire-slash-dispatch-via-expand-prompt-templates` — now single-step. The two-step plan (Path D stopgap now, Path B upstream later) never completed: Path B never shipped, Path C superseded it for headless only, and `expandPromptTemplates` made both unnecessary.
 
 ```mermaid
 flowchart TD
   S["bridge.ts::sessionPrompt(text)"] --> FF{User-defined flow?<br/>(step 8)}
   FF -->|yes| FR["pi.events.emit('flow:run', ...)"]
   FF -->|no| G["isExtensionSlashCommand(text, pi.getCommands())<br/>(pure helper, step 9 gate)"]
-  G -->|false| FB["fall-through:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage"]
-  G -->|true| FS["emit command_feedback {status:'started'}"]
-  FS --> D{typeof pi.dispatchCommand === 'function'}
-  D -->|true: Path B| DC["pi.dispatchCommand(text,{streamingBehavior:'followUp'})"]
-  DC --> CP["emit command_feedback {status:'completed'}"]
-  D -->|false| H{isHeadlessRpcSession?<br/>(env+argv probe)}
-  H -->|true: Path C| RPC["connection.send dispatch_extension_command<br/>server writes RPC line to keeper UDS<br/>server emits started/completed/error"]
-  H -->|false: Path D stopgap| EE["emit command_feedback {status:'error', message:<reason>}"]
-  EE --> X1["NO sendUserMessage call"]
-  DC --> X2["NO sendUserMessage call"]
-  RPC --> X3["NO sendUserMessage call"]
+  G -->|false| FB["steps 10-11 fall-through:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage"]
+  G -->|true| V{running pi >= 0.84.2?}
+  V -->|no| EE["emit command_feedback {status:'error', message:'...require pi 0.84.2+'}<br/>NO sendUserMessage call"]
+  V -->|yes| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}"]
+  IS -.->|sync throw| ER["emit command_feedback {status:'error', message:<thrown>}"]
 ```
 
-- Path D ships standalone in dashboard release. No upstream dependency.
-- Path B requires pi 0.71+ shipping `pi.dispatchCommand` on `ExtensionAPI`.
-- Bridge feature-detects per call. No version sniffing.
-- Same regression test pins both paths via call-count table on stub pi.
+- Single in-process path. No upstream dependency, no session-kind probe, no RPC route.
+- Gate: running pi >= 0.84.2 (argv-anchored version read).
+- Same regression test pins the call + emission sequence on stub pi.
 
 ## Empirical Verification
 
@@ -224,30 +229,34 @@ Spec scenarios as truth table:
 
 `command_feedback` event lifecycle around step 9:
 
-- `status: "started"` emitted before `pi.dispatchCommand` invocation (Path B) or before stopgap error emit (Path D).
-- `status: "completed"` emitted after `pi.dispatchCommand` resolves (Path B only).
-- `status: "error", message: <human-readable reason>` emitted by stopgap (Path D only).
+- `status: "started"` emitted once, before the `pi.sendUserMessage` call.
+- `status: "completed"` emitted once, immediately after the call returns (fire-and-forget).
+- `status: "error", message: <human-readable reason>` emitted on a synchronous throw (pi `assertActive`, stale ctx) or below pi 0.84.2.
 
-Pi's `_tryExecuteExtensionCommand` swallows handler exceptions and emits `extension_error` to runner. Existing event-wiring path forwards those to dashboard. Bridge does NOT duplicate.
+Handler outcome UNOBSERVABLE from bridge. `_tryExecuteExtensionCommand` swallows handler exceptions and routes in-prompt failures to pi's internal `runner.emitError`; only rpc-mode emits an `extension_error` JSON line, and `packages/extension/src/bridge.ts` does NOT subscribe to it. Bridge emits `completed` on any returned call (fire-and-forget) — cannot claim handler success.
+
+**Server tombstone (one release).** `dispatch_extension_command` keeps an arm in `packages/server/src/event-wiring.ts`. On receipt: one warning log + persist + broadcast `command_feedback {command, status:"error", message:"bridge outdated — reload the session"}` so a stale bridge's pill converges instead of hanging "in progress". No keeper socket write. `DispatchExtensionCommandMessage` (`packages/shared/src/protocol.ts`) marked `@deprecated` until the tombstone is removed.
 
 ## Risks
 
-- Upstream dependency for Path B → Path D ships standalone. CHANGELOG documents pi 0.71+ requirement for full dispatch.
-- Path D false-positives if `getCommands()` includes commands dispatchable through other routes → `__dashboard_reload` filtered via `__` prefix. Flows family short-circuited by step 8 fast-path (runs before step 9).
-- Path D fails-loud on `/agents`, `/curator`, `/websearch` that previously "kind of worked" via LLM hallucination → Acceptable. Loud failure better than silent corruption.
-- `pi.dispatchCommand` upstream API shape might differ → bridge feature-detects symbol name. Worst case: follow-up PR after upstream lands.
+- Old running pi (< 0.84.2) → gate emits `started` + `error`; raw slash never reaches the model. Enforced dashboard floor (`piCompatibility.minimum == recommended == 0.86.1`) makes this a non-dashboard-spawn edge.
+- Detection false-positive if `getCommands()` lists a command pi cannot dispatch → `completed` while pi sends the text to the model. Bounded to reload windows (`getCommands()` is pi's own list).
 - `command_feedback` rendering varies → existing client `event-reducer.ts` handles all three statuses for `/reload`, `/new`, `/model`, `/compact`. No client change.
 - Multi-line slash `/skill:foo\nuser ctx` classified as passthrough → `isExtensionSlashCommand` rejects multi-line, fix scoped to single-line slash only.
+- Handler outcome not observable (fire-and-forget `completed`). Handlers that report via `ctx.ui.*` still reach dashboard through bridge PromptBus wrappers. Accepted trade-off, uniform across session kinds.
+- Un-reloaded bridge after server restart → tombstone `error` row, not a stuck pill. Rebuild order: reload before restart.
 
 ## Cross-References
 
 - Spec: `openspec/specs/command-routing/spec.md`
-- Change folders: `openspec/changes/fix-extension-slash-commands-in-dashboard/`, `openspec/changes/add-rpc-stdin-dispatch-with-keeper-sidecar/`
+- Change folders: `openspec/changes/fix-extension-slash-commands-in-dashboard/`, `openspec/changes/add-rpc-stdin-dispatch-with-keeper-sidecar/`, `openspec/changes/retire-slash-dispatch-via-expand-prompt-templates/`
 - Bridge: `packages/extension/src/bridge.ts` (sessionPrompt callback, line ~669)
 - Command handler: `packages/extension/src/command-handler.ts` (parseSendPrompt + slash routing branches, line ~256)
-- Helper module: `packages/extension/src/bridge-context.ts` (DASHBOARD_NATIVE_COMMANDS, filterHiddenCommands, target home of isExtensionSlashCommand, isHeadlessRpcSession)
-- Slash dispatcher: `packages/extension/src/slash-dispatch.ts` (`tryDispatchExtensionCommand` — three-way Path B/C/D decision)
-- Keeper sidecar: `packages/server/src/rpc-keeper/keeper.cjs`, `packages/server/src/rpc-keeper/keeper-manager.ts`, `packages/server/src/rpc-keeper/dispatch-router.ts`
+- Helper module: `packages/extension/src/bridge-context.ts` (DASHBOARD_NATIVE_COMMANDS, filterHiddenCommands, isExtensionSlashCommand, isHeadlessRpcSession)
+- Slash dispatcher: `packages/extension/src/slash-dispatch.ts` (`tryDispatchExtensionCommand` — single in-process call; Paths B/C/D retired)
+- Version reader: `packages/extension/src/model-tracker.ts` (`readRunningPiVersion` — argv-anchored, accepts both pi package names)
+- Server tombstone: `packages/server/src/event-wiring.ts` (`dispatch_extension_command` arm — warn + terminal `error` feedback)
+- Keeper sidecar: `packages/server/src/rpc-keeper/keeper.cjs`, `packages/server/src/rpc-keeper/keeper-manager.ts` (durable pi-stdin owner; `dispatch-router.ts` deleted)
 - Architecture: `docs/architecture.md` § "RPC keeper sidecar"
 - Pi internals (read-only reference):
   - `~/.nvm/versions/node/v25.8.1/lib/node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/types.d.ts:770` ExtensionAPI surface

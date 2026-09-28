@@ -1,3 +1,5 @@
 # file-preview-survives-churn.spec.ts — index
 
 Playwright spec. Rendered-DOM regression for the hoisted file-preview overlay. `[[faux:text-realfile]]` now emits an ABSOLUTE path (`/fixtures/sample-git/hello.txt`) — the only chat route to the overlay, since FileLink prefers the editor split for cwd-relative tokens (drift fix, stabilize-browser-e2e). Clicks the absolute-path FileLink, asserts `file-preview-overlay` visible + live content "hello from the sample-git fixture". Churns: sends `[[faux:slow-stream]]`, asserts overlay stays open + content intact through streaming (`slow-chunk-0`) and streaming→committed (`slow-chunk-39`). Esc dismisses. Needs `PI_E2E_SEED=1`. See change: fix-file-preview-survives-message-churn, stabilize-browser-e2e.
+
+Row summary (formerly inline in `tests/e2e/AGENTS.md`): Playwright spec. Rendered-DOM regression for hoisted file-preview overlay.

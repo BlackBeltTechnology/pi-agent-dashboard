@@ -123,6 +123,50 @@ describe("/api/plugins", () => {
     expect(body.plugins[0].displayName).toBe("Act A");
     expect(body.plugins[0].status.enabled).toBe(true);
   });
+
+  // See change: promote-model-roles-settings (test-plan #E10).
+  it("projects claim nav + row firstParty (npm scope, not priority)", async () => {
+    const repoRoot = path.join(os.tmpdir(), `activation-routes-test-nav-${Date.now()}`);
+    const nav = { group: "models", label: "Model roles", description: "Pick." };
+    const write = (dir: string, pkg: Record<string, unknown>) => {
+      const pkgDir = path.join(repoRoot, "packages", dir);
+      fs.mkdirSync(pkgDir, { recursive: true });
+      fs.writeFileSync(path.join(pkgDir, "package.json"), JSON.stringify(pkg));
+    };
+    write("roles", {
+      name: "@blackbelt-technology/pi-dashboard-roles-plugin",
+      "pi-dashboard-plugin": {
+        id: "roles",
+        displayName: "Roles",
+        claims: [
+          { slot: "settings-section", component: "RolesSettings", nav },
+          { slot: "settings-section", component: "Other" },
+        ],
+      },
+    });
+    write("acme", {
+      name: "acme-dashboard-x",
+      "pi-dashboard-plugin": {
+        id: "acme",
+        displayName: "Acme",
+        priority: 100,
+        claims: [{ slot: "settings-section", component: "AcmeSettings", nav }],
+      },
+    });
+    write("nameless", {
+      "pi-dashboard-plugin": { id: "nameless", displayName: "Nameless", claims: [] },
+    });
+    app = await makeApp(repoRoot);
+
+    const res = await app.inject({ method: "GET", url: "/api/plugins" });
+    const byId = new Map((res.json() as { plugins: any[] }).plugins.map((r) => [r.id, r]));
+    expect(byId.get("roles").firstParty).toBe(true);
+    expect(byId.get("roles").claims[0].nav).toEqual(nav);
+    expect("nav" in byId.get("roles").claims[1]).toBe(false);
+    expect(byId.get("acme").firstParty).toBe(false);
+    expect(byId.get("acme").claims[0].nav).toEqual(nav);
+    expect(byId.get("nameless").firstParty).toBe(false);
+  });
 });
 
 describe("POST /api/plugins/:id/toggle", () => {

@@ -18,7 +18,15 @@ interface CacheEntry<T> {
   value: T;
   /** epoch ms after which the entry is stale. */
   expires: number;
+  /** `sizeOf(value)` at store time (0 without a byte budget). */
+  bytes: number;
 }
+
+/**
+ * Optional byte budget. `sizeOf` is required whenever `maxBytes` is set; with
+ * neither, the cache is count-capped only (legacy behaviour).
+ */
+export type SessionDiffCacheOptions<T> = { maxBytes: number; sizeOf: (value: T) => number };
 
 /** Small non-crypto string hash (djb2) for the dirty-signature key component. */
 export function djb2(input: string): string {
@@ -34,22 +42,41 @@ export function djb2(input: string): string {
 export class SessionDiffCache<T> {
   private readonly results = new Map<string, CacheEntry<T>>();
   private readonly inflight = new Map<string, Promise<T>>();
+  private bytes = 0;
 
   constructor(
     /** Result freshness window (ms). TTL 0 disables result caching. */
     private readonly ttlMs = 2000,
     /** Hard cap on cached entries; oldest/expired evicted past it. */
     private readonly maxEntries = 100,
+    /**
+     * Byte budget shared by all entries. Oldest evicted first; the newest
+     * entry is always kept, so retention ≤ max(maxBytes, newest). See change:
+     * fix-session-diff-heap-retention (D2).
+     */
+    private readonly budget?: SessionDiffCacheOptions<T>,
   ) {}
+
+  /** Number of cached results (read-only observable). */
+  get size(): number {
+    return this.results.size;
+  }
+
+  /** Sum of `sizeOf` over cached results (0 without a byte budget). */
+  get totalBytes(): number {
+    return this.bytes;
+  }
 
   /**
    * Return a fresh cached result for `key`, else coalesce onto the in-flight
    * computation for `key`, else run `compute()` once, store, and return it.
+   * Expired entries are released on every access (D4).
    */
   async run(key: string, compute: () => Promise<T>): Promise<T> {
     const now = Date.now();
+    this.sweepExpired(now);
     const hit = this.results.get(key);
-    if (hit && hit.expires > now) return hit.value;
+    if (hit) return hit.value;
 
     const flight = this.inflight.get(key);
     if (flight) return flight;
@@ -67,24 +94,41 @@ export class SessionDiffCache<T> {
     return p;
   }
 
+  /** The ONLY removal path — keeps `bytes` accounting exact. */
+  private remove(key: string): void {
+    const e = this.results.get(key);
+    if (!e) return;
+    this.bytes -= e.bytes;
+    this.results.delete(key);
+  }
+
+  private sweepExpired(now: number): void {
+    for (const [k, e] of this.results) {
+      if (e.expires <= now) this.remove(k);
+    }
+  }
+
   private store(key: string, value: T): void {
     if (this.ttlMs <= 0) return;
     const now = Date.now();
-    this.results.set(key, { value, expires: now + this.ttlMs });
-    if (this.results.size <= this.maxEntries) return;
-    // Over cap: drop expired first, then oldest (insertion order) until under.
-    for (const [k, e] of this.results) {
-      if (e.expires <= now) this.results.delete(k);
-    }
-    while (this.results.size > this.maxEntries) {
+    const bytes = this.budget ? this.budget.sizeOf(value) : 0;
+    // Overwrite → remove first so the entry moves to newest and bytes stay exact.
+    this.remove(key);
+    this.results.set(key, { value, expires: now + this.ttlMs, bytes });
+    this.bytes += bytes;
+    this.sweepExpired(now);
+    const maxBytes = this.budget?.maxBytes ?? Number.POSITIVE_INFINITY;
+    // Evict oldest (insertion order) while over either cap — never the entry
+    // just inserted (a single large session still caches).
+    while (this.results.size > this.maxEntries || this.bytes > maxBytes) {
       const oldest = this.results.keys().next().value;
-      if (oldest === undefined) break;
-      this.results.delete(oldest);
+      if (oldest === undefined || oldest === key) break;
+      this.remove(oldest);
     }
   }
 
   clear(): void {
-    this.results.clear();
+    for (const k of [...this.results.keys()]) this.remove(k);
     this.inflight.clear();
   }
 }

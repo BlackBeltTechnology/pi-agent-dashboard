@@ -68,6 +68,7 @@
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-mcp-server-plugin": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "discord.js": "^14.27.0"
   },

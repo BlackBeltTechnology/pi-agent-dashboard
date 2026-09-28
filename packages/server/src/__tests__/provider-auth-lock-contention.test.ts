@@ -26,9 +26,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const _require = createRequire(import.meta.url);
 const lockfile = _require("proper-lockfile") as typeof import("proper-lockfile");
 
-/** Mirrors the production lock options — `stale` keeps a live holder from
- *  being reclaimed mid-test, `realpath:false` the spelling under test. */
-const HOLD_OPTIONS = { stale: 10_000, realpath: false } as const;
+/** pi 0.86.1's literal lock options — the holder simulates pi, so it does NOT
+ *  import `LOCK_OPTIONS` (a regression would move both sides together).
+ *  `realpath:false` is the spelling under test. See change:
+ *  harden-auth-json-lock-coordination (D1). */
+const HOLD_OPTIONS = { stale: 30_000, realpath: false } as const;
 
 const AUTH_DIR = path.join(os.homedir(), ".pi", "agent");
 const AUTH_PATH = path.join(AUTH_DIR, "auth.json");

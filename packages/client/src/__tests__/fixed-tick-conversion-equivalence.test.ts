@@ -39,9 +39,11 @@ const CENSUS: Record<string, string[]> = {
   "components/__tests__/WorktreeActionsMenu.test.tsx": [
     "renders all four action buttons for a worktree session when gh is available",
     "hides the PR button when gh is NOT resolvable (no existing PR)",
-    "still shows 'View PR' button when gh missing but gitPrNumber is set",
+    // "View PR" button replaced by the PR status segment — renamed / replaced
+    // by change: redesign-composer-session-strip (D6).
+    "shows the PR segment (no 'View PR' button) when gh missing but gitPrNumber is set",
     "does not render for a session without gitWorktree",
-    "Open PR toggles to 'View PR #N' label when gitPrNumber is set",
+    "an existing PR suppresses Open PR even when gh is available",
     "clicking 'Merge' opens the merge confirm dialog",
     "clicking 'Close' opens the close-worktree dialog",
     "Push action shows a success toast on ok response",
@@ -49,8 +51,17 @@ const CENSUS: Record<string, string[]> = {
     "flips the mobile sheet to left-0 when the pane's right anchor cannot fit",
     "keeps the sheet right-0 (default) when the pane has ample room to the left",
     "renders a ⋯ trigger instead of inline buttons",
-    "opens an action sheet on click revealing the four actions",
+    "opens an action sheet on click revealing the actions and the PR segment",
     "mobile sheet hides until the trigger is clicked",
+    // Added by change: redesign-composer-session-strip (test-plan #E5, D6).
+    "merged → ⑂ #747 merged, no checks marker",
+    "closed → ⊘ #747 closed, no checks marker",
+    "legacy (number only) → #747 only",
+    "URL absent → plain text, no <a>",
+    "mergeIsPrimary fills Merge; otherwise outlined",
+    "disabled (working): Merge is never filled; actions are aria-disabled and focusable with a reason",
+    "each segment draws its own hairline (the root is display:contents)",
+    "mobile trigger meets the 24 px target",
   ],
   "components/__tests__/PluginStalenessBanner.test.tsx": [
     "renders nothing when /api/health.bundleHash matches the embedded hash",
@@ -129,20 +140,6 @@ const CENSUS: Record<string, string[]> = {
       "F3 — Space toggles the self-row and inserts no literal space",
       "renders no emoji glyphs and gives every row an SVG path",
       "keeps git / pi as text badges",
-  ],
-  "components/__tests__/LlmProviderCard.test.tsx": [
-    "renders a Test button",
-    "Test button is disabled when baseUrl is empty",
-    "Test button is disabled when apiKey is empty",
-    "Test button is enabled when both baseUrl and apiKey have values",
-    "click sends POST with correct payload for a new provider (no name)",
-    "saved (non-new) provider includes name in payload",
-    "shows success pill with model count on ok",
-    "shows 'Connected' without count when modelCount is 0",
-    "shows yellow error pill with HTTP status + verbatim error line",
-    "shows red unreachable pill when there is no status",
-    "falls back to the not-tested register when edited with no cached health",
-    "does not call testProvider when disabled",
   ],
   "components/__tests__/ServerSelector.test.tsx": [
     "does NOT probe on mount—only when dropdown opens",

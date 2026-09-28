@@ -68,6 +68,33 @@ export interface AdapterCallbacks {
 	onInteractiveResponse?: (response: InteractiveResponse) => void;
 }
 
+// ── Channel provisioning types ───────────────────────────────────────────
+
+/**
+ * One entry in a channel's access list. Platform-agnostic: `role` covers the
+ * platform-default role (`@everyone` in Discord) as well as named roles.
+ */
+export interface ChannelOverwrite {
+	/** Platform role id, or member id when `kind` is `"member"`. */
+	targetId: string;
+	kind: "role" | "member";
+	/** `true` grants view access to the channel, `false` denies it. */
+	viewChannel: boolean;
+}
+
+export interface ProvisionChannelInput {
+	/** Guild/space the channel is created in. */
+	guildId: string;
+	/** Desired channel name (a workspace name). The adapter normalizes it. */
+	name: string;
+	/**
+	 * FULL access list, INCLUDING the platform-default-role deny. The caller
+	 * supplies it pre-built so the create payload is a pure function of the
+	 * input and the deny cannot be forgotten by an adapter that "just" creates.
+	 */
+	overwrites: ChannelOverwrite[];
+}
+
 export interface PlatformAdapter {
 	readonly platform: string;
 	readonly config: PlatformConfig;
@@ -130,6 +157,34 @@ export interface PlatformAdapter {
 	 * Optional — only needed if the platform can't auto-expire interactions.
 	 */
 	cleanupInteractive?(channelId: string, messageId: string): Promise<void>;
+
+	/**
+	 * Create a PRIVATE channel in ONE operation, carrying `overwrites` in the
+	 * creation request itself.
+	 *
+	 * Implementations MUST NOT create a channel and then adjust its permissions: a
+	 * platform with no transactional create-then-permission (Discord) would leave a
+	 * world-readable window. A platform that cannot set overwrites at create time
+	 * MUST REJECT, not create a visible channel — a visible failure beats a leaky
+	 * success.
+	 */
+	provisionChannel?(
+		input: ProvisionChannelInput,
+	): Promise<{ channelId: string }>;
+
+	/**
+	 * Replace a channel's access list so it matches a changed mapping, WITHOUT
+	 * recreating the channel. Awaitable and ordered by contract: a caller may not
+	 * report a configuration write as succeeded until the platform reflects the
+	 * new access, so no interval exists in which a removed principal still sees.
+	 */
+	setChannelOverwrites?(
+		channelId: string,
+		overwrites: ChannelOverwrite[],
+	): Promise<void>;
+
+	/** Rename a bound channel (a workspace rename). Never deletes. */
+	renameChannel?(channelId: string, name: string): Promise<void>;
 }
 
 /**

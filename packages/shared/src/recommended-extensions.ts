@@ -164,7 +164,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"Foreground in-memory subagents for pi with a streamed timeline " +
 			"(every tool call, reasoning step, and assistant text). Pairs with " +
 			"the dashboard's subagent-inspector plugin for inline-expand + popout " +
-			"card UI. Producer of the Agent tool; no background spawning.",
+			"card UI. Producer of the Agent tool; no background sessions.",
 		status: "optional",
 		unlocks: [
 			"Agent tool card UI",

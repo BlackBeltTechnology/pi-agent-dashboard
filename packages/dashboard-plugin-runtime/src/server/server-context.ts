@@ -609,6 +609,138 @@ export interface PluginProviderAuth {
   getCredential(provider: string): PluginAuthCredential | undefined;
 }
 
+// ── Plugin credential store ─────────────────────────────────────────────────
+
+/** One stored plugin credential record: a plain JSON object. */
+export type PluginCredentialRecord = Record<string, unknown>;
+
+/**
+ * Namespaced, locked, 0600 credential persistence for a plugin
+ * (`~/.pi/agent/plugin-credentials.json`). Bound by the host to the calling
+ * plugin's manifest id — a plugin only ever sees its own namespace.
+ * Keys 1–200 chars (`__proto__`/`constructor`/`prototype` rejected); records
+ * ≤ 64 KiB serialized; ≤ 256 keys and 2 MiB per namespace. Reads return
+ * copies and never create the file. Plaintext at rest, like `auth.json`.
+ * Structural mirror of the server's `PluginCredentialStore`.
+ * See change: expose-plugin-credential-and-oauth-seams (D2).
+ */
+export interface PluginCredentials {
+  get(key: string): Promise<PluginCredentialRecord | undefined>;
+  /** Keys only — never record contents. */
+  list(): Promise<string[]>;
+  /** A clone of the caller's own namespace, from one read. */
+  snapshot(): Promise<Record<string, PluginCredentialRecord>>;
+  set(key: string, record: PluginCredentialRecord): Promise<void>;
+  remove(key: string): Promise<void>;
+  /**
+   * Atomic read-modify-write; `fn` runs SYNCHRONOUSLY inside the file lock
+   * (never held across an await). Return `undefined` to delete.
+   */
+  update(
+    key: string,
+    fn: (prev: PluginCredentialRecord | undefined) => PluginCredentialRecord | undefined,
+  ): Promise<PluginCredentialRecord | undefined>;
+}
+
+// ── Plugin OAuth flows (structural mirrors of server/src/auth/pi-oauth-types.ts) ──
+
+export interface PluginLoginSelectOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export type PluginLoginPrompt = { signal?: AbortSignal } & (
+  | { type: "text"; message: string; placeholder?: string }
+  | { type: "secret"; message: string; placeholder?: string }
+  | { type: "select"; message: string; options: readonly PluginLoginSelectOption[] }
+  | { type: "manual_code"; message: string; placeholder?: string }
+);
+
+export type PluginLoginEvent =
+  | { type: "info"; message: string; links?: readonly { url: string; label?: string }[] }
+  | { type: "auth_url"; url: string; instructions?: string }
+  | {
+      type: "device_code";
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { type: "progress"; message: string };
+
+export interface PluginLoginInteraction {
+  signal: AbortSignal;
+  prompt(prompt: PluginLoginPrompt): Promise<string>;
+  notify(event: PluginLoginEvent): void;
+}
+
+/** What a plugin `login()` resolves with; extra fields reach `persist` untouched. */
+export type PluginOAuthCredential = {
+  type: "oauth";
+  refresh: string;
+  access: string;
+  expires: number;
+  [k: string]: unknown;
+};
+
+export interface PluginOAuthLoginFlow {
+  name: string;
+  isSubscription?: boolean;
+  loginLabel?: string;
+  login(interaction: PluginLoginInteraction): Promise<PluginOAuthCredential>;
+}
+
+export interface PluginOAuthStartOptions {
+  /** Flow key within the plugin; a second start with the same key supersedes the first. */
+  key: string;
+  loginFlow: PluginOAuthLoginFlow;
+  /** Receives the credential `login()` resolved with, untouched. */
+  persist: (credential: PluginOAuthCredential) => Promise<void> | void;
+}
+
+export type PluginFlowStartErrorCode = "start_timeout" | "login_failed";
+
+/** Rejection of `ctx.oauth.startFlow`. See change: expose-plugin-credential-and-oauth-seams (D3). */
+export class PluginFlowStartError extends Error {
+  readonly code: PluginFlowStartErrorCode;
+  constructor(code: PluginFlowStartErrorCode, message: string) {
+    super(message);
+    this.name = "PluginFlowStartError";
+    this.code = code;
+  }
+}
+
+/**
+ * Start OAuth sign-in flows through the host flow store. The returned
+ * `flowId` is served by `/api/provider-auth/flow/:flowId` (status / input /
+ * cancel) — render it with the `ui:oauth-flow` primitive.
+ */
+export interface PluginOAuth {
+  startFlow(opts: PluginOAuthStartOptions): Promise<{ flowId: string }>;
+}
+
+/** Host-side result shape; the context maps a failure to {@link PluginFlowStartError}. */
+export type PluginFlowStartResult =
+  | { ok: true; flowId: string }
+  | { ok: false; code: PluginFlowStartErrorCode; message: string };
+
+// ── Bridge request/reply lane ────────────────────────────────────────────────
+
+/**
+ * Answers one `plugin_request` from a plugin bridge entry. `sessionId` is the
+ * host's socket key, never the payload's. The request is from "some session of
+ * this user" — authorize on the payload. A throw replies `{ok:false,error:message}`.
+ * See change: expose-plugin-credential-and-oauth-seams (D7).
+ */
+export type PluginRequestHandler = (
+  payload: unknown,
+  meta: { sessionId: string },
+) => unknown | Promise<unknown>;
+
+/** Register the single owner of `(this plugin, type)`; a duplicate throws. */
+export type RegisterPiRequestHandlerFn = (type: string, handler: PluginRequestHandler) => void;
+
 /** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
 export type PluginStreamSimpleFn = (opts: {
   model: unknown;
@@ -633,6 +765,26 @@ export interface PluginModelRuntime {
   getModelRegistry(): Promise<PluginModelRegistry | null>;
   streamSimple: PluginStreamSimpleFn;
 }
+
+/**
+ * A dashboard workspace as exposed to plugins: identifier, display name, and
+ * member folder paths. Read-only view — the seam exposes no mutation.
+ * See change: add-chat-gateway-team-controls.
+ */
+export interface PluginWorkspace {
+  id: string;
+  name: string;
+  folders: string[];
+}
+
+/** Read the dashboard's current workspaces (defensive copy). */
+export type ListWorkspacesFn = () => PluginWorkspace[];
+
+/**
+ * Subscribe to workspace mutations; returns an unsubscribe fn. The handler is a
+ * coalescable hint to re-read `listWorkspaces()`, never a diff.
+ */
+export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
 
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
@@ -737,6 +889,22 @@ export interface ServerPluginContext {
    */
   providerAuth?: PluginProviderAuth;
   /**
+   * Own-namespace credential store. Optional — absent on hosts that do not
+   * wire it. Not trust-gated (own namespace only).
+   * See change: expose-plugin-credential-and-oauth-seams (D2).
+   */
+  credentials?: PluginCredentials;
+  /**
+   * OAuth sign-in flows via the host flow store. Optional.
+   * See change: expose-plugin-credential-and-oauth-seams (D3).
+   */
+  oauth?: PluginOAuth;
+  /**
+   * Answer private request/reply calls from this plugin's bridge entry.
+   * Optional. See change: expose-plugin-credential-and-oauth-seams (D7).
+   */
+  registerPiRequestHandler?: RegisterPiRequestHandlerFn;
+  /**
    * Mint a fresh spawn-correlation token (trusted-gated). See change:
    * relocate-goal-product-to-plugin (D1-#1).
    */
@@ -761,6 +929,13 @@ export interface ServerPluginContext {
    * relocate-goal-product-to-plugin (D1-#8).
    */
   onShutdown: OnShutdownFn;
+  /**
+   * Read the dashboard's workspaces (defensive copy) and subscribe to their
+   * mutations. Read-only and store-anchored; never trust-gated.
+   * See change: add-chat-gateway-team-controls.
+   */
+  listWorkspaces: ListWorkspacesFn;
+  onWorkspacesChanged: OnWorkspacesChangedFn;
   /**
    * Own a WebSocket route scope on the main HTTP listener. Only valid during
    * the plugin's server-entry activation (the loader opens/closes the
@@ -802,6 +977,12 @@ export interface ServerContextDeps {
   modelRuntime?: PluginModelRuntime;
   /** Provider-credential seam (optional, host-gated). See change: publish-quota-plugin. */
   providerAuth?: PluginProviderAuth;
+  /** Per-plugin credential store factory (optional). See change: expose-plugin-credential-and-oauth-seams. */
+  pluginCredentials?: (pluginId: string) => PluginCredentials;
+  /** Plugin OAuth flow start (optional). See change: expose-plugin-credential-and-oauth-seams. */
+  startPluginOAuthFlow?: (pluginId: string, opts: PluginOAuthStartOptions) => Promise<PluginFlowStartResult>;
+  /** Plugin request-lane registration (optional). See change: expose-plugin-credential-and-oauth-seams. */
+  registerPiRequestHandler?: (pluginId: string, type: string, handler: PluginRequestHandler) => void;
   /** Installed-extension probe (optional). See change: add-blackhole-session-pipeline. */
   isPiExtensionInstalled?: IsPiExtensionInstalledFn;
   /** Mint a fresh spawn-correlation token (trusted-gated). See change: relocate-goal-product-to-plugin. */
@@ -814,6 +995,9 @@ export interface ServerContextDeps {
   networkGuard: PluginNetworkGuard;
   /** Subscribe to server shutdown. See change: relocate-goal-product-to-plugin. */
   onShutdown: OnShutdownFn;
+  /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
+  listWorkspaces?: ListWorkspacesFn;
+  onWorkspacesChanged?: OnWorkspacesChangedFn;
 }
 
 /**
@@ -858,12 +1042,29 @@ export function createServerPluginContext(
 
     modelRuntime: deps.modelRuntime,
     providerAuth: deps.providerAuth,
+    credentials: deps.pluginCredentials?.(pluginId),
+    oauth: deps.startPluginOAuthFlow
+      ? {
+          async startFlow(opts) {
+            const res = await deps.startPluginOAuthFlow!(pluginId, opts);
+            if (!res.ok) throw new PluginFlowStartError(res.code, res.message);
+            return { flowId: res.flowId };
+          },
+        }
+      : undefined,
+    registerPiRequestHandler: deps.registerPiRequestHandler
+      ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
+      : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
     mintSpawnToken: deps.mintSpawnToken,
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,
     networkGuard: deps.networkGuard,
     onShutdown: deps.onShutdown,
+    // Workspace seam (add-chat-gateway-team-controls): defaulted so a host that
+    // does not wire it still exposes a total accessor to plugins.
+    listWorkspaces: deps.listWorkspaces ?? (() => []),
+    onWorkspacesChanged: deps.onWorkspacesChanged ?? (() => () => {}),
     registerWsRoute: (scope, opts) => getWsRouteRegistry().register(pluginId, scope, opts),
     logger,
   };

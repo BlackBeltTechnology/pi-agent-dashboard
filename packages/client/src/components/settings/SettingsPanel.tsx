@@ -7,8 +7,6 @@ import {
   mergeCustomEventGroupPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-// Type-only import — erased at bundle time, so the rule above holds.
-import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 // From the BROWSER-SAFE module, never `config.js`: a value import of the latter
 // pulls node:fs/os/path into the bundle and the SPA dies at boot with
 // `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
@@ -19,11 +17,14 @@ import {
   MIN_HEAP_MB,
   subagentHeapBudget,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
+// Type-only import — erased at bundle time, so the rule above holds.
+import type { HostGateMode } from "@blackbelt-technology/pi-dashboard-shared/host-admission.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -33,12 +34,10 @@ import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
-import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
-import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
   type BindReachability,
@@ -53,6 +52,7 @@ import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktr
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
+import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
@@ -72,8 +72,13 @@ import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
+import { AccessPromptsSection } from "./AccessPromptsSection.js";
+import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
+import { DefaultGroupingField } from "./DefaultGroupingField.js";
+import { CardSectionsSection } from "./CardSectionsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
@@ -93,14 +98,6 @@ interface ProviderConfig {
   clientSecret: string;
   issuerUrl?: string;
   name?: string;
-}
-
-interface LlmProvider {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  api: string;
-  isNew?: boolean; // true for newly added providers (name is editable)
 }
 
 interface AuthConfig {
@@ -456,7 +453,10 @@ const SETTINGS_PAGE_ALIASES: Record<string, string> = {
 // `gateway` is a built-in Network-group page (tunnel providers UI), added to
 // the client route whitelist only (not a plugin-claimable slot).
 // See change: add-tunnel-providers.
-const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway"]);
+// `access` is a built-in Network-group page (the grant review/revoke surface),
+// added to the client route whitelist only (not a plugin-claimable slot), like
+// `gateway` above. See change: add-access-grants-and-review.
+const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "gateway", "access"]);
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
@@ -466,6 +466,19 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
+/**
+ * Health dot for a plugin nav entry (Plugins child or promoted entry) — one
+ * mapping so both render identically. See change: promote-model-roles-settings.
+ */
+function pluginNavHealth(st: { error?: string; loaded?: boolean } | null | undefined): {
+  cls: string;
+  label: string;
+} {
+  if (st?.error) return { cls: "bg-[var(--accent-red)]", label: "error" };
+  if (st?.loaded === false) return { cls: "bg-[var(--accent-yellow)]", label: "not loaded" };
+  return { cls: "bg-[var(--accent-green)]", label: "loaded" };
+}
+
 function resolveSettingsPage(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const aliased = SETTINGS_PAGE_ALIASES[raw] ?? raw;
@@ -479,7 +492,7 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
  */
 const BACK_SENTINEL = "@@back";
 
-export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
+export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd, groupByPrefs, onSetDefaultGroupBy }: {
   /**
    * Per-session `models_list` union pushed by live bridges. Merged with the
    * session-independent `GET /api/models` catalogue this panel fetches itself;
@@ -497,6 +510,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
    * See change: fix-settings-back-to-launching-route.
    */
   onBack?: () => void;
+  /** Server-owned grouping prefs + default setter (session-list-group-by). */
+  groupByPrefs?: GroupByPrefs;
+  onSetDefaultGroupBy?: (mode: GroupByMode) => void;
 }) {
   const { language, setLanguage, t } = useI18n();
   const [, navigate] = useLocation();
@@ -504,7 +520,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const settingsPaneRef = useRef<HTMLDivElement>(null);
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
-  const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
   /**
    * Bind-vs-trust reachability, held OUTSIDE the editable config draft: it is
    * computed server-side, must never enter `configPartial`, and is pushed over
@@ -512,10 +527,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
    * See change: warn-unreachable-trusted-networks.
    */
   const [reachability, setReachability] = useState<BindReachability | null>(null);
-  // Cached per-provider health from GET /api/providers (`health[name]`), used to
-  // seed each row's pill. See change: surface-provider-health-in-settings.
-  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
-  const [originalLlmProviders, setOriginalLlmProviders] = useState<LlmProvider[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [spawnTimeoutInvalid, setSpawnTimeoutInvalid] = useState(false);
@@ -614,16 +625,26 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // unknown id or a settings-less plugin falls back to the activation index
   // plus a notice (design D2).
   const activePluginHasSettings = !!activePluginRow && contributesSettings(activePluginRow);
-  // Nav children: enabled AND contributing settings, alphabetical by display
-  // name. Keys on `enabled`, NOT `loaded` — a plugin that failed to load is
-  // exactly when the user needs to reach its page (design D4).
+  // Plugin pages promoted into another nav group (today: Models). Keyed on the
+  // MANIFEST claims on the row, so a disabled promoted plugin stays listed.
+  // See change: promote-model-roles-settings (design D2/D6).
+  const promotions = useMemo(
+    () => resolveSettingsPromotions(pluginRows, RESERVED_SETTINGS_LABELS),
+    [pluginRows],
+  );
+  // Nav children: enabled AND contributing settings AND not promoted,
+  // alphabetical by display name. Keys on `enabled`, NOT `loaded` — a plugin
+  // that failed to load is exactly when the user needs to reach its page
+  // (design D4). An ENABLED promoted plugin appears here as a never-active
+  // pointer row instead, sorted together with the children
+  // (promote-model-roles-settings D4).
   const pluginNavChildren = useMemo(
     () =>
       pluginRows
         .filter((r) => r.status?.enabled !== false && contributesSettings(r))
-        .slice()
-        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
-    [pluginRows, contributesSettings],
+        .map((r) => ({ row: r, pointer: promotions.has(r.id) }))
+        .sort((a, b) => a.row.displayName.localeCompare(b.row.displayName)),
+    [pluginRows, contributesSettings, promotions],
   );
 
   // Global-scope resource card pages (Resources nav group). One fetch backs the
@@ -750,31 +771,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   useEffect(() => {
     const configPromise = fetch(`${getApiBase()}/api/config`).then((res) => res.json());
-    const providersPromise = fetch(`${getApiBase()}/api/providers`)
-      .then((res) => (res.ok ? res.json() : null))
-      .catch(() => null);
 
-    Promise.all([configPromise, providersPromise])
-      .then(([configData, providersData]) => {
+    configPromise
+      .then((configData) => {
         if (configData.success) {
           setConfig(configData.data);
           setOriginal(JSON.parse(JSON.stringify(configData.data)));
           setReachability(configData.data.reachability ?? null);
-        }
-        if (providersData?.success && providersData.providers) {
-          const list: LlmProvider[] = Object.entries(providersData.providers).map(
-            ([name, entry]: [string, any]) => ({
-              name,
-              baseUrl: entry.baseUrl || "",
-              apiKey: entry.apiKey || "",
-              api: entry.api || "openai-completions",
-            })
-          );
-          setLlmProviders(list);
-          setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
-          if (providersData.health && typeof providersData.health === "object") {
-            setProviderHealth(providersData.health as Record<string, ProviderHealth>);
-          }
         }
       })
       .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
@@ -808,15 +811,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     [config, original],
   );
   const configDirty = Object.keys(configPartial).length > 0;
-  const llmChanged = useMemo(
-    () => JSON.stringify(llmProviders) !== JSON.stringify(originalLlmProviders),
-    [llmProviders, originalLlmProviders],
-  );
   const dirtyDraftCount = useMemo(
     () => Array.from(draftSources.values()).filter((s) => s.isDirty).length,
     [draftSources],
   );
-  const unsavedCount = (configDirty ? 1 : 0) + (llmChanged ? 1 : 0) + dirtyDraftCount;
+  const unsavedCount = (configDirty ? 1 : 0) + dirtyDraftCount;
   const isDirty = unsavedCount > 0;
   // Pages with unsaved edits → nav-rail dirty dots.
   const dirtyPages = useMemo(() => {
@@ -825,10 +824,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
       const p = CONFIG_FIELD_PAGE[k];
       if (p) pages.add(p);
     }
-    if (llmChanged) pages.add("providers");
     for (const s of draftSources.values()) if (s.isDirty) pages.add(s.page);
     return pages;
-  }, [configPartial, llmChanged, draftSources]);
+  }, [configPartial, draftSources]);
 
   // ── Bind-vs-trust reachability ───────────────────────────────────────
   // The predicate's input is the RESOLVED bind host, never `config.bindHost`:
@@ -886,10 +884,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   const handleDiscard = useCallback(() => {
     if (original) setConfig(JSON.parse(JSON.stringify(original)));
-    setLlmProviders(JSON.parse(JSON.stringify(originalLlmProviders)));
     for (const s of draftSources.values()) s.reset();
     setMessage(null);
-  }, [original, originalLlmProviders, draftSources]);
+  }, [original, draftSources]);
 
   const handleSave = useCallback(async (): Promise<boolean> => {
     if (!config || !original) return false;
@@ -929,67 +926,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             // See change: bound-session-heap-and-gc-telemetry.
             coldStartRequired: !!data.coldStartRequired,
           };
-        },
-      });
-    }
-
-    if (llmChanged) {
-      tasks.push({
-        label: t("settings.sourceProviders", undefined, "LLM providers"),
-        run: async () => {
-          // Reject blank/whitespace names before building the PUT body so the
-          // row is not silently dropped; throwing keeps this source dirty via
-          // the Promise.allSettled failure path. See change:
-          // fix-custom-provider-save-and-auth.
-          if (llmProviders.some((p) => p.name.trim() === "")) {
-            throw new Error(
-              t("settings.providerNameRequired", undefined, "Provider name is required"),
-            );
-          }
-          const validProviders = llmProviders.filter((p) => p.name.trim() !== "");
-          const providersObj: Record<string, any> = {};
-          for (const p of validProviders) {
-            providersObj[p.name] = { baseUrl: p.baseUrl, apiKey: p.apiKey, api: p.api };
-          }
-          const res = await fetch(`${getApiBase()}/api/providers`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ providers: providersObj }),
-          });
-          const data = await res.json();
-          if (!data.success) throw new Error(data.error || "providers");
-          // Success branch only — a body-level failure must not dispatch. The
-          // PUT has replace semantics, so this one dispatch covers adding,
-          // editing, and deleting a custom provider. Over-dispatch (a save
-          // that changes no credential) is accepted. See change:
-          // dispatch-provider-auth-event.
-          window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
-          const saved = validProviders.map(({ isNew, ...rest }) => rest);
-          setLlmProviders(saved);
-          // A provider save/removal changes the catalogue; refetch off THIS
-          // response, never a fixed delay.
-          // See change: settings-default-model-without-session.
-          void refetchCatalogue();
-          setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
-          // The PUT awaited a server-side probe per provider; refetch so each
-          // pill reflects the freshly cached health without a remount. See
-          // change: surface-provider-health-in-settings.
-          try {
-            const refetched = await fetch(`${getApiBase()}/api/providers`).then((r) => (r.ok ? r.json() : null));
-            if (refetched?.health && typeof refetched.health === "object") {
-              setProviderHealth(refetched.health as Record<string, ProviderHealth>);
-            }
-          } catch {
-            // Refetch failed: the just-saved providers' cached health is stale
-            // (their config changed), so drop it to not-tested rather than show
-            // a stale pill. See change: surface-provider-health-in-settings.
-            setProviderHealth((prev) => {
-              const next = { ...prev };
-              for (const p of saved) delete next[p.name];
-              return next;
-            });
-          }
-          return {};
         },
       });
     }
@@ -1037,7 +973,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     }
     setSaving(false);
     return failed.length === 0;
-  }, [config, original, isDirty, configDirty, configPartial, llmChanged, llmProviders, draftSources, refreshGitSourceReadout, t]);
+  }, [config, original, isDirty, configDirty, configPartial, draftSources, refreshGitSourceReadout, t]);
 
   // ── Unsaved-changes navigation guards ─────────────────────────────────────
   const [pendingNav, setPendingNav] = useState<string | null>(null);
@@ -1205,8 +1141,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   };
 
   // Left-nav page groups. See change: reorganize-settings-into-pages.
-  const navGroups: { label: string; items: { id: string; label: string; icon: string }[] }[] = [
+  // Models is FIRST: it decides which model every session, agent and flow runs
+  // on. Promoted plugin pages render after its built-in items.
+  // See change: promote-model-roles-settings.
+  const navGroups: { id: string; label: string; items: { id: string; label: string; icon: string }[] }[] = [
     {
+      id: "models",
+      label: t("settings.groupModels", undefined, "Models"),
+      items: [
+        { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
+      ],
+    },
+    {
+      id: "dashboard",
       label: t("settings.groupDashboard", undefined, "Dashboard"),
       items: [
         { id: "general", label: t("settings.general", undefined, "General"), icon: mdiCog },
@@ -1215,23 +1162,26 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
       ],
     },
     {
+      id: "network",
       label: t("settings.groupNetwork", undefined, "Network"),
       items: [
         { id: "remote", label: t("settings.remoteServers", undefined, "Remote Servers"), icon: mdiWeb },
         { id: "gateway", label: t("settings.gateway", undefined, "Gateway"), icon: mdiTunnel },
         { id: "security", label: t("settings.security", undefined, "Security"), icon: mdiLock },
+        { id: "access", label: t("settings.access", undefined, "Access"), icon: mdiShieldCheck },
       ],
     },
     {
+      id: "extensions",
       label: t("settings.groupExtensions", undefined, "Extensions"),
       items: [
-        { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
         { id: "packages", label: t("settings.packages", undefined, "Packages"), icon: mdiPackageVariant },
         { id: "plugins", label: t("settings.plugins", undefined, "Plugins"), icon: mdiPuzzle },
         { id: "openspec", label: t("settings.openspec", undefined, "OpenSpec"), icon: mdiClipboardText },
       ],
     },
     {
+      id: "resources",
       label: t("settings.groupResources", undefined, "Resources"),
       items: [
         { id: "skills", label: i18nT("common.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
@@ -1242,6 +1192,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
       ],
     },
     {
+      id: "advanced",
       label: t("settings.groupAdvanced", undefined, "Advanced"),
       items: [
         { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
@@ -1256,6 +1207,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const dirtyPageEntries = Array.from(dirtyPages).map((page) => {
     if (page.startsWith("plugins/")) {
       const id = page.slice("plugins/".length);
+      // A promoted page is named by its placement: `<Group> › <nav.label>`.
+      // See change: promote-model-roles-settings (design D4).
+      const promo = promotions.get(id);
+      if (promo) {
+        const groupLabel = navGroups.find((g) => g.id === promo.group)?.label ?? promo.group;
+        return { page, label: `${groupLabel} › ${promo.label}`, to: `/settings/${page}` };
+      }
       const name = pluginRows.find((r) => r.id === id)?.displayName ?? id;
       return { page, label: `${t("settings.plugins", undefined, "Plugins")} › ${name}`, to: `/settings/${page}` };
     }
@@ -1340,8 +1298,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           className="shrink-0 w-full md:w-56 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-[var(--border-primary)] p-2"
         >
           {navGroups.map((group) => (
-            <div key={group.label} className="contents md:block">
-              <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+            <div key={group.id} className="contents md:block" data-testid={`settings-nav-group-${group.id}`}>
+              <div
+                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]"
+                data-testid={`settings-nav-group-label-${group.id}`}
+              >
                 {group.label}
               </div>
               {group.items.map((item) => {
@@ -1374,14 +1335,29 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     )}
                   </button>
                   {item.id === "plugins" &&
-                    pluginNavChildren.map((p) => {
+                    pluginNavChildren.map(({ row: p, pointer }) => {
+                      if (pointer) {
+                        // Promoted plugin: a dimmed pointer to the same URL. A
+                        // separate branch that NEVER sets `aria-current`, so the
+                        // promoted entry stays the single active one (D4).
+                        const promo = promotions.get(p.id);
+                        const groupLabel =
+                          navGroups.find((g) => g.id === promo?.group)?.label ?? promo?.group ?? "";
+                        return (
+                          <button
+                            key={`plugins/${p.id}`}
+                            onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
+                            type="button"
+                            data-testid={`nav-plugin-pointer-${p.id}`}
+                            className="w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer opacity-60 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                          >
+                            <span className="truncate">{p.displayName}</span>
+                            <span className="ml-auto text-[11px] text-[var(--text-tertiary)]">↗ {groupLabel}</span>
+                          </button>
+                        );
+                      }
                       const childActive = activePluginId === p.id;
-                      const st = p.status;
-                      const health = st?.error
-                        ? { cls: "bg-[var(--accent-red)]", label: "error" }
-                        : st?.loaded === false
-                          ? { cls: "bg-[var(--accent-yellow)]", label: "not loaded" }
-                          : { cls: "bg-[var(--accent-green)]", label: "loaded" };
+                      const health = pluginNavHealth(p.status);
                       return (
                         <button
                           key={`plugins/${p.id}`}
@@ -1415,6 +1391,58 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   </div>
                 );
               })}
+              {Array.from(promotions.values())
+                .filter((promo) => promo.group === group.id)
+                .map((promo) => {
+                  // Promoted plugin page: placement only, URL unchanged. Keyed
+                  // by the plugin page key so the dirty dot works unchanged; a
+                  // disabled plugin stays listed, dimmed, with an "off" marker
+                  // (design D4/D6). See change: promote-model-roles-settings.
+                  const row = pluginRows.find((r) => r.id === promo.pluginId);
+                  const enabled = row?.status?.enabled !== false;
+                  const promoActive = activeTab === "plugins" && activePluginId === promo.pluginId;
+                  const health = pluginNavHealth(row?.status ?? null);
+                  return (
+                    <button
+                      key={`plugins/${promo.pluginId}`}
+                      onClick={() => requestRailNavigate(`/settings/plugins/${promo.pluginId}`)}
+                      aria-current={promoActive ? "page" : undefined}
+                      type="button"
+                      data-testid={`nav-promoted-${promo.pluginId}`}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                        promoActive
+                          ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
+                          : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                      } ${enabled ? "" : "opacity-60"}`}
+                    >
+                      <Icon path={mdiPackageVariantClosed} size={0.65} />
+                      <span className="truncate">{promo.label}</span>
+                      {enabled ? (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${health.cls}`}
+                          data-testid={`nav-plugin-status-${promo.pluginId}`}
+                          role="img"
+                          aria-label={health.label}
+                          title={health.label}
+                        />
+                      ) : (
+                        <span
+                          className="text-[10px] text-[var(--text-tertiary)]"
+                          data-testid={`nav-promoted-off-${promo.pluginId}`}
+                        >
+                          {t("settings.promotedOff", undefined, "off")}
+                        </span>
+                      )}
+                      {dirtyPages.has(`plugins/${promo.pluginId}`) && (
+                        <span
+                          data-testid={`nav-dirty-plugins/${promo.pluginId}`}
+                          title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
+                          className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
             </div>
           ))}
         </nav>
@@ -1493,6 +1521,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   </div>
                 </Section>
                 <DisplayPrefsSection />
+                <CardSectionsSection />
               </>
             )}
 
@@ -1865,6 +1894,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                 </Section>
                 <Section title={t("settings.sessionList", undefined, "Session list")}>
+                  {/* Instant-apply over WS, outside the Save-bar draft: the
+                      value is server-owned and shared across browsers.
+                      See change: session-list-group-by. */}
+                  {onSetDefaultGroupBy && (
+                    <DefaultGroupingField
+                      value={groupByPrefs?.defaultGroupBy ?? "none"}
+                      onChange={onSetDefaultGroupBy}
+                      disabled={!groupByPrefs}
+                    />
+                  )}
                   <SelectField
                     label={i18nT("common.reattachPlacement", undefined, "Reattach Placement")}
                     value={config.reattachPlacement ?? "always"}
@@ -2004,7 +2043,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       <p className="mt-1 text-xs text-red-400">{i18nT("common.mustBeAnIntegerBetween5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
                 </Section>
@@ -2031,7 +2070,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     hint={t(
                       "settings.hint.sessionHeapMaxOldSpace",
                       undefined,
-                      `Old-space ceiling requested for each spawned pi session. Default ${DEFAULT_SESSION_HEAP.maxOldSpaceMb} MB. V8 adds a fixed overhead, so the reported limit is higher than the request.`,
+                      `Old-space ceiling requested for each new pi session. Default ${DEFAULT_SESSION_HEAP.maxOldSpaceMb} MB. V8 adds a fixed overhead, so the reported limit is higher than the request.`,
                     )}
                     onChange={(v) => update((c) => {
                       c.sessionHeap = { ...(c.sessionHeap ?? {}), maxOldSpaceMb: v };
@@ -2105,7 +2144,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 </Section>
                 <Section title={t("settings.worktrees", undefined, "Worktrees")}>
                   <ToggleField
-                    label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
+                    label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show New Worktree buttons in folders and OpenSpec rows")}
                     value={config.gitWorktreeEnabled ?? true}
                     onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
 
@@ -2115,7 +2154,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <WorktreeAutoInitToggle
                     hint={<>
-                      {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
+                      {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After creating a worktree session, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
                     </>}
                   />
                   {/* Windows-only: bundled-vs-host git & bash. Hidden on
@@ -2137,7 +2176,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         <strong>{gitSourceReadout.source}</strong>
                         {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
                         {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
-                        . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
+                        . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for new sessions. macOS/Linux ignore this setting.")}
                       </>}
                     />
                   )}
@@ -2151,6 +2190,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <Section title={t("settings.retry", undefined, "Retry")}>
                   <RetrySettingsSection />
                 </Section>
+                <Section title={t("settings.push.title", undefined, "Push notifications")}>
+                  <PushNotificationsSection />
+                </Section>
               </>
             )}
 
@@ -2159,6 +2201,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "remote" && (
               <>
                 <ServersTab />
+              </>
+            )}
+
+            {activeTab === "access" && (
+              <>
+                <AccessPromptsSection selectedCwd={selectedCwd} />
+                <AccessSection />
               </>
             )}
 
@@ -2320,42 +2369,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
                   <ProviderAuthSection onCredentialsChanged={refetchCatalogue} />
                 </Section>
-                <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
-                  <p className="text-xs text-[var(--text-tertiary)] mb-3">
-                    {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
-                  </p>
-                  {llmProviders.map((provider, index) => {
-                    // Suppress cached health for a row edited since its last save:
-                    // the cache reflects the SAVED config, so showing it against
-                    // unsaved edits would be misleading. See change:
-                    // surface-provider-health-in-settings.
-                    const savedOriginal = originalLlmProviders.find((o) => o.name === provider.name);
-                    const rowDirty = provider.isNew || !savedOriginal
-                      || savedOriginal.baseUrl !== provider.baseUrl
-                      || savedOriginal.apiKey !== provider.apiKey
-                      || savedOriginal.api !== provider.api;
-                    return (
-                    <LlmProviderCard
-                      key={`${provider.name}-${index}`}
-                      provider={provider}
-                      health={rowDirty ? undefined : providerHealth[provider.name]}
-                      onChange={(updated) => {
-                        setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
-                      }}
-                      onRemove={() => {
-                        setLlmProviders((prev) => prev.filter((_, i) => i !== index));
-                      }}
-                    />
-                    );
-                  })}
-                  <button
-                    onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
-                    className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
-                  >
-                    <Icon path={mdiPlus} size={0.6} />
-                    {t("settings.addProvider", undefined, "Add Provider")}
-                  </button>
-                </Section>
                 <Section title={t("settings.apiProxy", undefined, "API Proxy")}>
                   <ModelProxySection
                     config={config.modelProxy ?? {}}
@@ -2380,6 +2393,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   toggle={pluginToggle}
                   onLeaveGuard={pluginDisableGuard}
                   onNavigate={requestRailNavigate}
+                  promotion={promotions.get(activePluginRow.id)}
                 />
               ) : (
                 <>
@@ -2390,7 +2404,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   {activePluginId && !pluginList.loading && !activePluginHasSettings && (
                     <PluginNotFoundNotice pluginId={activePluginId} />
                   )}
-                  <PluginsSection list={pluginList} toggle={pluginToggle} contributesSettings={contributesSettings} />
+                  <PluginsSection list={pluginList} toggle={pluginToggle} contributesSettings={contributesSettings} promotions={promotions} />
                 </>
               )
             )}
@@ -2402,7 +2416,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     {i18nT("settings.controlsHowAggressivelyTheServerPolls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("openspec.openspecList", undefined, "openspec list")}</code> and <code>{i18nT("openspec.openspecStatus", undefined, "openspec status")}</code> {i18nT("folders.forEachKnownDirectoryLongerInterval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("openspec.skipsRePollingUnchangedProposalsRecom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
-                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and spawn sessions for them. Off disables every setting below.")}
+                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and start new sessions for them. Off disables every setting below.")}
                     label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
                     value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                     onChange={(v) => update((c) => {
@@ -2429,7 +2443,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           })}
                         />
                         <NumberField
-                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Upper bound on sessions polling spawns at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
+                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Maximum new sessions OpenSpec polling starts at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
                           label={i18nT("session.maxConcurrentSessions116", undefined, "Max concurrent +Sessions")}
                           disabled={openspecOff}
                           value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
@@ -2487,7 +2501,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
-                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
+                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to new sessions.")}
                   />
                 </Section>
                 <DiagnosticsSection />
@@ -2871,7 +2885,7 @@ function DisplayPrefsSection() {
         <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} hint={i18nT("settings.hint.toolRead", undefined, "File reads.")} />
         <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} hint={i18nT("settings.hint.toolBash", undefined, "Shell commands.")} />
         <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} hint={i18nT("settings.hint.toolEditWrite", undefined, "File mutations.")} />
-        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "Subagent spawns.")} />
+        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "New subagent sessions.")} />
         <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} hint={i18nT("settings.hint.toolOther", undefined, "Every remaining tool, incl. MCP tools.")} />
       </div>
       <div className="pt-2">
@@ -3736,18 +3750,6 @@ export function TextField({ label, value, onChange, type = "text", placeholder, 
     </FieldShell>
   );
 }
-
-const API_TYPE_OPTIONS = [
-  { value: "openai-completions", label: "OpenAI Completions" },
-  { value: "openai-responses", label: "OpenAI Responses" },
-  { value: "anthropic-messages", label: "Anthropic Messages" },
-  { value: "azure-openai-responses", label: "Azure OpenAI" },
-  { value: "mistral-conversations", label: "Mistral" },
-  { value: "bedrock-converse-stream", label: "AWS Bedrock" },
-  { value: "google-generative-ai", label: "Google Gemini" },
-  { value: "google-vertex", label: "Google Vertex AI" },
-];
-
 // ─── Global Packages Browse + Confirm-install Dialog ──────────────────────────
 //
 // The unified packages section above handles the installed-rows view
@@ -3814,223 +3816,3 @@ type TestState =
   | { kind: "ok"; modelCount: number; sample: string[] }
   | { kind: "err"; status?: number; message: string };
 
-export function LlmProviderCard({ provider, health, onChange, onRemove }: {
-  provider: LlmProvider;
-  health?: ProviderHealth;
-  onChange: (p: LlmProvider) => void;
-  onRemove: () => void;
-}) {
-  const { t } = useI18n();
-  const [testState, setTestState] = useState<TestState>({ kind: "idle" });
-
-  // Reset the live Test result when the provider's config changes from OUTSIDE
-  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
-  // testState, so a stale failed-Test would otherwise mask the restored cached
-  // health. See change: surface-provider-health-in-settings.
-  useEffect(() => {
-    setTestState({ kind: "idle" });
-  }, [provider.baseUrl, provider.apiKey, provider.api]);
-
-  const handleChange = (update: LlmProvider) => {
-    // Any change to baseUrl / apiKey / api clears a stale test result.
-    if (
-      update.baseUrl !== provider.baseUrl ||
-      update.apiKey !== provider.apiKey ||
-      update.api !== provider.api
-    ) {
-      setTestState({ kind: "idle" });
-    }
-    onChange(update);
-  };
-
-  const canTest =
-    provider.baseUrl.trim().length > 0 &&
-    provider.apiKey.trim().length > 0 &&
-    testState.kind !== "testing";
-
-  const handleTest = async () => {
-    if (!canTest) return;
-    setTestState({ kind: "testing" });
-    const result: TestProviderResult = await testProvider({
-      name: provider.isNew ? undefined : provider.name,
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      api: provider.api,
-    });
-    if (result.ok) {
-      setTestState({ kind: "ok", modelCount: result.modelCount, sample: result.sample ?? [] });
-    } else {
-      // Keep the verbatim error for the monospace error line; the pill itself
-      // shows only the status code / Unreachable. See change:
-      // surface-provider-health-in-settings.
-      setTestState({ kind: "err", status: result.status, message: result.error ?? "Test failed" });
-    }
-  };
-
-  return (
-    <div className="border border-[var(--border-secondary)] rounded p-3 mb-2">
-      <div className="flex items-center justify-between mb-2 gap-2">
-        {provider.isNew ? (
-          <input
-            type="text"
-            className="bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-0.5 text-sm font-medium text-[var(--text-primary)] w-48"
-            placeholder={t("settings.providerName", undefined, "Provider name")}
-            value={provider.name}
-            onChange={(e) => onChange({ ...provider, name: e.target.value })}
-            autoFocus
-          />
-        ) : (
-          <span className="text-sm font-medium text-[var(--text-primary)]">{provider.name}</span>
-        )}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleTest}
-            disabled={!canTest}
-            title={
-              !canTest && testState.kind !== "testing"
-                ? t("settings.baseUrlFirst", undefined, "Enter Base URL and API Key first")
-                : t("settings.pingModels", undefined, "Ping the provider's /models endpoint")
-            }
-            className="text-xs px-2 py-0.5 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-            data-testid="test-provider-button"
-          >
-            {testState.kind === "testing" ? (
-              <>
-                <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-                {t("common.testing", undefined, "Testing...")}
-              </>
-            ) : (
-              <>
-                <Icon path={mdiPlay} size={0.45} />
-                {t("common.test", undefined, "Test")}
-              </>
-            )}
-          </button>
-          <button
-            onClick={onRemove}
-            className="text-xs px-2 py-0.5 rounded bg-red-600/20 text-red-400 hover:bg-red-600/30 flex items-center gap-1"
-          >
-            <Icon path={mdiDelete} size={0.45} />
-            {t("common.remove", undefined, "Remove")}
-          </button>
-        </div>
-      </div>
-      <div className="space-y-2">
-        <TextField
-          hint={null}
-          label={i18nT("providers.baseUrl", undefined, "Base URL")}
-          value={provider.baseUrl}
-          onChange={(v) => handleChange({ ...provider, baseUrl: v })}
-          placeholder="https://api.example.com/v1"
-        />
-        <TextField
-          hint={null}
-          label={i18nT("gateway.apiKey", undefined, "API Key")}
-          value={provider.apiKey}
-          onChange={(v) => handleChange({ ...provider, apiKey: v })}
-          type="password"
-          placeholder={i18nT("common.skOrEnvVarName", undefined, "sk-... or $ENV_VAR_NAME")}
-        />
-        <div>
-          <label className="block text-xs text-[var(--text-tertiary)] mb-0.5">{i18nT("gateway.apiType", undefined, "API Type")}</label>
-          <select
-            className="w-full bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded px-2 py-1 text-sm text-[var(--text-primary)]"
-            value={provider.api}
-            onChange={(e) => handleChange({ ...provider, api: e.target.value })}
-          >
-            {API_TYPE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <HealthPill state={testState} health={health} />
-      </div>
-    </div>
-  );
-}
-
-// Normalized pill view derived from either a live Test result (`state`) or the
-// server-cached health. Four registers per the spec: connected / error (HTTP
-// status) / unreachable (no status) / not-tested.
-type PillView =
-  | { kind: "testing" }
-  | { kind: "ok"; modelCount: number; sample: string[] }
-  | { kind: "error"; status: number; error: string }
-  | { kind: "unreachable"; error: string }
-  | { kind: "not-tested" };
-
-function derivePillView(state: TestState, health?: ProviderHealth): PillView {
-  if (state.kind === "testing") return { kind: "testing" };
-  if (state.kind === "ok") return { kind: "ok", modelCount: state.modelCount, sample: state.sample };
-  if (state.kind === "err") {
-    return state.status !== undefined
-      ? { kind: "error", status: state.status, error: state.message }
-      : { kind: "unreachable", error: state.message };
-  }
-  // idle — fall back to the server-cached health.
-  if (!health) return { kind: "not-tested" };
-  if (health.ok) return { kind: "ok", modelCount: health.modelCount ?? 0, sample: [] };
-  return health.status !== undefined
-    ? { kind: "error", status: health.status, error: health.error ?? "" }
-    : { kind: "unreachable", error: health.error ?? "" };
-}
-
-function HealthPill({ state, health }: { state: TestState; health?: ProviderHealth }) {
-  const { t } = useI18n();
-  const view = derivePillView(state, health);
-
-  if (view.kind === "testing") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="test-pill" data-state="testing">
-        <Icon path={mdiLoading} size={0.45} className="animate-spin" />
-        {t("common.testing", undefined, "Testing...")}
-      </div>
-    );
-  }
-
-  if (view.kind === "ok") {
-    const label = view.modelCount > 0
-      ? t("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
-      : t("settings.connectedOnly", undefined, "Connected");
-    return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-green-400"
-        data-testid="test-pill"
-        data-state="ok"
-        title={view.sample.length > 0 ? i18nT("settings.sampleModels", { list: view.sample.join(", ") }, "Sample: {list}") : undefined}
-      >
-        <Icon path={mdiCheckCircle} size={0.5} />
-        {label}
-      </div>
-    );
-  }
-
-  if (view.kind === "not-tested") {
-    return (
-      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="test-pill" data-state="not-tested">
-        {t("settings.providerNotTested", undefined, "Not tested")}
-      </div>
-    );
-  }
-
-  // error (yellow, HTTP status) or unreachable (red, no status) — both carry a
-  // verbatim error line beneath the pill.
-  const isError = view.kind === "error";
-  return (
-    <>
-      <div
-        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
-        data-testid="test-pill"
-        data-state={view.kind}
-      >
-        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
-        {isError ? String(view.status) : t("settings.providerUnreachable", undefined, "Unreachable")}
-      </div>
-      {view.error && (
-        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
-          {view.error}
-        </div>
-      )}
-    </>
-  );
-}

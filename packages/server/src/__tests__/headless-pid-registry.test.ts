@@ -362,71 +362,20 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     expect(registry.getPid("S1")).toBe(100);
   });
 
-  it("writeRpc returns false when no entry for sessionId", async () => {
-    const writer = { writeRpcToSockPath: vi.fn(async () => true), discoverExistingKeepers: vi.fn(async () => []) };
-    const registry = createHeadlessPidRegistry({
-      pidFilePath: join(makeTempDir(), "pids.json"),
-      keeperManager: writer,
-    });
-    expect(await registry.writeRpc("unknown-session", "line")).toBe(false);
-    expect(writer.writeRpcToSockPath).not.toHaveBeenCalled();
-  });
-
-  it("writeRpc returns false for non-keeper entry", async () => {
-    const writer = { writeRpcToSockPath: vi.fn(async () => true), discoverExistingKeepers: vi.fn(async () => []) };
-    const registry = createHeadlessPidRegistry({
-      pidFilePath: join(makeTempDir(), "pids.json"),
-      keeperManager: writer,
-    });
-    registry.register(100, "/proj", mockProcess());
-    registry.linkSession("S1", "/proj");
-    expect(await registry.writeRpc("S1", "line")).toBe(false);
-    expect(writer.writeRpcToSockPath).not.toHaveBeenCalled();
-  });
-
-  it("writeRpc delegates to keeper writer for keeper entry", async () => {
-    const writer = {
-      writeRpcToSockPath: vi.fn(async (_p: string, _l: string) => true),
-      discoverExistingKeepers: vi.fn(async () => []),
-    };
-    const registry = createHeadlessPidRegistry({
-      pidFilePath: join(makeTempDir(), "pids.json"),
-      keeperManager: writer,
-    });
-    registry.register(7777, "/proj", mockProcess(), "tok", {
-      keeperPid: 7777,
-      keeperSockPath: "/tmp/x.sock",
-    });
-    registry.linkByToken("tok", "S_keep");
-    const ok = await registry.writeRpc("S_keep", "hello");
-    expect(ok).toBe(true);
-    expect(writer.writeRpcToSockPath).toHaveBeenCalledWith("/tmp/x.sock", "hello");
-  });
-
-  it("writeRpc returns false when keeper writer not injected", async () => {
+  it("setKeeperWriter injects the keeper discoverer after construction", async () => {
+    // `browser-gateway.ts` constructs the registry before the server creates
+    // the KeeperManager, so the writer arrives late. Orphan reconciliation is
+    // the remaining consumer. See change:
+    // retire-slash-dispatch-via-expand-prompt-templates.
     const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
     registry.register(7777, "/proj", mockProcess(), "tok", {
       keeperPid: 7777,
       keeperSockPath: "/tmp/x.sock",
     });
-    registry.linkByToken("tok", "S_keep");
-    expect(await registry.writeRpc("S_keep", "hello")).toBe(false);
-  });
-
-  it("setKeeperWriter injects writer after construction", async () => {
-    const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
-    registry.register(7777, "/proj", mockProcess(), "tok", {
-      keeperPid: 7777,
-      keeperSockPath: "/tmp/x.sock",
-    });
-    registry.linkByToken("tok", "S_keep");
-    const writer = {
-      writeRpcToSockPath: vi.fn(async () => true),
-      discoverExistingKeepers: vi.fn(async () => []),
-    };
+    const writer = { discoverExistingKeepers: vi.fn(async () => []) };
     registry.setKeeperWriter(writer);
-    expect(await registry.writeRpc("S_keep", "line")).toBe(true);
-    expect(writer.writeRpcToSockPath).toHaveBeenCalledTimes(1);
+    await expect(registry.cleanupKeeperOrphans()).resolves.toEqual([]);
+    expect(writer.discoverExistingKeepers).toHaveBeenCalledTimes(1);
   });
 
   it("killBySessionId in keeper mode escalates pi via killProcess", async () => {
@@ -529,14 +478,13 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     // server only knows piPid. linkByPid MUST resolve to correct entry.
     // Drop sessionId to simulate fresh-restart entry state.
     // (Direct mutation isn't exposed; recreate via persist+reload below.)
-    // Instead: assert sockPath disambiguation via writeRpc lookup.
+    // Instead: assert per-entry piPid disambiguation via getPid lookup.
     expect(registry.getPid("S_A")).toBe(5050);
     expect(registry.getPid("S_B")).toBe(6060);
   });
 
   it("cleanupKeeperOrphans attaches keeper info to existing entries", async () => {
     const writer = {
-      writeRpcToSockPath: vi.fn(async () => true),
       discoverExistingKeepers: vi.fn(async () => [
         { sessionId: "transport-1", keeperPid: 4242, sockPath: "/tmp/transport-1.sock" },
       ]),
@@ -551,12 +499,12 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     // Returns the live keeper sessionIds so cold-start recovery can gate on
     // them. See change: fix-recovery-offer-bridge-liveness-gate.
     await expect(registry.cleanupKeeperOrphans()).resolves.toEqual(["transport-1"]);
-    // Verify writer was consulted and entry got keeper info via
-    // observable side-effect: writeRpc now succeeds for that entry.
+    // The entry acquired keeper info: `listSessions().hasKeeper` flips true.
+    // (The former observable was `writeRpc` succeeding, removed by change
+    // retire-slash-dispatch-via-expand-prompt-templates.)
     registry.linkSession("S_attached", "/proj");
-    const ok = await registry.writeRpc("S_attached", "line");
-    expect(ok).toBe(true);
-    expect(writer.writeRpcToSockPath).toHaveBeenCalledWith("/tmp/transport-1.sock", "line");
+    const [sess] = registry.listSessions().filter((e) => e.sessionId === "S_attached");
+    expect(sess?.hasKeeper).toBe(true);
   });
 });
 
@@ -701,7 +649,6 @@ describe("HeadlessPidRegistry: discovery reconciliation", () => {
     });
     await registry.cleanupOrphans(); // reclaim (restores keeperPid → old guard would skip)
     registry.setKeeperWriter({
-      writeRpcToSockPath: vi.fn(async () => true),
       discoverExistingKeepers: vi.fn(async () => [
         { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: 5050 },
       ]),
@@ -717,7 +664,6 @@ describe("HeadlessPidRegistry: discovery reconciliation", () => {
     });
     await registry.cleanupOrphans();
     registry.setKeeperWriter({
-      writeRpcToSockPath: vi.fn(async () => true),
       discoverExistingKeepers: vi.fn(async () => [
         { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: 5050 },
       ]),
@@ -746,8 +692,7 @@ describe("HeadlessPidRegistry: discovery reconciliation", () => {
       registry.linkByToken("B", "S_B", 6002); // sets piPid=6002
       registry.register(1003, "/c", mockProcess(), "C", { keeperPid: 1003, keeperSockPath: "/tmp/c.sock" }); // no sidecar
       registry.setKeeperWriter({
-        writeRpcToSockPath: vi.fn(async () => true),
-        discoverExistingKeepers: vi.fn(async () => [
+          discoverExistingKeepers: vi.fn(async () => [
           { sessionId: "t1", keeperPid: 1001, sockPath: "/tmp/a.sock", piPid: 5001 },
           { sessionId: "t2", keeperPid: 1002, sockPath: "/tmp/b.sock", piPid: 6002 },
           { sessionId: "t3", keeperPid: 1003, sockPath: "/tmp/c.sock" },

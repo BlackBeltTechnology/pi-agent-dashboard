@@ -150,6 +150,22 @@ export {
   subagentHeapBudget,
 } from "./heap-limits.js";
 
+/**
+ * Server push notifications (Web Push / FCM / webhook). Opt-in: a missing or
+ * partial block parses as disabled. See change: add-server-push-notifications.
+ */
+export interface PushConfig {
+  /** Default false. Only a strict `true` enables push. */
+  enabled: boolean;
+  /** Per-(session, webhook token) coalescing window. Default 30 000, clamped 5 000–300 000. */
+  coalesceWindowMs: number;
+  fcm?: { serviceAccountPath: string };
+  /** VAPID `mailto:` subject. Web Push is disabled without it. */
+  webPush?: { contactEmail: string };
+}
+
+export const DEFAULT_PUSH_COALESCE_WINDOW_MS = 30_000;
+
 export interface OpenSpecPollConfig {
   /**
    * Master gate. When `false`, the dashboard treats OpenSpec as fully disabled
@@ -464,6 +480,25 @@ export interface SubagentSaturationThresholds {
   loadAvg1m?: number;
 }
 
+/**
+ * Access-grant prompting. Prompting is opt-in: a fresh install records denials
+ * and raises no dialog until an operator turns it on explicitly.
+ * See change: add-access-grant-dialog.
+ */
+export interface AccessGrantsConfig {
+  /**
+   * Master switch for raising access-grant dialogs. Default **false**. Absent
+   * parses to false, so an un-upgraded config never starts prompting. Not
+   * seeded by `ensureConfig()`: absent and explicit-false mean the same thing
+   * here, and seeding would churn every existing config file.
+   *
+   * Invariant: the Access-page toggle writes `PUT /api/config { accessGrants:
+   * { promptEnabled } }`, which REPLACES the whole group. Adding a second field
+   * here means that toggle must merge first, or it silently drops the field.
+   */
+  promptEnabled: boolean;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -628,6 +663,8 @@ export interface DashboardConfig {
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
+  /** Server push notifications. Absent → disabled. See change: add-server-push-notifications. */
+  push?: PushConfig;
   /**
    * Timeout for ask_user prompts in seconds.
    * Default: 300 (5 minutes).
@@ -651,6 +688,11 @@ export interface DashboardConfig {
    * See change: add-host-allowlist-admission.
    */
   hostGate: HostGateConfig;
+  /**
+   * Access-grant prompting settings. Default `{ promptEnabled: false }`.
+   * See change: add-access-grant-dialog.
+   */
+  accessGrants: AccessGrantsConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
@@ -1072,6 +1114,7 @@ const DEFAULTS: DashboardConfig = {
     },
   },
   devBuildOnReload: false,
+  accessGrants: { promptEnabled: false },
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
@@ -1259,6 +1302,26 @@ export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: 
     }
   }
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Parse the `push` block. Anything but a strict `enabled: true` is disabled;
+ * `coalesceWindowMs` is clamped to 5 000–300 000 (non-numbers → 30 000).
+ * See change: add-server-push-notifications (Decision 6).
+ */
+export function parsePushConfig(raw: any): PushConfig {
+  const block = raw && typeof raw === "object" ? raw : {};
+  const out: PushConfig = {
+    enabled: block.enabled === true,
+    coalesceWindowMs: clampNumber(block.coalesceWindowMs, DEFAULT_PUSH_COALESCE_WINDOW_MS, 5_000, 300_000),
+  };
+  if (block.fcm && typeof block.fcm === "object" && typeof block.fcm.serviceAccountPath === "string") {
+    out.fcm = { serviceAccountPath: block.fcm.serviceAccountPath };
+  }
+  if (block.webPush && typeof block.webPush === "object" && typeof block.webPush.contactEmail === "string") {
+    out.webPush = { contactEmail: block.webPush.contactEmail };
+  }
+  return out;
 }
 
 function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
@@ -1780,6 +1843,7 @@ export function loadConfig(): DashboardConfig {
       sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
+      push: parsePushConfig(parsed.push),
       allowedHosts: Array.isArray(parsed.allowedHosts)
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
         : defaults.allowedHosts,
@@ -1808,6 +1872,12 @@ export function loadConfig(): DashboardConfig {
         ? { dashboardName: parsed.dashboardName }
         : {}),
       electronMode: parsed.electronMode === true,
+      accessGrants: {
+        promptEnabled:
+          typeof parsed.accessGrants?.promptEnabled === "boolean"
+            ? parsed.accessGrants.promptEnabled
+            : defaults.accessGrants.promptEnabled,
+      },
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),

@@ -24,7 +24,7 @@ import { statusMeta, useGoals } from "./useGoals.js";
 const FILTERS: { id: "all" | GoalRecordStatus; label: string }[] = [
   { id: "all", label: "All" },
   { id: "pursuing", label: "Pursuing" },
-  { id: "respawning", label: "Respawning" },
+  { id: "respawning", label: "Restarting" },
   { id: "paused", label: "Paused" },
   { id: "achieved", label: "Achieved" },
   // Terminal supervisor verdict (crash-loop breaker). See change:

@@ -31,7 +31,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", async (impo
   isGitRepo,
 }));
 
-import { detectBranch, detectIsGitRepo, detectPrNumber, detectRemoteUrl, detectWorktree, gatherGitInfo } from "../vcs-info.js";
+import { detectBranch, detectIsGitRepo, detectRemoteUrl, detectWorktree, gatherGitInfo } from "../vcs-info.js";
 
 describe("git-info", () => {
   beforeEach(() => {
@@ -122,41 +122,29 @@ describe("git-info", () => {
     });
   });
 
-  describe("detectPrNumber", () => {
-    it("returns PR number when gh finds one", () => {
-      prNumberOr.mockReturnValue(42);
-      expect(detectPrNumber("/test")).toBe(42);
-    });
-
-    it("returns undefined when gh is missing or no PR exists", () => {
-      prNumberOr.mockReturnValue(undefined);
-      expect(detectPrNumber("/test")).toBeUndefined();
-    });
-  });
-
   describe("gatherGitInfo", () => {
     it("returns undefined when not a git repo", () => {
       currentBranchOr.mockReturnValue(undefined);
       expect(gatherGitInfo("/test")).toBeUndefined();
     });
 
-    it("returns GitInfo for a repo with branch + remote + PR", () => {
+    it("returns GitInfo for a repo with branch + remote and NO PR fields (PR is probed async)", () => {
       currentBranchOr.mockReturnValue("feature/x");
       remoteUrlOr.mockReturnValue("git@github.com:org/repo.git");
-      prNumberOr.mockReturnValue(123);
 
       const info = gatherGitInfo("/test");
       expect(info?.gitBranch).toBe("feature/x");
-      expect(info?.gitPrNumber).toBe(123);
       // Branch URLs URL-encode slashes (feature/x → feature%2Fx) in some builders
       expect(info?.gitBranchUrl).toMatch(/feature(\/|%2F)x/);
-      expect(info?.gitPrUrl).toContain("123");
+      expect(info).not.toHaveProperty("gitPrNumber");
+      expect(info).not.toHaveProperty("gitPrUrl");
+      // No synchronous `gh` on the tick path. See change: redesign-composer-session-strip.
+      expect(prNumberOr).not.toHaveBeenCalled();
     });
 
     it("returns GitInfo without links when there's no remote", () => {
       currentBranchOr.mockReturnValue("main");
       remoteUrlOr.mockReturnValue(undefined);
-      prNumberOr.mockReturnValue(undefined);
 
       const info = gatherGitInfo("/test");
       expect(info?.gitBranch).toBe("main");
@@ -167,7 +155,6 @@ describe("git-info", () => {
       currentBranchOr.mockReturnValue("HEAD");
       headShaOr.mockReturnValue("abc1234");
       remoteUrlOr.mockReturnValue(undefined);
-      prNumberOr.mockReturnValue(undefined);
 
       const info = gatherGitInfo("/test");
       expect(info?.gitBranch).toBe("abc1234");
@@ -270,7 +257,6 @@ describe("git-info", () => {
     it("populates gitWorktree when cwd is a worktree", () => {
       currentBranchOr.mockReturnValue("feat/x");
       remoteUrlOr.mockReturnValue(undefined);
-      prNumberOr.mockReturnValue(undefined);
       checkoutRoots.mockReturnValue({
         thisCheckout: "/repo/.worktrees/feat-x",
         isLinkedWorktree: true,
@@ -285,7 +271,6 @@ describe("git-info", () => {
     it("omits gitWorktree when cwd is the main checkout", () => {
       currentBranchOr.mockReturnValue("develop");
       remoteUrlOr.mockReturnValue(undefined);
-      prNumberOr.mockReturnValue(undefined);
       checkoutRoots.mockReturnValue({ thisCheckout: "/repo", isLinkedWorktree: false, mainCheckout: "/repo" });
 
       const info = gatherGitInfo("/repo");
@@ -293,15 +278,13 @@ describe("git-info", () => {
     });
 
     // X6 — a rev-parse failure must not take the rest of the poll tick with it.
-    it("X6: gitWorktree is undefined when rev-parse fails, but branch/remote/PR still flow", () => {
+    it("X6: gitWorktree is undefined when rev-parse fails, but branch/remote still flow", () => {
       currentBranchOr.mockReturnValue("main");
       remoteUrlOr.mockReturnValue("git@github.com:o/r.git");
-      prNumberOr.mockReturnValue(42);
       checkoutRoots.mockReturnValue(null);
 
       const info = gatherGitInfo("/test");
       expect(info?.gitBranch).toBe("main");
-      expect(info?.gitPrNumber).toBe(42);
       expect(info?.gitBranchUrl).toBeDefined();
       expect(info?.gitWorktree).toBeUndefined();
     });

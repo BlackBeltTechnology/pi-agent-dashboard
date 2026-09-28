@@ -564,7 +564,7 @@ export function SpawnFailuresSection() {
       {expanded && entries !== null && (
         <div className="divide-y divide-[var(--border-secondary)]">
           {entries.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-[var(--text-tertiary)]">{i18nT("session.noSpawnFailuresRecorded", undefined, "No spawn failures recorded.")}</p>
+            <p className="px-4 py-3 text-sm text-[var(--text-tertiary)]">{i18nT("session.noSpawnFailuresRecorded", undefined, "No failed session starts recorded.")}</p>
           ) : (
             entries.map((e, i) => <SpawnFailureRow key={i} entry={e} />)
           )}

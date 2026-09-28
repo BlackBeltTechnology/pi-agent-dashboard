@@ -18,6 +18,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ImagePreview } from "./ImagePreview.js";
 import { emlAttachmentUrl, emlUrl } from "./raw-url.js";
 import { logRejection } from "../../lib/report-error.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -63,6 +64,9 @@ function buildSrcDoc(bodyHtml: string): string {
 }
 
 export function EmlPreview({ target }: Props) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [data, setData] = useState<EmlData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [allowRemote, setAllowRemote] = useState(false);
@@ -78,7 +82,7 @@ export function EmlPreview({ target }: Props) {
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(emlUrl(target, allowRemote));
+        const res = await previewFetch(emlUrl(target, allowRemote));
         const json = await res.json();
         if (cancelled) return;
         if (!res.ok || !json.success) {
@@ -93,7 +97,7 @@ export function EmlPreview({ target }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [target.cwd, target.path, allowRemote]);
+  }, [target.cwd, target.path, allowRemote, previewFetch]);
 
   // Resolve `cid:` inline images to blob URLs, then build the iframe srcDoc.
   useEffect(() => {
@@ -112,7 +116,7 @@ export function EmlPreview({ target }: Props) {
       await Promise.all(
         inlineCids.map(async (a) => {
           try {
-            const res = await fetch(emlAttachmentUrl(target, a.index));
+            const res = await previewFetch(emlAttachmentUrl(target, a.index));
             if (!res.ok) return;
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
@@ -134,7 +138,7 @@ export function EmlPreview({ target }: Props) {
       for (const u of createdUrls) URL.revokeObjectURL(u);
       blobUrls.current = blobUrls.current.filter((u) => !createdUrls.includes(u));
     };
-  }, [data, target.cwd, target.path]);
+  }, [data, target.cwd, target.path, previewFetch]);
 
   // Final safeguard: revoke any surviving blob URLs on unmount.
   useEffect(() => {
@@ -243,6 +247,9 @@ function formatSize(bytes: number): string {
 }
 
 function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMeta }) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const [expanded, setExpanded] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -259,7 +266,7 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const res = await fetch(emlAttachmentUrl(target, att.index));
+        const res = await previewFetch(emlAttachmentUrl(target, att.index));
         if (!res.ok || cancelled) return;
         const blob = await res.blob();
         created = URL.createObjectURL(blob);
@@ -272,7 +279,7 @@ function AttachmentRow({ target, att }: { target: FileTarget; att: AttachmentMet
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [expanded, target.cwd, target.path, att.index]);
+  }, [expanded, target.cwd, target.path, att.index, previewFetch]);
 
   return (
     <div className="text-xs" data-testid="eml-attachment" data-mime={att.mimeType}>

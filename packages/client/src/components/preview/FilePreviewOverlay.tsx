@@ -18,6 +18,10 @@ import { PptxPreview } from "./PptxPreview.js";
 import { dirname } from "./resolve-local-image-src.js";
 import { SpreadsheetPreview } from "./SpreadsheetPreview.js";
 import { logRejection } from "../../lib/report-error.js";
+import { eligibleFetch, PreviewProvenance, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
+import { classifyResponse, type DenialFailure } from "./denial-fetch.js";
+import { DenialNotice } from "./DenialNotice.js";
+import { isSameOriginApiBase, useBlobImage } from "./use-blob-image.js";
 
 /** DOM id of the scroll target line inside the highlighted code view. */
 const TARGET_LINE_ID = "file-preview-target-line";
@@ -56,6 +60,12 @@ interface Props {
   path: string;
   line?: number;
   onClose: () => void;
+  /**
+   * Who opened the overlay. It opens on an operator click today, so the default
+   * is `"operator"`; a future non-click opener passes `"auto"` instead of
+   * silently inheriting eligibility (surface-denial-remedy-in-previews, D4).
+   */
+  provenance?: "operator" | "auto";
 }
 
 function getExt(p: string): string {
@@ -95,9 +105,28 @@ export function friendlyReadError(
  *
  * See change: linkify-tool-output.
  */
-export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
+export function FilePreviewOverlay({ provenance = "operator", ...props }: Props) {
+  // The provider must sit ABOVE the component whose hooks read it, so the
+  // loading code lives in the inner body (surface-denial-remedy-in-previews, D4).
+  return (
+    <PreviewProvenance autoOpened={provenance === "auto"}>
+      {/* Keyed by target: the host reuses one overlay across targets, and every
+          target-scoped state (the ask, errors, content) must start fresh. */}
+      <FilePreviewOverlayBody key={`${props.cwd}\u0000${props.path}`} {...props} />
+    </PreviewProvenance>
+  );
+}
+
+function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "provenance">) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A containment denial (text or image) renders `DenialNotice`; other read
+  // failures keep their friendly stale-link message.
+  const [denial, setDenial] = useState<DenialFailure | null>(null);
+  const { fetch: previewFetch, optedOut } = usePreviewFetch();
+  const [asked, setAsked] = useState(false);
+  const textUrl = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
+  const imageUrl = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const lineRef = useRef<HTMLDivElement | null>(null);
@@ -111,14 +140,28 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
   const isRich = RichViewer !== undefined;
   const language = detectLanguage(path);
 
+  // Same-origin API base: the image loads through `fetch` → `blob:` so it can
+  // reach the dialog (D1); otherwise the `<img>` below is unchanged.
+  const blobImage = useBlobImage(isImage && !isRich && isSameOriginApiBase() ? imageUrl : null);
+
   useEffect(() => {
     if (isImage || isRich) return; // image / rich renderers fetch their own bytes
     let cancelled = false;
+    setDenial(null);
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
-        const url = `${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
-        const res = await fetch(url);
+        const res = await (asked ? eligibleFetch : previewFetch)(textUrl);
+        if (res.status === 403) {
+          const r = await classifyResponse(res, asked ? false : optedOut);
+          if (cancelled) return;
+          if (r.kind === "denied") {
+            setDenial(r);
+            return;
+          }
+          setError(friendlyReadError(r.kind === "refused" ? r.error : undefined, path, cwd));
+          return;
+        }
         const json = await res.json();
         if (cancelled) return;
         if (!json.success) {
@@ -137,7 +180,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cwd, path, isImage, isRich]);
+  }, [cwd, path, textUrl, isImage, isRich, asked, previewFetch, optedOut]);
 
   // Escape dismissal routes through the shared escape-stack so an Escape opened
   // above another dismissible surface peels only this overlay.
@@ -234,18 +277,38 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
                 {error}
               </div>
             )}
+            {!error && denial && (
+              <DenialNotice result={denial} url={textUrl} path={path} onAsk={() => setAsked(true)} asked={asked} />
+            )}
+            {!error && isImage && !isRich && blobImage.state.status === "failed" && (
+              <DenialNotice
+                result={blobImage.state.failure}
+                url={imageUrl}
+                path={path}
+                onAsk={blobImage.ask}
+                asked={blobImage.asked}
+              />
+            )}
             {!error && isRich && RichViewer && (
               <RichViewer target={{ kind: "file", cwd, path }} />
             )}
-            {!error && !isRich && isImage && (
+            {!error && !denial && !isRich && isImage && !isSameOriginApiBase() && (
               <img
-                src={`${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`}
+                src={imageUrl}
                 alt={path}
                 className="max-w-full h-auto mx-auto"
-                onError={() => setError((prev) => prev ?? `Failed to load image: ${path}`)}
+                onError={() => setDenial({ kind: "unknown" })}
               />
             )}
-            {!error && !isImage && !isRich && content === null && (
+            {!error && !isRich && isImage && blobImage.state.status === "ok" && (
+              <img src={blobImage.state.src} alt={path} className="max-w-full h-auto mx-auto" />
+            )}
+            {!error && !isRich && isImage && isSameOriginApiBase() && blobImage.state.status === "loading" && (
+              <div className="flex items-center justify-center text-[var(--text-muted)]" data-testid="file-preview-loading">
+                <Icon path={mdiLoading} size={1.0} spin className="animate-spin" />
+              </div>
+            )}
+            {!error && !denial && !isImage && !isRich && content === null && (
               <div className="flex items-center justify-center text-[var(--text-muted)]" data-testid="file-preview-loading">
                 <Icon path={mdiLoading} size={1.0} spin className="animate-spin" />
               </div>

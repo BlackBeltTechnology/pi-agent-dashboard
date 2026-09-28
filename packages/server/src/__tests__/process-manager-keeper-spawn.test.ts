@@ -51,7 +51,6 @@ class FakeKeeperChild extends EventEmitter {
 
 interface FakeKeeperManagerState {
   spawnCalls: Array<{ sessionId: string; cwd: string; env: NodeJS.ProcessEnv; piArgs?: string[]; piCmd?: string[] }>;
-  writeCalls: Array<{ sessionId: string; line: string }>;
   killCalls: string[];
   spawnResult: KeeperSpawnResult;
 }
@@ -61,7 +60,6 @@ function makeFakeKeeperManager(
 ): { km: KeeperManager; state: FakeKeeperManagerState } {
   const full: FakeKeeperManagerState = {
     spawnCalls: state.spawnCalls ?? [],
-    writeCalls: state.writeCalls ?? [],
     killCalls: state.killCalls ?? [],
     spawnResult: state.spawnResult,
   };
@@ -71,11 +69,6 @@ function makeFakeKeeperManager(
       full.spawnCalls.push({ sessionId, cwd, env, piArgs, piCmd });
       return full.spawnResult;
     },
-    writeRpc: async (sessionId, line) => {
-      full.writeCalls.push({ sessionId, line });
-      return true;
-    },
-    writeRpcToSockPath: async (_sockPath, _line) => true,
     killKeeper: (sessionId) => {
       full.killCalls.push(sessionId);
       return true;

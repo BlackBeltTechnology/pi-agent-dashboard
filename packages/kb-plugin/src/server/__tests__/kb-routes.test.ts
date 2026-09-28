@@ -142,6 +142,13 @@ describe("GET /api/kb/stats", () => {
     const { app } = buildApp([known]);
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(other)}` });
     expect(res.statusCode).toBe(403);
+    // Task 3.1 (design D7/D18): the bare `{ error }` shape is PRESERVED — no
+    // `success` key is introduced — and `reason`/`hint` are additive.
+    const body = res.json();
+    expect(body.error).toBe("cwd not allowed");
+    expect(body).not.toHaveProperty("success");
+    expect(typeof body.reason).toBe("string");
+    expect(typeof body.hint).toBe("string");
     await app.close();
   });
 
@@ -530,6 +537,10 @@ describe("POST /api/kb/reindex", () => {
     const { app } = buildApp([known]);
     const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${encodeURIComponent(other)}` });
     expect(res.statusCode).toBe(403);
+    // Same `rejectCwd` helper as the GET sites (task 3.1): one shape, one place.
+    expect(res.json().error).toBe("cwd not allowed");
+    expect(typeof res.json().reason).toBe("string");
+    expect(typeof res.json().hint).toBe("string");
     await app.close();
   });
 

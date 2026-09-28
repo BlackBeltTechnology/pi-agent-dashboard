@@ -34,9 +34,14 @@ function lib(script) {
   }).trim();
 }
 
+// Probe the `compose` SUBCOMMAND, not just the docker binary. Vitest runs
+// under an ephemeral HOME, so Docker Desktop's CLI plugins (~/.docker/
+// cli-plugins) are invisible to the child: `docker --version` still succeeds
+// while `docker compose` does not exist, and the suite ran anyway and died on
+// "unknown shorthand flag: 'f'".
 function hasDocker() {
   try {
-    execFileSync("docker", ["--version"], { stdio: "ignore" });
+    execFileSync("docker", ["compose", "version"], { stdio: "ignore" });
     return true;
   } catch {
     return false;

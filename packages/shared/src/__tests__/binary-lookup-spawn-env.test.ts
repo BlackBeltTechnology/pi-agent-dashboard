@@ -12,6 +12,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("node:fs", () => ({ existsSync: () => false, realpathSync: (p: string) => p }));
 
 import { ToolResolver } from "../platform/binary-lookup.js";
+import { MANAGED_BIN } from "../managed-paths.js";
 
 describe("ToolResolver.buildSpawnEnv with platform override", () => {
   it("on win32: adds System32 to PATH even when inherited PATH is empty", () => {
@@ -30,10 +31,9 @@ describe("ToolResolver.buildSpawnEnv with platform override", () => {
       { PATH: "C:\\Windows\\System32;C:\\other", SYSTEMROOT: "C:\\Windows" },
       { platform: "win32", exists: () => true },
     );
-    // Count substring occurrences (case-insensitive). buildSpawnEnv may
-    // splice POSIX `:` delimiters on a darwin host into the prepended
-    // segment, so splitting by `;` is unreliable; substring count is the
-    // right invariant for de-dup.
+    // Count substring occurrences (case-insensitive) — the invariant for
+    // de-dup. (buildSpawnEnv now joins win32 prepends with `;` even on a
+    // POSIX host; see change: fix-windows-path-env-key-casing.)
     const lower = (env.PATH ?? "").toLowerCase();
     const re = /c:\\windows\\system32(?![\\\w])/g;
     const matches = lower.match(re) ?? [];
@@ -57,5 +57,37 @@ describe("ToolResolver.buildSpawnEnv with platform override", () => {
       { platform: "darwin", exists: () => true },
     );
     expect(env.PATH).not.toContain("System32");
+  });
+});
+
+describe("ToolResolver.buildSpawnEnv PATH key casing (#720)", () => {
+  const pathKeys = (env: NodeJS.ProcessEnv) => Object.keys(env).filter((k) => k.toUpperCase() === "PATH");
+
+  it("E13: on win32 a Path-keyed env yields a single PATH keeping the inherited entries", () => {
+    const resolver = new ToolResolver({});
+    const env = resolver.buildSpawnEnv(
+      { Path: "C:\\Program Files\\Git\\cmd;C:\\Windows\\System32", SYSTEMROOT: "C:\\Windows" },
+      { platform: "win32", exists: () => true },
+    );
+    expect(pathKeys(env)).toEqual(["PATH"]);
+    const entries = (env.PATH ?? "").split(";");
+    expect(entries).toContain("C:\\Program Files\\Git\\cmd");
+    expect(entries).toContain("C:\\Windows\\System32");
+    const managedIdx = entries.indexOf(MANAGED_BIN);
+    expect(managedIdx).toBeGreaterThanOrEqual(0);
+    expect(managedIdx).toBeLessThan(entries.indexOf("C:\\Program Files\\Git\\cmd"));
+    // No host `:`-joined prepend blob: a `:` may only appear as a drive letter.
+    for (const entry of entries) expect(entry.indexOf(":", 2)).toBe(-1);
+  });
+
+  it("E14: on darwin a stray Path key is untouched and PATH is :-joined", () => {
+    const resolver = new ToolResolver({});
+    const env = resolver.buildSpawnEnv(
+      { PATH: "/usr/bin", Path: "/opt/x" },
+      { platform: "darwin", exists: () => true },
+    );
+    expect(env.Path).toBe("/opt/x");
+    expect(env.PATH?.startsWith(`${MANAGED_BIN}:`)).toBe(true);
+    expect(env.PATH?.endsWith(":/usr/bin")).toBe(true);
   });
 });

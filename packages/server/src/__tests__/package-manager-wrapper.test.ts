@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PackageManagerWrapper, PackageOperationBusyError } from "../package/package-manager-wrapper.js";
+import { createSafePackageManagerClass, PackageManagerWrapper, PackageOperationBusyError } from "../package/package-manager-wrapper.js";
+import type { SubprocessAdapter } from "@blackbelt-technology/pi-dashboard-shared/platform/subprocess-adapter.js";
 import { ToolRegistry, OverridesStore } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { registerDefaultTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/definitions.js";
 import os from "node:os";
@@ -194,5 +195,19 @@ describe("PackageManagerWrapper", () => {
 
     expect(update).toHaveBeenCalledWith("npm:test");
     expect(completions[0].success).toBe(true);
+  });
+});
+
+describe("SafePackageManager.spawnCaptureCommand env overlay (#720)", () => {
+  it("E25: caller PATH replaces the inherited one, host keys kept", () => {
+    const spawn = vi.fn();
+    const adapter = { spawn } as unknown as SubprocessAdapter;
+    const SafePM = createSafePackageManagerClass(class {}, adapter, makeTestRegistry());
+    new SafePM().spawnCaptureCommand("some-unregistered-cmd", ["x"], { env: { PATH: "/caller", FOO: "1" } });
+    expect(spawn).toHaveBeenCalledOnce();
+    const env = spawn.mock.calls[0]![2].env as NodeJS.ProcessEnv;
+    expect(env.PATH).toBe("/caller");
+    expect(env.FOO).toBe("1");
+    expect(env.HOME).toBe(process.env.HOME);
   });
 });

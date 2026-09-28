@@ -170,29 +170,30 @@ describe("useProvidersReady — provider-auth-event wiring (dispatch-provider-au
 
   it("D5 a real save path converges the hook to ready=true with no focus event", async () => {
     // Server state: unconfigured until the API-key PUT lands, authenticated
-    // afterwards — exactly what the component's dispatch must reveal.
+    // afterwards — exactly what the component's dispatch must reveal. The
+    // save path is the Add-provider dialog (key entry lives there now).
     let authConfigured = false;
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: any) => {
-      if (url.includes("/api/provider-auth/handlers")) return { ok: true, json: async () => ({ ids: ["openai"] }) } as any;
       if (url.includes("/api/provider-auth/status")) {
         return {
           ok: true,
           json: async () => (authConfigured
-            ? [{ id: "openai", name: "OpenAI", flowType: "api_key", authenticated: true }]
-            : [{ id: "openai", name: "OpenAI", flowType: "api_key", authenticated: false }]),
+            ? [{ id: "openai", name: "OpenAI", flowType: "api_key", authenticated: true, configured: true }]
+            : [{ id: "openai", name: "OpenAI", flowType: "api_key", authenticated: false, configured: false }]),
         } as any;
       }
+      if (url.includes("/api/provider-auth/catalogue-ready")) return { ok: true, json: async () => ({ ready: true }) } as any;
       if (url.includes("/api/provider-auth/api-key")) {
         authConfigured = true; // the write landed server-side
         return { ok: true, json: async () => ({ ok: true }) } as any;
       }
-      if (url.includes("/api/providers")) return { ok: true, json: async () => ({ success: true, providers: {} }) } as any;
+      if (url.includes("/api/providers")) return { ok: true, json: async () => ({ success: true, providers: {}, health: {} }) } as any;
       return { ok: false, json: async () => null } as any;
     }));
     const { events, stop } = trackAuthEvents();
     const focusSpy = vi.fn();
     window.addEventListener("focus", focusSpy);
-    const { getByText, getByTestId } = render(createElement("div", null,
+    const { getByText, getByTestId, findByTestId } = render(createElement("div", null,
       createElement(ProviderAuthSection),
       createElement(ReadyProbe),
     ));
@@ -201,9 +202,11 @@ describe("useProvidersReady — provider-auth-event wiring (dispatch-provider-au
     await waitFor(() => expect(probe().loading).toBe(false));
     expect(probe().ready).toBe(false);
 
-    fireEvent.click(await waitFor(() => getByText("Add Key")));
+    // Open the Add-provider dialog, pick the provider, submit a key.
+    fireEvent.click(await findByTestId("add-provider-button"));
+    fireEvent.click(await waitFor(() => getByText("OpenAI")));
     fireEvent.change(document.querySelector('input[type="password"]')!, { target: { value: "sk-wire-1" } });
-    fireEvent.click(getByText("Save"));
+    fireEvent.click(getByTestId("dialog-submit"));
 
     await waitFor(() => expect(events).toHaveLength(1));
     await waitFor(() => expect(probe().ready).toBe(true));

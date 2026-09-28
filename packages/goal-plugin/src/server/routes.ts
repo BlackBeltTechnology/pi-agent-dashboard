@@ -86,7 +86,16 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
     const known = new Set<string>(knownFolderCwds());
     if (!known.has(cwd)) {
       reply.code(403);
-      reply.send({ success: false, error: "cwd not allowed" } satisfies ApiResponse);
+      // Additive remedy fields beside the unchanged `error` (design D7/D18):
+      // the known-folder set already includes pinned directories, so pinning
+      // the refused directory is the offered remedy. See change:
+      // add-access-grants-and-review.
+      reply.send({
+        success: false,
+        error: "cwd not allowed",
+        reason: "cwd is not a known session or pinned directory.",
+        hint: "Pin this directory to allow it, or open a session rooted in it.",
+      } as unknown as ApiResponse);
       return true;
     }
     return false;
@@ -351,7 +360,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (body.spawn === true) {
         if (!spawnGoalSession) {
           reply.code(501);
-          return { success: false, error: "spawn not supported" } satisfies ApiResponse;
+          return { success: false, error: "starting sessions is not supported" } satisfies ApiResponse;
         }
         try {
           // Validate the goal exists before spawning.
@@ -361,7 +370,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
           const res = await spawnGoalSession(cwd!, id, model ? { model } : undefined);
           if (!res.success) {
             reply.code(500);
-            return { success: false, error: res.message ?? "spawn failed" } satisfies ApiResponse;
+            return { success: false, error: res.message ?? "session start failed" } satisfies ApiResponse;
           }
           return { success: true } satisfies ApiResponse;
         } catch (err) {

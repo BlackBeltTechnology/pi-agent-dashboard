@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildGraph, computeToggleImpact } from "../dependency-graph.js";
 import {
   clearDiscoveryCache,
   clearStatusStore,
+  deterministicSerializePlugins,
   discoverPlugins,
   getPluginStatusStore,
   loadServerEntries,
@@ -41,6 +42,8 @@ function makeFakeContext(): ServerPluginContext {
     assignSessionRef: () => false,
     networkGuard: async () => {},
     onShutdown: () => () => {},
+    listWorkspaces: () => [],
+    onWorkspacesChanged: () => () => {},
     registerWsRoute: () => {},
     logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
@@ -289,5 +292,53 @@ describe("dependsOn matrix — mcp-client → apple-tools (task 4.3)", () => {
     // Enabling apple-tools while its dep is off cascades the dep back on.
     const offGraph = buildGraph(manifests, (id) => id !== "mcp-client");
     expect(computeToggleImpact(offGraph, "apple-tools", true).cascadeEnable).toEqual(["mcp-client"]);
+  });
+});
+
+// See change: promote-model-roles-settings (test-plan #E9, #X4).
+describe("settings-section nav hint — loader", () => {
+  const plugin = (label: string) => ({
+    manifest: {
+      id: "roles",
+      displayName: "Roles",
+      priority: 1000,
+      claims: [
+        { slot: "settings-section" as const, component: "RolesSettings", nav: { group: "models", label } },
+      ],
+    },
+  });
+
+  it("E9: nav participates in the registry serialisation", () => {
+    expect(deterministicSerializePlugins([plugin("A")])).not.toBe(
+      deterministicSerializePlugins([plugin("B")]),
+    );
+    expect(deterministicSerializePlugins([plugin("A")])).toBe(
+      deterministicSerializePlugins([plugin("A")]),
+    );
+  });
+
+  it("X4: a malformed nav never unloads the plugin at discovery", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      writePlugin("nav-plugin", {
+        id: "nav-plugin",
+        displayName: "Nav",
+        claims: [
+          { slot: "settings-section", component: "A", nav: null },
+          { slot: "settings-section", component: "B" },
+        ],
+      });
+      const plugins = discoverPlugins(tmpDir);
+      expect(plugins).toHaveLength(1);
+      expect(plugins[0].manifest.claims).toHaveLength(2);
+      expect(plugins[0].manifest.claims[0].nav).toBeUndefined();
+      const navWarnings = warn.mock.calls.filter((c) => String(c[0]).includes("nav"));
+      expect(navWarnings).toHaveLength(1);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
   });
 });

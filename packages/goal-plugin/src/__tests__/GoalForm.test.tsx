@@ -79,6 +79,15 @@ describe("GoalForm", () => {
     expect(onSubmit.mock.calls[0]![0]).toEqual({ objective: "Persistent goal", autoRespawn: true });
   });
 
+  // E9 (autoRespawnLabel): user-facing copy says "restart", never "respawn";
+  // the i18n key and the autoRespawn payload field are unchanged.
+  // See change: align-ui-with-theme-tokens (design D9, task 5.20).
+  it("labels the toggle 'Auto-restart on driver death …'", () => {
+    const { getByTestId } = render(<GoalForm onSubmit={async () => {}} />);
+    const label = getByTestId("goal-form-auto-respawn").closest("label");
+    expect(label?.textContent).toBe("Auto-restart on driver death (bounded by budget + crash-loop breaker)");
+  });
+
   it("defaults the autoRespawn toggle from the autoRespawnDefault prop", async () => {
     const onSubmit = vi.fn(async (_p: GoalFormPayload) => {});
     const { getByTestId } = render(<GoalForm onSubmit={onSubmit} autoRespawnDefault />);

@@ -17,6 +17,7 @@ import type { SlotProps } from "@blackbelt-technology/pi-dashboard-shared/dashbo
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
 import type { Binding, ChatGatewayConfig } from "../shared/types.js";
+import { TeamControlsPanel } from "./team-controls-panel.js";
 
 interface BindingsResponse {
   bindings: Binding[];
@@ -168,7 +169,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     <div className="space-y-3" data-testid="chat-gateway-settings">
       <p className="text-xs text-[var(--text-secondary)]">
         Drive dashboard pi sessions from Discord. Inert until a bot token is set; every
-        spawned cwd must be inside <code>allowedRoots</code>.
+        new session's cwd must be inside <code>allowedRoots</code>.
       </p>
 
       <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
@@ -324,6 +325,8 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           </span>
         )}
       </div>
+
+      <TeamControlsPanel />
     </div>
   );
 }

@@ -7,6 +7,10 @@
 import { describe, expect, it } from "vitest";
 import type { InteractivePrompt, InteractiveResponse, PlatformMessage } from "../base.js";
 import {
+  assignersForRole,
+  channelCreatePayload,
+  channelNameFor,
+  channelOverwrites,
   chunkForDiscord,
   customIdFor,
   DISCORD_CUSTOM_ID_LIMIT,
@@ -253,5 +257,105 @@ describe("RecordingAdapter", () => {
 
     await adapter.stop();
     expect(await adapter.getStatus()).toMatchObject({ connected: false });
+  });
+});
+
+const VIEW = 1n << 10n;
+
+describe("channel provisioning payload", () => {
+  it("channelNameFor slugifies, never returns empty, and caps at the limit", () => {
+    expect(channelNameFor("Platform Team")).toBe("platform-team");
+    expect(channelNameFor("  My  Team!! ")).toBe("my-team");
+    expect(channelNameFor("a--b")).toBe("a-b");
+    expect(channelNameFor("---")).toBe("workspace");
+    expect(channelNameFor("!!!")).toBe("workspace");
+    expect(channelNameFor("")).toBe("workspace");
+    expect(channelNameFor("x".repeat(200))).toHaveLength(100);
+  });
+
+  it("channelOverwrites PREPENDS the platform-default-role deny", () => {
+    const out = channelOverwrites("guild-1", [
+      { targetId: "u1", kind: "member", viewChannel: true },
+    ]);
+    expect(out[0]).toEqual({ id: "guild-1", type: 0, allow: 0n, deny: VIEW });
+    expect(out[1]).toEqual({ id: "u1", type: 1, allow: VIEW, deny: 0n });
+  });
+
+  it("channelOverwrites denies a grant flagged viewChannel:false", () => {
+    const out = channelOverwrites("g", [{ targetId: "u1", kind: "member", viewChannel: false }]);
+    expect(out[1]).toEqual({ id: "u1", type: 1, allow: 0n, deny: VIEW });
+  });
+
+  it("an empty access list still denies @everyone — a private channel, always", () => {
+    const payload = channelCreatePayload({ guildId: "g", name: "ws", overwrites: [] });
+    expect(payload.permissionOverwrites).toEqual([
+      { id: "g", type: 0, allow: 0n, deny: VIEW },
+    ]);
+  });
+
+  it("the create payload carries the overwrites by construction", () => {
+    // There is deliberately no create-without-overwrites shape: every create
+    // path goes through this function, so the deny cannot be omitted.
+    const payload = channelCreatePayload({
+      guildId: "g",
+      name: "ws",
+      overwrites: [{ targetId: "r1", kind: "role", viewChannel: true }],
+    });
+    expect(payload.name).toBe("ws");
+    expect(payload.permissionOverwrites).toHaveLength(2);
+    expect(payload.permissionOverwrites[0].deny).toBe(VIEW);
+  });
+});
+
+// ── Role delegation (task 8.2, F1/F2) ─────────────────────────────────────
+
+describe("assignersForRole", () => {
+  const ROLE = { id: "r_ops", position: 5 };
+  const member = (id: string, pos: number, canManage: boolean, name?: string) => ({
+    id,
+    highestRolePosition: pos,
+    canManageRoles: canManage,
+    ...(name === undefined ? {} : { name }),
+  });
+
+  it("always includes the guild owner, who needs no permission", () => {
+    // Discord lets the owner assign anything regardless of role position.
+    const result = assignersForRole([member("u_owner", -1, false, "boss")], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_owner", name: "boss" }]);
+  });
+
+  it("includes a manager whose highest role sits strictly ABOVE the role", () => {
+    const result = assignersForRole([member("u_admin", 9, true, "deputy")], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_admin", name: "deputy" }]);
+  });
+
+  it("EXCLUDES a manager whose highest role EQUALS the role's position", () => {
+    // Discord refuses a manager assigning a role at their own level, so naming
+    // them would promise a delegation the platform then rejects.
+    expect(assignersForRole([member("u_peer", 5, true)], ROLE, "u_owner")).toEqual([]);
+  });
+
+  it("excludes a manager below the role and any non-manager above it", () => {
+    const result = assignersForRole(
+      [member("u_low", 2, true), member("u_flat", 99, false)],
+      ROLE,
+      "u_owner",
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("omits `name` rather than emitting undefined when a member has none", () => {
+    const result = assignersForRole([member("u_x", 9, true)], ROLE, "u_owner");
+    expect(result).toEqual([{ id: "u_x" }]);
+    expect("name" in result[0]).toBe(false);
+  });
+
+  it("returns every qualifying member, owner first only by input order", () => {
+    const result = assignersForRole(
+      [member("u_a", 9, true), member("u_owner", 3, false), member("u_b", 7, true)],
+      ROLE,
+      "u_owner",
+    );
+    expect(result.map((m) => m.id)).toEqual(["u_a", "u_owner", "u_b"]);
   });
 });

@@ -203,13 +203,39 @@ export function searchFiles(cwd: string, query: string, opts?: { regex?: boolean
  *
  * `ok: false` carries the operator-facing reason so the terminal
  * `command_feedback` says WHY nothing reloaded instead of claiming success.
- * See change: fix-out-of-band-reload.
+ * `handedOff` means the terminal feedback is owned by someone else — the
+ * bridge instance loaded by an in-process reload reports `completed` after it
+ * re-registers — so the requesting side must emit nothing.
+ *
+ * See change: fix-out-of-band-reload, fix-terminal-session-dashboard-reload.
  */
-export type ReloadOutcome = { ok: true } | { ok: false; reason: string };
+export type ReloadOutcome =
+  | { ok: true; handedOff?: false }
+  | { ok: true; handedOff: true }
+  | { ok: false; reason: string };
 
-/** Reason emitted when the bridge has no reload path at all. */
+/** Reason emitted when the running pi cannot dispatch the reload command in-process. */
 export const NO_RELOAD_PATH_REASON =
-  "No reload path for this session — a terminal-hosted pi session must run /__dashboard_reload once in its TUI to enable dashboard reloads.";
+  "Dashboard reload of a terminal-hosted session requires pi ≥ 0.84.2 — upgrade pi, or run /reload in the pi TUI.";
+
+/** A dashboard reload for this session is still in flight. */
+export const RELOAD_IN_PROGRESS_REASON = "A reload is already in progress for this session.";
+
+/** The self-dispatched reload command never reached its handler. */
+export const RELOAD_DID_NOT_RUN_REASON =
+  "The reload command did not run — is the dashboard extension still loaded? See the pi terminal.";
+
+/** `ctx.reload()` settled without pi re-running `session_start{reason:"reload"}`. */
+export const PI_DID_NOT_RELOAD_REASON =
+  "pi did not reload — session busy or reload failed; see the pi terminal.";
+
+/** The pending-reload slot vanished or was replaced before completion was proven. */
+export const RELOAD_SUPERSEDED_REASON =
+  "The reload was superseded before completion could be confirmed — see the pi terminal.";
+
+/** The reload did not finish within the bridge's bound. */
+export const RELOAD_TIMEOUT_REASON =
+  "The reload did not finish within 60 s — see the pi terminal.";
 
 /** Parsed result from parseSendPrompt */
 export type ParsedPrompt =
@@ -371,19 +397,18 @@ export function createCommandHandler(
     /**
      * Trigger session reload (extensions, settings, skills, etc.).
      *
-     * Returns whether a reload ACTUALLY ran. The bridge only has a reload
-     * function when a human once typed `/__dashboard_reload` in pi's TUI
-     * (`ExtensionContext` has no `reload`; only `ExtensionCommandContext`
-     * does), and even a captured one is single-use per process — its runner
-     * is invalidated by the first reload, so a second call throws
-     * *synchronously*. "Present" therefore does not imply "usable", which is
-     * why this reports an outcome instead of returning void and letting the
-     * caller emit an unconditional `completed`.
+     * Returns whether a reload ACTUALLY ran, so the caller never emits an
+     * unconditional `completed`. The bridge self-dispatches its
+     * `/__dashboard_reload <token>` command in-process (pi >= 0.84.2) and
+     * resolves `{ok:true, handedOff:true}` on success: the RELOADED bridge
+     * instance reports `completed` after re-registering, because this
+     * instance's connection is torn down by the reload. On `handedOff` the
+     * handler emits nothing.
      *
-     * ASYNC by contract: `ctx.reload()` returns a promise, and a rejection
-     * that lands after we have already emitted `completed` is the same false
-     * success this change exists to remove. The handler awaits it.
-     * See change: fix-out-of-band-reload (design.md D5).
+     * ASYNC by contract: a rejection that lands after we have already
+     * emitted `completed` would be a false success. The handler awaits it.
+     * See change: fix-out-of-band-reload (design.md D5),
+     *             fix-terminal-session-dashboard-reload (D4).
      */
     reload?: () => Promise<ReloadOutcome>;
     /** Spawn a new session in the same cwd */
@@ -575,6 +600,9 @@ export function createCommandHandler(
                 outcome = { ok: false, reason: `Reload failed: ${reason}` };
               }
             }
+            // The reloaded bridge owns the terminal feedback.
+            // See change: fix-terminal-session-dashboard-reload (D4).
+            if (outcome.ok && outcome.handedOff) return undefined;
             options?.eventSink?.({
               type: "event_forward",
               sessionId,
@@ -671,7 +699,6 @@ export function createCommandHandler(
                 parsed.text,
                 sessionId,
                 options?.eventSink,
-                undefined, // connection — absent in non-bridge path
                 msg.delivery,
               );
               // Exec-mode slash template (executable: bash): run as bash, no LLM.

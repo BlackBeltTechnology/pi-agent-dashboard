@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { readFileSync, realpathSync } from "node:fs";
 /**
  * pi-dashboard CLI entry point.
  *
@@ -23,11 +25,9 @@
  * See change: replace-tsx-with-jiti, enable-standalone-npm-install.
  */
 import { createRequire } from "node:module";
-import { realpathSync, readFileSync } from "node:fs";
-import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cliPath = resolve(here, "..", "src", "cli.ts");
@@ -50,7 +50,7 @@ if (metaArg === "--version" || metaArg === "-v" || metaArg === "version") {
     const pkgPath = resolve(here, "..", "package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     if (pkg && typeof pkg.version === "string" && pkg.version.length > 0) {
-      process.stdout.write(pkg.version + "\n");
+      process.stdout.write(`${pkg.version}\n`);
       process.exit(0);
     }
   } catch {
@@ -138,18 +138,6 @@ function readServerMaxOldSpaceMb() {
 }
 
 const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
-// Enable jiti TS `paths` resolution (jiti default: off).
-//
-// The browser plugin vendors playwright-core's relay, whose files import bare
-// internal specifiers (`@isomorphic/manualPromise`, `@isomorphic/time`,
-// `@isomorphic/timeoutRunner`, `@utils/wsServer`) that do not exist on npm —
-// they are mapped to `vendor/shims/*` via `tsconfig.base.json` `paths`.
-// Vitest resolves them via `resolve.alias`; the REAL server loads
-// plugin entries through the `--import jiti` hook, whose instance is created
-// with `tsconfigPaths` off, so without this the plugin fails to load and the
-// whole relay is dead at runtime (caught by the docker harness). A caller-set
-// value wins.
-// See change: add-browser-relay.
 // Provenance: record the exact token stamped, so the spawn-side strip in
 // `process-manager.buildSpawnEnv` can tell THIS flag from one the operator
 // pinned. A token we wrote on a previous launch (marker matches) is re-stamped
@@ -186,15 +174,11 @@ const childEnvBase = operatorPinned
       NODE_OPTIONS: [...nodeOptionTokens.filter((t) => t !== ourPreviousFlag), heapFlag].join(" "),
       [HEAP_FLAG_MARKER_ENV]: heapFlag,
     };
-const childEnv = {
-  ...childEnvBase,
-  JITI_TSCONFIG_PATHS: process.env.JITI_TSCONFIG_PATHS ?? "true",
-};
 
 const child = spawn(
   process.execPath,
   ["--import", loader, entry, ...process.argv.slice(2)],
-  { stdio: "inherit", windowsHide: true, env: childEnv },
+  { stdio: "inherit", windowsHide: true, env: childEnvBase },
 );
 
 // Forward termination signals to the real server child.

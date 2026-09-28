@@ -13,6 +13,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/auth/", reason: "auth internals" },
   { pattern: "/api/model-proxy/", reason: "model-proxy; host-local only" },
   { pattern: "/api/provider-auth/", reason: "provider auth + API-key material" },
+  {
+    pattern: "/api/providers/:name",
+    reason:
+      "single-provider credential write; the whole-map set_providers row remains the MCP surface",
+  },
   { pattern: "/api/electron/", reason: "Electron-only" },
   { pattern: "/api/mcp-client/", reason: "MCP client config; UI-only" },
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
@@ -20,9 +25,20 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-server-push-notifications (Decision 12).
+  { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
+  // Access-grant review + creation (change: add-access-grants-and-review). The
+  // tab is a local operator surface, and `POST /api/access/grants` is a
+  // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).
+  // Exposing it over MCP would hand an LLM client the ability to satisfy that
+  // binding from the denial body it can already read, which is precisely the
+  // limit D15 states rather than widens.
+  { pattern: "/api/access/", reason: "operator-only grant review; trust-widening action" },
   { pattern: "/api/cost-estimator/", reason: "billing telemetry UI" },
   { pattern: "/api/flows-anthropic-bridge/", reason: "bridge diagnostics" },
   { pattern: "/api/plugins/blackhole/", reason: "plugin-internal" },
+  { pattern: "/api/plugins/gmail/", reason: "Google account sign-in, levels and revoke; credential-bearing, UI-only" },
+  { pattern: "/api/system-one/", reason: "decision-model config, key entry and managed-process control; UI-only" },
   { pattern: "/api/plugins/hermes-memory/", reason: "plugin-internal config" },
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
@@ -32,6 +48,9 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/pair/poll", reason: "pairing ceremony" },
   { pattern: "/api/pair/redeem", reason: "pairing ceremony" },
   { pattern: "/api/pair/approve", reason: "pairing ceremony" },
+  { pattern: "/api/pair/pending", reason: "pairing ceremony" },
+  { pattern: "/api/pair/approve-pending", reason: "pairing ceremony" },
+  { pattern: "/api/pair/deny", reason: "pairing ceremony" },
   { pattern: "/api/discover-servers", reason: "fleet discovery UI" },
   { pattern: "/api/known-servers", reason: "fleet discovery UI" },
   { pattern: "/api/pi/runtime", reason: "pi runtime UI" },
@@ -74,6 +93,12 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "flow_control", reason: "duplicate-of:flow_control" },
   { pattern: "flow_management", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "force_kill", reason: "duplicate-of:force_kill" },
+  // An operator's answer to an access-grant prompt (change: add-access-grant-dialog).
+  // NEVER an MCP tool: an agent able to send it could approve its own denied
+  // access, including an allow-always that persists a grant. The answering side
+  // is already the accepted residual R-A (design D1b); exposing it to agents
+  // would turn that residual into a one-call self-escalation.
+  { pattern: "grant_response", reason: "operator-only answer to an access prompt; self-approval risk" },
   { pattern: "kill_process", reason: "duplicate-of:kill_process" },
   { pattern: "kill_terminal", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "list_files", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
@@ -103,6 +128,7 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "request_models", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "request_providers", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "request_roles", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "reset_folder_card_sections", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "resume_session", reason: "duplicate-of:resume_session" },
   { pattern: "retry_session", reason: "duplicate-of:retry_session" },
   { pattern: "role_preset_delete", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
@@ -115,7 +141,11 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "session_view", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "sessions_page", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "setSessionDisplayPrefs", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_default_group_by", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_card_section_visibility", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_folder_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_folder_group_by", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
+  { pattern: "set_lane_collapsed", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_model", reason: "duplicate-of:set_model" },
   { pattern: "set_session_process_drawer", reason: "not-advertised: UI-only, transport, or bridge-internal verb" },
   { pattern: "set_thinking_level", reason: "duplicate-of:set_thinking_level" },

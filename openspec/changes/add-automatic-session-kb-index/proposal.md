@@ -1,5 +1,25 @@
 # Automatically index distilled session knowledge into the searchable KB
 
+> **SUPERSEDED (2026-09-24) by `openspec/changes/unify-context-manager`.**
+> Past-session recall becomes the manager's `sessions` scope: raw messages
+> plus tool-result error text, BM25 with a recency tiebreak (D9). Distilled
+> artefacts become lesson files through the miner (D10). Tier R measured raw
+> chunks well ahead of the distilled store (research doc §19), so the
+> distiller is the miner's stage 1, not the index's content.
+>
+> **Carried over:**
+> - into `context-manager-forks` (phase 2, session index):
+>   - lifecycle-triggered ingest on `LiveIdle`/`Ended`, with an mtime sweep
+>     fallback;
+>   - watermark plus content-hash idempotency;
+>   - subagent-origin sessions excluded by default;
+>   - the distiller `signal` class as a facet on session chunks;
+> - into `context-manager-lessons-and-cues` (phase 3): the mandatory in-code
+>   scrub (`scrub.ts`). It is placed as a shared module, because
+>   `add-lora-dataset-export-skill` imports it.
+>
+> Kept for history; do not implement.
+
 > Research basis: `docs/research/lora-dataset-from-pi-logs.md` Parts 7–9. This change
 > implements the **automatic** downstream (KB index); the on-demand LoRA export is a
 > separate change (`add-lora-dataset-export-skill`).

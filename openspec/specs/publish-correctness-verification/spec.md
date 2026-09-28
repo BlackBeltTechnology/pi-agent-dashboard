@@ -20,7 +20,9 @@ defect is invisible until a consumer installs the published package.
 **Bounded guarantee:** this proves *declaration*, not *installability*. It does
 not verify that a declared range resolves on the registry — a declared
 `^99.0.0` passes.
+
 ## Requirements
+
 ### Requirement: A static resolution check verifies shipped imports against manifests
 
 The project SHALL provide a verification script that, for every non-private
@@ -42,8 +44,15 @@ subpath (`dagre-d3-es/src/dagre/index.js` — segments after the package name ar
 stripped), and relative (`./foo.js` — resolved against the shipped file set
 rather than the manifest).
 
-A specifier in a **shipped** file SHALL be considered declared only when it
-appears in `dependencies`, `peerDependencies`, or `optionalDependencies` of that
+**Meta-package exception.** For the repository-root package only, a shipped file
+under `packages/<dir>/` SHALL additionally treat as declared the runtime
+dependencies of `packages/<dir>/package.json`, when that workspace is reachable
+from the root (see *Meta-package-shipped workspace sources are credited with
+reachable workspace dependencies*). This is the sole exception to "that
+workspace's own manifest".
+
+Subject to the meta-package exception above, a specifier in a **shipped** file
+SHALL be considered declared only when it appears in `dependencies`, `peerDependencies`, or `optionalDependencies` of that
 workspace's manifest, or when it is a Node builtin (with or without the `node:`
 prefix).
 
@@ -102,6 +111,11 @@ import resolve for someone who installed the tarball?"*
 
 - **WHEN** a workspace declares `"private": true`
 - **THEN** the check SHALL skip it, because it is never published and its install graph reaches no consumer
+
+#### Scenario: Root meta-package exception is the only cross-manifest credit
+
+- **WHEN** a non-root workspace's shipped file imports a package declared only by another workspace it depends on
+- **THEN** the check SHALL report `undeclared-import`, because the credit applies to the root package alone
 
 ### Requirement: The check carries an explicit, reasoned exception list
 
@@ -193,3 +207,106 @@ test, and false-fails on optional peers that are absent by design.
 - **THEN** this check SHALL pass
 - **AND** the limitation SHALL be recorded in the check's own documentation so the gap is known rather than assumed covered
 
+### Requirement: Shipped tsconfig extends references resolve inside the tarball
+
+The publish check SHALL read every shipped `tsconfig*.json` in each checked package, and SHALL resolve each relative `extends` entry (string or array form) against the package's `npm pack --dry-run` file set, trying the entry verbatim and with a `.json` suffix. An unresolved entry SHALL be reported as an error finding `dangling-tsconfig-extends`. Non-relative `extends` entries SHALL NOT be reported by this rule. A shipped tsconfig that cannot be parsed SHALL be reported as a warning `unparseable-tsconfig`.
+
+#### Scenario: Missing extends target fails the check
+- **WHEN** a shipped `packages/server/tsconfig.json` has `extends: "../../tsconfig.base.json"` and `tsconfig.base.json` is not in the packed file set
+- **THEN** the check reports `dangling-tsconfig-extends` for that file and exits non-zero
+
+#### Scenario: Shipped extends target passes
+- **WHEN** the `extends` target is in the packed file set
+- **THEN** no `dangling-tsconfig-extends` finding is reported
+
+#### Scenario: Array-form extends is checked per entry
+- **WHEN** `extends` is an array and one relative entry has no target in the packed file set
+- **THEN** exactly that entry is reported
+
+#### Scenario: Extension-less extends resolves with .json
+- **WHEN** `extends` is `"../base"` and `base.json` is shipped at the resolved location
+- **THEN** no finding is reported
+
+#### Scenario: Package-name extends is ignored
+- **WHEN** `extends` is `"@tsconfig/node20/tsconfig.json"`
+- **THEN** no `dangling-tsconfig-extends` finding is reported
+
+#### Scenario: tsconfig with comments and trailing commas parses
+- **WHEN** a shipped tsconfig contains `//` comments and trailing commas
+- **THEN** its `extends` is evaluated normally and the check does not crash
+
+### Requirement: The root package's shipped tsconfigs are checked
+
+The publish check SHALL include the repository-root package when its `package.json` is not `"private": true`, and SHALL apply every rule of this capability to it: undeclared, dev-only and dangling-relative imports, unparseable source, tsconfig `extends`, and declared-range verification. The root package SHALL NOT be restricted to a subset of rules.
+
+#### Scenario: Non-private root gets the full rule set
+- **WHEN** the root `package.json` has no `"private": true` and a root-shipped file outside `packages/` imports a package that is declared nowhere
+- **THEN** the check reports `undeclared-import` for the root package
+
+#### Scenario: Non-private root tsconfigs are checked
+- **WHEN** the root `package.json` has no `"private": true`
+- **THEN** the root package's packed tsconfigs are verified for dangling `extends`
+
+#### Scenario: Private root is skipped
+- **WHEN** the root `package.json` has `"private": true`
+- **THEN** the root package is not checked
+
+### Requirement: A root-style pack payload is read, never treated as empty
+
+The check SHALL accept the `npm pack --dry-run --json` payload in array form, in single-object form, and in the object-keyed-by-package-name form npm emits at a workspace root. A payload with no readable `files` list SHALL be reported as `pack-failed`, never as an empty file set.
+
+#### Scenario: Keyed-object payload yields its files
+- **WHEN** the payload is `{ "<name>": { "files": [{ "path": "a.js" }] } }`
+- **THEN** the packed file set is `["a.js"]`
+
+#### Scenario: Payload without a files list is a pack failure
+- **WHEN** the payload has no `files` array in any accepted form
+- **THEN** the package is reported `pack-failed`
+
+### Requirement: Meta-package-shipped workspace sources are credited with reachable workspace dependencies
+
+For a file shipped by the root package at `packages/<dir>/…`, the check SHALL treat as declared the runtime dependencies of `packages/<dir>/package.json` in addition to the root's own runtime dependencies. This SHALL apply only when that workspace's `name` is reachable from the root's runtime dependencies through workspace-to-workspace runtime dependencies. A dependency declared only in `devDependencies` of both the root and the owning workspace SHALL be reported as `dev-only-import`. A credited dependency SHALL NOT be reported as dev-only. The check's summary SHALL report how many root imports were satisfied by this credit, as `N root import(s) credited via reachable workspace` (N ≥ 0).
+
+#### Scenario: Import declared by a directly depended workspace passes
+- **WHEN** the root depends on workspace `server`, and a root-shipped `packages/server/src/x.ts` imports `fastify`, which `server` declares in `dependencies`
+- **THEN** no finding is reported for that import
+
+#### Scenario: Credit count is reported
+- **WHEN** the check runs and 2 root imports are satisfied only by reachable-workspace credit
+- **THEN** the summary output contains `2 root import(s) credited via reachable workspace`
+
+#### Scenario: Transitively reachable workspace is credited
+- **WHEN** the root depends on `server`, `server` depends on `shared`, and a root-shipped `packages/shared/src/y.ts` imports a package that `shared` declares
+- **THEN** no finding is reported for that import
+
+#### Scenario: Unreachable shipped workspace is not credited
+- **WHEN** a root-shipped `packages/other/src/z.ts` imports a package that `other` declares, but no root runtime dependency reaches `other`
+- **THEN** the check reports `undeclared-import`
+
+#### Scenario: Dev-only in the owning workspace is still reported
+- **WHEN** a root-shipped `packages/server/src/x.ts` imports a package that `server` declares only in `devDependencies`, and the root does not declare it at runtime
+- **THEN** the check reports `dev-only-import`
+
+#### Scenario: Root devDependency does not shadow a credit
+- **WHEN** the root lists `fastify` in `devDependencies` and the reachable `server` declares it in `dependencies`
+- **THEN** no finding is reported for a root-shipped `packages/server/src/x.ts` importing `fastify`
+
+#### Scenario: Files outside packages/ get no credit
+- **WHEN** a root-shipped `scripts/a.cjs` imports a package that only a workspace declares
+- **THEN** the check reports `undeclared-import`
+
+#### Scenario: Shipped bundle output gets no credit
+- **WHEN** a root-shipped `packages/dist/client/assets/a.js` contains a bare import of a package the root does not declare
+- **THEN** the check reports `undeclared-import`, because `packages/dist/` has no workspace manifest
+
+#### Scenario: Cyclic workspace dependencies terminate
+- **WHEN** the root depends on workspace `a`, `a` depends on `b`, and `b` depends on `a`
+- **THEN** reachability computation terminates and credits both `a` and `b`
+
+### Requirement: The publish check also runs on the built tree in CI
+
+CI SHALL run `scripts/verify-published-imports.mjs` a second time after the client build, so that build output shipped by any package (including the root's `packages/dist/`) is checked on every pull request.
+
+#### Scenario: Post-build run is wired in ci.yml
+- **WHEN** `.github/workflows/ci.yml` is inspected
+- **THEN** a step running `node scripts/verify-published-imports.mjs` appears after the build step in the same job

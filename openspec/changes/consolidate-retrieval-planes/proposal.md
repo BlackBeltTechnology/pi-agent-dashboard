@@ -1,5 +1,11 @@
 # consolidate-retrieval-planes
 
+> **SUPERSEDED (2026-09-24) by `openspec/changes/unify-context-manager`.**
+> Direction changed from "wrap, never absorb" to forking hermes + blackhole (MIT)
+> into one `packages/context-manager` and clean-room re-implementing only
+> context-mode's sandbox. Evidence: `docs/research/unified-context-manager-exploration.md`.
+> Kept for history; do not implement.
+
 ## Why
 
 Four retrieval planes — `packages/kb`, pi-hermes-memory, context-mode, blackhole —

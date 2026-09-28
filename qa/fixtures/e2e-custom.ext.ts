@@ -35,6 +35,20 @@ export const E2E_COMPACTION_SUMMARY =
 export default function activate(pi: ExtensionAPI): void {
   let pendingMessages: Array<{ customType: string; content: string; display: boolean }> = [];
 
+  // Footer-segment decorator carrying an MDI icon KEY (change:
+  // harden-ios-safari-memory-and-ws-diagnostics, test-plan #F2). Published only
+  // after the `e2e_footer_segment` tool runs, so no other spec sees it.
+  let footerSegment: { text: string; icon: string } | null = null;
+  pi.events?.on("ui:list-modules", (probe: any) => {
+    if (!footerSegment || !Array.isArray(probe?.modules)) return;
+    probe.modules.push({
+      kind: "footer-segment",
+      namespace: "e2e",
+      id: "lazy-icon",
+      payload: { text: footerSegment.text, icon: footerSegment.icon },
+    });
+  });
+
   // Deterministic compaction (change: replay-compaction-boundary). A `/compact`
   // command calls `ctx.compact()`, which runs `session_before_compact` before
   // any model call; returning a canned `compaction` result lets the replay
@@ -80,6 +94,21 @@ export default function activate(pi: ExtensionAPI): void {
         display: params?.display !== false,
       });
       return { content: [{ type: "text", text: "queued" }] };
+    },
+  } as any);
+
+  pi.registerTool({
+    name: "e2e_footer_segment",
+    label: "E2E Footer Segment",
+    description: "Test fixture: publish a footer-segment decorator with an MDI icon key.",
+    parameters: Type.Object({
+      text: Type.String({ description: "Segment text" }),
+      icon: Type.String({ description: "MDI icon key, e.g. mdiCheckDecagram" }),
+    }),
+    async execute(_toolCallId: any, params: any) {
+      footerSegment = { text: String(params?.text ?? ""), icon: String(params?.icon ?? "") };
+      pi.events?.emit("ui:invalidate");
+      return { content: [{ type: "text", text: "published" }] };
     },
   } as any);
 

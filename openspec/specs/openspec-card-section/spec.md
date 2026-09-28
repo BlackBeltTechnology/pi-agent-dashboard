@@ -20,7 +20,7 @@ A proposal card on the board SHALL list the sessions attached to that change, ea
 - **THEN** the app SHALL navigate to that session's chat view
 
 ### Requirement: Per-session actions on proposal cards
-Each session row SHALL expose lifecycle actions — resume/continue, fork, and hide/unhide — and an OpenSpec command menu exposing the session OpenSpec actions (Explore, Advance phase, Fast-forward, Apply, Verify, Archive, Detach). Action clicks SHALL NOT trigger row navigation.
+Each session row SHALL expose lifecycle actions — resume/continue, fork, and hide/unhide — and an OpenSpec command menu. The menu SHALL expose the session OpenSpec block exactly as the session card renders it: for an attached session, the header with at most one state-driven primary action plus a `⋯` overflow (Fast-forward / Verify / Archive anyway… / Explore… / Detach as applicable), and the lifecycle bar. Action clicks SHALL NOT trigger row navigation.
 
 #### Scenario: Resume and fork available
 - **WHEN** a session row has a session file
@@ -31,20 +31,21 @@ Each session row SHALL expose lifecycle actions — resume/continue, fork, and h
 - **THEN** the session SHALL be hidden and the row SHALL offer an unhide action
 
 #### Scenario: OpenSpec command menu
-- **WHEN** the user opens a session row's OpenSpec command menu
-- **THEN** it SHALL list Explore, Advance phase, Fast-forward, Apply, Verify, Archive, and Detach
+- **WHEN** the user opens the OpenSpec command menu of a session row attached to an `IMPLEMENTING` change, with all workflows enabled
+- **THEN** it SHALL show an **Apply** primary action and a `⋯` button
+- **AND** the `⋯` menu SHALL list **Explore…** and **Detach**
 
 #### Scenario: Action click does not navigate
 - **WHEN** the user clicks any session-row action
 - **THEN** the app SHALL NOT navigate to the session chat view
 
 ### Requirement: Worktree state visualization on session rows
-A session whose cwd is a git worktree SHALL show a worktree marker on its row displaying the worktree name and that worktree's own task progress (`completed/total`) with a delta relative to the proposal's main-checkout progress. The proposal card's progress bar SHALL continue to reflect the main checkout, not the worktree.
+A session whose cwd is a git worktree SHALL show a worktree marker on its row displaying the worktree name and that worktree's own task progress (`completed/total`) with a delta relative to the proposal's main-checkout progress. The proposal card's lifecycle bar (its `Tasks` segment count and fill) SHALL continue to reflect the main checkout, not the worktree.
 
 #### Scenario: Worktree marker with delta ahead
 - **WHEN** the proposal (main) is `6/14` and a worktree session's own `tasks.md` is `9/14`
 - **THEN** the row SHALL show `⎇ <worktree-name>` with `9/14` and a `+3` ahead delta
-- **AND** the card progress bar SHALL still show `6/14`
+- **AND** the card lifecycle bar's `Tasks` segment SHALL still show `6/14`
 
 #### Scenario: Worktree marker with delta behind
 - **WHEN** the proposal (main) is `8/14` and a worktree session's own `tasks.md` is `5/14`

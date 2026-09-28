@@ -106,6 +106,11 @@ export interface GitWorktreeInfo {
   base?: string;
 }
 
+/** Lowercased GitHub PR state. Draft is a separate flag (`gitPrDraft`). */
+export type GitPrState = "open" | "closed" | "merged";
+/** Collapsed PR checks summary. See `platform/check-rollup.ts`. */
+export type GitPrChecks = "passing" | "failing" | "pending" | "none";
+
 /**
  * Working-tree dirtiness + upstream drift for a cwd, parsed from one
  * `git status --porcelain=v2 --branch` call. Keyed by cwd, not by session:
@@ -267,8 +272,18 @@ export interface DashboardSession {
   currentTool?: string | null;
   gitBranch?: string;
   gitBranchUrl?: string;
-  gitPrNumber?: number;
-  gitPrUrl?: string;
+  gitPrNumber?: number | null;
+  gitPrUrl?: string | null;
+  /**
+   * PR status for the session's branch (bridge `GH_PR_STATUS` probe on its
+   * own ≥120 s cadence). Absent = unknown / older bridge; `null` = no PR.
+   * Not persisted. See change: redesign-composer-session-strip (D5).
+   */
+  gitPrState?: GitPrState | null;
+  gitPrDraft?: boolean | null;
+  gitPrChecks?: GitPrChecks | null;
+  /** Epoch ms of the last successful PR detection (freshness gate for Merge). */
+  gitPrCheckedAt?: number | null;
   /**
    * Working-tree dirtiness + upstream drift, sourced hybrid: passive
    * broadcast on the bridge's 30 s VCS tick (`git_info_update`) plus an
@@ -787,6 +802,24 @@ export interface ModelInfo {
 }
 
 /**
+ * Where a provider's credential is sourced from, as reported by the bridge.
+ * Mirrors pi-ai's own union verbatim — the earlier four-member declaration
+ * dropped `models_json_key` / `models_json_command`, which pi reports for
+ * providers registered from a models.json entry.
+ *
+ * Only `environment` (and an `ambient` flag) mean "an env var supplies this";
+ * the remaining members are not necessarily un-removable and must not be
+ * labelled as environment-sourced. See change: redesign-providers-settings-page (D1).
+ */
+export type ProviderSource =
+  | "stored"
+  | "runtime"
+  | "environment"
+  | "fallback"
+  | "models_json_key"
+  | "models_json_command";
+
+/**
  * Provider catalogue entry pushed by the bridge to the server.
  * Derived from pi's live `ModelRegistry` (see provider-register.ts in
  * the bridge). The server caches the most recently received catalogue
@@ -800,10 +833,16 @@ export interface ProviderInfo {
   displayName: string;
   /** True iff `authStorage.getOAuthProviders()` includes this id. */
   hasOAuth: boolean;
-  /** True iff a credential is stored in auth.json. */
+  /**
+   * True iff the provider holds a usable credential at REGISTRY level — not
+   * only an auth.json entry. An environment variable or a key registered in
+   * pi's runtime configuration also sets this, with `source` naming which.
+   * Consumers must not read `configured: true` as "stored in auth.json";
+   * check `source === "stored"` for that.
+   */
   configured: boolean;
   /** Where the credential is sourced from, when configured. */
-  source?: "stored" | "environment" | "fallback" | "runtime";
+  source?: ProviderSource;
   /** First env var name pi-ai consults for this provider, when applicable. */
   envVar?: string;
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */

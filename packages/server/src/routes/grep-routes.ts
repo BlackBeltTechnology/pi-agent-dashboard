@@ -11,10 +11,11 @@
 import path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
+import { grantedSubjects } from "../access/access-grants.js";
 import { runGrep } from "../lib/grep.js";
-import { isAllowed } from "../lib/path-containment.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
+import { isAllowed, isGrantAdmitted } from "../lib/path-containment.js";
 import { detectRipgrep } from "../ripgrep-detection.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /** Minimum query length (mirrors the client min-3-char guard). */
@@ -56,8 +57,17 @@ export function registerGrepRoutes(
 
       // Gate 2 — containment: drop any match that resolves outside cwd. rg/JS
       // scan already stay under cwd, so this is a defensive backstop.
+      // The grant subject list is hoisted OUT of the per-match loop: awaiting a
+      // store read per match is the amplification design D16 exists to avoid
+      // (N matches x 200 grants). This site filters rather than 403ing, so it
+      // CONSUMES grants and can never originate one (design D12).
+      const grantSubjects = grantedSubjects();
       const contained = await Promise.all(
-        matches.map(async (m) => (await isAllowed(path.resolve(cwd, m.path), { anchors: [cwd] })) ? m : null),
+        matches.map(async (m) => {
+          const resolvedMatch = path.resolve(cwd, m.path);
+          if (await isAllowed(resolvedMatch, { anchors: [cwd] })) return m;
+          return (await isGrantAdmitted(resolvedMatch, grantSubjects)) ? m : null;
+        }),
       );
       matches = contained.filter((m): m is NonNullable<typeof m> => m !== null);
 
