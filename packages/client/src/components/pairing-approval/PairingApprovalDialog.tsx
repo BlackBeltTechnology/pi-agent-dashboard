@@ -423,9 +423,10 @@ export function PairingApprovalDialog({
             )}
           </p>
           <Dialog.Footer>
-            <Dialog.Cancel onClick={() => void deny()} testId="pairing-deny">
+            {/* Neutral Action (not Cancel) so Deny can be disabled while busy. */}
+            <Dialog.Action intent="neutral" onClick={() => void deny()} disabled={busy} testId="pairing-deny">
               {i18nT("pairingApproval.deny", undefined, "Deny")}
-            </Dialog.Cancel>
+            </Dialog.Action>
             <Dialog.Action intent="primary" onClick={() => void submit()} disabled={busy} testId="pairing-approve">
               {i18nT("pairingApproval.approve", undefined, "Approve device")}
             </Dialog.Action>

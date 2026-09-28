@@ -169,6 +169,17 @@ describe("PairingApprovalDialog", () => {
     expect(from).toContain("reported by proxy");
   });
 
+  it("Approve and Deny are both disabled while an approval is in flight", async () => {
+    let release: (o: ApprovePendingOutcome) => void = () => {};
+    const { input } = renderDialog({ approve: () => new Promise((r) => (release = r)) });
+    type(input, "12345678");
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await waitFor(() => expect((screen.getByTestId("pairing-deny") as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByTestId("pairing-approve") as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => release({ ok: false, error: "mismatch", attemptsLeft: 3 }));
+    expect((screen.getByTestId("pairing-deny") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("X13: transport failure keeps the dialog + code, shows the retry error, re-enables Approve", async () => {
     const { input } = renderDialog({
       approve: async () => {
