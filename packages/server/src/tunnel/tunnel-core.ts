@@ -24,7 +24,10 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import type { TunnelEndpoint, TunnelProviderId } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 
-const SPAWN_TIMEOUT_MS = 30_000;
+// Hosted zrok.io's own POST /share gateway can take ~30s and a slow success
+// lands just after it (~35s observed). A 30s client kill landed first, orphaning
+// a share that then held the reserved name (409 on every retry). 90s clears it.
+const SPAWN_TIMEOUT_MS = 90_000;
 
 /**
  * The provider-specific slice a {@link ChildTunnelRuntime} needs. Everything
@@ -210,7 +213,7 @@ export class ChildTunnelRuntime {
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          console.warn(`${this.spec.id} tunnel creation timed out (30s)`);
+          console.warn(`${this.spec.id} tunnel creation timed out (${SPAWN_TIMEOUT_MS / 1000}s)`);
           try {
             if (child.pid != null) killPidWithGroup(child.pid, "SIGTERM");
             else child.kill("SIGTERM");

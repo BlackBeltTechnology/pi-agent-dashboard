@@ -85,10 +85,17 @@ describe("payload + reachable URLs (D14)", () => {
 });
 
 describe("one-time code TTL", () => {
+  it("keeps the one-time code redeemable for ~300s (copy-link-to-another-browser needs the time)", () => {
+    const { mgr } = mkManager();
+    const p = mgr.createPayload()!;
+    clock += 299_000;
+    expect(mgr.redeem(p.code).ok).toBe(true);
+  });
+
   it("rejects an expired code on redeem", () => {
     const { mgr } = mkManager();
     const p = mgr.createPayload()!;
-    clock += 61_000;
+    clock += 301_000;
     expect(mgr.redeem(p.code)).toEqual({ ok: false, error: "expired" });
   });
 
@@ -99,9 +106,9 @@ describe("one-time code TTL", () => {
 
   it("restarts the approval window on redeem so a late scan still has time to approve", () => {
     const { mgr } = mkManager();
-    const p = mgr.createPayload()!; // expiresAt = mint + 60s
-    // Phone scans 55s later — 5s before the original code TTL would lapse.
-    clock += 55_000;
+    const p = mgr.createPayload()!; // expiresAt = mint + 300s
+    // Phone scans 295s later — 5s before the original code TTL would lapse.
+    clock += 295_000;
     const r = mgr.redeem(p.code);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -156,10 +163,10 @@ describe("D12 compare-code approval", () => {
   it("rejects approval of an expired code even without an intervening sweep", () => {
     const { mgr } = mkManager();
     const p = mgr.createPayload()!;
-    const r = mgr.redeem(p.code); // restarts expiresAt to now + 60s
+    const r = mgr.redeem(p.code); // restarts expiresAt to now + 300s
     if (!r.ok) throw new Error("redeem failed");
     // Let the restarted window lapse with NO poll()/createPayload() sweep between.
-    clock += 61_000;
+    clock += 301_000;
     expect(mgr.approve(p.code, r.confirmCode)).toEqual({ ok: false, error: "expired" });
   });
 

@@ -91,12 +91,13 @@ describe("GatewayPairQR — single-QR network selector", () => {
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
     const checked = screen.getAllByRole("radio").find((r) => r.getAttribute("aria-checked") === "true");
     expect(checked?.textContent).toContain("cwanni9.zrok.io");
-    // The copy-string stays the bare payload (Electron paste); the pairing QR
-    // encodes a camera-scannable `https://<selected-tls>/pair#<payload>` deep
-    // link (change: make-pairing-qr-camera-scannable) on the SELECTED endpoint.
+    // The pairing QR encodes a camera-scannable `https://<selected-tls>/pair#<payload>`
+    // deep link (change: make-pairing-qr-camera-scannable) on the SELECTED endpoint,
+    // and the copy-string is that SAME link, so a browser can open it and the
+    // Electron shell's decodePayloadString still accepts the https form.
     const copyStr = screen.getByTestId("gateway-pair-copystring").textContent ?? "";
-    expect(copyStr).toMatch(/^pi:pair:v1\./);
-    expect(qrText()).toBe(`https://cwanni9.zrok.io/pair#${copyStr}`);
+    expect(copyStr).toMatch(/^https:\/\/cwanni9\.zrok\.io\/pair#pi:pair:v1\./);
+    expect(qrText()).toBe(copyStr);
   });
 
   it("1.4 with no TLS endpoint, defaults to the first link endpoint; QR encodes its bare URL", async () => {
@@ -148,10 +149,17 @@ describe("GatewayPairQR — single-QR network selector", () => {
       getPairPayload.mockResolvedValue({ ok: true, payload: PAYLOAD });
       approvePairing.mockResolvedValue({ id: "d1", label: "iPhone", createdAt: 0, lastSeen: 0 });
       render(<GatewayPairQR endpoints={MIXED_EPS} />);
-      // Flush the mocked async load, then tick past the 60s mint-anchored countdown.
+      // Flush the mocked async load; the countdown mirrors the server's 300s code TTL.
       await act(async () => {});
+      expect(screen.getByText("300s")).toBeDefined();
+      // Still live well past the old 60s window.
       await act(async () => {
         vi.advanceTimersByTime(61_000);
+      });
+      expect(screen.queryByText(/code expired/i)).toBeNull();
+      // Tick past the 300s mint-anchored countdown.
+      await act(async () => {
+        vi.advanceTimersByTime(240_000);
       });
       // Header now shows the advisory "code expired"...
       expect(screen.getByText(/code expired/i)).toBeDefined();
@@ -209,7 +217,7 @@ describe("collapse-pairing-into-gateway — no secure road condition (E1–E5)",
     const qr = qrText() ?? "";
     expect(qr.startsWith("https://")).toBe(true);
     expect(qr).toContain("/pair#pi:pair:v1.");
-    expect(screen.getByTestId("gateway-pair-copystring").textContent).toMatch(/^pi:pair:v1\./);
+    expect(screen.getByTestId("gateway-pair-copystring").textContent).toBe(qr);
     // Fingerprint + countdown affordances present.
     expect(screen.getByTestId("gateway-pair-fingerprint")).toBeDefined();
     expect(screen.getByText(/code expires/i)).toBeDefined();
