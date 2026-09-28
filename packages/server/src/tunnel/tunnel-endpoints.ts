@@ -14,7 +14,7 @@
  * See change: add-tunnel-providers.
  */
 import os from "node:os";
-import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import type { ProviderReadiness, TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 
 /** Loopback + non-internal IPv4 LAN endpoints for `port` (all no-TLS http). */
 export function localEndpoints(port: number, ifaces = os.networkInterfaces()): TunnelEndpoint[] {
@@ -28,6 +28,19 @@ export function localEndpoints(port: number, ifaces = os.networkInterfaces()): T
     }
   }
   return out;
+}
+
+/**
+ * Endpoints of every CONNECTED provider in a readiness report - primary AND
+ * extras, including a daemon (tailscale) brought up outside this process, whose
+ * `status()` is empty but whose `probeLive()` names its MagicDNS/mesh URLs.
+ * URL-less liveness markers are dropped: they are not addresses.
+ */
+export function liveReadinessEndpoints(readiness: ProviderReadiness[]): TunnelEndpoint[] {
+  return readiness
+    .filter((p) => p.state === "connected")
+    .flatMap((p) => p.endpoints)
+    .filter((e) => e.url.trim().length > 0);
 }
 
 /** Manual operator endpoints from `pairing.publicBaseUrls`, tagged public. */

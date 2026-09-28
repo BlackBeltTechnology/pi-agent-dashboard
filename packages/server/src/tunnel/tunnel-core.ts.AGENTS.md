@@ -1,3 +1,5 @@
 # tunnel-core.ts — index
 
 Provider-neutral child-tunnel lifecycle. Exports `ChildTunnelRuntime` (PID helpers, spawn→timeout→retry→URL-match state machine (kill deadline = `spec.spawnTimeoutMs` ?? `DEFAULT_SPAWN_TIMEOUT_MS` 30s; zrok spec sets 90s: hosted zrok.io POST /share can land ~35s; a 30s kill orphaned the share + 409-locked the reserved name), `cleanupStale`, `scavengeOrphans`, `createTunnel`/`deleteTunnel`/`getTunnelUrl`) + `ChildProviderSpec` interface (binary, buildArgs, urlRegex, optional `spawnTimeoutMs`, optional `normalizeUrl` post-match hook — e.g. prepend scheme to a bare host, reserve/release, markers, toEndpoints). Daemon providers skip this entirely (`kind==='daemon'`). See change: add-tunnel-providers.
+
+`extractTunnelError(output)` — compacts nested CLI API error (`POST /share 500 shareInternalServerError[: msg]`) else last `[ERROR]:` line, ≤200 chars. `ChildTunnelRuntime.getLastError()` — set on not-installed/not-enrolled/timeout/spawn error/exit-before-URL/unexpected exit; cleared on success.

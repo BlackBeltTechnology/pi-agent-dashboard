@@ -391,7 +391,7 @@ export interface TunnelDegraded {
   effectiveName?: string;
 }
 
-export type TunnelStatus =
+export type TunnelStatus = (
   | {
       status: "active";
       url: string;
@@ -400,9 +400,36 @@ export type TunnelStatus =
       degraded?: TunnelDegraded;
     }
   | { status: "inactive"; serverOs: string }
-  | { status: "unavailable"; serverOs: string };
+  | { status: "unavailable"; serverOs: string }
+) & {
+  /**
+   * Counts across EVERY planned provider (primary + enabled extras), so the
+   * toolbar can show partial. `status` above stays the zrok projection.
+   * Counts only: this route is ungated.
+   */
+  gateway?: { connected: number; expected: number };
+};
 
 export type TunnelStatusResponse = ApiResponse<TunnelStatus>;
+
+/**
+ * Gated `/api/tunnel-status-detail` body: the status plus the providers THIS
+ * server process connected (zrok + extras). Drives the Setup Connect/Disconnect
+ * toggle; readiness cannot, since an OS-level daemon reads `connected` there.
+ */
+export type TunnelStatusDetail = TunnelStatus & {
+  connectedProviders?: string[];
+  /** Per planned provider: connected / failed / dropped / idle + reason. */
+  providers?: GatewayProviderState[];
+};
+
+/** One planned provider's Gateway connection state (mirrors server `gatewayProviderStatus`). */
+export interface GatewayProviderState {
+  provider: string;
+  primary: boolean;
+  state: "connected" | "failed" | "dropped" | "idle";
+  error?: string;
+}
 
 // ── Reserved-name configuration ──────────────────────────────────
 

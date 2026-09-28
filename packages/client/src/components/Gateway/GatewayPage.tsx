@@ -17,6 +17,7 @@ import { useLocation } from "wouter";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { GatewayConnectToggle } from "./GatewayConnectToggle.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
@@ -97,6 +98,9 @@ export function GatewayPage() {
           }}
           disabled={saving}
         />
+        <div className="mt-3">
+          <GatewayConnectToggle dirty={dirty} />
+        </div>
       </div>
 
       <Divider />

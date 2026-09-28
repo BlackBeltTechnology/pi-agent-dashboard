@@ -19,7 +19,8 @@ import type {
   GatewayAuthMode,
   GatewayRecord,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { appendPublicBaseUrl, resolvePublicBaseUrls } from "./gateway-config-ops.js";
+import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { appendPublicBaseUrl, resolvePublicBaseUrls, suggestTrustEntries } from "./gateway-config-ops.js";
 
 /** The config slice the action reads and writes. */
 export interface GatewayConfigShape {
@@ -413,4 +414,41 @@ export function everyModeAvailable(
   modes: GatewayAuthMode[],
 ): boolean {
   return retainAvailableModes(offers, modes).length === modes.length;
+}
+
+/** Pre-fill for the "Add gateway URL" editor. */
+export interface MeshGatewayDraft {
+  url: string;
+  authModes: GatewayAuthMode[];
+  cidr: string;
+}
+
+/**
+ * Default the Add-gateway editor from a live mesh daemon (tailscale MagicDNS).
+ *
+ * Picks the first CONNECTED provider advertising a non-empty `magicdns` URL
+ * that is not already a gateway / publicBaseUrl. Mode is `trusted-network`
+ * (the only legal one for a http:// mesh URL); the CIDR is the exact mesh
+ * host, never the whole tailnet range — the D12 default rule. Pure; no I/O.
+ */
+export function suggestMeshGatewayDraft(
+  readiness: ProviderReadiness[],
+  config: GatewayConfigShape,
+): MeshGatewayDraft | null {
+  const norm = (u: string) => u.trim().replace(/\/+$/, "");
+  const known = new Set(resolvePublicBaseUrls(config).map(norm));
+  for (const p of readiness) {
+    if (p.state !== "connected") continue;
+    const url = p.endpoints.find((e) => e.kind === "magicdns" && e.url)?.url;
+    if (!url || known.has(norm(url)) || !isUnregisteredGatewayUrl(config, url)) continue;
+    const mesh = p.endpoints.find((e) => e.kind === "mesh" && e.url)?.url;
+    let cidr = "";
+    try {
+      if (mesh) cidr = suggestTrustEntries(new URL(mesh).hostname)[0]?.value ?? "";
+    } catch {
+      /* malformed mesh URL — leave the CIDR for the operator */
+    }
+    return { url, authModes: ["trusted-network"], cidr };
+  }
+  return null;
 }

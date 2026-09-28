@@ -65,3 +65,27 @@ describe("TunnelButton (Gateway)", () => {
     });
   });
 });
+
+describe("TunnelButton reflects ALL providers", () => {
+  function mockGateway(status: string, gateway: { connected: number; expected: number }) {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({ status, serverOs: "darwin", gateway }),
+    } as Response);
+  }
+
+  it("partial (zrok down, tailscale up) → amber with the count", async () => {
+    mockGateway("inactive", { connected: 1, expected: 2 });
+    render(<TunnelButton />);
+    await waitFor(() => expect(screen.getByTestId("tunnel-btn").getAttribute("data-tone")).toBe("partial"));
+    expect(screen.getByTestId("tunnel-btn").title).toBe("Gateway: 1/2 connected (click to open)");
+  });
+
+  it("tailscale-only up with zrok missing opens the dialog, not the setup page", async () => {
+    mockGateway("unavailable", { connected: 1, expected: 1 });
+    render(<TunnelButton />);
+    fireEvent.click(screen.getByTestId("tunnel-btn"));
+    await waitFor(() => expect(screen.getByTestId("gateway-dialog-overlay")).toBeDefined());
+    expect(navigateFn).not.toHaveBeenCalled();
+  });
+});
