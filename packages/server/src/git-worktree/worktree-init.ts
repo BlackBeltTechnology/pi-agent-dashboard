@@ -256,7 +256,7 @@ async function runScript(
       });
     } catch (err) {
       // Synchronous spawn failure (e.g. ENOENT) — keep the stable failure envelope.
-      appendToTail(`\n${(err as Error)?.message ?? "spawn failed"}`);
+      appendToTail(`\n${(err as Error)?.message ?? "failed to start"}`);
       emit();
       resolve({ ok: false, ran: true, durationMs: Date.now() - start, code: "spawn_error", stderr: tail });
       return;
@@ -369,7 +369,7 @@ async function runAgent(
         stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
       } as SpawnOptions);
     } catch (err) {
-      onProgress({ line: `\n${(err as Error)?.message ?? "spawn failed"}` });
+      onProgress({ line: `\n${(err as Error)?.message ?? "failed to start"}` });
       finish(null);
       return;
     }

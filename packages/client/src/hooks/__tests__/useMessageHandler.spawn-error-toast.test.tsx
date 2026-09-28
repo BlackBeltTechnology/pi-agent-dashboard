@@ -95,7 +95,7 @@ describe("useMessageHandler — spawn_error off-screen toast", () => {
     });
     dispatch({
       type: "spawn_error", cwd: "/Users/dev/proj-X", strategy: "tmux",
-      message: "Pi session spawned but never registered (timeout 30000ms)",
+      message: "Pi session started but never registered (timeout 30000ms)",
       code: "REGISTER_TIMEOUT",
     } as any);
     const toasts = snapshotToasts();

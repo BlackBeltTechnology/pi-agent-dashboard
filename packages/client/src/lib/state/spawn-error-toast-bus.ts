@@ -49,7 +49,7 @@ export function pushSpawnErrorToast(args: PushSpawnErrorToastArgs): void {
     entries = entries.filter((e) => e.requestId !== args.requestId);
   }
   const id = nextId++;
-  const body = truncate(`Spawn failed at ${args.cwd}: ${args.code} \u2014 ${args.message}`);
+  const body = truncate(`Session start failed at ${args.cwd}: ${args.code} \u2014 ${args.message}`);
   entries = [...entries, { id, cwd: args.cwd, message: body, requestId: args.requestId }];
   emit();
   setTimeout(() => dismissSpawnErrorToast(id), SPAWN_ERROR_TOAST_DURATION_MS);

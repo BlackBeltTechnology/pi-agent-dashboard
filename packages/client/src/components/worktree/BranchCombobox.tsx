@@ -129,7 +129,7 @@ export function BranchCombobox({
         } ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
       >
         <span className="flex-1 truncate font-mono">{triggerLabel}</span>
-        <span className="text-[var(--text-muted)]">▾</span>
+        <span aria-hidden="true" className="text-[var(--text-secondary)]">▾</span>
       </button>
       {open && (
         <div

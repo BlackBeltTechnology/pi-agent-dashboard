@@ -235,7 +235,7 @@ export function WorktreeList({
         data-testid={`worktree-chip-${key}`}
         aria-pressed={on}
         onClick={() => setReveal((r) => ({ ...r, [key]: !r[key] }))}
-        className="text-[11px] rounded-full border border-[var(--border-subtle)] px-2 py-0.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] min-h-[24px]"
+        className="focus-ring text-[12px] rounded-full border border-[var(--border-secondary)] px-2.5 text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] tap-target"
       >
         {/* The sign states the ACTION so the number cannot be misread as
             "N are currently shown" (design D2). */}
@@ -254,7 +254,7 @@ export function WorktreeList({
           data-testid="worktree-filter-query"
           aria-label={i18nT("worktree.filterWorktrees", undefined, "Filter worktrees")}
           placeholder={i18nT("worktree.filterWorktrees", undefined, "Filter worktrees")}
-          className="text-xs bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-2 py-1 flex-1 min-w-[8rem] text-[var(--text-primary)]"
+          className="text-[12px] bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded px-2 py-1 tap-target flex-1 min-w-[8rem] text-[var(--text-primary)]"
         />
         {chip("detached", counts.detached, i18nT("worktree.detached", undefined, "detached"))}
         {chip("outOfTree", counts.outOfTree, i18nT("worktree.outOfTree", undefined, "out of tree"))}
@@ -288,12 +288,12 @@ export function WorktreeList({
             type="button"
             onClick={selectAllShown}
             data-testid="worktree-select-all"
-            className="text-[11px] text-[var(--text-secondary)] underline min-h-[24px]"
+            className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target"
           >
             {i18nT("worktree.selectAllShown", undefined, "Select all")} {selectable.length}{" "}
             {i18nT("common.shown", undefined, "shown")}
           </button>
-          <label className="flex items-center gap-1 text-[11px] text-[var(--text-secondary)]">
+          <label className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]">
             <input
               type="checkbox"
               checked={deleteBranch}
@@ -308,7 +308,7 @@ export function WorktreeList({
               type="button"
               onClick={() => onRemoveSelected?.(selected, { deleteBranch })}
               data-testid="worktree-remove-selected"
-              className="text-xs text-[var(--text-primary)] border border-[var(--border-subtle)] rounded px-2 py-1 min-h-[24px]"
+              className="focus-ring text-[12px] font-semibold text-[var(--text-primary)] border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] rounded-md px-2.5 tap-target"
             >
               {i18nT("worktree.removeNWorktrees", undefined, "Remove")} {selected.length}{" "}
               {i18nT("worktree.worktrees", undefined, "worktrees")}
@@ -319,7 +319,7 @@ export function WorktreeList({
               type="button"
               onClick={onPrune}
               data-testid="worktree-prune-footer"
-              className="text-[11px] text-[var(--text-secondary)] underline min-h-[24px] ml-auto"
+              className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target ml-auto"
             >
               {/* Repo-global, and the copy must say so (design D8). */}
               {i18nT(
@@ -374,13 +374,13 @@ function WorktreeRow({
     <>
       <span className="text-xs text-[var(--text-primary)] truncate">{branchLabel}</span>
       {entry.isMain && (
-        <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">
+        <span className="ml-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">
           {i18nT("worktree.main", undefined, "main")}
         </span>
       )}
       {row.missing && (
         <span
-          className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px"
+          className="ml-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px"
           data-testid="worktree-row-missing"
         >
           {i18nT("worktree.missing", undefined, "missing")}
@@ -399,7 +399,7 @@ function WorktreeRow({
         type="button"
         data-testid={testId}
         onClick={() => onSpawn?.(entry.path, entry)}
-        className="w-full text-left px-3 py-2 hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
+        className="focus-ring w-full text-left px-3 py-2 tap-target hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
       >
         <div className="flex items-center">{identity}</div>
         {pathLine}
@@ -431,7 +431,7 @@ function WorktreeRow({
           // Cause + recovery conveyed by icon + text + border, never colour alone.
           <div
             data-testid={`worktree-row-failure-${encodeURIComponent(entry.path)}`}
-            className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded px-2 py-1"
+            className="mt-1 flex items-center gap-2 text-[12px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded px-2 py-1"
           >
             <span aria-hidden="true">⚠</span>
             <span>{failure.message ?? failure.code}</span>
@@ -439,7 +439,7 @@ function WorktreeRow({
               <button
                 type="button"
                 onClick={failure.onRetry}
-                className="underline min-h-[24px]"
+                className="focus-ring underline tap-target"
                 data-testid={`worktree-row-retry-${encodeURIComponent(entry.path)}`}
               >
                 {i18nT("common.retry", undefined, "Retry")}
@@ -453,7 +453,7 @@ function WorktreeRow({
           type="button"
           onClick={onPrune}
           data-testid={`worktree-prune-${encodeURIComponent(entry.path)}`}
-          className="text-[11px] text-[var(--text-secondary)] underline min-h-[24px] max-sm:min-h-[44px]"
+          className="focus-ring text-[12px] text-[var(--text-secondary)] underline tap-target"
         >
           {i18nT("worktree.pruneStaleRegistrations", undefined, "Prune stale registrations")}
         </button>
@@ -464,7 +464,7 @@ function WorktreeRow({
           disabled={pending}
           data-testid={`worktree-remove-${encodeURIComponent(entry.path)}`}
           aria-label={i18nT("worktree.removeWorktree", undefined, "Remove worktree")}
-          className="text-[var(--text-secondary)] min-w-[24px] min-h-[24px] max-sm:min-w-[44px] max-sm:min-h-[44px] disabled:opacity-60"
+          className="focus-ring inline-flex items-center justify-center rounded text-[var(--text-secondary)] hover:bg-[var(--tint-red-bg)] hover:text-[var(--tint-red-fg)] min-w-[44px] min-h-[44px] sm:min-w-[32px] sm:min-h-[32px] disabled:opacity-60"
         >
           ✕
         </button>

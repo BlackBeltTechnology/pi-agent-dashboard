@@ -9,6 +9,7 @@ Probe: `NODE_PATH=$PWD/node_modules node openspec/changes/align-ui-with-theme-to
 |---|---|---|---|
 | Live folder card (before) | `[data-testid="sortable-workspace-folder"]` | **3 / 10** | axe (contrast, listitem, nested-interactive, target-size) both themes; computed contrast both themes; text size both themes; mobile targets |
 | After-mockup | A1–A6 | **10 / 10** | — |
+| Live new-session tray (after, 2026-09-27, docker harness) | `div:has(> [data-testid="folder-spawn-session-btn"])` | **9 / 10** | K1 only: harness console `400 Bad Request` — pre-existing, same 400s fail `openspec-board-drop-indicator` F19 on the `develop` baseline. A/C/S/T/F all pass. (`sortable-workspace-folder` scope no longer exists after develop regrouped the session list.) |
 
 Live computed-contrast samples (light, on `#fafafa`): "New Session" 1.70 · "⚠ 21 stale" 1.65 · "7" (status capsule) 1.77 · "develop" 2.64 · "Commit" 2.64 · worktree headings 2.32. Dark: relative-time labels 2.78, workspace counts 2.34.
 Live mobile targets: capsule 35×21, git pill 72×14, "Commit" 37×15, icon buttons 12–22 px; worktree source toggle 23 px tall, close × 28 px.

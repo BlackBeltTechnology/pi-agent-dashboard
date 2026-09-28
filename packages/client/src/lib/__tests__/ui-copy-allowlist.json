@@ -1,0 +1,245 @@
+{
+  "_comment": "Allowlist for the 'no spawn wording in user-facing copy' scan (packages/client/src/lib/__tests__/ui-copy-no-spawn.test.ts, test-plan E7). Each entry is an exact prose-like string literal that says spawn/respawn but is NOT dashboard copy: a log line, internal/OS-process error detail, developer-facing API validation, CLI output, agent-facing tool text or generated script source. A user-facing string MUST NOT be listed here — reword it instead. See change: align-ui-with-theme-tokens (task 4.4).",
+  "entries": [
+    {
+      "file": "packages/automation-plugin/src/server/engine.ts",
+      "text": "[engine] spawn failed for ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/automation-plugin/src/server/engine.ts",
+      "text": "[engine] spawn threw for ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/automation-plugin/src/server/engine.ts",
+      "text": "[engine] spawn-window abort failed for ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/chat-gateway/src/server/gateway.ts",
+      "text": "chat-gateway: toolPolicy is set but guardExtension is missing — refusing to spawn an ungated session",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/document-converter/src/engine.ts",
+      "text": "failed to spawn ",
+      "reason": "internal: child-process error from the document engine (OS process spawn)"
+    },
+    {
+      "file": "packages/electron/src/main.ts",
+      "text": " and respawning",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/electron/src/main.ts",
+      "text": "[launch-source] spawned server pid=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/electron/src/main.ts",
+      "text": "[zombie] respawn failed: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/electron/src/main.ts",
+      "text": "[zombie] respawned server did not become healthy within 15s; leaving current page",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/electron/src/main.ts",
+      "text": "[zombie] respawned server pid=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/extension/src/server-auto-start.ts",
+      "text": " — not spawning",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] boot reconcile: in-flight spawn pending, skipping",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] headless RPC unavailable → auto-respawn disabled",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] respawn cancelled (generation changed)",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] respawn spawn failed → paused",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] respawn spawned",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] scheduling respawn",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/goal-supervisor.ts",
+      "text": "[goal-supervisor] spawn completed under stale generation → killing",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/goal-plugin/src/server/routes.ts",
+      "text": "sessionId or spawn:true required",
+      "reason": "internal: REST validation error naming the `spawn` request field"
+    },
+    {
+      "file": "packages/mcp-server-plugin/src/server/generated/tools.ts",
+      "text": "Spawn a new pi session in a working directory.",
+      "reason": "internal: MCP tool description read by agents, not dashboard users"
+    },
+    {
+      "file": "packages/mcp-server-plugin/src/server/tools.manifest.ts",
+      "text": "Spawn a new pi session in a working directory.",
+      "reason": "internal: MCP tool description read by agents, not dashboard users"
+    },
+    {
+      "file": "packages/server/src/attachments/fit-worker-pool.ts",
+      "text": " spawn failed:",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/browser-handlers/session-action-handler.ts",
+      "text": "[dashboard] auto-resume spawn failed: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/browser-handlers/session-action-handler.ts",
+      "text": "[dashboard] headless reload spawn failed: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/browser-handlers/session-action-handler.ts",
+      "text": "[dashboard] headless reload spawn failed: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/cli.ts",
+      "text": "[runtime] spawn runtime published (source=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/cli.ts",
+      "text": "pi-session spawn runtime (diagnostic)",
+      "reason": "internal: CLI diagnostic output (terminal), not dashboard copy"
+    },
+    {
+      "file": "packages/server/src/fix-pty-permissions.ts",
+      "text": "[pty] Fixed spawn-helper permissions: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/git-worktree/worktree-init.ts",
+      "text": "[worktree-init] gate spawn failed in ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/openspec/openspec-poll-worker-pool.ts",
+      "text": " spawn failed:",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/routes/pi-runtime-routes.ts",
+      "text": "body must name at least one of `spawn` or `module`",
+      "reason": "internal: REST validation error naming the `spawn` request field"
+    },
+    {
+      "file": "packages/server/src/rpc-keeper/keeper-manager.ts",
+      "text": "spawn returned no pid",
+      "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "\" is already pending for another spawn",
+      "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "Sessions will spawn but never connect to the gateway. ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "[plugin-spawn] mode=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "spawn not permitted for plugin \"",
+      "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "spawn options must be an object",
+      "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
+    },
+    {
+      "file": "packages/server/src/server.ts",
+      "text": "spawn options require a non-empty cwd",
+      "reason": "internal: plugin-SDK API error naming the `spawn` bus capability for plugin developers"
+    },
+    {
+      "file": "packages/server/src/session/session-load-worker-pool.ts",
+      "text": " spawn failed:",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/process-manager.ts",
+      "text": "[spawn] Windows Terminal (wt.exe) not on PATH and WSL tmux unavailable — ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/process-manager.ts",
+      "text": "falling back to headless session spawn. Install Windows Terminal for a ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/restart-helper.ts",
+      "text": "\nconst net = require(\"node:net\");\nconst http = require(\"node:http\");\nconst { spawn } = require(\"node:child_process\"); // ban:child_process-ok — runs in a detached 'node -e' process, not in-host\nconst fs = require(\"node:fs\");\nconst path = require(\"node:path\");\n\nconst PORT = ",
+      "reason": "internal: source text of the generated detached restart-helper script (code, not copy)"
+    },
+    {
+      "file": "packages/server/src/spawn-process/restart-helper.ts",
+      "text": ";\n\nfunction log(msg) {\n  try {\n    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });\n    fs.appendFileSync(LOG_PATH, \"[\" + new Date().toISOString() + \"] \" + msg + \"\\n\");\n  } catch (_) { /* ignore */ }\n}\n\nfunction portFree(port) {\n  return new Promise(resolve => {\n    const sock = net.createConnection({ port, host: \"127.0.0.1\" });\n    let done = false;\n    const finish = (free) => { if (done) return; done = true; try { sock.destroy(); } catch(_){} resolve(free); };\n    sock.setTimeout(500);\n    sock.once(\"connect\", () => finish(false));\n    sock.once(\"error\", () => finish(true));\n    sock.once(\"timeout\", () => finish(true));\n  });\n}\n\nfunction healthOk() {\n  return new Promise(resolve => {\n    const req = http.get({ host: \"127.0.0.1\", port: PORT, path: \"/api/health\", timeout: 1000 }, res => {\n      resolve(res.statusCode === 200);\n      res.resume();\n    });\n    req.once(\"error\", () => resolve(false));\n    req.once(\"timeout\", () => { req.destroy(); resolve(false); });\n  });\n}\n\nfunction sleep(ms) { return new Promise(r => setTimeout(r, ms)); }\n\n// The next three process.kill calls run inside the orchestrator's\n// 'node -e' subprocess (NOT in-host server code), so they cannot use\n// the platform/process.ts helpers — those modules are not bundled into\n// the embedded script. The repo-lint opt-out marker at the end of each\n// line keeps no-direct-process-kill.test.ts quiet.\n// See change: fix-restart-bridge-auto-start-race.\nfunction isAlive(pid) {\n  try { process.kill(pid, 0); return true; } catch (_) { return false; } // ban:process-kill-ok\n}\n\n// 0. Read PID file and terminate the previous daemon explicitly. Removes the\n// \"wait for self-exit\" ambiguity that lets bridge auto-start race the\n// orchestrator. See change: fix-restart-bridge-auto-start-race.\nasync function killPriorDaemon() {\n  let pid = 0;\n  try {\n    const raw = fs.readFileSync(PID_PATH, \"utf-8\").trim();\n    pid = parseInt(raw, 10);\n  } catch (_) { return; /* no PID file — nothing to do */ }\n  if (!Number.isFinite(pid) || pid <= 0) return;\n  if (!isAlive(pid)) return;\n  try { process.kill(pid, \"SIGTERM\"); } catch (_) { /* ignore */ } // ban:process-kill-ok\n  for (let i = 0; i < 30; i++) { // up to 3 s\n    await sleep(100);\n    if (!isAlive(pid)) return;\n  }\n  try { process.kill(pid, \"SIGKILL\"); } catch (_) { /* ignore */ } // ban:process-kill-ok\n  await sleep(200);\n}\n\n(async () => {\n  // 0. Explicit kill of previous daemon (SIGTERM → SIGKILL).\n  await killPriorDaemon();\n\n  // 1. Wait for port to be free (up to 5s — reduced from 10s because step 0\n  //    already guarantees the previous server is dead).\n  for (let i = 0; i < 10; i++) {\n    if (await portFree(PORT)) break;\n    await sleep(500);\n  }\n\n  // 2. Spawn new server\n  const child = spawn(EXEC, ARGS, { detached: true, stdio: \"ignore\", env: process.env });\n  child.unref();\n\n  // 3. Poll health (deadline mode-aware: 15s prod / 60s dev). See change:\n  //    fix-mode-aware-server-ready-deadlines.\n  for (let i = 0; i < HEALTH_ITERATIONS; i++) {\n    await sleep(500);\n    if (await healthOk()) {\n      process.exit(0);\n    }\n  }\n\n  log(\"restart failed: new server did not respond to /api/health within \" + (HEALTH_DEADLINE_MS / 1000) + \"s\");\n  process.exit(1);\n})();\n",
+      "reason": "internal: source text of the generated detached restart-helper script (code, not copy)"
+    },
+    {
+      "file": "packages/server/src/spawn-process/spawn-failure-log.ts",
+      "text": "[spawn-failure-log] Failed to append entry:",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/spawn-process/spawned-turn-log.ts",
+      "text": "[dashboard] spawned-session model-turn error: session=",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/server/src/tunnel/tunnel-core.ts",
+      "text": " tunnel spawn failed: ",
+      "reason": "log-only: console/server log line, never rendered in the dashboard UI"
+    },
+    {
+      "file": "packages/shared/src/doctor-core.ts",
+      "text": "Spawn runtime (resolved)",
+      "reason": "internal: legacy check-name alias key in SECTION_OF/SUGGESTIONS so older renderers still map the renamed check; never emitted as a check name"
+    },
+    {
+      "file": "packages/shared/src/platform/detached-spawn.ts",
+      "text": "spawn failed: no PID",
+      "reason": "internal: OS child-process failure detail (node spawn), wrapped by a user-facing message upstream"
+    }
+  ]
+}

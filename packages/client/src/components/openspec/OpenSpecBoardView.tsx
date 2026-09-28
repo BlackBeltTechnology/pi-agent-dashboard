@@ -133,7 +133,7 @@ export interface OpenSpecBoardViewProps {
  * See change: fix-openspec-board-worktree-button-gating.
  */
 function worktreeActionTitle(availability: WorktreeAvailability): string {
-  if (availability.available) return i18nT("worktree.spawnAWorktreeForThisProposal", undefined, "Spawn a worktree for this proposal");
+  if (availability.available) return i18nT("worktree.spawnAWorktreeForThisProposal", undefined, "New worktree session for this proposal");
   if (availability.reason === "worktrees-disabled") return i18nT("worktree.unavailableDisabled", undefined, "Worktrees are disabled in Settings");
   return i18nT("worktree.unavailableNotGitRepo", undefined, "This folder is not a git repository");
 }
@@ -1101,28 +1101,31 @@ function ProposalCard(props: {
         </div>
       )}
 
-      {/* Card actions */}
-      <div className="flex gap-1.5 mt-2 pt-1.5 border-t border-[var(--border-subtle)]" onPointerDown={(e) => e.stopPropagation()}>
+      {/* Card actions — identity tints, 12 px, 44/32 px targets, focus-ring.
+          See change: align-ui-with-theme-tokens (D2/D5/D6). */}
+      <div className="flex flex-wrap gap-1.5 mt-2 pt-1.5 border-t border-[var(--border-subtle)]" onPointerDown={(e) => e.stopPropagation()}>
         <button
+          type="button"
           onClick={() => props.onSpawnSession(props.cwd, c.name)}
-          className="flex-1 text-[9px] px-1 py-[3px] rounded-md text-green-400 border border-green-500/30 hover:bg-green-500/8 whitespace-nowrap"
+          className="focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap tint-action-green"
           data-testid={`card-new-session-${c.name}`}
-          title={i18nT("session.spawnASessionAttachedToThis", undefined, "Spawn a session attached to this proposal")}
+          title={i18nT("session.spawnASessionAttachedToThis", undefined, "New session for this proposal")}
         >
-          <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{i18nT("session.newSession", undefined, "New session")}
+          <Icon path={mdiPlay} size={0.5} className="flex-shrink-0" />{i18nT("session.newSession", undefined, "New session")}
         </button>
         {/* Always rendered: an unavailable worktree action is disabled with an
             explaining title, never hidden — a vanished button is
             indistinguishable from a render bug (design D7).
             See change: fix-openspec-board-worktree-button-gating. */}
         <button
+          type="button"
           onClick={() => { if (props.worktreeAvailability.available) props.onSpawnAttachedWorktree(props.cwd, c.name); }}
           disabled={!props.worktreeAvailability.available}
-          className={`flex-1 text-[9px] px-1 py-[3px] rounded-md text-yellow-400 border border-yellow-500/30 whitespace-nowrap ${props.worktreeAvailability.available ? "hover:bg-yellow-500/8" : "opacity-40 cursor-not-allowed"}`}
+          className={`focus-ring flex-1 inline-flex items-center justify-center gap-1 text-[12px] font-semibold px-2.5 tap-target rounded-md border whitespace-nowrap ${props.worktreeAvailability.available ? "tint-action-orange" : "border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)] text-[var(--tint-orange-fg)] opacity-50 cursor-not-allowed"}`}
           data-testid={`card-new-worktree-${c.name}`}
           title={worktreeActionTitle(props.worktreeAvailability)}
         >
-          <Icon path={mdiSourceBranchPlus} size={0.4} className="inline mr-0.5" />{i18nT("worktree.newWorktree", undefined, "New worktree")}
+          <Icon path={mdiSourceBranchPlus} size={0.5} className="flex-shrink-0" />{i18nT("worktree.newWorktree", undefined, "New worktree")}
         </button>
       </div>
     </div>
@@ -1290,16 +1293,16 @@ function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCance
     <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-dialog" onClick={onCancel}>
       <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-[330px]" onClick={(e) => e.stopPropagation()} data-testid="new-proposal-dialog">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{i18nT("openspec.newProposal", undefined, "New proposal")}</h3>
-        <p className="text-[10px] text-[var(--text-muted)] mb-3">{i18nT("session.spawnsASessionRunningTheNew", undefined, "Spawns a session running the new-change flow. The created change lands in the chosen group.")}</p>
+        <p className="text-[12px] text-[var(--text-secondary)] mb-3">{i18nT("session.spawnsASessionRunningTheNew", undefined, "Starts a new session running the new-change flow. The created change lands in the chosen group.")}</p>
         <div className="mb-2.5">
-          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{i18nT("common.name", undefined, "Name")}</label>
+          <label className="block text-[12px] font-semibold text-[var(--text-primary)] mb-1">{i18nT("common.name", undefined, "Name")}</label>
           <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="kebab-case-name"
             onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") onCancel(); }}
-            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-name" />
+            className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 tap-target outline-none focus:border-[var(--focus-ring)]" data-testid="np-name" />
         </div>
         <div className="mb-2.5">
-          <label className="block text-[9px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{i18nT("common.group", undefined, "Group")}</label>
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 outline-none focus:border-blue-500/50" data-testid="np-group">
+          <label className="block text-[12px] font-semibold text-[var(--text-primary)] mb-1">{i18nT("common.group", undefined, "Group")}</label>
+          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded-md text-[var(--text-primary)] text-[12px] px-2 py-1.5 tap-target outline-none focus:border-[var(--focus-ring)]" data-testid="np-group">
             {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             <option value={UNGROUPED}>{i18nT("common.ungrouped", undefined, "Ungrouped")}</option>
           </select>
@@ -1311,8 +1314,8 @@ function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCance
           </div>
         )}
         <div className="flex gap-2 justify-end mt-3.5">
-          <button onClick={onCancel} className="text-[11px] px-2.5 py-1 rounded-md border border-[var(--border-secondary)] text-[var(--text-secondary)]">{i18nT("common.cancel", undefined, "Cancel")}</button>
-          <button onClick={submit} disabled={!name.trim()} className="text-[11px] px-2.5 py-1 rounded-md border border-blue-500/40 text-blue-400 bg-blue-500/6 hover:text-blue-300 disabled:opacity-40" data-testid="np-create">{i18nT("session.createSpawn", undefined, "Create & spawn")}</button>
+          <button type="button" onClick={onCancel} className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]" data-testid="np-cancel">{i18nT("common.cancel", undefined, "Cancel")}</button>
+          <button type="button" onClick={submit} disabled={!name.trim()} className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed" data-testid="np-create">{i18nT("session.createSpawn", undefined, "Create & start session")}</button>
         </div>
       </div>
     </div>

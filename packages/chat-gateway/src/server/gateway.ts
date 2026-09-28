@@ -584,7 +584,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       return {
         success: false,
         message:
-          "L3 toolPolicy is configured but guardExtension is not — refusing to spawn an ungated session.",
+          "L3 toolPolicy is configured but guardExtension is not — refusing to start an ungated session.",
       };
     }
     const token = seam.mintSpawnToken();
@@ -637,7 +637,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     source: string,
   ): Promise<boolean> {
     if (config.allowedRoots.length === 0) {
-      await reply(msg.channelId, "Spawn refused: allowedRoots is empty. An operator must configure it.");
+      await reply(msg.channelId, "New session refused: allowedRoots is empty. An operator must configure it.");
       return false;
     }
     if (!isWithinAllowedRoots(cwd, config.allowedRoots)) {
@@ -646,7 +646,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     }
     const res = await spawnCorrelated(msg, channelKey, cwd, source);
     if (!res.success) {
-      await reply(msg.channelId, `Spawn failed: ${res.message ?? "unknown error"}`);
+      await reply(msg.channelId, `Session start failed: ${res.message ?? "unknown error"}`);
       return false;
     }
     return true;
