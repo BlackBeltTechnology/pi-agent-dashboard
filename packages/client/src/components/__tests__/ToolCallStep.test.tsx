@@ -1,11 +1,12 @@
 import { type ClaimEntry, createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 import { ToolCallStep } from "../chat/ToolCallStep.js";
+import { FORCE_STOP_ARM_MS, type StopController } from "../chat/ToolStopControl.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const defaultContext: ToolContext = {};
@@ -546,22 +547,36 @@ describe("ToolCallStep inline stop button", () => {
     expect(container.querySelector('[data-testid="tool-stop-button"]')).toBeNull();
   });
 
-  it("calls onAbort and escalates to force-stop on click", () => {
+  it("calls onAbort, arms, then escalates to force-stop (#F12)", () => {
+    vi.useFakeTimers();
+    try {
+      const onAbort = vi.fn();
+      const onForceKill = vi.fn();
+      const { container } = renderStep({ status: "running", onAbort, onForceKill });
+      const q = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement | null;
+
+      fireEvent.click(q("tool-stop-button")!);
+      expect(onAbort).toHaveBeenCalledOnce();
+      expect(q("tool-arming-button")!.disabled).toBe(true);
+
+      act(() => vi.advanceTimersByTime(FORCE_STOP_ARM_MS));
+      fireEvent.click(q("tool-force-stop-button")!);
+      expect(onForceKill).toHaveBeenCalledOnce();
+      expect(q("tool-killing-button")!.disabled).toBe(true);
+      // Neither click toggled the row open (bash has no auto-expand).
+      expect(container.querySelector(".mt-1.ml-4")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("burst stopController wins over own handlers (#F13)", () => {
     const onAbort = vi.fn();
-    const onForceKill = vi.fn();
-    const { container } = renderStep({ status: "running", onAbort, onForceKill });
-
-    // Click stop
-    fireEvent.click(container.querySelector('[data-testid="tool-stop-button"]')!);
-    expect(onAbort).toHaveBeenCalledOnce();
-
-    // Should show force-stop button
-    expect(container.querySelector('[data-testid="tool-stop-button"]')).toBeNull();
+    const controller: StopController = { state: "aborting", stop: vi.fn(), forceKill: vi.fn() };
+    const { container } = renderStep({ status: "running", onAbort, stopController: controller });
     expect(container.querySelector('[data-testid="tool-force-stop-button"]')).not.toBeNull();
-
-    // Click force-stop
-    fireEvent.click(container.querySelector('[data-testid="tool-force-stop-button"]')!);
-    expect(onForceKill).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-testid="tool-stop-button"]')).toBeNull();
+    expect(onAbort).not.toHaveBeenCalled();
   });
 });
 
