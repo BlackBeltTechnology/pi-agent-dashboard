@@ -1,115 +1,185 @@
 ## Context
 
-The dashboard's `event-wiring.ts` already classifies "user-relevant" events via the pure helper `isUnreadTrigger(eventType, before, after, payload)` (`event-status-extraction.ts:209`). That classifier is the single source of truth for "should the user be notified?" — currently consumed only by the unread-stripes feature. Push notifications are the natural extension of the same trigger to disconnected devices.
-
-The fan-out site is a single point in `event-wiring.ts:188-201`:
+The dashboard already decides "the user should know about this session" server-side. `isUnreadTrigger(eventType, before, after, payload)` (`packages/server/src/session/event-status-extraction.ts:263`) fires on three edges: turn finished (`streaming → idle/active`), waiting for input (`currentTool → "ask_user"`), crash (`agent_end` with truthy error). Its only consumer is the helper `stampUnreadIfTriggered` in `packages/server/src/event-wiring.ts:662`:
 
 ```ts
-if (
-  isUnreadTrigger(msg.event.eventType, beforeSnapshot, afterSnapshot, msg.event.data) &&
-  !viewedSessionTracker.isViewedByAnyone(sessionId)
-) {
-  if (sessionAfter && !sessionAfter.unread) {
+function stampUnreadIfTriggered(sessionId, eventType, before, after, payload?): void {
+  if (!viewedSessionTracker) return;
+  if (!isUnreadTrigger(eventType, before, after, payload)) return;
+  if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
+  const session = sessionManager.get(sessionId);
+  const unreadEdge = !!session && !session.unread;              // ← NEW
+  if (unreadEdge) {
     sessionManager.update(sessionId, { unread: true });
     browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
   }
-  pushDispatcher?.fanout(sessionId, msg.event); // ← THE NEW LINE
+  if (session) pushDispatcher?.fanout(sessionId, { eventType, after, payload, unreadEdge }); // ← NEW
 }
 ```
 
-This co-location is deliberate: push and unread-stripes have identical semantics ("notify because the user wants to know"). Diverging the gating would create two parallel-but-subtly-different "what counts as a notable event" definitions, which is a long-term maintenance hazard.
+The helper has **two callers**: the `event_forward` path (`event-wiring.ts:944`, gated by `!replayingSessions.has(sessionId) && viewedSessionTracker` at `:941`) and the `prompt_request` branch (`event-wiring.ts:2058`, which passes `eventType = "prompt_request"` and **no payload**). Both evaluate the same trigger on purpose, because the `prompt_request` branch writes `currentTool` without reaching the extractor. So one `ask_user` edge can reach the helper twice, milliseconds apart. The helper is synchronous, so the second call sees `unread === true`. Replay never reaches the helper, but by two different mechanisms: `event_forward` checks `replayingSessions` explicitly, while the `prompt_request` branch is structurally live-only. Any new caller must keep replay out.
 
-**Stakeholders**: server maintainers (event-wiring + new push module), web client maintainers (sw.js + usePushSubscription hook + Settings UI), future Capacitor change author (will reuse `/api/push/register`).
+`unread` is cleared only by a browser `session_view` (`packages/server/src/pairing/browser-gateway.ts:1969`). That fact drives Decision 10.
+
+Some paths deliberately do not go through the helper: the exemption at `event-wiring.ts:1202` and the heartbeat liveness heal. Neither stamps unread, and neither pushes.
+
+**Stakeholders**: server maintainers (event-wiring + new push module), web client maintainers (repo-root `public/sw.js`, served via `publicDir` in `packages/client/vite.config.ts`; `usePushSubscription`, Settings UI), the future Capacitor change author (reuses `/api/push/register`), webhook consumers (nanoMuse, ntfy, Home Assistant).
 
 **Dependencies**:
-- Existing: `viewedSessionTracker`, `isUnreadTrigger`, `event-wiring.ts`, `auth-plugin.ts`, `json-store.ts`, `config.ts` validator pattern.
-- New npm: `web-push` (~2.5k weekly downloads is a misread — it's millions; widely used, stable, MIT-licensed). FCM uses native `https` + `crypto.createSign` for the JWT; no Firebase SDK.
+- Existing: `stampUnreadIfTriggered`, `viewedSessionTracker` (`packages/server/src/session/viewed-session-tracker.ts`), `writeJsonFile` / `readJsonFile` (`packages/server/src/persistence/json-store.ts`), the auth chain (`packages/server/src/auth/auth-plugin.ts`), the route-tier map (`packages/shared/src/route-tiers.ts`), the config validators in `packages/shared/src/config.ts`.
+- New npm: `web-push` (MIT) and `undici` (MIT, Node's own HTTP client). The webhook transport needs `undici`'s `request` plus an `Agent` with a `connect.lookup` hook for address pinning, which global `fetch` does not expose. FCM uses built-in `fetch` + `crypto.createSign`. No Firebase SDK.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- One place in the codebase decides "is this event push-worthy?" — `isUnreadTrigger`. No duplication.
-- Push delivery latency must not block the event-forwarding pipeline. Failure of FCM/APNs/Web Push must not throttle the websocket fan-out to connected browsers. Enforced by a repo-level lint test.
-- Coalesce per-(session, device) at 30s — same window the existing `lastActivityBroadcastAt` uses. Configurable, clamped 5–300s.
-- Two transports (Web Push, FCM) behind one `PushTransport` interface. Adding APNs-direct or another transport later is mechanical.
-- Server is opt-in (`config.push.enabled = false` by default). A user who never touches the config sees zero behavior change.
-- Web Push works on the existing PWA — no Capacitor required for v1 value.
-- The Capacitor follow-on can ship by adding ONE transport adapter and zero changes to the trigger logic.
+- One decision point for "is this event push-worthy": `stampUnreadIfTriggered`. No second evaluation of `isUnreadTrigger`.
+- Push never blocks the event pipeline: `fanout` does no I/O and no disk read synchronously, and never throws or rejects.
+- Device transports push once per unread period per session. Webhooks receive every qualifying trigger. Both are bounded by a per-(session, token) coalescing window (Decision 10).
+- Three transports (Web Push, FCM, generic webhook) behind one `PushTransport` interface.
+- Opt-in (`config.push.enabled` defaults to false): no dispatcher, no VAPID keys and no outbound calls while disabled.
+- Web Push works on the existing PWA; no Capacitor needed for v1.
+- The Capacitor follow-on ships by registering `transport: "fcm"` tokens, with no trigger-logic change.
 
 **Non-Goals:**
-- Modifying `isUnreadTrigger` itself. Trigger semantics are already in production for the unread feature; if they need to evolve, that's its own change touching both consumers.
-- Building a generic notification framework (categories, priorities, sound packs). v1 is "ping me when the agent needs me" — three trigger types, one notification body shape.
-- Replacing the existing unread-stripes broadcast with a push round-trip. Connected browsers continue to learn via WebSocket; push is for *disconnected* devices.
-- Server-side delivery receipts / retry / DLQ. Web Push and FCM both have transport-level retry. Our dispatcher logs failure and moves on. If a device is permanently dead, the next 410 / `UNREGISTERED` response prunes it from the registry.
+- Changing `isUnreadTrigger` or the unread gating. Trigger semantics are shared with the stripes feature; changing them is its own change.
+- A notification framework (categories, priorities, sounds). v1 has three trigger kinds and one payload shape.
+- Replacing the unread WebSocket broadcast for connected browsers.
+- Delivery receipts, retry or a dead-letter queue.
 
 ## Decisions
 
-### Decision 1 — Coalescing key is `(sessionId, deviceToken)`, not `(sessionId)`
+### Decision 1: Coalescing applies to webhook tokens, keyed `(sessionId, tokenId)`
 
-**Why**: a user with a phone AND a desktop both registered should each get the push, even though they're "the same user." Coalescing per-token avoids one device suppressing another. The 30s window is per-pair.
+A phone and a desktop each get their own push. `tokenId` is stable per `deviceToken`: registration is idempotent (Decision 4), so re-subscribing keeps the same `tokenId` and does not reset the window. The in-memory map drops entries older than `2 × coalesceWindowMs` on each dispatch, and `registry.remove(tokenId)` also deletes that token's entries. Size is bounded by `O(sessions × tokens)`.
 
-**Tradeoff**: in-memory map size grows with `O(active sessions × registered devices)`. Bounded by entry count and TTL — old entries pruned on every dispatch (lazy expiry). For a 50-session, 5-device household: 250 entries max. Negligible.
+Device tokens are **not** coalesced. The unread edge already limits them to one per unread period, and a new period requires a view. Coalescing them would swallow a real new edge that arrives within the window after the user looked at the session. For webhook tokens, coalescing is the rate bound, and it absorbs the double caller for one `ask_user` edge.
 
-### Decision 2 — Web Push via VAPID, server-generated keys, persisted at `~/.pi/dashboard/push-vapid.json`
+### Decision 2: Web Push via VAPID, keys persisted at `~/.pi/dashboard/push-vapid.json` (mode `0600`)
 
-**Why**: VAPID is the standard auth scheme for Web Push. Generating once and persisting (rather than re-generating per server start) means existing browser subscriptions remain valid across restarts. The VAPID public key is embedded in the subscription request and validated by the push service (Mozilla autopush, FCM under the hood for Chrome, etc.).
+Generated once so existing browser subscriptions survive restarts. The file holds the signing private key, so it is written `0600` (Decision 11).
 
-**Tradeoff**: one more JSON file in `~/.pi/dashboard/`. Acceptable.
+**Rejected alternative**: deriving the keys from `config.secret`. Rotating the secret would silently invalidate every subscription.
 
-**Rejected alternative**: VAPID keys derived from `config.secret`. Risk: rotating the secret would invalidate all push subscriptions silently, with no failure surface until a user wonders why pushes stopped. Separate persistence makes the lifecycle explicit.
+### Decision 3: FCM via HTTPS + service-account JWT, no Firebase Admin SDK
 
-### Decision 3 — FCM via raw HTTP/2 + service-account JWT, no Firebase Admin SDK
+One `fetch` POST to `https://fcm.googleapis.com/v1/projects/<project_id>/messages:send`, with a Bearer token from an OAuth JWT signed by `crypto.createSign('RSA-SHA256')`. The token is cached and refreshed on 401 or at 3500 s. About 80 LOC.
 
-**Why**: Firebase Admin SDK is ~50MB of dependencies for one HTTP call. The FCM v1 API is a single POST with a Bearer JWT; the JWT signing uses `crypto.createSign('RSA-SHA256')` from Node built-ins. Total: ~80 LOC, zero new heavyweight deps.
+**Rejected alternative**: `firebase-admin`, which pulls a large gRPC/Firestore dependency tree for one POST.
 
-**Tradeoff**: we manually handle token refresh (JWT expires after 1 hour). Mitigation: cache token, refresh on 401. ~10 extra LOC.
+### Decision 4: Token registry is one JSON file, held in memory
 
-**Rejected alternative**: Firebase Admin SDK. Pulls `@grpc/grpc-js`, `firebase-admin`, `@google-cloud/firestore`, etc. Bloats `node_modules` by ~80MB. Not justified for one POST call.
+Loaded once at dispatcher construction. Reads (`list`, match) are served from memory, so `fanout` never touches disk. `add` and `remove` update memory and write through immediately with the atomic tmp+rename write at mode `0600` (Decision 11). `touch` (`lastUsedAt`) is persisted at most once per 60 s, so a busy session does not rewrite the file on every push. A crash can lose up to 60 s of `lastUsedAt`, which is harmless.
 
-### Decision 4 — Token persistence as a single JSON file, not SQLite
+If the file does not parse at load, the registry logs an error, renames it to `push-tokens.json.corrupt-<epoch ms>` (keeping it for inspection), starts empty, and adds a `push.errors` entry. Push stays enabled.
 
-**Why**: matches the existing pattern (`session-meta`, `preferences-store`, `known-servers`). All token mutations go through the existing `json-store.ts` atomic write. For < 1000 tokens (which is FAR more than any single user has) JSON read/write is microseconds.
+`add` is idempotent by `deviceToken`: an existing entry keeps its `id` and gets a new `lastUsedAt`. The registry holds at most **50** tokens. A 51st *distinct* `deviceToken` gets `409`, while re-registering an existing one is still allowed.
 
-**Tradeoff**: full-file rewrite on every register/unregister. Negligible at expected scale.
+**Registration validation** (all failures → `400`):
+- `transport` ∈ {`web-push`, `fcm`, `webhook`}.
+- `web-push`: `deviceToken` is the JSON of a `PushSubscription` (`{endpoint, keys: {p256dh, auth}}`) with an `https:` endpoint and both keys non-empty.
+- `fcm`: a non-empty string.
+- `webhook`: Decision 9 rules.
+- `label`: ≤ 64 chars.
+- `sessionFilter`: an array of ≤ 100 non-empty strings.
 
-### Decision 5 — Notification payload is small and links to the session
+The Web Push endpoint is a capability URL, so it is a secret like a webhook URL. `display` for web-push is `"<push-service host> browser"` (e.g. `fcm.googleapis.com browser`), never the endpoint path. For fcm it is `"fcm device"`.
 
-The push payload is:
+### Decision 5: Payload is small and links to the session
+
 ```json
-{ "type": "session_attention", "sessionId": "abc-123", "title": "Pi session waiting for input", "body": "agent: claude — file_edit", "url": "/session/abc-123" }
+{ "type": "session_attention", "trigger": "input", "sessionId": "abc-123", "title": "fix-login: waiting for input", "body": "claude-opus-5", "url": "/session/abc-123" }
 ```
 
-Title/body computed server-side from event payload + session metadata. Click handler in `sw.js` (and Capacitor's plugin handler in the follow-up) navigates to `url`. We do NOT include the full event content — privacy + payload-size limits (FCM caps at 4KB, Web Push at 4KB nominal).
+Built server-side by the pure helper `buildPushPayload(session, {eventType, after, payload})`.
+- `trigger` is one of `turn_end`, `input`, `crash`.
+- `title` is `"<name>: turn finished"`, `"<name>: waiting for input"` or `"<name>: crashed"`. `<name>` is the session name, falling back to the basename of the session's cwd.
+- `body` is the session's model id (empty if unknown). For a crash it is the error message, cut to 200 characters with `…` appended when longer.
 
-### Decision 6 — `push.enabled = false` by default; opt-in in Settings UI
+No other event content is included. It fits the roughly 4 KB Web Push and FCM limits.
 
-**Why**: pushing requires user consent at the OS level anyway (browser prompt for Web Push, OS permission for FCM via Capacitor). Server-side opt-in is the second gate — admins who don't want push noise on their server don't need to do anything. Mirrors `tunnel.enabled`.
+### Decision 6: `push.enabled` defaults to false; routes answer 404 while disabled
 
-### Decision 7 — `pushDispatcher?` is optional in `EventWiringDeps`
+A missing or partial `push` block parses to `{enabled: false, coalesceWindowMs: 30000}`. While disabled:
+- no dispatcher is built;
+- no VAPID keys are generated;
+- no transport makes an outbound call.
 
-Mirrors how `viewedSessionTracker?` was added. Keeps existing tests that don't exercise push lean. The runtime `wireEvents` call in `server.ts` always passes the dispatcher in production.
+The `/api/push/*` routes are **always registered**, which keeps the route-tier completeness test static, but their handlers answer `404` while disabled. The auth chain runs first, so an unauthenticated caller gets `401` regardless and cannot probe whether push is enabled.
 
-### Decision 8 — Failed deliveries with `410 Gone` (Web Push) or `NOT_FOUND` / `UNREGISTERED` (FCM) prune the token
+### Decision 7: `pushDispatcher?` is optional in `EventWiringDeps`
 
-The dispatcher records and removes dead tokens automatically. No background reaper job. This keeps the token registry clean without a polling cron.
+Mirrors `viewedSessionTracker?`. Tests that don't exercise push stay lean.
+
+**Coupling, stated on purpose**: `stampUnreadIfTriggered` returns early when `viewedSessionTracker` is absent, so push also requires the tracker. Production always wires both. The dispatcher is only constructed in the same `server.ts` path that passes the tracker, and a test asserts that pairing.
+
+### Decision 8: Gone tokens are pruned
+
+Web Push `404`/`410`, FCM `NOT_FOUND`/`UNREGISTERED` and webhook `410` return `{ok: false, gone: true}`. The dispatcher then calls `registry.remove(tokenId)`. No reaper job.
+
+### Decision 9: Generic webhook transport; the URL is the token and a secret
+
+**Why**: a device is not the only useful consumer. A self-hosted agent (nanoMuse `hook` triggers at `POST /api/hooks/{id}?key=…`), ntfy, Home Assistant or a CI bot can act on "session needs attention". The dashboard's MCP endpoint cannot carry this for SDK clients: `subscriptions/listen` streaming exists only in the modern era, and clients that call `initialize` negotiate the legacy era, where streaming is refused (`packages/mcp-server-plugin/README.md`).
+
+**Shape**: `transport: "webhook"`, `deviceToken` = absolute `http:`/`https:` URL, plus an optional user-supplied `label` (≤ 64 chars). The body is the Decision 5 payload with `Content-Type: application/json`. It adds one file in `push-transports/` and no new trigger logic.
+
+**Hardening** (`security-hardening`):
+- Registration validates with `new URL()`. A non-`http:`/`https:` scheme, a relative URL, or userinfo (`user:pass@`) gets `400`. The WHATWG parser canonicalises numeric hosts (`http://2852039166/` → `169.254.169.254`), so the block check runs on the parsed hostname and on the resolved addresses.
+- **SSRF policy.** Loopback and private-LAN targets are allowed; a nanoMuse on the same box or the LAN is the main use case. The dashboard itself is refused: a target whose port equals the dashboard's listen port on a loopback or local-interface address gets `400`, because loopback requests pass the local-trust checks and a hook pointed at `/api/restart` would fire on every trigger. Link-local and cloud-metadata addresses are refused: `169.254.0.0/16`, `fe80::/10` and `fd00:ec2::254`, plus IPv4-mapped forms of these. The check runs at registration and **again at every delivery**. If **any** resolved address is blocked, the request is refused, identically at both points. Delivery uses an `undici` `Agent` whose `connect.lookup` hands back only the vetted addresses, which closes the DNS-rebinding gap between check and connect.
+- Delivery uses `undici.request`, which follows no redirects, so a 3xx counts as a failure. It is bounded by a 5 s timeout. The response body is discarded with `body.dump()`, so the socket is released.
+- **The URL is a secret.** API responses and log lines render a webhook token as `label` (if set) plus its origin, never the path or query. Transport errors are logged as `{transport, target: <redacted>, status | errorCode}`. The raw `Error` object is never logged, because `fetch` errors can carry the full URL in `cause`.
+- `POST /api/push/test` returns `{tokenId, ok}` per token, with `gone` for pruned tokens. It never returns an HTTP status, error text or timing, so it cannot be used to probe which hosts are reachable. It bypasses coalescing, because a test must really send. Repeated use is bounded by its `operate` tier, a caller who could already spawn shell sessions.
+
+**Outcome mapping**:
+- `2xx` → `{ok: true}`.
+- `410` → `{ok: false, gone: true}`, and the token is pruned.
+- `404` → `{ok: false}`, token **kept**. A reverse proxy or a restarting receiver can answer 404 for a moment, and a webhook consumer has no way to learn it was pruned. Each token carries `consecutiveFailures` (in memory, reset on success), and the list shows it so the user can spot a dead hook and remove it.
+- Every other status, a network error, a refused address or a timeout → `{ok: false}`. The failure is logged, the token is kept, and nothing is retried.
+
+**Rejected alternative**: a separate `webhooks` config block. Reusing the token registry gives register, unregister, test, list, coalescing and pruning for free, plus the Settings UI.
+
+### Decision 10: Hybrid cadence: device tokens on the unread edge, webhooks on every trigger
+
+`fanout(sessionId, {eventType, after, payload, unreadEdge})` is called on every qualifying trigger: `isUnreadTrigger` true, no viewer, not a replay. The dispatcher then filters by transport:
+- **Device tokens** (`web-push`, `fcm`) are delivered only when `unreadEdge` is true. A person gets one buzz per unread period, the same contract as the stripes. The next one comes after they view the session.
+- **Webhook tokens** are delivered on every qualifying trigger, bounded by coalescing. A headless consumer (nanoMuse, ntfy, a CI bot) never views a session, so `unread` would never clear for it. Edge-only delivery would give it one event per session, ever.
+
+`buildPushPayload` classifies the trigger from `(eventType, after, payload)`, not from `eventType` alone. A `prompt_request` call with `after.currentTool === "ask_user"` and no payload is the "waiting for input" trigger.
+
+**Rejected**: uniform every-trigger delivery, which repeats buzzes on people who chose not to look. Also rejected: uniform edge-only delivery, which starves headless consumers.
+
+### Decision 11: Secret-bearing files are written `0600`
+
+`writeJsonFile` gains an optional `{ mode }` argument. With a mode set, it writes the `.tmp` file, then `chmodSync(tmp, mode)` **unconditionally** before the rename. `writeFileSync`'s `mode` only applies when the file is created, so a stale `.tmp` left by a crash would otherwise keep `0644`. The renamed file is therefore always `0600`. `push-tokens.json` and `push-vapid.json` use `0600`. Existing callers are unchanged.
+
+### Decision 12: Route tiers
+
+`packages/shared/src/route-tiers.ts` gets five rows:
+- `GET /api/push/vapid-public-key`: `observe`.
+- `GET /api/push/register`, `POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test`: `operate`. A webhook registration is an outbound-request primitive, and the list reveals internal receiver origins.
+
+The MCP manifest does not expose push tools in v1. The five routes go on `DENYLIST` in `packages/mcp-server-plugin/src/server/tools.denylist.ts`, because `mcp-manifest-completeness.test.ts` requires every registered route to be either bound or denylisted, and every `/api/*` route to have a `ROUTE_TIERS` row.
 
 ## Risks / Trade-offs
 
-- **Web Push payload size limit (4KB)**. Title + body + url + sessionId fits comfortably. Risk if we ever want richer payloads.
-- **iOS Safari Web Push** requires the user to install the PWA to the home screen. Documented behavior; we surface a hint in the Settings UI for iOS users ("install to home screen first"). The Capacitor follow-on side-steps this entirely via APNs through FCM.
-- **VAPID contact email is required by spec**. If `config.push.webPush.contactEmail` is missing while Web Push is enabled, server logs a clear error and disables Web Push (FCM still works). Documented in design + surfaced in `/api/health.push.errors`.
-- **FCM service-account JSON is sensitive**. We read by path, do NOT inline in `config.json`. Ensures the file can have stricter permissions and isn't accidentally exposed in `/api/config` GET (which redacts secrets but should never see this content at all).
-- **Test endpoint `/api/push/test` could be abused** to spam a user. Auth-gated and rate-limited by the existing auth-plugin chain. Acceptable for v1 single-user audience.
-- **Coalescing window of 30s could miss a user**. If three trigger events fire within 30s, the user sees one push, not three. This is a feature, not a bug — same as the existing unread-stripes behavior. Configurable per deployment.
+- **Payload size (about 4 KB)**: fits comfortably. Richer payloads would need a revisit.
+- **iOS Web Push** requires installing the PWA to the home screen. The Settings UI shows a hint for iOS users. The Capacitor follow-on avoids this.
+- **Missing VAPID contact email**: Web Push is disabled with a logged error and a `push.errors` entry on `/api/health`. FCM and webhook keep working. `/api/health` is unauthenticated (`system-routes.ts:84`), so `push.errors` is included only when `canDiscloseAccessPosture(request)` holds, the same gate as other posture data. The health-shape tests (`health-shape.test.ts`, `health-compatibility.test.ts`) are updated.
+- **FCM service-account JSON** is read by path and never inlined in `config.json`.
+- **Background tab counts as "viewing"**: `isViewedByAnyone` is true while any browser has the session selected, even in a hidden tab, so the phone stays silent. This is inherited from the unread gating (`openspec/specs/viewed-session-unread-gating`). Changing it belongs to that capability.
+- **Webhook receivers can rate-limit**: nanoMuse refuses a hook called again within 10 s (`429`). Decision 10 makes bursts from one session rare. Several sessions finishing together can still hit one receiver's limit; the `429` is logged and not retried. Accepted for v1.
+- **Webhook targets see the title and body text**: the same payload as a device push, but it leaves the device-push trust boundary. The user chose the URL.
+- **Dead webhook stays registered**: a deleted nanoMuse hook answers `404` forever. The token is kept, the failure is logged each time, and the list shows its `consecutiveFailures` count. The user removes it.
+- **Web Push needs a secure context**: `pushManager.subscribe` works only over `https://` or `localhost`. On a plain-http LAN address the Settings section says so and points at the webhook path (ntfy, nanoMuse) or an https tunnel (zrok). FCM and webhook are unaffected.
+- **Single-user fan-out**: every registered token receives every session's events. With multiple OAuth users, titles can reach another user's device or webhook. `userId` is recorded for a follow-up; multi-user routing is out of scope.
+- **Fire-and-forget lint is heuristic**: the AST test catches a direct `await`/`.then` on `fanout`, not aliasing. The real guarantee is structural: `fanout` returns `void`, does no synchronous I/O, and wraps its async work in a `.catch` that logs. That is unit-tested.
 
 ## Migration Plan
 
-This is purely additive:
+Purely additive:
 
-1. Land server-side dispatcher + REST routes + config schema. Default `enabled: false` means no behavior change for existing deployments.
-2. Land client-side `usePushSubscription` + `sw.js` push handler + Settings UI. With server `enabled: false`, the UI shows "Push not enabled on this server" and the hook no-ops.
-3. User opts in via config (or a follow-up "enable push" button in Settings if we want UX polish — out of scope for v1).
-4. User clicks "Enable on this device" in Settings → browser prompt → token registered.
-5. Capacitor change (follow-on) reuses `/api/push/register` with `transport: "fcm"`. Server-side requires only that `config.push.fcm.serviceAccountPath` is set.
+1. Server: `writeJsonFile` mode option, dispatcher, transports, routes, route tiers and config schema. With the default `enabled: false` nothing changes.
+2. Client: `usePushSubscription`, the `public/sw.js` push handler, and the Settings section (device list plus "Add webhook URL"). When the server answers 404, the section shows "Push not enabled on this server".
+3. The user sets `push.enabled: true`, then enables Web Push on a device or adds a webhook URL in Settings.
+4. The Capacitor follow-on registers `transport: "fcm"` tokens with no server change beyond `push.fcm.serviceAccountPath`.
 
-No data migration. No breaking change. Existing unread-stripes behavior is untouched.
+Rollback: set `push.enabled: false`, or remove the block. The token and VAPID files are inert while disabled and can be deleted.

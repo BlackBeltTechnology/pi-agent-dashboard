@@ -1,58 +1,76 @@
 ## Why
 
-The dashboard already has a server-side classifier — `isUnreadTrigger(eventType, before, after, payload)` in `packages/server/src/event-status-extraction.ts:209` — that fires when an agent finishes a turn (`streaming → idle/active`), waits for input (`currentTool → "ask_user"`), or crashes (`agent_end` with truthy error). Today this classifier flips a per-session `unread` bit and broadcasts `session_updated` to *connected* browsers (see `event-wiring.ts:181-201`). Disconnected, backgrounded, or mobile users learn nothing.
+The dashboard already decides server-side when a session needs the user. `isUnreadTrigger(eventType, before, after, payload)` (`packages/server/src/session/event-status-extraction.ts:263`) fires when:
+- an agent finishes a turn (`streaming → idle/active`);
+- an agent waits for input (`currentTool → "ask_user"`);
+- an agent crashes (`agent_end` with a truthy error).
 
-Push notifications close that gap. The same three triggers that drive the unread-stripes feature are exactly the moments a user wants their phone to ping. By wiring a fan-out dispatcher into the existing trigger site, we get cross-device awareness with **zero new event semantics** and one new line at the call site.
+Its one consumer, `stampUnreadIfTriggered` (`packages/server/src/event-wiring.ts:662`), flips a per-session `unread` bit and broadcasts `session_updated` to **connected** browsers. Disconnected, backgrounded or mobile users learn nothing.
 
-This change ships value to the existing PWA via the W3C Web Push spec (Chrome / Edge / Firefox / Safari 16+ on iOS) before any Capacitor work happens. The follow-on change `add-capacitor-mobile-shell` (not yet filed) will reuse the exact same server endpoints via Capacitor's `@capacitor/push-notifications` plugin (FCM/APNs through Firebase) — so the server-side mechanics are identical for both transports.
+Push closes that gap. Hooking a fan-out dispatcher into the existing unread trigger gives cross-device awareness with **zero new event semantics** and one new line at the call site.
+
+v1 reaches the existing PWA through W3C Web Push (Chrome, Edge, Firefox, Safari 16.4+ on iOS). It also reaches any HTTP receiver through a generic webhook transport, such as a self-hosted agent like nanoMuse, ntfy or Home Assistant. The follow-on `add-capacitor-mobile-shell` reuses the same endpoints through FCM.
 
 ## What Changes
 
-- **NEW** `packages/server/src/push/` module with three files:
-  - `push-token-registry.ts` — persists `{deviceToken, transport: "web-push"|"fcm", userId?, sessionFilter?: string[], registeredAt, lastUsedAt}` to `~/.pi/dashboard/push-tokens.json` via the existing `json-store.ts` atomic write helper. Pure-data layer, no transport coupling.
-  - `push-dispatcher.ts` — async fire-and-forget fan-out. Takes `(sessionId, event)` → reads matching tokens → POSTs to the appropriate transport endpoint. **Coalesces** at most one push per `(sessionId, deviceToken)` per 30s window, mirroring the existing `lastActivityBroadcastAt` throttle in `event-wiring.ts`. Failures logged, never thrown — must not block the event pipeline.
-  - `push-transports/web-push.ts` and `push-transports/fcm.ts` — transport adapters with a shared `PushTransport` interface (`send(token, payload): Promise<void>`). Web Push uses the `web-push` npm library + VAPID keys; FCM uses the v1 HTTP API + service-account JWT (no Firebase Admin SDK — direct REST call, ~80 LOC, keeps the dependency surface flat).
-- **NEW** REST routes in `packages/server/src/routes/push-routes.ts`:
-  - `POST /api/push/register` — body `{deviceToken, transport, sessionFilter?}` → 200 with `{registered: true}`. Auth-gated via the existing `auth-plugin.ts` chain.
-  - `DELETE /api/push/register/:tokenId` — unregister a device.
-  - `POST /api/push/test` — send a test push to one or all of the caller's devices. Returns delivery receipt per token.
-  - `GET /api/push/vapid-public-key` — returns the VAPID public key for Web Push subscription (server generates the keypair once on first start, stores in `~/.pi/dashboard/push-vapid.json`).
-- **NEW** config block in `~/.pi/dashboard/config.json` schema (`packages/shared/src/config.ts`):
+- **NEW** `packages/server/src/push/`:
+  - `push-token-registry.ts`: in-memory registry of `{id, deviceToken, transport: "web-push"|"fcm"|"webhook", label?, userId?, sessionFilter?, registeredAt, lastUsedAt}`. Write-through to `~/.pi/dashboard/push-tokens.json` (mode `0600`). Idempotent by `deviceToken`.
+  - `push-dispatcher.ts`: `fanout(sessionId, {eventType, after, payload, unreadEdge})` returns `void`, never throws or rejects, and does no synchronous I/O. Cadence is hybrid: device tokens (`web-push`, `fcm`) only on the unread `false → true` edge; webhook tokens on every qualifying trigger. Webhook deliveries are coalesced to at most one per `(sessionId, tokenId)` per window; device tokens are rate-limited by the unread edge alone. Prunes gone tokens.
+  - `build-push-payload.ts`: pure helper that builds `PushPayload`.
+  - `push-vapid.ts`: VAPID keypair generated once, persisted `0600`.
+  - `push-transports/{types,web-push,fcm,webhook}.ts`: one `PushTransport` interface.
+    - Web Push uses the `web-push` library.
+    - FCM uses the v1 HTTP API with a service-account JWT and no Firebase SDK.
+    - Webhook POSTs JSON to a registered `http(s)` URL via `undici`. Link-local and metadata addresses, and the dashboard's own port on a local address, are refused on every resolved IP, and the connection is pinned to the vetted address. Redirects are not followed, delivery times out after 5 s, and the URL is redacted to label plus origin in every response and log line. Only `410` prunes a webhook token; `404` counts as a failure.
+- **NEW** REST routes in `packages/server/src/routes/push-routes.ts`. They are always registered and answer `404` while push is disabled:
+  - `POST /api/push/register`, body `{deviceToken, transport, label?, sessionFilter?}` → `200 {tokenId}`.
+  - `GET /api/push/register` → `200 {tokens: [{tokenId, transport, display, registeredAt, lastUsedAt, consecutiveFailures}]}`. `display` is label plus origin for webhooks, or a device hint otherwise.
+  - `DELETE /api/push/register/:tokenId` → `204`.
+  - `POST /api/push/test`, body `{tokenId?}` → `200 {results: [{tokenId, ok, gone?}]}`.
+  - `GET /api/push/vapid-public-key` → `200 {publicKey}`.
+- **MODIFY** `packages/shared/src/route-tiers.ts`: `GET /api/push/vapid-public-key` is `observe`; every other push route is `operate`. **MODIFY** `packages/mcp-server-plugin/src/server/tools.denylist.ts`: the push routes are not exposed as MCP tools.
+- **NEW** config block in `packages/shared/src/config.ts`, with a validator that clamps values. A missing or partial block parses as disabled:
   ```ts
   push?: {
-    enabled: boolean;             // default false (must be opted in)
-    coalesceWindowMs: number;     // default 30_000, range 5_000–300_000
-    fcm?: {
-      serviceAccountPath: string; // path to Firebase service-account JSON
-    };
-    webPush?: {
-      contactEmail: string;       // required by VAPID spec for `mailto:` subject
-    };
+    enabled: boolean;             // default false
+    coalesceWindowMs: number;     // default 30_000, clamped 5_000–300_000
+    fcm?: { serviceAccountPath: string };
+    webPush?: { contactEmail: string };  // VAPID `mailto:` subject
   }
   ```
-  Validator with clamping in the same shape as `parseOpenSpecPollConfig`.
-- **MODIFY** `packages/server/src/event-wiring.ts` at the existing `isUnreadTrigger` site (`event-wiring.ts:188-201`) — add **one line** that calls `pushDispatcher.fanout(sessionId, event)` after the unread broadcast. Identical guard conditions: only live (non-replay) events, only when `!viewedSessionTracker.isViewedByAnyone(sessionId)`. Push and unread-stripes share the same gating.
-- **NEW** `packages/client/src/hooks/usePushSubscription.ts` — Web Push registration: feature-detect `'serviceWorker' in navigator && 'PushManager' in window`, fetch VAPID public key, call `swReg.pushManager.subscribe(...)`, POST the subscription to `/api/push/register`. Idempotent — checks for existing subscription on mount.
-- **MODIFY** `public/sw.js` — add a `'push'` event listener that parses the JSON payload and calls `self.registration.showNotification(...)` with click handler routing back to `/session/:id`.
-- **NEW** Settings UI section `packages/client/src/components/PushNotificationsSection.tsx` — toggle to enable/disable push for the current device, list of registered devices with last-used timestamp, "Send test" button, "Unregister this device" button. Mounted under Settings → Notifications (new sub-page or top-level section — TBD in design.md).
-- **NEW** repo-level lint test `packages/server/src/__tests__/push-dispatcher-fire-and-forget.test.ts` — fails the build if `push-dispatcher.fanout(...)` is ever `await`ed at the call site in `event-wiring.ts`. Push must be fire-and-forget; awaiting it would couple FCM/APNs latency to the event pipeline.
-- **DOCUMENTATION** — update `docs/architecture.md` with a new "Push notifications" section covering: the trigger contract (same as unread-stripes), the coalescing rule, the per-token persistence shape, and the FCM service-account setup steps (Firebase project → service account → download JSON → reference in config). Add a one-line entry for each new file in `AGENTS.md`'s Key Files table.
+- **MODIFY** `packages/server/src/persistence/json-store.ts`: `writeJsonFile` gains an optional `{ mode }`. With it set, the `.tmp` file is `chmod`ed unconditionally before the rename.
+- **MODIFY** `/api/health`: add `push.errors`, disclosed only when `canDiscloseAccessPosture(request)` holds. The health-shape tests are updated.
+- **NEW** dependencies: `web-push` and `undici` in `packages/server/package.json`.
+- **MODIFY** `packages/server/src/event-wiring.ts`: add `pushDispatcher?` to `EventWiringDeps`. In `stampUnreadIfTriggered`, capture `unreadEdge = !!session && !session.unread` and, when the session exists, call `pushDispatcher?.fanout(sessionId, {eventType, after, payload, unreadEdge})` after the unread block. It runs on every qualifying trigger, and the dispatcher applies the hybrid cadence. The `event_forward` and `prompt_request` callers can both hit one `ask_user` edge; the unread edge absorbs that for devices and coalescing absorbs it for webhooks.
+- **MODIFY** `packages/server/src/server.ts`: build the dispatcher only when `config.push.enabled === true`, and pass it to `wireEvents`.
+- **NEW** `packages/client/src/hooks/usePushSubscription.ts`: Web Push registration. It feature-detects support, fetches the VAPID key, calls `pushManager.subscribe`, and POSTs `/api/push/register`. Idempotent.
+- **MODIFY** repo-root `public/sw.js`: add `push` and `notificationclick` listeners. A click focuses an existing dashboard window and navigates it to `payload.url`, or opens a new one.
+- **NEW** `packages/client/src/components/settings/PushNotificationsSection.tsx`, mounted in `SettingsPanel.tsx`. It includes:
+  - an enable/disable toggle for this device;
+  - the list of registered tokens (display only), each with unregister and Send Test;
+  - an **"Add webhook URL"** field with an optional label;
+  - an iOS "install to home screen first" hint;
+  - a "Web Push needs https or localhost" notice when the page is not a secure context, pointing at the webhook option.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `push-notifications` — server-side fan-out of agent-trigger events (`streaming→idle`, `ask_user`, `agent_end`-error) to registered devices via Web Push and/or FCM, with per-(session,device) coalescing, opt-in config, and a REST API for device registration/test/unregister.
-
-### Modified Capabilities
-
-- `event-wiring` — extends the existing `isUnreadTrigger` call site with a single fire-and-forget call into the push dispatcher. Same gating (no replay, no viewed sessions), same trigger predicate. Adds a new optional dependency (`pushDispatcher?: PushDispatcher`) to `EventWiringDeps` so existing tests that don't need it stay lean (mirrors the `viewedSessionTracker?` pattern).
+- `push-notifications`: server-side fan-out of the unread trigger (turn finished, `ask_user`, crash) to registered tokens, with a hybrid cadence (devices on the unread edge, webhooks per trigger), via Web Push, FCM and/or generic webhook. Includes per-(session, token) coalescing, opt-in config, a REST API to register, list, test and unregister tokens, and a Settings UI.
+- `event-wiring`: the unread-trigger site in `stampUnreadIfTriggered` becomes the single push hook, passing `unreadEdge`, with an optional `pushDispatcher` dependency.
 
 ## Out of Scope
 
-- **Capacitor / native APK / iOS .ipa packaging** — covered by the follow-on change `add-capacitor-mobile-shell`. This change makes Capacitor's job trivial (just plug the FCM token into `/api/push/register`) but does not require Capacitor to ship.
-- **Per-event-type push opt-in** (e.g. "push me on `ask_user` but not on `agent_end`-error"). v1 ships all-or-nothing per device. Granularity can be added via `sessionFilter` extension in a follow-up if real demand surfaces.
-- **Quiet hours / DND scheduling** — out of scope; OS-level Do Not Disturb is the right layer for this.
-- **Push payload encryption at rest** — Web Push is end-to-end encrypted by spec. FCM payloads are TLS to Google then to device — fine for v1. No HIPAA/PII data is in the payload (just session id + status + truncated message).
-- **Rate limiting at the REST layer** — `/api/push/test` is auth-gated; the existing auth chain plus the in-pipeline 30s coalescing is sufficient for v1.
-- **Multi-user push routing** — the `userId` field is recorded on the token but v1 fans out to *every* registered token (single-user dashboard assumption). Multi-user filtering is a follow-up.
+- **Capacitor / native packaging**: covered by the follow-on `add-capacitor-mobile-shell`.
+- **Per-event-type opt-in** ("push on `ask_user` but not on crash"). v1 is all-or-nothing per token. `sessionFilter` limits a token to exact session ids; absent or empty means all sessions.
+- **Changing the viewed gating**: a hidden tab that still has the session selected suppresses push. This is inherited from `viewed-session-unread-gating`.
+- **Quiet hours / DND**: the OS layer handles this.
+- **Per-webhook custom headers and delivery retries**: v1 webhook auth rides in the URL (nanoMuse `?key=`, ntfy `?auth=`). `429`, `5xx` and timeouts are logged, not retried.
+- **Multi-user push routing**: `userId` is recorded, but v1 fans out to every registered token (single-user assumption, see design Risks).
+- **MCP tools for push management**: the routes are denylisted in the MCP manifest for v1.
+
+## Discipline Skills
+
+- `security-hardening`: the webhook transport makes the server POST to a user-supplied URL whose query carries a secret. Covered by: scheme allowlist, a link-local/metadata block on the resolved IP with a pinned connection, no redirect following, a bounded timeout, URL redaction in responses and logs, an opaque test endpoint, and `0600` for the token and VAPID files.
+- `observability-instrumentation`: new outbound calls (webhook, Web Push, FCM). Each delivery logs one structured line with transport, redacted target, outcome and latency. Configuration failures surface in `/api/health` as `push.errors`.
+- `doubt-driven-review`: done during planning (two cycles, two reviewers each, one cross-model). The fixes are folded into design Decisions 4 and 6–12.
