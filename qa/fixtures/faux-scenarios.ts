@@ -735,6 +735,36 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "demo_echo" },
   },
+  // gmail-plugin tools against the in-container fake Google
+  // (tests/e2e/helpers/fake-google.ts). `gmail-send` raises the tool's own
+  // confirm card; `gmail-search` leases a token (drives the reauth badge).
+  // Two-step terminate. See change: add-gmail-plugin (test-plan F5, F6).
+  "gmail-send": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("gmail_send", {
+            account: "a@fake.test",
+            to: ["x@dest.test", "y@dest.test"],
+            subject: "e2e subject",
+            body: "hello from the e2e",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("gmail send done")]),
+    ],
+    expect: { toolName: "gmail_send" },
+  },
+  "gmail-search": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("gmail_search", { account: "a@fake.test", query: "is:unread" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("gmail search done")]),
+    ],
+    expect: { toolName: "gmail_search" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.

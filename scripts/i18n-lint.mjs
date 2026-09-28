@@ -68,8 +68,14 @@ function walk(dir) {
       // the hostless apple-tools installer; its `message:` strings are
       // diagnostics returned as data, never rendered copy. The plugin's client
       // entry is still scanned. See change: extract-mcp-client-plugin.
+      //
+      // gmail-plugin/src/{server,bridge}: bridge strings are MODEL-FACING tool
+      // text (an agent contract, not UI); server strings are OAuth-flow prompt
+      // payloads + REST error payloads whose machine code the client maps to
+      // its own translated copy. The client subtree stays scanned.
+      // See change: add-gmail-plugin.
       if (
-        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core/.test(
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin|browser-plugin\/src\/server|mcp-client-plugin\/src\/core|gmail-plugin\/src\/(server|bridge)/.test(
           p,
         )
       )
