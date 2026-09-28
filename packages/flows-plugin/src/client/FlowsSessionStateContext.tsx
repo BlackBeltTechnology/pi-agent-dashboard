@@ -31,6 +31,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { isFlowEvent, reduceFlowEvent } from "../reducer.js";
+import { toEventTime } from "./flow-idle-state.js";
 
 /** Shape exposed to flows-plugin components for a single session. */
 export interface FlowsSessionState {
@@ -42,6 +43,14 @@ export interface FlowsSessionState {
    * (FlowDashboard's multi-flow tab bar).
    */
   flowStates: ReadonlyMap<string, FlowState>;
+  /** Epoch ms of the newest `flow_started` in the stream (attach baseline /
+   *  consumption clock). See change: attach-flow-before-run (D4). */
+  lastFlowStartedAt?: number;
+  /** Latest autonomous mode seen (`flow_started.autonomousMode` or
+   *  `flow_autonomous_changed.enabled`), captured even with no flowState (D8). */
+  lastAutonomousMode?: boolean;
+  /** Latest start pi-flows refused (`flow_complete` status `rejected`) (D7). */
+  lastRejection?: { flowName: string; reason?: string; timestamp: number };
 }
 
 const EMPTY_STATE: FlowsSessionState = Object.freeze({
@@ -70,6 +79,9 @@ export function reduceFlowsSessionState(
   let flowState: FlowState | null = null;
   let flowStates: Map<string, FlowState> = new Map();
   let flowStatesMutated = false;
+  let lastFlowStartedAt: number | undefined;
+  let lastAutonomousMode: boolean | undefined;
+  let lastRejection: FlowsSessionState["lastRejection"];
 
   // Diagnostic counter for C1 — see fix-flows-plugin-polish. Gated to dev.
   let flowEventCount = 0;
@@ -77,6 +89,20 @@ export function reduceFlowsSessionState(
   for (const event of events) {
     if (isFlowEvent(event.eventType)) {
       flowEventCount++;
+      const data = event.data ?? {};
+      if (event.eventType === "flow_started") {
+        const ts = toEventTime(event.timestamp);
+        if (lastFlowStartedAt === undefined || ts > lastFlowStartedAt) lastFlowStartedAt = ts;
+        if (typeof data.autonomousMode === "boolean") lastAutonomousMode = data.autonomousMode;
+      } else if (event.eventType === "flow_autonomous_changed") {
+        if (typeof data.enabled === "boolean") lastAutonomousMode = data.enabled;
+      } else if (event.eventType === "flow_complete" && data.status === "rejected") {
+        lastRejection = {
+          flowName: String(data.flowName ?? ""),
+          reason: typeof data.reason === "string" ? data.reason : undefined,
+          timestamp: toEventTime(event.timestamp),
+        };
+      }
       flowState = reduceFlowEvent(flowState, event);
       if (flowState) {
         if (!flowStatesMutated) {
@@ -109,13 +135,22 @@ export function reduceFlowsSessionState(
     }
   }
 
-  if (flowState === null && flowStates.size === 0) {
+  if (
+    flowState === null &&
+    flowStates.size === 0 &&
+    lastFlowStartedAt === undefined &&
+    lastAutonomousMode === undefined &&
+    lastRejection === undefined
+  ) {
     return EMPTY_STATE;
   }
 
   return {
     flowState,
     flowStates,
+    lastFlowStartedAt,
+    lastAutonomousMode,
+    lastRejection,
   };
 }
 

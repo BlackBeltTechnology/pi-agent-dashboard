@@ -1,6 +1,7 @@
 import {
   usePluginSend,
   useSessionData,
+  useSessionEvents,
   useT,
   useUiPrimitive,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -13,12 +14,13 @@ import type {
   FlowInfo,
   FlowState,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiPencil, mdiPlay } from "@mdi/js";
+import { mdiEyeOutline, mdiPencil, mdiPlay } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
 import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
+import { newAttachmentId, setAttachment } from "./flow-attach-store.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import type { FlowsPluginConfig } from "./FlowsSettings.js";
 import { makeSafeSend } from "./send-safe.js";
@@ -30,7 +32,9 @@ export function SessionFlowActions({
   onFlowAction,
   onEditFlow,
   flowState,
+  flowStates,
   onAbortFlow,
+  onOpenFlow,
 }: {
   flows: FlowInfo[];
   /** Edit-mode on → show the New / Edit launcher (authoring via the skill). */
@@ -47,11 +51,17 @@ export function SessionFlowActions({
   flowState?: FlowState | null;
   /** Dispatch flow_control abort. Called by the running-flow pill's Abort button. */
   onAbortFlow?: () => void;
+  /** All flow states this session — Open is disabled while any is running. */
+  flowStates?: ReadonlyMap<string, FlowState>;
+  /** Attach a flow to the session flow slot before it runs. See change:
+   *  attach-flow-before-run (D7). */
+  onOpenFlow?: (flow: FlowInfo) => void;
 }) {
   const t = useT();
   const ConfirmDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.confirmDialog);
   const SearchableSelectDialog = useUiPrimitive(UI_PRIMITIVE_KEYS.searchableSelectDialog);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [openPickerOpen, setOpenPickerOpen] = useState(false);
   const [editPickerOpen, setEditPickerOpen] = useState(false);
   // After picking from the edit launcher, capture intent before launching the skill.
   const [authorTarget, setAuthorTarget] = useState<{ mode: "new" | "edit"; flowName?: string } | null>(null);
@@ -78,6 +88,10 @@ export function SessionFlowActions({
     : null;
 
   if (flows.length === 0 && !editMode && !badgeProps) return null;
+
+  const anyRunning =
+    flowState?.status === "running" ||
+    (flowStates ? Array.from(flowStates.values()).some((s) => s.status === "running") : false);
 
   const flowOptions: SelectOption[] = flows.map((f) => ({
     value: f.name,
@@ -106,6 +120,17 @@ export function SessionFlowActions({
               className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
             >
               <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlowButton", undefined, "Run Flow...")}
+            </button>
+          )}
+          {onOpenFlow && flows.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenPickerOpen(true); }}
+              disabled={anyRunning}
+              title={anyRunning ? t("openFlowDisabledRunning", undefined, "A flow is running") : undefined}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+              data-testid="flows-open-button"
+            >
+              <Icon path={mdiEyeOutline} size={0.4} className="inline mr-0.5" />{t("openFlowButton", undefined, "Open flow…")}
             </button>
           )}
           {editMode && (
@@ -153,6 +178,22 @@ export function SessionFlowActions({
             setSelectedFlow(null);
           }}
           onCancel={() => setSelectedFlow(null)}
+        />
+      )}
+
+      {/* Open: pick flow → attach it to the flow slot (not started). */}
+      {openPickerOpen && onOpenFlow && (
+        <SearchableSelectDialog
+          title={t("openFlowDialogTitle", undefined, "Open flow")}
+          options={flowOptions}
+          placeholder={t("searchFlows", undefined, "Search flows...")}
+          emptyMessage={t("noFlowsAvailable", undefined, "No flows available")}
+          onSelect={(value) => {
+            const flow = flows.find((f) => f.name === value);
+            if (flow) onOpenFlow(flow);
+            setOpenPickerOpen(false);
+          }}
+          onCancel={() => setOpenPickerOpen(false)}
         />
       )}
 
@@ -230,7 +271,8 @@ export function SessionFlowActions({
 export function SessionFlowActionsClaim({ session }: { session: DashboardSession }) {
   const flows = useSessionData<FlowInfo[]>(session.id, "flowsList") ?? [];
   const commands = useSessionData<CommandInfo[]>(session.id, "commandsList") ?? [];
-  const { flowState } = useFlowsSessionState(session.id);
+  const { flowState, flowStates, lastFlowStartedAt } = useFlowsSessionState(session.id);
+  const events = useSessionEvents(session.id);
   const send = usePluginSend();
   // The edit-mode reconcile effect and the author-prompt handler cannot own the
   // send promise — discard it explicitly.
@@ -262,6 +304,18 @@ export function SessionFlowActionsClaim({ session }: { session: DashboardSession
       editMode={editMode}
       hasFlowsDelete={hasFlowsDelete}
       flowState={flowState}
+      flowStates={flowStates}
+      onOpenFlow={(flow) =>
+        // Baseline = newest flow_started seen now; null on an empty (not yet
+        // replayed) stream — the flow slot resolves it from the first batch.
+        // See change: attach-flow-before-run (D4).
+        setAttachment(session.id, {
+          id: newAttachmentId(),
+          name: flow.name,
+          source: flow.source,
+          baselineStartedAt: events.length > 0 ? (lastFlowStartedAt ?? 0) : null,
+        })
+      }
       onAbortFlow={() => send({ type: "flow_control", sessionId: session.id, action: "abort" })}
       onEditFlow={(flowName, instruction) => {
         const intent = instruction.trim();

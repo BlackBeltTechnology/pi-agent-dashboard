@@ -60,6 +60,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `file-mention-resolve.spec.ts` | L3 server-side-file-mention-resolution (S19). → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted… → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec… → see `fixtures.ts.AGENTS.md` |
+| `flow-attach-before-run.spec.ts` | L3 (change: attach-flow-before-run, F15/F16). Open flow… → idle panel → Run → live → summary. |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, F1). → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows… → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1… → see `folder-action-banner.spec.ts.AGENTS.md` |
