@@ -91,3 +91,16 @@ describe("accounts panel", () => {
     expect(err.dataset.step).toBe("5");
   });
 });
+
+describe("CodeRabbit — flow status failure surfaces", () => {
+  it("a level raise whose flow status fails shows the error instead of hanging", async () => {
+    mockFetch({
+      "GET /api/plugins/gmail/state": () => STATE,
+      "POST /api/plugins/gmail/accounts/s2/level": () => ({ flowId: "gone" }),
+    });
+    renderPanel();
+    const rows = await screen.findAllByTestId("gmail-account-row");
+    fireEvent.change(within(rows[1] as HTMLElement).getByTestId("gmail-account-level"), { target: { value: "send" } });
+    expect((await screen.findByTestId("gmail-flow-error")).textContent).toMatch(/Sign-in failed/);
+  });
+});

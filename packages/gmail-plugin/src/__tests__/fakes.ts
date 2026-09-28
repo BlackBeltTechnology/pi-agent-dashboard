@@ -83,6 +83,7 @@ export interface FakeTokenOptions {
 interface TokenCall {
   grant: string | null;
   body: URLSearchParams;
+  signal: AbortSignal | null | undefined;
 }
 
 /** fetch-shaped fake for the token + revoke endpoints; records calls. */
@@ -95,9 +96,9 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
     revokes.push(body.get("token") ?? "");
     return new Response("", { status: opts.revoke ? await opts.revoke() : 200 });
   };
-  const token = async (body: URLSearchParams) => {
+  const token = async (body: URLSearchParams, signal: AbortSignal | null | undefined) => {
     const grant = body.get("grant_type");
-    calls.push({ grant, body });
+    calls.push({ grant, body, signal });
     const handler = grant === "refresh_token" ? opts.refresh : opts.code;
     const out = (await handler?.()) as Record<string, unknown> | undefined;
     if (out && typeof out.status === "number" && out.body) return json(out.status, out.body);
@@ -107,7 +108,7 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
     const url = String(input instanceof Request ? input.url : input);
     const body = new URLSearchParams(init?.body instanceof URLSearchParams ? init.body.toString() : String(init?.body ?? ""));
     if (url === TEST_ENDPOINTS.revoke) return revoke(body);
-    if (url === TEST_ENDPOINTS.token) return token(body);
+    if (url === TEST_ENDPOINTS.token) return token(body, init?.signal);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { fetchImpl, calls, revokes };

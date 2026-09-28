@@ -7,7 +7,7 @@ Settings → General → Gmail guides Google Cloud setup.
 Create project; enable Gmail API; configure Branding and Audience; upload Desktop `client_secret_*.json`; test sign-in.
 Google offers no setup API; dashboard never runs `gcloud`.
 Workspace users choose Internal; others choose External and add test users.
-Testing status expires refresh tokens after 7 days; panel shows `testing: 7-day`.
+External apps in Testing status expire refresh tokens after 7 days; Internal/Workspace apps unaffected; panel shows `testing: 7-day`.
 Every tool call except `gmail_accounts` names `account` by alias or email; no default account.
 Accounts remain user-global across dashboard pi sessions.
 
@@ -143,7 +143,7 @@ Other values trigger warning and fall back to Google defaults.
 
 Request lane stays private but unauthenticated; any user session can lease connected accounts within level.
 Mail content remains attacker-controlled; without `untrusted-content-guard`, only write confirmations protect agent.
-Attachment save rejects traversal, symlink escape, overwrite; parent swap before create remains TOCTOU risk.
+Attachment save rejects traversal and overwrite; symlinked targets/parents refused; parent-directory swap by another local process mid-save remains documented residual TOCTOU.
 Logs contain email, operation, outcome; no tokens.
 Local revoke failure needs manual Google removal at <https://myaccount.google.com/permissions>.
 

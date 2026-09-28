@@ -21,7 +21,7 @@ The wizard walks through these steps. Each console link carries `?project=<id>`.
 3. **Audience.**
    - Workspace organisation: **Internal**.
    - Otherwise **External**, and add every Gmail address you will connect as a **test user**.
-   - In *Testing* status Google expires refresh tokens after **7 days** (the panel shows a `testing: 7-day` badge). *Publish app* gives longer-lived tokens, with an "unverified app" warning at sign-in.
+   - For an **External** app in *Testing* status, Google expires refresh tokens after **7 days** (the panel shows a `testing: 7-day` badge). *Publish app* gives longer-lived tokens, with an "unverified app" warning at sign-in.
 4. **Client.** Clients → Create client → application type **Desktop app**. Download the JSON.
 5. **Upload** the `client_secret_*.json`. Only a Desktop (`installed`) client is accepted; a Web client is rejected.
 6. **Test sign-in** = add your first account.
@@ -60,7 +60,7 @@ Remote dashboards: the sign-in listens on a `127.0.0.1` loopback port of the **d
 | `gmail_search` | readonly | Gmail query syntax, metadata only, `maxResults` 1–50. |
 | `gmail_get` | readonly | One message, or a thread (`thread: true`). |
 | `gmail_labels` | readonly | Label ids + names. |
-| `gmail_attachments` | readonly | List, or save one inside the session cwd (never overwrites, no symlink escape). |
+| `gmail_attachments` | readonly | List, or save one inside the session cwd (never overwrites; symlinked targets/parents refused — a parent directory swapped for a symlink mid-save by another local process is a documented residual race). |
 | `gmail_draft` | draft | Confirmed. |
 | `gmail_send` / `gmail_reply` | send | Confirmed; replies thread via `In-Reply-To` / `References` / `threadId`. |
 | `gmail_modify` / `gmail_trash` | send | Confirmed. Archive = remove label `INBOX`. |

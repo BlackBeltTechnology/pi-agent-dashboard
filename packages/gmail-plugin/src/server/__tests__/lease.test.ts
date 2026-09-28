@@ -301,3 +301,11 @@ describe("review round 1 — races across the refresh await", () => {
     expect(creds.data.get(acctKey("s1"))?.status).toBe("ok");
   });
 });
+
+describe("CodeRabbit — bounded refresh", () => {
+  it("the refresh request carries an abort signal (a hung token endpoint cannot pin single-flight)", async () => {
+    const { lease, google } = setup({ expiresIn: 0 });
+    await lease({ account: "work", op: "read" });
+    expect(google.calls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+});

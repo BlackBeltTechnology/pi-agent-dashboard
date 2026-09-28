@@ -24,6 +24,8 @@ import { AccountError, type AccountRecord, type AccountStore } from "./accounts.
 import { oauthClient, oauthServer, requestOptions } from "./google-oauth.js";
 
 const REFRESH_WINDOW_MS = 60_000;
+/** > the 15 s lane timeout, so a slow-but-alive refresh still lands and is stored (X3). */
+const REFRESH_TIMEOUT_MS = 30_000;
 
 type LeaseErrorCode =
   | "bad_request"
@@ -76,7 +78,8 @@ export function createLeaseHandler(deps: LeaseDeps) {
       c,
       oauth.ClientSecretPost(client.clientSecret),
       acct.refresh,
-      requestOptions(deps.endpoints, deps.fetchImpl),
+      // Bounded: a hung token endpoint must not pin the single-flight slot.
+      requestOptions(deps.endpoints, deps.fetchImpl, AbortSignal.timeout(REFRESH_TIMEOUT_MS)),
     );
     return oauth.processRefreshTokenResponse(as, c, res);
   }

@@ -105,6 +105,12 @@ function recipients(v: unknown, name: string, min: number): string[] {
   return list;
 }
 
+/** Bare lower-cased address of a header entry (`Name <a@b>` or `a@b`). */
+function addressOf(entry: string): string {
+  const m = /<([^<>]+)>\s*$/.exec(entry);
+  return (m ? (m[1] as string) : entry).trim().toLowerCase();
+}
+
 function preview(body: string): string {
   return body.length > PREVIEW_CHARS ? `${body.slice(0, PREVIEW_CHARS)}…` : body;
 }
@@ -418,7 +424,8 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const cc =
           p.replyAll === true
             ? [...split(header(orig.payload, "To")), ...split(header(orig.payload, "Cc"))].filter(
-                (a) => !a.toLowerCase().includes(self) && a !== replyTo,
+                // Exact address match — a substring test would drop `lisa@x.com` for `a@x.com`.
+                (a) => addressOf(a) !== self && addressOf(a) !== addressOf(replyTo),
               )
             : [];
         const subj = header(orig.payload, "Subject") ?? "";

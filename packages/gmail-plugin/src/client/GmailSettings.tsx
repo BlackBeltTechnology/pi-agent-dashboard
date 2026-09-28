@@ -351,7 +351,12 @@ export function GmailSettings() {
 
   const startFlow = async (flowId: string) => {
     setFlowError(null);
-    setFlow({ phase: "waiting", status: await oauthFlowClient.status(flowId) });
+    try {
+      setFlow({ phase: "waiting", status: await oauthFlowClient.status(flowId) });
+    } catch (err) {
+      setFlow(null);
+      setFlowError(err instanceof Error ? err.message : String(err));
+    }
   };
   useFlowPoll(
     flow?.status?.flowId,

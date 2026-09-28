@@ -37,7 +37,7 @@ interface GmailCall {
 
 const HEADERS = [
   { name: "From", value: "Bob <bob@y.com>" },
-  { name: "To", value: "a@x.com, carol@z.com" },
+  { name: "To", value: "a@x.com, carol@z.com, Lisa <lisa@x.com>" },
   { name: "Subject", value: "Hello" },
   { name: "Date", value: "Mon, 1 Jan 2026 10:00:00 +0000" },
   { name: "Message-ID", value: "<m1@x>" },
@@ -301,5 +301,15 @@ describe("review round 1 — attachment download bound", () => {
       (e) => e,
     );
     expect(err).toMatchObject({ code: "too_large" });
+  });
+});
+
+describe("CodeRabbit — replyAll self-filter matches whole addresses", () => {
+  it("drops only the account's own address, keeping lisa@x.com for account a@x.com", async () => {
+    const { run, gmail } = setup();
+    await run("gmail_reply", { account: "work", messageId: "m1", body: "x", replyAll: true }, ui(true).ctx);
+    const send = gmail.calls.find((c) => c.path === "messages/send");
+    const raw = Buffer.from(String(send?.body?.raw), "base64url").toString("utf8");
+    expect(raw).toMatch(/^Cc: carol@z\.com, Lisa <lisa@x\.com>\r?$/m);
   });
 });
