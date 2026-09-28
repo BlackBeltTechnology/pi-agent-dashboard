@@ -61,7 +61,7 @@
 
 ## 7. Manual verification + docs
 
-- [ ] 7.1 Manual: inspect loading / waiting / failed rings on selected + unselected cards in studio, earth, athlete, gradient × light/dark — rings read as three distinct states and never obscure the status badge (test-plan: manual-only, #F14)
-- [ ] 7.2 Manual: VoiceOver on macOS Safari — slow load to 20 s, switch between two loading cards, force a failure — slow notice announced once, only the selected card announces, failed alert announced (test-plan: manual-only, #X9)
+- [x] 7.1 Manual: inspect loading / waiting / failed rings on selected + unselected cards in studio, earth, athlete, gradient × light/dark — rings read as three distinct states and never obscure the status badge (test-plan: manual-only, #F14)
+- [x] 7.2 Manual: VoiceOver on macOS Safari — slow load to 20 s, switch between two loading cards, force a failure — slow notice announced once, only the selected card announces, failed alert announced (test-plan: manual-only, #X9)
 - [x] 7.3 Update `AGENTS.md` rows for touched files (`App.tsx`, `ChatView.tsx`, `SlowLoadNotice.tsx`, `SessionCard.tsx`, `SessionStatusChip.tsx`, `SessionList.tsx`, `loading-history.ts`, `history-load-phase.ts`, `use-now.ts`, `yolo-status.ts`, `useMessageHandler.ts`, `refresh-chat.ts`) with `See change: show-session-history-load-state`; verify each row exists
-- [ ] 7.4 Run `review-code` on the diff, then `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures
+- [x] 7.4 Run `review-code` on the diff, then `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no failures
