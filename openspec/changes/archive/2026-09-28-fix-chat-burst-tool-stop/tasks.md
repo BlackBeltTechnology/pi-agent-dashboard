@@ -49,5 +49,5 @@
 
 ## 5. Manual QA
 
-- [ ] 5.1 Mobile header fit at 320 px with a long live command: glyph-only stop visible, live command readable, no overlap; compare with `mockups/index.html` Mobile 375 (test-plan: manual-only, #F15)
-- [ ] 5.2 Live abort: agent runs `sleep 60`; click chat burst Stop; chat card and session-card activity bar clear together (test-plan: manual-only, #F16)
+- [x] 5.1 Mobile header fit at 320 px with a long live command: glyph-only stop visible, live command readable, no overlap; compare with `mockups/index.html` Mobile 375 (test-plan: manual-only, #F15)
+- [x] 5.2 Live abort: agent runs `sleep 60`; click chat burst Stop; chat card and session-card activity bar clear together (test-plan: manual-only, #F16)
