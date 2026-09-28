@@ -5,6 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `composer-session-strip.spec.ts` | L3 (change: redesign-composer-session-strip; F8–F12). Synthetic bridge on `FIXTURE_GIT` (pinned first) pushes worktree + open-PR `git_info_update`; routed `/api/health` / `/ws` enable the browser-relay badge / READY readiness for this page only. Asserts empty Status group hidden (`:has(:empty)`), groups wrap inside themselves without strip overflow, send button bottom-aligned to the draft (≥44 px), `@[44rem]` fold vs longest model id, composer lifecycle bar in letters mode. |
+| `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single active, pointer `Roles ↗ Models`); mobile strip `Providers`, `Model roles`; custom `@e2e-role` edit → Save Bar `Models › Model roles`, persisted ref == staged ref, cleaned up. Needs live session. See change: promote-model-roles-settings. |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |

@@ -14,7 +14,6 @@ import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-techn
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
-import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
 import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
@@ -417,7 +416,12 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "settings-section",
                 "component": "BuiltInRolesSettings",
-                "tab": "general"
+                "tab": "general",
+                "nav": {
+                    "group": "models",
+                    "label": "Model roles",
+                    "description": "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere."
+                }
             }
         ],
         "client": "./src/index.tsx",
@@ -545,29 +549,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
-        "id": "gmail",
-        "displayName": "Gmail",
-        "priority": 210,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "GmailSettings",
-                "tab": "general"
-            }
-        ],
-        "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "bridge": "./src/bridge/index.ts",
-        "configSchema": "./src/configSchema.json",
-        "i18nCatalog": "catalog"
-    },
-    claims: [
-      { pluginId: "gmail", priority: 210, slot: "settings-section", tab: "general", Component: GmailSettings },
-    ],
-    catalog: gmail_catalog,
-  },
-  {
-    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -651,4 +632,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "5faaa81851b1cd1aca2bb82e71ea08cd39b22a40a3d01a4a12f432542ddb8aee";
+export const PLUGIN_REGISTRY_HASH = "db8d84c789da9088a7653b51795ffc1d7454492c5d02dc711fbed1efd70dc985";

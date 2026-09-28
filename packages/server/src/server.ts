@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -2951,16 +2951,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
               registerPiRequestHandler: (id, type, handler) =>
                 pluginRequestLane.register(id, type, handler),
-              providerAuth: {
-                getCredential: (provider: string) => {
-                  if (!plugin.packageName.startsWith("@blackbelt-technology/")) return undefined;
-                  try {
-                    return readAuthJson()[provider];
-                  } catch {
-                    return undefined;
-                  }
-                },
-              },
+              // First-party scope gate shared with the `/api/plugins` `firstParty`
+              // projection. See change: promote-model-roles-settings.
+              providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),
               modelRuntime: {
                 getModelRegistry: async () => {
                   try {

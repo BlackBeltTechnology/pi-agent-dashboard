@@ -1764,6 +1764,13 @@ const zhCN: Record<string, string> = {
   "settings.discard": "放弃",
   "settings.gateway": "网关",
   "settings.groupAdvanced": "高级",
+  "settings.groupModels": "模型",
+  "packages.requirementsPill": "依赖缺失",
+  "packages.providedByPlugin": "由 {name} 插件提供",
+  "packages.pluginDetails": "插件详情",
+  "packages.pluginIdLabel": "ID：",
+  "packages.shownInModels": "显示在“模型”中",
+  "settings.promotedOff": "已关闭",
   "settings.groupDashboard": "仪表板",
   "settings.groupExtensions": "扩展",
   "settings.groupNetwork": "网络",
@@ -1963,6 +1970,20 @@ export function registerPluginCatalog(
       target[`plugin.${id}.${k}`] = v;
     }
   }
+}
+
+/**
+ * Every shipped-locale translation of a core key (languages lacking it are
+ * skipped). Locale-independent: used to build static sets such as the
+ * reserved settings-nav labels. See change: promote-model-roles-settings.
+ */
+export function translationsOf(key: string): string[] {
+  const out: string[] = [];
+  for (const dict of Object.values(dictionaries)) {
+    const v = dict[key];
+    if (typeof v === "string" && v) out.push(v);
+  }
+  return out;
 }
 
 type Vars = Record<string, string | number>;

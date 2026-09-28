@@ -269,6 +269,9 @@ export function deterministicSerializePlugins(
           // fix-flows-plugin-polish (path-as-first-class-claim-field).
           path: c.path ?? null,
           sessionParam: c.sessionParam ?? null,
+          // settings-section nav promotion hint: a nav-only manifest edit must
+          // invalidate the registry hash. See change: promote-model-roles-settings.
+          nav: c.nav ?? null,
           // Generic config escape hatch — included so any plugin using it
           // for slot-specific extras participates in staleness detection.
           config: c.config ?? null,

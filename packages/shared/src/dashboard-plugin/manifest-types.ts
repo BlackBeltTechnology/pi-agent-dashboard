@@ -3,6 +3,18 @@ import type { SettingsTab, SlotId } from "./slot-types.js";
 /**
  * A single slot claim in a plugin manifest.
  */
+/**
+ * `settings-section` nav promotion hint. Strings are stored NFKC-normalised
+ * and trimmed; `label` ≤ 40 and `description` ≤ 200 chars; no Unicode Cc/Cf.
+ * See change: promote-model-roles-settings.
+ */
+export interface SettingsNavHint {
+  group: string;
+  label: string;
+  description?: string;
+  order?: number;
+}
+
 export interface PluginClaim {
   /** The slot this claim targets. */
   slot: SlotId;
@@ -27,6 +39,17 @@ export interface PluginClaim {
    * Defaults to "general" if omitted.
    */
   tab?: SettingsTab;
+  /**
+   * For "settings-section" slot: optional request to PROMOTE the owning
+   * plugin's settings page into a host nav group. Placement only — the page
+   * still lives at `/settings/plugins/<id>`. The validator shape-checks and
+   * drops an invalid hint with a warning (never fatal); whether a valid hint
+   * is honoured (group allowlist, first-party scope, reserved labels) is the
+   * host's decision.
+   *
+   * See change: promote-model-roles-settings.
+   */
+  nav?: SettingsNavHint;
   /**
    * URL path pattern (wouter syntax, must start with "/") for the
    * `shell-overlay-route` slot. First-class field so the slot consumer
