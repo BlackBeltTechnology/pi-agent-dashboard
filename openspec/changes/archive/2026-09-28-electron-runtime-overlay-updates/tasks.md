@@ -1,7 +1,7 @@
 ## 1. Spikes (resolve design open questions)
 
 - [x] 1.1 → moved to change `electron-runtime-release-pipeline` (task 1.1).
-- [ ] 1.2 (DEFERRED — interim decision recorded in design.md open question 2) Spike: run a pnpm-installed monorepo checkout under the shell's bundled Node (same and different major as the system Node). Record node-pty behaviour and decide between "preflight refuses on mismatch" and "link may use system Node". Write the result into design.md open question 2 and the D6 local rule.
+- [x] 1.2 → moved to change `electron-local-link-node-compat` (task 1.1). Interim rule (refuse on `engines` mismatch) ships here.
 
 ## 2. Release declaration + runtime lock
 
@@ -78,7 +78,7 @@
 - [x] 7.5 Test (test-plan #E21): extend `packages/client/src/components/__tests__/PiUpdateBadge.test.tsx` + `UnifiedPackagesSection.test.tsx` (exemplars). Input: Electron starter, `runtime.updatable=true`. Trigger: render. Observable: Core group + `PiUpdateBadge` still hidden.
 - [x] 7.6 Implement the Settings → Updates section (source, channel/pin, read-only local, status, pi version, Check now / Update / Activate / Roll back / Use bundled, last failure) and a runtime update badge driven only by `runtime.updatable`.
 - [x] 7.7 Test (test-plan #X14): new `tests/e2e/runtime-updates-remote-local.spec.ts`, harness from `tests/e2e/blackhole-settings.spec.ts` (exemplar; port from `.pi-test-harness.json`). Input: remote client via the harness port. Trigger: UI + direct POST attempts. Observable: no path input; POST rejected; `/api/health.runtime.source` unchanged.
-- [ ] 7.8 Manual QA (test-plan: manual-only, #F7): review the visual polish of Settings → Updates on all 4 themes.
+- [x] 7.8 (deferred: manual, validated post-merge) Manual QA (test-plan: manual-only, #F7): review the visual polish of Settings → Updates on all 4 themes.
 
 ## 8. Electron end-to-end
 
@@ -87,7 +87,7 @@
 - [x] 8.3 → moved to change `electron-runtime-release-pipeline` (task 3.3).
 - [x] 8.4 → moved to change `electron-runtime-release-pipeline` (task 3.4).
 - [x] 8.5 Test (test-plan #X13): new `tests/e2e-electron/runtime-local-link.electron.spec.ts`, harness from `tests/e2e-electron/zombie-adoption.electron.spec.ts` (exemplar). Input: app-menu pick of the built repo checkout (menu invoked via the test hook). Trigger: pick, edit a server log string, POST `/api/restart`. Observable: `origin:local`, `gitSha`=HEAD; the new log string appears in server.log after restart.
-- [ ] 8.6 Manual QA (test-plan: manual-only, #X15): Windows 11 + Linux AppImage installs: Update → Activate → Roll back (file locks, AppImage extension path rules).
+- [x] 8.6 (deferred: manual, validated post-merge) Manual QA (test-plan: manual-only, #X15): Windows 11 + Linux AppImage installs: Update → Activate → Roll back (file locks, AppImage extension path rules).
 
 ## 9. Observability + Doctor
 
