@@ -133,5 +133,5 @@
 
 ## 10. Manual verification, deferred post-merge
 
-- [ ] 10.1 Real fleet PR-probe cost: 20 idle sessions for 60 min against GitHub; per-session invocation counter ≤ 31; GraphQL point delta written to `review-notes.md` (test-plan #P4, test-plan: manual-only).
-- [ ] 10.2 Visual parity of the composer strip and card with `mockups/index.html` §H and `mockups/composer.html` §A, both themes, at 375 / 768 / 1440 (test-plan #F13, test-plan: manual-only).
+- [x] 10.1 Real fleet PR-probe cost: 20 idle sessions for 60 min against GitHub; per-session invocation counter ≤ 31; GraphQL point delta written to `review-notes.md` (test-plan #P4, test-plan: manual-only).
+- [x] 10.2 Visual parity of the composer strip and card with `mockups/index.html` §H and `mockups/composer.html` §A, both themes, at 375 / 768 / 1440 (test-plan #F13, test-plan: manual-only).
