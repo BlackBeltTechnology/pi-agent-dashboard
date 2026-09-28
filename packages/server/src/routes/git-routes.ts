@@ -41,7 +41,7 @@ import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registr
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { safeRealpathSync } from "../resolve-path.js";
-import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
+import { activeSessionsUnder, activeSessionsUnderResolved, sessionsUnder } from "../session/active-sessions-in-cwd.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -157,6 +157,18 @@ function resolveBatchCap(v: unknown): number {
 export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps) {
   const { networkGuard, sessionManager, browserGateway, worktreeInitRegistry, sendToSession, commitDraftRelay, removeBatchCap: configuredRemoveBatchCap } = deps;
   const removeBatchCap = resolveBatchCap(configuredRemoveBatchCap);
+  /**
+   * After a successful worktree Push / Open PR, force a PR-status probe on
+   * every bridge whose session cwd is the worktree or inside it (realpath-
+   * normalized). Merge is local — it changes no GitHub state, so it never
+   * refreshes. Best-effort. See change: redesign-composer-session-strip (D5).
+   */
+  const requestPrRefresh = (worktreeCwd: string, reason: "push" | "pr") => {
+    if (!sessionManager || !sendToSession) return;
+    for (const id of activeSessionsUnderResolved(worktreeCwd, sessionManager.listAll(), safeRealpathSync)) {
+      sendToSession(id, { type: "git_info_refresh", reason });
+    }
+  };
   fastify.get<{ Querystring: { cwd?: string } }>(
     "/api/git/branches",
     { preHandler: networkGuard },
@@ -898,6 +910,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           ...(result.stderr ? { stderr: result.stderr } : {}),
         } satisfies ApiResponse;
       }
+      requestPrRefresh(validated.cwd, "push");
       return { success: true } satisfies ApiResponse;
     },
   );
@@ -945,6 +958,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           ...(result.stderr ? { stderr: result.stderr } : {}),
         } satisfies ApiResponse;
       }
+      requestPrRefresh(validated.cwd, "pr");
       return { success: true, data: result.data } satisfies ApiResponse;
     },
   );

@@ -1856,6 +1856,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.gitStatus !== undefined) {
         gitUpdates.gitStatus = msg.gitStatus;
       }
+      // PR status tuple (async bridge probe). Guarded: `null` clears (known
+      // no PR / branch change), absent (older bridge, or unknown after a
+      // fork) leaves the stored value untouched. Number/url above stay
+      // unconditional — the new bridge always sends them when known.
+      // See change: redesign-composer-session-strip (D5).
+      for (const key of ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const) {
+        if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+      }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
       // See change: gate-session-worktree-button-on-git.

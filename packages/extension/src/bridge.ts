@@ -67,6 +67,8 @@ import {
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { runGitPollTick } from "./git-poll.js";
+import { createPrStatusScheduler, handleGitInfoRefresh, type PrStatusScheduler } from "./pr-status.js";
+import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
@@ -336,7 +338,29 @@ function initBridge(pi: ExtensionAPI) {
     if (ownPgid !== undefined) selfSpawnedPgids.add(ownPgid);
   }
   let lastGitBranch: string | undefined;
-  let lastGitPrNumber: number | undefined;
+  let lastGitPrJson: string | undefined; // see change: redesign-composer-session-strip
+  // Async PR-status scheduler: `gh pr view` off the 30 s tick, own ≥120 s
+  // cadence + forced refresh on `git_info_refresh`. Timers are registered in
+  // the bridge-timer registry so a reload cannot leak them; probe completion
+  // re-runs the one git change-detector. See change:
+  // redesign-composer-session-strip (D5).
+  const prStatus: PrStatusScheduler = createPrStatusScheduler({
+    probe: (cwd) => git.prStatusAsync({ cwd }),
+    onChange: () => {
+      if (isActive() && cachedCwd) sendGitInfoIfChanged(cachedCwd);
+    },
+    setTimer: (fn, ms) => {
+      const timer = setTimeout(fn, ms);
+      getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
+      return timer;
+    },
+    clearTimer: (timer) => {
+      clearTimeout(timer);
+      const timers = getBridgeState().timers;
+      const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
+      if (index !== -1) timers!.splice(index, 1);
+    },
+  });
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog
   let lastGitStatusJson: string | undefined; // see change: add-session-uncommitted-indicator-and-commit
   let lastCwdMissing: boolean | undefined; // see change: add-worktree-lifecycle-actions
@@ -1318,6 +1342,10 @@ function initBridge(pi: ExtensionAPI) {
         getBridgeState().shouldStopAfterTurn = true;
         return;
       }
+      // Forced PR-status probe after a worktree Push / Open PR. The server
+      // only targets bridges whose cwd is inside the worktree. See change:
+      // redesign-composer-session-strip (D5).
+      if (handleGitInfoRefresh(msg, prStatus)) return;
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -2058,6 +2086,7 @@ function initBridge(pi: ExtensionAPI) {
         `endpoint: ${dashboardUrl}`,
         `instance: ${registeredInstanceId ?? "unverified"}`,
         `pinned:   ${endpointPinned ? "yes (explicit configuration)" : "no (resolved from the $HOME rendezvous record)"}`,
+        `pr-probe: ${prStatus.invocations()} gh invocation(s) this bridge`,
       ];
       console.error(`[dashboard] where:\n${lines.join("\n")}`);
     },
@@ -2070,13 +2099,14 @@ function initBridge(pi: ExtensionAPI) {
       cachedCtx, cachedModelRegistry, cachedHasUI,
       lastModel, lastThinkingLevel,
       lastSessionFile, lastSessionDir, lastFirstMessage,
-      lastGitBranch, lastGitPrNumber, lastSessionName,
+      lastGitBranch, lastGitPrJson, lastSessionName,
       lastGitWorktreeJson,
       lastGitStatusJson,
       lastCwdMissing,
       hasRegisteredOnce,
       dashboardSpawned,
       selfSpawnedPgids,
+      prStatus,
     };
   }
   /** Sync BridgeContext mutations back to local variables */
@@ -2092,7 +2122,7 @@ function initBridge(pi: ExtensionAPI) {
     lastSessionDir = bc.lastSessionDir;
     lastFirstMessage = bc.lastFirstMessage;
     lastGitBranch = bc.lastGitBranch;
-    lastGitPrNumber = bc.lastGitPrNumber;
+    lastGitPrJson = bc.lastGitPrJson;
     lastSessionName = bc.lastSessionName;
     lastGitWorktreeJson = bc.lastGitWorktreeJson;
     lastGitStatusJson = bc.lastGitStatusJson;

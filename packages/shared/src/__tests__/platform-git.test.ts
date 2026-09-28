@@ -18,7 +18,7 @@ import {
   currentBranch,
   currentBranchOr,
   diff,
-  GH_PR_NUMBER,
+  GH_PR_STATUS,
   GIT_CURRENT_BRANCH,
   GIT_DIFF,
   GIT_DIFF_ALL,
@@ -123,10 +123,11 @@ describe("other recipe argv shapes", () => {
     ]);
   });
 
-  it("GH_PR_NUMBER tolerates exit 1 (no PR)", () => {
-    expect(GH_PR_NUMBER.tolerate).toContain(1);
-    expect(GH_PR_NUMBER.argv({ cwd: "/tmp" })).toEqual([
-      "gh", "pr", "view", "--json", "number", "-q", ".number",
+  it("GH_PR_STATUS does NOT tolerate exit 1 (stderr is needed to classify) and has a 20 s timeout", () => {
+    expect(GH_PR_STATUS.tolerate).toBeUndefined();
+    expect(GH_PR_STATUS.timeout).toBe(20_000);
+    expect(GH_PR_STATUS.argv({ cwd: "/tmp" })).toEqual([
+      "gh", "pr", "view", "--json", "number,url,state,isDraft,statusCheckRollup",
     ]);
   });
 });
@@ -135,7 +136,7 @@ describe("GIT_RECIPES registry", () => {
   it("enumerates all exported recipes", () => {
     const keys = Object.keys(GIT_RECIPES).sort();
     expect(keys).toEqual([
-      "GH_PR_NUMBER",
+      "GH_PR_STATUS",
       "GIT_COMMON_DIR",
       "GIT_COMMON_DIR_ABS",
       "GIT_CONFIG_LOCAL_CORE_WORKTREE",

@@ -106,6 +106,11 @@ export interface GitWorktreeInfo {
   base?: string;
 }
 
+/** Lowercased GitHub PR state. Draft is a separate flag (`gitPrDraft`). */
+export type GitPrState = "open" | "closed" | "merged";
+/** Collapsed PR checks summary. See `platform/check-rollup.ts`. */
+export type GitPrChecks = "passing" | "failing" | "pending" | "none";
+
 /**
  * Working-tree dirtiness + upstream drift for a cwd, parsed from one
  * `git status --porcelain=v2 --branch` call. Keyed by cwd, not by session:
@@ -267,8 +272,18 @@ export interface DashboardSession {
   currentTool?: string | null;
   gitBranch?: string;
   gitBranchUrl?: string;
-  gitPrNumber?: number;
-  gitPrUrl?: string;
+  gitPrNumber?: number | null;
+  gitPrUrl?: string | null;
+  /**
+   * PR status for the session's branch (bridge `GH_PR_STATUS` probe on its
+   * own ≥120 s cadence). Absent = unknown / older bridge; `null` = no PR.
+   * Not persisted. See change: redesign-composer-session-strip (D5).
+   */
+  gitPrState?: GitPrState | null;
+  gitPrDraft?: boolean | null;
+  gitPrChecks?: GitPrChecks | null;
+  /** Epoch ms of the last successful PR detection (freshness gate for Merge). */
+  gitPrCheckedAt?: number | null;
   /**
    * Working-tree dirtiness + upstream drift, sourced hybrid: passive
    * broadcast on the bridge's 30 s VCS tick (`git_info_update`) plus an
