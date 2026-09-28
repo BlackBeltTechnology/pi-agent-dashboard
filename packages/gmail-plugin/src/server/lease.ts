@@ -66,36 +66,45 @@ export function createLeaseHandler(deps: LeaseDeps) {
   const now = deps.now ?? Date.now;
   const inflight = new Map<string, Promise<{ access: string; expires: number }>>();
 
-  async function refresh(acct: AccountRecord): Promise<{ access: string; expires: number }> {
+  async function tokenRequest(acct: AccountRecord): Promise<oauth.TokenEndpointResponse> {
     const client = await deps.store.getClient();
     if (!client) throw new LeaseError("no_client", "the Gmail OAuth client is not configured");
     const as = oauthServer(deps.endpoints);
     const c = oauthClient(client);
+    const res = await oauth.refreshTokenGrantRequest(
+      as,
+      c,
+      oauth.ClientSecretPost(client.clientSecret),
+      acct.refresh,
+      requestOptions(deps.endpoints, deps.fetchImpl),
+    );
+    return oauth.processRefreshTokenResponse(as, c, res);
+  }
+
+  /** Map a refresh failure: `invalid_grant` marks (or detects a replaced grant); else `refresh_failed`. */
+  async function refreshError(acct: AccountRecord, err: unknown): Promise<Error> {
+    if (err instanceof LeaseError) return err;
+    if (err instanceof oauth.ResponseBodyError && err.error === "invalid_grant") {
+      if (!(await deps.store.markReauthIf(acct.sub, acct.refresh))) return new GrantChanged();
+      deps.logger.warn(`[gmail] refresh ${acct.email}: invalid_grant → reauth_required`);
+      return new LeaseError("reauth_required", `${acct.email} needs re-authentication in the Gmail panel`);
+    }
+    deps.logger.warn(`[gmail] refresh ${acct.email}: failed`);
+    return new LeaseError("refresh_failed", `could not refresh the token for ${acct.email}; try again later`);
+  }
+
+  async function refresh(acct: AccountRecord): Promise<{ access: string; expires: number }> {
     let tokens: oauth.TokenEndpointResponse;
     try {
-      const res = await oauth.refreshTokenGrantRequest(
-        as,
-        c,
-        oauth.ClientSecretPost(client.clientSecret),
-        acct.refresh,
-        requestOptions(deps.endpoints, deps.fetchImpl),
-      );
-      tokens = await oauth.processRefreshTokenResponse(as, c, res);
+      tokens = await tokenRequest(acct);
     } catch (err) {
-      if (err instanceof oauth.ResponseBodyError && err.error === "invalid_grant") {
-        if (!(await deps.store.markReauthIf(acct.sub, acct.refresh))) throw new GrantChanged();
-        deps.logger.warn(`[gmail] refresh ${acct.email}: invalid_grant → reauth_required`);
-        throw new LeaseError("reauth_required", `${acct.email} needs re-authentication in the Gmail panel`);
-      }
-      deps.logger.warn(`[gmail] refresh ${acct.email}: failed`);
-      throw new LeaseError("refresh_failed", `could not refresh the token for ${acct.email}; try again later`);
+      throw await refreshError(acct, err);
     }
     const expires = now() + (typeof tokens.expires_in === "number" ? tokens.expires_in : 3600) * 1000;
-    const usedRefresh = acct.refresh;
     const rotated = typeof tokens.refresh_token === "string" ? tokens.refresh_token : undefined;
     // Merge only while the record still holds the grant we refreshed: a
     // concurrent re-auth (new refresh token) must win and is never clobbered.
-    await deps.store.storeTokensIf(acct.sub, usedRefresh, { access: tokens.access_token, expires, refresh: rotated });
+    await deps.store.storeTokensIf(acct.sub, acct.refresh, { access: tokens.access_token, expires, refresh: rotated });
     deps.logger.info(`[gmail] refresh ${acct.email}: ok`);
     return { access: tokens.access_token, expires };
   }
@@ -137,50 +146,47 @@ export function createLeaseHandler(deps: LeaseDeps) {
     return null;
   }
 
+  /** Gate, then cached token or a refresh re-gated against the record as it is NOW. */
+  async function leaseFor(acct: AccountRecord, op: Op): Promise<LeaseReply> {
+    const refused = refusal(acct, op);
+    if (refused) throw refused;
+    if (acct.access && acct.expires - now() > REFRESH_WINDOW_MS) {
+      return { accessToken: acct.access, expiresAt: acct.expires, email: acct.email, tier: acct.tier };
+    }
+    const fresh = await refreshOnce(acct);
+    // The refresh awaited the network: a downgrade / revoke / re-auth may have
+    // landed meanwhile. Re-read and re-gate before handing out a token.
+    const latest = await deps.store.get(acct.sub);
+    if (!latest) throw new LeaseError("not_found", `${acct.email} was removed`);
+    const late = refusal(latest, op);
+    if (late) throw late;
+    // Grant replaced during the refresh: `fresh` belongs to the OLD grant (and
+    // was not stored) — never hand it out.
+    if (latest.refresh !== acct.refresh) throw new GrantChanged();
+    return { accessToken: fresh.access, expiresAt: fresh.expires, email: latest.email, tier: latest.tier };
+  }
+
   /**
-   * `retried`: a concurrent re-auth replaced the grant mid-refresh — lease ONCE
-   * more against the current record (bounded; never loops). Inner function:
-   * the host calls the handler as `(payload, meta)`, so no 2nd positional arg.
+   * `retried`: the grant was replaced mid-refresh — lease ONCE more against the
+   * current record (bounded; never loops). Inner function: the host calls the
+   * handler as `(payload, meta)`, so the export takes no 2nd positional arg.
    */
   async function lease(payload: unknown, retried: boolean): Promise<LeaseReply> {
     const { acct, op } = await resolveAccount(payload);
     const outcome = (o: string) => deps.logger.info(`[gmail] lease ${acct.email} op=${op}: ${o}`);
-    const refused = refusal(acct, op);
-    if (refused) {
-      outcome(refused.code);
-      throw refused;
-    }
-    if (acct.access && acct.expires - now() > REFRESH_WINDOW_MS) {
-      outcome("ok");
-      return { accessToken: acct.access, expiresAt: acct.expires, email: acct.email, tier: acct.tier };
-    }
-    let fresh: { access: string; expires: number };
     try {
-      fresh = await refreshOnce(acct);
+      const reply = await leaseFor(acct, op);
+      outcome("ok");
+      return reply;
     } catch (err) {
       if (err instanceof GrantChanged && !retried) return lease(payload, true);
-      const e = err instanceof GrantChanged ? new LeaseError("reauth_required", `${acct.email} needs re-authentication`) : err;
+      const e =
+        err instanceof GrantChanged
+          ? new LeaseError("refresh_failed", `the grant for ${acct.email} changed during refresh; try again`)
+          : err;
       outcome(e instanceof LeaseError ? e.code : "refresh_failed");
       throw e;
     }
-    // The refresh awaited the network: a downgrade / revoke / re-auth may have
-    // landed meanwhile. Re-read and re-gate before handing out a token.
-    const latest = await deps.store.get(acct.sub);
-    const late = latest ? refusal(latest, op) : new LeaseError("not_found", `${acct.email} was removed`);
-    if (late) {
-      outcome(late.code);
-      throw late;
-    }
-    const cur = latest as AccountRecord;
-    // Grant replaced during the refresh: `fresh` belongs to the OLD grant (and
-    // was not stored) — lease once more from the current record instead.
-    if (cur.refresh !== acct.refresh) {
-      if (!retried) return lease(payload, true);
-      outcome("refresh_failed");
-      throw new LeaseError("refresh_failed", `the grant for ${acct.email} changed during refresh; try again`);
-    }
-    outcome("ok");
-    return { accessToken: fresh.access, expiresAt: fresh.expires, email: cur.email, tier: cur.tier };
   }
 
   return (payload: unknown): Promise<LeaseReply> => lease(payload, false);
