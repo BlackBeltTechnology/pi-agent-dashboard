@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -382,8 +382,21 @@ export interface GitInfoUpdateMessage {
   sessionId: string;
   gitBranch: string;
   gitBranchUrl?: string;
-  gitPrNumber?: number;
-  gitPrUrl?: string;
+  /**
+   * PR tuple for the session's branch. `undefined` (absent) = unknown / old
+   * bridge (server leaves stored value untouched for the new fields);
+   * `null` = known-absent (server clears). See change:
+   * redesign-composer-session-strip (D5).
+   */
+  gitPrNumber?: number | null;
+  gitPrUrl?: string | null;
+  /** Lowercased PR state. Absent on older bridges. */
+  gitPrState?: GitPrState | null;
+  gitPrDraft?: boolean | null;
+  /** Collapsed `statusCheckRollup`. Absent on older bridges. */
+  gitPrChecks?: GitPrChecks | null;
+  /** Epoch ms of the last successful PR detection. */
+  gitPrCheckedAt?: number | null;
   /**
    * Set when the session's cwd is a git worktree. `null` clears any
    * previously-stored worktree state on the server — UNLESS parentage was
@@ -1102,6 +1115,19 @@ export interface ShutdownExtensionMessage {
  * down cleanly at the next turn_end. See change:
  * adopt-pi-071-072-073-features.
  */
+/**
+ * Server → bridge: force a PR-status probe after a successful worktree Push
+ * or Open PR. No session id — the server only sends it to bridges whose
+ * session cwd is the worktree root or inside it; every receiving bridge acts.
+ * `reason: "pr"` additionally retries at +5 s / +15 s on an absent result
+ * (GitHub lag). Older bridges ignore it. See change:
+ * redesign-composer-session-strip (D5).
+ */
+export interface GitInfoRefreshExtensionMessage {
+  type: "git_info_refresh";
+  reason: "push" | "pr";
+}
+
 export interface StopAfterTurnExtensionMessage {
   type: "stop_after_turn";
   sessionId: string;
@@ -1423,6 +1449,7 @@ export type ServerToExtensionMessage =
   | SetModelMessage
   | ShutdownExtensionMessage
   | StopAfterTurnExtensionMessage
+  | GitInfoRefreshExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage

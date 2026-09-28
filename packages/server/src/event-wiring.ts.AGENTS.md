@@ -17,3 +17,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 `event_forward` calls `routeReloadFeedback` BEFORE the replay-skip early return: terminal `/reload` `command_feedback` settles the forwarded-reload watch; late feedback after deadline dropped; inside replay-skip window persisted + broadcast here. See change: fix-terminal-session-dashboard-reload.
 
 `plugin_request` → `dispatchPluginRequest(sessionId,msg)` (new optional dep). See change: expose-plugin-credential-and-oauth-seams.
+
+`git_info_update`: `gitPrState|Draft|Checks|CheckedAt` guarded (`!== undefined`); cleared to `null` when `gitPrNumber == null` (tuple atomic with number). See change: redesign-composer-session-strip.

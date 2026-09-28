@@ -59,8 +59,7 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
@@ -81,12 +80,13 @@ import { GROUP_PALETTE, resolveGroupColor } from "../../lib/openspec/openspec-gr
 import { createGroup, deleteGroup, fetchGroups, setAssignment, setChangeOrder, updateGroup } from "../../lib/openspec/openspec-groups-api.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { deriveDotColor, deriveIconStatusColor, deriveProposalCardState, getCardPulseClass, getCardStripeFxClass, pulseClassForStatus, sourceIcons } from "../../lib/session/session-status-visuals.js";
+import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
+import { LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecActivityBadge } from "./OpenSpecActivityBadge.js";
 import { OpenSpecGroupManager } from "./OpenSpecGroupManager.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { SessionOpenSpecActions } from "./SessionOpenSpecActions.js";
-import { TasksPopover } from "../session/TasksPopover.js";
 
 const UNGROUPED = OPENSPEC_UNGROUPED_KEY;
 
@@ -599,7 +599,7 @@ export function OpenSpecBoardView(props: OpenSpecBoardViewProps) {
       {/* Dialogs */}
       {tasksOpenFor && (
         <DialogPortal>
-          <TasksPopover cwd={cwd} change={tasksOpenFor} onClose={() => setTasksOpenFor(null)} />
+          <Suspense fallback={null}><LazyTasksPopover cwd={cwd} change={tasksOpenFor} onClose={() => setTasksOpenFor(null)} /></Suspense>
         </DialogPortal>
       )}
       {manageGroup && (

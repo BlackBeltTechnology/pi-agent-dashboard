@@ -38,6 +38,10 @@ test.describe("split composer overflow", () => {
     // terminal into the `⋯` overflow control (viewport is still ≥ md, so this
     // only passes with the container-based fix, not the old md: rules).
     await expect(page.getByTestId("overflow-button")).toBeVisible({ timeout: 10_000 });
+    // The action button lives in the input row beside the text field, not in
+    // the settings row. See change: redesign-composer-session-strip (D7).
+    await expect(page.getByTestId("composer-input-row").getByTestId("send-button")).toBeVisible();
+    await expect(page.getByTestId("composer-settings-row").getByTestId("send-button")).toHaveCount(0);
 
     // The send/stop action button must be fully within the pane — the exact bug
     // symptom was its right edge overflowing past the `overflow-hidden` pane.

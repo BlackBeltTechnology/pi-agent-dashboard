@@ -12,7 +12,7 @@ import { ensureGitSession, FIXTURE_GIT } from "./helpers/index.js";
 // The board (`ProposalCard` → `OpenSpecStepper`) renders clickable
 // `stepper-segment-*` badges for any cwd change WITHOUT attachment, so it is the
 // attach-free primary surface. E7 additionally attaches the change to cover
-// the composer-chip + header-button wiring sites.
+// the composer lifecycle-bar + header-button wiring sites.
 
 const BOARD_URL = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/openspec`;
 const ARCHIVE_URL = `/folder/${Buffer.from(FIXTURE_GIT).toString("base64url")}/openspec/archive`;
@@ -23,7 +23,10 @@ async function openBoard(page: Page): Promise<Locator> {
   await ensureGitSession(page);
   await page.goto(BOARD_URL);
   await page.getByTestId("openspec-board").waitFor({ state: "visible", timeout: 20_000 });
-  const badge = page.getByTestId("stepper-segment-proposal").first();
+  // Scoped to the board: the composer's own bar uses `composer-`-prefixed ids,
+  // but an unscoped query must never depend on that. See change:
+  // redesign-composer-session-strip.
+  const badge = page.getByTestId("openspec-board").getByTestId("stepper-segment-proposal").first();
   // The openspec poll populates openspecMap after spawn; the ProposalCard +
   // stepper mount once it arrives.
   await badge.waitFor({ state: "visible", timeout: 45_000 });
@@ -143,14 +146,15 @@ test.describe("non-mobile OpenSpec artifact dialog", () => {
     await page.keyboard.press("Escape");
     await expect(dialog(page)).toHaveCount(0);
 
-    // Attach the change so the composer-chip + header-button sites render.
+    // Attach the change so the composer-bar + header-button sites render.
     const card = await ensureGitSession(page);
     await card.click();
     await page.getByTestId("attach-combo").first().click();
     await page.getByText("e2e-artifact-demo", { exact: false }).first().click();
 
-    // Site: composer artifact chip.
-    const composerP = page.getByTestId("composer-artifact-p");
+    // Site: composer lifecycle bar (replaced the P/D/S/T chips).
+    // See change: redesign-composer-session-strip.
+    const composerP = page.getByTestId("composer-stepper-segment-proposal");
     await composerP.waitFor({ state: "visible", timeout: 20_000 });
     const urlBeforeComposer = page.url();
     await composerP.click();
@@ -192,7 +196,7 @@ test.describe("non-mobile OpenSpec artifact dialog", () => {
     await page.setViewportSize({ width: 700, height: 800 });
     await page.goto(BOARD_URL);
     await page.getByTestId("openspec-board").waitFor({ state: "visible", timeout: 20_000 });
-    const badge = page.getByTestId("stepper-segment-proposal").first();
+    const badge = page.getByTestId("openspec-board").getByTestId("stepper-segment-proposal").first();
     await badge.waitFor({ state: "visible", timeout: 45_000 });
 
     await badge.click();

@@ -167,8 +167,21 @@ describe("zrok createTunnel error handling (X1/X2/X4)", () => {
     const child = fakeChild();
     spawnMock.mockReturnValue(child);
     const p = zrokRuntime.createTunnel(8000);
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(90_000);
     await expect(p).resolves.toBeNull();
+    vi.useRealTimers();
+    await zrokRuntime.deleteTunnel(8000);
+  });
+
+  it("X2b: a slow share (URL after ~35s, hosted zrok.io under load) is still accepted, not killed at 30s", async () => {
+    vi.useFakeTimers();
+    whichMock.mockReturnValue("/opt/bin/zrok2");
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+    const p = zrokRuntime.createTunnel(8000, "myname");
+    await vi.advanceTimersByTimeAsync(35_000);
+    child.stdout.emit("data", Buffer.from("myname.shares.zrok.io\n"));
+    await expect(p).resolves.toBe("https://myname.shares.zrok.io");
     vi.useRealTimers();
     await zrokRuntime.deleteTunnel(8000);
   });

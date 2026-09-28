@@ -10,7 +10,8 @@
  *     encodes a camera-scannable `https://<selected-tls-endpoint>/pair#<payload>`
  *     deep link (payload in the fragment, so the one-time code never reaches the
  *     server / logs; change: make-pairing-qr-camera-scannable). The copyable
- *     string stays the bare `pi:pair:v1.…` payload for Electron paste. The
+ *     string is that SAME deep link: a remote browser opens it directly, and the
+ *     Electron shell's `decodePayloadString` accepts the https form. The
  *     context panel shows expiry + fingerprint + copy-string + confirmation
  *     input + Approve (typed compare-code, D12).
  *   - **link** (no-TLS http mesh/LAN) — encodes the BARE URL string only. No
@@ -45,7 +46,10 @@ import { useLocation } from "wouter";
 import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway/gateway-endpoints.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { approvePairing, getPairPayload, type PairingPayload } from "../../lib/pairing/pairing-api.js";
-import { encodePairingQrUrl, encodePayloadString } from "../../lib/pairing/pairing-qr.js";
+import { encodePairingQrUrl } from "../../lib/pairing/pairing-qr.js";
+
+/** Advisory countdown; mirrors the server's one-time code TTL (`CODE_TTL_MS` in packages/server/src/pairing/pairing.ts). */
+const PAIRING_CODE_TTL_MS = 300_000;
 
 /** A QR canvas for arbitrary text (pairing string or bare link URL). */
 function QrCanvas({ text, size = 132 }: { text: string; size?: number }) {
@@ -245,7 +249,7 @@ function PairingApproval({ code }: { code: string }) {
   );
 }
 
-/** The `pi:pair:v1.…` copy-string box with a self-contained copy-to-clipboard button. */
+/** The pairing deep-link copy box with a self-contained copy-to-clipboard button. */
 function CopyString({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -390,7 +394,6 @@ export function GatewayPairQR(
   const [route, navigate] = useLocation();
   const [state, setState] = useState<State>("loading");
   const [payload, setPayload] = useState<PairingPayload | null>(null);
-  const [copyStr, setCopyStr] = useState("");
   const [endpoints, setEndpoints] = useState<TunnelEndpoint[]>(providedEps ?? []);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // The "no secure road" condition, carried by the API RESPONSE itself — set
@@ -432,14 +435,12 @@ export function GatewayPairQR(
         // Defence-in-depth: never encode a non-TLS url (task 8.3).
         guardPairingUrls(res.payload.urls);
         setPayload(res.payload);
-        setCopyStr(encodePayloadString(res.payload));
-        deadlineRef.current = Date.now() + 60_000;
-        setSecondsLeft(60);
+        deadlineRef.current = Date.now() + PAIRING_CODE_TTL_MS;
+        setSecondsLeft(PAIRING_CODE_TTL_MS / 1000);
       } else if (res.error === "no_reachable_endpoint") {
         // No TLS road to pair over — link endpoints (if any) still render.
         setNoSecureRoad(true);
         setPayload(null);
-        setCopyStr("");
       } else {
         setErrorMsg(res.error);
         setState("error");
@@ -479,7 +480,7 @@ export function GatewayPairQR(
   const pairingPayload = selected && payload && isPairingEligible(selected) ? payload : null;
   // Pairing selection → camera-scannable `https://<selected-tls>/pair#<payload>`
   // deep link on the SELECTED TLS endpoint (change: make-pairing-qr-camera-scannable);
-  // link selection → the bare URL. The copy-string stays the raw payload.
+  // link selection → the bare URL. The copy box shows this same deep link.
   const qrText = pairingPayload && selected ? encodePairingQrUrl(pairingPayload, selected.url) : (selected?.url ?? "");
   const expired = !!pairingPayload && secondsLeft <= 0;
 
@@ -522,7 +523,7 @@ export function GatewayPairQR(
           {/* Context panel — swaps by the selected endpoint's mode. */}
           {pairingPayload ? (
             <>
-              <CopyString text={copyStr} />
+              <CopyString text={qrText} />
               <PairingContextDetails payload={pairingPayload} />
             </>
           ) : (

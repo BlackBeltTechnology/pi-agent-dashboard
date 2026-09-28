@@ -63,6 +63,22 @@ describe("ngrok spec — URL parsing (3.1)", () => {
     expect(spawnMock).toHaveBeenCalledWith(expect.stringMatching(/ngrok/), expect.arrayContaining(["http", "8000"]), expect.any(Object));
     await ngrokRuntime.deleteTunnel(8000);
   });
+
+  it("keeps a 30s spawn timeout (zrok's 90s is provider-specific)", async () => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    spawnMock.mockReturnValue(child);
+    vi.spyOn(ngrokChildSpec, "isEnrolled").mockReturnValue(true);
+
+    let settled = false;
+    const p = ngrokRuntime.createTunnel(8000).then((v) => { settled = true; return v; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(p).resolves.toBeNull();
+    vi.useRealTimers();
+    await ngrokRuntime.deleteTunnel(8000);
+  });
 });
 
 describe("ngrok enrollment (3.2)", () => {
