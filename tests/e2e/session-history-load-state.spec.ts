@@ -157,23 +157,31 @@ async function selectCard(page: Page, card: Locator): Promise<void> {
 }
 
 /**
- * Ring-sensitive geometry of the card's name + timestamp. The relative-age text
- * ("3m") may legitimately re-render between samples and change the timestamp's
- * WIDTH by a glyph, which the flex-1 name absorbs. So compare what a reflow from
- * the ring would move — name left/top/height, timestamp top/height/right edge —
- * exactly (±0 px), not the text-dependent widths.
+ * Ring-sensitive geometry of the card's name + timestamp, measured RELATIVE to
+ * the card, plus the card's width. The sidebar list may legitimately move
+ * the whole card between samples (sessions appear / are reaped above it), which
+ * is not a reflow caused by the ring. The relative-age text ("3m") may also
+ * re-render and change the timestamp's WIDTH by a glyph, absorbed by the flex-1
+ * name — so compare name left/top/height and timestamp top/height/right edge.
+ * All compared exactly (±0 px).
  */
 async function nameAndTimeBoxes(card: Locator) {
   const chip = card.getByTestId("session-status-icon");
+  const c = await card.boundingBox();
   const name = await chip.locator("xpath=following-sibling::*[1]").boundingBox();
   const time = await card.locator('[title^="Started"]').first().boundingBox();
+  expect(c, "card has no box").not.toBeNull();
   expect(name, "card name has no box").not.toBeNull();
   expect(time, "card timestamp has no box").not.toBeNull();
+  const k = c as NonNullable<typeof c>;
   const n = name as NonNullable<typeof name>;
   const t = time as NonNullable<typeof time>;
   return {
-    name: { x: n.x, y: n.y, height: n.height },
-    time: { right: t.x + t.width, y: t.y, height: t.height },
+    // Width only: height grows when replayed content adds subcards BELOW line 1,
+    // which the (absolute) ring cannot cause.
+    card: { width: k.width },
+    name: { x: n.x - k.x, y: n.y - k.y, height: n.height },
+    time: { right: t.x + t.width - k.x, y: t.y - k.y, height: t.height },
   };
 }
 
