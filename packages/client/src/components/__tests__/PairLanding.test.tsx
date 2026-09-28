@@ -127,4 +127,14 @@ describe("PairLanding", () => {
     expect(screen.getByTestId("pair-landing-restart")).toBeDefined();
     expect(challengeIdentity).not.toHaveBeenCalled();
   });
+
+  it("styles from theme tokens, never a hardcoded dark-only palette (readable in light + dark)", async () => {
+    window.location.hash = "";
+    const { container } = render(<PairLanding />);
+    await waitFor(() => expect(screen.getByTestId("pair-landing-error")).toBeDefined());
+    const classes = Array.from(container.querySelectorAll("[class]")).map((el) => el.getAttribute("class")).join(" ");
+    expect(classes).not.toMatch(/\b(?:text|bg|border)-(?:neutral|red|green|blue)-\d/);
+    expect(screen.getByTestId("pair-landing").className).toContain("text-[var(--text-primary)]");
+    expect(screen.getByTestId("pair-landing-error").innerHTML).toContain("var(--severity-error-fg)");
+  });
 });

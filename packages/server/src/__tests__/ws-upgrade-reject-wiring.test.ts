@@ -154,3 +154,20 @@ describe("#E19 already-logged rejections are not double-logged", () => {
     expect(wsUpgradeLines()).toEqual([]);
   }, 30000);
 });
+
+// test-plan #E11 — the no-auth WS branch must not admit a relayed-loopback
+// peer through a loopback trusted entry. See change: fix-trusted-network-tunnel-bypass.
+describe("#E11 relayed loopback /ws with trustedNetworks [127.0.0.1] (no auth secret)", () => {
+  it("rejects the relayed upgrade 403 with one [ws-upgrade] line; header-less control opens", async () => {
+    handle = await createTestServer({ resolvedTrustedNetworks: ["127.0.0.1"] });
+    const origin = `http://127.0.0.1:${handle.httpPort}`;
+    const relayed = await dial(`ws://127.0.0.1:${handle.httpPort}/ws`, { "x-forwarded-for": "203.0.113.9", origin });
+    expect(relayed).toEqual({ kind: "status", status: 403 });
+    const lines = wsUpgradeLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("[ws-upgrade] rejected status=403");
+
+    const control = await dial(`ws://127.0.0.1:${handle.httpPort}/ws`, { origin });
+    expect(control).toEqual({ kind: "open" });
+  }, 30000);
+});

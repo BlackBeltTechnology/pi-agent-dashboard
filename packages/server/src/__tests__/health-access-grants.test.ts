@@ -141,3 +141,44 @@ describe("9.3 access-grant counters", () => {
     expect(local.accessGrants).not.toBeNull();
   });
 });
+
+// test-plan #E14 — additive `trustPosture` on /api/health, disclosed only to
+// an authenticated or genuinely-local caller. See change:
+// fix-trusted-network-tunnel-bypass (D3).
+describe("E14 /api/health trustPosture disclosure", () => {
+  async function trustApp(trusted: string[]): Promise<FastifyInstance> {
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    registerSystemRoutes(app, {
+      sessionManager: { listActive: () => [], listAll: () => [] },
+      preferencesStore: { flush: () => {} },
+      metaPersistence: { flushAll: () => {} },
+      config: { port: 8000, piPort: 9999, dev: false },
+      networkGuard: async () => {},
+      version: "test",
+      clientDir: null,
+      readTrustedNetworks: () => trusted,
+    } as never);
+    await app.ready();
+    return app;
+  }
+  const callers = {
+    genuineLocal: { remoteAddress: "127.0.0.1" },
+    remote: { remoteAddress: "203.0.113.9" },
+    relayed: { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } },
+  };
+
+  for (const [trusted, flag] of [[["127.0.0.1"], true], [["192.168.16.0/24"], false]] as const) {
+    it(`trusted ${JSON.stringify(trusted)}: genuine-local sees trustedHasLoopback=${flag}; others get null`, async () => {
+      const app = await trustApp([...trusted]);
+      const local = (await app.inject({ method: "GET", url: "/api/health", ...callers.genuineLocal })).json();
+      expect(local.trustPosture).toEqual({ trustedHasLoopback: flag });
+      expect(local).toHaveProperty("accessGrants", null);
+      for (const c of [callers.remote, callers.relayed]) {
+        const body = (await app.inject({ method: "GET", url: "/api/health", ...c })).json();
+        expect(body.trustPosture).toBeNull();
+        expect(body).toHaveProperty("accessGrants", null);
+      }
+    });
+  }
+});

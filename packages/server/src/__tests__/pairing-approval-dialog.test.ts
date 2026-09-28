@@ -14,6 +14,12 @@ import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager, wirePendingHint } from "../pairing/pairing.js";
 import { registerPairingRoutes } from "../routes/pairing-routes.js";
 
+/** Pairing-code TTL, read from a live pending entry so it tracks `CODE_TTL_MS`. */
+function ttlOf(mgr: PairingManager, now: number): number {
+  const [p] = mgr.listPending();
+  return p.expiresAt - now;
+}
+
 let tmpDir: string;
 let clock: number;
 const managers: PairingManager[] = [];
@@ -249,7 +255,7 @@ describe("E10 — deny state edges", () => {
     expect((await local(app, "POST", "/api/pair/deny", { pendingId: approved.pendingId })).statusCode).toBe(404);
 
     const expired = pend(mgr);
-    clock += 61_000;
+    clock += ttlOf(mgr, clock) + 1_000;
     expect((await local(app, "POST", "/api/pair/deny", { pendingId: expired.pendingId })).statusCode).toBe(404);
 
     expect(
@@ -361,7 +367,7 @@ describe("X4 — the hint carries nothing", () => {
     const c = pend(mgr); // add
     for (let i = 0; i < 5; i++) mgr.approvePending(c.pendingId, wrong(c.confirmCode)); // lockout
     pend(mgr); // add
-    vi.advanceTimersByTime(61_000); // expire
+    vi.advanceTimersByTime(ttlOf(mgr, Date.now()) + 1_000); // expire
 
     expect(frames).toHaveLength(8);
     for (const f of frames) expect(f).toStrictEqual({ type: "pair_pending_changed" });
@@ -376,7 +382,7 @@ describe("X6/X7 — pushed expiry and timer hygiene (D4b)", () => {
     pend(mgr);
     let n = 0;
     mgr.onPendingChanged(() => n++);
-    vi.advanceTimersByTime(60_000 + 50);
+    vi.advanceTimersByTime(ttlOf(mgr, Date.now()) + 50);
     expect(n).toBe(1);
     expect(mgr.listPending()).toEqual([]);
     expect(log.mock.calls.some(([l]) => /^\[pairing\] expired id=[0-9a-f]{8}$/.test(String(l)))).toBe(true);
@@ -389,6 +395,7 @@ describe("X6/X7 — pushed expiry and timer hygiene (D4b)", () => {
       vi.spyOn(console, "log").mockImplementation(() => {});
       const { mgr } = mkManager({ realClock: true });
       const d = pend(mgr);
+      const ttl = ttlOf(mgr, Date.now());
       vi.advanceTimersByTime(10_000);
       let n = 0;
       mgr.onPendingChanged(() => n++);
@@ -396,7 +403,7 @@ describe("X6/X7 — pushed expiry and timer hygiene (D4b)", () => {
       else if (action === "deny") mgr.deny(d.pendingId);
       else mgr.redeem(d.code);
       const afterAction = n;
-      vi.advanceTimersByTime(50_000 + 100); // past the ORIGINAL expiry
+      vi.advanceTimersByTime(ttl - 10_000 + 100); // past the ORIGINAL expiry
       expect(n).toBe(afterAction);
     },
   );
