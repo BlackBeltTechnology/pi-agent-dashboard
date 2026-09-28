@@ -446,7 +446,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // See change: electron-runtime-overlay-updates.
   const activeExtension = activeExtensionFromEnv();
   if (process.env.PI_DASHBOARD_EXTENSION_DIR && !activeExtension) {
-    console.warn(`[runtime-overlay] ignoring PI_DASHBOARD_EXTENSION_DIR=${process.env.PI_DASHBOARD_EXTENSION_DIR} (not an Electron-spawned dashboard extension)`);
+    console.warn(`[runtime-overlay] ignoring PI_DASHBOARD_EXTENSION_DIR=${process.env.PI_DASHBOARD_EXTENSION_DIR} (not an Electron-started dashboard extension)`);
   }
   const extPath = activeExtension?.dir ?? findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
   if (extPath) {
