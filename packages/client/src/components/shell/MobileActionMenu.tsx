@@ -17,12 +17,11 @@ import {
   mdiSourceFork,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { LazyExploreDialog, LazyNewChangeDialog } from "../openspec/lazy-openspec-dialogs.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
-import { ExploreDialog } from "../openspec/ExploreDialog.js";
-import { NewChangeDialog } from "../openspec/NewChangeDialog.js";
 
 interface Props {
   session: DashboardSession;
@@ -233,23 +232,23 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
 
       {/* Dialogs rendered outside the menu via portal */}
       {exploreOpen && (
-        <DialogPortal><ExploreDialog
+        <DialogPortal><Suspense fallback={null}><LazyExploreDialog
           changeName=""
           onSend={(text, images) => {
             onSendPrompt?.(`/skill:openspec-explore\n${text}`, images);
             setExploreOpen(false);
           }}
           onClose={() => setExploreOpen(false)}
-        /></DialogPortal>
+        /></Suspense></DialogPortal>
       )}
       {newChangeOpen && (
-        <DialogPortal><NewChangeDialog
+        <DialogPortal><Suspense fallback={null}><LazyNewChangeDialog
           onSend={(prompt) => {
             onSendPrompt?.(prompt);
             setNewChangeOpen(false);
           }}
           onClose={() => setNewChangeOpen(false)}
-        /></DialogPortal>
+        /></Suspense></DialogPortal>
       )}
     </>
   );

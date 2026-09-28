@@ -1,5 +1,5 @@
 /**
- * VCS info gathering — detects git branch/remote/PR and worktree state.
+ * VCS info gathering — detects git branch/remote and worktree state.
  * Delegates to shared platform tool modules so there's no inline execSync
  * and every call benefits from the runner's safety defaults (windowsHide,
  * timeout, tolerated exit codes).
@@ -14,8 +14,6 @@ import { buildGitLinks, type GitLinks } from "./git-link-builder.js";
 export interface GitInfo {
   gitBranch: string;
   gitBranchUrl?: string;
-  gitPrNumber?: number;
-  gitPrUrl?: string;
   /**
    * Worktree identity (mainPath, name) when cwd is a git worktree.
    * Undefined for the main checkout and for any cwd where the rev-parse
@@ -62,11 +60,6 @@ export function detectBranch(cwd: string): string | undefined {
 /** Detect the remote origin URL. */
 export function detectRemoteUrl(cwd: string): string | undefined {
   return git.remoteUrlOr({ cwd });
-}
-
-/** Detect the PR number via gh CLI (best effort). */
-export function detectPrNumber(cwd: string): number | undefined {
-  return git.prNumberOr({ cwd });
 }
 
 /**
@@ -123,22 +116,24 @@ export function gatherGitStatus(cwd: string): GitStatus | undefined {
   return res.ok ? res.value : undefined;
 }
 
-/** Gather all git info for a directory. Returns undefined if not a git repo. */
+/**
+ * Gather all git info for a directory. Returns undefined if not a git repo.
+ * No PR lookup here: PR status is probed asynchronously on its own cadence by
+ * `pr-status.ts` so the 30 s tick never blocks on `gh`.
+ * See change: redesign-composer-session-strip (D5).
+ */
 export function gatherGitInfo(cwd: string): GitInfo | undefined {
   const branch = detectBranch(cwd);
   if (!branch) return undefined;
 
   const remoteUrl = detectRemoteUrl(cwd);
-  const prNumber = detectPrNumber(cwd);
   const gitWorktree = detectWorktree(cwd);
 
-  const links: GitLinks = remoteUrl ? buildGitLinks(remoteUrl, branch, prNumber) : {};
+  const links: GitLinks = remoteUrl ? buildGitLinks(remoteUrl, branch) : {};
 
   return {
     gitBranch: branch,
     gitBranchUrl: links.branchUrl,
-    gitPrNumber: prNumber,
-    gitPrUrl: links.prUrl,
     gitWorktree,
   };
 }

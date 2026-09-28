@@ -598,7 +598,7 @@ test.describe("overlay layout — non-route flush consumers", () => {
     await ensureGitSession(page);
     await page.goto(`/folder/${CWD}/openspec`);
     await expect(page.getByTestId("openspec-board")).toBeVisible({ timeout: 25_000 });
-    const badge = page.getByTestId("stepper-segment-proposal").first();
+    const badge = page.getByTestId("openspec-board").getByTestId("stepper-segment-proposal").first();
     await expect(badge).toBeVisible({ timeout: 45_000 });
     await badge.click();
 

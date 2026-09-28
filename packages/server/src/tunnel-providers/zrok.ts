@@ -369,6 +369,10 @@ export const zrokChildSpec: ChildProviderSpec = {
   getBinary: getZrokBinary,
   detectBinary: detectZrokBinary,
   isEnrolled: () => loadZrokEnv() !== null,
+  // Hosted zrok.io's POST /share gateway can take ~30s and a slow success lands
+  // just after it (~35s observed). A 30s kill orphaned the share, which then
+  // held the reserved name (409 on every retry). 90s clears it.
+  spawnTimeoutMs: 90_000,
   // v2 named-share (reserved): `share public --headless -n public:<name> localhost:<port>`;
   // ephemeral: `share public --headless localhost:<port>`. Flags precede the
   // positional target so an argv-order test is deterministic. `token` is the

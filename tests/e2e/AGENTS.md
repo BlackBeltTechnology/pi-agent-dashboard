@@ -4,6 +4,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `composer-session-strip.spec.ts` | L3 (change: redesign-composer-session-strip; F8–F12). Synthetic bridge on `FIXTURE_GIT` (pinned first) pushes worktree + open-PR `git_info_update`; routed `/api/health` / `/ws` enable the browser-relay badge / READY readiness for this page only. Asserts empty Status group hidden (`:has(:empty)`), groups wrap inside themselves without strip overflow, send button bottom-aligned to the draft (≥44 px), `@[44rem]` fold vs longest model id, composer lifecycle bar in letters mode. |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |

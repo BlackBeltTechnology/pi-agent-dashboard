@@ -3,8 +3,9 @@
  * Avoids passing 14+ closure variables to every extracted function.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ConnectionManager } from "./connection.js";
 import { shouldSkipByPrefilter } from "./auto-session-namer.js";
+import type { ConnectionManager } from "./connection.js";
+import type { PrStatusScheduler } from "./pr-status.js";
 
 export interface BridgeContext {
   pi: ExtensionAPI;
@@ -28,7 +29,18 @@ export interface BridgeContext {
   lastSessionDir: string | undefined;
   lastFirstMessage: string | undefined;
   lastGitBranch: string | undefined;
-  lastGitPrNumber: number | undefined;
+  /**
+   * Last serialized PR tuple (`PrTuple`) sent via `git_info_update`, or
+   * `undefined` when nothing sent yet. Replaces `lastGitPrNumber`.
+   * See change: redesign-composer-session-strip (D5).
+   */
+  lastGitPrJson: string | undefined;
+  /**
+   * Per-bridge async PR-status scheduler (stable reference across
+   * `syncBc()` snapshots). Absent in unit-test contexts that don't need it.
+   * See change: redesign-composer-session-strip (D5).
+   */
+  prStatus?: PrStatusScheduler;
   /**
    * Last serialized `GitWorktreeInfo` snapshot sent to the server, or
    * the literal string `"null"` when we explicitly cleared worktree
