@@ -74,9 +74,10 @@ import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
   createNetworkGuardHook,
-  isBypassedHost,
   isGenuinelyLocal,
   isPluginScopePeerLocal,
+  isTrustedSource,
+  noteTrustedList,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
@@ -1862,7 +1863,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
@@ -2213,6 +2214,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
   );
+  // Boot-time inert-entry warning (loopback entry in trustedNetworks /
+  // bypassHosts). Memoized; the guard re-notes on each reparse.
+  // See change: fix-trusted-network-tunnel-bypass (D3).
+  noteTrustedList(liveTrustedNetworks(config.resolvedTrustedNetworks ?? []));
 
   // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
@@ -3116,7 +3121,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         } else if (
           !isGenuinelyLocal(remoteAddress, wsHeaders) &&
           !verifyLocalToken(wsHeaders, localToken) &&
-          (trusted.length === 0 || !isBypassedHost(remoteAddress, trusted)) &&
+          !isTrustedSource(remoteAddress, wsHeaders, trusted) &&
           !(scope && ticket && consumeTicket(ticket, scope))
         ) {
           // No auth configured — allow genuine-local, local-IPC token, trusted

@@ -427,6 +427,35 @@ Real mitigation: bind to the Tailscale NIC. Settings → Server → Listen Inter
 
 See change: warn-unreachable-trusted-networks.
 
+## Why does my tunnel / tailnet device now need to sign in?
+
+Symptom: device via zrok / ngrok / `tailscale serve` gets 403 `network_not_allowed` (or login redirect, WS 401/403). `trustedNetworks` contains `127.0.0.1` (or `127.0.0.0/8`, `127.*`, `0.0.0.0/0`, `::1`).
+
+Cause: tunnel agent relays from `127.0.0.1` socket. Injects `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Real-IP` / `Forwarded`.
+- Loopback-range peer + any such header = relayed loopback.
+- Relayed loopback never matches a trusted entry. Predicate: `isTrustedSource` in `packages/server/src/auth/localhost-guard.ts`.
+- Before fix: loopback entry let every public tunnel visitor in, no sign-in.
+
+Also affected: same-host reverse proxy (nginx / Caddy / Traefik TLS front) setting `X-Forwarded-*`, admitted only by loopback entry. Indistinguishable from tunnel agent.
+
+Unaffected:
+- Genuine local use (loopback peer, no forwarding header). Trusted without any entry.
+- LAN CIDR entries (e.g. `192.168.16.0/24`).
+
+Loopback entry now inert. Redundant for local, ignored for tunnel.
+- Server logs once: `[trusted-networks] "127.0.0.1" covers loopback — ignored for tunnel-relayed requests; local requests are already trusted`.
+- `/api/health` field `trustPosture.trustedHasLoopback`. Authenticated or genuinely-local caller only; else `null`.
+- Relayed-loopback denial raises no "Trust 127.0.0.1?" prompt (would trust whole tunnel).
+
+Remedy:
+- Pair device (device bearer). See next entry.
+- Or sign in (OAuth). See [How do I set up OAuth authentication for external access?](#how-do-i-set-up-oauth-authentication-for-external-access).
+- Optional: drop loopback entry from `trustedNetworks` / `auth.bypassHosts` (`~/.pi/dashboard/config.json`, Settings → Servers). No migration. Leftover entry harmless.
+
+Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
+
+See change: fix-trusted-network-tunnel-bypass.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).
