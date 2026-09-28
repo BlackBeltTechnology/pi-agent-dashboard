@@ -2934,7 +2934,7 @@ Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (060
 
 #### QR / copy-string pairing
 
-Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
+Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~300s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable deep link (same `https://<endpoint>/pair#pi:pair:v1.<b64>` as the QR). **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
 
 #### Compare-code approval — D12
 
@@ -2980,7 +2980,7 @@ Payload plus handshake carry `v`. Server keeps backward-compatible pairing route
 
 Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Gateway dialog. ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
 
-On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus base64url copy-string. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~60s, `CODE_TTL_MS`), advertised `urls[]`.
+On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus copy box holding the SAME deep link as the QR (`qrText`) — remote browser opens it directly; Electron shell `decodePayloadString` accepts the https form. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~300s; server `CODE_TTL_MS`, client mirror `PAIRING_CODE_TTL_MS` in `GatewayPairQR.tsx`), advertised `urls[]`.
 
 Approval: operator types numeric confirm code shown on device → `POST /api/pair/approve` (D12 typed compare-and-match). Client lib `packages/client/src/lib/pairing-api.ts` `approvePairing(code, confirmCode, label?)`. Success → device joins paired list.
 

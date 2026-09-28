@@ -17,8 +17,9 @@ camera SHALL therefore recognize the QR as an actionable `https` link and open t
 browser pairing view. The one-time pairing code SHALL travel only in the URL
 fragment (never the query string), so it is not sent to the server in the landing
 request nor emitted in access logs or `Referer` headers. The copyable text string
-SHALL remain the bare `pi:pair:v1.…` payload string (unchanged), so an
-Electron/native client can paste it directly.
+SHALL be the SAME `https://<tls-endpoint>/pair#<payload-string>` deep link the QR
+encodes, so a camera-less user can open it in another browser; an Electron/native
+client SHALL accept the deep link by extracting the payload from its fragment.
 
 #### Scenario: QR and copy-string presented together
 - **WHEN** a user opens the pairing view
@@ -34,13 +35,15 @@ Electron/native client can paste it directly.
 - **THEN** the one-time pairing code SHALL appear only in the URL fragment (after `#`) and never in the query string
 - **AND** the landing request for `/pair` SHALL NOT transmit the code to the server (it is redeemed only via the `/api/pair/redeem` POST body)
 
-#### Scenario: copy-string stays a bare payload for paste
-- **WHEN** an Electron/native client copies the pairing copy-string
-- **THEN** the copy-string SHALL be the bare `pi:pair:v1.…` payload (no `https://…/pair#` wrapper), decodable directly
+#### Scenario: copy-string is the browser-openable deep link
+- **WHEN** the operator copies the pairing copy-string for a selected TLS endpoint
+- **THEN** the copy-string SHALL equal the QR's `https://<selected-tls>/pair#pi:pair:v1.…` deep link
+- **AND** pasting it into another browser's address bar SHALL open the pairing view
+- **AND** an Electron/native client pasting it SHALL decode the payload from the fragment
 
 #### Scenario: one QR serves camera and Electron
 - **WHEN** an Electron client scans the same `https://<tls-endpoint>/pair#<payload>` QR
-- **THEN** the client SHALL extract the payload from the URL fragment and pair using it, identically to pasting the bare copy-string
+- **THEN** the client SHALL extract the payload from the URL fragment and pair using it, identically to pasting the copy-string
 
 #### Scenario: Only wss-reachable endpoints listed
 - **WHEN** the server generates the payload and the tunnel is active but no TLS LAN URL is configured
@@ -51,7 +54,8 @@ Electron/native client can paste it directly.
 - **THEN** the pairing view SHALL explain that a tunnel or TLS is required to pair a remote device
 
 ### Requirement: Short-lived one-time pairing code
-The pairing code SHALL expire within a short TTL (~60 seconds), SHALL be
+The pairing code SHALL expire within a short TTL (~300 seconds, long enough to
+copy the deep link into another browser; the client countdown mirrors it), SHALL be
 redeemable at most once, and redemption attempts SHALL be rate-limited. The code
 SHALL NOT itself be the durable credential. A successful redemption SHALL restart
 the code's TTL from the moment of redemption, so the operator-approval window

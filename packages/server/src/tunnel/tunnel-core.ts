@@ -24,7 +24,9 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import type { TunnelEndpoint, TunnelProviderId } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 
-const SPAWN_TIMEOUT_MS = 30_000;
+// Default kill deadline for a spawned tunnel child that has not printed its URL.
+// Providers needing longer (zrok) override via `ChildProviderSpec.spawnTimeoutMs`.
+const DEFAULT_SPAWN_TIMEOUT_MS = 30_000;
 
 /**
  * The provider-specific slice a {@link ChildTunnelRuntime} needs. Everything
@@ -44,6 +46,8 @@ export interface ChildProviderSpec {
   buildArgs(port: number, token: string | undefined): string[];
   /** Matches the public URL in combined stdout/stderr. */
   urlRegex: RegExp;
+  /** Kill deadline (ms) for the child to print its URL. Default 30s. */
+  spawnTimeoutMs?: number;
   /** Optional post-match normalization (e.g. prepend scheme to a bare host). */
   normalizeUrl?(raw: string): string;
   /** Reserve a persistent share; returns a token or null. Omit for public-only-no-reserve providers. */
@@ -207,10 +211,11 @@ export class ChildTunnelRuntime {
         detached: false,
       });
 
+      const spawnTimeoutMs = this.spec.spawnTimeoutMs ?? DEFAULT_SPAWN_TIMEOUT_MS;
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          console.warn(`${this.spec.id} tunnel creation timed out (30s)`);
+          console.warn(`${this.spec.id} tunnel creation timed out (${spawnTimeoutMs / 1000}s)`);
           try {
             if (child.pid != null) killPidWithGroup(child.pid, "SIGTERM");
             else child.kill("SIGTERM");
@@ -225,7 +230,7 @@ export class ChildTunnelRuntime {
           this.removePid();
           resolve(null);
         }
-      }, SPAWN_TIMEOUT_MS);
+      }, spawnTimeoutMs);
 
       const handleOutput = (chunk: Buffer) => {
         output += chunk.toString();

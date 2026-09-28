@@ -2,7 +2,7 @@
  * QR / copy-string device pairing (D6, D12).
  *
  * Flow:
- *  1. Dashboard mints a short-lived (~60s) one-time pairing code + payload
+ *  1. Dashboard mints a short-lived (~300s) one-time pairing code + payload
  *     `{ v, id, code, urls[] }` (QR + copy-string).
  *  2. A device REDEEMS the code → creates a PENDING device with a
  *     server-generated numeric confirmation code shown on BOTH the device and
@@ -45,7 +45,11 @@ function isTestLoopbackOrigin(url: string): boolean {
   );
 }
 
-const CODE_TTL_MS = 60_000; // ~60s one-time pairing code.
+// ~300s one-time pairing code: long enough to copy the deep link into another
+// browser. Still single-use, fragment-only, and gated by the typed 8-digit
+// confirm code (D12). Mirrored by the client countdown (GatewayPairQR.tsx
+// PAIRING_CODE_TTL_MS), so keep the two in step.
+const CODE_TTL_MS = 300_000;
 const CONFIRM_CODE_DIGITS = 8; // ~26.5 bits; short window + lockout.
 const MAX_REDEEM_ATTEMPTS = 10; // per code, before lockout.
 const MAX_APPROVE_ATTEMPTS = 5; // wrong-confirm-code attempts before lockout.
