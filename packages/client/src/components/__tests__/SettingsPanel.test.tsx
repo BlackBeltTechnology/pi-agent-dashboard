@@ -1465,3 +1465,105 @@ describe("SettingsPanel — archive fields (archive-sessions-lazy-load)", () => 
     expect(putBody.sessionList.archiveSweepIntervalMinutes).toBe(1);
   });
 });
+
+// Models nav group + promoted plugin entries.
+// See change: promote-model-roles-settings (test-plan #F1, #F4, #X1).
+describe("SettingsPanel Models nav group", () => {
+  const rolesNav = { group: "models", label: "Model roles", description: "Pick which model answers each @role." };
+  function rolesRow(o: { firstParty?: boolean; nav?: boolean; status?: Record<string, unknown> } = {}) {
+    return {
+      id: "roles",
+      displayName: "Roles",
+      priority: 100,
+      ...(o.firstParty === undefined ? {} : { firstParty: o.firstParty }),
+      hasServer: true,
+      hasBridge: false,
+      hasClient: true,
+      claims: [
+        { slot: "settings-section", component: "BuiltInRolesSettings", ...(o.nav === false ? {} : { nav: rolesNav }) },
+      ],
+      requires: null,
+      status: { id: "roles", displayName: "Roles", enabled: true, loaded: true, claims: 1, ...(o.status ?? {}) },
+    };
+  }
+  function mockFetchWithPlugins(rows: unknown[]) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url.endsWith("/api/plugins")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, plugins: rows }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+  const groupItems = (groupEl: Element) =>
+    Array.from(groupEl.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim());
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/general");
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("F1: Models is the first group, holding Providers then Model roles; General stays active", async () => {
+    vi.stubGlobal("fetch", mockFetchWithPlugins([rolesRow({ firstParty: true })]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-promoted-roles")).toBeTruthy());
+    const groups = rail.querySelectorAll("[data-testid^='settings-nav-group-']");
+    expect(groups[0].getAttribute("data-testid")).toBe("settings-nav-group-models");
+    expect(groups[0].textContent).toContain("Models");
+    expect(groupItems(groups[0])).toEqual(["Providers", "Model roles"]);
+    const ext = within(rail).getByTestId("settings-nav-group-extensions");
+    expect(groupItems(ext)).not.toContain("Providers");
+    const active = rail.querySelectorAll("[aria-current='page']");
+    expect(active).toHaveLength(1);
+    expect(active[0].textContent).toContain("General");
+  });
+
+  it("F4: a promoted entry carries the same error health dot a Plugins child uses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetchWithPlugins([rolesRow({ firstParty: true, status: { loaded: false, error: "boom" } })]),
+    );
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const dot = await within(rail).findByTestId("nav-plugin-status-roles");
+    expect(dot.className).toContain("--accent-red");
+    expect(dot.getAttribute("aria-label")).toBe("error");
+    expect(within(rail).getByTestId("nav-promoted-roles").contains(dot)).toBe(true);
+  });
+
+  it("X1: an older server (no firstParty, no nav) leaves Providers alone in Models", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", mockFetchWithPlugins([rolesRow({ nav: false })]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-plugin-roles")).toBeTruthy());
+    expect(groupItems(within(rail).getByTestId("settings-nav-group-models"))).toEqual(["Providers"]);
+    expect(within(rail).queryByTestId("nav-promoted-roles")).toBeNull();
+    expect(within(rail).getByTestId("nav-plugin-roles").textContent).toContain("Roles");
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it("every built-in rail label is in the reserved promotion-label set (drift guard)", async () => {
+    const { RESERVED_SETTINGS_LABELS, foldSettingsLabel } = await import("../../lib/settings-promotions.js");
+    vi.stubGlobal("fetch", mockFetchWithPlugins([]));
+    render(<SettingsPanel />);
+    const rail = await screen.findByTestId("settings-nav-rail");
+    const labels = Array.from(rail.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim());
+    const groupLabels = Array.from(rail.querySelectorAll("[data-testid^='settings-nav-group-label-']")).map(
+      (el) => (el.textContent ?? "").trim(),
+    );
+    expect(groupLabels.length).toBe(6);
+    for (const label of [...labels, ...groupLabels]) {
+      expect(RESERVED_SETTINGS_LABELS.has(foldSettingsLabel(label))).toBe(true);
+    }
+  });
+});

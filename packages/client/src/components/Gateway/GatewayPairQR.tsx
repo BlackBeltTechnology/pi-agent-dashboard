@@ -41,7 +41,7 @@ import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/t
 import { mdiCheck, mdiContentCopy, mdiLockOutline, mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import QRCode from "qrcode";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getGatewayEndpoints, guardPairingUrls, isPairingEligible, splitEndpoints } from "../../lib/gateway/gateway-endpoints.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
@@ -50,6 +50,11 @@ import { encodePairingQrUrl } from "../../lib/pairing/pairing-qr.js";
 
 /** Advisory countdown; mirrors the server's one-time code TTL (`CODE_TTL_MS` in packages/server/src/pairing/pairing.ts). */
 const PAIRING_CODE_TTL_MS = 300_000;
+
+// Waiting-devices list for the app-wide pairing approval dialog; its own chunk
+// so the pairing-approval code stays off the cold-landing entry.
+// See change: add-pairing-approval-dialog.
+const WaitingDevices = lazy(() => import("./WaitingDevices.js").then((m) => ({ default: m.WaitingDevices })));
 
 /** A QR canvas for arbitrary text (pairing string or bare link URL). */
 function QrCanvas({ text, size = 132 }: { text: string; size?: number }) {
@@ -487,6 +492,9 @@ export function GatewayPairQR(
   return (
     <div data-testid="gateway-pair-qr" ref={rootRef}>
       <CountdownHeader pairingPayload={pairingPayload} expired={expired} secondsLeft={secondsLeft} />
+      <Suspense fallback={null}>
+        <WaitingDevices />
+      </Suspense>
 
       {state === "loading" && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="gateway-pair-loading">

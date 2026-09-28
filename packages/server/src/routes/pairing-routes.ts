@@ -21,7 +21,7 @@ import { signNonce } from "../auth/identity.js";
 import { verifyLocalToken } from "../auth/local-token.js";
 import { isGenuinelyLocal } from "../auth/localhost-guard.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
-import type { PairingManager } from "../pairing/pairing.js";
+import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
 import { localEndpoints } from "../tunnel/tunnel-endpoints.js";
 import type { NetworkGuard } from "./route-deps.js";
@@ -45,6 +45,29 @@ export const PUBLIC_PAIRING_PREFIXES = [
  * route is the only caller that validates; `approve` is left as is (D4).
  */
 export const MAX_DEVICE_LABEL_BYTES = 64;
+
+/** Trimmed label when it is a 1..MAX_DEVICE_LABEL_BYTES UTF-8 string, else null. */
+function validLabel(label: unknown): string | null {
+  if (typeof label !== "string") return null;
+  const trimmed = label.trim();
+  if (trimmed.length === 0 || Buffer.byteLength(trimmed, "utf8") > MAX_DEVICE_LABEL_BYTES) return null;
+  return trimmed;
+}
+
+/** Map a failed approve to status + body; `mismatch` carries `attemptsLeft` (D2). */
+function approveFailure(
+  result: Exclude<ApproveResult, { ok: true }>,
+  reply: FastifyReply,
+): ApiResponse<never> & { attemptsLeft?: number } {
+  reply.code(result.error === "locked_out" ? 429 : result.error === "no_pending" ? 404 : 400);
+  return result.error === "mismatch"
+    ? { success: false, error: result.error, attemptsLeft: result.attemptsLeft }
+    : { success: false, error: result.error };
+}
+
+function headerString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : Array.isArray(v) && typeof v[0] === "string" ? v[0] : undefined;
+}
 
 /**
  * Operator guard for the token-mint route (D5).
@@ -161,7 +184,14 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: "code required" };
       }
-      const result = pairing.redeem(code);
+      // Redeemer metadata is untrusted display text for the operator dialog;
+      // the manager bounds it and never uses it for a decision (D4).
+      const result = pairing.redeem(code, {
+        userAgent: headerString(request.headers["user-agent"]),
+        host: headerString(request.headers.host),
+        remoteAddress: request.ip,
+        forwardedFor: headerString(request.headers["x-forwarded-for"]),
+      });
       if (!result.ok) {
         reply.code(result.error === "rate_limited" ? 429 : 400);
         return { success: false, error: result.error };
@@ -196,10 +226,68 @@ export function registerPairingRoutes(
         isTier(tier) ? tier : undefined,
       );
       if (!result.ok) {
+        // Status codes unchanged for this route (no_pending stays 400); a
+        // mismatch additionally carries `attemptsLeft` (additive, D2).
         reply.code(result.error === "locked_out" ? 429 : 400);
-        return { success: false, error: result.error };
+        return result.error === "mismatch"
+          ? ({ success: false, error: result.error, attemptsLeft: result.attemptsLeft } as ApiResponse<PairedDeviceView>)
+          : { success: false, error: result.error };
       }
       return { success: true, data: result.device };
+    },
+  );
+
+  // ── Dashboard: pending-request feed for the app-wide approval dialog ───
+  // Operator-only (never networkGuard, which admits a paired-device bearer):
+  // the list carries redeemer UA/IP/host. Never a pairing or confirm code (R5).
+  fastify.get(
+    "/api/pair/pending",
+    { preHandler: operatorGuard },
+    async (): Promise<ApiResponse<PendingDeviceView[]>> => ({ success: true, data: pairing.listPending() }),
+  );
+
+  // ── Dashboard: approve by pendingId (typed confirm code, operator-only) ─
+  fastify.post<{ Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown } }>(
+    "/api/pair/approve-pending",
+    { preHandler: operatorGuard },
+    async (request, reply): Promise<ApiResponse<PairedDeviceView> & { attemptsLeft?: number }> => {
+      const { pendingId, confirmCode, label } = request.body ?? {};
+      if (typeof pendingId !== "string" || typeof confirmCode !== "string") {
+        reply.code(400);
+        return { success: false, error: "pendingId and confirmCode required" };
+      }
+      // Validate the label BEFORE delegating so a refused name never pairs (D2).
+      let name: string | undefined;
+      if (label !== undefined) {
+        const v = validLabel(label);
+        if (v === null) {
+          reply.code(400);
+          return { success: false, error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes` };
+        }
+        name = v;
+      }
+      const result = pairing.approvePending(pendingId, confirmCode, name);
+      if (!result.ok) return approveFailure(result, reply);
+      return { success: true, data: result.device };
+    },
+  );
+
+  // ── Dashboard: deny a pending device (operator-only, D3) ───────────────
+  fastify.post<{ Body: { pendingId?: unknown } }>(
+    "/api/pair/deny",
+    { preHandler: operatorGuard },
+    async (request, reply): Promise<ApiResponse> => {
+      const pendingId = request.body?.pendingId;
+      if (typeof pendingId !== "string") {
+        reply.code(400);
+        return { success: false, error: "pendingId required" };
+      }
+      const result = pairing.deny(pendingId);
+      if (!result.ok) {
+        reply.code(404);
+        return { success: false, error: result.error };
+      }
+      return { success: true };
     },
   );
 
@@ -258,8 +346,8 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: `tier must be one of ${TIERS.join(", ")}` };
       }
-      const trimmed = label.trim();
-      if (trimmed.length === 0 || Buffer.byteLength(trimmed, "utf8") > MAX_DEVICE_LABEL_BYTES) {
+      const trimmed = validLabel(label);
+      if (trimmed === null) {
         reply.code(400);
         return {
           success: false,

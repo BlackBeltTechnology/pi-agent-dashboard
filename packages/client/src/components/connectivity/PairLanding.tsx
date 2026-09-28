@@ -22,7 +22,7 @@ import { challengeIdentity, postJson } from "../../lib/pairing/pair-protocol.js"
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
 import { decodePayloadString } from "../../lib/pairing/pairing-qr.js";
 
-type Phase = "verifying" | "polling" | "done" | "error";
+type Phase = "verifying" | "polling" | "done" | "rejected" | "error";
 
 interface RedeemResult {
   pendingId: string;
@@ -30,7 +30,7 @@ interface RedeemResult {
 }
 
 interface PollResult {
-  status: "pending" | "approved" | "unknown";
+  status: "pending" | "approved" | "rejected" | "unknown";
   token?: string;
 }
 
@@ -49,15 +49,21 @@ async function findVerifiedUrl(payload: PairingPayload): Promise<string | null> 
   return null;
 }
 
-type PollOutcome = { token: string } | "unknown" | "cancelled";
+type PollOutcome = { token: string } | "rejected" | "unknown" | "cancelled";
 
-/** Poll `/api/pair/poll` until approved, rejected, or cancelled. Throws on transport error. */
+/**
+ * Poll `/api/pair/poll` until approved, rejected, or cancelled. Throws on
+ * transport error. Only `pending` keeps polling: any status this client does
+ * not know is terminal, so a future server status can never poll forever
+ * (change: add-pairing-approval-dialog, X12).
+ */
 async function pollForToken(url: string, pendingId: string, isCancelled: () => boolean): Promise<PollOutcome> {
   while (!isCancelled()) {
     const poll = await postJson<PollResult>(url, "/api/pair/poll", { pendingId });
     if (isCancelled()) return "cancelled";
     if (poll.status === "approved" && poll.token) return { token: poll.token };
-    if (poll.status === "unknown") return "unknown";
+    if (poll.status === "rejected") return "rejected";
+    if (poll.status !== "pending") return "unknown";
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
   return "cancelled";
@@ -130,6 +136,10 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
 
       const outcome = await pollForToken(verifiedUrl, redeemed.pendingId, () => cancelled.current);
       if (outcome === "cancelled") return;
+      if (outcome === "rejected") {
+        setPhase("rejected");
+        return;
+      }
       if (outcome === "unknown") {
         setPhase("error");
         setError(t("landing.err.expiredRejected", undefined, "Pairing expired or was rejected. Re-scan the QR to start over."));
@@ -193,6 +203,22 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
         <p data-testid="pair-landing-done" className="rounded border border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] p-3 text-sm text-[var(--severity-success-fg)]">
           {t("landing.paired", undefined, "Paired. Opening the dashboard…")}
         </p>
+      )}
+
+      {/* Operator denied: a new link is required, so no retry of THIS link. */}
+      {phase === "rejected" && (
+        <div
+          data-testid="pair-landing-rejected"
+          role="alert"
+          className="rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] p-3 text-sm text-[var(--severity-error-fg)]"
+        >
+          <p className="font-semibold">
+            {t("landing.rejected", undefined, "The dashboard declined this device.")}
+          </p>
+          <p className="mt-1">
+            {t("landing.rejectedHint", undefined, "If this was a mistake, ask for a new pairing link.")}
+          </p>
+        </div>
       )}
 
       {phase === "error" && (

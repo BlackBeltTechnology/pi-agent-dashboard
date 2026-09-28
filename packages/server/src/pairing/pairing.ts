@@ -53,6 +53,39 @@ const CODE_TTL_MS = 300_000;
 const CONFIRM_CODE_DIGITS = 8; // ~26.5 bits; short window + lockout.
 const MAX_REDEEM_ATTEMPTS = 10; // per code, before lockout.
 const MAX_APPROVE_ATTEMPTS = 5; // wrong-confirm-code attempts before lockout.
+/** Grace after expiry before the pushed-expiry timer fires (D4b). */
+const EXPIRY_TIMER_SLACK_MS = 50;
+/** How long a denied entry stays pollable as `rejected` (mirrors approve's window). */
+const RESOLVED_POLL_WINDOW_MS = 30_000;
+/** Redeemer-metadata bounds (D4) — untrusted display text only. */
+const MAX_UA_CHARS = 256;
+const MAX_HOST_CHARS = 253;
+const MAX_ADDR_CHARS = 64;
+
+/**
+ * Raw redeemer request context as the route layer sees it. Every field is
+ * attacker-controlled: bounded here, rendered as text only, never used for a
+ * decision, never logged (D4/D7).
+ */
+export interface RedeemMeta {
+  userAgent?: string;
+  host?: string;
+  remoteAddress?: string;
+  /** Raw `X-Forwarded-For` header; only the first hop is kept. */
+  forwardedFor?: string;
+}
+
+/** Operator-facing view of one pending device — never carries a code (R5). */
+export interface PendingDeviceView {
+  pendingId: string;
+  userAgent?: string;
+  viaHost?: string;
+  remoteAddress?: string;
+  forwardedFor?: string;
+  createdAt: number;
+  expiresAt: number;
+  attemptsLeft: number;
+}
 
 export interface PairingPayload {
   /** Protocol version. */
@@ -72,6 +105,8 @@ interface PairingCodeEntry {
   redeemAttempts: number;
   /** At most one pending device per code. */
   pending: PendingDevice | null;
+  /** Pushed-expiry timer for the live pending device (D4b). */
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 interface PendingDevice {
@@ -82,6 +117,23 @@ interface PendingDevice {
   approveAttempts: number;
   /** Set once approved; the device polls to collect it. */
   issuedToken: string | null;
+  /** Set once an operator denied it; the code is dead (D3). */
+  rejected: boolean;
+  userAgent?: string;
+  viaHost?: string;
+  remoteAddress?: string;
+  forwardedFor?: string;
+}
+
+function bound(v: unknown, max: number): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t.length === 0 ? undefined : t.slice(0, max);
+}
+
+/** First 8 chars of a pendingId — the only identifier ever logged (D7). */
+function shortId(pendingId: string): string {
+  return pendingId.slice(0, 8);
 }
 
 export type RedeemResult =
@@ -90,11 +142,15 @@ export type RedeemResult =
 
 export type ApproveResult =
   | { ok: true; device: PairedDeviceView }
-  | { ok: false; error: "invalid_code" | "no_pending" | "mismatch" | "locked_out" | "expired" };
+  | { ok: false; error: "mismatch"; attemptsLeft: number }
+  | { ok: false; error: "invalid_code" | "no_pending" | "locked_out" | "expired" };
+
+export type DenyResult = { ok: true } | { ok: false; error: "no_pending" };
 
 export type PollResult =
   | { status: "pending" }
   | { status: "approved"; token: string }
+  | { status: "rejected" }
   | { status: "unknown" };
 
 /** Generate a numeric confirmation code with leading-zero padding. */
@@ -118,21 +174,84 @@ export class PairingManager {
   private readonly deps: PairingManagerDeps;
   private readonly now: () => number;
   private codes = new Map<string, PairingCodeEntry>();
+  private listeners = new Set<() => void>();
 
   constructor(deps: PairingManagerDeps) {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
   }
 
+  /**
+   * Subscribe to pending-set changes (add / approve / deny / lockout / expire).
+   * Fired AFTER state commits, carrying nothing — callers re-read via
+   * `listPending()` (D1). Returns an unsubscribe.
+   */
+  onPendingChanged(cb: () => void): () => void {
+    this.listeners.add(cb);
+    return () => this.listeners.delete(cb);
+  }
+
+  private emitChanged(): void {
+    for (const cb of this.listeners) {
+      try {
+        cb();
+      } catch {
+        // A listener must never break the pairing state machine.
+      }
+    }
+  }
+
+  /** A pending device an operator can still act on (not approved/denied/locked). */
+  private static isLive(p: PendingDevice | null): p is PendingDevice {
+    return !!p && !p.issuedToken && !p.rejected && p.approveAttempts < MAX_APPROVE_ATTEMPTS;
+  }
+
+  private clearTimer(entry: PairingCodeEntry): void {
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = undefined;
+  }
+
+  /** Arm the pushed-expiry timer for this entry's live pending device (D4b). */
+  private armTimer(entry: PairingCodeEntry): void {
+    this.clearTimer(entry);
+    const delay = Math.max(0, entry.expiresAt - this.now()) + EXPIRY_TIMER_SLACK_MS;
+    const t = setTimeout(() => {
+      entry.timer = undefined;
+      this.sweep();
+    }, delay);
+    t.unref?.();
+    entry.timer = t;
+  }
+
   private sweep(): void {
     const t = this.now();
+    let changed = false;
     for (const [code, entry] of this.codes) {
       // Delete once past expiry. approve() extends expiresAt by 30s so an
       // approved device still has a window to poll its token; after that the
       // entry is swept whether or not it was ever polled (no unbounded growth
       // for approved-but-unpolled devices).
-      if (entry.expiresAt < t) this.codes.delete(code);
+      if (entry.expiresAt < t) {
+        this.expireEntry(entry);
+        this.codes.delete(code);
+        if (PairingManager.isLive(entry.pending)) changed = true;
+      }
     }
+    if (changed) this.emitChanged();
+  }
+
+  /** Clear the timer and log the expiry of a live pending device (no emit). */
+  private expireEntry(entry: PairingCodeEntry): void {
+    this.clearTimer(entry);
+    if (PairingManager.isLive(entry.pending)) {
+      console.log(`[pairing] expired id=${shortId(entry.pending.pendingId)}`);
+    }
+  }
+
+  /** Stop every pushed-expiry timer and drop listeners (server shutdown / tests). */
+  dispose(): void {
+    for (const entry of this.codes.values()) this.clearTimer(entry);
+    this.listeners.clear();
   }
 
   /** Compute the reachable, publicly-trusted URLs, deduplicated. */
@@ -183,14 +302,15 @@ export class PairingManager {
    * the code (D12). Restarts the code's TTL from redeem time so the operator
    * approval countdown begins when the device presents itself, not at QR mint.
    */
-  redeem(code: string): RedeemResult {
+  redeem(code: string, meta: RedeemMeta = {}): RedeemResult {
     // NB: do not sweep before lookup — an expired code must still be
     // distinguishable as `expired` rather than swept to `invalid_code`.
     const entry = this.codes.get(code);
     if (!entry) return { ok: false, error: "invalid_code" };
     // A code that already completed a pairing (token issued) is consumed and
     // cannot start a new pending flow.
-    if (entry.pending?.issuedToken) return { ok: false, error: "invalid_code" };
+    // A denied code is equally dead (D3): no device can redeem it again.
+    if (entry.pending?.issuedToken || entry.pending?.rejected) return { ok: false, error: "invalid_code" };
     if (entry.expiresAt < this.now()) return { ok: false, error: "expired" };
     if (entry.redeemAttempts >= MAX_REDEEM_ATTEMPTS) {
       return { ok: false, error: "rate_limited" };
@@ -206,6 +326,11 @@ export class PairingManager {
       createdAt: this.now(),
       approveAttempts: 0,
       issuedToken: null,
+      rejected: false,
+      userAgent: bound(meta.userAgent, MAX_UA_CHARS),
+      viaHost: bound(meta.host, MAX_HOST_CHARS),
+      remoteAddress: bound(meta.remoteAddress, MAX_ADDR_CHARS),
+      forwardedFor: bound(meta.forwardedFor?.split(",")[0], MAX_ADDR_CHARS),
     };
     entry.pending = pending;
     // Restart the approval window at redeem time. The one-time code's TTL is
@@ -214,16 +339,85 @@ export class PairingManager {
     // screen leaves the phone only the leftover seconds before sweep() deletes
     // the entry and poll() returns "unknown" ("Pairing expired" on the device).
     entry.expiresAt = this.now() + CODE_TTL_MS;
+    this.armTimer(entry);
+    console.log(`[pairing] pending id=${shortId(pending.pendingId)}`);
+    this.emitChanged();
     return { ok: true, pendingId: pending.pendingId, confirmCode: pending.confirmCode };
   }
 
   /** List codes that have a pending (un-approved) device, for dashboard UX. */
   pendingForCode(code: string): { pendingId: string } | null {
     const entry = this.codes.get(code);
-    if (entry?.pending && !entry.pending.issuedToken) {
+    if (entry?.pending && !entry.pending.issuedToken && !entry.pending.rejected) {
       return { pendingId: entry.pending.pendingId };
     }
     return null;
+  }
+
+  /**
+   * Operator-facing list of pending devices an operator can still act on,
+   * oldest first. NEVER includes the pairing code or the confirmation code (R5).
+   */
+  listPending(): PendingDeviceView[] {
+    this.sweep();
+    const out: PendingDeviceView[] = [];
+    for (const entry of this.codes.values()) {
+      const p = entry.pending;
+      if (!PairingManager.isLive(p)) continue;
+      const view: PendingDeviceView = {
+        pendingId: p.pendingId,
+        createdAt: p.createdAt,
+        expiresAt: entry.expiresAt,
+        attemptsLeft: MAX_APPROVE_ATTEMPTS - p.approveAttempts,
+      };
+      if (p.userAgent !== undefined) view.userAgent = p.userAgent;
+      if (p.viaHost !== undefined) view.viaHost = p.viaHost;
+      if (p.remoteAddress !== undefined) view.remoteAddress = p.remoteAddress;
+      if (p.forwardedFor !== undefined) view.forwardedFor = p.forwardedFor;
+      out.push(view);
+    }
+    return out.sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  private findByPendingId(pendingId: string): PairingCodeEntry | undefined {
+    for (const entry of this.codes.values()) {
+      if (entry.pending?.pendingId === pendingId) return entry;
+    }
+    return undefined;
+  }
+
+  /**
+   * Approve by pendingId (the app-wide dialog never holds the pairing code).
+   * Delegates to `approve()` so compare, lockout budget, expiry and tier are
+   * shared, not reimplemented (D2).
+   */
+  approvePending(pendingId: string, typedConfirmCode: string, label?: string, tier?: Tier): ApproveResult {
+    const entry = this.findByPendingId(pendingId);
+    if (!entry) return { ok: false, error: "no_pending" };
+    return this.approve(entry.code, typedConfirmCode, label, tier);
+  }
+
+  /**
+   * Operator denies a pending device: no token is ever issued, the pairing code
+   * is dead, and the device's next poll reports `rejected` (D3).
+   */
+  deny(pendingId: string): DenyResult {
+    const entry = this.findByPendingId(pendingId);
+    const pending = entry?.pending ?? null;
+    // Only a live request can be denied: an approved, denied or locked-out one
+    // is already resolved (a locked-out code stays re-redeemable, D8).
+    if (!entry || !PairingManager.isLive(pending)) return { ok: false, error: "no_pending" };
+    if (entry.expiresAt < this.now()) {
+      this.sweep();
+      return { ok: false, error: "no_pending" };
+    }
+    pending.rejected = true;
+    this.clearTimer(entry);
+    // Keep the entry briefly so the device's poll can learn `rejected`.
+    entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
+    console.log(`[pairing] denied id=${shortId(pending.pendingId)}`);
+    this.emitChanged();
+    return { ok: true };
   }
 
   /**
@@ -240,11 +434,11 @@ export class PairingManager {
     // must hold even when no poll()/createPayload() sweep has run, so mirror the
     // sweep's cleanup and drop the entry here.
     if (entry.expiresAt < this.now()) {
-      this.codes.delete(code);
+      this.sweep();
       return { ok: false, error: "expired" };
     }
     const pending = entry.pending;
-    if (!pending || pending.issuedToken) return { ok: false, error: "no_pending" };
+    if (!pending || pending.issuedToken || pending.rejected) return { ok: false, error: "no_pending" };
     if (pending.approveAttempts >= MAX_APPROVE_ATTEMPTS) {
       return { ok: false, error: "locked_out" };
     }
@@ -253,7 +447,19 @@ export class PairingManager {
     const a = Buffer.from(pending.confirmCode);
     const b = Buffer.from(String(typedConfirmCode));
     const match = a.length === b.length && crypto.timingSafeEqual(a, b);
-    if (!match) return { ok: false, error: "mismatch" };
+    if (!match) {
+      const attemptsLeft = MAX_APPROVE_ATTEMPTS - pending.approveAttempts;
+      if (attemptsLeft <= 0) {
+        // Budget exhausted by THIS failure → the request is blocked; it leaves
+        // the operator list and its expiry timer is no longer needed.
+        this.clearTimer(entry);
+        console.log(`[pairing] locked_out id=${shortId(pending.pendingId)}`);
+        this.emitChanged();
+        return { ok: false, error: "locked_out" };
+      }
+      console.log(`[pairing] mismatch id=${shortId(pending.pendingId)} left=${attemptsLeft}`);
+      return { ok: false, error: "mismatch", attemptsLeft };
+    }
 
     // Match → consume the code (single successful pairing) and issue the token.
     // The approving browser chooses the tier; absent, the pairing source
@@ -267,7 +473,10 @@ export class PairingManager {
     pending.issuedToken = token;
     // Drop the code so it can never be reused; keep the pending slot so the
     // device's next poll collects the token, then it self-expires via sweep.
-    entry.expiresAt = this.now() + 30_000;
+    entry.expiresAt = this.now() + RESOLVED_POLL_WINDOW_MS;
+    this.clearTimer(entry);
+    console.log(`[pairing] approved id=${shortId(pending.pendingId)} device=${String(device.id).slice(0, 8)}`);
+    this.emitChanged();
     return { ok: true, device };
   }
 
@@ -282,9 +491,24 @@ export class PairingManager {
           this.codes.delete(entry.code);
           return { status: "approved", token };
         }
+        if (entry.pending.rejected) return { status: "rejected" };
         return { status: "pending" };
       }
     }
     return { status: "unknown" };
   }
+}
+
+/** The content-free pending-change hint (D1) — no identifier, address, UA or code. */
+const PAIR_PENDING_CHANGED = { type: "pair_pending_changed" } as const;
+
+/**
+ * Wire the manager's change notifications to a browser broadcast. Every
+ * emission sends a FRESH content-free frame (never a shared mutable object).
+ */
+export function wirePendingHint(
+  mgr: PairingManager,
+  broadcast: (msg: { type: "pair_pending_changed" }) => void,
+): () => void {
+  return mgr.onPendingChanged(() => broadcast({ ...PAIR_PENDING_CHANGED }));
 }

@@ -25,3 +25,7 @@ See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSessio
 
 Flags/timers/failed/startedAt moved to `useHistoryLoadState({status, hasContent})` (reconnect reset inside). `hasChatContentFor` (refs). `useLayoutEffect` arms `beginLoadingHistory` (NOT `replayInFlight` — would flash the pill on warm reload) at selection before paint (connected, unsubscribed, no content). `historyPhaseMap` = `buildHistoryPhaseMap(...)` memo (deps incl. `status`) → `SessionList historyPhaseMap` + ChatView `historyPhase`/`historyStartedAt`/`onRetryHistory` (`handleRetryHistory` → `handleRefreshChat`). `markHistoryLoadFailed`/`clearHistoryLoadFailed` passed to `useMessageHandler`. Server switch calls `resetAllHistoryLoad()`. See change: show-session-history-load-state.
 Composer strip gets `onAttach`/`onDetach`/`groups`/`assignments` + `working` = streaming ∨ `retrySessionIds.has(id)`. See change: redesign-composer-session-strip.
+
+## add-pairing-approval-dialog
+
+`pairingApprovalHost` (lazy `PairingApprovalHost` in `<Suspense fallback={null}>` — own chunk, off the entry gzip cap; mount-time fetch covers hints before load) mounted beside `grantPromptHost` in BOTH returns. See change: add-pairing-approval-dialog.
