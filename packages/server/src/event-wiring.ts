@@ -1856,6 +1856,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.gitStatus !== undefined) {
         gitUpdates.gitStatus = msg.gitStatus;
       }
+      // PR status tuple (async bridge probe). Guarded: `null` clears (known
+      // no PR / branch change), absent (older bridge, or unknown after a
+      // fork) leaves the stored value untouched. Number/url above stay
+      // unconditional — the new bridge always sends them when known.
+      // See change: redesign-composer-session-strip (D5).
+      // The tuple is ATOMIC with the number: when no PR number is known
+      // (absent = unknown after a fork/resume, or null = no PR) the status
+      // fields are cleared too, so a stale "open · passing" can never outlive
+      // its PR. Cleared as `null` (not `undefined`) so the broadcast carries
+      // the clear. See change: redesign-composer-session-strip (doubt-review #1).
+      // A known number WITHOUT any status field comes from an older bridge
+      // (the new bridge always sends the whole tuple): drop any stored status
+      // so a stale rich tuple never pairs with a different PR number.
+      // See change: redesign-composer-session-strip (review round 1).
+      const PR_STATUS_KEYS = ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const;
+      const prKnown = msg.gitPrNumber != null;
+      const legacyNumberOnly = prKnown && PR_STATUS_KEYS.every((k) => msg[k] === undefined);
+      const stored = sessionManager.get(sessionId);
+      for (const key of PR_STATUS_KEYS) {
+        if (!prKnown) gitUpdates[key] = null;
+        else if (legacyNumberOnly) {
+          if (stored?.[key] != null) gitUpdates[key] = null;
+        } else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+      }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
       // See change: gate-session-worktree-button-on-git.

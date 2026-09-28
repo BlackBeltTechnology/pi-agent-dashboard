@@ -81,9 +81,15 @@ interface StepperProps {
   onOpenTasks?: () => void;
   /** Makes Archive interactive. Caller passes it only when archiving is allowed. */
   onArchive?: () => void;
+  /**
+   * Test-id prefix ("composer-" in the composer strip) so the card's and the
+   * composer's steppers never collide when both are mounted.
+   * See change: redesign-composer-session-strip (D2).
+   */
+  testIdPrefix?: string;
 }
 
-export function OpenSpecStepper({ variant = "sidebar", change, onReadArtifact, onOpenTasks, onArchive }: StepperProps) {
+export function OpenSpecStepper({ variant = "sidebar", change, onReadArtifact, onOpenTasks, onArchive, testIdPrefix = "" }: StepperProps) {
   const { t } = useI18n();
   const completedTasks = change?.completedTasks ?? 0;
   const totalTasks = change?.totalTasks ?? 0;
@@ -99,7 +105,7 @@ export function OpenSpecStepper({ variant = "sidebar", change, onReadArtifact, o
       role="group"
       aria-label={t("openspec.lifecycle", undefined, "OpenSpec lifecycle")}
       className="openspec-lifecycle-bar"
-      data-testid="openspec-stepper"
+      data-testid={`${testIdPrefix}openspec-stepper`}
       data-variant={variant}
     >
       {SEGMENTS.map((seg) => {
@@ -130,7 +136,7 @@ export function OpenSpecStepper({ variant = "sidebar", change, onReadArtifact, o
           <>
             <span className="openspec-seg-track" aria-hidden="true">
               {isTasks && totalTasks > 0 && (
-                <span className="openspec-seg-fill" data-testid="stepper-tasks-fill" style={{ width: `${fillPct}%` }} />
+                <span className="openspec-seg-fill" data-testid={`${testIdPrefix}stepper-tasks-fill`} style={{ width: `${fillPct}%` }} />
               )}
             </span>
             <span className="openspec-seg-label" aria-hidden="true">
@@ -152,7 +158,7 @@ export function OpenSpecStepper({ variant = "sidebar", change, onReadArtifact, o
 
         const common = {
           className: `openspec-seg${isTasks ? " openspec-seg-tasks" : ""}`,
-          "data-testid": `stepper-segment-${seg.id}`,
+          "data-testid": `${testIdPrefix}stepper-segment-${seg.id}`,
           "data-state": state,
           style: segStyle,
           title: ariaLabel,

@@ -17,7 +17,8 @@
 import { realpathSync } from "node:fs";
 import { realpath as realpathAsync } from "node:fs/promises";
 import path from "node:path";
-import type { GitStatus } from "../types.js";
+import type { GitPrChecks, GitPrState, GitStatus } from "../types.js";
+import { type CheckRollupEntry, collapseCheckRollup } from "./check-rollup.js";
 import { normalizePath, samePath } from "./paths.js";
 import { type Recipe, type Result, run, runAsync, unwrap } from "./runner.js";
 
@@ -261,15 +262,93 @@ export const GIT_STATUS_V2: Recipe<WithCwd, GitStatus> = {
  * `gh pr view --json number -q .number` — requires the `gh` CLI.
  * Returns undefined when there is no PR for the current branch (gh exits 1).
  */
-export const GH_PR_NUMBER: Recipe<WithCwd, number | undefined> = {
-  argv: () => ["gh", "pr", "view", "--json", "number", "-q", ".number"],
+/** Raw `gh pr view --json number,url,state,isDraft,statusCheckRollup` payload. */
+export interface GhPrViewJson {
+  number: number;
+  url?: string;
+  state?: string;
+  isDraft?: boolean;
+  statusCheckRollup?: CheckRollupEntry[] | null;
+}
+
+/** PR-status probe timeout. A timeout is classified as `failure`. */
+export const GH_PR_STATUS_TIMEOUT = 20_000;
+
+/**
+ * PR status for the current branch. Deliberately NO `tolerate` — `gh` exits 1
+ * both for "no pull requests found" and for generic errors, so the stderr is
+ * needed to classify (see `classifyPrStatus`). Run via `runAsync` only (the
+ * bridge tick must never block on `gh`). See change:
+ * redesign-composer-session-strip (D5).
+ */
+export const GH_PR_STATUS: Recipe<WithCwd, GhPrViewJson> = {
+  argv: () => ["gh", "pr", "view", "--json", "number,url,state,isDraft,statusCheckRollup"],
   parse: (out) => {
-    const n = parseInt(out.trim(), 10);
-    return Number.isFinite(n) ? n : undefined;
+    const json = JSON.parse(out) as GhPrViewJson;
+    if (!json || typeof json.number !== "number") throw new Error("gh pr view: missing number");
+    return json;
   },
-  timeout: GIT_TIMEOUT,
-  tolerate: [1], // gh exits 1 when no PR exists — not an error
+  timeout: GH_PR_STATUS_TIMEOUT,
 };
+
+/** Normalized PR status for one branch. */
+export interface PrStatus {
+  number: number;
+  url: string | null;
+  state: GitPrState;
+  isDraft: boolean;
+  checks: GitPrChecks;
+}
+
+/** Three-way probe classification. `absent` = known no PR; `failure` = unknown. */
+export type PrStatusProbe =
+  | { kind: "parsed"; value: PrStatus }
+  | { kind: "absent" }
+  | { kind: "failure"; reason: string };
+
+const NO_PR_STDERR = /no pull requests found/i;
+const PR_STATES: ReadonlySet<string> = new Set(["open", "closed", "merged"]);
+
+/**
+ * Pure classifier over a `GH_PR_STATUS` `Result`:
+ *   - ok → parsed (state lowercased; unknown state → failure)
+ *   - exit 1 + stderr `no pull requests found` → absent
+ *   - everything else (other exit, 401, timeout, ENOENT, bad JSON) → failure
+ */
+export function classifyPrStatus(result: Result<GhPrViewJson>): PrStatusProbe {
+  if (result.ok) {
+    const raw = result.value;
+    const state = (raw.state ?? "").toLowerCase();
+    if (!PR_STATES.has(state)) return { kind: "failure", reason: `unknown PR state "${raw.state}"` };
+    return {
+      kind: "parsed",
+      value: {
+        number: raw.number,
+        url: raw.url || null,
+        state: state as GitPrState,
+        isDraft: raw.isDraft === true,
+        checks: collapseCheckRollup(raw.statusCheckRollup),
+      },
+    };
+  }
+  const err = result.error;
+  if (err.kind === "exit" && err.code === 1 && NO_PR_STDERR.test(err.stderr)) return { kind: "absent" };
+  switch (err.kind) {
+    case "exit":
+      return { kind: "failure", reason: `exit ${err.code}: ${err.stderr.trim().split("\n")[0] ?? ""}`.trim() };
+    case "timeout":
+      return { kind: "failure", reason: `timeout after ${err.timeoutMs}ms` };
+    case "not-found":
+      return { kind: "failure", reason: `${err.binary} not found` };
+    default:
+      return { kind: "failure", reason: err.message };
+  }
+}
+
+/** Async PR-status probe for `cwd`. Never throws. */
+export async function prStatusAsync(input: WithCwd): Promise<PrStatusProbe> {
+  return classifyPrStatus(await runAsync(GH_PR_STATUS, input, { cwd: input.cwd }));
+}
 
 // ── Registry (for lint / docs / enumeration) ────────────────────────────────
 
@@ -288,7 +367,7 @@ export const GIT_RECIPES = {
   GIT_NUMSTAT,
   GIT_STATUS_PORCELAIN,
   GIT_STATUS_V2,
-  GH_PR_NUMBER,
+  GH_PR_STATUS,
 } as const;
 
 // ── Public API — typed functions (use Result for explicit control) ──────────
@@ -803,10 +882,6 @@ export function numstat(input: WithCwd & { ref?: string }): Result<string> {
   return run(GIT_NUMSTAT, input, { cwd: input.cwd });
 }
 
-export function prNumber(input: WithCwd): Result<number | undefined> {
-  return run(GH_PR_NUMBER, input, { cwd: input.cwd });
-}
-
 // ── Best-effort convenience wrappers (swallow errors → default) ─────────────
 // Callers that only want "the value or a default" without dealing with Result
 // discriminants can use these instead.
@@ -845,10 +920,6 @@ export function statusPorcelainOr(input: WithCwd & { path?: string }, fallback =
 
 export function numstatOr(input: WithCwd & { ref?: string }, fallback = ""): string {
   return unwrap(numstat(input), fallback);
-}
-
-export function prNumberOr(input: WithCwd, fallback?: number): number | undefined {
-  return unwrap(prNumber(input), fallback);
 }
 
 // ── Async (non-blocking) API — for hot request paths ────────────────────────

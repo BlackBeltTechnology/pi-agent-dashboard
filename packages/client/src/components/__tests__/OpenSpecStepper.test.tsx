@@ -178,3 +178,21 @@ describe("OpenSpecStepper — missing handlers (X2)", () => {
     expect(onArchive).toHaveBeenCalledTimes(1);
   });
 });
+
+// test-plan #E20 (task 8.20). See change: redesign-composer-session-strip (D2).
+describe("OpenSpecStepper — testIdPrefix (#E20)", () => {
+  it("prefix composer- namespaces every id", () => {
+    render(<OpenSpecStepper change={makeChange({ completedTasks: 12, totalTasks: 39 })} onOpenTasks={() => {}} testIdPrefix="composer-" />);
+    expect(screen.getByTestId("composer-openspec-stepper")).toBeTruthy();
+    expect(screen.getByTestId("composer-stepper-segment-proposal")).toBeTruthy();
+    expect(screen.getByTestId("composer-stepper-segment-tasks")).toBeTruthy();
+    expect(screen.queryByTestId("openspec-stepper")).toBeNull();
+    expect(screen.queryByTestId("stepper-segment-proposal")).toBeNull();
+  });
+
+  it("default keeps the unprefixed ids", () => {
+    render(<OpenSpecStepper change={makeChange({ completedTasks: 12, totalTasks: 39 })} onOpenTasks={() => {}} />);
+    expect(screen.getByTestId("openspec-stepper")).toBeTruthy();
+    expect(screen.getByTestId("stepper-segment-proposal")).toBeTruthy();
+  });
+});

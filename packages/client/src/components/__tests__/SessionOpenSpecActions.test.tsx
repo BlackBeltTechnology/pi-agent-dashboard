@@ -673,3 +673,23 @@ describe("SessionOpenSpecActions", () => {
     expect(menuIds(openMenu())).toEqual(["detach-btn"]);
   });
 });
+
+// review r2: Bulk Archive shares the working gate (streaming ∨ retrying, D9).
+// See change: redesign-composer-session-strip.
+describe("SessionOpenSpecActions — working gate covers retrying", () => {
+  it("unattached + working (retrying) → New/Propose/Explore aria-disabled with the reason", () => {
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ status: "idle" })}
+        changes={[readyChange]}
+        {...defaultProps}
+        working
+      />,
+    );
+    for (const id of ["new-change-btn", "propose-btn", "explore-unattached-btn"]) {
+      const el = screen.getByTestId(id);
+      expect(el.getAttribute("aria-disabled"), id).toBe("true");
+      expect(el.getAttribute("title"), id).toBe("Session is streaming");
+    }
+  });
+});

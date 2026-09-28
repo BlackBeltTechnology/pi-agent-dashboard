@@ -2386,6 +2386,14 @@ export default function App() {
                 allSessions={Array.from(sessions.values())}
                 showGitInfo={true}
                 openspecConfig={openspecConfig}
+                /* Attach / detach from the change chip, same sources as the
+                   session card; working = streaming ∨ retrying (D9).
+                   See change: redesign-composer-session-strip. */
+                onAttach={(changeName) => handleAttachProposal(selectedSession.id, changeName)}
+                onDetach={() => handleDetachProposal(selectedSession.id)}
+                groups={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.groups : undefined}
+                assignments={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.assignments : undefined}
+                working={selectedSession.status === "streaming" || retrySessionIds.has(selectedSession.id)}
               />
             </div>
           )}
