@@ -246,11 +246,13 @@ describe("WorktreeActionsMenu — PR segment per state (#E5)", () => {
   const PR = (over: Partial<DashboardSession>) => makeSession({ gitPrNumber: 747, gitPrUrl: "https://gh/pr/747", ...over });
   const seg = () => screen.getByTestId("worktree-pr-segment");
 
-  it("draft → ◌ #747 draft", () => {
-    renderMenu(PR({ gitPrState: "open", gitPrDraft: true, gitPrChecks: "none" }));
+  it.each(["none", "passing", "pending"] as const)("draft (checks %s) → ◌ #747 draft, no checks marker", (checks) => {
+    renderMenu(PR({ gitPrState: "open", gitPrDraft: true, gitPrChecks: checks }));
     expect(seg().textContent).toContain("◌");
     expect(seg().textContent).toContain("#747");
     expect(seg().getAttribute("aria-label")).toContain("draft");
+    expect(seg().getAttribute("aria-label")).not.toContain("checks");
+    expect(screen.queryByTestId("worktree-pr-checks")).toBeNull();
   });
 
   it.each([

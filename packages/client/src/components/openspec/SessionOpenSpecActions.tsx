@@ -299,8 +299,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       />
     ) : null;
   const hasCompletedChanges = changes.some((c) => c.status === "complete");
-  const actionsDisabledGlobal = session.status === "streaming";
   const working = workingProp ?? session.status === "streaming";
+  // Bulk Archive shares the one working gate (streaming ∨ retrying, D9).
+  const actionsDisabledGlobal = working;
   const label = (a: ActionSpec) => i18nT(a.labelKey, undefined, a.labelFallback);
   const reason = (a: ActionSpec) => (a.blockedReasonKey ? i18nT(a.blockedReasonKey, undefined, "Session is streaming") : undefined);
 

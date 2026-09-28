@@ -54,7 +54,6 @@ const CENSUS: Record<string, string[]> = {
     "opens an action sheet on click revealing the actions and the PR segment",
     "mobile sheet hides until the trigger is clicked",
     // Added by change: redesign-composer-session-strip (test-plan #E5, D6).
-    "draft → ◌ #747 draft",
     "merged → ⑂ #747 merged, no checks marker",
     "closed → ⊘ #747 closed, no checks marker",
     "legacy (number only) → #747 only",

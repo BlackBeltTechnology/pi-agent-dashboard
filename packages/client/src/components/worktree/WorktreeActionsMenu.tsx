@@ -146,7 +146,8 @@ function prSegmentParts(session: DashboardSession): {
   const draft = session.gitPrDraft === true;
   const word = draft ? i18nT("worktree.prDraft", undefined, "draft") : i18nT("worktree.prOpen", undefined, "open");
   const c = session.gitPrChecks;
-  const checks = c && c !== "none" ? { glyph: checksGlyph[c]!, word: checksWord[c]! } : undefined;
+  // A draft PR shows `◌ #N draft` only — checks gate an open, ready PR.
+  const checks = !draft && c && c !== "none" ? { glyph: checksGlyph[c]!, word: checksWord[c]! } : undefined;
   const tone = draft
     ? "text-[var(--text-secondary)]"
     : c === "failing"
