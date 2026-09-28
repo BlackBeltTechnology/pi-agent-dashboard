@@ -17,11 +17,11 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { type ChatMessage, createInitialState } from "../../lib/chat/event-reducer.js";
 import { ChatView } from "../chat/ChatView.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
@@ -275,5 +275,77 @@ describe("notify gate — reversibility and scope (test-plan #F4, #F5)", () => {
     expect(b.container.textContent).toContain("notify-body-info");
     // Session state itself was never mutated by the display gate.
     expect(state.messages.length).toBe(LEVELS.length);
+  });
+});
+
+// ── collapse-and-order-notify-rows: collapse inside displayRows ─────
+// See test-plan #E13, #E14.
+
+function repeatNotify(i: number, level: "info" | "warning", message: string): ChatMessage {
+  return {
+    id: `ui-rep-${i}`,
+    role: "interactiveUi",
+    content: "notify",
+    timestamp: 1_758_650_000_000 + i * 60_000,
+    args: { requestId: `rep-${i}`, method: "notify", params: { message, level }, status: "pending" },
+  } as ChatMessage;
+}
+function assistantRow(id: string, text: string): ChatMessage {
+  return { id, role: "assistant", content: text, timestamp: 1_758_640_000_000 } as ChatMessage;
+}
+const renderedNotifies = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('[data-testid="inline-message"]'));
+
+describe("notify collapse — runs after the level gate (test-plan #E13)", () => {
+  const rows = () =>
+    stateWith([
+      repeatNotify(0, "warning", "collapse-X"),
+      repeatNotify(1, "info", "collapse-Y"),
+      repeatNotify(2, "warning", "collapse-X"),
+    ]);
+
+  it("a hidden row does not break the run", () => {
+    prefsRef.current = { ...prefsRef.current, notifyMinLevel: "warnings" };
+    const { container } = renderChat(rows());
+    expect(renderedNotifies(container)).toHaveLength(1);
+    expect(container.querySelector('[data-testid="notify-repeat-count"]')?.textContent).toBe("×2");
+    expect(container.textContent).not.toContain("collapse-Y");
+  });
+
+  it("at 'all' the intervening row breaks it: three rows, no repeat", () => {
+    prefsRef.current = { ...prefsRef.current, notifyMinLevel: "all" };
+    const { container } = renderChat(rows());
+    expect(renderedNotifies(container)).toHaveLength(3);
+    expect(container.querySelector('[data-testid="notify-repeat"]')).toBeNull();
+  });
+});
+
+describe("notify collapse — one index space (test-plan #E14)", () => {
+  it("the virtualizer counts the collapsed array", () => {
+    prefsRef.current = { ...prefsRef.current, notifyMinLevel: "all" };
+    const state = stateWith([
+      assistantRow("a1", "before-run"),
+      ...Array.from({ length: 10 }, (_, i) => repeatNotify(i, "warning", "same-warning")),
+      assistantRow("a2", "after-run"),
+    ]);
+    const { container } = renderChat(state);
+
+    const indices = rowWrappers(container).map((w) => Number(w.getAttribute("data-index")));
+    expect(indices).toEqual([0, 1, 2]);
+    expect(renderedNotifies(container)).toHaveLength(1);
+    expect(container.querySelector('[data-testid="notify-repeat-count"]')?.textContent).toBe("×10");
+  });
+
+  it("collapse is the final step of the displayRows memo on BOTH return paths", () => {
+    // Structural pin: the collapse must live INSIDE the displayRows derivation
+    // (not a downstream list), or rowTextChars / the turn map / the render
+    // lookup would index a different array than the virtualizer counts.
+    const memo = CHAT_VIEW_SRC.slice(
+      CHAT_VIEW_SRC.indexOf("const displayRows = useMemo"),
+      CHAT_VIEW_SRC.indexOf("const rowTextChars"),
+    );
+    expect(memo).toContain("collapseRepeatedNotifies(rows.slice(0, -1))");
+    expect(memo).toContain("return collapseRepeatedNotifies(rows)");
+    expect(memo).not.toMatch(/return rows(\.slice\(0, -1\))?;/);
   });
 });

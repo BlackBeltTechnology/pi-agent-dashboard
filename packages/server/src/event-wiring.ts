@@ -254,10 +254,16 @@ export interface EventWiringDeps {
   pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
 }
 
+/** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
+function isValidNotifyTs(ts: unknown): ts is number {
+  return typeof ts === "number" && Number.isFinite(ts) && ts > 0;
+}
+
 /**
  * Wire up all event forwarding from pi gateway to browser gateway.
  * Sets piGateway.onEvent and sessionManager.onUnregister.
  */
+
 export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
@@ -695,7 +701,20 @@ export function wireEvents(deps: EventWiringDeps): void {
    * stamp, no reorder, no `session_updated` broadcast.
    * See change: split-notify-from-prompt-request.
    */
-  function handleNotify(sessionId: string, entry: NotifyLogEntry): void {
+  function handleNotify(
+    sessionId: string,
+    incoming: Omit<NotifyLogEntry, "ts"> & { ts?: unknown },
+  ): void {
+    // Keep a valid bridge `ts` (bridge clock = transcript clock); otherwise
+    // stamp receipt time, so every logged entry carries one.
+    // See change: collapse-and-order-notify-rows (D1).
+    const ts = isValidNotifyTs(incoming.ts) ? incoming.ts : Date.now();
+    const entry: NotifyLogEntry = {
+      notifyId: incoming.notifyId,
+      message: incoming.message,
+      ...(incoming.level === undefined ? {} : { level: incoming.level }),
+      ts,
+    };
     browserGateway.appendNotify(sessionId, entry);
     browserGateway.sendToSubscribers(sessionId, {
       type: "notify",
@@ -703,6 +722,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       notifyId: entry.notifyId,
       message: entry.message,
       ...(entry.level === undefined ? {} : { level: entry.level }),
+      ts,
     } satisfies BrowserNotifyMessage);
   }
 
@@ -2132,6 +2152,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         notifyId,
         message,
         ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
+        ts: (msg as any).ts,
       });
       return;
     }

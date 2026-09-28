@@ -8,6 +8,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single… → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
+| `notify-collapse.spec.ts` | L3 spec (change: collapse-and-order-notify-rows). Collapse + chronological replay… → see `notify-collapse.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |

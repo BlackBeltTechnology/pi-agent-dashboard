@@ -14,8 +14,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { InlineMessage } from "../primitives/InlineMessage.js";
+import { I18nProvider } from "../../lib/i18n/i18n.js";
 import { NotifyRenderer } from "../interactive-renderers/NotifyRenderer.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -210,5 +211,97 @@ describe("InlineMessage success member (test-plan #F13, #F14)", () => {
     const toastSlot = src("../extension-ui/ToastSlot.tsx");
     expect(toast).toContain("--severity-success-bg");
     expect(toastSlot).toContain("--severity-success-bg");
+  });
+});
+
+// ── collapse-and-order-notify-rows: repeat badge ────────────────────
+// See test-plan #E15, #E16, #E17.
+
+describe("NotifyRenderer — repeat badge (test-plan #E15)", () => {
+  // Same local day, 17:27 → 18:57.
+  const first = new Date(2026, 8, 23, 17, 27).getTime();
+  const last = new Date(2026, 8, 23, 18, 57).getTime();
+
+  it("count > 1 renders ×N, the time range and an accessible label; level icon + word stay", () => {
+    const { container, getByTestId } = renderNotify({
+      message: "m",
+      level: "warning",
+      repeat: { count: 10, firstTs: first, lastTs: last },
+    });
+    expect(getByTestId("notify-repeat-count").textContent).toBe("×10");
+    const range = getByTestId("notify-repeat-range").textContent ?? "";
+    // Locale-formatted (design D4): en renders 12h, 24h locales HH:MM.
+    expect(range).toMatch(/^(17:27|05:27\sPM)–(18:57|06:57\sPM)$/);
+    const label = getByTestId("notify-repeat").getAttribute("aria-label") ?? "";
+    expect(label).toContain("10");
+    expect(label).toContain(range);
+    // The level channels are untouched.
+    expect(container.textContent).toContain("Warning");
+    expect(getByTestId("inline-message").querySelector("svg")).not.toBeNull();
+  });
+
+  it("count 1 and no annotation render identically to the baseline", () => {
+    const baseline = renderNotify({ message: "m", level: "warning" }).container.innerHTML;
+    cleanup();
+    const one = renderNotify({
+      message: "m",
+      level: "warning",
+      repeat: { count: 1, firstTs: first, lastTs: first },
+    }).container.innerHTML;
+    expect(one).toBe(baseline);
+    expect(baseline).not.toContain("notify-repeat");
+  });
+});
+
+describe("NotifyRenderer — range across days (test-plan #E16)", () => {
+  it("same day → HH:MM–HH:MM; different days → both ends carry a short date", () => {
+    const sameDay = renderNotify({
+      message: "m",
+      repeat: { count: 2, firstTs: new Date(2026, 8, 23, 9, 5).getTime(), lastTs: new Date(2026, 8, 23, 9, 40).getTime() },
+    });
+    expect(sameDay.getByTestId("notify-repeat-range").textContent).toMatch(/^09:05(\sAM)?–09:40(\sAM)?$/);
+    cleanup();
+
+    const crossDay = renderNotify({
+      message: "m",
+      repeat: { count: 2, firstTs: new Date(2026, 8, 23, 23, 50).getTime(), lastTs: new Date(2026, 8, 24, 0, 10).getTime() },
+    });
+    const text = crossDay.getByTestId("notify-repeat-range").textContent ?? "";
+    const [a, b] = text.split("–");
+    expect(a).toMatch(/23/);
+    expect(a).toMatch(/Sep/);
+    expect(b).toMatch(/24/);
+    expect(b).toMatch(/Sep/);
+  });
+});
+
+describe("NotifyRenderer — localized badge (test-plan #E17)", () => {
+  const repeat = { count: 3, firstTs: new Date(2026, 8, 23, 9, 5).getTime(), lastTs: new Date(2026, 8, 23, 9, 40).getTime() };
+  const englishLabel = "Repeated 3 times";
+
+  function renderIn(language: string) {
+    window.localStorage.setItem("pi-dashboard-language", language);
+    try {
+      return render(
+        <I18nProvider>
+          <ThemeProvider>
+            <NotifyRenderer requestId="n1" method="notify" params={{ message: "m", repeat }} status="pending" onRespond={() => {}} onCancel={() => {}} />
+          </ThemeProvider>
+        </I18nProvider>,
+      );
+    } finally {
+      window.localStorage.removeItem("pi-dashboard-language");
+    }
+  }
+
+  it.each([
+    ["hu", "3×", "3 alkalommal ismételve"],
+    ["zh-CN", "3 次", "重复 3 次"],
+  ])("%s badge and label come from the catalog", (language, badge, labelStart) => {
+    const { getByTestId } = renderIn(language);
+    expect(getByTestId("notify-repeat-count").textContent).toBe(badge);
+    const label = getByTestId("notify-repeat").getAttribute("aria-label") ?? "";
+    expect(label.startsWith(labelStart)).toBe(true);
+    expect(label).not.toContain(englishLabel);
   });
 });

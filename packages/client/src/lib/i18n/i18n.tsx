@@ -81,6 +81,8 @@ const zhCN: Record<string, string> = {
   // --- Gateway / PairLanding / OpenSpec (task 2.2, change: make-all-ui-text-i18n) ---
   "common.modelRefreshFailed": "无法连接 {providers} — 显示上次已知的列表",
   "common.none": "无",
+  "common.notifyRepeat.badge": "{count} 次",
+  "common.notifyRepeat.label": "重复 {count} 次，{range}",
   "common.open": "打开",
   "folders.addFolders": "添加文件夹",
   "folders.addFoldersAction": "添加文件夹",

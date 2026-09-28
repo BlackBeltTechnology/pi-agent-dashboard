@@ -19,3 +19,5 @@ Access-grant prompt protocol. Adds `AccessPlaneId` = `"filesystem" | "cwd" | "ne
 - Types imported from `session-group-by.ts`. bus-client `generated/verbs.ts` regenerated; mcp `tools.denylist.ts` marks the three verbs UI-only. See change: session-list-group-by.
 Card sections: `SetCardSectionVisibilityMessage` (`set_card_section_visibility {path?, section, visible: boolean|null}` — path absent = global, null = inherit), `ResetFolderCardSectionsMessage` (`reset_folder_card_sections {path}`), `CardSectionsUpdatedMessage` (`card_sections_updated {cardSections}` full snapshot). See change: configurable-session-card-sections.
 Server→browser: `PairPendingChangedMessage` (`pair_pending_changed`, NO fields) — content-free pending-pairing hint; operator browsers refetch `GET /api/pair/pending`. See change: add-pairing-approval-dialog.
+
+`BrowserNotifyMessage` gains optional `ts` (emit time, epoch ms). See change: collapse-and-order-notify-rows.

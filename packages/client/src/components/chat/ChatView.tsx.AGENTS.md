@@ -71,3 +71,5 @@ See change: fix-long-session-ux-degradation (D5) — programmatic writers tag `l
 ## show-session-history-load-state
 
 Props `historyPhase`, `historyStartedAt`, `onRetryHistory`. Empty branch: `waiting` → `EmptyState` (mdiLanDisconnect) in `role="status"` (`chat-history-waiting`); `failed` → `EmptyState` + Retry in `role="alert"` (`chat-history-failed`, `chat-history-retry`); else skeleton / "No messages yet" unchanged, with `<SlowLoadNotice key={historyStartedAt}>` above the skeleton while `loading`. See change: show-session-history-load-state.
+
+`displayRows` memo ends with `collapseRepeatedNotifies(rows)` on BOTH return paths (normal + frozen-tail): adjacent identical notify rows collapse inside the one array the virtualizer, `rowTextChars`, turn map and render lookup all index (CR-5). See change: collapse-and-order-notify-rows.

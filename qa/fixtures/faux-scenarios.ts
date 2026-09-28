@@ -250,6 +250,16 @@ export const NOTIFY_LEVEL_MESSAGES = {
 } as const;
 
 /**
+ * Text of the identical warnings the `notify-repeat` / `notify-repeat-slow`
+ * scenarios emit — one `e2e_notify` call with `count`, so the notifies are
+ * adjacent (no tool card between them) and must render collapsed as `×N`.
+ * See change: collapse-and-order-notify-rows.
+ */
+export const NOTIFY_REPEAT_MESSAGE = "e2e notify repeat probe";
+/** Final assistant text of the notify-repeat scenarios. */
+export const NOTIFY_REPEAT_DONE = "notify repeat sent";
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -1627,6 +1637,37 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("all notify levels sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  // Five identical warnings in ONE tool call → one collapsed `×5` row.
+  // See change: collapse-and-order-notify-rows (test-plan #F1).
+  "notify-repeat": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_notify", { message: NOTIFY_REPEAT_MESSAGE, level: "warning", count: 5 })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(NOTIFY_REPEAT_DONE)]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  // Ten identical warnings spaced 400 ms apart → the collapsed row is watched
+  // growing live. See change: collapse-and-order-notify-rows (test-plan #F3).
+  "notify-repeat-slow": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_REPEAT_MESSAGE,
+            level: "warning",
+            count: 10,
+            intervalMs: 400,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(NOTIFY_REPEAT_DONE)]),
     ],
     expect: { toolName: "e2e_notify" },
   },

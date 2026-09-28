@@ -16,3 +16,5 @@ Prompt-capability issuance (tasks 2b.1, 3.2). `setPromptCapabilityPolicy(policy 
 Card sections: routes `set_card_section_visibility` / `reset_folder_card_sections` to directory-handler; connect burst sends `card_sections_updated` before `sessions_snapshot` unconditionally (incl. `{}` — reconnect drops stale client state); `frameClassOf` classes it `state`. See change: configurable-session-card-sections.
 
 `frameClassOf`: `pair_pending_changed` → `{cls:"state", key:"pair_pending"}` (coalescing, never shed — a shed hint is a dialog that never appears). See change: add-pairing-approval-dialog.
+
+`replayNotifyLog` forwards `entry.ts` when present; pre-change entries replay without `ts`. See change: collapse-and-order-notify-rows.

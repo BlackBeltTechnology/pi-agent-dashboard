@@ -9,3 +9,5 @@ Both reset arms (`event_replay` full-sweep + `session_state_reset`) carry unansw
 `case "card_sections_updated"` → optional `setCardSections?.(msg.cardSections)` (replace, not merge). See change: configurable-session-card-sections.
 
 Optional deps `markHistoryLoadFailed`, `clearHistoryLoadFailed`. `markHistoryLoadFailed` = `onTimeout` of the single `loadingHistory` re-arm (never the `replayInFlight` one); `dataUnavailable` captures `wasLoading` (timer present) BEFORE the clears, then marks failed. Non-empty / terminal `event_replay` clears failed. See change: show-session-history-load-state.
+
+`case "notify"` passes `msg.ts` to `addNotify`. `history_backfill_result` splice wraps the spliced list in `reseatTimedNotifies` so a backfilled row older than a ts-placed notify ends above it (D5). See change: collapse-and-order-notify-rows.
