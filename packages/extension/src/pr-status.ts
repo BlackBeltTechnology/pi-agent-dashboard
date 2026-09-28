@@ -12,9 +12,10 @@
  *   A result whose generation no longer matches is discarded.
  * - Probes: first observation (immediately), every ≥ 120 s, on generation
  *   change, and on a forced refresh. At most one probe in flight.
- * - Forced: at most one forced START per 30 s; extra requests coalesce. A
- *   forced request arriving mid-flight sets `forcePending` → one more probe
- *   right after the current one settles (still subject to the 30 s window).
+ * - Forced: at most one forced START per 30 s. Requests arriving mid-flight
+ *   or inside the window coalesce into ONE pending forced probe (never
+ *   dropped) that starts right after the in-flight probe settles, or at the
+ *   window edge; `"pr"` wins over `"push"` when coalescing.
  *   `reason:"pr"` retries at +5 s / +15 s while the result is `absent`
  *   (GitHub lag); `reason:"push"` never retries.
  * - Failure: keep the tuple, back off 120 → 240 → 480 → 600 s (cap); log once
@@ -59,6 +60,8 @@ export interface PrStatusSchedulerDeps {
   log?: (line: string) => void;
   setTimer?: (fn: () => void, ms: number) => Timer;
   clearTimer?: (t: Timer) => void;
+  /** Owning bridge incarnation still current? `false` → self-dispose (reload). */
+  alive?: () => boolean;
 }
 
 export interface PrStatusScheduler {
@@ -91,15 +94,18 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
   const log = deps.log ?? ((line: string) => console.error(line));
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t));
+  const alive = deps.alive ?? (() => true);
 
   let gen: PrGeneration | undefined;
   let key: string | undefined;
   let tuple: PrTuple = { ...UNKNOWN };
   let inFlight = false;
-  let forcePending = false;
-  let forcePendingCb: ((r: PrStatusProbe | undefined) => void) | undefined;
-  /** A generation change arrived mid-flight: probe the new one after settle. */
-  let genPending = false;
+  let probeTimeout: Timer | undefined;
+  /** Run one plain probe as soon as none is in flight (generation change, pr retry). */
+  let pendingStart = false;
+  /** A forced request not yet started (in flight, or waiting for the 30 s window). */
+  let pendingForce: "push" | "pr" | undefined;
+  let windowTimer: Timer | undefined;
   let lastForcedStart = Number.NEGATIVE_INFINITY;
   let failures = 0;
   let failingLogged = false;
@@ -113,20 +119,31 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     retryTimers = [];
   };
 
-  const schedule = (delay: number) => {
+  const nextDelay = () =>
+    failures === 0 ? PR_PROBE_INTERVAL_MS : Math.min(PR_PROBE_INTERVAL_MS * 2 ** failures, PR_PROBE_MAX_BACKOFF_MS);
+
+  function schedule(delay: number): void {
     if (cadenceTimer) clearTimer(cadenceTimer);
     cadenceTimer = setTimer(() => {
       cadenceTimer = undefined;
       start();
     }, delay);
-  };
+  }
 
-  const nextDelay = () => (failures === 0 ? PR_PROBE_INTERVAL_MS : Math.min(PR_PROBE_INTERVAL_MS * 2 ** failures, PR_PROBE_MAX_BACKOFF_MS));
+  /** `false` once the owning bridge incarnation is gone (reload): self-dispose. */
+  function usable(): boolean {
+    if (disposed) return false;
+    if (!alive()) {
+      dispose();
+      return false;
+    }
+    return true;
+  }
 
   /** Start one probe unless one is in flight / no generation. Returns whether it started. */
   function start(onSettled?: (r: PrStatusProbe | undefined) => void): boolean {
-    if (disposed || !gen || inFlight) return false;
-    const probeGen = gen;
+    if (!usable() || !gen || inFlight) return false;
+    const probeCwd = gen.cwd;
     const probeKey = key;
     inFlight = true;
     count += 1;
@@ -134,16 +151,20 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     const finish = (r: PrStatusProbe) => {
       if (settled) return;
       settled = true;
-      clearTimer(timeout);
+      if (probeTimeout) clearTimer(probeTimeout);
+      probeTimeout = undefined;
       inFlight = false;
-      if (disposed) return;
+      if (!usable()) return;
       const stale = probeKey !== key;
       if (!stale) apply(r);
       onSettled?.(stale ? undefined : r);
-      afterSettle();
+      pump();
     };
-    const timeout = setTimer(() => finish({ kind: "failure", reason: `timeout after ${PR_PROBE_TIMEOUT_MS}ms` }), PR_PROBE_TIMEOUT_MS);
-    deps.probe(probeGen.cwd).then(finish, (err: unknown) => finish({ kind: "failure", reason: String(err) }));
+    probeTimeout = setTimer(
+      () => finish({ kind: "failure", reason: `timeout after ${PR_PROBE_TIMEOUT_MS}ms` }),
+      PR_PROBE_TIMEOUT_MS,
+    );
+    deps.probe(probeCwd).then(finish, (err: unknown) => finish({ kind: "failure", reason: String(err) }));
     return true;
   }
 
@@ -175,38 +196,65 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     if (JSON.stringify(tuple) !== before) deps.onChange();
   }
 
-  function afterSettle(): void {
-    if (genPending) {
-      genPending = false;
-      forcePending = false; // the generation probe satisfies any pending force
-      forcePendingCb = undefined;
-      start();
-      return;
-    }
-    if (forcePending) {
-      const cb = forcePendingCb;
-      forcePending = false;
-      forcePendingCb = undefined;
-      forced(cb);
-    }
+  /** `reason:"pr"` → on an absent result, retry at +5 s / +15 s (GitHub lag). */
+  function retriesFor(reason: "push" | "pr") {
+    return (r: PrStatusProbe | undefined) => {
+      if (reason !== "pr" || r?.kind !== "absent") return;
+      const retryKey = key;
+      for (const delay of PR_OPEN_RETRY_DELAYS_MS) {
+        const t = setTimer(() => {
+          retryTimers = retryTimers.filter((x) => x !== t);
+          if (key !== retryKey || tuple.gitPrNumber != null) return;
+          pendingStart = true; // deferred, never dropped, when a probe is in flight
+          pump();
+        }, delay);
+        retryTimers.push(t);
+      }
+    };
   }
 
-  function forced(onSettled?: (r: PrStatusProbe | undefined) => void): void {
-    if (inFlight) {
-      forcePending = true;
-      forcePendingCb = onSettled ?? forcePendingCb;
+  /** Start whatever is pending, respecting "one in flight" and the forced window. */
+  function pump(): void {
+    if (!usable() || inFlight) return;
+    if (pendingStart) {
+      pendingStart = false;
+      // Any probe that starts after a forced request satisfies it.
+      const reason = pendingForce;
+      pendingForce = undefined;
+      if (reason) lastForcedStart = now();
+      start(reason ? retriesFor(reason) : undefined);
       return;
     }
-    if (now() - lastForcedStart < PR_FORCED_WINDOW_MS) return; // coalesced
+    if (!pendingForce) return;
+    const wait = lastForcedStart + PR_FORCED_WINDOW_MS - now();
+    if (wait > 0) {
+      // Coalesce into ONE deferred forced probe at the window edge — never dropped.
+      windowTimer ??= setTimer(() => {
+        windowTimer = undefined;
+        pump();
+      }, wait);
+      return;
+    }
+    const reason = pendingForce;
+    pendingForce = undefined;
     lastForcedStart = now();
-    start(onSettled);
+    start(retriesFor(reason));
+  }
+
+  function dispose(): void {
+    disposed = true;
+    if (cadenceTimer) clearTimer(cadenceTimer);
+    if (windowTimer) clearTimer(windowTimer);
+    if (probeTimeout) clearTimer(probeTimeout);
+    cadenceTimer = windowTimer = probeTimeout = undefined;
+    clearRetries();
   }
 
   return {
     tuple: () => ({ ...tuple }),
 
     observe(next) {
-      if (disposed) return;
+      if (!usable()) return;
       const nextKey = genKey(next);
       if (nextKey === key) return;
       const branchOnly = gen !== undefined && gen.sessionId === next.sessionId && gen.cwd === next.cwd;
@@ -220,34 +268,21 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
       } else {
         tuple = { ...UNKNOWN };
       }
-      if (inFlight) genPending = true;
-      else start();
+      pendingStart = true;
+      pump();
     },
 
     refresh(reason) {
-      if (disposed || !gen) return;
+      if (!usable() || !gen) return;
       clearRetries();
-      const retryKey = key;
-      forced((r) => {
-        if (reason !== "pr" || r?.kind !== "absent") return;
-        for (const delay of PR_OPEN_RETRY_DELAYS_MS) {
-          const t = setTimer(() => {
-            retryTimers = retryTimers.filter((x) => x !== t);
-            if (key !== retryKey || tuple.gitPrNumber != null) return;
-            start(); // in flight already → that probe fills the tuple
-          }, delay);
-          retryTimers.push(t);
-        }
-      });
+      // Coalesce with any pending forced request; "pr" wins (it carries retries).
+      pendingForce = pendingForce === "pr" ? "pr" : reason;
+      pump();
     },
 
     invocations: () => count,
 
-    dispose() {
-      disposed = true;
-      if (cadenceTimer) clearTimer(cadenceTimer);
-      clearRetries();
-    },
+    dispose,
   };
 }
 

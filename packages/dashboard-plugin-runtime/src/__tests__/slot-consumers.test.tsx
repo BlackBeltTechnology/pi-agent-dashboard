@@ -677,16 +677,30 @@ describe("ToolbarGroup primitive (2.1)", () => {
     expect(screen.getByRole("group", { name: "Git" })).toBe(root);
   });
 
-  it("customContent: the child is the content element (no extra wrapper)", () => {
+  it("contentAs=fieldset: the primitive renders the content element with data-group-content + contentProps", () => {
     render(
-      <ToolbarGroup label="Status" testId="c" customContent>
-        <fieldset data-testid="composer-status-group" data-group-content="" />
+      <ToolbarGroup label="Status" testId="c" contentAs="fieldset" contentProps={{ disabled: true, "data-testid": "composer-status-group" }}>
+        <button type="button">x</button>
       </ToolbarGroup>,
     );
     const root = screen.getByTestId("c");
     expect(root.children).toHaveLength(2);
-    expect(root.children[1]!.tagName).toBe("FIELDSET");
+    const content = screen.getByTestId("composer-status-group");
+    expect(content.tagName).toBe("FIELDSET");
+    expect(content.hasAttribute("data-group-content")).toBe(true);
+    expect((content as HTMLFieldSetElement).disabled).toBe(true);
     expect(root.querySelectorAll("[data-group-content]")).toHaveLength(1);
+  });
+
+  it("actions content draws hairlines between direct children and gives them ≥24 px targets", () => {
+    render(
+      <ToolbarGroup label="Git" testId="g">
+        <button type="button">a</button>
+      </ToolbarGroup>,
+    );
+    const content = screen.getByTestId("g").querySelector("[data-group-content]")!;
+    expect(content.className).toContain("[&>*+*]:border-l");
+    expect(content.className).toContain("[&>button]:min-h-6");
   });
 });
 

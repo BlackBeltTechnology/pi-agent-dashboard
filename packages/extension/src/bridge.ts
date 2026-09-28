@@ -346,6 +346,10 @@ function initBridge(pi: ExtensionAPI) {
   // redesign-composer-session-strip (D5).
   const prStatus: PrStatusScheduler = createPrStatusScheduler({
     probe: (cwd) => git.prStatusAsync({ cwd }),
+    // A reload starts a new bridge incarnation; the old scheduler must not
+    // keep probing into the new timer registry. See change:
+    // redesign-composer-session-strip (doubt-review #2).
+    alive: isActive,
     onChange: () => {
       if (isActive() && cachedCwd) sendGitInfoIfChanged(cachedCwd);
     },

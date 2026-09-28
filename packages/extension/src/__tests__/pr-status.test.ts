@@ -180,7 +180,7 @@ describe("pr-status scheduler", () => {
     expect(push.probe).toHaveBeenCalledTimes(2); // initial + exactly one forced
   });
 
-  it("P3: 3 forced refreshes within 10 s during a failing back-off → exactly +1 invocation in 30 s", async () => {
+  it("P3: 3 forced refreshes within 10 s during a failing back-off → exactly +1 inside the 30 s window; the rest coalesce into ONE deferred probe", async () => {
     const { probe } = scriptedProbe([FAIL_401]);
     sched = make(probe).sched;
     sched.observe(GEN);
@@ -193,8 +193,62 @@ describe("pr-status scheduler", () => {
     sched.refresh("push");
     await vi.advanceTimersByTimeAsync(5 * S);
     sched.refresh("pr");
-    await vi.advanceTimersByTimeAsync(20 * S);
+    await vi.advanceTimersByTimeAsync(20 * S - 1);
     expect(sched.invocations() - before).toBe(1);
+    // Window edge: the two coalesced requests run as ONE probe, never dropped.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sched.invocations() - before).toBe(2);
+    await vi.advanceTimersByTimeAsync(29 * S);
+    expect(sched.invocations() - before).toBe(2);
+  });
+
+  it("doubt-review #3: Open PR right after Push (inside the window) is deferred, not dropped, and keeps its pr retries", async () => {
+    const { probe, calls } = scriptedProbe([ABSENT, ABSENT, ABSENT, ABSENT, PR_748]);
+    sched = make(probe).sched;
+    sched.observe(GEN);
+    await flush(); // t=0 initial probe
+    await vi.advanceTimersByTimeAsync(40 * S);
+    sched.refresh("push"); // t=40 forced
+    await vi.advanceTimersByTimeAsync(10 * S);
+    sched.refresh("pr"); // t=50 → coalesced until t=70
+    await vi.advanceTimersByTimeAsync(40 * S);
+    expect(calls.map((t) => t / S)).toEqual([0, 40, 70, 75, 85]);
+    expect(sched.tuple().gitPrNumber).toBe(748);
+  });
+
+  it("doubt-review #4: a pr retry that fires while a probe is in flight runs right after it settles", async () => {
+    const { probe, calls } = scriptedProbe([ABSENT, ABSENT, { delayMs: 12 * S, result: ABSENT }, PR_748]);
+    sched = make(probe).sched;
+    sched.observe(GEN);
+    await flush();
+    await vi.advanceTimersByTimeAsync(40 * S);
+    sched.refresh("pr"); // t=40 absent → retries at 45, 55
+    await vi.advanceTimersByTimeAsync(40 * S); // 45 starts a 12 s probe; 55 fires mid-flight → runs at 57
+    expect(calls.map((t) => t / S)).toEqual([0, 40, 45, 57]);
+    expect(sched.tuple().gitPrNumber).toBe(748);
+  });
+
+  it("doubt-review #2: once the owning bridge is gone, a late probe result self-disposes — no further probes", async () => {
+    let alive = true;
+    const { probe } = scriptedProbe([{ delayMs: 5 * S, result: OPEN_747 }]);
+    const onChange = vi.fn();
+    sched = createPrStatusScheduler({ probe, onChange, log: () => {}, alive: () => alive });
+    sched.observe(GEN);
+    alive = false; // reload
+    await vi.advanceTimersByTimeAsync(5 * S);
+    expect(onChange).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(3600 * S);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("dispose clears every timer, including an in-flight probe's timeout", async () => {
+    const { probe } = scriptedProbe(["hang"]);
+    sched = make(probe).sched;
+    sched.observe(GEN);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    sched.dispose();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("X1: back-off 120/240/480/600/600 s, keeps PR 747, logs once on failure and once on recovery", async () => {

@@ -97,6 +97,18 @@ describe("event-wiring: git_info_update PR tuple", () => {
     expect(s.gitPrCheckedAt ?? null).toBeNull();
   }, 15000);
 
+  it("doubt-review #1: an unknown PR number (fields omitted after a fork) clears the status fields too — no stale open/passing", async () => {
+    rig = await startServer();
+    const send = await connect(rig, "pr-unknown");
+    await send(FULL);
+    await send({}); // new bridge, unknown tuple: every PR field omitted
+    const s = rig.get("pr-unknown")!;
+    expect(s.gitPrNumber ?? null).toBeNull();
+    expect(s.gitPrState ?? null).toBeNull();
+    expect(s.gitPrChecks ?? null).toBeNull();
+    expect(s.gitPrCheckedAt ?? null).toBeNull();
+  }, 15000);
+
   it("#X3a: an old bridge (number only) leaves the new fields absent", async () => {
     rig = await startServer();
     const send = await connect(rig, "pr-x3");

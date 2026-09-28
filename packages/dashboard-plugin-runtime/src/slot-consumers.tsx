@@ -403,10 +403,10 @@ export function ComposerContextGroupSlot({ session }: { session: DashboardSessio
  * plugin, so all groups read the same.
  *
  * Renders `<div data-group role="group" aria-labelledby>`: a leading label
- * `<span id>` plus the children inside `<div data-group-content>`. Pass
- * `customContent` when the child IS the content element (it must carry
- * `data-group-content` itself — e.g. the Status `<fieldset>`), so the
- * `[data-group]:has(> [data-group-content]:empty)` rule can hide an empty group.
+ * `<span id>` plus the children inside the content element. The content element is always rendered by the primitive (tag via
+ * `contentAs`, e.g. the Status `<fieldset disabled>`) and carries
+ * `data-group-content`, so the client's
+ * `[data-group]:has(> [data-group-content]:empty)` rule hides an empty group.
  *
  * Variants:
  * - `actions`: solid outline, tertiary fill, label segment on the surface
@@ -424,7 +424,8 @@ export function ToolbarGroup({
   variant = "actions",
   testId,
   labelTestId,
-  customContent = false,
+  contentAs = "div",
+  contentProps,
   className,
   children,
 }: {
@@ -432,13 +433,16 @@ export function ToolbarGroup({
   variant?: "actions" | "info";
   testId?: string;
   labelTestId?: string;
-  /** Children are the content element (carrying `data-group-content`). */
-  customContent?: boolean;
+  /** Content element tag. `fieldset` lets the host disable a whole group. */
+  contentAs?: "div" | "fieldset";
+  /** Extra props for the content element (e.g. `disabled`, `data-testid`). */
+  contentProps?: { disabled?: boolean; "data-testid"?: string };
   className?: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   const labelId = React.useId();
   const isActions = variant === "actions";
+  const Content = contentAs;
   return (
     <div
       data-group={variant}
@@ -460,13 +464,15 @@ export function ToolbarGroup({
       >
         {label}
       </span>
-      {customContent ? (
-        children
-      ) : (
-        <div data-group-content="" className="toolbar-group-content flex flex-wrap items-center min-w-0 gap-y-0.5 px-0.5">
-          {children}
-        </div>
-      )}
+      <Content
+        {...contentProps}
+        data-group-content=""
+        className={`toolbar-group-content m-0 min-w-0 border-0 p-0 px-0.5 flex flex-wrap items-center gap-y-0.5 [&>button]:min-h-6 [&>button]:min-w-6 [&>a]:min-h-6 ${
+          isActions ? "[&>*+*]:border-l [&>*+*]:border-[var(--border-subtle)]" : "gap-x-1"
+        }`}
+      >
+        {children}
+      </Content>
     </div>
   );
 }

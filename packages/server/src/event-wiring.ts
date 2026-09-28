@@ -1861,8 +1861,15 @@ export function wireEvents(deps: EventWiringDeps): void {
       // fork) leaves the stored value untouched. Number/url above stay
       // unconditional — the new bridge always sends them when known.
       // See change: redesign-composer-session-strip (D5).
+      // The tuple is ATOMIC with the number: when no PR number is known
+      // (absent = unknown after a fork/resume, or null = no PR) the status
+      // fields are cleared too, so a stale "open · passing" can never outlive
+      // its PR. Cleared as `null` (not `undefined`) so the broadcast carries
+      // the clear. See change: redesign-composer-session-strip (doubt-review #1).
+      const prKnown = msg.gitPrNumber != null;
       for (const key of ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const) {
-        if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+        if (!prKnown) gitUpdates[key] = null;
+        else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
       }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
