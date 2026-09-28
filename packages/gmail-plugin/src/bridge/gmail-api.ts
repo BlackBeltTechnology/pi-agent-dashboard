@@ -53,7 +53,11 @@ export class GmailApi {
     } catch {
       throw new GmailToolError("gmail_unavailable", "gmail_unavailable: could not reach the Gmail API");
     }
-    if (res.ok) return (res.status === 204 ? {} : await res.json()) as T;
+    if (res.ok) {
+      // batchModify / trash may answer 200 with an EMPTY body — not a failure.
+      const text = await res.text();
+      return (text.trim() ? JSON.parse(text) : {}) as T;
+    }
     const retryAfter = res.headers.get("retry-after");
     const after = retryAfter && /^\d{1,6}$/.test(retryAfter) ? ` retry after ${retryAfter} s` : "";
     if (res.status === 429) {

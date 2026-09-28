@@ -74,7 +74,9 @@ function route(
   return {};
 }
 
-function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean; attachmentSize?: number } = {}) {
+function fakeGmail(
+  opts: { status?: number; retryAfter?: string; html?: boolean; attachmentSize?: number; emptyBody?: boolean } = {},
+) {
   const calls: GmailCall[] = [];
   const base = `${TEST_ENDPOINTS.gmail}/users/me/`;
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -85,6 +87,7 @@ function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean;
     if (opts.status) {
       return new Response("{}", { status: opts.status, headers: opts.retryAfter ? { "retry-after": opts.retryAfter } : {} });
     }
+    if (opts.emptyBody && url.pathname.endsWith("/batchModify")) return new Response("", { status: 200 });
     return new Response(JSON.stringify(route(url, init?.method ?? "GET", body, opts)), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -317,5 +320,13 @@ describe("CodeRabbit — replyAll self-filter matches whole addresses", () => {
 describe("CodeRabbit — address lists split outside quotes", () => {
   it("keeps a quoted display name with a comma intact", () => {
     expect(splitAddresses('"Doe, John" <j@x.com>, b@y.com, <c@z.com>')).toEqual(['"Doe, John" <j@x.com>', "b@y.com", "<c@z.com>"]);
+  });
+});
+
+describe("CodeRabbit — empty 200 bodies", () => {
+  it("gmail_modify succeeds when batchModify answers 200 with an empty body", async () => {
+    const { run } = setup({ gmail: { emptyBody: true } });
+    const r = await run("gmail_modify", { account: "work", ids: ["m1"], removeLabels: ["INBOX"] }, ui(true).ctx);
+    expect(r.details.ids).toEqual(["m1"]);
   });
 });
