@@ -125,6 +125,10 @@ export function frameClassOf(
     case "grant_request":
     case "grant_dismiss":
       return { cls: "state", key: `grant:${msg.promptId}` };
+    // Content-free pairing hint: coalescing state, never shed — a shed hint is
+    // an approval dialog that never appears. See change: add-pairing-approval-dialog.
+    case "pair_pending_changed":
+      return { cls: "state", key: "pair_pending" };
     case "terminal_added":
       return { cls: "state", key: `terminal:${msg.terminal.id}` };
     case "terminal_updated":

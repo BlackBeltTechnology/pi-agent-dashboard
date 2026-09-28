@@ -5,7 +5,7 @@
  * the phone camera and an Electron "Scan QR"/paste.
  */
 import { describe, expect, it } from "vitest";
-import { decodePayloadString, type PairingPayload } from "./protocol.js";
+import { decodePayloadString, type PairingPayload, pollOutcome } from "./protocol.js";
 
 const PAYLOAD: PairingPayload = {
   v: 1,
@@ -40,5 +40,23 @@ describe("decodePayloadString tolerance", () => {
 
   it("tolerates surrounding whitespace and a trailing-slash-free wrapper", () => {
     expect(decodePayloadString(`  ${deepLink}  `)).toEqual(PAYLOAD);
+  });
+});
+
+// change: add-pairing-approval-dialog — test-plan F12.
+describe("pollOutcome", () => {
+  it("F12 rejected → rejected with the decline message, distinct from unknown → expired", () => {
+    const rejected = pollOutcome({ status: "rejected" });
+    expect(rejected.kind).toBe("rejected");
+    if (rejected.kind === "rejected") expect(rejected.message).toContain("The dashboard declined this device");
+    const unknown = pollOutcome({ status: "unknown" });
+    expect(unknown.kind).toBe("expired");
+    if (unknown.kind === "expired") expect(unknown.message).toMatch(/expired/i);
+  });
+
+  it("pending keeps polling, approved carries the token, an unknown status is terminal", () => {
+    expect(pollOutcome({ status: "pending" })).toEqual({ kind: "pending" });
+    expect(pollOutcome({ status: "approved", token: "T" })).toEqual({ kind: "approved", token: "T" });
+    expect(pollOutcome({ status: "weird" }).kind).toBe("expired");
   });
 });

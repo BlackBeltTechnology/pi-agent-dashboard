@@ -2954,6 +2954,58 @@ sequenceDiagram
 
 Code consumed on approval, not redemption. Premature redemption cannot lock out legit device. Operator types device confirmation code into dashboard — active compare-and-match, not one-click. Approval requires authenticated browser session. Rate-limit plus lockout. At most one pending device per code — bounds memory and prompt flood.
 
+#### App-wide approval dialog, deny, pending feed
+
+Change: `add-pairing-approval-dialog`.
+
+- `PairingManager.redeem(code, meta)` stores bounded untrusted metadata: `userAgent` ≤256 chars, `viaHost` (Host) ≤253, `remoteAddress` (`request.ip`) ≤64, `forwardedFor` (first `X-Forwarded-For` hop) ≤64, `createdAt`.
+- Metadata serves display only; never drives decisions; never enters logs.
+- `wirePendingHint` (`packages/server/src/pairing/pairing.ts`) emits content-free `{type:"pair_pending_changed"}` on pending add / approve / deny / lockout / expire.
+- `packages/server/src/server.ts` wires hint through `browserGateway.broadcastToAll` → ALL browser sockets.
+- `frameClassOf` assigns `state`, key `pair_pending`; coalesces, never sheds.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Device
+    participant Srv as Server
+    participant Op as Operator
+    Dev->>Srv: redeem(code, meta)
+    Srv-->>Op: WS pair_pending_changed
+    Op->>Srv: GET /api/pair/pending
+    Op->>Srv: POST /api/pair/approve-pending or /api/pair/deny
+    Dev->>Srv: poll
+    Srv-->>Dev: approved / rejected
+```
+
+- `packages/server/src/routes/pairing-routes.ts` registers operator-only routes; each uses `preHandler: operatorGuard`, NOT `networkGuard`.
+- `operatorGuard` refuses paired-device bearer + trusted-network-only callers.
+- `GET /api/pair/pending` returns `pendingId`, metadata, `expiresAt`, `attemptsLeft`; never pairing code or confirm code.
+- `POST /api/pair/approve-pending {pendingId, confirmCode, label?}` validates label 1..64 UTF-8 bytes before delegation → 400.
+- Approve-pending errors: `locked_out` → 429; `no_pending` → 404; other errors → 400; mismatch body includes `attemptsLeft`.
+- `POST /api/pair/deny {pendingId}` returns 200 or 404 `no_pending`.
+- `approvePending` delegates to `approve()`; both share ONE `MAX_APPROVE_ATTEMPTS = 5` budget per pending device.
+- Fifth wrong code → `locked_out`; first mismatch → post-increment `attemptsLeft: 4`.
+- `/api/pair/approve` keeps status codes; mismatch body gains additive `attemptsLeft`.
+- Re-redeem creates new pending device + confirm code + fresh budget (D8).
+- Deny marks pending `rejected`; kills pairing code (`redeem` → `invalid_code`); `poll` returns `{status:"rejected"}` for 30s.
+- `packages/client/src/components/connectivity/PairLanding.tsx` shows `pair-landing-rejected` — "The dashboard declined this device"; no retry.
+- Electron shell `PairView` maps rejection via `pollOutcome` (`packages/shell/src/lib/protocol.ts`).
+- Both device clients treat any unknown poll status as terminal.
+- Pushed expiry (D4b): per-entry `setTimeout(...).unref()` at `expiresAt + 50ms` → `sweep()` emits hint + logs `expired`.
+- Approve / deny / lockout / overwrite clear expiry timer; server stop calls `PairingManager.dispose()` to clear all.
+- Logs (D7): `[pairing] pending|approved|denied|mismatch|locked_out|expired id=<first 8 of pendingId>` only.
+- Logs exclude codes, token, metadata; header CR/LF could forge log lines.
+- `PairingApprovalHost` (`packages/client/src/components/pairing-approval/`) mounts beside `GrantPromptHost` in both App returns.
+- Host refetches `GET /api/pair/pending` on every hint + every (re)connect; skips entirely when `getDeviceBearer()` set.
+- Host shows one dialog, oldest first, plus "+N more waiting"; waits while grant dialog open, never dismisses for grant.
+- Close = decide later; `pairingApprovalStore` (`packages/client/src/lib/pairing/pairing-approval-store.ts`) keeps per-tab dismissed set.
+- Settings ▸ Gateway `WaitingDevices` list (`pairing-waiting-list`) exposes Review → reopens request.
+- Request vanishes without local answer → close + toast "Pairing request handled in another window."
+- `PairingApprovalDialog` never shows confirm code; operator types 8 digits.
+- Submit-only validation shows "Enter all 8 digits"; optional device name prefilled from UA via `describeUserAgent` / `deviceNameFromUserAgent` (`packages/client/src/lib/pairing/describe-user-agent.ts`).
+- Dialog states: form / locked / expired / success; success auto-closes after 4s.
+- React renders untrusted metadata as text only; XFF shows "(reported by proxy)".
+
 #### Bearer device auth — D5/D7
 
 Approval mints long-lived opaque bearer token. Registry `~/.pi/dashboard/paired-devices.json` (0600). Stores only SHA-256 hash. Revoke = row delete (Settings → Security → Paired Devices). Auth branch: `Authorization: Bearer` (REST) feeds existing `request.isAuthenticated` — one OR branch, registered before OAuth plugin. Modules `paired-devices.ts`, `bearer-auth.ts`.
