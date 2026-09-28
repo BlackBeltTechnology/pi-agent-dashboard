@@ -130,6 +130,7 @@ const BUNDLED_PLUGINS = [
   "hermes-memory-plugin",
   "grammar-plugin",
   "blackhole-plugin",
+  "gmail-plugin",
   "mcp-server-plugin",
   "apple-tools",
   "mcp-client-plugin",

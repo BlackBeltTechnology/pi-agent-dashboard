@@ -134,6 +134,11 @@ services:
       # spec drives the fake by appending to and reading these. See
       # packages/chat-gateway/src/adapters/fake.ts.
       PI_CHAT_GATEWAY_FAKE_DIR: "${PI_CHAT_GATEWAY_FAKE_DIR:-}"
+      # gmail-plugin fake-Google endpoint override (change: add-gmail-plugin,
+      # design D8). Honoured by the plugin ONLY for a loopback URL; the fake
+      # (tests/e2e/helpers/fake-google.ts) is started INSIDE the container by
+      # the spec. Inert until a spec starts it — nothing else calls Google here.
+      PI_E2E_GOOGLE_BASE_URL: "${PI_E2E_GOOGLE_BASE_URL:-}"
       # PI_E2E_OAUTH=1 seeds a resolvable `github` OAuth provider plus
       # `bypassUrls:["/"]` BEFORE the server boots, so `/auth/*` routes exist
       # for oauth-redirect-base.spec.ts. A spec cannot arrange this itself:

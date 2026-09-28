@@ -4,8 +4,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
-| `composer-session-strip.spec.ts` | L3 (change: redesign-composer-session-strip; F8–F12). Synthetic bridge on `FIXTURE_GIT` (pinned first) pushes worktree + open-PR `git_info_update`; routed `/api/health` / `/ws` enable the browser-relay badge / READY readiness for this page only. Asserts empty Status group hidden (`:has(:empty)`), groups wrap inside themselves without strip overflow, send button bottom-aligned to the draft (≥44 px), `@[44rem]` fold vs longest model id, composer lifecycle bar in letters mode. |
-| `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single active, pointer `Roles ↗ Models`); mobile strip `Providers`, `Model roles`; custom `@e2e-role` edit → Save Bar `Models › Model roles`, persisted ref == staged ref, cleaned up. Needs live session. See change: promote-model-roles-settings. |
+| `composer-session-strip.spec.ts` | L3 (change: redesign-composer-session-strip; F8–F12). Synthetic bridge on `FIXTURE_GIT` (pinned first) pushes… → see `composer-session-strip.spec.ts.AGENTS.md` |
+| `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single… → see `model-roles-promotion.spec.ts.AGENTS.md` |
+| `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
+| `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
@@ -158,7 +160,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `session-context-injection.spec.ts` | L3 context injection via `[[faux:echo-system-context]]`. → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session killed while holding a long-running… → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coupling warning… → see `session-heap-settings.spec.ts.AGENTS.md` |
-| `session-history-load-state.spec.ts` | Playwright spec. History-load states: no empty flash on cold select (F11), card arc during multi-batch replay (F12), ring no layout shift 1440/375 (F13), waiting while WS blocked (X6), slow notice + Retry (X7), dropped replay → failed + Retry (X8). `routeWebSocket` per-session replay pass/hold/drop + block mode. See change: show-session-history-load-state. |
+| `session-history-load-state.spec.ts` | Playwright spec. History-load states: no empty flash on cold select (F11), card arc during multi-batch replay… → see `session-history-load-state.spec.ts.AGENTS.md` |
 | `session-list-group-by.spec.ts` | L3 Group by is server state: folder-menu radio → `group_by_prefs_updated` → chip; persists across reload… → see `session-list-group-by.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears… → see `session-spawn.spec.ts.AGENTS.md` |

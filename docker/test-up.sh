@@ -139,6 +139,12 @@ export PI_BROWSER_RELAY_FAKE="${PI_BROWSER_RELAY_FAKE:-}"
 export PI_CHAT_GATEWAY_FAKE="${PI_CHAT_GATEWAY_FAKE:-}"
 export PI_CHAT_GATEWAY_FAKE_DIR="${PI_CHAT_GATEWAY_FAKE_DIR:-}"
 
+# gmail-plugin fake-Google endpoint (change: add-gmail-plugin, design D8).
+# Passed through to the container (compose.test.yml); the plugin honours it
+# ONLY for a loopback URL, and tests/e2e/gmail-plugin.spec.ts starts the fake on
+# that in-container port. Defaulted so the spec needs no extra flag.
+export PI_E2E_GOOGLE_BASE_URL="${PI_E2E_GOOGLE_BASE_URL:-http://127.0.0.1:18090}"
+
 # Record the resolved ports + project for teardown + the Playwright lifecycle.
 # Gitignored; harmless inside the container (read-only overlay lower).
 write_state_file() {
