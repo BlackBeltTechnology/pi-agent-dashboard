@@ -121,7 +121,10 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       // Refresh tokens are bound to the client that minted them: swapping the
       // client under connected accounts would break every refresh silently.
       const current = await store.getClient();
-      if (current && current.clientId !== result.client.clientId && (await store.list()).length > 0) {
+      const changed =
+        current &&
+        (current.clientId !== result.client.clientId || current.clientSecret !== result.client.clientSecret);
+      if (changed && (await store.list()).length > 0) {
         return reply.code(409).send({ error: "client_in_use", step: 5 });
       }
       await store.setClient(result.client);

@@ -238,6 +238,40 @@ describe("review round 1 — races across the refresh await", () => {
     await expect(p).rejects.toMatchObject({ code: "tier_denied" });
   });
 
+  it("a re-auth landing during a refresh: the lease returns the NEW grant's token, not the old one", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { lease, store, google } = setup({
+      expiresIn: 0,
+      refresh: async () => {
+        await gate;
+        return { access_token: "ACCESS-from-old-grant", expires_in: 3600, token_type: "Bearer" };
+      },
+    });
+    const p = lease({ account: "work", op: "read" });
+    await new Promise((r) => setTimeout(r, 5));
+    await store.upsertFromSignIn({
+      sub: "s1",
+      email: "a@x.com",
+      tier: "send",
+      scopes: [SCOPE.modify],
+      access: "ACCESS-reauth",
+      refresh: "REFRESH-reauth",
+      expires: NOW + 3_600_000,
+    });
+    release();
+    await expect(p).resolves.toMatchObject({ accessToken: "ACCESS-reauth" });
+    expect(google.calls).toHaveLength(1);
+  });
+
+  it("the host's (payload, meta) call shape does not disable the retry", async () => {
+    const { lease } = setup({});
+    const call = lease as unknown as (p: unknown, m: unknown) => Promise<unknown>;
+    await expect(call({ account: "work", op: "read" }, { sessionId: "x" })).resolves.toMatchObject({ tier: "send" });
+  });
+
   it("invalid_grant for a grant already replaced by a re-auth does not mark reauth_required", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => {
@@ -262,7 +296,8 @@ describe("review round 1 — races across the refresh await", () => {
       expires: NOW + 3_600_000,
     });
     release();
-    await expect(p).rejects.toMatchObject({ code: "reauth_required" });
+    // Retried once against the new (still valid) grant → usable token.
+    await expect(p).resolves.toMatchObject({ accessToken: "ACCESS-reauth" });
     expect(creds.data.get(acctKey("s1"))?.status).toBe("ok");
   });
 });

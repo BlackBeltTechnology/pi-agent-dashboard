@@ -177,6 +177,16 @@ describe("client upload + state", () => {
     expect(creds.data.get(CLIENT_KEY)?.clientId).toBe(CLIENT.clientId);
   });
 
+  it("refuses a same-id client with a different secret while accounts are connected", async () => {
+    const { app } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
+    const r = await app.inject({
+      method: "PUT",
+      url: "/api/plugins/gmail/client",
+      payload: { json: { installed: { client_id: CLIENT.clientId, client_secret: "rotated" } } },
+    });
+    expect(r.json()).toEqual({ error: "client_in_use", step: 5 });
+  });
+
   it("state lists accounts without tokens", async () => {
     const { app } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
     const state = await app.inject({ method: "GET", url: "/api/plugins/gmail/state" });
