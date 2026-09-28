@@ -71,6 +71,18 @@ describe("webhook URL helpers", () => {
     expect((await resolveAndVet("192.168.1.20", SELF_PORT, SELF_PORT)).ok).toBe(true);
   });
 
+  it("resolveAndVet refuses the self port via an IPv4-mapped local-interface address", async () => {
+    const lan = Object.values(os.networkInterfaces())
+      .flat()
+      .find((i) => i && i.family === "IPv4" && !i.internal);
+    const targets = ["[::ffff:127.0.0.1]", "[::ffff:7f00:1]", ...(lan ? [`[::ffff:${lan.address}]`, lan.address] : [])];
+    for (const host of targets) {
+      expect((await resolveAndVet(host, SELF_PORT, SELF_PORT)).ok, host).toBe(false);
+    }
+    // A mapped LAN address on another port stays allowed.
+    if (lan) expect((await resolveAndVet(`[::ffff:${lan.address}]`, SELF_PORT + 1, SELF_PORT)).ok).toBe(true);
+  });
+
   it("resolveAndVet refuses an unresolvable host", async () => {
     const lookupAll: LookupAll = async () => {
       throw Object.assign(new Error("nope"), { code: "ENOTFOUND" });

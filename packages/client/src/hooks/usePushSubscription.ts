@@ -136,8 +136,15 @@ export function usePushSubscription(): PushSubscriptionState {
     const sub =
       (await reg.pushManager.getSubscription()) ??
       (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }));
-    const tokenId = await registerSubscription(sub);
-    if (tokenId) localStorage.setItem(TOKEN_ID_KEY, tokenId);
+    const tokenId = await registerSubscription(sub).catch(() => null);
+    if (!tokenId) {
+      // The server never learned this subscription: do not show the toggle on,
+      // and drop the browser side so a retry starts clean.
+      await sub.unsubscribe().catch(() => false);
+      setStatus("unsubscribed");
+      return;
+    }
+    localStorage.setItem(TOKEN_ID_KEY, tokenId);
     setStatus("subscribed");
   }, [supported, publicKey]);
 

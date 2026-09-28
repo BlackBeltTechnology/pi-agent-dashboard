@@ -59,7 +59,24 @@ loopback.addAddress("0.0.0.0", "ipv4");
 loopback.addAddress("::1", "ipv6");
 loopback.addAddress("::", "ipv6");
 
-function isLocalAddress(ip: string): boolean {
+/**
+ * `::ffff:a.b.c.d` / `::ffff:XXXX:XXXX` "is" the IPv4 address `a.b.c.d`. Unmapped
+ * before comparing with interface addresses, or `::ffff:<LAN IP>` would slip
+ * past the self-target refusal.
+ */
+function unmapIPv4(ip: string): string {
+  const m = /^::ffff:(.+)$/i.exec(ip);
+  if (!m) return ip;
+  if (net.isIPv4(m[1])) return m[1];
+  const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(m[1]);
+  if (!hex) return ip;
+  const hi = Number.parseInt(hex[1], 16);
+  const lo = Number.parseInt(hex[2], 16);
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+
+function isLocalAddress(rawIp: string): boolean {
+  const ip = unmapIPv4(rawIp);
   const family = net.isIP(ip);
   if (family === 0) return false;
   if (loopback.check(ip, family === 4 ? "ipv4" : "ipv6")) return true;
