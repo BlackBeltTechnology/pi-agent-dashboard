@@ -3,7 +3,7 @@ import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
@@ -115,7 +115,8 @@ import {
 import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
-import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/replay/loading-history.js";
+import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
+import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
@@ -779,20 +780,30 @@ export default function App() {
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
-  const [loadingHistory, setLoadingHistory] = useState<Map<string, boolean>>(new Map());
-  const loadingHistoryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Per-session "replay in flight" flag: armed with `loadingHistory` on every
   // `subscribe`, but cleared only by the TERMINAL `event_replay` batch (or the
   // failure edge / safety net) rather than by first content. Drives the
   // ChatView in-flight pill. See change: show-replay-in-flight-indicator.
-  const [replayInFlight, setReplayInFlight] = useState<Map<string, boolean>>(new Map());
+  // Both flags, their timers, the failed mark and the elapsed clock live in
+  // `useHistoryLoadState` (reconnect reset included).
+  // See change: show-session-history-load-state (design D2).
+  const hasChatContentFor = useCallback(
+    (id: string) => hasChatContent(sessionStatesRef.current.get(id), sessionsRef.current.get(id)?.pendingQueues?.steering),
+    [],
+  );
+  const {
+    loadingHistory, setLoadingHistory, loadingHistoryTimersRef,
+    replayInFlight, setReplayInFlight, replayInFlightTimersRef,
+    historyLoadFailed, historyLoadStartedAt,
+    beginLoadingHistory, beginReplayInFlight,
+    markHistoryLoadFailed, clearHistoryLoadFailed, resetAllHistoryLoad,
+  } = useHistoryLoadState({ status, hasContent: hasChatContentFor });
   // Per-session windowed-replay gap. Non-empty only for sessions the server
   // bounded via `maxReplayEvents`. See change: lazy-load-session-history.
   const [historyGaps, setHistoryGaps] = useState<Map<string, import("./lib/chat/history-gap.js").HistoryGapState>>(new Map());
   // Bumped once per successful backfill splice; drives ChatView's scroll-anchor
   // restore. See change: lazy-load-session-history.
   const [historySpliceRev, setHistorySpliceRev] = useState(0);
-  const replayInFlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // After overlay-url-routing: shell overlays are URL-driven via the
   // useRoute matches declared above. `previewState`, `specsBrowserCwd`,
   // `archiveBrowserCwd`, `diffViewSessionId`, and the three useContentViews
@@ -855,6 +866,10 @@ export default function App() {
           // See change: lazy-load-session-history.
           setHistoryGaps(new Map());
           setHistorySpliceRev(0);
+          // Flags, timers, failed marks and clocks are one server's too; a
+          // stale timer would mark a false failure against server B.
+          // See change: show-session-history-load-state (design D2).
+          resetAllHistoryLoad();
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
@@ -952,45 +967,6 @@ export default function App() {
     sessions: Array.from(sessions.values()).map((s) => ({ cwd: s.cwd })),
   };
 
-  // Enter LOADING for a session: set the flag and arm the short
-  // `SUBSCRIBE_ACK_MS` safety-net timer (clearing any prior timer). Called from
-  // every `subscribe` send site so cleared / refreshed chats show the spinner
-  // during replay, not the empty placeholder. On the cold path the server's
-  // hydration start marker re-arms this to the longer `HYDRATE_CEILING_MS`.
-  // See change: show-chat-history-loading-indicator,
-  // fix-history-loading-false-empty-flash.
-  const beginLoadingHistory = useCallback((id: string) => {
-    const existingTimer = loadingHistoryTimersRef.current.get(id);
-    if (existingTimer) clearTimeout(existingTimer);
-    setLoadingHistory((prev) => {
-      const next = new Map(prev);
-      next.set(id, true);
-      return next;
-    });
-    loadingHistoryTimersRef.current.set(
-      id,
-      setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, id), SUBSCRIBE_ACK_MS),
-    );
-  }, []);
-
-  // Sibling of `beginLoadingHistory` for the in-flight flag. Not a reuse:
-  // `beginLoadingHistory` hard-codes its own setter and timers ref.
-  // Declared BEFORE `handleRefreshChat`, which lists it as a dependency.
-  // See change: show-replay-in-flight-indicator.
-  const beginReplayInFlight = useCallback((id: string) => {
-    const existingTimer = replayInFlightTimersRef.current.get(id);
-    if (existingTimer) clearTimeout(existingTimer);
-    setReplayInFlight((prev) => {
-      const next = new Map(prev);
-      next.set(id, true);
-      return next;
-    });
-    replayInFlightTimersRef.current.set(
-      id,
-      setTimeout(() => clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, id), SUBSCRIBE_ACK_MS),
-    );
-  }, []);
-
   // Single send point for the pending-prompt resync (`prompt_resync_request`,
   // design D9 of fix-pending-prompt-lost-on-replay): the refresh coordinator
   // AND the desync affordance both fire it, so exactly one request goes out per
@@ -1038,7 +1014,9 @@ export default function App() {
         subscribedRef.current.add(id);
       },
       subscribe: (id) => send({ type: "subscribe", sessionId: id, lastSeq: 0 }),
-      beginLoadingHistory: (id) => beginLoadingHistory(id),
+      // Called with `{ restart: true }` (a refresh is a new load).
+      // See change: show-session-history-load-state (design D5).
+      beginLoadingHistory,
       beginReplayInFlight: (id) => beginReplayInFlight(id),
       requestPromptResync,
     }).catch(logRejection("App.handleRefreshChat"));
@@ -1071,7 +1049,7 @@ export default function App() {
 
   const handleMessage = useMessageHandler(
     { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1316,6 +1294,47 @@ export default function App() {
   useEffect(() => {
     if (status !== "connected") globalRefreshRequestedRef.current = false;
   }, [status]);
+
+  // Arm LOADING at selection, before paint: the lazy-subscribe effect below may
+  // first await the IndexedDB replay-cache read, and without this the first
+  // painted frame(s) show "No messages yet". Layout effects flush before paint
+  // and before that passive effect; `doSubscribe()` re-arms idempotently
+  // (startedAt kept). Runs after `useHistoryLoadState`'s reconnect-reset layout
+  // effect in the same commit, so a reconnect re-arms rather than being wiped.
+  // See change: show-session-history-load-state (design D3).
+  // Arms `loadingHistory` ONLY: arming `replayInFlight` here would start the
+  // in-flight pill's show-delay before the cache read, so a warm reload whose
+  // cached content lands >300 ms later would flash the pill (replay-in-flight
+  // F10). `doSubscribe()` arms it at the subscribe, as before; the card ring
+  // still covers the gap (`loading = loadingHistory || replayInFlight`).
+  useLayoutEffect(() => {
+    if (!selectedId || status !== "connected") return;
+    if (subscribedRef.current.has(selectedId)) return;
+    if (hasChatContentFor(selectedId)) return;
+    beginLoadingHistory(selectedId);
+  }, [selectedId, status, hasChatContentFor, beginLoadingHistory]);
+
+  // One derived phase per session, read by ChatView (selected entry) and
+  // SessionList (whole map); neither re-derives. `status` alone drives
+  // `waiting`, so it must be a dep. See change: show-session-history-load-state (D1).
+  const historyPhaseMap = useMemo(
+    () =>
+      buildHistoryPhaseMap({
+        loadingHistory,
+        replayInFlight,
+        historyLoadFailed,
+        historyLoadStartedAt,
+        selectedId,
+        connected: status === "connected",
+        hasContent: (id) => hasChatContent(sessionStates.get(id), sessions.get(id)?.pendingQueues?.steering),
+      }),
+    [loadingHistory, replayInFlight, historyLoadFailed, historyLoadStartedAt, sessionStates, sessions, selectedId, status],
+  );
+  const selectedHistoryPhase = selectedId ? historyPhaseMap.get(selectedId) : undefined;
+  const handleRetryHistory = useCallback(() => {
+    const sid = selectedSessionIdRef.current;
+    if (sid) handleRefreshChat(sid);
+  }, [handleRefreshChat]);
 
   // After overlay-url-routing: overlays are URL-driven, so a session switch
   // (which navigates to /session/:id) automatically clears any overlay route
@@ -1984,6 +2003,7 @@ export default function App() {
       onSetProcessDrawer={(sessionId, collapsed) => send({ type: "set_session_process_drawer", sessionId, collapsed })}
       onRemoveTagGlobally={removeTagGlobally}
       inflightBashMap={inflightBashMap}
+      historyPhaseMap={historyPhaseMap}
       onAbortTool={handleAbortTool}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
@@ -2313,7 +2333,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command

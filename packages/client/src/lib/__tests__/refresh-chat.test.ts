@@ -1,6 +1,8 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { IDBFactory } from "fake-indexeddb";
+import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { setupHistoryLoad } from "../../test-support/history-load-harness.js";
 import { type RefreshChatDeps, refreshChat } from "../chat/refresh-chat.js";
 import { type CachedEvent, createReplayCache } from "../replay/replay-cache.js";
 import { createReplayPersister } from "../replay/replay-persist.js";
@@ -55,7 +57,32 @@ describe("refreshChat", () => {
     expect(d.resetCursor).toHaveBeenCalledWith("s1");
     expect(d.markSubscribed).toHaveBeenCalledWith("s1");
     expect(d.subscribe).toHaveBeenCalledWith("s1");
-    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1");
+    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+  });
+
+  it("#F3 Retry = full re-request with a restarted clock (show-session-history-load-state)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const h = setupHistoryLoad();
+      // Loading flag already set, startedAt = now − 14 s.
+      vi.setSystemTime(1_000_000 - 14_000);
+      h.begin("s1");
+      vi.setSystemTime(1_000_000);
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000 - 14_000);
+      const { d, calls } = deps({
+        beginLoadingHistory: vi.fn((id: string, opts: { restart: true }) => {
+          calls.push(`loading:${id}`);
+          act(() => h.cur().hl.beginLoadingHistory(id, opts));
+        }),
+      });
+      await refreshChat("s1", d);
+      expect(calls.indexOf("drop:s1")).toBeLessThan(calls.indexOf("subscribe:s1"));
+      expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("arms the replay-in-flight indicator after resubscribing", async () => {
@@ -131,7 +158,32 @@ describe("refreshChat", () => {
     // in exactly the environments where the cache cannot cause the problem.
     expect(d.resetSessionState).toHaveBeenCalledWith("s1");
     expect(d.subscribe).toHaveBeenCalledWith("s1");
-    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1");
+    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+  });
+
+  it("#F3 Retry = full re-request with a restarted clock (show-session-history-load-state)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const h = setupHistoryLoad();
+      // Loading flag already set, startedAt = now − 14 s.
+      vi.setSystemTime(1_000_000 - 14_000);
+      h.begin("s1");
+      vi.setSystemTime(1_000_000);
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000 - 14_000);
+      const { d, calls } = deps({
+        beginLoadingHistory: vi.fn((id: string, opts: { restart: true }) => {
+          calls.push(`loading:${id}`);
+          act(() => h.cur().hl.beginLoadingHistory(id, opts));
+        }),
+      });
+      await refreshChat("s1", d);
+      expect(calls.indexOf("drop:s1")).toBeLessThan(calls.indexOf("subscribe:s1"));
+      expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("still refreshes when the durable delete rejects outright (test-plan #X3)", async () => {
@@ -187,7 +239,32 @@ describe("refreshChat pending-prompt resync (fix-pending-prompt-lost-on-replay)"
     // The transcript refresh still completes.
     expect(d.resetSessionState).toHaveBeenCalledWith("s1");
     expect(d.subscribe).toHaveBeenCalledWith("s1");
-    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1");
+    expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+  });
+
+  it("#F3 Retry = full re-request with a restarted clock (show-session-history-load-state)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const h = setupHistoryLoad();
+      // Loading flag already set, startedAt = now − 14 s.
+      vi.setSystemTime(1_000_000 - 14_000);
+      h.begin("s1");
+      vi.setSystemTime(1_000_000);
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000 - 14_000);
+      const { d, calls } = deps({
+        beginLoadingHistory: vi.fn((id: string, opts: { restart: true }) => {
+          calls.push(`loading:${id}`);
+          act(() => h.cur().hl.beginLoadingHistory(id, opts));
+        }),
+      });
+      await refreshChat("s1", d);
+      expect(calls.indexOf("drop:s1")).toBeLessThan(calls.indexOf("subscribe:s1"));
+      expect(d.beginLoadingHistory).toHaveBeenCalledWith("s1", { restart: true });
+      expect(h.cur().hl.historyLoadStartedAt.get("s1")).toBe(1_000_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("X1: a rejecting resync send does not abort the refresh and produces no unhandled rejection (test-plan #X1)", async () => {

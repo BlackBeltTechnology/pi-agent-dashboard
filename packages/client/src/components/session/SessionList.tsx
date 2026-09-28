@@ -256,6 +256,11 @@ interface Props {
    */
   inflightBashMap?: Map<string, import("../../hooks/useInflightBashTools.js").InflightBashTool[]>;
   /**
+   * Non-idle history-load phases from App (`buildHistoryPhaseMap`). Sessions
+   * absent from the map render no ring. See change: show-session-history-load-state.
+   */
+  historyPhaseMap?: ReadonlyMap<string, import("../../lib/replay/history-load-phase.js").HistoryPhaseEntry>;
+  /**
    * Stop-button handler for the SessionActivityBar. The toolCallId is
    * accepted for forward-compat; Phase 1 maps to the session-level abort.
    */
@@ -378,7 +383,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -2261,6 +2266,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                     onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
                     onSetProcessDrawerCollapsed={onSetProcessDrawer ? (collapsed) => onSetProcessDrawer(session.id, collapsed) : undefined}
                     inflightBashTools={inflightBashMap?.get(session.id)}
+                    historyPhase={historyPhaseMap?.get(session.id)?.phase}
+                    historyStartedAt={historyPhaseMap?.get(session.id)?.startedAt}
                     onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
                     hasError={errorSessionIds?.has(session.id)}
                     isRetrying={retrySessionIds?.has(session.id)}

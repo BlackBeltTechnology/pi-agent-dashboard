@@ -168,6 +168,12 @@ frame. The existing lazy-subscribe `useEffect` is unchanged: `doSubscribe()`
 arms again (idempotent: re-arms the short timer, `startedAt` kept). A cache read
 hanging past `SUBSCRIBE_ACK_MS` surfaces `failed` + Retry.
 
+> **Implementation note (ship-it):** the layout effect arms `loadingHistory`
+> only. Arming `replayInFlight` here too started the in-flight pill's show-delay
+> before the IndexedDB read, so a warm reload flashed the pill once cached
+> content painted (regressed `replay-in-flight-pill.spec.ts` F10).
+> `doSubscribe()` still arms `replayInFlight` at the subscribe.
+
 ### D4 — Waiting (gap 2) is derived, not stored
 
 `connected = status === "connected"` feeds D1. While `waiting`, the slow notice
@@ -214,6 +220,14 @@ hugs the ~12 px icon and nothing reflows.
 - waiting: `border-2 border-dashed border-[var(--text-tertiary)]` (≥3:1 on
   `--bg-primary`/`--bg-tertiary` in every theme palette, light and dark).
 - failed: `border-2 border-[var(--status-error)]`.
+
+> **Implementation note (ship-it):** the #E6 contrast test showed `--accent` and
+> `--status-error` fall below 3:1 on the selected card (`--tint-blue-bg` ≈
+> `--bg-tertiary`) in nord-dark, solarized-dark and tokyo-night-light. To meet the
+> spec's "3:1 in every palette" rule the shipped ring uses `--accent-text`
+> (loading, min 3.27:1) and `--tint-red-fg` (failed, min 3.33:1); waiting keeps
+> `--text-tertiary`. The test covers `--bg-primary`, `--bg-tertiary` and
+> `--tint-blue-bg`.
 
 Motion: the arc keeps spinning under `fx-idle` (existing deliberate exemption),
 pauses under `app-hidden` / offscreen, stops under `prefers-reduced-motion`

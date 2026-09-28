@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `history-load-phase.ts` | Pure. `HistoryLoadPhase` (`idle|waiting|loading|failed`), `SLOW_LOAD_MS=10000`, `hasChatContent(state, steering)` (= ChatView empty gate), `deriveHistoryLoadPhase` (waiting → loading → failed → idle), `buildHistoryPhaseMap` (true-valued ids + selected, non-idle only, `startedAt` only while loading). See change: show-session-history-load-state. |
 | `loading-history.ts` | Exports `clearLoadingHistory(setFlag, timersRef, id)` + `rearmLoadingHistory(..., ms)` helpers +… + `REPLAY_PILL_DELAY_MS=300`; helpers flag-generic, reused for `replayInFlight` → see `loading-history.ts.AGENTS.md` |
 | `message-history.ts` | Exports `extractUserPromptHistory(messages)` — collects `role==="user"` prompts for ArrowUp recall; condenses… → see `message-history.ts.AGENTS.md` |
 | `rehydrate-session.ts` | `rehydrateSession(sessionId, cache, serverKey)` — entry from another server = miss (server identity gates hit). Cache hit → re-reduce raw payload via reduceEvent into provisional… → see `rehydrate-session.ts.AGENTS.md` |

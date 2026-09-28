@@ -62,8 +62,10 @@ import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
+import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import type { ContextUsageInfo } from "./SessionList.js";
 import { SessionSubcard } from "./SessionSubcard.js";
+import { SessionStatusChip } from "./SessionStatusChip.js";
 import type { SubcardMenuTarget } from "./SubcardLegendMenu.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
 
@@ -723,6 +725,8 @@ export function SessionCard({
   onKillProcess,
   onSetProcessDrawerCollapsed,
   inflightBashTools,
+  historyPhase,
+  historyStartedAt,
   onAbortTool,
   hasError,
   isRetrying,
@@ -858,6 +862,13 @@ export function SessionCard({
   retryAttempt?: number;
   /** True iff the model returned only reasoning, no answer (non-error notice). */
   hasNotice?: boolean;
+  /**
+   * History-load phase from App's `historyPhaseMap`; drives the status-chip
+   * ring. Absent = idle (never loaded / loaded). `historyStartedAt` only while
+   * loading. See change: show-session-history-load-state.
+   */
+  historyPhase?: HistoryLoadPhase;
+  historyStartedAt?: number;
 }) {
   // dnd-kit drag handle props (attributes + listeners) supplied by
   // SortableSessionCard via context. When non-null, the desktop card's left
@@ -948,15 +959,19 @@ export function SessionCard({
         {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
         {/* Line 1: source icon (colored by status) + name + age */}
         <div className="flex items-center gap-2">
-          <span
-            className={`relative flex-shrink-0 ${iconStatusColor}`}
-            title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
-            data-testid="session-status-icon"
-            data-status-shape={statusShape}
+          <SessionStatusChip
+            variant="mobile"
+            sessionId={session.id}
+            baseTitle={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
+            colorClass={iconStatusColor}
+            statusShape={statusShape}
+            isSelected={isSelected}
+            historyPhase={historyPhase}
+            historyStartedAt={historyStartedAt}
           >
             <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.5} />
             <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
-          </span>
+          </SessionStatusChip>
           <span className="text-sm font-semibold truncate flex-1">
             {getSessionDisplayName(session)}
           </span>
@@ -1116,15 +1131,19 @@ export function SessionCard({
       {/* Line 1: status chip + name + time. The chip is the ONLY status
           carrier now that the gutter capsule is gone. */}
       <div className="flex items-center gap-2">
-        <span
-          className={`relative inline-flex flex-shrink-0 items-center justify-center w-4 h-4 rounded-full bg-[var(--bg-tertiary)] shadow-sm ${iconStatusColor}`}
-          data-testid="session-status-icon"
-          data-status-shape={statusShape}
-          title={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
+        <SessionStatusChip
+          variant="desktop"
+          sessionId={session.id}
+          baseTitle={`${sourceLabels[session.source] ?? session.source} — ${session.status}`}
+          colorClass={iconStatusColor}
+          statusShape={statusShape}
+          isSelected={isSelected}
+          historyPhase={historyPhase}
+          historyStartedAt={historyStartedAt}
         >
           <Icon path={sourceIcons[session.source] ?? mdiConsoleLine} size={0.45} />
           <StatusShapeBadge shape={statusShape} colorClass={iconStatusColor} />
-        </span>
+        </SessionStatusChip>
         {isRenaming ? (
           <InlineRenameInput
             currentName={getSessionDisplayName(session)}
