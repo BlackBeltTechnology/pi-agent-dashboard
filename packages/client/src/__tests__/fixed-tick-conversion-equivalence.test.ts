@@ -61,6 +61,8 @@ const CENSUS: Record<string, string[]> = {
     "URL absent → plain text, no <a>",
     "mergeIsPrimary fills Merge; otherwise outlined",
     "disabled (working): Merge is never filled; actions are aria-disabled and focusable with a reason",
+    "each segment draws its own hairline (the root is display:contents)",
+    "mobile trigger meets the 24 px target",
   ],
   "components/__tests__/PluginStalenessBanner.test.tsx": [
     "renders nothing when /api/health.bundleHash matches the embedded hash",

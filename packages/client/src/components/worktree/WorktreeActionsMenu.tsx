@@ -327,8 +327,12 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     neutral: "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
   };
   const segments = appearance === "segments";
+  // Segments render inside a `display:contents` root, so the group's
+  // direct-child hairline rule cannot reach them — each segment draws its own
+  // leading hairline. See change: redesign-composer-session-strip (review r1).
+  const segmentEdge = "border-l border-[var(--border-subtle)]";
   const itemBase = segments
-    ? "inline-flex items-center gap-0.5 px-2 min-h-6 self-stretch bg-transparent hover:bg-[var(--bg-hover)]"
+    ? `inline-flex items-center gap-0.5 px-2 min-h-6 min-w-6 self-stretch bg-transparent hover:bg-[var(--bg-hover)] ${segmentEdge}`
     : "inline-flex items-center px-1.5 py-[1px] rounded border";
   const streamingTip = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
 
@@ -349,7 +353,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
         data-emphasis={b.emphasis}
         className={`${itemBase} disabled:opacity-50 disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:cursor-not-allowed ${
           segments ? segmentText[b.variant] : variantClasses[b.variant]
-        }${filled ? " font-semibold !bg-[var(--accent-soft)] !text-[var(--text-primary)]" : ""}`}
+        }${filled ? " font-semibold !bg-[var(--accent-soft)] !text-[var(--text-primary)]" : ""}${
+          // The explicit separator already draws Close's leading line.
+          segments && b.key === "close" ? " !border-l-0" : ""
+        }`}
       >
         <Icon path={b.icon} size={0.45} className="inline mr-0.5" />
         {b.label}
@@ -368,7 +375,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     <PrSegment
       key="pr-seg"
       session={session}
-      className={segments ? "px-2 min-h-6 self-stretch no-underline hover:underline" : "px-1 hover:underline"}
+      className={segments ? `px-2 min-h-6 self-stretch no-underline hover:underline ${segmentEdge}` : "px-1 hover:underline"}
     />
   );
   const items = [prSegment, ...buttons.map(renderButton), separator, renderButton(closeButton)];
@@ -383,7 +390,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
             onClick={() => setSheetOpen((s) => !s)}
             title={i18nT("worktree.worktreeActions", undefined, "Worktree actions")}
             data-testid="worktree-actions-mobile-trigger"
-            className="inline-flex items-center px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            className="inline-flex items-center justify-center min-h-6 min-w-6 px-1.5 py-[1px] rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <Icon path={mdiDotsHorizontal} size={0.5} />
           </button>

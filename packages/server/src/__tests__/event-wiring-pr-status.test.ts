@@ -83,9 +83,9 @@ describe("event-wiring: git_info_update PR tuple", () => {
     await send(FULL);
     expect(rig.get("pr-e18")).toMatchObject(FULL);
 
-    // Absent new fields (unknown) → untouched. Number/url are unconditional.
-    await send({ gitPrNumber: 747, gitPrUrl: FULL.gitPrUrl });
-    expect(rig.get("pr-e18")).toMatchObject(FULL);
+    // Partially absent new fields → the absent ones stay untouched.
+    await send({ gitPrNumber: 747, gitPrUrl: FULL.gitPrUrl, gitPrChecks: "failing" });
+    expect(rig.get("pr-e18")).toMatchObject({ ...FULL, gitPrChecks: "failing" });
 
     // Known-absent → every field cleared.
     await send({ gitPrNumber: null, gitPrUrl: null, gitPrState: null, gitPrDraft: null, gitPrChecks: null, gitPrCheckedAt: null });
@@ -104,6 +104,18 @@ describe("event-wiring: git_info_update PR tuple", () => {
     await send({}); // new bridge, unknown tuple: every PR field omitted
     const s = rig.get("pr-unknown")!;
     expect(s.gitPrNumber ?? null).toBeNull();
+    expect(s.gitPrState ?? null).toBeNull();
+    expect(s.gitPrChecks ?? null).toBeNull();
+    expect(s.gitPrCheckedAt ?? null).toBeNull();
+  }, 15000);
+
+  it("review r1: full tuple → number-only (older bridge) clears the stale status fields", async () => {
+    rig = await startServer();
+    const send = await connect(rig, "pr-downgrade");
+    await send(FULL);
+    await send({ gitPrNumber: 748, gitPrUrl: "https://github.com/o/r/pull/748" });
+    const s = rig.get("pr-downgrade")!;
+    expect(s.gitPrNumber).toBe(748);
     expect(s.gitPrState ?? null).toBeNull();
     expect(s.gitPrChecks ?? null).toBeNull();
     expect(s.gitPrCheckedAt ?? null).toBeNull();

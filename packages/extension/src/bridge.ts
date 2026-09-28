@@ -344,6 +344,11 @@ function initBridge(pi: ExtensionAPI) {
   // the bridge-timer registry so a reload cannot leak them; probe completion
   // re-runs the one git change-detector. See change:
   // redesign-composer-session-strip (D5).
+  const unregisterTimer = (timer: ReturnType<typeof setTimeout>) => {
+    const timers = getBridgeState().timers;
+    const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
+    if (index !== -1) timers!.splice(index, 1);
+  };
   const prStatus: PrStatusScheduler = createPrStatusScheduler({
     probe: (cwd) => git.prStatusAsync({ cwd }),
     // A reload starts a new bridge incarnation; the old scheduler must not
@@ -353,16 +358,19 @@ function initBridge(pi: ExtensionAPI) {
     onChange: () => {
       if (isActive() && cachedCwd) sendGitInfoIfChanged(cachedCwd);
     },
+    // One-shot timers leave the registry when they fire as well as when they
+    // are cleared, so a long-lived session never accumulates dead handles.
     setTimer: (fn, ms) => {
-      const timer = setTimeout(fn, ms);
+      const timer = setTimeout(() => {
+        unregisterTimer(timer);
+        fn();
+      }, ms);
       getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
       return timer;
     },
     clearTimer: (timer) => {
       clearTimeout(timer);
-      const timers = getBridgeState().timers;
-      const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
-      if (index !== -1) timers!.splice(index, 1);
+      unregisterTimer(timer);
     },
   });
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog

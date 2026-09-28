@@ -1866,10 +1866,19 @@ export function wireEvents(deps: EventWiringDeps): void {
       // fields are cleared too, so a stale "open · passing" can never outlive
       // its PR. Cleared as `null` (not `undefined`) so the broadcast carries
       // the clear. See change: redesign-composer-session-strip (doubt-review #1).
+      // A known number WITHOUT any status field comes from an older bridge
+      // (the new bridge always sends the whole tuple): drop any stored status
+      // so a stale rich tuple never pairs with a different PR number.
+      // See change: redesign-composer-session-strip (review round 1).
+      const PR_STATUS_KEYS = ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const;
       const prKnown = msg.gitPrNumber != null;
-      for (const key of ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const) {
+      const legacyNumberOnly = prKnown && PR_STATUS_KEYS.every((k) => msg[k] === undefined);
+      const stored = sessionManager.get(sessionId);
+      for (const key of PR_STATUS_KEYS) {
         if (!prKnown) gitUpdates[key] = null;
-        else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+        else if (legacyNumberOnly) {
+          if (stored?.[key] != null) gitUpdates[key] = null;
+        } else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
       }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.

@@ -313,3 +313,25 @@ describe("WorktreeActionsMenu — Merge emphasis", () => {
     expect(screen.getByTestId("worktree-action-push").getAttribute("aria-disabled")).toBe("true");
   });
 });
+
+describe("WorktreeActionsMenu — segments appearance (review r1)", () => {
+  it("each segment draws its own hairline (the root is display:contents)", () => {
+    render(<WorktreeActionsMenu session={makeSession({ gitPrNumber: 747, gitPrState: "open" })} allSessions={[]} onShutdownSession={() => {}} appearance="segments" />);
+    expect(screen.getByTestId("worktree-actions-menu").className).toContain("contents");
+    for (const id of ["worktree-pr-segment", "worktree-action-push", "worktree-action-merge"]) {
+      expect(screen.getByTestId(id).className, id).toContain("border-l");
+    }
+    // Close's leading line is the explicit separator (no double line).
+    expect(screen.getByTestId("worktree-actions-separator").nextElementSibling).toBe(screen.getByTestId("worktree-action-close"));
+    expect(screen.getByTestId("worktree-action-close").className).toContain("!border-l-0");
+    expect(screen.getByTestId("worktree-action-merge").className).toContain("min-h-6");
+  });
+
+  it("mobile trigger meets the 24 px target", () => {
+    mobile = true;
+    render(<WorktreeActionsMenu session={makeSession()} allSessions={[]} onShutdownSession={() => {}} appearance="segments" />);
+    const trigger = screen.getByTestId("worktree-actions-mobile-trigger");
+    expect(trigger.className).toContain("min-h-6");
+    expect(trigger.className).toContain("min-w-6");
+  });
+});
