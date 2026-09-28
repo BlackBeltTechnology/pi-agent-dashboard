@@ -12,3 +12,7 @@ Row text uses `--text-primary` (branch) + `--text-secondary` (path) ONLY: `--tex
 
 Exports `WorktreeList`, plus pure helpers `normalisePath`, `basenameOf`, `isInTree`, `suppressPathLine`, `elidePath`, `stripWorktreesPrefix`, `buildRows`, `matchesDefault`, `isVisible`, `hiddenCounts`. Path suppression is `inTree && branch != null && basename(path) === slugifyBranch(branch)` (design D7); elision is JS segment-wise, never CSS `direction:rtl` (bidi relocates leading punctuation). See change: manage-worktrees-filter-cleanup. Selection self-prunes on an `entries` change (effect): a completed bulk removal must not leave ghost selections that re-send dead paths.
  Shared `isRemovable` predicate (`!isMain && !bare && !missing`) gates checkbox, batch selection, and Remove button; default view falls back to every non-detached entry when no main resolves. See change: apply-checkout-root-to-worktree-ops.
+
+See change: align-ui-with-theme-tokens. Buttons/links 12 px, `min-h-[44px] sm:min-h-[32px]`, `focus-ring`; remove ✕ 44/32 px with `--tint-red-*` hover; main/missing badges 11 px no uppercase. `ManageWorktreesDialog` inherits.
+
+See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` / `tap-target` utilities (index chunk cap).

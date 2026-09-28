@@ -269,6 +269,22 @@ describe("CreateAutomationDialog (redesign)", () => {
     expect(getByTestId("editor-footer-caption").textContent).toContain("prompt.md");
   });
 
+  // E9 (fieldCount) + F6 badge: the count field says "Sessions per run",
+  // never "Spawn count", and the armed badge uses the green identity tint
+  // instead of the hard-coded #6ee7b7 / rgba(52,211,153,…) literal.
+  // See change: align-ui-with-theme-tokens (design D9, tasks 2.7, 5.20).
+  it("labels the count field 'Sessions per run' and tints the armed chip with --tint-green-*", async () => {
+    const { getByTestId, getByText } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    const count = getByTestId("create-action-count");
+    expect(count.closest("label")?.textContent).toContain("Sessions per run");
+    expect(() => getByText("Spawn count")).toThrow();
+    fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
+    const chip = await waitFor(() => getByTestId("armed-chip"));
+    expect(chip.className).toContain("bg-[var(--tint-green-bg)]");
+    expect(chip.className).toContain("text-[var(--tint-green-fg)]");
+    expect(chip.className).not.toMatch(/#6ee7b7|rgba\(/);
+  });
+
   it("shows inline sandbox help in Advanced", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.click(getByTestId("create-advanced-toggle"));

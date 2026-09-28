@@ -257,7 +257,7 @@ function runReinstall(
     child.stdout?.on("data", (b: Buffer) => onLine(b.toString("utf8").trimEnd()));
     child.stderr?.on("data", (b: Buffer) => onLine(b.toString("utf8").trimEnd()));
     child.on("error", (e: Error) => {
-      onLine(`spawn error: ${e.message}`);
+      onLine(`start error: ${e.message}`);
       resolve(1);
     });
     child.on("exit", (code) => resolve(code ?? 1));
@@ -354,13 +354,13 @@ export async function startRecoveryServer(info: RecoveryInfo): Promise<number> {
         });
         child.unref();
         res.writeHead(200, { "content-type": "text/plain" });
-        res.end("Respawning… give it a few seconds, then reload.");
+        res.end("Restarting… give it a few seconds, then reload.");
         // Defer exit so the response actually flushes.
         setTimeout(() => process.exit(0), 250);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         res.writeHead(500, { "content-type": "text/plain" });
-        res.end("Failed to respawn: " + msg);
+        res.end("Failed to restart the server: " + msg);
       }
       return;
     }

@@ -88,7 +88,7 @@ export function SubagentsSettings() {
 				<code className="font-mono">@fast</code>
 				{t("rolesDepAgentsUsing", undefined, ", agents using ")}
 				<code className="font-mono">@role</code>
-				{t("rolesDepAliasesReport", undefined, " aliases report “not configured yet” at spawn time — Subagents still loads.")}
+				{t("rolesDepAliasesReport", undefined, " aliases report “not configured yet” when a session starts — Subagents still loads.")}
 			</div>
 
 			<label className="flex items-start gap-2 cursor-pointer">

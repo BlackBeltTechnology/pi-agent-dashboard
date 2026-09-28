@@ -68,7 +68,7 @@ describe("spawn correlation (A1)", () => {
       requestId: sent.requestId,
     });
 
-    await expect(pending).rejects.toThrow(/spawn failed: directory missing \(DIR_MISSING\)/);
+    await expect(pending).rejects.toThrow(/session start failed: directory missing \(DIR_MISSING\)/);
     client.close();
   });
 });

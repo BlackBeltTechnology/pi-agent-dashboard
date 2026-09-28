@@ -373,7 +373,7 @@ export class BusClient {
     const res = await result;
     if (!res.success) {
       added.catch(() => {}); // avoid an unhandled rejection when we bail early
-      throw new Error(`spawn failed: ${res.message}${res.code ? ` (${res.code})` : ""}`);
+      throw new Error(`session start failed: ${res.message}${res.code ? ` (${res.code})` : ""}`);
     }
     return (await added).session.id;
   }

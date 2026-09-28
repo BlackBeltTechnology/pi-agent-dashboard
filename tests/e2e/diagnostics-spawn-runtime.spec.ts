@@ -37,7 +37,7 @@ test.describe("diagnostics spawn-runtime visibility (L3, test-plan F1)", () => {
     // <version> (ABI <abi>, via <rung>[/<via>])" — the rung is the source
     // label (user / override / selection / managed / bundled / execPath).
     const runtimeSectionRows = runtimeSection.locator("> .rounded > div");
-    const spawnRow = runtimeSectionRows.filter({ hasText: "Spawn runtime (resolved)" });
+    const spawnRow = runtimeSectionRows.filter({ hasText: "Session runtime (resolved)" });
     await expect(spawnRow).toHaveCount(1, { timeout: 15_000 });
     await expect(spawnRow).toBeVisible();
     await expect(spawnRow).toContainText(/Node v\d+\.\d+\.\d+/);

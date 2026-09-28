@@ -374,7 +374,7 @@ export async function spawnFromSource(
     return { pid: result.reportedPid ?? result.childPid };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to spawn server from source "${source.kind}": ${message}`);
+    throw new Error(`Failed to start server from source "${source.kind}": ${message}`);
   }
 }
 
