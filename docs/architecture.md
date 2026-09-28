@@ -721,6 +721,73 @@ Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `p
 
 See change: `split-notify-from-prompt-request`.
 
+### Push Notifications (change: add-server-push-notifications)
+
+Opt-in cross-device notifications. `push.enabled` defaults to `false` — while disabled no dispatcher, no VAPID keys, no outbound calls (`packages/shared/src/config.ts` `parsePushConfig`; `packages/server/src/push/push-service.ts`).
+
+```mermaid
+flowchart LR
+  E["live event edge (isUnreadTrigger, no viewer)"] --> S["stampUnreadIfTriggered"]
+  S -->|"unreadEdge"| D["device tokens: web-push, fcm"]
+  S -->|"every trigger"| W["webhook tokens, coalesced"]
+  D --> T["setImmediate + Promise.allSettled"]
+  W --> T
+  T --> O{outcome}
+  O -->|gone| P[prune token]
+  O -->|ok| U[touch]
+  O -->|failure| F[recordFailure]
+```
+
+**Trigger — single hook** (`packages/server/src/event-wiring.ts` `stampUnreadIfTriggered`):
+- Called after the unread block, only for a known session: `pushDispatcher?.fanout(sessionId, {eventType, after, payload, unreadEdge})`.
+- Replay never reaches it (`event_forward` checks `replayingSessions`; the `prompt_request` branch is live-only). Viewed session → suppressed.
+- One `ask_user` edge has two callers (`event_forward` / `prompt_request`); only the first reaches fanout — the second sees `currentTool` already `"ask_user"`, so `isUnreadTrigger` is false.
+- Fire-and-forget: `fanout` returns `void`, memory-only sync work, never throws/rejects.
+
+**Hybrid cadence** (`packages/server/src/push/push-dispatcher.ts`):
+- Device tokens (`web-push`, `fcm`) only when `unreadEdge` — one buzz per unread period, next after a view.
+- Webhook tokens every qualifying trigger, coalesced per `(sessionId, tokenId)` within `push.coalesceWindowMs`.
+- Coalesce entries expire lazily at 2× window; dropped on token remove.
+- One structured log line per delivery: `{tokenId, transport, target (redacted), outcome, ms, status|errorCode}`.
+
+**Payload** (`packages/server/src/push/build-push-payload.ts`): `{type: "session_attention", trigger: turn_end|input|crash|test, sessionId, title, body, url: "/session/<id>"}`.
+- `title` = `<name>: turn finished|waiting for input|crashed`; `<name>` falls back to cwd basename.
+- Crash `body` = error cut to 200 chars + `…`; otherwise the session model id.
+
+**Token registry** (`packages/server/src/push/push-token-registry.ts`):
+- `~/.pi/dashboard/push-tokens.json` + `push-vapid.json`, mode `0600` via `writeJsonFile(path, data, {mode})` — `chmod` on the `.tmp` unconditionally before rename.
+- Max 50 tokens; 51st distinct `deviceToken` → `409`. Idempotent by `deviceToken` (same id, new `lastUsedAt`).
+- `touch` persisted ≤ 1 per 60 s. `consecutiveFailures` in memory, reset on success.
+- Corrupt file → renamed `push-tokens.json.corrupt-<epoch ms>`, registry starts empty, `push.errors` entry.
+
+**Transports** (`packages/server/src/push/push-transports/`):
+- web-push: `web-push` lib, VAPID (`push-vapid.json`, generated once); 404/410 → gone.
+- fcm: HTTP v1 API, RS256 service-account JWT via `crypto.createSign`, access token cached, refresh at 3500 s, one re-sign + retry on 401; `NOT_FOUND`/`UNREGISTERED` → gone; missing/unreadable service-account file → FCM disabled + `push.errors` entry.
+- webhook: `undici.request`, no redirects (3xx = failure), 5 s timeout, `body.dump()`; 2xx → ok, 410 → gone, anything else incl 404 → failure, token kept, no retry.
+- gone → token pruned (`registry.remove`).
+
+**Webhook SSRF** (`push-transports/webhook-url.ts`):
+- http/https only, absolute, no userinfo.
+- Blocked: `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, IPv4-mapped forms; dashboard's own listen port on a loopback/local-interface address. Loopback + LAN allowed.
+- Any resolved record blocked → refused. Same check at registration and every delivery.
+- Per-delivery undici `Agent` with `connect.lookup` pinned to the vetted addresses — closes DNS rebinding.
+
+**Redaction**: webhook renders `label (origin)`; web-push `<endpoint host> browser`; fcm `fcm device`. Raw errors never logged. `POST /api/push/test` returns only `{tokenId, ok, gone?}`.
+
+**REST** (`packages/server/src/routes/push-routes.ts`): `GET /api/push/vapid-public-key` (`observe`); `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` (`operate`). Routes always registered; handlers answer 404 while push disabled. Auth chain runs first — unauthenticated remote → 401, not 404. `/api/push/` prefix denylisted from MCP.
+
+**Health**: `/api/health` carries `push.errors` only when `canDiscloseAccessPosture(request)` and push enabled. Missing `push.webPush.contactEmail` → web-push disabled + `push.errors` entry (FCM + webhook keep working).
+
+**Client** (`public/sw.js`, `packages/client/src/hooks/usePushSubscription.ts`, `packages/client/src/components/settings/PushNotificationsSection.tsx`):
+- `sw.js` `push` → `showNotification(title, {body, data: {url, sessionId}})`; `notificationclick` focuses + navigates an existing window, else `openWindow(url)`.
+- Settings ▸ Sessions ▸ Push notifications: device toggle (secure context only, else https notice), iOS install-to-home-screen hint, token list (display, Send test, Remove), Add webhook URL form (works without Web Push).
+
+**FCM setup**: `push.fcm.serviceAccountPath` → Google service-account JSON with `project_id`, `client_email`, `private_key`; never inline in `config.json`.
+
+**nanoMuse recipe**: create a `hook` trigger, copy its URL (`POST /api/hooks/{id}?key=…`), paste into Settings ▸ Sessions ▸ Push notifications ▸ Add webhook URL. nanoMuse answers 429 within 10 s of a previous call — logged, not retried.
+
+See change: `add-server-push-notifications`.
+
 ### Command Flow (browser → pi)
 1. User types prompt or command in browser
 2. Browser sends `send_prompt` via WebSocket

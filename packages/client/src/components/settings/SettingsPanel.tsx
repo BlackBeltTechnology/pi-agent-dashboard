@@ -75,6 +75,7 @@ import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
@@ -2188,6 +2189,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     sibling turn-lifecycle timeouts already live here. */}
                 <Section title={t("settings.retry", undefined, "Retry")}>
                   <RetrySettingsSection />
+                </Section>
+                <Section title={t("settings.push.title", undefined, "Push notifications")}>
+                  <PushNotificationsSection />
                 </Section>
               </>
             )}

@@ -34,3 +34,5 @@ Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registr
 See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trusts via `isTrustedSource(remoteAddress, wsHeaders, trusted)` (relayed loopback → 403); boot calls `noteTrustedList(liveTrustedNetworks(...))` once; `registerSystemRoutes` gets `readTrustedNetworks` (live list) for `/api/health` `trustPosture`.
 
 providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
+
+`ServerConfig.push?`. `createPushService({config.push, dataDir: CONFIG_DIR, getSession, selfPort})` only when `push.enabled === true`, inside try/catch (init failure → logged, push disabled, `push init failed (<code>)` in `push.errors`); dispatcher passed to `wireEvents` beside `viewedSessionTracker`; `registerPushRoutes(fastify, {getPush})` always; `readPushErrors` to system routes; `pushService.shutdown()` in `stop()`. See change: add-server-push-notifications.

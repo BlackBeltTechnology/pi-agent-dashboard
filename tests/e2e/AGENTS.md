@@ -10,6 +10,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
+| `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `helpers/computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs`: `measureText` (canvas-resolved fg over composited bg… → see `helpers/computed-contrast.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Computed `--severity-{success,warning,info,error}-{bg,fg}` for all 18 theme×mode combos, captured BEFORE the… → see `fixtures/severity-baseline.json.AGENTS.md` |

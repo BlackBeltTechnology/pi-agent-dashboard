@@ -11,3 +11,5 @@ REST routes: config, health, shutdown, tunnel. External-editor endpoints `/api/e
 See change: surface-denial-remedy-in-previews — `/api/health` access block gated by shared `canDiscloseAccessPosture`.
 `bundleHash` policy honours `fixturePluginsEnabled()` (`!config.dev && !fixturePluginsEnabled()`), matching the vite fixture gate. See change: expose-plugin-credential-and-oauth-seams.
 See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustPosture: {trustedHasLoopback} | null` (via `loopbackCoveringEntries`), same `canDiscloseAccessPosture` gate as `accessGrants`; dep `readTrustedNetworks?` (server wires `liveTrustedNetworks`; falls back to `config.resolvedTrustedNetworks`).
+
+`readPushErrors?` dep. `/api/health` adds `push: {errors}` only when wired (push enabled) AND `canDiscloseAccessPosture(request)`; key absent otherwise. `/api/health` sends `Cache-Control: no-store, private` (caller-dependent disclosure-gated payload). See change: add-server-push-notifications.

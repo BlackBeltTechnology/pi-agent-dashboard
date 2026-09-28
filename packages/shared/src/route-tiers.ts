@@ -61,6 +61,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "DELETE", path: "/api/provider-auth/:provider", tier: "operate" },
   { method: "DELETE", path: "/api/provider-auth/flow/:flowId", tier: "operate" },
   { method: "DELETE", path: "/api/providers/:name", tier: "operate" },
+  // add-server-push-notifications (Decision 12): a webhook registration is an
+  // outbound-request primitive and the list reveals receiver origins.
+  { method: "DELETE", path: "/api/push/register/:tokenId", tier: "operate" },
   { method: "DELETE", path: "/api/sessions/archived/:id", tier: "control" },
   { method: "DELETE", path: "/api/tools/:name", tier: "control" },
   { method: "GET", path: "/api/apple-tools/status", tier: "observe" },
@@ -156,6 +159,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/provider-auth/providers", tier: "operate" },
   { method: "GET", path: "/api/provider-auth/status", tier: "operate" },
   { method: "GET", path: "/api/providers", tier: "observe" },
+  { method: "GET", path: "/api/push/register", tier: "operate" },
+  { method: "GET", path: "/api/push/vapid-public-key", tier: "observe" },
   { method: "GET", path: "/api/quota", tier: "observe" },
   { method: "GET", path: "/api/roles", tier: "observe" },
   { method: "GET", path: "/api/session-change/:sessionId/:toolCallId", tier: "observe" },
@@ -254,6 +259,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/provider-auth/flow/:flowId/input", tier: "operate" },
   { method: "POST", path: "/api/provider-auth/start", tier: "operate" },
   { method: "POST", path: "/api/providers/test", tier: "operate" },
+  { method: "POST", path: "/api/push/register", tier: "operate" },
+  { method: "POST", path: "/api/push/test", tier: "operate" },
   { method: "POST", path: "/api/resources/reload", tier: "operate" },
   { method: "POST", path: "/api/resources/toggle", tier: "operate" },
   { method: "POST", path: "/api/resources/trust", tier: "operate" },

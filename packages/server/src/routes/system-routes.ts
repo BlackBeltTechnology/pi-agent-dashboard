@@ -183,6 +183,10 @@ export function registerSystemRoutes(
     // `trustPosture` health field. Falls back to the boot list when unwired.
     // See change: fix-trusted-network-tunnel-bypass (D3).
     readTrustedNetworks?: () => string[];
+    // Push config / transport-init errors. Wired only while push is enabled;
+    // served as `push.errors` behind `canDiscloseAccessPosture`.
+    // See change: add-server-push-notifications.
+    readPushErrors?: () => readonly string[];
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
     // DERIVED from the store's exported TrimStats, never restated inline: an
@@ -215,7 +219,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -916,7 +920,11 @@ export function registerSystemRoutes(
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
 
   // Health endpoint — includes server + agent process metrics
-  fastify.get("/api/health", async (request) => {
+  fastify.get("/api/health", async (request, reply) => {
+    // The payload is caller-dependent (`accessGrants`, `trustPosture`,
+    // `push` are disclosure-gated): never let a cache replay it to another
+    // caller. See change: add-server-push-notifications.
+    reply.header("Cache-Control", "no-store, private");
     const mem = process.memoryUsage();
     // Telemetry reads are failure-isolated so a throwing provider can never
     // turn /api/health into a 500. See change: instrument-session-hydration-timing.
@@ -951,6 +959,13 @@ export function registerSystemRoutes(
         trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
       } catch { /* keep null */ }
     }
+    // Push errors name local config (file paths, missing keys): same
+    // disclosure gate. Absent key when undisclosable or push is disabled.
+    // See change: add-server-push-notifications.
+    let push: { errors: string[] } | null = null;
+    if (readPushErrors && canDiscloseAccessPosture(request)) {
+      try { push = { errors: [...readPushErrors()] }; } catch { /* keep null */ }
+    }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();
@@ -970,6 +985,7 @@ export function registerSystemRoutes(
       // Loopback-trusted-entry posture (additive; null unless disclosable).
       // See change: fix-trusted-network-tunnel-bypass (D3).
       trustPosture,
+      ...(push ? { push } : {}),
       // Rendezvous instance id (NOT the Ed25519 `identity`): names which
       // same-HOME instance answered, so a bridge can tell its own dashboard
       // from a foreign listener on a recycled port. An IDENTIFIER, never a

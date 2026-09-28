@@ -206,6 +206,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     // store's unbounded default). See change: bound-event-store-by-bytes (task 5.1).
     memoryLimits: fileConfig.memoryLimits,
     openspec: fileConfig.openspec,
+    push: fileConfig.push,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,
     completedFirst: fileConfig.completedFirst,
