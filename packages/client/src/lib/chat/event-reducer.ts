@@ -1128,19 +1128,6 @@ export function truncateOutputForDisplay(
  * See change: fix-interactive-ui-reorder.
  */
 /**
- * Append a notification as a chat row — and ONLY a chat row.
- *
- * A notify is not an unanswered ask, so it deliberately does NOT go through
- * `addInteractiveRequest`: that helper also pushes an `interactiveRequests`
- * entry, which is where the "user is blocked" semantics live. Chat position is
- * preserved because it IS insertion order in `messages`.
- *
- * Dedup is by `notifyId`, never by message text: `replayNotifyLog` fires at
- * both delta-subscribe sites, so a warm reconnect must not duplicate a row,
- * while two distinct notifications with identical text must both render.
- * See change: split-notify-from-prompt-request.
- */
-/**
  * Insert `row` chronologically: scan `messages` from the end in ARRAY order,
  * skipping `historyGap` dividers (client-clock, never an anchor), and insert
  * right after the first row with `timestamp <= ts` (equal → existing row
@@ -1185,6 +1172,19 @@ function isNotifyRow(m: ChatMessage): boolean {
   return m.role === "interactiveUi" && m.content === "notify" && (m.args as any)?.method === "notify";
 }
 
+/**
+ * Append a notification as a chat row — and ONLY a chat row.
+ *
+ * A notify is not an unanswered ask, so it deliberately does NOT go through
+ * `addInteractiveRequest`: that helper also pushes an `interactiveRequests`
+ * entry, which is where the "user is blocked" semantics live. Chat position is
+ * preserved because it IS insertion order in `messages`.
+ *
+ * Dedup is by `notifyId`, never by message text: `replayNotifyLog` fires at
+ * both delta-subscribe sites, so a warm reconnect must not duplicate a row,
+ * while two distinct notifications with identical text must both render.
+ * See change: split-notify-from-prompt-request.
+ */
 export function addNotify(
   state: SessionState,
   notifyId: string,

@@ -1652,7 +1652,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     ],
     expect: { toolName: "e2e_notify" },
   },
-  // Ten identical warnings spaced 400 ms apart → the collapsed row is watched
+  // Ten identical warnings spaced 800 ms apart → the collapsed row is watched
   // growing live. See change: collapse-and-order-notify-rows (test-plan #F3).
   "notify-repeat-slow": {
     script: [
@@ -1662,7 +1662,7 @@ export const SCENARIOS: Record<string, Scenario> = {
             message: NOTIFY_REPEAT_MESSAGE,
             level: "warning",
             count: 10,
-            intervalMs: 400,
+            intervalMs: 800,
           }),
         ],
         { stopReason: "toolUse" },

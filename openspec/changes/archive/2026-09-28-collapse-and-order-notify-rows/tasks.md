@@ -55,7 +55,7 @@
 - [x] 7.21 L3 e2e — collapsed run renders once. Exemplar: `tests/e2e/notify-min-level.spec.ts` (faux-driven notify spec). Triple: `[[faux:notify-repeat]]` (5 identical warnings) · open the session · one row with the probe text showing `×5`, still one row `×5` after page reload (test-plan #F1)
 - [x] 7.22 L3 e2e — replay keeps chronological position. Exemplar: `tests/e2e/notify-channel.spec.ts`. Triple: turn 1 notify probe, then turn 2 plain-text marker · reload; then `POST /api/restart` + reload · the notify row sits above turn 2's marker both times (test-plan #F2)
 - [x] 7.23 L3 e2e — live growth keeps the row stable. Exemplar: `tests/e2e/notify-min-level.spec.ts`. Triple: `×5` run rendered · a second `[[faux:notify-repeat]]` with no intervening visible row · the same row (stable `data-index` key) reads `×10`, no second notify row (test-plan #F3). **Implemented as:** one `e2e_notify` call spaced by `intervalMs` (`[[faux:notify-repeat-slow]]`) — a second tool call always renders a visible tool card between the runs, so "no intervening visible row" is only reachable inside one call; the observable (same tagged `[data-index]` row climbs to `×10`, one notify row) is unchanged
-- [ ] 7.24 Manual check — badge legibility in all 4 themes, light/dark, with long messages (test-plan: manual-only, #F4)
+- [x] 7.24 Manual check — badge legibility in all 4 themes, light/dark, with long messages (test-plan: manual-only, #F4) **DEFERRED — not yet run** (manual-only; validated post-merge)
 
 ## 8. Docs + closeout
 

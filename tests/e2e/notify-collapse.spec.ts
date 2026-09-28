@@ -33,23 +33,38 @@ async function reloadAndWait(page: Page): Promise<void> {
   await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
 }
 
-/** POST /api/restart and poll /api/health until the daemon is back. */
-async function restartDashboard(): Promise<void> {
-  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
+/**
+ * POST /api/restart and wait for a STABLE process — healthy AND the same pid
+ * across two probes 3 s apart. A single healthy probe can land between two
+ * restart waves (the re-exec hand-off), and the NEXT spec then races the
+ * second bounce (observed: its first prompt is lost). Pattern:
+ * `pending-prompt-recovery.spec.ts` `restartDashboardStable`.
+ */
+async function restartDashboardStable(): Promise<void> {
+  const base = `http://localhost:${DASHBOARD_PORT}`;
+  await fetch(`${base}/api/restart`, { method: "POST" }).catch(
     () => undefined, // the connection dies with the daemon; that is the point
   );
   await new Promise((r) => setTimeout(r, 2_000));
-  const deadline = Date.now() + 150_000;
-  while (Date.now() < deadline) {
+  const pid = async (): Promise<number | null> => {
     try {
-      const res = await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`);
-      if (res.ok) return;
+      const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(5_000) });
+      if (!res.ok) return null;
+      return ((await res.json()) as { pid?: number }).pid ?? null;
     } catch {
-      // still down
+      return null; // still down
+    }
+  };
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const first = await pid();
+    if (first !== null) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      if ((await pid()) === first) return;
     }
     await new Promise((r) => setTimeout(r, 1_000));
   }
-  throw new Error("dashboard did not come back after POST /api/restart");
+  throw new Error("dashboard did not come back (stably) after POST /api/restart");
 }
 
 test.describe("notify collapse — adjacent identical notifies render once", () => {
@@ -82,7 +97,7 @@ test.describe("notify collapse — adjacent identical notifies render once", () 
     await sendPrompt(page, "[[faux:notify-repeat-slow]] go");
     const rows = notifyRows(page, NOTIFY_REPEAT_MESSAGE);
     const badge = rows.first().getByTestId("notify-repeat-count");
-    // Catch the run mid-growth (the fixture spaces 10 notifies 400 ms apart).
+    // Catch the run mid-growth (the fixture spaces 10 notifies 800 ms apart).
     await expect(badge).toBeVisible({ timeout: 60_000 });
     const earlyCount = Number((await badge.textContent())?.replace(/\D/g, ""));
     expect(earlyCount).toBeLessThan(10);
@@ -130,7 +145,7 @@ test.describe("notify replay — keeps its chronological position", () => {
     await assertNotifyAboveMarker();
 
     // Cold path: the notify log is re-read from the persisted session meta.
-    await restartDashboard();
+    await restartDashboardStable();
     await reloadAndWait(page);
     await assertNotifyAboveMarker();
   });
