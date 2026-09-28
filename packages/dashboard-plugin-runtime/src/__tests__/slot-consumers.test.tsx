@@ -1,11 +1,12 @@
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { render, renderHook, screen } from "@testing-library/react";
+import { cleanup, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginContextProvider } from "../plugin-context.js";
 import {
   ComposerContextGroup,
   ComposerContextGroupSlot,
+  ToolbarGroup,
   ComposerPanelSlot,
   SessionCardBadgeSlot,
   SessionCardMemorySlot,
@@ -17,6 +18,8 @@ import {
   WorktreeCardSectionSlot,
 } from "../slot-consumers.js";
 import { createSlotRegistry } from "../slot-registry.js";
+
+afterEach(cleanup);
 
 function makeSession(id = "s1"): DashboardSession {
   return { id, cwd: "/repo", source: "tui", status: "active", startedAt: 0 };
@@ -607,25 +610,114 @@ describe("ComposerContextGroupSlot", () => {
 });
 
 describe("ComposerContextGroup primitive", () => {
-  it("E15: renders a divider, an uppercase label and the children as one non-shrinking unit", () => {
+  // Re-implemented over ToolbarGroup (info variant).
+  // See change: redesign-composer-session-strip (D1).
+  it("E15: renders one labelled info group — label first, children inside the content element", () => {
     render(
       <ComposerContextGroup label="Quota" testId="g">
         <span data-testid="g-child">child</span>
       </ComposerContextGroup>,
     );
     const root = screen.getByTestId("g");
-    expect(root.className).toContain("inline-flex");
-    expect(root.className).toContain("shrink-0");
-    const divider = root.querySelector('[aria-hidden="true"]');
-    expect(divider).toBeTruthy();
+    expect(root.getAttribute("role")).toBe("group");
+    expect(root.getAttribute("data-group")).toBe("info");
+    expect(root.className).toContain("border-dashed");
     const label = screen.getByTestId("g-label");
     expect(label.textContent).toBe("Quota");
     expect(label.className).toContain("uppercase");
-    // Order: divider → label → child.
-    const order = Array.from(root.children).map((el) => el.getAttribute("data-testid") ?? el.tagName);
-    expect(order[0]).toBe("SPAN"); // divider has no testid
-    expect(order[1]).toBe("g-label");
-    expect(order[2]).toBe("g-child");
+    // Order: label → content (holding the child).
+    expect(root.children[0]).toBe(label);
+    const content = root.children[1]!;
+    expect(content.hasAttribute("data-group-content")).toBe(true);
+    expect(content.contains(screen.getByTestId("g-child"))).toBe(true);
+  });
+
+  // test-plan #E10
+  it("E10: role group named by a string label and by a node label", () => {
+    const { unmount } = render(
+      <ComposerContextGroup label="Quota" testId="quota-context-group">
+        <span>x</span>
+      </ComposerContextGroup>,
+    );
+    expect(screen.getByRole("group", { name: "Quota" })).toBe(screen.getByTestId("quota-context-group"));
+    expect(screen.getByTestId("quota-context-group-label").textContent).toBe("Quota");
+    unmount();
+    render(
+      <ComposerContextGroup label={<b>Quota</b>} testId="quota-context-group">
+        <span>x</span>
+      </ComposerContextGroup>,
+    );
+    expect(screen.getByRole("group", { name: "Quota" })).toBeTruthy();
+  });
+
+  it("E10: without a testId no element gets data-testid=\"undefined-label\"", () => {
+    const { container } = render(
+      <ComposerContextGroup label="Quota">
+        <span>x</span>
+      </ComposerContextGroup>,
+    );
+    expect(container.querySelector('[data-testid="undefined-label"]')).toBeNull();
+    expect(container.querySelector("[data-testid]")).toBeNull();
+    expect(screen.getByRole("group", { name: "Quota" })).toBeTruthy();
+  });
+});
+
+describe("ToolbarGroup primitive (2.1)", () => {
+  it("actions variant: solid outline + label segment; labelTestId overrides the derived id", () => {
+    render(
+      <ToolbarGroup label="Git" testId="composer-git-container" labelTestId="composer-git-group-label">
+        <button type="button">Push</button>
+      </ToolbarGroup>,
+    );
+    const root = screen.getByTestId("composer-git-container");
+    expect(root.getAttribute("data-group")).toBe("actions");
+    expect(root.className).not.toContain("border-dashed");
+    expect(screen.getByTestId("composer-git-group-label").textContent).toBe("Git");
+    expect(screen.queryByTestId("composer-git-container-label")).toBeNull();
+    expect(screen.getByRole("group", { name: "Git" })).toBe(root);
+  });
+
+  it("customContent: the child is the content element (no extra wrapper)", () => {
+    render(
+      <ToolbarGroup label="Status" testId="c" customContent>
+        <fieldset data-testid="composer-status-group" data-group-content="" />
+      </ToolbarGroup>,
+    );
+    const root = screen.getByTestId("c");
+    expect(root.children).toHaveLength(2);
+    expect(root.children[1]!.tagName).toBe("FIELDSET");
+    expect(root.querySelectorAll("[data-group-content]")).toHaveLength(1);
+  });
+});
+
+// ── test-plan #X5: empty plugin contribution leaves no trace ────────────────
+
+describe("ComposerContextGroupSlot — empty contribution (#X5)", () => {
+  it("a claim rendering null leaves no container or label; other claims unaffected", () => {
+    const registry = createSlotRegistry();
+    registry.addClaim({
+      pluginId: "empty",
+      priority: 100,
+      slot: "composer-context-group",
+      Component: () => null,
+    });
+    registry.addClaim({
+      pluginId: "quota",
+      priority: 110,
+      slot: "composer-context-group",
+      Component: () => (
+        <ComposerContextGroup label="Quota" testId="quota-context-group">
+          <span>9%</span>
+        </ComposerContextGroup>
+      ),
+    });
+    const { container } = render(
+      <PluginContextProvider registry={registry}>
+        <ComposerContextGroupSlot session={makeSession("s1")} />
+      </PluginContextProvider>,
+    );
+    expect(container.querySelectorAll("[data-group]")).toHaveLength(1);
+    expect(screen.getByTestId("quota-context-group-label")).toBeTruthy();
   });
 });
 
