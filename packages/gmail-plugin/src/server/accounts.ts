@@ -12,9 +12,9 @@ import type {
 import { isTier, type Tier } from "../shared/scopes.js";
 
 export const CLIENT_KEY = "client";
-export const ACCT_PREFIX = "acct:";
+const ACCT_PREFIX = "acct:";
 
-export type AccountStatus = "ok" | "reauth_required";
+type AccountStatus = "ok" | "reauth_required";
 
 export interface ClientRecord {
   clientId: string;

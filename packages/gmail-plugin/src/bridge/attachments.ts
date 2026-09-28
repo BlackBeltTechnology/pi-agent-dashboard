@@ -14,9 +14,9 @@ import { open, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { isPathInside } from "@blackbelt-technology/pi-dashboard-shared/path-containment.js";
 
-export const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
+const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
 
-export class PathRefusedError extends Error {
+class PathRefusedError extends Error {
   constructor(readonly code: "path_refused" | "exists" | "too_large") {
     super(
       code === "exists"

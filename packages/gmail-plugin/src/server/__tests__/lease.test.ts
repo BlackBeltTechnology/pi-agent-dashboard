@@ -3,8 +3,8 @@
  * See change: add-gmail-plugin.
  */
 import { describe, expect, it } from "vitest";
-import { capturingLogger, CLIENT, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
-import { type Op, SCOPE, type Tier, TIER_SCOPES } from "../../shared/scopes.js";
+import { CLIENT, capturingLogger, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
+import { type Op, SCOPE, TIER_SCOPES, type Tier } from "../../shared/scopes.js";
 import { AccountStore, acctKey, CLIENT_KEY } from "../accounts.js";
 import { createLeaseHandler } from "../lease.js";
 
@@ -140,7 +140,7 @@ describe("X1 — invalid_grant", () => {
 describe("X2 — token endpoint down", () => {
   it("503 → refresh_failed, status stays ok, no token in the error", async () => {
     const { lease, creds } = setup({ expiresIn: 0, refresh: () => ({ status: 503, body: { error: "backend_error" } }) });
-    const err = await lease({ account: "work", op: "read" }).catch((e: Error) => e);
+    const err = (await lease({ account: "work", op: "read" }).catch((e: unknown) => e)) as Error;
     expect(err).toMatchObject({ code: "refresh_failed" });
     expect(err.message).not.toMatch(/REFRESH-old|ACCESS-old|SECRET/);
     expect(creds.data.get(acctKey("s1"))?.status).toBe("ok");

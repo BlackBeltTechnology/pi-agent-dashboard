@@ -23,9 +23,9 @@ import { isOp, type Op, scopesCover, tierAllows } from "../shared/scopes.js";
 import { AccountError, type AccountRecord, type AccountStore } from "./accounts.js";
 import { oauthClient, oauthServer, requestOptions } from "./google-oauth.js";
 
-export const REFRESH_WINDOW_MS = 60_000;
+const REFRESH_WINDOW_MS = 60_000;
 
-export type LeaseErrorCode =
+type LeaseErrorCode =
   | "bad_request"
   | "not_found"
   | "ambiguous"
@@ -35,7 +35,7 @@ export type LeaseErrorCode =
   | "reauth_required"
   | "refresh_failed";
 
-export class LeaseError extends Error {
+class LeaseError extends Error {
   constructor(
     readonly code: LeaseErrorCode,
     detail: string,
@@ -46,7 +46,7 @@ export class LeaseError extends Error {
 }
 
 
-export interface LeaseLogger {
+interface LeaseLogger {
   info(msg: string): void;
   warn(msg: string): void;
 }
@@ -105,36 +105,44 @@ export function createLeaseHandler(deps: LeaseDeps) {
     return p;
   }
 
-  return async function handleLease(payload: unknown): Promise<LeaseReply> {
+  async function resolveAccount(payload: unknown): Promise<{ acct: AccountRecord; op: Op }> {
     const p = (payload ?? {}) as { account?: unknown; op?: unknown };
     if (typeof p.account !== "string" || !p.account.trim() || !isOp(p.op)) {
       throw new LeaseError("bad_request", "expected {account, op}");
     }
-    const op: Op = p.op;
-    let acct: AccountRecord;
     try {
-      acct = await deps.store.resolve(p.account);
+      return { acct: await deps.store.resolve(p.account), op: p.op };
     } catch (err) {
       if (err instanceof AccountError && (err.code === "not_found" || err.code === "ambiguous")) {
         throw new LeaseError(err.code, err.message);
       }
       throw err;
     }
-    const outcome = (o: string) => deps.logger.info(`[gmail] lease ${acct.email} op=${op}: ${o}`);
+  }
+
+  /** Level + granted-scope + status gate. Returns the refusal, or null when allowed. */
+  function refusal(acct: AccountRecord, op: Op): LeaseError | null {
     if (!tierAllows(acct.tier, op)) {
-      outcome("tier_denied");
-      throw new LeaseError("tier_denied", `${acct.email} is at level "${acct.tier}", which does not allow "${op}"`);
+      return new LeaseError("tier_denied", `${acct.email} is at level "${acct.tier}", which does not allow "${op}"`);
     }
     if (!scopesCover(acct.scopes, op)) {
-      outcome("scope_missing");
-      throw new LeaseError("scope_missing", `Google did not grant the scope "${op}" needs for ${acct.email}; re-authenticate`);
+      return new LeaseError("scope_missing", `Google did not grant the scope "${op}" needs for ${acct.email}; re-authenticate`);
     }
     if (acct.status === "reauth_required") {
-      outcome("reauth_required");
-      throw new LeaseError("reauth_required", `${acct.email} needs re-authentication in the Gmail panel`);
+      return new LeaseError("reauth_required", `${acct.email} needs re-authentication in the Gmail panel`);
     }
-    let access = acct.access;
-    let expires = acct.expires;
+    return null;
+  }
+
+  return async function handleLease(payload: unknown): Promise<LeaseReply> {
+    const { acct, op } = await resolveAccount(payload);
+    const outcome = (o: string) => deps.logger.info(`[gmail] lease ${acct.email} op=${op}: ${o}`);
+    const refused = refusal(acct, op);
+    if (refused) {
+      outcome(refused.code);
+      throw refused;
+    }
+    let { access, expires } = acct;
     if (!access || expires - now() <= REFRESH_WINDOW_MS) {
       try {
         ({ access, expires } = await refreshOnce(acct));

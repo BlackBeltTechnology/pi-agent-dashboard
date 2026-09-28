@@ -98,9 +98,10 @@ test.describe("gmail plugin", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    fakeGoogleControl(cid, "reset");
     await gotoDashboard(page);
     await clearAccounts(page);
+    // Reset AFTER clearing: the cleanup's own revokes must not count.
+    fakeGoogleControl(cid, "reset");
   });
 
   test("F1: wizard upload → add account → converges to one readonly/ok row", async ({ page }) => {

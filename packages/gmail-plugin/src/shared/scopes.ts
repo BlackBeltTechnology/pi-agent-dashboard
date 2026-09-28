@@ -26,7 +26,7 @@ export const TIER_SCOPES: Record<Tier, readonly string[]> = {
 const TIER_RANK: Record<Tier, number> = { readonly: 0, draft: 1, send: 2 };
 
 /** Minimum tier each operation requires. */
-export const OP_TIER: Record<Op, Tier> = {
+const OP_TIER: Record<Op, Tier> = {
   read: "readonly",
   draft: "draft",
   send: "send",
@@ -56,17 +56,13 @@ export function isOp(v: unknown): v is Op {
   return v === "read" || v === "draft" || v === "send" || v === "modify" || v === "trash";
 }
 
-export function tierRank(t: Tier): number {
-  return TIER_RANK[t];
-}
-
 /** True when `tier` is high enough for `op`. */
 export function tierAllows(tier: Tier, op: Op): boolean {
   return TIER_RANK[tier] >= TIER_RANK[OP_TIER[op]];
 }
 
 /** Expand granted scopes through the implication table. */
-export function effectiveScopes(granted: readonly string[]): Set<string> {
+function effectiveScopes(granted: readonly string[]): Set<string> {
   const out = new Set<string>();
   for (const s of granted) {
     out.add(s);

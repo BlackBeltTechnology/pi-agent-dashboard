@@ -9,7 +9,7 @@ import type {
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { capturingLogger, CLIENT, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
+import { CLIENT, capturingLogger, fakeGoogleFetch, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
 import { SCOPE } from "../../shared/scopes.js";
 import { AccountStore, acctKey, CLIENT_KEY } from "../accounts.js";
 import { mountGmailRoutes } from "../routes.js";

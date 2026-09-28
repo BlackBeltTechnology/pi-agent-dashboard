@@ -26,9 +26,8 @@ export interface MimeMessage {
 const clean = (v: string): string => v.replace(/[\r\n]+/g, " ").trim();
 
 /** RFC 2047 `=?UTF-8?B?…?=` when the value is not plain ASCII. */
-export function encodeHeaderWord(v: string): string {
+function encodeHeaderWord(v: string): string {
   const c = clean(v);
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: printable-ASCII test
   if (/^[\x20-\x7e]*$/.test(c)) return c;
   return `=?UTF-8?B?${Buffer.from(c, "utf8").toString("base64")}?=`;
 }

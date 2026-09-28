@@ -5,6 +5,7 @@ store, OAuth flow start, and private bridge→server request/reply lane. All thr
 exposed on `ServerPluginContext` from
 `@blackbelt-technology/dashboard-plugin-runtime/server`. Worked example:
 `packages/demo-plugin` (fixture).
+First production consumer: `packages/gmail-plugin` → see [`gmail-plugin.md`](gmail-plugin.md).
 
 See change: `expose-plugin-credential-and-oauth-seams`.
 

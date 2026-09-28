@@ -30,7 +30,7 @@ export function consoleLinks(projectId: string): ConsoleLinks {
 
 const PROJECT_ID_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
 
-export function isValidProjectId(id: string): boolean {
+function isValidProjectId(id: string): boolean {
   return PROJECT_ID_RE.test(id);
 }
 

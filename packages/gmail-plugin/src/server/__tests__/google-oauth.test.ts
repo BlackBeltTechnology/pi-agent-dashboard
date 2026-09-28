@@ -6,7 +6,7 @@ import { request } from "node:http";
 import { createLoopbackCallback, type PluginLoginInteraction } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CLIENT, fakeGoogleFetch, idToken, TEST_ENDPOINTS, validClaims } from "../../__tests__/fakes.js";
-import { buildAuthUrl, createGoogleLoginFlow, GmailFlowError, parsePastedRedirect } from "../google-oauth.js";
+import { buildAuthUrl, createGoogleLoginFlow, type GmailFlowError, parsePastedRedirect } from "../google-oauth.js";
 
 const STATE = "S".repeat(43);
 

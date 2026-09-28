@@ -4,6 +4,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
+| `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |

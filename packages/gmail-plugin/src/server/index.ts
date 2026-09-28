@@ -6,8 +6,8 @@
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { resolveGoogleEndpoints } from "../shared/endpoints.js";
-import { AccountStore, summarize } from "./accounts.js";
 import { ACCOUNTS_TYPE, LEASE_TYPE } from "../shared/protocol.js";
+import { AccountStore, summarize } from "./accounts.js";
 import { createLeaseHandler } from "./lease.js";
 import { mountGmailRoutes } from "./routes.js";
 

@@ -6,7 +6,7 @@
  * foreign token endpoint. See change: add-gmail-plugin.
  */
 
-export const GOOGLE_BASE_URL_ENV = "PI_E2E_GOOGLE_BASE_URL";
+const GOOGLE_BASE_URL_ENV = "PI_E2E_GOOGLE_BASE_URL";
 
 export interface GoogleEndpoints {
   issuer: string;

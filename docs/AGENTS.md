@@ -26,6 +26,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |
+| `gmail-plugin.md` | Map Gmail setup, sign-in, leases, levels, tools, routes, storage, tests, security. See change: add-gmail-plugin. |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
 | `kb-read-discipline.md` | Trust verdicts on `kb_search` agents hits (FRESH/STALE/MOVED/GONE/UNVERIFIED, cap 8, ack sidecar v2) + search… → see `kb-read-discipline.md.AGENTS.md` |

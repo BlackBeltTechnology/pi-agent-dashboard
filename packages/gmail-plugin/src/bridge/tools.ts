@@ -23,8 +23,8 @@ import { buildMime, type MimeAttachment, toRaw } from "./mime.js";
 export const READ_TOOLS = ["gmail_search", "gmail_get", "gmail_labels", "gmail_attachments"] as const;
 export const WRITE_TOOLS = ["gmail_draft", "gmail_send", "gmail_reply", "gmail_modify", "gmail_trash"] as const;
 
-export const MAX_SEARCH_RESULTS = 50;
-export const PREVIEW_CHARS = 500;
+const MAX_SEARCH_RESULTS = 50;
+const PREVIEW_CHARS = 500;
 
 export interface ToolContext {
   cwd?: string;
@@ -32,7 +32,7 @@ export interface ToolContext {
   ui?: { confirm(title: string, message: string, opts?: unknown): Promise<boolean> };
 }
 
-export interface ToolResult {
+interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 }
@@ -107,6 +107,21 @@ function recipients(v: unknown, name: string, min: number): string[] {
 
 function preview(body: string): string {
   return body.length > PREVIEW_CHARS ? `${body.slice(0, PREVIEW_CHARS)}…` : body;
+}
+
+/** Confirm-prompt body: account, recipients, subject, attachments, ≤500-char preview. */
+function messageLines(m: { account: string; to: string[]; cc?: string[]; bcc?: string[]; subject: string; files: string[]; body: string }) {
+  const opt = (label: string, list: string[] | undefined) => (list?.length ? [`${label}: ${list.join(", ")}`] : []);
+  return [
+    `Account: ${m.account}`,
+    `To: ${m.to.join(", ")}`,
+    ...opt("Cc", m.cc),
+    ...opt("Bcc", m.bcc),
+    `Subject: ${m.subject}`,
+    ...opt("Attachments", m.files),
+    "",
+    preview(m.body),
+  ];
 }
 
 async function confirmWrite(ctx: ToolContext | undefined, title: string, lines: string[]): Promise<void> {
@@ -200,16 +215,8 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const subject = str(p.subject, "subject") as string;
         const body = str(p.body, "body", false) ?? "";
         const files = strList(p.attachments, "attachments", { max: 10 });
-        await confirmWrite(ctx, kind === "draft" ? `Gmail: create draft in ${account}` : `Gmail: send from ${account}`, [
-          `Account: ${account}`,
-          `To: ${to.join(", ")}`,
-          ...(cc.length ? [`Cc: ${cc.join(", ")}`] : []),
-          ...(bcc.length ? [`Bcc: ${bcc.join(", ")}`] : []),
-          `Subject: ${subject}`,
-          ...(files.length ? [`Attachments: ${files.join(", ")}`] : []),
-          "",
-          preview(body),
-        ]);
+        const title = kind === "draft" ? `Gmail: create draft in ${account}` : `Gmail: send from ${account}`;
+        await confirmWrite(ctx, title, messageLines({ account, to, cc, bcc, subject, files, body }));
         const attachments = await loadAttachments(ctx, files);
         const lease = await deps.leases.lease(account, op);
         const raw = toRaw(buildMime({ to, cc, bcc, subject, body, attachments }));
@@ -413,15 +420,7 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const subj = header(orig.payload, "Subject") ?? "";
         const subject = /^re:/i.test(subj) ? subj : `Re: ${subj}`;
         const references = [header(orig.payload, "References"), origId].filter(Boolean).join(" ") || undefined;
-        await confirmWrite(ctx, `Gmail: reply from ${account}`, [
-          `Account: ${account}`,
-          `To: ${to.join(", ")}`,
-          ...(cc.length ? [`Cc: ${cc.join(", ")}`] : []),
-          `Subject: ${subject}`,
-          ...(files.length ? [`Attachments: ${files.join(", ")}`] : []),
-          "",
-          preview(body),
-        ]);
+        await confirmWrite(ctx, `Gmail: reply from ${account}`, messageLines({ account, to, cc, subject, files, body }));
         const attachments = await loadAttachments(ctx, files);
         // A confirm may outlast the lease's ≥60 s validity — re-lease only then.
         if (lease.expiresAt - Date.now() < 30_000) lease = await deps.leases.lease(account, "send");

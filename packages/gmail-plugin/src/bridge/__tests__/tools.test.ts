@@ -4,11 +4,11 @@
  * X6; tasks 3.1–3.3). See change: add-gmail-plugin.
  */
 import { describe, expect, it, vi } from "vitest";
-import { capturingLogger, CLIENT, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
+import { CLIENT, capturingLogger, memoryCredentials, TEST_ENDPOINTS } from "../../__tests__/fakes.js";
 import { AccountStore, acctKey, CLIENT_KEY, summarize } from "../../server/accounts.js";
 import { createLeaseHandler } from "../../server/lease.js";
 import { ACCOUNTS_TYPE, LEASE_TYPE } from "../../shared/protocol.js";
-import { SCOPE, type Tier, TIER_SCOPES } from "../../shared/scopes.js";
+import { SCOPE, TIER_SCOPES, type Tier } from "../../shared/scopes.js";
 import { GmailToolError, type LaneRequest, LeaseClient } from "../lease-client.js";
 import { createGmailTools, type GmailToolDef, type ToolContext } from "../tools.js";
 
@@ -35,6 +35,40 @@ interface GmailCall {
   body?: Record<string, unknown>;
 }
 
+const HEADERS = [
+  { name: "From", value: "Bob <bob@y.com>" },
+  { name: "To", value: "a@x.com, carol@z.com" },
+  { name: "Subject", value: "Hello" },
+  { name: "Date", value: "Mon, 1 Jan 2026 10:00:00 +0000" },
+  { name: "Message-ID", value: "<m1@x>" },
+  { name: "References", value: "<m0@x>" },
+];
+
+function fullPayload(html: boolean | undefined) {
+  const parts = html
+    ? [{ mimeType: "text/html", body: { data: b64u("<p>hi <span style='display:none'>x</span></p>") } }]
+    : [
+        { mimeType: "text/plain", body: { data: b64u("hi there") } },
+        { mimeType: "application/pdf", filename: "a.pdf", body: { attachmentId: "att1", size: 3 } },
+      ];
+  return { mimeType: "multipart/mixed", headers: HEADERS, parts };
+}
+
+/** Canned Gmail REST replies by path. */
+function route(url: URL, method: string, body: Record<string, unknown> | undefined, opts: { html?: boolean }): unknown {
+  const p = url.pathname;
+  if (p.endsWith("/messages") && method !== "POST") return { messages: [{ id: "m1", threadId: "t1" }] };
+  if (p.endsWith("/messages/m1")) {
+    const payload = url.searchParams.get("format") === "full" ? fullPayload(opts.html) : { headers: HEADERS };
+    return { id: "m1", threadId: "t1", snippet: "hi…", payload };
+  }
+  if (p.endsWith("/labels")) return { labels: [{ id: "INBOX", name: "INBOX" }] };
+  if (p.endsWith("/attachments/att1")) return { data: b64u("PDF"), size: 3 };
+  if (p.endsWith("/messages/send")) return { id: "sent1", threadId: body?.threadId ?? "tNew" };
+  if (p.endsWith("/drafts")) return { id: "d1" };
+  return {};
+}
+
 function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean } = {}) {
   const calls: GmailCall[] = [];
   const base = `${TEST_ENDPOINTS.gmail}/users/me/`;
@@ -46,37 +80,10 @@ function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean 
     if (opts.status) {
       return new Response("{}", { status: opts.status, headers: opts.retryAfter ? { "retry-after": opts.retryAfter } : {} });
     }
-    const json = (o: unknown) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
-    const headers = [
-      { name: "From", value: "Bob <bob@y.com>" },
-      { name: "To", value: "a@x.com, carol@z.com" },
-      { name: "Subject", value: "Hello" },
-      { name: "Date", value: "Mon, 1 Jan 2026 10:00:00 +0000" },
-      { name: "Message-ID", value: "<m1@x>" },
-      { name: "References", value: "<m0@x>" },
-    ];
-    if (url.pathname.endsWith("/messages") && init?.method !== "POST") return json({ messages: [{ id: "m1", threadId: "t1" }] });
-    if (url.pathname.endsWith("/messages/m1")) {
-      const payload =
-        url.searchParams.get("format") === "full"
-          ? {
-              mimeType: "multipart/mixed",
-              headers,
-              parts: opts.html
-                ? [{ mimeType: "text/html", body: { data: b64u("<p>hi <span style='display:none'>x</span></p>") } }]
-                : [
-                    { mimeType: "text/plain", body: { data: b64u("hi there") } },
-                    { mimeType: "application/pdf", filename: "a.pdf", body: { attachmentId: "att1", size: 3 } },
-                  ],
-            }
-          : { headers };
-      return json({ id: "m1", threadId: "t1", snippet: "hi…", payload });
-    }
-    if (url.pathname.endsWith("/labels")) return json({ labels: [{ id: "INBOX", name: "INBOX" }] });
-    if (url.pathname.endsWith("/attachments/att1")) return json({ data: b64u("PDF"), size: 3 });
-    if (url.pathname.endsWith("/messages/send")) return json({ id: "sent1", threadId: body?.threadId ?? "tNew" });
-    if (url.pathname.endsWith("/drafts")) return json({ id: "d1" });
-    return json({});
+    return new Response(JSON.stringify(route(url, init?.method ?? "GET", body, opts)), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof fetch;
   return { fetchImpl, calls };
 }

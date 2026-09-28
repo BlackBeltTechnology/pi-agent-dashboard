@@ -7,7 +7,7 @@
  */
 import { GmailToolError } from "./lease-client.js";
 
-export const GMAIL_TIMEOUT_MS = 30_000;
+const GMAIL_TIMEOUT_MS = 30_000;
 
 interface Header {
   name: string;

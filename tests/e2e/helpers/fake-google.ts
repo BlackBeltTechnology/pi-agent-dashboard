@@ -21,7 +21,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { pathToFileURL } from "node:url";
 
-export const FAKE_GOOGLE_PORT = 18090;
+const FAKE_GOOGLE_PORT = 18090;
 export const FAKE_GOOGLE_BASE = `http://127.0.0.1:${FAKE_GOOGLE_PORT}`;
 
 // ── server (in-container) ───────────────────────────────────────────────────
@@ -62,122 +62,139 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-export function runFakeGoogle(port: number): void {
-  const base = `http://127.0.0.1:${port}`;
-  let config = defaultConfig();
-  let codes = new Map<string, CodeGrant>();
-  let refreshTokens = new Map<string, string>(); // refresh → email
-  let state = { sends: [] as unknown[], drafts: [] as unknown[], calls: [] as string[], revokes: 0 };
+interface FakeState {
+  config: Config;
+  codes: Map<string, CodeGrant>;
+  refreshTokens: Map<string, string>; // refresh → email
+  log: { sends: unknown[]; drafts: unknown[]; calls: string[]; revokes: number };
+}
 
+function freshState(): FakeState {
+  return { config: defaultConfig(), codes: new Map(), refreshTokens: new Map(), log: { sends: [], drafts: [], calls: [], revokes: 0 } };
+}
+
+type Handler = (st: FakeState, url: URL, body: string, res: ServerResponse) => void;
+
+const control: Record<string, Handler> = {
+  "/_control/health": (_st, _u, _b, res) => json(res, 200, { ok: true }),
+  "/_control/state": (st, _u, _b, res) => json(res, 200, st.log),
+  "/_control/config": (st, _u, body, res) => {
+    st.config = { ...st.config, ...(JSON.parse(body || "{}") as Partial<Config>) };
+    json(res, 200, st.config);
+  },
+  "/_control/reset": (st, _u, _b, res) => {
+    Object.assign(st, freshState());
+    json(res, 200, { ok: true });
+  },
+};
+
+const authorize: Handler = (st, url, _body, res) => {
+  const code = randomBytes(12).toString("hex");
+  const q = url.searchParams;
+  st.codes.set(code, {
+    email: st.config.nextEmail,
+    nonce: q.get("nonce") ?? "",
+    scope: (q.get("scope") ?? "").split(" ").filter((s) => s.startsWith("https://")).join(" "),
+    clientId: q.get("client_id") ?? "",
+  });
+  const to = new URL(q.get("redirect_uri") ?? "");
+  to.searchParams.set("code", code);
+  to.searchParams.set("state", q.get("state") ?? "");
+  res.writeHead(302, { location: to.toString() });
+  res.end();
+};
+
+function codeGrant(st: FakeState, form: URLSearchParams, issuer: string, res: ServerResponse): void {
+  const grant = st.codes.get(form.get("code") ?? "");
+  if (!grant) return json(res, 400, { error: "invalid_grant" });
+  st.codes.delete(form.get("code") ?? "");
+  const refresh = `refresh-${randomBytes(8).toString("hex")}`;
+  st.refreshTokens.set(refresh, grant.email);
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    iss: issuer,
+    aud: grant.clientId,
+    sub: subOf(grant.email),
+    email: grant.email,
+    email_verified: true,
+    nonce: grant.nonce,
+    iat: now,
+    exp: now + 3600,
+  };
+  json(res, 200, {
+    access_token: `access-${randomBytes(8).toString("hex")}`,
+    refresh_token: refresh,
+    expires_in: st.config.expiresIn,
+    token_type: "Bearer",
+    scope: `openid https://www.googleapis.com/auth/userinfo.email ${grant.scope}`,
+    id_token: `${b64u({ alg: "RS256", typ: "JWT" })}.${b64u(claims)}.c2ln`,
+  });
+}
+
+function refreshGrant(st: FakeState, form: URLSearchParams, res: ServerResponse): void {
+  if (st.config.invalidGrant || !st.refreshTokens.has(form.get("refresh_token") ?? "")) {
+    return json(res, 400, { error: "invalid_grant", error_description: "Token has been expired or revoked." });
+  }
+  json(res, 200, { access_token: `access-${randomBytes(8).toString("hex")}`, expires_in: st.config.expiresIn, token_type: "Bearer" });
+}
+
+function token(st: FakeState, body: string, issuer: string, res: ServerResponse): void {
+  const form = new URLSearchParams(body);
+  const grant = form.get("grant_type");
+  if (grant === "authorization_code") return codeGrant(st, form, issuer, res);
+  if (grant === "refresh_token") return refreshGrant(st, form, res);
+  json(res, 400, { error: "unsupported_grant_type" });
+}
+
+const revoke: Handler = (st, _url, body, res) => {
+  if (st.config.revokeDown) return json(res, 503, { error: "unavailable" });
+  st.log.revokes++;
+  st.refreshTokens.delete(new URLSearchParams(body).get("token") ?? "");
+  json(res, 200, {});
+};
+
+/** Minimal Gmail REST under `/gmail/v1/users/me/`. */
+function gmail(st: FakeState, rest: string, body: string, res: ServerResponse): void {
+  if (rest === "messages/send") {
+    const msg = JSON.parse(body || "{}") as { raw?: string; threadId?: string };
+    const raw = Buffer.from(msg.raw ?? "", "base64url").toString("utf8");
+    const to = /^To: (.*)$/m.exec(raw)?.[1]?.trim() ?? "";
+    st.log.sends.push({ to: to.split(",").map((s) => s.trim()), threadId: msg.threadId ?? null });
+    return json(res, 200, { id: `sent-${st.log.sends.length}`, threadId: msg.threadId ?? "t-new" });
+  }
+  if (rest === "drafts") {
+    st.log.drafts.push(JSON.parse(body || "{}"));
+    return json(res, 200, { id: `draft-${st.log.drafts.length}` });
+  }
+  const canned: Record<string, unknown> = {
+    messages: { messages: [{ id: "m1", threadId: "t1" }] },
+    "messages/m1": {
+      id: "m1",
+      threadId: "t1",
+      snippet: "fake message",
+      payload: { headers: [{ name: "From", value: "bob@fake.test" }, { name: "Subject", value: "Fake" }] },
+    },
+    labels: { labels: [{ id: "INBOX", name: "INBOX" }] },
+  };
+  if (rest in canned) return json(res, 200, canned[rest]);
+  json(res, 404, { error: { code: 404 } });
+}
+
+function runFakeGoogle(port: number): void {
+  const base = `http://127.0.0.1:${port}`;
+  const st = freshState();
+  const GMAIL = "/gmail/v1/users/me/";
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", base);
     const p = url.pathname;
     const body = req.method === "POST" ? await readBody(req) : "";
-    if (!p.startsWith("/_control")) state.calls.push(`${req.method} ${p}`);
-
-    if (p === "/_control/health") return json(res, 200, { ok: true });
-    if (p === "/_control/state") return json(res, 200, state);
-    if (p === "/_control/config") {
-      config = { ...config, ...(JSON.parse(body || "{}") as Partial<Config>) };
-      return json(res, 200, config);
-    }
-    if (p === "/_control/reset") {
-      config = defaultConfig();
-      codes = new Map();
-      refreshTokens = new Map();
-      state = { sends: [], drafts: [], calls: [], revokes: 0 };
-      return json(res, 200, { ok: true });
-    }
-
-    if (p === "/o/oauth2/v2/auth") {
-      const redirect = url.searchParams.get("redirect_uri") ?? "";
-      const code = randomBytes(12).toString("hex");
-      codes.set(code, {
-        email: config.nextEmail,
-        nonce: url.searchParams.get("nonce") ?? "",
-        scope: (url.searchParams.get("scope") ?? "").split(" ").filter((s) => s.startsWith("https://")).join(" "),
-        clientId: url.searchParams.get("client_id") ?? "",
-      });
-      const to = new URL(redirect);
-      to.searchParams.set("code", code);
-      to.searchParams.set("state", url.searchParams.get("state") ?? "");
-      res.writeHead(302, { location: to.toString() });
-      return res.end();
-    }
-
-    if (p === "/token") {
-      const form = new URLSearchParams(body);
-      const now = Math.floor(Date.now() / 1000);
-      if (form.get("grant_type") === "authorization_code") {
-        const grant = codes.get(form.get("code") ?? "");
-        if (!grant) return json(res, 400, { error: "invalid_grant" });
-        codes.delete(form.get("code") ?? "");
-        const refresh = `refresh-${randomBytes(8).toString("hex")}`;
-        refreshTokens.set(refresh, grant.email);
-        return json(res, 200, {
-          access_token: `access-${randomBytes(8).toString("hex")}`,
-          refresh_token: refresh,
-          expires_in: config.expiresIn,
-          token_type: "Bearer",
-          scope: `openid https://www.googleapis.com/auth/userinfo.email ${grant.scope}`,
-          id_token: `${b64u({ alg: "RS256", typ: "JWT" })}.${b64u({
-            iss: base,
-            aud: grant.clientId,
-            sub: subOf(grant.email),
-            email: grant.email,
-            email_verified: true,
-            nonce: grant.nonce,
-            iat: now,
-            exp: now + 3600,
-          })}.c2ln`,
-        });
-      }
-      if (form.get("grant_type") === "refresh_token") {
-        if (config.invalidGrant || !refreshTokens.has(form.get("refresh_token") ?? "")) {
-          return json(res, 400, { error: "invalid_grant", error_description: "Token has been expired or revoked." });
-        }
-        return json(res, 200, {
-          access_token: `access-${randomBytes(8).toString("hex")}`,
-          expires_in: config.expiresIn,
-          token_type: "Bearer",
-        });
-      }
-      return json(res, 400, { error: "unsupported_grant_type" });
-    }
-
-    if (p === "/revoke") {
-      if (config.revokeDown) return json(res, 503, { error: "unavailable" });
-      state.revokes++;
-      refreshTokens.delete(new URLSearchParams(body).get("token") ?? "");
-      return json(res, 200, {});
-    }
-
-    const gmail = "/gmail/v1/users/me/";
-    if (p.startsWith(gmail)) {
-      const rest = p.slice(gmail.length);
-      if (rest === "messages/send") {
-        const msg = JSON.parse(body || "{}") as { raw?: string; threadId?: string };
-        const raw = Buffer.from(msg.raw ?? "", "base64url").toString("utf8");
-        const to = /^To: (.*)$/m.exec(raw)?.[1]?.trim() ?? "";
-        state.sends.push({ to: to.split(",").map((s) => s.trim()), threadId: msg.threadId ?? null });
-        return json(res, 200, { id: `sent-${state.sends.length}`, threadId: msg.threadId ?? "t-new" });
-      }
-      if (rest === "drafts") {
-        state.drafts.push(JSON.parse(body || "{}"));
-        return json(res, 200, { id: `draft-${state.drafts.length}` });
-      }
-      if (rest === "messages") return json(res, 200, { messages: [{ id: "m1", threadId: "t1" }] });
-      if (rest === "messages/m1") {
-        return json(res, 200, {
-          id: "m1",
-          threadId: "t1",
-          snippet: "fake message",
-          payload: { headers: [{ name: "From", value: "bob@fake.test" }, { name: "Subject", value: "Fake" }] },
-        });
-      }
-      if (rest === "labels") return json(res, 200, { labels: [{ id: "INBOX", name: "INBOX" }] });
-      return json(res, 404, { error: { code: 404 } });
-    }
+    const ctl = control[p];
+    if (ctl) return ctl(st, url, body, res);
+    st.log.calls.push(`${req.method} ${p}`);
+    if (p === "/o/oauth2/v2/auth") return authorize(st, url, body, res);
+    if (p === "/revoke") return revoke(st, url, body, res);
+    if (p === "/token") return token(st, body, base, res);
+    if (p.startsWith(GMAIL)) return gmail(st, p.slice(GMAIL.length), body, res);
     json(res, 404, { error: "not_found" });
   });
   server.listen(port, "127.0.0.1");

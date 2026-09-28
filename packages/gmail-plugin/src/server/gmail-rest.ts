@@ -4,7 +4,7 @@
  */
 import type { GoogleEndpoints } from "../shared/endpoints.js";
 
-export const REVOKE_TIMEOUT_MS = 5_000;
+const REVOKE_TIMEOUT_MS = 5_000;
 
 /** POST the token to Google's revoke endpoint. Resolves `true` on HTTP 200. */
 export async function revokeToken(

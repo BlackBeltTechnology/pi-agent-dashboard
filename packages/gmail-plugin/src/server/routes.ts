@@ -5,11 +5,12 @@
  * (`packages/shared/src/route-tiers.ts`). Responses NEVER carry tokens or the
  * client secret. See change: add-gmail-plugin.
  */
-import rateLimit from "@fastify/rate-limit";
+
 import type {
   PluginNetworkGuard,
   PluginOAuth,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { validateClientJson } from "../shared/client-json.js";
 import type { GoogleEndpoints } from "../shared/endpoints.js";

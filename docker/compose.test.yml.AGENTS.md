@@ -5,3 +5,4 @@ Test overlay on `compose.yml`. Sets `PI_DASHBOARD_NO_MDNS=1`, `DASHBOARD_PORT="$
 Passes `PI_DASHBOARD_DISABLE_GRANT_PROMPT` through (empty = unset; only exact `1` engages the access-grant prompt kill switch) so the whole E2E suite can run with prompting force-disabled. See change: add-access-grant-dialog (task 9.2).
 
 Sets `PI_DASHBOARD_FIXTURE_PLUGINS=1` as build arg + runtime env (demo-plugin fixture loaded in the harness). See change: expose-plugin-credential-and-oauth-seams.
+Passes `PI_E2E_GOOGLE_BASE_URL` through to the dashboard service (loopback-only honoured by gmail-plugin; inert until a spec starts the fake). See change: add-gmail-plugin.

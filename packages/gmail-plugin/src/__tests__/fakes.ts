@@ -80,7 +80,7 @@ export interface FakeTokenOptions {
   revoke?: () => number | Promise<number>;
 }
 
-export interface TokenCall {
+interface TokenCall {
   grant: string | null;
   body: URLSearchParams;
 }
@@ -91,24 +91,23 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
   const revokes: string[] = [];
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const revoke = async (body: URLSearchParams) => {
+    revokes.push(body.get("token") ?? "");
+    return new Response("", { status: opts.revoke ? await opts.revoke() : 200 });
+  };
+  const token = async (body: URLSearchParams) => {
+    const grant = body.get("grant_type");
+    calls.push({ grant, body });
+    const handler = grant === "refresh_token" ? opts.refresh : opts.code;
+    const out = (await handler?.()) as Record<string, unknown> | undefined;
+    if (out && typeof out.status === "number" && out.body) return json(out.status, out.body);
+    return json(200, out ?? {});
+  };
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
-    const bodyText = init?.body instanceof URLSearchParams ? init.body.toString() : String(init?.body ?? "");
-    const body = new URLSearchParams(bodyText);
-    if (url === TEST_ENDPOINTS.revoke) {
-      revokes.push(body.get("token") ?? "");
-      if (!opts.revoke) return new Response("", { status: 200 });
-      const status = await opts.revoke();
-      return new Response("", { status });
-    }
-    if (url === TEST_ENDPOINTS.token) {
-      const grant = body.get("grant_type");
-      calls.push({ grant, body });
-      const handler = grant === "refresh_token" ? opts.refresh : opts.code;
-      const out = (await handler?.()) as Record<string, unknown> | undefined;
-      if (out && typeof out.status === "number" && out.body) return json(out.status, out.body);
-      return json(200, out ?? {});
-    }
+    const body = new URLSearchParams(init?.body instanceof URLSearchParams ? init.body.toString() : String(init?.body ?? ""));
+    if (url === TEST_ENDPOINTS.revoke) return revoke(body);
+    if (url === TEST_ENDPOINTS.token) return token(body);
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { fetchImpl, calls, revokes };

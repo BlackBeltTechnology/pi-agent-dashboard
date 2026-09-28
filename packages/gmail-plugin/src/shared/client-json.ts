@@ -5,13 +5,13 @@
  * route (authoritative). See change: add-gmail-plugin.
  */
 
-export interface ParsedClient {
+interface ParsedClient {
   clientId: string;
   clientSecret: string;
   projectId?: string;
 }
 
-export type ClientJsonError =
+type ClientJsonError =
   | { code: "not_json"; step: 5 }
   | { code: "web_client"; step: 4 }
   | { code: "not_installed"; step: 4 }
