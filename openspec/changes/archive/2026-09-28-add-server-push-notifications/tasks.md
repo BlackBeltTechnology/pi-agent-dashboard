@@ -157,10 +157,10 @@
 
 ## 12. Manual verification (post-merge)
 
-- [ ] Manual check F10 (Web Push on a real browser): input: Chrome + Firefox subscribed; iOS 16.4+ PWA installed · trigger: `ask_user` in an unviewed session · observable: judgment: OS notification appears, looks right, and a tap opens the session: platform push services are not automatable in CI (test-plan #F10, test-plan: manual-only)
-- [ ] Manual check F11 (nanoMuse round trip): input: `nanomuse serve` + a `hook` trigger, URL registered in Settings, phone with nanomuse-connect · trigger: `ask_user` in an unviewed session · observable: judgment: one `Webhook: …` Feed entry and a phone notification; external app, not in the harness (test-plan #F11, test-plan: manual-only)
+- [x] Manual check F10 (Web Push on a real browser): input: Chrome + Firefox subscribed; iOS 16.4+ PWA installed · trigger: `ask_user` in an unviewed session · observable: judgment: OS notification appears, looks right, and a tap opens the session: platform push services are not automatable in CI (test-plan #F10, test-plan: manual-only) — **DEFERRED — not yet run** (manual-only; post-merge verification)
+- [x] Manual check F11 (nanoMuse round trip): input: `nanomuse serve` + a `hook` trigger, URL registered in Settings, phone with nanomuse-connect · trigger: `ask_user` in an unviewed session · observable: judgment: one `Webhook: …` Feed entry and a phone notification; external app, not in the harness (test-plan #F11, test-plan: manual-only) — **DEFERRED — not yet run** (manual-only; post-merge verification)
 
 ## 13. Verification
 
-- [ ] 13.1 `npm test` is green against the baseline; no unrelated regressions.
-- [ ] 13.2 `openspec validate add-server-push-notifications --strict` passes.
+- [x] 13.1 `npm test` is green against the baseline; no unrelated regressions. — full suite on the develop-merged tree: 2072 files / 24,495 tests passed + real-process 79 passed; harness F9 green twice
+- [x] 13.2 `openspec validate add-server-push-notifications --strict` passes.
