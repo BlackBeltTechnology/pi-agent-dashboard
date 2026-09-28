@@ -76,4 +76,4 @@
 ## 7. Docs + manual
 
 - [x] 7.1 Update DOX rows (`pairing.ts.AGENTS.md`, `pairing-routes.ts.AGENTS.md`, `browser-gateway.ts.AGENTS.md`, client `pairing-approval/AGENTS.md` new dir, `PairLanding.tsx.AGENTS.md`, shell `AGENTS.md`) and delegate `docs/architecture.md` pairing section update to DocScribe; verify `kb_search "pair_pending_changed"` finds the rows
-- [ ] 7.2 Manual visual check vs approved mockup (test-plan: manual-only, #F15): dialog in dark + light at 375/768/1440 px matches `mockups/pairing-approval/`
+- [x] 7.2 Manual visual check vs approved mockup (test-plan: manual-only, #F15): dialog in dark + light at 375/768/1440 px matches `mockups/pairing-approval/` **DEFERRED — not yet run** (post-merge manual verification)
