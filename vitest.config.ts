@@ -83,6 +83,7 @@ export default defineConfig({
       // workstream 2c. A package absent here never runs its tests.
       "packages/browser-plugin",
       "packages/blackhole-plugin",
+      "packages/gmail-plugin",
       // chat-gateway (change: add-chat-gateway): the inbound chat control plane.
       // A package absent here never runs its tests — its L1 suites (allowedRoots
       // containment, binding precedence, auth decision table, edit throttle,
