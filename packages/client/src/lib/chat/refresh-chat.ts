@@ -29,8 +29,12 @@ export interface RefreshChatDeps {
   markSubscribed: (sessionId: string) => void;
   /** Send `subscribe` with `lastSeq: 0`. */
   subscribe: (sessionId: string) => void;
-  /** Arm the "history loading" indicator. */
-  beginLoadingHistory: (sessionId: string) => void;
+  /**
+   * Arm the "history loading" indicator. Always called with `{ restart: true }`:
+   * a refresh (header action or Retry) is a NEW load, so its elapsed clock
+   * restarts. See change: show-session-history-load-state (design D5).
+   */
+  beginLoadingHistory: (sessionId: string, opts: { restart: true }) => void;
   /**
    * Arm the "replay in flight" indicator. Separate from `beginLoadingHistory`:
    * that one owns its own setter/timers, this one drives the streaming pill.
@@ -69,7 +73,7 @@ export async function refreshChat(sessionId: string, deps: RefreshChatDeps): Pro
   deps.resetCursor(sessionId);
   deps.markSubscribed(sessionId);
   deps.subscribe(sessionId);
-  deps.beginLoadingHistory(sessionId);
+  deps.beginLoadingHistory(sessionId, { restart: true });
   // Refresh resubscribes at lastSeq 0 — a full replay, precisely what the
   // in-flight pill reports. Armed here rather than at the two call sites so the
   // header and mobile paths cannot drift.

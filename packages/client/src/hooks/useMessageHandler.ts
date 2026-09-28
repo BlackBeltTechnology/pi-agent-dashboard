@@ -254,6 +254,15 @@ export interface MessageHandlerDeps {
   /** Safety-net timers for `replayInFlight`. See change: show-replay-in-flight-indicator. */
   replayInFlightTimersRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>;
   /**
+   * Mark a session's history load failed (content-gated in App). Passed as the
+   * `onTimeout` of the single `loadingHistory` re-arm site, and invoked on
+   * `dataUnavailable` when a load was in flight. Never wired to the
+   * `replayInFlight` re-arm. See change: show-session-history-load-state.
+   */
+  markHistoryLoadFailed?: (sessionId: string) => void;
+  /** Clear the failed mark (non-empty or terminal replay batch). See change: show-session-history-load-state. */
+  clearHistoryLoadFailed?: (sessionId: string) => void;
+  /**
    * Live snapshot of pinned dirs + workspaces + sessions for the
    * `isVisibleCwd` check that gates the off-screen spawn_error toast.
    * Optional for back-compat. See change: harden-worktree-spawn.
@@ -310,7 +319,7 @@ export function useMessageHandler(
     setEndedTotalsMap, setArchivedCountMap, setPagedCount, setSnapshotGeneration,
     setPageReplyGen, setPageExhausted,
   } = setters;
-  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap } = deps;
+  const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
@@ -606,11 +615,16 @@ export function useMessageHandler(
         // unsuccessful result marks the session `dataUnavailable`.
         // See change: show-chat-history-loading-indicator.
         if ((msg.updates as Partial<DashboardSession>).dataUnavailable === true) {
+          // Read BEFORE the clears below delete the timer: timer presence is
+          // the "load in flight" proxy. A never-subscribed / already-loaded
+          // session is not a failure. See change: show-session-history-load-state.
+          const wasLoading = loadingHistoryTimersRef.current.has(msg.sessionId);
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
           // Same failure edge for the in-flight flag: no terminal batch is
           // coming, so the pill must not hang.
           // See change: show-replay-in-flight-indicator.
           clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId);
+          if (wasLoading) markHistoryLoadFailed?.(msg.sessionId);
         }
         // Live endedTotals (D9): a held session transitioning to ended grows
         // its group's count between snapshots. Read via the sessions mirror
@@ -1346,10 +1360,14 @@ export function useMessageHandler(
         // unless a timer is armed (flag set), so warm/painted sessions are
         // unaffected. See change: show-chat-history-loading-indicator,
         // fix-history-loading-false-empty-flash.
+        // The ceiling's expiry marks the load failed (content-gated in App);
+        // any content or terminal batch clears a prior failed mark.
+        // See change: show-session-history-load-state.
         if (msg.events.length > 0 || msg.isLast === true) {
           clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId);
+          clearHistoryLoadFailed?.(msg.sessionId);
         } else {
-          rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
+          rearmLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, msg.sessionId, HYDRATE_CEILING_MS, markHistoryLoadFailed);
         }
         // `replayInFlight` deliberately diverges from `loadingHistory` above:
         // first content clears the skeleton but the transcript is still
@@ -1975,5 +1993,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev, setEndedTotalsMap, setPagedCount, setSnapshotGeneration, setPageReplyGen, setPageExhausted, sessionsRef, openspecGetInflightRef, markHistoryLoadFailed, clearHistoryLoadFailed]);
 }
