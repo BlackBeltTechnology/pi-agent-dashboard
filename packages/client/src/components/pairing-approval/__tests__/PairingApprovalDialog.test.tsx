@@ -2,7 +2,7 @@
  * Pairing approval dialog (change: add-pairing-approval-dialog, test-plan
  * E8, E9, F3, F4, F14, X9, X13). Exemplar: access-grant/__tests__/GrantPromptDialog.test.tsx.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovePendingOutcome, PendingPairing } from "../../../lib/pairing/pairing-approval-api.js";
 import { PairingApprovalDialog } from "../PairingApprovalDialog.js";
@@ -126,7 +126,12 @@ describe("PairingApprovalDialog", () => {
       fireEvent.click(screen.getByTestId("pairing-approve"));
       const ok = await screen.findByTestId("pairing-dialog-success");
       expect(ok.textContent).toContain("QA phone");
-      vi.advanceTimersByTime(4000);
+      // The auto-close timer is armed by a passive effect after the success
+      // render commits: flush effects first, then advance past the delay.
+      await act(async () => {});
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
       expect(onDone).toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
