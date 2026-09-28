@@ -20,8 +20,7 @@ import { existsSync, type FSWatcher, mkdtempSync, readFileSync, watch, writeFile
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
-import type { CliIO } from "../cli.js";
-import { run } from "../cli.js";
+import type { CliIO, CliRun } from "../cli-io.js";
 
 /** Media extensions the asset route will serve. */
 const ASSET_TYPES: Record<string, string> = {
@@ -68,6 +67,12 @@ export interface ServeOptions {
   /** Debounce window for a burst of writes. */
   debounceMs?: number;
   io?: CliIO;
+  /**
+   * The CLI entry point, injected. `serve` drives `parse` and `render` through
+   * it but must NOT import `cli.ts`, which imports this module — see
+   * `cli-io.ts` for the cycle (and the exit-13 bug) that direction caused.
+   */
+  run: CliRun;
 }
 
 export interface ServeHandle {
@@ -119,7 +124,8 @@ const CLIENT = `<script>
 
 const quietIO: CliIO = { stdout: () => {}, stderr: () => {} };
 
-export async function startServe(mdPath: string, opts: ServeOptions = {}): Promise<ServeHandle> {
+export async function startServe(mdPath: string, opts: ServeOptions): Promise<ServeHandle> {
+  const run = opts.run;
   const md = resolve(mdPath);
   const deckDir = dirname(md);
   const jsonPath = join(deckDir, `${basename(md, ".md")}.json`);

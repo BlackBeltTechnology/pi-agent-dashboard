@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { run } from "../../cli.js";
 import { type ServeHandle, startServe } from "../index.js";
 
 const DECK = `# Opening
@@ -30,8 +31,8 @@ function deckDir(): string {
 }
 
 const open: ServeHandle[] = [];
-async function serve(dir: string, opts: Parameters<typeof startServe>[1] = {}): Promise<ServeHandle> {
-  const h = await startServe(join(dir, "deck.md"), opts);
+async function serve(dir: string, opts: Partial<Parameters<typeof startServe>[1]> = {}): Promise<ServeHandle> {
+  const h = await startServe(join(dir, "deck.md"), { run, ...opts });
   open.push(h);
   return h;
 }

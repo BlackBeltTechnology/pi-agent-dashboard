@@ -19,10 +19,8 @@ export const VERSION = "0.1.0";
 /** Named palettes accepted by `--palette`; mirrors the schema enum. */
 const PALETTE_IDS: Palette[] = ["blackbelt", "zenit", "dapp", "midnight", "ember", "arctic", "forest", "mono", "neon", "custom"];
 
-export interface CliIO {
-  stdout: (line: string) => void;
-  stderr: (line: string) => void;
-}
+export type { CliIO, CliRun } from "./cli-io.js";
+import type { CliIO } from "./cli-io.js";
 
 export const defaultIO: CliIO = {
   stdout: (line) => process.stdout.write(`${line}\n`),
@@ -671,6 +669,8 @@ async function cmdServe(args: string[], io: CliIO): Promise<number> {
       port: flags.value.port ? Number.parseInt(flags.value.port, 10) : 0,
       check: flags.bool.has("check"),
       io,
+      // Injected, never imported back: see `cli-io.ts` for the cycle this avoids.
+      run,
     });
     io.stdout(`serving ${mdPath} on ${handle.url}`);
     io.stdout("watching deck.md, fx/ and deck.json — edit and the browser reloads");

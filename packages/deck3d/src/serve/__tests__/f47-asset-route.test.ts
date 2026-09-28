@@ -15,6 +15,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { run } from "../../cli.js";
 import { type ServeHandle, startServe } from "../index.js";
 
 /**
@@ -49,7 +50,7 @@ async function serveDeck(): Promise<{ h: ServeHandle; dir: string }> {
   writeFileSync(join(dir, "video", "clip.mp4"), Buffer.from("fake-mp4-bytes"));
   // The file the route must never hand out.
   writeFileSync(join(dir, "..", "outside-secret.png"), Buffer.from("secret"));
-  const h = await startServe(join(dir, "deck.md"), {});
+  const h = await startServe(join(dir, "deck.md"), { run });
   open.push(h);
   return { h, dir };
 }
