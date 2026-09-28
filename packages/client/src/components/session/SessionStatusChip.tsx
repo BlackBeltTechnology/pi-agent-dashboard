@@ -67,15 +67,18 @@ export function SessionStatusChip({
   children,
 }: SessionStatusChipProps) {
   const loading = historyPhase === "loading";
-  // Show-delay for the arc only: a fast load never paints it.
-  const [arcReady, setArcReady] = useState(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId re-keys the delay on a card reuse
+  // Show-delay for the arc only: a fast load never paints it. Keyed on the load
+  // ATTEMPT (session + startedAt), so a Retry (loading → loading, new clock)
+  // re-runs the delay; the derived compare hides the arc in the very first
+  // render of a new attempt, before the effect runs.
+  const attemptKey = loading ? `${sessionId}:${historyStartedAt ?? ""}` : null;
+  const [readyKey, setReadyKey] = useState<string | null>(null);
   useEffect(() => {
-    setArcReady(false);
-    if (!loading) return;
-    const timer = setTimeout(() => setArcReady(true), REPLAY_PILL_DELAY_MS);
+    if (attemptKey === null) return;
+    const timer = setTimeout(() => setReadyKey(attemptKey), REPLAY_PILL_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [sessionId, loading]);
+  }, [attemptKey]);
+  const arcReady = attemptKey !== null && readyKey === attemptKey;
   const now = useNow(loading);
 
   const ringPhase = historyPhase === "idle" || (loading && !arcReady) ? null : historyPhase;

@@ -65,6 +65,44 @@ describe("SessionStatusChip show-delay (#E4)", () => {
   });
 });
 
+describe("SessionStatusChip show-delay restarts on Retry (loading → loading)", () => {
+  it("a new load attempt (new startedAt) hides the arc until the delay elapses again", () => {
+    const t0 = Date.now() - 12_000;
+    const { rerender } = render(chip({ phase: "loading", startedAt: t0 }));
+    act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+    expect(ring()).not.toBeNull();
+    // Retry: phase stays loading, clock restarts.
+    rerender(chip({ phase: "loading", startedAt: Date.now() }));
+    expect(ring()).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS - 1);
+    });
+    expect(ring()).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(ring()?.getAttribute("data-history-phase")).toBe("loading");
+  });
+
+  it("a retried load completing within the delay never paints the arc", () => {
+    const { rerender } = render(chip({ phase: "loading", startedAt: Date.now() - 12_000 }));
+    act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+    rerender(chip({ phase: "loading", startedAt: Date.now() }));
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    rerender(chip({ phase: "idle" }));
+    act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS * 3);
+    });
+    expect(ring()).toBeNull();
+  });
+});
+
 describe("SessionStatusChip variants, stacking, a11y (#F8)", () => {
   const expectations: Array<[HistoryLoadPhase, string[] | null, string | null]> = [
     ["loading", ["animate-spin", "border-t-transparent", "motion-reduce:animate-none", "border-[var(--accent-text)]"], "Loading history…"],
