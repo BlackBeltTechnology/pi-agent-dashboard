@@ -19,7 +19,7 @@ export default defineConfig({
     // jsdom has no layout/ResizeObserver → TanStack Virtual renders 0 rows.
     // This shim gives the ChatView scroll container a tall viewport so windowed
     // rows mount for content assertions. See change: virtualize-chat-transcript-tanstack.
-    setupFiles: ["./src/test-support/virtualizer-jsdom.ts"],
+    setupFiles: ["./src/test-support/virtualizer-jsdom.ts", "./src/test-support/eager-lazy-dialogs.ts"],
   },
   resolve: {
     // Mirror vite.config alias — worktree-local source wins over the

@@ -11,6 +11,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `CloseWorktreeDialog.tsx` | Confirms worktree removal. Handles `active_sessions` guard: shuts listed sessions down then retries with… → see `CloseWorktreeDialog.tsx.AGENTS.md` |
 | `CommitDialog.tsx` | Placement-agnostic commit dialog (`cwd` + `sessionId`). File picker (checkbox + `+/−`, select-all/none),… → see `CommitDialog.tsx.AGENTS.md` |
 | `GitDirtyPill.tsx` | Shared dirty/drift indicator on both git surfaces (`GitInfo` card, `GroupGitInfo` header). → see `GitDirtyPill.tsx.AGENTS.md` |
+| `lazy-worktree-dialogs.ts` | Code-splits click-only worktree dialogs off the entry chunk. Exports `worktreeDialogLoaders` + `LazyCloseWorktreeDialog`, `LazyMergeConfirmDialog`. See change: redesign-composer-session-strip. |
 | `ManageWorktreesDialog.tsx` | Manage-worktrees `Dialog size="lg"` hosting `<WorktreeList mode="manage" />`. Owns fetch, bulk `remove-batch`, prune;… → see `ManageWorktreesDialog.tsx.AGENTS.md` |
 | `MergeConfirmDialog.tsx` | Fetches `/api/git/worktree/diff-stat`; renders 5-line summary; delete-branch checkbox. → see `MergeConfirmDialog.tsx.AGENTS.md` |
 | `PrCombobox.tsx` | Typeahead combobox for PR selection. Fetches `GET /api/git/pull-requests` lazily on first open. → see `PrCombobox.tsx.AGENTS.md` |

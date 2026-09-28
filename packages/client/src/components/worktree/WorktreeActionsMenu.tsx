@@ -22,16 +22,15 @@ import {
   mdiSourcePull,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
-import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
+import { fetchTool } from "../../lib/api/tools-api.js";
 import { createWorktreePR, pushWorktreeBranch } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { fetchTool } from "../../lib/api/tools-api.js";
-import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
-import { MergeConfirmDialog } from "./MergeConfirmDialog.js";
 import { logRejection } from "../../lib/report-error.js";
+import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
+import { LazyCloseWorktreeDialog, LazyMergeConfirmDialog } from "./lazy-worktree-dialogs.js";
 
 /**
  * Module-level cache of `gh` availability — one fetch per page load,
@@ -433,16 +432,19 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
       )}
 
       {closeOpen && (
-        <CloseWorktreeDialog
+        <Suspense fallback={null}>
+        <LazyCloseWorktreeDialog
           cwd={session.cwd}
           allSessions={allSessions}
           onShutdownSession={onShutdownSession}
           onClose={() => setCloseOpen(false)}
           onRemoved={() => setToast({ level: "success", text: i18nT("worktree.worktreeRemoved", undefined, "Worktree removed.") })}
         />
+        </Suspense>
       )}
       {mergeOpen && (
-        <MergeConfirmDialog
+        <Suspense fallback={null}>
+        <LazyMergeConfirmDialog
           cwd={session.cwd}
           onClose={() => setMergeOpen(false)}
           prNumber={session.gitPrNumber ?? undefined}
@@ -450,6 +452,7 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
           prChecks={session.gitPrChecks ?? undefined}
           prCheckedAt={session.gitPrCheckedAt ?? undefined}
         />
+        </Suspense>
       )}
     </div>
   );

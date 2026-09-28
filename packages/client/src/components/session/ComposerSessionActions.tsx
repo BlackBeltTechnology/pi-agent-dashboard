@@ -18,19 +18,15 @@ import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackb
 import { mdiFileDocumentOutline, mdiLinkOff, mdiMenuDown, mdiPaperclip } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { isMergePrimary } from "../../lib/git/merge-primary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { AttachChangePicker } from "../openspec/AttachChangePicker.js";
-import { ExploreDialog } from "../openspec/ExploreDialog.js";
-import { NewChangeDialog } from "../openspec/NewChangeDialog.js";
+import { LazyAttachChangePicker, LazyExploreDialog, LazyNewChangeDialog, LazyProposeDialog, LazyTasksPopover } from "../openspec/lazy-openspec-dialogs.js";
 import { OpenSpecStepper } from "../openspec/OpenSpecStepper.js";
 import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "../openspec/openspec-actions.js";
-import { ProposeDialog } from "../openspec/ProposeDialog.js";
 import { type OverflowItem, OverflowMenu } from "../openspec/SessionOpenSpecActions.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
-import { TasksPopover } from "./TasksPopover.js";
 
 /**
  * ComposerSessionActions — the composer context strip above the message
@@ -526,10 +522,10 @@ export function ComposerSessionActions({
         </ToolbarGroup>
       )}
 
-      {tasksOpen && attached && <TasksPopover cwd={session.cwd} change={attached} onClose={() => setTasksOpen(false)} />}
+      {tasksOpen && attached && <Suspense fallback={null}><LazyTasksPopover cwd={session.cwd} change={attached} onClose={() => setTasksOpen(false)} /></Suspense>}
       {exploreOpen && (
         <DialogPortal>
-          <ExploreDialog
+          <Suspense fallback={null}><LazyExploreDialog
             changeName={attached ?? ""}
             onSend={(text, images) => {
               const prefix = attached ? `/skill:openspec-explore ${attached}\n` : `/skill:openspec-explore\n`;
@@ -537,33 +533,33 @@ export function ComposerSessionActions({
               setExploreOpen(false);
             }}
             onClose={() => setExploreOpen(false)}
-          />
+          /></Suspense>
         </DialogPortal>
       )}
       {newChangeOpen && (
         <DialogPortal>
-          <NewChangeDialog
+          <Suspense fallback={null}><LazyNewChangeDialog
             onSend={(prompt) => {
               onSendPrompt?.(prompt);
               setNewChangeOpen(false);
             }}
             onClose={() => setNewChangeOpen(false)}
-          />
+          /></Suspense>
         </DialogPortal>
       )}
       {proposeOpen && (
         <DialogPortal>
-          <ProposeDialog
+          <Suspense fallback={null}><LazyProposeDialog
             onSend={(prompt) => {
               onSendPrompt?.(prompt);
               setProposeOpen(false);
             }}
             onClose={() => setProposeOpen(false)}
-          />
+          /></Suspense>
         </DialogPortal>
       )}
       {attachPickerOpen && onAttach && (
-        <AttachChangePicker
+        <Suspense fallback={null}><LazyAttachChangePicker
           changes={changes ?? []}
           groups={groups}
           assignments={assignments}
@@ -572,7 +568,7 @@ export function ComposerSessionActions({
             setAttachPickerOpen(false);
           }}
           onCancel={() => setAttachPickerOpen(false)}
-        />
+        /></Suspense>
       )}
       {archiveConfirm && attached && (
         <Confirm

@@ -1,4 +1,5 @@
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
+import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import type { DashboardSession, ImageContent, OpenSpecChange, OpenSpecConfig, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
@@ -7,20 +8,15 @@ import {
   mdiPaperclip,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
-import { ExploreDialog } from "./ExploreDialog.js";
+import { LazyAttachChangePicker, LazyExploreDialog, LazyNewChangeDialog, LazyProposeDialog, LazyTasksPopover } from "./lazy-openspec-dialogs.js";
+import { OpenSpecStepper } from "./OpenSpecStepper.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
-import { AttachChangePicker } from "./AttachChangePicker.js";
-import { NewChangeDialog } from "./NewChangeDialog.js";
 import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "./openspec-actions.js";
-import { OpenSpecStepper } from "./OpenSpecStepper.js";
-import { ProposeDialog } from "./ProposeDialog.js";
-import { TasksPopover } from "../session/TasksPopover.js";
 
 /**
  * Semantic palette — kept in sync with ComposerSessionActions so sidecard
@@ -384,35 +380,35 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         </div>
         {bulkArchiveDialog}
         {newChangeOpen && (
-          <DialogPortal><NewChangeDialog
+          <DialogPortal><Suspense fallback={null}><LazyNewChangeDialog
             onSend={(prompt) => {
               onSendPrompt(prompt);
               setNewChangeOpen(false);
             }}
             onClose={() => setNewChangeOpen(false)}
-          /></DialogPortal>
+          /></Suspense></DialogPortal>
         )}
         {proposeOpen && (
-          <DialogPortal><ProposeDialog
+          <DialogPortal><Suspense fallback={null}><LazyProposeDialog
             onSend={(prompt) => {
               onSendPrompt(prompt);
               setProposeOpen(false);
             }}
             onClose={() => setProposeOpen(false)}
-          /></DialogPortal>
+          /></Suspense></DialogPortal>
         )}
         {exploreOpen && (
-          <DialogPortal><ExploreDialog
+          <DialogPortal><Suspense fallback={null}><LazyExploreDialog
             changeName=""
             onSend={(text, images) => {
               onSendPrompt(`/skill:openspec-explore\n${text}`, images);
               setExploreOpen(false);
             }}
             onClose={() => setExploreOpen(false)}
-          /></DialogPortal>
+          /></Suspense></DialogPortal>
         )}
         {attachPickerOpen && (
-          <AttachChangePicker
+          <Suspense fallback={null}><LazyAttachChangePicker
             changes={changes}
             groups={groups}
             assignments={assignments}
@@ -422,7 +418,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
               setAttachPickerOpen(false);
             }}
             onCancel={() => setAttachPickerOpen(false)}
-          />
+          /></Suspense>
         )}
       </div>
     );
@@ -517,14 +513,14 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       />
 
       {exploreOpen && (
-        <DialogPortal><ExploreDialog
+        <DialogPortal><Suspense fallback={null}><LazyExploreDialog
           changeName={attached}
           onSend={(text, images) => {
             onSendPrompt(`/skill:openspec-explore ${attached}\n${text}`, images);
             setExploreOpen(false);
           }}
           onClose={() => setExploreOpen(false)}
-        /></DialogPortal>
+        /></Suspense></DialogPortal>
       )}
 
       {archiveConfirm && (
@@ -556,11 +552,11 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         />
       )}
       {tasksOpen && (
-        <TasksPopover
+        <Suspense fallback={null}><LazyTasksPopover
           cwd={session.cwd}
           change={attached}
           onClose={() => setTasksOpen(false)}
-        />
+        /></Suspense>
       )}
       {replaceDialog}
     </div>
