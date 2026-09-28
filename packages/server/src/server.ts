@@ -1304,18 +1304,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Push fan-out: built ONLY when explicitly enabled (Decision 6), and always
   // passed together with `viewedSessionTracker` (Decision 7).
   // See change: add-server-push-notifications.
-  const pushService: PushService | null =
-    config.push?.enabled === true
-      ? createPushService({
-          config: config.push,
-          dataDir: CONFIG_DIR,
-          getSession: (id) => sessionManager.get(id),
-          selfPort: () => {
-            const addr = fastify.server.address();
-            return addr && typeof addr === "object" ? addr.port : null;
-          },
-        })
-      : null;
+  // A push init failure (e.g. unwritable VAPID file) must never take the
+  // dashboard down: log it, leave push disabled, report it in push.errors.
+  let pushService: PushService | null = null;
+  let pushInitError: string | null = null;
+  if (config.push?.enabled === true) {
+    try {
+      pushService = createPushService({
+        config: config.push,
+        dataDir: CONFIG_DIR,
+        getSession: (id) => sessionManager.get(id),
+        selfPort: () => {
+          const addr = fastify.server.address();
+          return addr && typeof addr === "object" ? addr.port : null;
+        },
+      });
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      pushInitError = `push init failed (${typeof code === "string" ? code : "error"}); push disabled`;
+      console.error(`[push] ${pushInitError}`);
+    }
+  }
 
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
@@ -1889,7 +1898,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService.errors : undefined });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);

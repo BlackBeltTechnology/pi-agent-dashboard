@@ -475,6 +475,31 @@ describe("GET /api/health — push.errors disclosure (test-plan #X18)", () => {
     expect(local.push?.errors.some((e) => e.includes("contactEmail"))).toBe(true);
   });
 
+  it("is never cacheable, so a disclosed payload cannot be replayed to another caller", async () => {
+    pushHandle = await createTestServer({ push: { enabled: true, coalesceWindowMs: 30_000 } });
+    const res = await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`);
+    expect(res.headers.get("cache-control")).toMatch(/no-store/);
+  });
+
+  it("a push init failure (unwritable VAPID file) leaves the server up with push disabled and reported", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { CONFIG_DIR } = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+    const vapid = path.join(CONFIG_DIR, "push-vapid.json");
+    fs.rmSync(vapid, { recursive: true, force: true });
+    fs.mkdirSync(path.join(vapid, "blocker"), { recursive: true }); // a directory where the file must go
+    try {
+      pushHandle = await createTestServer({ push: { enabled: true, coalesceWindowMs: 30_000 } });
+      const base = `http://127.0.0.1:${pushHandle.httpPort}`;
+      const health = (await (await fetch(`${base}/api/health`)).json()) as { ok: boolean; push?: { errors: string[] } };
+      expect(health.ok).toBe(true);
+      expect(health.push?.errors.some((e) => /push.*init/i.test(e))).toBe(true);
+      expect((await fetch(`${base}/api/push/vapid-public-key`)).status).toBe(404);
+    } finally {
+      fs.rmSync(vapid, { recursive: true, force: true });
+    }
+  });
+
   it("has no push key when push is disabled", async () => {
     pushHandle = await createTestServer();
     const body = (await (await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`)).json()) as Record<string, unknown>;

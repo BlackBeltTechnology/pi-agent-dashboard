@@ -920,7 +920,11 @@ export function registerSystemRoutes(
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
 
   // Health endpoint — includes server + agent process metrics
-  fastify.get("/api/health", async (request) => {
+  fastify.get("/api/health", async (request, reply) => {
+    // The payload is caller-dependent (`accessGrants`, `trustPosture`,
+    // `push` are disclosure-gated): never let a cache replay it to another
+    // caller. See change: add-server-push-notifications.
+    reply.header("Cache-Control", "no-store, private");
     const mem = process.memoryUsage();
     // Telemetry reads are failure-isolated so a throwing provider can never
     // turn /api/health into a 500. See change: instrument-session-hydration-timing.
