@@ -106,4 +106,46 @@ describe.skipIf(!hasChromium)("X9 check ignores persisted configurator state", (
       await browser.close();
     }
   }, 240_000);
+
+  /**
+   * The panel also persists which BLOCKS are open. An open block is real DOM
+   * over the deck, so if `check` ever measured a viewer's stored panel state,
+   * an open block could occlude a slide and manufacture a finding. The report
+   * must equal the fresh-profile report, and no finding may name the panel.
+   */
+  it("ignores persisted OPEN blocks and never reports a panel element", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-x9-open-"));
+    const { build, report: freshReport } = buildAndCheck(dir, MINIMAL_DECK);
+    expect(build.status, build.stderr).toBe(0);
+    const url = pathToFileURL(join(dir, "deck.html")).href;
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      const page = await context.newPage();
+      await page.goto(url);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      const hash = await page.evaluate(() => (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "x");
+
+      // Seed the panel OPEN, with blocks expanded — the state a real viewer leaves behind.
+      await page.evaluate(
+        (k) => localStorage.setItem(`deck3d:${k}`, JSON.stringify({ open: ["LIGHTING", "MOTION"], shown: true })),
+        hash,
+      );
+      await clearHudState(page);
+      await page.reload();
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      expect(await page.evaluate((k) => localStorage.getItem(`deck3d:${k}`), hash)).toBeNull();
+      // The panel is not visible to a measured frame.
+      expect(await page.evaluate(() => document.querySelector("#deck3d-hud")?.classList.contains("open") ?? false)).toBe(false);
+    } finally {
+      await browser.close();
+    }
+
+    // And a second `check` run over the same deck still reports clean, naming no panel element.
+    const { check, report } = buildAndCheck(dir, MINIMAL_DECK);
+    expect(check.status, check.stderr).toBe(0);
+    expect(report.viewports.flatMap((v) => v.findings)).toEqual(freshReport.viewports.flatMap((v) => v.findings));
+    expect(JSON.stringify(report)).not.toMatch(/deck3d-hud/);
+  }, 240_000);
 });

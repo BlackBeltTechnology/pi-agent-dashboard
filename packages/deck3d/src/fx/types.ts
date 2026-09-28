@@ -63,6 +63,12 @@ export interface FxHandle {
   pass?: string;
   material?: THREE.Material;
   tick?: (t: number) => void;
+  /**
+   * Slide settled (true) or the camera is flying / the slide is off-screen
+   * (false). Time-based media uses this to stay frozen until it is actually
+   * being looked at; a pinned time in `check` never sees a moving clip.
+   */
+  setActive?: (active: boolean) => void;
   dispose: () => void;
 }
 

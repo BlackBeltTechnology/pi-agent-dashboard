@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { startServe, type ServeHandle } from "../index.js";
+import { type ServeHandle, startServe } from "../index.js";
 
 const DECK = `# Opening
 
@@ -229,7 +229,16 @@ describe("S10 serve: the spawned CLI actually serves", () => {
     const dir = mkdtempSync(join(tmpdir(), "deck3d-serve-cli-"));
     writeFileSync(join(dir, "deck.md"), DECK);
     const bin = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "bin", "deck3d");
-    const child = spawn(process.execPath, [bin, "serve", "deck.md", "--port", "4839"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    // `detached` makes the child a process-group LEADER so the whole group can
+    // be signalled below. `bin/deck3d` launches the real CLI with `spawnSync`,
+    // so the process holding the port is a GRANDCHILD: signalling the pid
+    // alone reaped the launcher and orphaned the server, which then squatted
+    // 4839 and made every later run of this file fail with EADDRINUSE.
+    const child = spawn(process.execPath, [bin, "serve", "deck.md", "--port", "4839"], {
+      cwd: dir,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
     let out = "";
     child.stdout.on("data", (b) => {
       out += String(b);
@@ -249,7 +258,20 @@ describe("S10 serve: the spawned CLI actually serves", () => {
       expect(res?.status).toBe(200);
       expect(await res!.text()).toContain("__deck3dServe");
     } finally {
-      child.kill("SIGTERM");
+      const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      try {
+        process.kill(-child.pid!, "SIGTERM");
+      } catch {
+        child.kill("SIGTERM");
+      }
+      // Wait for the group to actually go, or the port is still held when the
+      // next test (or the next run of this file) reaches for it.
+      await Promise.race([exited, new Promise((r) => setTimeout(r, 5_000))]);
+      try {
+        process.kill(-child.pid!, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
     }
   }, 90_000);
 });

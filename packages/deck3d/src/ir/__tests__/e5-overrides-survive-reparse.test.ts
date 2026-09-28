@@ -10,8 +10,17 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { applyOverrides } from "../merge.js";
 import type { DeckIR } from "../types.js";
+
+/**
+ * The E20/E21 cases below parse a deck containing a mermaid fence, and
+ * `parse` harvests mermaid through a headless browser. Gate them the same way
+ * every other browser-dependent test in this package does, instead of failing
+ * the suite on a machine (or an ephemeral-HOME run) with no chromium cache.
+ */
+const hasChromium = await chromiumAvailable();
 
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
 
@@ -59,7 +68,7 @@ describe("E5 overrides survive re-parse", () => {
  * override is therefore kept but inert once the slide grows a real mermaid
  * block — the agent must be told, not silently overruled.
  */
-describe("E20/E21 built-kind override vs a mermaid block", () => {
+describe.skipIf(!hasChromium)("E20/E21 built-kind override vs a mermaid block", () => {
   function seed(mermaid: string, kind: string): { dir: string; deck: DeckJson; warn: string } {
     const dir = mkdtempSync(join(tmpdir(), "deck3d-e20-"));
     writeFileSync(join(dir, "flow.md"), "# Flow\n\n- one\n");

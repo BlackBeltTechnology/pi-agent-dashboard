@@ -284,6 +284,12 @@ describe.skipIf(!hasChromium)("F18 deck scope reaches every slide (chromium)", (
  * camera glided for `durationSec`, so the background changed a full second
  * before the camera arrived.
  */
+/** True when every channel of two `#rrggbb` colours is within `slack` steps. */
+function channelsWithin(a: string, b: string, slack: number): boolean {
+  const ch = (hex: string, i: number): number => Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return [0, 1, 2].every((i) => Math.abs(ch(a, i) - ch(b, i)) <= slack);
+}
+
 describe.skipIf(!hasChromium)("F19 palette morphs across a transition (chromium)", () => {
   it("passes through intermediate background colours instead of snapping", async () => {
     const dir = mkdtempSync(join(tmpdir(), "deck3d-f19-"));
@@ -313,7 +319,10 @@ describe.skipIf(!hasChromium)("F19 palette morphs across a transition (chromium)
       const to = (await page.evaluate(() => window.__deck3d!.debug.look())).bg;
 
       expect(from).not.toBe(to);
-      expect(seen.at(-1)).toBe(to); // lands exactly on the target
+      // Lands ON the target, within 8-bit rounding: the morph lerps in linear
+      // float and the probe reads back an 8-bit hex, so the final frame can sit
+      // one step off on a channel (observed `#1b191a` for `#1b1919`).
+      expect(channelsWithin(seen.at(-1) as string, to, 1), `landed on ${seen.at(-1)}, target ${to}`).toBe(true);
       // The morph is the point: colours that are neither endpoint must appear.
       // The bound is 5, not "most frames": midnight #0f172a and ember #1c1917
       // are close, so the 8-bit blend quantises to only ~8 distinct steps.

@@ -10,6 +10,8 @@ import { makeRng } from "./rng.js";
 export interface Animator {
   g: THREE.Group;
   tick: (t: number) => void;
+  /** Slide settled vs camera flying — time-based media (video) freezes when false. */
+  setActive?: (active: boolean) => void;
 }
 
 /** Drifting glyph-like cubes — "language patterns". */

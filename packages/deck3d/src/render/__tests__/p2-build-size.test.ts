@@ -10,7 +10,15 @@ import { describe, expect, it } from "vitest";
 import type { DeckIR } from "../../ir/types.js";
 import { ensureRuntime, loadLocalEffects, renderDeck } from "../index.js";
 
-const MAX_DECK_BYTES = 2_621_440;
+/**
+ * Deck size guard. Raised 2.5 MiB -> 2.75 MiB with the Section 25-28 work:
+ * the matte/reflectivity reflector shader, the per-effect `lift`, the
+ * `sortAboveVeil` pass and the slot-based effects panel added ~10.4 KB to
+ * `dist/runtime.js` (2,567,910 -> 2,578,363), putting `deck.html` 1,085 bytes
+ * over the old ceiling. Headroom at 2.75 MiB is ~260 KB — the guard still
+ * catches runaway growth, which is its job.
+ */
+const MAX_DECK_BYTES = 2_883_584;
 
 const IR = JSON.parse(readFileSync(new URL("../../../fixtures/strategy-lab.json", import.meta.url), "utf8")) as DeckIR;
 

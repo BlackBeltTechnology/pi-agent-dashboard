@@ -18,6 +18,8 @@ export interface HudHost {
   slides: HudSlide[];
   /** Every effect the deck can instantiate (corpus + embedded `local:` cards). */
   catalogue: Array<{ id: string; kind: string }>;
+  /** Deck-level effect ids, PREPENDED to every slide — shown as inherited slots. */
+  deckEffects: string[];
   /** Deck defaults as embedded (read-only). */
   defaults: Defaults;
   /** Keys already overridden, for the `●` markers. */
@@ -52,6 +54,9 @@ export interface SlidePatch {
   fog?: boolean;
   mirrorFloor?: boolean;
   floor?: "mirror" | "water";
+  reflectBackdrop?: boolean;
+  floorMatte?: number;
+  floorReflectivity?: number;
   softShadows?: boolean;
   envReflections?: boolean;
   depthRelief?: number;
@@ -94,6 +99,7 @@ const TRANSITIONS = ["dolly", "fade", "iris", "flythrough", "cut"];
 type ControlSpec =
   | { path: string; kind: "enum"; options: readonly string[] }
   | { path: string; kind: "number"; step?: string }
+  | { path: string; kind: "range"; min: string; max: string; step: string; fallback: string }
   | { path: string; kind: "bool" }
   | { path: string; kind: "colour" }
   | { path: string; kind: "autoplay" }
@@ -108,6 +114,12 @@ interface Block {
 
 const enumC = (path: string, options: readonly string[]): ControlSpec => ({ path, kind: "enum", options });
 const numC = (path: string, step?: string): ControlSpec => ({ path, kind: "number", step });
+/**
+ * A bounded knob the presenter DRAGS; `numC` is a typed box with no range.
+ * `fallback` is the SCHEMA default, shown when the deck never set the key /
+ * falling back to `min` made the panel claim 0 while the frame ran at 1.
+ */
+const rangeC = (path: string, min: string, max: string, step: string, fallback: string): ControlSpec => ({ path, kind: "range", min, max, step, fallback });
 const boolC = (path: string): ControlSpec => ({ path, kind: "bool" });
 const colourC = (path: string): ControlSpec => ({ path, kind: "colour" });
 
@@ -125,6 +137,9 @@ const LIGHTING: ControlSpec[] = [
   boolC("fog"),
   boolC("mirrorFloor"),
   enumC("floor", ["mirror", "water"]),
+  boolC("reflectBackdrop"),
+  rangeC("floorReflectivity", "0", "1", "0.05", "1"),
+  rangeC("floorMatte", "0", "1", "0.05", "0"),
   boolC("softShadows"),
   boolC("envReflections"),
   numC("backgroundIntensity", "0.05"),
@@ -165,7 +180,9 @@ const BLOCKS: Block[] = [
   {
     title: "Motion",
     deck: [enumC("transition", TRANSITIONS), numC("durationSec"), { path: "autoplay", kind: "autoplay" }],
-    slide: [enumC("transition", TRANSITIONS)],
+    // `durationSec` is per-slide overridable since #F43; `autoplay` is a panel
+    // concept (not IR), so it stays deck-only.
+    slide: [enumC("transition", TRANSITIONS), numC("durationSec")],
   },
   { title: "Quality", deck: [enumC("quality", QUALITIES)], slide: [enumC("quality", QUALITIES)] },
   { title: "Effects", deck: [{ path: "effects", kind: "effects" }], slide: [{ path: "effects", kind: "effects" }] },
@@ -359,10 +376,11 @@ export function createHud(host: HudHost): Hud {
       const marked = isOverridden(spec.path, slideId);
       if (spec.kind === "enum") addRow(details, spec.path, select(spec.path, spec.options, slideId), marked);
       else if (spec.kind === "number") addRow(details, spec.path, number(spec.path, slideId, spec.step ?? "0.1"), marked);
+      else if (spec.kind === "range") addRow(details, spec.path, range(spec.path, slideId, spec), marked);
       else if (spec.kind === "bool") addRow(details, spec.path, checkbox(spec.path, slideId), marked);
       else if (spec.kind === "colour") addRow(details, spec.path, colour(spec.path, slideId), marked);
       else if (spec.kind === "autoplay") addRow(details, "autoplay (s)", autoplayField(), false);
-      else details.appendChild(effectsChecklist(slideId));
+      else details.appendChild(effectSlots(slideId));
     }
     return details;
   }
@@ -376,6 +394,22 @@ export function createHud(host: HudHost): Hud {
     }
     node.value = String(effectiveValue(state, scope, slideId, path, host.defaults) ?? options[0]);
     node.addEventListener("change", () => stage(path, node.value));
+    return node;
+  }
+
+  /**
+   * Bounded slider. Stages on `input` (not `change`) so the frame follows the
+   * thumb while it is dragged / that live preview is the whole point of a
+   * slider over a number box.
+   */
+  function range(path: string, slideId: string, spec: { min: string; max: string; step: string; fallback: string }): HTMLInputElement {
+    const node = el("input", { type: "range", min: spec.min, max: spec.max, step: spec.step, "data-path": path });
+    const value = effectiveValue(state, scope, slideId, path, host.defaults);
+    node.value = String(value ?? spec.fallback);
+    node.addEventListener("input", () => {
+      const n = Number(node.value);
+      if (Number.isFinite(n)) stage(path, n);
+    });
     return node;
   }
 
@@ -403,67 +437,110 @@ export function createHud(host: HudHost): Hud {
     render();
   }
 
-  function effectsChecklist(slideId: string): HTMLElement {
+  /** Effect ids of one kind, sorted — the stepper's ring. */
+  function idsOfKind(kind: string): string[] {
+    return host.catalogue
+      .filter((c) => c.kind === kind)
+      .map((c) => c.id)
+      .sort();
+  }
+
+  /** Kinds the catalogue actually carries (background, post, light, …). */
+  function kinds(): string[] {
+    return [...new Set(host.catalogue.map((c) => c.kind))].sort();
+  }
+
+  function kindOf(id: string): string {
+    return host.catalogue.find((c) => c.id === id)?.kind ?? "background";
+  }
+
+  /**
+   * ONE effect, as a slot: kind picker, a stepper over that kind, the effect's
+   * declared params, and a remove. Replaces the flat checklist, which could
+   * not say what KIND a row was and made a 79-effect corpus one long dropdown.
+   *
+   * A slot whose id comes from the deck-level list is INHERITED at slide scope
+   * (`applyOverrides` prepends that list to every slide): shown, but read-only
+   * here, because editing it belongs to deck scope.
+   */
+  function slotRow(slideId: string, active: string[], index: number, inherited: boolean): HTMLElement {
+    const id = active[index];
+    const row = el("div", inherited ? { class: "deck3d-hud-slot", "data-inherited": "" } : { class: "deck3d-hud-slot" });
+    const head = el("div", { class: "deck3d-hud-slot-head" });
+
+    const replace = (next: string) => commitEffects(slideId, active.map((other, i) => (i === index ? next : other)));
+
+    const kindSel = el("select", { "data-slot-kind": "" }) as HTMLSelectElement;
+    for (const kind of kinds()) {
+      const option = el("option", { value: kind });
+      option.textContent = kind;
+      kindSel.appendChild(option);
+    }
+    kindSel.value = kindOf(id);
+    kindSel.addEventListener("change", () => {
+      const first = idsOfKind(kindSel.value)[0];
+      if (first) replace(first);
+    });
+
+    const ring = idsOfKind(kindOf(id));
+    const step = (delta: number) => {
+      if (!ring.length) return;
+      const at = ring.indexOf(id);
+      replace(ring[(at + delta + ring.length) % ring.length]);
+    };
+    const prev = el("button", { type: "button", "data-slot-prev": "" });
+    prev.textContent = "\u25c0";
+    prev.addEventListener("click", () => step(-1));
+    const next = el("button", { type: "button", "data-slot-next": "" });
+    next.textContent = "\u25b6";
+    next.addEventListener("click", () => step(1));
+
+    const effectSel = el("select", { "data-slot-effect": "" }) as HTMLSelectElement;
+    for (const option of ring) {
+      const node = el("option", { value: option });
+      node.textContent = option;
+      effectSel.appendChild(node);
+    }
+    effectSel.value = id;
+    effectSel.addEventListener("change", () => replace(effectSel.value));
+
+    const remove = el("button", { type: "button", "data-slot-remove": "" });
+    remove.textContent = "\u2715";
+    remove.addEventListener("click", () => commitEffects(slideId, active.filter((_, i) => i !== index)));
+
+    for (const control of [kindSel, prev, effectSel, next, remove]) {
+      if (inherited) (control as HTMLSelectElement | HTMLButtonElement).disabled = true;
+      head.appendChild(control);
+    }
+    row.appendChild(head);
+    const knobs = paramRows(slideId, id);
+    if (knobs) row.appendChild(knobs);
+    return row;
+  }
+
+  function effectSlots(slideId: string): HTMLElement {
     const list = el("div", { class: "deck3d-hud-effects" });
     const composed = host.slides[host.current() - 1]?.effects ?? [];
     const staged = (scope === "deck" ? state.deck.effects : state.slides[slideId]?.effects) as string[] | undefined;
     const active = staged ?? composed.map((e) => e.id);
-    const enabled = new Set(active);
-    // Rows cover what the deck composed AND what the panel added, so an
-    // unticked authored effect stays visible to be ticked back on.
-    const rows = [...active, ...composed.map((e) => e.id).filter((id) => !enabled.has(id))];
-    for (const id of rows) {
-      const row = el("label", { class: "deck3d-hud-effect" });
-      const box = el("input", { type: "checkbox", "data-effect": id });
-      box.checked = enabled.has(id);
-      box.addEventListener("change", () => {
-        // Order is preserved: the export pins the whole list for this scope.
-        commitEffects(slideId, rows.filter((other) => (other === id ? box.checked : enabled.has(other))));
-      });
-      const name = el("span");
-      name.textContent = id;
-      row.append(box, name);
-      list.appendChild(row);
-      const knobs = paramRows(slideId, id);
-      if (knobs) list.appendChild(knobs);
+    const fromDeck = new Set(host.deckEffects);
+    for (let i = 0; i < active.length; i++) {
+      list.appendChild(slotRow(slideId, active, i, scope === "slide" && fromDeck.has(active[i])));
     }
-    list.appendChild(addEffectPicker(slideId, active));
+    list.appendChild(addSlotButton(slideId, active));
     return list;
   }
 
-  /**
-   * The catalogue minus what the slide already lists, grouped by kind. An
-   * effect the deck never mentioned is one pick away — before this the
-   * checklist could only take effects AWAY.
-   */
-  function addEffectPicker(slideId: string, active: string[]): HTMLElement {
-    const node = el("select", { "data-add-effect": "" });
-    const placeholder = el("option", { value: "" });
-    placeholder.textContent = "add effect…";
-    node.appendChild(placeholder);
-    const taken = new Set(active);
-    const byKind = new Map<string, string[]>();
-    for (const card of host.catalogue) {
-      if (taken.has(card.id)) continue;
-      const bucket = byKind.get(card.kind) ?? [];
-      bucket.push(card.id);
-      byKind.set(card.kind, bucket);
-    }
-    for (const kind of [...byKind.keys()].sort()) {
-      const group = el("optgroup", { label: kind });
-      for (const id of (byKind.get(kind) ?? []).sort()) {
-        const option = el("option", { value: id });
-        option.textContent = id;
-        group.appendChild(option);
-      }
-      node.appendChild(group);
-    }
-    node.value = "";
-    node.addEventListener("change", () => {
-      if (!node.value) return;
-      commitEffects(slideId, [...active, node.value]);
+  /** Appends a slot seeded with the first unused effect of the commonest kind. */
+  function addSlotButton(slideId: string, active: string[]): HTMLElement {
+    const button = el("button", { type: "button", "data-add-slot": "" });
+    button.textContent = "+ add slot";
+    button.addEventListener("click", () => {
+      const taken = new Set(active);
+      const seed = idsOfKind("background").find((id) => !taken.has(id)) ?? host.catalogue.map((c) => c.id).find((id) => !taken.has(id));
+      if (seed) commitEffects(slideId, [...active, seed]);
     });
-    return node;
+    return button;
   }
 
   /**

@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `7e5ffb1f8610b0fcdc0fabd1225f4f43c7d581030a71350db60ef874a86a7f90`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `10333189e0e3cacccfc104435657d03531cc69d24a1d06769ee8923db896194d`.
 
-80 effects.
+81 effects.
 
 ## accent-cycle
 
@@ -1117,6 +1117,25 @@ No parameters.
 |---|---|---|---|
 | density | number | 0.2..3 | 1 |
 | speed | number | 0..3 | 1 |
+
+## video-screen
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[product, demo] content=[screen, recording, video]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/video-screen.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| src | string | — |  |
+| width | number | 1..20 | 7 |
+| x | number | -20..20 | 4.6 |
+| y | number | -10..10 | 0.8 |
+| z | number | -20..10 | -1.5 |
+| tilt | number | -1.5..1.5 | -0.12 |
 
 ## vignette
 

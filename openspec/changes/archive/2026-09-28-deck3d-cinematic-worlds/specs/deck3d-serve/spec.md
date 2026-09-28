@@ -69,3 +69,22 @@ With `--check`, each rebuild SHALL run the browser fit-and-legibility check and 
 #### Scenario: Check never blocks the reload
 - **WHEN** a rebuild happens under `--check`
 - **THEN** the browser reloads on the rebuild, not on the check's completion
+
+### Requirement: Media served same-origin from beside the deck
+`deck3d serve` SHALL serve media files (`.mp4`, `.webm`, `.png`, `.jpg`, `.jpeg`, `.webp`) that sit beside the deck, resolved relative to the deck directory.
+
+This exists for a browser constraint, not convenience: a clip loaded from `file://` taints the canvas, and a tainted video cannot be uploaded as a WebGL texture — so a video layer cannot render at all unless its clip shares the page's origin.
+
+The route SHALL confine every resolved path to the deck directory. Dot-segment collapsing by the URL parser is NOT sufficient: a percent-encoded separator (`%2f`) survives parsing and expands into a traversal on decode, so the resolved path SHALL be checked against the deck directory before any read.
+
+#### Scenario: Clip beside the deck is served
+- **WHEN** a deck references `video/clip.mp4` and `serve` is running
+- **THEN** `GET /video/clip.mp4` returns the file with a `video/mp4` content type, same-origin with the deck page
+
+#### Scenario: Encoded traversal is refused
+- **WHEN** a request asks for `/video%2f..%2f..%2foutside.png`
+- **THEN** the server does not serve the file, because the decoded path resolves outside the deck directory
+
+#### Scenario: Missing asset does not break the page
+- **WHEN** a referenced clip is absent
+- **THEN** the request 404s and the deck page continues to serve normally

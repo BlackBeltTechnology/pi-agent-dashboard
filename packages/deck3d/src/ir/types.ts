@@ -106,6 +106,12 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   mirrorFloor?: boolean;
   /** Floor surface: reflective plane (default) or animated water. */
   floor?: "mirror" | "water";
+  /** Reflect backdrop geometry (backgrounds, local fx) in the floor, not just slide content. */
+  reflectBackdrop?: boolean;
+  /** Floor roughness: 0 = mirror, 1 = fully scattered reflection. */
+  floorMatte?: number;
+  /** Floor reflection strength: 1 = full mirror, 0 = none. */
+  floorReflectivity?: number;
   softShadows?: boolean;
   bloom?: boolean;
   rimLight?: boolean;
@@ -196,6 +202,26 @@ export interface Slide {
   labels?: LabelKnobs;
   check?: CheckKnobs;
   effects?: EffectRef[];
+  /**
+   * Look knobs, per slide. The runtime always supported this — `effective()`
+   * is `{...defaults, ...slide}` — but the schema used to reject them, so the
+   * configurator could apply a value live and then export a deck that would
+   * not render. `rail`/`spacing` stay deck-only: they move every anchor.
+   */
+  bloom?: boolean;
+  rimLight?: boolean;
+  fog?: boolean;
+  floor?: "mirror" | "water";
+  mirrorFloor?: boolean;
+  reflectBackdrop?: boolean;
+  floorMatte?: number;
+  floorReflectivity?: number;
+  softShadows?: boolean;
+  envReflections?: boolean;
+  depthRelief?: number;
+  extrudeDepth?: number;
+  colors?: { card?: string; accent?: string; secondary?: string };
+  durationSec?: number;
 }
 
 export interface Overrides {
@@ -223,6 +249,26 @@ export interface SlideOverride {
   labels?: LabelKnobs;
   check?: CheckKnobs;
   effects?: EffectRef[];
+  /**
+   * Look knobs, per slide. The runtime always supported this — `effective()`
+   * is `{...defaults, ...slide}` — but the schema used to reject them, so the
+   * configurator could apply a value live and then export a deck that would
+   * not render. `rail`/`spacing` stay deck-only: they move every anchor.
+   */
+  bloom?: boolean;
+  rimLight?: boolean;
+  fog?: boolean;
+  floor?: "mirror" | "water";
+  mirrorFloor?: boolean;
+  reflectBackdrop?: boolean;
+  floorMatte?: number;
+  floorReflectivity?: number;
+  softShadows?: boolean;
+  envReflections?: boolean;
+  depthRelief?: number;
+  extrudeDepth?: number;
+  colors?: { card?: string; accent?: string; secondary?: string };
+  durationSec?: number;
 }
 
 export interface NodeOverride {

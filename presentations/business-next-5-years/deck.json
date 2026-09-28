@@ -2,8 +2,8 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "deck.md",
-    "derivedHash": "8c245eaa1cd65c8ca5614102e18e01a6257582864caa1dec9466d24776ea3f50"
+    "source": "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-deck3d-cinematic-worlds/presentations/business-next-5-years/deck.md",
+    "derivedHash": "ded139557e51ae8e767a1490cc1f9c58db66f7537a891e27320cf019cb47f2dd"
   },
   "defaults": {
     "mode": "dark",
@@ -21,6 +21,7 @@
     "depthRelief": 0.7,
     "quality": "high",
     "extrudeDepth": 0.18,
+    "titleEdge": "none",
     "camera": {
       "distance": 9
     },
@@ -2411,7 +2412,7 @@
     "slides": {
       "how-business-changes-by-2031": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2426,7 +2427,7 @@
       },
       "why": {
         "camera": {
-          "distance": 12
+          "distance": 11
         },
         "check": {
           "ignore": [
@@ -2451,7 +2452,7 @@
       },
       "forces": {
         "camera": {
-          "distance": 15
+          "distance": 10
         },
         "diagram": {
           "scale": 1
@@ -2507,7 +2508,7 @@
       },
       "jagged": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2516,7 +2517,10 @@
         },
         "effects": [
           {
-            "id": "constellation"
+            "id": "constellation",
+            "params": {
+              "lift": 3.4
+            }
           }
         ],
         "diagram": {
@@ -2539,7 +2543,7 @@
       },
       "adoption": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2571,7 +2575,7 @@
       },
       "agentgap": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2597,7 +2601,7 @@
       },
       "money": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2655,7 +2659,7 @@
       },
       "dealflow": {
         "camera": {
-          "distance": 13
+          "distance": 11
         },
         "diagram": {
           "scale": 1.3
@@ -2679,7 +2683,7 @@
       },
       "work": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2714,7 +2718,7 @@
       },
       "skills": {
         "camera": {
-          "distance": 12
+          "distance": 11
         },
         "check": {
           "ignore": [
@@ -2740,7 +2744,7 @@
       },
       "reskill": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2775,7 +2779,7 @@
       },
       "entry": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2889,7 +2893,7 @@
       },
       "model": {
         "camera": {
-          "distance": 13
+          "distance": 11
         },
         "diagram": {
           "scale": 1.3
@@ -2940,7 +2944,7 @@
       },
       "timeline": {
         "camera": {
-          "distance": 15
+          "distance": 9
         },
         "diagram": {
           "scale": 0.95
@@ -2964,7 +2968,7 @@
       },
       "monday": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -2990,7 +2994,7 @@
       },
       "wrong": {
         "camera": {
-          "distance": 12
+          "distance": 11
         },
         "check": {
           "ignore": [
@@ -3016,7 +3020,7 @@
       },
       "sources": {
         "camera": {
-          "distance": 12
+          "distance": 10
         },
         "check": {
           "ignore": [
@@ -3042,8 +3046,6 @@
         }
       }
     },
-    "deck": {
-      "palette": "midnight"
-    }
+    "deck": {}
   }
 }

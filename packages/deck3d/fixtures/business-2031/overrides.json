@@ -472,6 +472,9 @@
         },
         {
           "id": "dashed-flow"
+        },
+        {
+          "id": "video-screen"
         }
       ],
       "diagram": {

@@ -102,6 +102,8 @@ import floatCard from "./float.meta.json";
 import { create as flythrough } from "./flythrough.js";
 import flythroughCard from "./flythrough.meta.json";
 import { create as fog } from "./fog.js";
+import { create as videoScreen } from "./video-screen.js";
+import videoScreenCard from "./video-screen.meta.json";
 import fogCard from "./fog.meta.json";
 import { create as glass } from "./glass.js";
 import glassCard from "./glass.meta.json";
@@ -177,6 +179,7 @@ export const REGISTRY: Record<string, FxEntry> = {
   "emissive": { card: emissiveCard as FxCard, create: emissive },
   "mirror-floor": { card: mirror_floorCard as FxCard, create: mirror_floor },
   "fog": { card: fogCard as FxCard, create: fog },
+  "video-screen": { card: videoScreenCard as FxCard, create: videoScreen },
   "soft-shadows": { card: soft_shadowsCard as FxCard, create: soft_shadows },
   "room-ibl": { card: room_iblCard as FxCard, create: room_ibl },
   "signal-pulse": { card: signal_pulseCard as FxCard, create: signal_pulse },

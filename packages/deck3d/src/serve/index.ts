@@ -16,13 +16,49 @@
  * `build` produces.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, watch, writeFileSync, type FSWatcher } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { existsSync, type FSWatcher, mkdtempSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve, sep } from "node:path";
-import { mkdtempSync } from "node:fs";
-import { run } from "../cli.js";
+import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import type { CliIO } from "../cli.js";
+import { run } from "../cli.js";
+
+/** Media extensions the asset route will serve. */
+const ASSET_TYPES: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
+
+/**
+ * Serve a media file sitting beside the deck, same-origin.
+ *
+ * A `file://` clip taints the canvas and then cannot be uploaded as a WebGL
+ * texture, so a video layer needs its clip to come from the page's own
+ * origin. Returns true once the response is handled.
+ *
+ * Confinement is not optional: `new URL()` collapses plain dot-segments but
+ * leaves `%2f` encoded, so a path like `/a%2f..%2f..%2fsecret.png` still
+ * decodes into a real traversal. The resolved path is checked against the
+ * deck directory for exactly that case.
+ */
+function serveAsset(pathname: string, deckDir: string, res: ServerResponse): boolean {
+  const ext = extname(pathname).toLowerCase();
+  const type = ASSET_TYPES[ext];
+  if (!type) return false;
+  const target = resolve(deckDir, decodeURIComponent(pathname.replace(/^\/+/, "")));
+  if (!target.startsWith(deckDir + sep) || !existsSync(target)) {
+    res.writeHead(404, { "content-type": "text/plain" });
+    res.end("not found");
+    return true;
+  }
+  res.writeHead(200, { "content-type": type, "cache-control": "no-store" });
+  res.end(readFileSync(target));
+  return true;
+}
 
 export interface ServeOptions {
   /** 0 (the default) asks the OS for a free port. */
@@ -252,6 +288,7 @@ export async function startServe(mdPath: string, opts: ServeOptions = {}): Promi
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", `http://${HOST}`);
     void (async () => {
+      if (serveAsset(url.pathname, deckDir, res)) return;
       if (url.pathname === "/__events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
         res.write(": connected\n\n");

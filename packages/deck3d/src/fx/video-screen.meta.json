@@ -1,0 +1,57 @@
+{
+  "id": "video-screen",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "product",
+      "demo"
+    ],
+    "content": [
+      "screen",
+      "recording",
+      "video"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "src": {
+      "type": "string",
+      "default": "",
+      "description": "Same-origin clip URL, relative to the deck (served by `deck3d serve`). A file:// source taints the canvas and cannot be uploaded as a texture."
+    },
+    "width": {
+      "type": "number",
+      "default": 7,
+      "minimum": 1,
+      "maximum": 20
+    },
+    "x": {
+      "type": "number",
+      "default": 4.6,
+      "minimum": -20,
+      "maximum": 20
+    },
+    "y": {
+      "type": "number",
+      "default": 0.8,
+      "minimum": -10,
+      "maximum": 10
+    },
+    "z": {
+      "type": "number",
+      "default": -1.5,
+      "minimum": -20,
+      "maximum": 10
+    },
+    "tilt": {
+      "type": "number",
+      "default": -0.12,
+      "minimum": -1.5,
+      "maximum": 1.5
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+  "licence": "MIT"
+}

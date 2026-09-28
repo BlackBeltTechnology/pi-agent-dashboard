@@ -8,21 +8,21 @@ import type { Font } from "opentype.js";
 import * as THREE from "three";
 import { composeEffects, QUALITY_BUDGET } from "../fx/compose.js";
 import { REGISTRY } from "../fx/index.js";
-import type { Layout } from "../ir/types.js";
 import type { FxContext, FxParams } from "../fx/types.js";
+import type { Layout } from "../ir/types.js";
 import { type Animator, backgroundFor } from "./backgrounds.js";
 import { buildDiagram, type DiagramBuild } from "./builders.js";
 import { anchorFor, cullRadius } from "./camera.js";
+import { createHud, type SlidePatch } from "./hud.js";
+import { createLocalEffect, type LocalFxError, type LocalHandle, localCards, localFxRegistry } from "./local-fx.js";
 import { diagramMaterial, titleEdgeMaterial, titleMaterial } from "./materials.js";
 import { projectRect } from "./measure.js";
 import { mixPalette, type PaletteColors, resolvePalette } from "./palette.js";
+import type { PartName } from "./post.js";
 import { applyProps, createPropMaterials, loadPropModels, type PropLayer, type PropMaterials } from "./props.js";
-import { createHud, type SlidePatch } from "./hud.js";
-import { createLocalEffect, localCards, type LocalFxError, type LocalHandle, localFxRegistry } from "./local-fx.js";
 import { type QualityProfile, qualityProfile } from "./quality.js";
 import { makeRng } from "./rng.js";
-import type { PartName } from "./post.js";
-import { createSceneRig, markBackdrop } from "./scene.js";
+import { createSceneRig, markBackdrop, sortAboveVeil } from "./scene.js";
 import { buildTitle, bulletTexture, loadFont } from "./text.js";
 import "./types.js";
 import type { Deck3dApi, Measurement, RuntimeDeck, SlideConfig } from "./types.js";
@@ -227,13 +227,29 @@ function effectsOf(slide: DeckSlide): NonNullable<DeckSlide["effects"]> {
   return ids.map((id) => byId.get(id) ?? { id });
 }
 
+/**
+ * Universal `lift` param for background effects: raise the fx box off the
+ * floor (y -2.6). Declared here rather than per card so every background
+ * effect gets it — including ones added later — with no per-fx code. Default 0
+ * keeps a box centred on the slide origin, half-submerged, which is correct
+ * for scenery (a plate field reads as terrain) and wrong for a diffuse cloud
+ * that just loses its lower half.
+ */
+const LIFT_PARAM = { type: "number", default: 0, minimum: -6, maximum: 8 } as const;
+
 function backgroundFromEffects(slide: DeckSlide, P: PaletteColors, profile: QualityProfile, mode: "dark" | "light"): Animator | null {
   for (const ref of effectsOf(slide)) {
     const entry = REGISTRY[ref.id];
     if (entry?.card.kind !== "background") continue;
-    const handle = entry.create(fxContextFor(slide, P, profile, mode), paramsFor(slide.id, ref));
+    const params = paramsFor(slide.id, ref);
+    const handle = entry.create(fxContextFor(slide, P, profile, mode), params);
     if (!handle.object) continue;
-    return { g: handle.object as THREE.Group, tick: handle.tick ?? (() => {}) };
+    const g = handle.object as THREE.Group;
+    // Both the build path and the live param-edit path come through here, so
+    // this is the only place `lift` has to be applied.
+    const lift = typeof params.lift === "number" ? params.lift : 0;
+    g.position.y = Math.min(LIFT_PARAM.maximum, Math.max(LIFT_PARAM.minimum, lift));
+    return { g, tick: handle.tick ?? (() => {}), setActive: handle.setActive };
   }
   return null;
 }
@@ -271,6 +287,7 @@ function localEffectsFor(
       // Both `background` and `motion` local effects are backdrop: nothing an
       // effect draws may ever cover the text.
       markBackdrop(handle.object as THREE.Object3D);
+      sortAboveVeil(handle.object as THREE.Object3D);
       g.add(handle.object as THREE.Object3D);
     }
     out.push(handle);
@@ -315,6 +332,7 @@ function buildSlideGroup(
   if (background) {
     background.g.position.z = -2;
     markBackdrop(background.g);
+    sortAboveVeil(background.g);
     g.add(background.g);
   }
   const localFx = localEffectsFor(slide, P, profile, mode, g, index);
@@ -403,8 +421,18 @@ async function boot(): Promise<void> {
     });
   }
 
+  /**
+   * Tell the slides which one is settled. Time-based media (a `video-screen`
+   * clip) plays only while its slide is in position and frozen otherwise, so
+   * a clip never runs off-screen and a pinned time renders a stable frame.
+   */
+  function settle(active: number | null): void {
+    for (let i = 0; i < builds.length; i++) builds[i]?.background?.setActive?.(i === active);
+  }
+
   function snapTo(i: number): void {
     cur = i;
+    settle(i);
     const a = builds[i].anchor;
     camState.pos.copy(a.cam);
     camState.target.copy(a.target);
@@ -440,6 +468,7 @@ async function boot(): Promise<void> {
     }
     if (anim.t >= 1) {
       anim = null;
+      settle(cur);
       if (pendingDispose !== null && pendingDispose !== cur) disposeLocalFx(pendingDispose);
       pendingDispose = null;
     }
@@ -531,6 +560,7 @@ async function boot(): Promise<void> {
     const toPalette = builds[target].palette;
     // Same palette ⇒ nothing to morph, so the look is applied once as before.
     const morph = JSON.stringify(fromPalette) !== JSON.stringify(toPalette);
+    settle(null); // camera about to fly: freeze time-based media
     anim = {
       from,
       to: builds[target].anchor,
@@ -591,7 +621,7 @@ async function boot(): Promise<void> {
     slide.background?.tick(t * 0.7);
     slide.props?.tick(t);
     for (const handle of slide.localFx) handle.tick(t);
-    rig.updateFloor(camState.target);
+    rig.followTarget(camState.target);
     cullNeighbours();
     billboardLabels();
     rig.render(t);
@@ -633,7 +663,7 @@ async function boot(): Promise<void> {
     rig.camera.position.lerp(tmp, frozen === null && anim === null ? 0.2 : 1);
     rig.camera.lookAt(camState.target);
     cullNeighbours();
-    rig.updateFloor(camState.target);
+    rig.followTarget(camState.target);
     builds[cur].diagram?.tick(t);
     builds[cur].background?.tick(t * 0.7);
     builds[cur].props?.tick(t);
@@ -799,6 +829,7 @@ async function boot(): Promise<void> {
       ...Object.values(REGISTRY).map((e) => ({ id: e.card.id, kind: e.card.kind as string })),
       ...Object.values(localCards()).map((c) => ({ id: `local:${c.id}`, kind: c.kind as string })),
     ],
+    deckEffects: (deck.effects ?? []).map((e) => e.id),
     defaults: deck.defaults,
     overridden: overriddenKeys(),
     derivedHash: (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "",
@@ -822,7 +853,12 @@ async function boot(): Promise<void> {
       const out: Array<{ id: string; schema: Record<string, unknown>; values: FxParams }> = [];
       for (const ref of effectsOf(slide)) {
         const card = ref.id.startsWith("local:") ? local[ref.id.slice("local:".length)] : REGISTRY[ref.id]?.card;
-        const schema = (card?.params ?? {}) as Record<string, unknown>;
+        // `lift` is engine-level, so it is advertised to the panel here rather
+        // than sitting in every background card's params. Only corpus effects:
+        // `local:` modules run through `localEffectsFor`, which never applies
+        // it. Injected FIRST so a card declaring its own `lift` still wins.
+        const engineParams = !ref.id.startsWith("local:") && card?.kind === "background" ? { lift: LIFT_PARAM } : {};
+        const schema = { ...engineParams, ...((card?.params ?? {}) as Record<string, unknown>) };
         if (Object.keys(schema).length === 0) continue;
         out.push({ id: ref.id, schema, values: paramsFor(slide.id, ref) });
       }
@@ -858,6 +894,7 @@ async function boot(): Promise<void> {
         if (next) {
           next.g.position.z = -2;
           markBackdrop(next.g);
+          sortAboveVeil(next.g);
           build.group.add(next.g);
         }
       }
@@ -993,6 +1030,32 @@ async function boot(): Promise<void> {
        * those children CAN cover the text — the one hole the two-pass render
        * cannot close by construction. `check` turns this into a finding.
        */
+      /**
+       * Shadow-pipeline probe: what the renderer, the key light and the scene
+       * actually agree on. `castShadow` flags scattered across the builders
+       * say nothing about whether a shadow reaches the frame.
+       */
+      shadows: () => {
+        const casters: string[] = [];
+        const receivers: string[] = [];
+        rig.scene.traverse((n) => {
+          const mesh = n as THREE.Mesh;
+          if (!(mesh as { isMesh?: boolean }).isMesh) return;
+          const label = `${n.name || n.type}@${n.layers.mask}`;
+          if (mesh.castShadow) casters.push(label);
+          if (mesh.receiveShadow) receivers.push(label);
+        });
+        const cam = rig.shadowCamera();
+        return {
+          enabled: rig.renderer.shadowMap.enabled,
+          autoUpdate: rig.renderer.shadowMap.autoUpdate,
+          camera: cam,
+          casters: casters.slice(0, 12),
+          receivers: receivers.slice(0, 12),
+          casterCount: casters.length,
+          receiverCount: receivers.length,
+        };
+      },
       backdropLeaks: () => {
         const leaked: string[] = [];
         const scan = (root: THREE.Object3D | undefined, owner: string): void => {
@@ -1088,6 +1151,10 @@ async function boot(): Promise<void> {
           camTarget: camState.target.toArray() as [number, number, number],
           anim: anim === null ? null : { mode: anim.mode, t: anim.t, dur: anim.dur },
           floor: rig.floorMode(),
+          reflectBackdrop: rig.reflectsBackdrop(),
+          floorMatte: rig.floorMatte(),
+          floorReflectivity: rig.floorReflectivity(),
+          ...rig.lightRig(),
         };
       },
     },

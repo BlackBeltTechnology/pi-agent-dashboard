@@ -172,3 +172,22 @@ The `business-2031` fixture SHALL present every corpus card on exactly one slide
 - **GIVEN** the fixture after its local modules were promoted into the corpus
 - **WHEN** its `fx/` directory is read
 - **THEN** exactly one local module remains, referenced as `local:` with a matching `sha256` pin
+
+### Requirement: Video plays on a screen in the scene
+The corpus SHALL provide a `video-screen` background card that plays a looping clip on a framed screen standing in the slide's scene, positioned by `width`/`x`/`y`/`z`/`tilt`.
+
+The screen surface SHALL be unlit, so a screen recording reads as its own pixels rather than as a surface tinted by the scene's key light. The card SHALL construct without a DOM and without a clip, because the corpus gate instantiates every card headlessly.
+
+Playback SHALL be gated on the slide being settled: a clip SHALL NOT play while the camera is moving between slides, so a deck pinned to a fixed time renders a stable frame and a clip never plays off-screen.
+
+#### Scenario: Clip plays on the settled slide
+- **WHEN** the deck arrives at a slide carrying a `video-screen` effect with a same-origin clip
+- **THEN** the clip plays on the screen in the scene and loops
+
+#### Scenario: Playback freezes during a transition
+- **WHEN** the camera starts flying to another slide
+- **THEN** the clip is paused until a slide is settled again
+
+#### Scenario: Card builds with no clip
+- **WHEN** the card is instantiated with no `src` and no DOM
+- **THEN** it produces the screen and bezel geometry without throwing

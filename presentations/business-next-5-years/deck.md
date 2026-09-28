@@ -13,7 +13,7 @@ AI, fragmentation and trust: what it means for sellers
 - Built for software & IT services sales
 - Sources: WEF, Stanford HAI, Forrester
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # Why This Talk {#why}
 
@@ -23,7 +23,7 @@ Your quota survives. Your playbook does not.
 - Proof now beats promise
 - Everything here is sourced and dated
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":11},"check":{"ignore":["contrast"]}} -->
 
 # Five Forces to 2031 {#forces}
 
@@ -43,7 +43,7 @@ flowchart LR
   I --> S
 ```
 
-<!-- deck3d: {"camera":{"distance":15},"diagram":{"scale":1.0},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"diagram":{"scale":1.0},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
 
 # Force 1: Capability Is Not Plateauing {#capability}
 
@@ -65,7 +65,7 @@ Superhuman and incompetent in the same system
 - Capability is spiky, not uniform
 - Sell the spike, scope around the gap
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]},"effects":[{"id":"constellation","params":{"lift":3.4}}]} -->
 
 # Adoption Broke Every Record {#adoption}
 
@@ -76,7 +76,7 @@ Faster than the PC. Faster than the internet.
 - 53% population adoption in three years
 - 4 in 5 university students use generative AI
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # The Agent Gap Is the Opportunity {#agentgap}
 
@@ -87,7 +87,7 @@ Everyone bought AI. Few run agents.
 - The 2026–2031 money is in depth, not first contact
 - Ask: what is actually in production
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # Money Moved, Then Got Strict {#money}
 
@@ -98,7 +98,7 @@ Record investment arriving with record scrutiny
 - Google alone: $150B+ annual capex
 - Consumer value from free tools: $172B/year
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # Force 2: The Trust Correction {#trust}
 
@@ -129,7 +129,7 @@ sequenceDiagram
   B-->>S: Outcome-linked contract
 ```
 
-<!-- deck3d: {"camera":{"distance":13},"diagram":{"scale":1.3},"labels":{"size":0.26},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":11},"diagram":{"scale":1.3},"labels":{"size":0.26},"check":{"ignore":["contrast"]}} -->
 
 # Force 3: Work Gets Redesigned {#work}
 
@@ -140,7 +140,7 @@ WEF Future of Jobs 2025 — 2025 to 2030
 - 40% cut roles where AI automates
 - Half of employers re-orient the business around AI
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # Skills Beat Headcount {#skills}
 
@@ -151,7 +151,7 @@ WEF Future of Jobs 2025 — 2025 to 2030
 - Rising: creative thinking, resilience, curiosity
 - 63%: skill gaps are the top barrier
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":11},"check":{"ignore":["contrast"]}} -->
 
 # The 59-in-100 Problem {#reskill}
 
@@ -162,7 +162,7 @@ If the workforce were 100 people
 - 11 get nothing — and their prospects erode
 - 85% of employers prioritize upskilling
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # The Entry-Level Squeeze {#entry}
 
@@ -173,7 +173,7 @@ Where the damage is already measurable
 - 1 in 3 orgs expect AI-driven cuts
 - Your future buyers are being trained differently
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # Force 4: Geoeconomics Rewrites Strategy {#geo}
 
@@ -220,7 +220,7 @@ flowchart LR
   C ==>|expand| G((Renewal))
 ```
 
-<!-- deck3d: {"camera":{"distance":13},"diagram":{"scale":1.3},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":11},"diagram":{"scale":1.3},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
 
 # What Changes in Your Job {#sales}
 
@@ -246,7 +246,7 @@ flowchart TD
   Y2 -.-> R[Downturn]
 ```
 
-<!-- deck3d: {"camera":{"distance":15},"diagram":{"scale":0.95},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":9},"diagram":{"scale":0.95},"labels":{"size":0.2},"check":{"ignore":["contrast"]}} -->
 
 # Monday Morning {#monday}
 
@@ -257,7 +257,7 @@ Do these before the forecast call
 - Name the governance stakeholder
 - Book your own reskilling hours this quarter
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->
 
 # What Would Prove Me Wrong {#wrong}
 
@@ -268,7 +268,7 @@ Honest failure modes for this forecast
 - Capability plateaus unexpectedly
 - Trust collapses faster than proof can be produced
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":11},"check":{"ignore":["contrast"]}} -->
 
 # Sources {#sources}
 
@@ -280,4 +280,4 @@ Everything above is dated and traceable
 - WEF + PwC, Entry-Level Work, Jun 2026
 - Forrester Predictions 2026
 
-<!-- deck3d: {"camera":{"distance":12},"check":{"ignore":["contrast"]}} -->
+<!-- deck3d: {"camera":{"distance":10},"check":{"ignore":["contrast"]}} -->

@@ -91,8 +91,13 @@ describe.skipIf(!hasChromium)("configurator exposes per-effect params (#F21)", (
       await page.waitForTimeout(200);
       const after = await page.evaluate(() => window.__deck3d!.debug.localFx()[0].digest);
       expect(after).not.toBe(before);
-      // The edit must not rewrite the authored deck.
-      expect(await page.evaluate(() => JSON.stringify(window.__DECK.overrides ?? {}))).not.toContain('"lift"');
+      // The edit must not rewrite the authored deck: the panel stages params
+      // separately, so the embedded effect refs must still carry none. Probed
+      // on the refs, not on `__DECK.overrides` / the embedded deck is the
+      // MERGED view and deliberately carries no `overrides` block, so the old
+      // probe read `undefined` and could never have caught a write-back.
+      const authoredParams = await page.evaluate(() => window.__DECK.slides.flatMap((s) => s.effects ?? []).map((e) => e.params ?? {}));
+      expect(JSON.stringify(authoredParams)).not.toContain("lift");
     } finally {
       await browser.close();
     }
@@ -530,13 +535,11 @@ describe.skipIf(!hasChromium)("configurator (chromium)", () => {
       await page.fill('#deck3d-hud input[data-path="camera.distance"]', "11");
       await page.dispatchEvent('#deck3d-hud input[data-path="camera.distance"]', "change");
 
-      // Uncheck one effect on slide 2 so the export pins that slide's list.
+      // Drop one effect on slide 2 so the export pins that slide's list.
+      // Effects are SLOTS since #F44 — remove the first slot.
       await page.evaluate(() => window.__deck3d?.gotoSlide(2));
-      await page.evaluate(() => {
-        const box = document.querySelector("#deck3d-hud .deck3d-hud-effect input") as HTMLInputElement;
-        box.checked = false;
-        box.dispatchEvent(new Event("change"));
-      });
+      await page.locator("#deck3d-hud .deck3d-hud-slot [data-slot-remove]").first().click();
+      await page.waitForTimeout(300);
 
       // Capture the real download rather than a test-only hook.
       const [download] = await Promise.all([
@@ -1020,24 +1023,30 @@ describe.skipIf(!hasChromium)("configurator adds and removes effects (#F34)", ()
       await page.keyboard.press("c");
       await openAllBlocks(page);
 
-      // The picker offers the whole corpus minus what the slide already lists.
-      const add = "#deck3d-hud select[data-add-effect]";
-      expect(await page.locator(`${add} option[value="pixelate"]`).count()).toBe(1);
-
-      await page.selectOption(add, "pixelate");
+      // Effects are SLOTS since #F44: add one, then point it at `pixelate`.
+      // The slot's kind picker narrows a 79-effect corpus to one kind first.
+      await page.locator("#deck3d-hud [data-add-slot]").first().click();
+      await page.waitForTimeout(300);
+      const slot = page.locator("#deck3d-hud .deck3d-hud-slot").last();
+      await slot.locator("select[data-slot-kind]").selectOption("post");
+      await page.waitForTimeout(300);
+      const added = page.locator("#deck3d-hud .deck3d-hud-slot").last();
+      expect(await added.locator('select[data-slot-effect] option[value="pixelate"]').count()).toBe(1);
+      await added.locator("select[data-slot-effect]").selectOption("pixelate");
       await page.waitForTimeout(400);
       expect(await pixelateOn()).toBe(true);
-      // The added card is a composed effect like any other: it gets its
-      // declared params and its own checklist row.
-      expect(await page.locator('#deck3d-hud input[data-effect="pixelate"]').count()).toBe(1);
+      // The added card is a composed effect like any other: it gets its own
+      // slot and its declared params.
+      expect(await page.locator('#deck3d-hud .deck3d-hud-slot select[data-slot-effect]').evaluateAll((n) => n.map((e) => (e as HTMLSelectElement).value))).toContain("pixelate");
       expect(await page.locator('#deck3d-hud [data-fxparam="pixelate.size"]').count()).toBe(1);
-      // Already on the slide ⇒ no longer offered.
-      expect(await page.locator(`${add} option[value="pixelate"]`).count()).toBe(0);
 
       // Removing has to stop the pass, not merely hide a background mesh.
-      // A click, not `uncheck()`: committing re-renders the block, so the
-      // node is detached before Playwright can re-read its checked state.
-      await page.locator('#deck3d-hud input[data-effect="pixelate"]').dispatchEvent("click");
+      // The slot that holds `pixelate` owns its own remove.
+      await page.evaluate(() => {
+        const slots = [...document.querySelectorAll("#deck3d-hud .deck3d-hud-slot")];
+        const slot = slots.find((s) => (s.querySelector("select[data-slot-effect]") as HTMLSelectElement | null)?.value === "pixelate");
+        (slot?.querySelector("[data-slot-remove]") as HTMLButtonElement | null)?.click();
+      });
       await page.waitForTimeout(400);
       expect(await pixelateOn()).toBe(false);
 

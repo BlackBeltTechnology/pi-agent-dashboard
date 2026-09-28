@@ -43,16 +43,20 @@ async function open(browser: Browser, path: string): Promise<{ page: Page; error
 
 describe("E55 defaults.floor is schema-validated", () => {
   const base = JSON.parse(readFileSync(new URL("../../../fixtures/strategy-lab.json", import.meta.url), "utf8"));
-  it("accepts mirror and water on the deck, rejects anything else, and stays deck-scope", () => {
+  it("accepts mirror and water on the deck, rejects anything else, and allows it per slide", () => {
     for (const floor of ["mirror", "water"]) {
       expect(validate({ ...base, defaults: { ...base.defaults, floor } }).ok, floor).toBe(true);
     }
     const bad = validate({ ...base, defaults: { ...base.defaults, floor: "lava" } });
     expect(bad.ok).toBe(false);
     expect(JSON.stringify(bad.errors)).toMatch(/defaults\.floor/);
-    // One global floor: like `mirrorFloor`, not a per-slide knob.
+    // Per-slide since #F43: the runtime always applied it per slide
+    // (`effective()` spreads the slide over the defaults); only the schema
+    // rejected it, so the panel could export an unrenderable deck.
     const slide = { ...base, overrides: { slides: { [base.slides[0].id]: { floor: "water" } } } };
-    expect(validate(slide).ok).toBe(false);
+    expect(validate(slide).ok).toBe(true);
+    const badSlide = { ...base, overrides: { slides: { [base.slides[0].id]: { floor: "lava" } } } };
+    expect(validate(badSlide).ok, "the enum still applies per slide").toBe(false);
   });
 });
 

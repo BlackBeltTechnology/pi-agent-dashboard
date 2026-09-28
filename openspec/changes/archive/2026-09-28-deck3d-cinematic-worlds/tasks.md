@@ -131,10 +131,10 @@
 
 ## 12. Manual verification (post-merge)
 
-- [ ] 12.1 View snapshots of the six new built diagrams on the business fixture and judge proportions/readability (test-plan: manual-only, #F9)
-- [ ] 12.2 View `fx preview` of the eight topic-world backgrounds and judge that each reads as its topic (test-plan: manual-only, #F10)
-- [ ] 12.3 View the six new palettes on the fixture in both modes and judge aesthetics (test-plan: manual-only, #F11)
-- [ ] 12.4 Drive the configurator on a live deck and judge discoverability and that it stays out of the way (test-plan: manual-only, #F12)
+- [x] 12.1 View snapshots of the six new built diagrams on the business fixture and judge proportions/readability (test-plan: manual-only, #F9)
+- [x] 12.2 View `fx preview` of the eight topic-world backgrounds and judge that each reads as its topic (test-plan: manual-only, #F10)
+- [x] 12.3 View the six new palettes on the fixture in both modes and judge aesthetics (test-plan: manual-only, #F11)
+- [x] 12.4 Drive the configurator on a live deck and judge discoverability and that it stays out of the way (test-plan: manual-only, #F12)
 
 ## 13. Slide placement knobs + collapsible configurator blocks
 
@@ -150,8 +150,8 @@
 - [x] 13.13 Test (see `runtime/__tests__/e49-rail-geometry.test.ts`) — input: 12-slide rail · trigger: `anchorFor` per rail · observable: no two slides closer than half a spacing, camera always `distance` in front of its slide, orbit/helix turn each slide to face its camera, tunnel culls below one spacing (test-plan #E49); plus #E50 — `projectRect` is rotation-invariant
 - [x] 13.14 Fix `projectRect` to take the box in the object's OWN frame (extracted to `src/runtime/measure.ts`): the world-axis-aligned `Box3` inflated up to 1.5x on a turned slide and raised false `fit` findings on `orbit`/`helix`
 - [x] 13.9 Test (see `render/__tests__/runtime.test.ts`, chromium) — input: rendered deck · trigger: open Layout, close Look, change slide, reload · observable: Layout open + Look closed, `localStorage["deck3d:<hash>"].open` holds the states; deck scope shows `spacing` and no `diagram.*`, slide scope the reverse (test-plan #F14)
-- [ ] 13.10 Test (see `check/__tests__/e42-clean-deck.test.ts`) — input: deck with panel state including open blocks · trigger: `check` · observable: report equals the fresh-profile report, no finding names a panel element (existing #X9 extended to `open`)
-- [ ] 13.11 Docs closeout: `SKILL.md` Style step mentions `layout`/`spacing`/`cardOffset`, regenerate `reference/ir-fields.md`, update `README.md` and the `AGENTS.md` rows for `runtime/hud.ts`, `runtime/index.ts`, `runtime/camera.ts`, `ir/schema.json`, `ir/types.ts`, `render/template.html`; verify `kb dox lint` clean and `npx vitest run src/__tests__` passes
+- [x] 13.10 Test (see `check/__tests__/e42-clean-deck.test.ts`, X9 extended with persisted OPEN blocks: seeds `{open:[...],shown:true}`, asserts `clearHudState` wipes it, the panel is not open after reload, the report equals the fresh-profile report and no finding names `deck3d-hud`) — input: deck with panel state including open blocks · trigger: `check` · observable: report equals the fresh-profile report, no finding names a panel element (existing #X9 extended to `open`)
+- [x] 13.11 Docs closeout: `SKILL.md` Style step mentions `layout`/`spacing`/`cardOffset`, regenerate `reference/ir-fields.md`, update `README.md` and the `AGENTS.md` rows for `runtime/hud.ts`, `runtime/index.ts`, `runtime/camera.ts`, `ir/schema.json`, `ir/types.ts`, `render/template.html`; verify `kb dox lint` clean and `npx vitest run src/__tests__` passes
 
 ## 14. Backdrop isolation + live clock (reported: "Force 4" slicing, "nothing is animated")
 
@@ -270,3 +270,81 @@
 - [x] 22.2 `applyEffects` rebuilds the current slide instead of flipping `background.visible` — a removed `post` card kept running until reload (#F34)
 - [x] 22.3 Configurator: an **add** select over the whole corpus + the deck's `local:` cards, grouped by `kind`, minus what the slide already lists; rows render from the EFFECTIVE list (composed ∪ staged) (#F34)
 - [x] 22.4 Docs: `src/runtime/AGENTS.md`, README, SKILL
+
+## 23. Backdrop geometry reflects in the floor again
+
+- [x] 23.1 Test first (see `render/__tests__/f35-reflect-backdrop.test.ts`) — input: two decks with a dense background, one `reflectBackdrop: false` · trigger: render + open · observable: `debug.look().reflectBackdrop` matches, the floor band differs between them, configurator toggles it live (#F35)
+- [x] 23.2 `scene.ts`: `applySurface` drives `mirror.camera.layers` — `Reflector` reflects with its own bare `PerspectiveCamera`, so `BACKDROP_LAYER` backgrounds/local fx vanished from every reflection when Section 2's layer split landed; the lab reflected them because it had no layers
+- [x] 23.3 IR: `defaults.reflectBackdrop` (boolean, default true, deck-scope like `floor`/`mirrorFloor`); schema, types, `ir-fields.md` regen
+- [x] 23.4 `debug.look().reflectBackdrop` probe + Lighting & FX checkbox at deck scope
+- [x] 23.5 Docs: `src/runtime/AGENTS.md`, `src/ir/AGENTS.md`, SKILL
+
+## 24. Shadows reach the frame again
+
+- [x] 24.1 Test first (see `render/__tests__/f36-lights-follow-slide.test.ts`) — input: 3-slide deck, slide 3 (80 units down the rail) · trigger: `gotoSlide(3)` · observable: `debug.look().keyTarget`/`rimPos` track `camTarget`, and the frame differs from the same slide at `softShadows: false` (#F36)
+- [x] 24.2 `scene.ts`: `updateFloor` → `followTarget` — moves the floor AND the key/rim lights; the port kept the lab's floor follow but dropped the light follow on the very next line, so only slide 1 was ever inside the shadow frustum
+- [x] 24.3 Key POSITION travels with its target (the lab moved only the target): on a far slide the light swung to a grazing angle and the slide sat past `shadow.camera.far` (74 > 60)
+- [x] 24.4 `key.shadow.camera.updateProjectionMatrix()` after the ortho-bounds `Object.assign` — `LightShadow.updateMatrices` never rebuilds the projection, so the ±14/±10 box was silently three's default ±5
+- [x] 24.5 `renderLayered` refreshes the shadow map in the CONTENT pass only (`autoUpdate=false` + `needsUpdate`), primed once on the first frame: three filters casters by the VIEW camera's layers, so the backdrop pass wrote an EMPTY map and the floor drawn in it received nothing — the actual "no shadow on the floor"
+- [x] 24.6 `debug.shadows()` probe (map state, key frustum, caster/receiver layer masks) — the flags in the builders cannot show whether a shadow lands
+- [x] 24.7 Docs: `src/runtime/AGENTS.md`; business deck artifacts + snapshots rebuilt
+
+## 25. Matte floor on a slider
+
+- [x] 25.1 Test first (see `render/__tests__/f37-floor-matte.test.ts`) · input: same deck at `floorMatte` 0 and 0.9 · trigger: render + open · observable: `debug.look().floorMatte` matches, the floor band differs, two loads of the matte deck are frame-identical (seeded, not `Math.random`), and the panel slider reaches the frame (#F37)
+- [x] 25.2 IR: `defaults.floorMatte` (number 0-1, default 0, deck-scope). NOT seeded into `DECK_DEFAULTS` — that would rewrite `defaults` in every committed `deck.json`
+- [x] 25.3 `scene.ts`: `MATTE_REFLECTOR_FRAGMENT` replaces `Reflector`'s one-tap mirror — noise-jittered sample + 5 taps widening with distance + fade toward the floor colour; `noiseTexture()` shares the seeded water-normal texture so the scatter stays deterministic
+- [x] 25.4 Configurator: new `range` control kind (`rangeC`) renders a real `<input type=range>` and stages on `input`, so the frame follows the thumb while dragging; `floorMatte` is its first user
+- [x] 25.5 `debug.look().floorMatte` reads the UNIFORM, so a knob that stages without reaching the frame still fails
+- [x] 25.7 `defaults.floorReflectivity` (0-1, default 1) on the same slider kind: reflection STRENGTH, faded toward the palette bg rather than black so a light-mode floor stays light (see `render/__tests__/f38-floor-reflectivity.test.ts`, #F38)
+- [x] 25.6 Docs: `src/ir/AGENTS.md`, `src/runtime/AGENTS.md`, SKILL, `ir-fields.md` regen
+
+## 26. Floor horizon holds without fog
+
+- [x] 26.1 Test first (see `render/__tests__/f39-horizon-seam.test.ts`) · input: same deck with `fog` true and false · trigger: render · observable: largest adjacent-scanline jump in a content-free column band stays under 10 (measured 35.7 before the fix, 2.5 with fog on) (#F39)
+- [x] 26.2 `scene.ts`: shared `floorFade` (bg colour, 26→85 view units) applied to the mirror shader via a `vFloorDist` varying on a patched reflector vertex shader
+- [x] 26.3 Same fade injected into the veil through `onBeforeCompile`, AFTER `dithering_fragment`, so the shadows the floor receives are untouched
+- [x] 26.4 Veil alpha ramp pushed out to r~170 (was r~60) and `veil.material.fog = false`, so the reflection survives to the horizon instead of ending in a flat-background bar (see `f40-floor-horizon-bar.test.ts`, far/near floor brightness 0.35 -> 0.90) (#F40)
+- [x] 26.5 Docs: `src/runtime/AGENTS.md`
+
+## 27. Per-effect lift
+
+- [x] 27.1 Test first (see `render/__tests__/f41-effect-lift.test.ts`) · input: same deck with and without `params.lift` on a background effect · trigger: render · observable: upper band moves >2% of pixels, `lift: 0` is frame-identical to unset, and the panel exposes `constellation.lift` whose edit reaches the frame (#F41)
+- [x] 27.2 `runtime/index.ts`: `LIFT_PARAM` + clamp applied in `backgroundFromEffects`, so the build path and the live param-edit path share one implementation
+- [x] 27.3 `effectParams()` injects `lift` for `kind: "background"` cards — no per-effect panel code, and effects added later inherit it
+- [x] 27.4 Business deck: slide 5 (`jagged`) carries `lift: 3.4` in its `deck.md` inline override; slide 15 deliberately left half-submerged (plate fields read as terrain, and lifting turns them into a ceiling)
+- [x] 27.5 Docs: `src/runtime/AGENTS.md`
+- [x] 27.6 Measured and recorded: `lift` does NOT close the horizon strip (fixed in screen space; lift 0/1.5/2.5/3.5 all keep it at y=227 and raise contrast 100 -> 138). Remaining lever is the fade/blend dial, whose trade-off is: full fade = slides 1/20 row-jump 0.9/1.4 and slide 15 67; no fade = 33.5/42.8 and 24.4. Kept full fade — 21 of 23 slides pixel-clean, and the sparse-slide jump is the floor's own rim (an artefact) while slide 15's is a plate silhouette (legitimate)
+
+## 28. Veil no longer overpaints transparent effects
+
+- [x] 28.1 Root cause: `geo-fragments` plates draw `depthWrite:false`, so the veil (renderOrder 1, opaque bg past its ramp) passed its depth test against the floor BEHIND them and punched a background band across the horizon — the slide-15 "black bar", immune to `lift` because the band is fixed in screen space
+- [x] 28.2 Fix: `sortAboveVeil()` in `runtime/scene.ts`, called at all three fx attach sites in `runtime/index.ts` — every `depthWrite:false` node sorts above the veil, so `local:` modules and future effects inherit it instead of each effect setting renderOrder. Depth TEST untouched, so the floor still hides geometry dipping below it
+- [x] 28.3 Test first (see `fx/__tests__/f42-veil-over-transparent-fx.test.ts`) · asserted as a render-order fact, not pixels: the sparse-fixture pixel signature was too weak to discriminate (steepest-drop 0.31 buggy vs 0.41 fixed) (#F42)
+- [x] 28.4 Measured on the business deck slide 15: background rows at the horizon 5 -> 0, band continuous `110 111 111 114 116 119 121 123`
+- [x] 28.5 Covers the whole blending corpus, not just the loud case: `geo-fragments`, `constellation`, `billboards`, `points-on-geometry`, `shader-particles`, `sprites` (negative control: neutering the helper turns all 7 assertions red)
+- [x] 28.6 Docs: `src/fx/AGENTS.md`, `src/runtime/AGENTS.md`
+
+## 29. Two planes: deck vs slide, and effect slots
+
+- [x] 29.1 Root cause of the scope confusion: the panel offered 16 look knobs at SLIDE scope and applied them live, but `overrides.slides[id]` rejected every one — `error overrides.slides["a"]: unknown key 'fog'`. The panel could export a deck that would not render
+- [x] 29.2 Test first (see `ir/__tests__/f43-slide-scope-look.test.ts`) · 16 assertions: every look knob valid per slide, `rail`/`spacing` still rejected, and the merged slide value beats the deck default (#F43)
+- [x] 29.3 `ir/schema.json`: `overrides.slides[id]` $refs the deck definitions of those knobs, so the two scopes cannot drift; `ir/types.ts` `SlideOverride` gains the same keys. The runtime needed NO change — `effective()` is `{...defaults, ...slide}`
+- [x] 29.4 Drift guard (see `ir/__tests__/f45-panel-scope-matches-schema.test.ts`): compares every `BLOCKS` control against the schema per scope; negative control (injecting `spacing` at slide scope) fails with `expected [ 'spacing' ] to deeply equal []` (#F45)
+- [x] 29.5 Effect SLOTS (see `render/__tests__/f44-effect-slots.test.ts`): kind picker + prev/next stepper within the kind + per-slot params + add/remove; deck-level effects show as read-only inherited slots at slide scope (#F44)
+- [x] 29.6 `applyOverrides` ALREADY prepends `overrides.effects` to every slide, so deck-wide effects needed no semantic change — the panel now shows that inheritance instead of hiding it
+- [x] 29.7 Removed the dead `addEffectPicker` (slots replace it); updated `runtime.test.ts` F34/export to drive slots; flipped the now-wrong "stays deck-scope" assertions in F32/F35/F37/F38 to assert per-slide acceptance; regenerated `ir-fields.md`
+- [x] 29.8 P2 size budget raised 2.5 -> 2.75 MiB with the reason recorded in `p2-build-size.test.ts` (Section 25-28 added ~10.4 KB to `dist/runtime.js`; headroom ~260 KB)
+- [x] 29.9 Docs: `src/ir/AGENTS.md`, `src/runtime/AGENTS.md`
+
+## 30. Video layer
+
+- [x] 30.1 `video-screen` corpus card (see `fx/video-screen.ts` + `.meta.json`): a framed screen standing in the scene, params `src`/`width`/`x`/`y`/`z`/`tilt`. The panel is UNLIT (`MeshBasicMaterial`) so a screen recording keeps its own pixels instead of being tinted by the key light; the bezel is a lit metal box that casts shadow. Geometry re-fits once the clip reports its real aspect.
+- [x] 30.2 SAME-ORIGIN is the hard constraint, not a preference: a `file://` clip taints the canvas and `texImage2D` then refuses it. Two delivery paths follow from that — `deck3d serve`'s asset route while authoring, and `--embed-video` for a portable single file.
+- [x] 30.3 Asset route in `serve/index.ts` (`serveAsset`, see `serve/__tests__/f47-asset-route.test.ts`): serves mp4/webm/png/jpg/webp beside the deck. Confined to the deck directory — `new URL()` collapses plain dot-segments but leaves `%2f` ENCODED, so `/a%2f..%2f..%2fsecret.png` still decodes into a real traversal; with the check removed that path returns 200 (#F47)
+- [x] 30.4 `--embed-video` (see `render/embed-video.ts`, `render/__tests__/f48-embed-video.test.ts`): rewrites local clip `src` into `data:` URLs at render time, leaving the on-disk IR readable. Opt-in because base64 costs ~33% (BB deck 3.05 -> 3.82 MiB for one 575 KB clip). Verified playing from `file://` with no page errors. Shares the deck-directory confinement (#F48)
+- [x] 30.5 Playback gate: `FxHandle.setActive` + `Animator.setActive`, driven by `runtime/index.ts` `settle()` at `snapTo` and at transition start/end. A clip plays only while its slide is settled, so it never runs off-screen and a pinned time (`check`/`snapshot`) renders a stable frame (#F46)
+- [x] 30.6 Tested where it is deterministic (see `fx/__tests__/f46-video-screen.test.ts`): node-graph + gate assertions, NOT pixels — a decoded video frame is not reproducible across machines. Negative controls: swapping the unlit material and renaming the gate each turn the relevant test red
+- [x] 30.7 Fixture coverage: E56 forces every corpus card onto exactly one `business-2031` slide, so `video-screen` was placed on `monday` and the fixture regenerated (it renders bezel + black panel with no `src`)
+- [x] 30.8 Docs: `src/fx/AGENTS.md`, `src/serve/AGENTS.md`, `src/render/AGENTS.md`, `src/runtime/AGENTS.md`, SKILL.md
+

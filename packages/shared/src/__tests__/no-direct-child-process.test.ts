@@ -34,6 +34,10 @@ const ALLOWLIST: readonly string[] = [
   // the dashboard shared package; `props generate` shells to python3. See
   // change: add-deck3d-presentation-package.
   "packages/deck3d/src/props/generate.ts",
+  // Same standalone-package rationale: `deck3d fx promote` shells to `npx
+  // vitest` to re-run the corpus gate before admitting a promoted card.
+  // See change: deck3d-cinematic-worlds.
+  "packages/deck3d/src/cli.ts",
   // The startup recovery HTTP server runs precisely when top-level
   // dependencies are missing (corrupted node_modules) — importing the
   // platform/exec wrapper there would defeat the recovery flow because

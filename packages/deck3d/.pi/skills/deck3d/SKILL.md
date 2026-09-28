@@ -57,6 +57,12 @@ Manual headless / agent / CI path:
      palette text colour;
    - for a deck that wants a horizon, set `overrides.deck.floor: "water"`
      (one global surface; per-slide is not a thing);
+   - the floor reflects the backgrounds too; `overrides.deck.reflectBackdrop:
+     false` limits the reflection to slide content (one less backdrop pass per
+     frame), and `overrides.deck.floorMatte` (0-1) roughens it — 0 is a perfect
+     mirror, ~0.35 reads as polished concrete, ~0.85 as scattered stone (the
+     `⚙` panel drags it on a slider), while `overrides.deck.floorReflectivity`
+     (0-1, default 1) sets how STRONG the reflection is; all deck-scope only;
    - grade the frame with a `post` card (`deck3d fx list --kind post`): add
      `{ "id": "outline", "params": { "parts": "diagram" } }` (or
      `selective-bloom`, `god-rays`, `depth-of-field`, `pixelate`, `ascii`, …)
@@ -114,6 +120,27 @@ exported `effects` list pins that scope's whole list.
   compute data money work timeline sales process`). `autoStyle: false` restores
   the plain v1 fallback.
 - Replace them with `overrides.slides["<id>"].effects = [{ id, params? }]`.
+
+### Video on a slide
+
+`video-screen` puts a looping clip on a framed screen standing in the scene:
+
+```json
+{ "id": "video-screen", "params": { "src": "video/demo.mp4", "width": 7.5, "x": 5, "y": 1, "tilt": -0.25 } }
+```
+
+The clip MUST be same-origin, or the browser taints the canvas and the frame
+never renders. Two ways to satisfy that:
+
+- `deck3d serve` serves media sitting beside the deck (`video/demo.mp4`), which
+  is the authoring path.
+- `deck3d render deck.json -o deck.html --embed-video` inlines clips as `data:`
+  URLs for ONE portable file. Opt-in, because base64 costs ~33% on top of the
+  clip's own size.
+
+A bare `file://deck.html` next to a `video/` folder does NOT work — that clip is
+cross-origin. Playback freezes during transitions and runs only while the slide
+is settled, so `check` and `snapshot` stay deterministic.
 
 ### Per-deck (local) effects
 

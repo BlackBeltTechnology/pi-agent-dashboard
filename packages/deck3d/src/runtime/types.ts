@@ -4,11 +4,17 @@
  * Structural copies of `DeckIR` types; the runtime bundle is compiled with
  * esbuild from `src/runtime/index.ts` and receives `window.__DECK`.
  */
-import type { CardOffset, Defaults, MergedSlide, PropOverride } from "../ir/types.js";
+import type { CardOffset, Defaults, EffectRef, MergedSlide, PropOverride } from "../ir/types.js";
 
 export interface RuntimeDeck {
   defaults: Defaults;
   slides: MergedSlide[];
+  /**
+   * Deck-level effect list. `applyOverrides` PREPENDS it to every slide's
+   * effects, so the panel needs it to tell an inherited slot from the slide's
+   * own. Already embedded (the whole `MergedDeck` is) — only undeclared.
+   */
+  effects?: EffectRef[];
   /** Prop placements from `overrides.props` (design D7). */
   props?: PropOverride[];
 }
@@ -46,11 +52,36 @@ export interface Deck3dApi {
       anim: { mode: string; t: number; dur: number } | null;
       /** Which floor surface is showing. */
       floor: "mirror" | "water" | "none";
+      /** Whether backdrop geometry (backgrounds, local fx) is in the reflection. */
+      reflectBackdrop: boolean;
+      /** Floor roughness in the shader: 0 = mirror, 1 = fully scattered. */
+      floorMatte: number;
+      /** Reflection strength in the shader: 1 = full mirror, 0 = none. */
+      floorReflectivity: number;
+      /** Key-light target: the centre of the shadow frustum, which must track the slide. */
+      keyTarget: [number, number, number];
+      /** Rim-spot position, offset from the slide it lights. */
+      rimPos: [number, number, number];
     };
     /** Per diagram label: 1 = faces the camera head-on, 0 = edge-on, negative = facing away. */
     labelFacing: () => number[];
     /** Backdrop objects that leaked onto the content layer (checked by `check`). */
     backdropLeaks: () => string[];
+    /**
+     * Shadow-pipeline state as the RENDERER sees it: whether the map is on,
+     * the key light's frustum, and the live caster/receiver counts with their
+     * layer masks. `castShadow` flags in the builders say nothing about
+     * whether a shadow reaches the frame.
+     */
+    shadows: () => {
+      enabled: boolean;
+      autoUpdate: boolean;
+      camera: { left: number; right: number; top: number; bottom: number; near: number; far: number; pos: [number, number, number]; castShadow: boolean };
+      casters: string[];
+      receivers: string[];
+      casterCount: number;
+      receiverCount: number;
+    };
     /** Fingerprint of the current slide's animated transforms. */
     motion: () => string;
     /** Every slide's live anchor, for rail/spacing assertions. */

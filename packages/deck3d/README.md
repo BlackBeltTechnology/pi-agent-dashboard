@@ -24,7 +24,7 @@ Deps: `three@0.160.0`, `mermaid@11.17.2` (exact pin, harvest), `opentype.js`,
 ```bash
 deck3d parse   <deck.md> [-o deck.json] [--fresh]   # markdown (+ mermaid) → IR
 deck3d validate <deck.json>                          # schema + derived-edit checks
-deck3d render  <deck.json> -o deck.html              # IR → self-contained HTML
+deck3d render  <deck.json> -o deck.html [--embed-video] # IR → self-contained HTML
 deck3d build   <deck.md> -o deck.html                # parse → render; writes .json beside
 deck3d serve   <deck.md> [--port n] [--check]        # watch + rebuild + live reload; panel saves to disk
 deck3d check   <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]
@@ -49,6 +49,7 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 `deck3d serve <deck.md> [--port n] [--check]` starts authoring server.
 
 - Binds `127.0.0.1` only (exposes filesystem write endpoints). `--port` omitted ⇒ OS assigns free port.
+- Serves media sitting beside the deck (`video/`, `.mp4/.webm/.png/.jpg/.webp`), confined to the deck directory. A video layer needs this: a `file://` clip is cross-origin, taints the canvas, and cannot be uploaded as a WebGL texture.
 - Watches `deck.md`, `fx/`, `deck.json`. Rebuilds on change (debounced, default 120 ms) — including an out-of-band `deck3d overrides apply` or hand edit of `deck.json`.
 - Re-pins local effect `sha256` in `deck.json` on rebuild; editing `fx/*.js` live never trips render hash check.
 - Broken edit keeps serving last good deck; reports error overlay in browser; recovers on next valid edit.
@@ -114,6 +115,14 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
   referenced as `{ id: "local:<name>", sha256 }`, and are embedded at render.
   Inside one, `Math.random` is the deck's seeded stream and `window`/`fetch`/
   `setTimeout`/`Date` are `undefined`.
+- `video-screen` plays a looping clip on a framed screen in the scene:
+  `{ "id": "video-screen", "params": { "src": "video/demo.mp4", "width": 7.5, "x": 5 } }`.
+  The clip must be **same-origin**: `deck3d serve` serves it from beside the
+  deck, or `render --embed-video` inlines clips as `data:` URLs for one portable
+  file (~33% size cost). A bare `file://` deck next to a `video/` folder will not
+  render the clip, because that source is cross-origin and taints the canvas.
+  Playback freezes during transitions and runs only while the slide is settled,
+  so `check`/`snapshot` stay deterministic.
 - Conflicts fail `render`. Mode-incompatible effects skip + warn.
 - Quality budget: `low` 6, `medium` 12, `high` 20.
 - Palettes: `blackbelt zenit dapp midnight ember arctic forest mono neon custom`.

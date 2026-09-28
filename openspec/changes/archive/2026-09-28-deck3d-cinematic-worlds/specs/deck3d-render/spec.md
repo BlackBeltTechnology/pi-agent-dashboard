@@ -141,3 +141,24 @@ Flowchart nodes SHALL map shape → primitive (`rect` slab, `stadium`/`round` ca
 #### Scenario: Style summary line
 - **WHEN** `deck3d build talk.md` runs on a 5-slide deck where two slides carry effect overrides and none carry props or built kinds
 - **THEN** the output ends with `style: 2/5 slides styled`
+
+## ADDED Requirements
+
+### Requirement: Clips embed into a single-file deck on request
+`deck3d render <deck.json> --embed-video` SHALL rewrite every local clip referenced by an effect's `src` into a `data:` URL inside the rendered HTML, so a deck carrying video remains ONE portable file.
+
+A `data:` URL is same-origin by definition, which is what makes a clip renderable from a deck opened directly as a file; a `file://` sibling clip is cross-origin and cannot become a texture.
+
+Embedding SHALL be opt-in, because base64 adds roughly a third to each clip's size. The IR on disk SHALL keep its readable relative paths — only the rendered HTML carries the bytes. Clips already inline (`data:`) or remote (`http(s):`) SHALL pass through untouched, and a clip resolving outside the deck directory SHALL be refused.
+
+#### Scenario: Local clip is inlined
+- **WHEN** a deck referencing `video/clip.mp4` is rendered with `--embed-video`
+- **THEN** the rendered HTML carries the clip as a `data:video/mp4;base64,...` URL and plays when opened directly from disk
+
+#### Scenario: Source IR is left readable
+- **WHEN** the same deck is rendered with `--embed-video`
+- **THEN** `deck.json` still records the relative path, not the encoded bytes
+
+#### Scenario: Clip outside the deck is refused
+- **WHEN** an effect references a clip outside the deck directory
+- **THEN** the render warns and leaves that reference unembedded rather than reading the file

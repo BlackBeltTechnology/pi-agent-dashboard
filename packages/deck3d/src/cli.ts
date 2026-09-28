@@ -198,7 +198,7 @@ function loadValidated(file: string, io: CliIO): DeckIR | undefined {
   return parsed as DeckIR;
 }
 
-async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise<number> {
+async function renderFile(jsonPath: string, outPath: string, io: CliIO, embedVideoFlag = false): Promise<number> {
   const ir = loadValidated(jsonPath, io);
   if (!ir) return 1;
   const { composeEffects, validateEffectParams } = await import("./fx/compose.js");
@@ -232,7 +232,19 @@ async function renderFile(jsonPath: string, outPath: string, io: CliIO): Promise
   const { loadProps } = await import("./props/embed.js");
   const runtime = await ensureRuntime();
   const props = loadProps(ir, jsonPath);
-  const html = renderDeck(ir, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx });
+  // `--embed-video` inlines clips as `data:` URLs so the html stays ONE file.
+  // Without it the clip is fetched relative to the page, which `deck3d serve`
+  // answers from its asset route.
+  let renderIr = ir;
+  if (embedVideoFlag) {
+    const { embedVideo } = await import("./render/embed-video.js");
+    const result = embedVideo(ir, jsonPath);
+    for (const w of result.warnings) io.stderr(`warning ${w}`);
+    const total = Object.values(result.embedded).reduce((a, b) => a + b, 0);
+    if (total) io.stdout(`embedded ${Object.keys(result.embedded).length} clip(s), ${(total / 1024 / 1024).toFixed(1)} MiB`);
+    renderIr = result.ir;
+  }
+  const html = renderDeck(renderIr, { runtime, font: fontBase64(), title: basename(jsonPath, ".json"), props, localFx });
   writeFileSync(outPath, html);
   return 0;
 }
@@ -246,7 +258,7 @@ async function cmdRender(args: string[], io: CliIO): Promise<number> {
   }
   const outPath = flags.value.out ?? jsonPath.replace(/\.json$/i, ".html");
   try {
-    const code = await renderFile(jsonPath, outPath, io);
+    const code = await renderFile(jsonPath, outPath, io, flags.bool.has("embed-video"));
     if (code === 0) io.stdout(`wrote ${outPath}`);
     return code;
   } catch (err) {

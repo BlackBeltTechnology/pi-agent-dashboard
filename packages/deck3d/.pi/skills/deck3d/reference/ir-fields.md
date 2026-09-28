@@ -22,6 +22,9 @@
 | `defaults.envReflections` | boolean | `true` | Enable environment-map reflections on metallic/glass materials. |
 | `defaults.mirrorFloor` | boolean | `true` | Show the reflective floor plane. |
 | `defaults.floor` | mirror \| water | `"mirror"` | Floor surface: the reflective plane, or an animated water surface (three shaders_ocean) driven by the deck clock. |
+| `defaults.reflectBackdrop` | boolean | `true` | Include backdrop geometry (scene backgrounds and local effects) in the floor reflection. Off reflects slide content only, which costs one less pass over the backdrop per frame. |
+| `defaults.floorReflectivity` | number | `1` | How strong the floor reflection reads: 1 = the full mirror, 0 = none (the reflection fades into the floor colour). `mirrorFloor: false` is the hard off switch and also skips the reflector pass. |
+| `defaults.floorMatte` | number | `0` | How rough the reflective floor reads: 0 = a perfect mirror, 1 = fully scattered. Distorts the reflection with seeded noise, blurs it with a multi-tap sample, and fades it toward the floor colour as it rises. |
 | `defaults.softShadows` | boolean | `true` | Enable soft (PCF) shadows under objects. |
 | `defaults.bloom` | boolean | `true` | Enable the bloom post pass (titles glow). Disabled at `quality: low`. |
 | `defaults.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |
@@ -131,6 +134,9 @@
 | `overrides.deck.envReflections` | boolean | `true` | Enable environment-map reflections on metallic/glass materials. |
 | `overrides.deck.mirrorFloor` | boolean | `true` | Show the reflective floor plane. |
 | `overrides.deck.floor` | mirror \| water | `"mirror"` | Floor surface: the reflective plane, or an animated water surface (three shaders_ocean) driven by the deck clock. |
+| `overrides.deck.reflectBackdrop` | boolean | `true` | Include backdrop geometry (scene backgrounds and local effects) in the floor reflection. Off reflects slide content only, which costs one less pass over the backdrop per frame. |
+| `overrides.deck.floorReflectivity` | number | `1` | How strong the floor reflection reads: 1 = the full mirror, 0 = none (the reflection fades into the floor colour). `mirrorFloor: false` is the hard off switch and also skips the reflector pass. |
+| `overrides.deck.floorMatte` | number | `0` | How rough the reflective floor reads: 0 = a perfect mirror, 1 = fully scattered. Distorts the reflection with seeded noise, blurs it with a multi-tap sample, and fades it toward the floor colour as it rises. |
 | `overrides.deck.softShadows` | boolean | `true` | Enable soft (PCF) shadows under objects. |
 | `overrides.deck.bloom` | boolean | `true` | Enable the bloom post pass (titles glow). Disabled at `quality: low`. |
 | `overrides.deck.rimLight` | boolean | `true` | Enable the rim light that outlines silhouettes. |
@@ -172,15 +178,19 @@
 | `overrides.props[].restyle` | palette \| original |  | `palette` swaps materials for the deck PBR palette; `original` keeps the source materials. |
 | `overrides.props[].anim` | none \| float \| orbit \| spin |  | Animation preset applied to the prop group. |
 | `overrides.slides` | object |  | Per-slide overrides keyed by slide id. |
-| `overrides.slides["<key>"]` | object |  | Partial per-slide override; every field deep-merges over the derived slide. |
-| `overrides.slides["<key>"].mode` | dark \| light |  | Override the slide's palette mode. |
-| `overrides.slides["<key>"].palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom |  | Override the slide's palette. |
-| `overrides.slides["<key>"].material` | glass \| metal \| matte |  | Override the slide's material family. |
-| `overrides.slides["<key>"].titleEdge` | none \| contrast |  | Override the title contour for this slide. |
-| `overrides.slides["<key>"].transition` | string |  | Override the transition effect id for entering this slide. |
-| `overrides.slides["<key>"].quality` | low \| medium \| high |  | Override the quality tier for this slide. |
-| `overrides.slides["<key>"].scene` | string |  | Override the background scene id. |
+| `overrides.slides["<key>"]` | object |  | Per-slide overrides. Look knobs mirror `defaults` by $ref so the scopes cannot drift; `rail`/`spacing` stay deck-only because they position every anchor on the rail. |
 | `overrides.slides["<key>"].backgroundIntensity` | number |  | Override the background scene opacity. |
+| `overrides.slides["<key>"].bloom` | any |  |  |
+| `overrides.slides["<key>"].camera` | object |  | Camera framing override. |
+| `overrides.slides["<key>"].camera.distance` | number |  | Pull the camera closer/further to fix fit or label size. |
+| `overrides.slides["<key>"].cardOffset` | object |  | World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are. |
+| `overrides.slides["<key>"].cardOffset.x` | number |  | Horizontal nudge, positive = right. |
+| `overrides.slides["<key>"].cardOffset.y` | number |  | Vertical nudge, positive = up. |
+| `overrides.slides["<key>"].check` | object |  | Per-slide check configuration. |
+| `overrides.slides["<key>"].check.ignore` | array |  | Object ids the fit/legibility check should skip (reported as `skipped`, never silently). |
+| `overrides.slides["<key>"].check.ignore[]` | string |  |  |
+| `overrides.slides["<key>"].colors` | any |  |  |
+| `overrides.slides["<key>"].depthRelief` | any |  |  |
 | `overrides.slides["<key>"].diagram` | object |  | Diagram framing overrides. |
 | `overrides.slides["<key>"].diagram.kind` | none \| brain \| loop \| swarm \| bars \| funnel \| timeline-rail \| globe \| orbit-cluster \| stack |  | Force a built topology on a slide without a mermaid block. `flowchart`/`sequence` are derived from markdown and cannot be set here. |
 | `overrides.slides["<key>"].diagram.data` | object |  | Label/value series driving a built diagram topology. Replaced as a whole object by an override — never deep-merged, so labels and values cannot mix provenance. |
@@ -192,22 +202,32 @@
 | `overrides.slides["<key>"].diagram.offset` | object |  | Translate the diagram. |
 | `overrides.slides["<key>"].diagram.offset.x` | number |  | Horizontal offset. |
 | `overrides.slides["<key>"].diagram.offset.y` | number |  | Vertical offset. |
-| `overrides.slides["<key>"].layout` | split \| split-reverse |  | Override the composition preset for this slide. |
-| `overrides.slides["<key>"].cardOffset` | object |  | World-unit nudge applied to the text card AFTER the layout preset places it. Leaves the title, diagram and background where they are. |
-| `overrides.slides["<key>"].cardOffset.x` | number |  | Horizontal nudge, positive = right. |
-| `overrides.slides["<key>"].cardOffset.y` | number |  | Vertical nudge, positive = up. |
-| `overrides.slides["<key>"].camera` | object |  | Camera framing override. |
-| `overrides.slides["<key>"].camera.distance` | number |  | Pull the camera closer/further to fix fit or label size. |
-| `overrides.slides["<key>"].labels` | object |  | Label treatment override. |
-| `overrides.slides["<key>"].labels.size` | number |  | Grow labels to fix legibility. |
-| `overrides.slides["<key>"].check` | object |  | Per-slide check configuration. |
-| `overrides.slides["<key>"].check.ignore` | array |  | Object ids the fit/legibility check should skip (reported as `skipped`, never silently). |
-| `overrides.slides["<key>"].check.ignore[]` | string |  |  |
+| `overrides.slides["<key>"].durationSec` | any |  |  |
 | `overrides.slides["<key>"].effects` | array |  | Replaces the slide's derived default effect list. |
 | `overrides.slides["<key>"].effects[]` | object |  | Reference to an effect in the fx corpus (`{id, params}`), or to a per-deck module in `fx/` beside the deck (`{id: "local:<name>", sha256, params}`). |
 | `overrides.slides["<key>"].effects[].id` | string |  | Effect id from `fx list` (e.g. `bloom`, `starfield`), or `local:<name>` for a module in `fx/` beside the deck. |
 | `overrides.slides["<key>"].effects[].sha256` | string |  | Lowercase hex sha256 of the `fx/<name>.js` bytes. Required for `local:` ids, forbidden for corpus ids. |
 | `overrides.slides["<key>"].effects[].params` | object |  | Effect parameters; each is bounded by the effect's card schema and validated by `validate`. |
+| `overrides.slides["<key>"].envReflections` | any |  |  |
+| `overrides.slides["<key>"].extrudeDepth` | any |  |  |
+| `overrides.slides["<key>"].floor` | any |  |  |
+| `overrides.slides["<key>"].floorMatte` | any |  |  |
+| `overrides.slides["<key>"].floorReflectivity` | any |  |  |
+| `overrides.slides["<key>"].fog` | any |  |  |
+| `overrides.slides["<key>"].labels` | object |  | Label treatment override. |
+| `overrides.slides["<key>"].labels.size` | number |  | Grow labels to fix legibility. |
+| `overrides.slides["<key>"].layout` | split \| split-reverse |  | Override the composition preset for this slide. |
+| `overrides.slides["<key>"].material` | glass \| metal \| matte |  | Override the slide's material family. |
+| `overrides.slides["<key>"].mirrorFloor` | any |  |  |
+| `overrides.slides["<key>"].mode` | dark \| light |  | Override the slide's palette mode. |
+| `overrides.slides["<key>"].palette` | blackbelt \| zenit \| dapp \| midnight \| ember \| arctic \| forest \| mono \| neon \| custom |  | Override the slide's palette. |
+| `overrides.slides["<key>"].quality` | low \| medium \| high |  | Override the quality tier for this slide. |
+| `overrides.slides["<key>"].reflectBackdrop` | any |  |  |
+| `overrides.slides["<key>"].rimLight` | any |  |  |
+| `overrides.slides["<key>"].scene` | string |  | Override the background scene id. |
+| `overrides.slides["<key>"].softShadows` | any |  |  |
+| `overrides.slides["<key>"].titleEdge` | none \| contrast |  | Override the title contour for this slide. |
+| `overrides.slides["<key>"].transition` | string |  | Override the transition effect id for entering this slide. |
 | `overrides.nodes` | object |  | Per-node overrides keyed by `<slideId>/<nodeId>`. |
 | `overrides.nodes["<key>"]` | object |  |  |
 | `overrides.nodes["<key>"].shape` | rect \| stadium \| round \| hexagon \| circle \| doublecircle \| diamond \| cylinder |  | Change the node's 3D primitive. |

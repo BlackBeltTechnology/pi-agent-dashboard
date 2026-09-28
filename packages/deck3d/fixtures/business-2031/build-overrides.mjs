@@ -37,7 +37,7 @@ const PLAN = {
   model: ["extruded-shapes", "iridescent"],
   sales: ["orbit-agents", "chromatic-aberration"],
   timeline: ["rings", "room-ibl"],
-  monday: ["hex-grid", "metal", "dashed-flow"],
+  monday: ["hex-grid", "metal", "dashed-flow", "video-screen"],
   wrong: ["glyph-rain", "ascii"],
   sources: ["paper-stack", "camera-drift"],
   procurement: ["vault-glyphs", "soft-shadows"],
