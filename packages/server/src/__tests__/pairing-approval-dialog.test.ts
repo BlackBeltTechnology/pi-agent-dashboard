@@ -264,6 +264,16 @@ describe("E10 — deny state edges", () => {
   });
 });
 
+describe("E10b — a locked-out request cannot be denied", () => {
+  it("deny after lockout → no_pending; the code stays re-redeemable (D8)", () => {
+    const { mgr } = mkManager();
+    const d = pend(mgr);
+    for (let i = 0; i < 5; i++) mgr.approvePending(d.pendingId, wrong(d.confirmCode));
+    expect(mgr.deny(d.pendingId)).toEqual({ ok: false, error: "no_pending" });
+    expect(mgr.redeem(d.code).ok).toBe(true);
+  });
+});
+
 describe("E11 — a denied code is dead", () => {
   it("re-redeem → invalid_code; poll(old) → rejected; never approvable", () => {
     const { mgr, reg } = mkManager();

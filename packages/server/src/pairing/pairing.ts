@@ -403,8 +403,10 @@ export class PairingManager {
    */
   deny(pendingId: string): DenyResult {
     const entry = this.findByPendingId(pendingId);
-    const pending = entry?.pending;
-    if (!entry || !pending || pending.issuedToken || pending.rejected) return { ok: false, error: "no_pending" };
+    const pending = entry?.pending ?? null;
+    // Only a live request can be denied: an approved, denied or locked-out one
+    // is already resolved (a locked-out code stays re-redeemable, D8).
+    if (!entry || !PairingManager.isLive(pending)) return { ok: false, error: "no_pending" };
     if (entry.expiresAt < this.now()) {
       this.sweep();
       return { ok: false, error: "no_pending" };
