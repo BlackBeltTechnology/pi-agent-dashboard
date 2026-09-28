@@ -165,10 +165,44 @@ setLocalServerSpawner(async (o) => {
     shellVersion: app.getVersion(),
     log,
     registerBundledExtension: registerBundledBridgeExtension,
-    onChildExit: () => {},
+    onChildExit: (code, signal, pid) => serverExitWatchdog(pid)(code, signal),
   });
   return launched.kind === "attach" ? { kind: "attach", url: launched.source.url } : { kind: "spawned", pid: launched.pid };
 });
+
+/** Server exited unexpectedly → the loading/recovery page (it retries the connection). */
+function showServerRecovery(): void {
+  const win = mainWindow;
+  if (win && !win.isDestroyed()) showLoadingPage(win, `http://localhost:${loadMinimalConfig().port}`);
+}
+
+/**
+ * `/api/restart` on our server exits with ELECTRON_RESTART_EXIT_CODE; respawn it
+ * through the app's own runtime path so it keeps the Electron starter, runtime
+ * identity and this watchdog. See change: electron-runtime-overlay-updates.
+ */
+function restartOwnedServer(): void {
+  requestServerLaunch({ force: false })
+    .then((outcome) => {
+      log(`[server-lifecycle] restart outcome=${outcome.kind}`);
+      if (outcome.kind === "failed") showServerRecovery();
+    })
+    .catch((err: unknown) => {
+      log(`[server-lifecycle] restart failed: ${err instanceof Error ? err.message : String(err)}`);
+      showServerRecovery();
+    });
+}
+
+/** One watchdog per spawned server pid: crash → recovery page, restart request → respawn. */
+function serverExitWatchdog(pid: number | undefined) {
+  return makeServerWatchdog({
+    isGraceful: isGracefulShutdownInProgress,
+    log,
+    onCrash: showServerRecovery,
+    onRestartRequested: restartOwnedServer,
+    getPid: () => pid,
+  });
+}
 
 function startRuntimeActivationWatcher(ctx: RuntimeSwitchContext): void {
   startActivationWatcher(ctx, notifyRuntimeSwitch);
@@ -282,7 +316,7 @@ async function maybePromptZombieAdoption(): Promise<void> {
       shellVersion: app.getVersion(),
       log,
       registerBundledExtension: registerBundledBridgeExtension,
-      onChildExit: () => {},
+      onChildExit: (code, signal, pid) => serverExitWatchdog(pid)(code, signal),
     });
     if (launched.kind === "spawned") {
       setSpawnedPid(launched.pid);
@@ -670,7 +704,7 @@ async function main(): Promise<void> {
       // PID-aware so a runtime switch's planned stop of THIS server
       // (expectExit) is graceful, while any other exit still reaches recovery.
       onChildExit: (code, signal, pid) =>
-        makeServerWatchdog({ isGraceful: isGracefulShutdownInProgress, log, onCrash, getPid: () => pid })(code, signal),
+        serverExitWatchdog(pid)(code, signal),
     });
     log(`[launch-source] resolved kind=${launched.source.kind}`);
     const runtimeCtx: RuntimeSwitchContext = {
@@ -681,6 +715,7 @@ async function main(): Promise<void> {
       shellVersion: app.getVersion(),
       log,
       onCrash,
+      onRestartRequested: restartOwnedServer,
     };
 
     if (launched.kind === "attach") {

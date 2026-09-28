@@ -160,6 +160,22 @@ describe("makeServerWatchdog — PID-scoped ownership (X8)", () => {
     expect(survivor.onCrash).toHaveBeenCalledTimes(1);
   });
 
+  it("exit code 75 from the watched server = restart requested (no recovery page)", () => {
+    const onCrash = vi.fn();
+    const onRestartRequested = vi.fn();
+    const onExit = makeServerWatchdog({ isGraceful: () => false, log: vi.fn(), onCrash, onRestartRequested, getPid: () => 300 });
+    onExit(75, null);
+    expect(onRestartRequested).toHaveBeenCalledTimes(1);
+    expect(onCrash).not.toHaveBeenCalled();
+  });
+
+  it("exit code 75 without a restart handler is still a crash", () => {
+    const onCrash = vi.fn();
+    const onExit = makeServerWatchdog({ isGraceful: () => false, log: vi.fn(), onCrash, getPid: () => 300 });
+    onExit(75, null);
+    expect(onCrash).toHaveBeenCalledTimes(1);
+  });
+
   it("a watchdog without getPid keeps today's behaviour", () => {
     const onCrash = vi.fn();
     const onExit = makeServerWatchdog({ isGraceful: () => false, log: vi.fn(), onCrash });

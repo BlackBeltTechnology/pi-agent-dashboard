@@ -202,12 +202,20 @@ export interface RuntimeSwitchContext {
   log: (msg: string) => void;
   /** Crash of a committed runtime → loading/recovery page (existing watchdog). */
   onCrash: () => void;
+  /** Committed server exited for `/api/restart` (ELECTRON_RESTART_EXIT_CODE) → respawn. */
+  onRestartRequested?: () => void;
 }
 
 function switchOnce(targetId: string, ctx: RuntimeSwitchContext): Promise<SwitchResult> {
   const dir = getRuntimeOverlayDir();
   let committedPid: number | null = null;
-  const watchdog = makeServerWatchdog({ isGraceful: () => false, log: ctx.log, onCrash: ctx.onCrash, getPid: () => committedPid });
+  const watchdog = makeServerWatchdog({
+    isGraceful: () => false,
+    log: ctx.log,
+    onCrash: ctx.onCrash,
+    onRestartRequested: ctx.onRestartRequested,
+    getPid: () => committedPid,
+  });
   return switchRuntime(targetId, {
     dir,
     log: ctx.log,

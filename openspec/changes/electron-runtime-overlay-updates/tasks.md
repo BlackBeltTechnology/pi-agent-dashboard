@@ -86,7 +86,7 @@
 - [x] 8.2 → moved to change `electron-runtime-release-pipeline` (task 3.2).
 - [x] 8.3 → moved to change `electron-runtime-release-pipeline` (task 3.3).
 - [x] 8.4 → moved to change `electron-runtime-release-pipeline` (task 3.4).
-- [ ] 8.5 Test (test-plan #X13): new `tests/e2e-electron/runtime-local-link.electron.spec.ts`, harness from `tests/e2e-electron/zombie-adoption.electron.spec.ts` (exemplar). Input: app-menu pick of the built repo checkout (menu invoked via the test hook). Trigger: pick, edit a server log string, POST `/api/restart`. Observable: `origin:local`, `gitSha`=HEAD; the new log string appears in server.log after restart.
+- [x] 8.5 Test (test-plan #X13): new `tests/e2e-electron/runtime-local-link.electron.spec.ts`, harness from `tests/e2e-electron/zombie-adoption.electron.spec.ts` (exemplar). Input: app-menu pick of the built repo checkout (menu invoked via the test hook). Trigger: pick, edit a server log string, POST `/api/restart`. Observable: `origin:local`, `gitSha`=HEAD; the new log string appears in server.log after restart.
 - [ ] 8.6 Manual QA (test-plan: manual-only, #X15): Windows 11 + Linux AppImage installs: Update → Activate → Roll back (file locks, AppImage extension path rules).
 
 ## 9. Observability + Doctor

@@ -20,6 +20,7 @@ import {
   PinnedSourceUnavailableError,
   parsePreferOverride,
 } from "./launch-source.js";
+import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { takeExitOwnership } from "./runtime-switch-ownership.js";
 import { readModeFile } from "./wizard-state.js";
 
@@ -103,6 +104,8 @@ export function makeServerWatchdog(deps: {
   isGraceful: () => boolean;
   log: (msg: string) => void;
   onCrash: (code: number | null, signal: NodeJS.Signals | null) => void;
+  /** Server exited with ELECTRON_RESTART_EXIT_CODE (`/api/restart`): respawn, no recovery page. */
+  onRestartRequested?: () => void;
   /** PID of the child this watchdog guards; enables PID-scoped ownership. */
   getPid?: () => number | null | undefined;
 }): (code: number | null, signal: NodeJS.Signals | null) => void {
@@ -115,6 +118,11 @@ export function makeServerWatchdog(deps: {
     }
     if (owner === "planned") {
       deps.log(`[server-lifecycle] server pid=${pid} exited as planned (runtime switch)`);
+      return;
+    }
+    if (code === ELECTRON_RESTART_EXIT_CODE && deps.onRestartRequested) {
+      deps.log(`[server-lifecycle] server pid=${pid ?? "?"} exited for /api/restart — restarting it`);
+      deps.onRestartRequested();
       return;
     }
     if (deps.isGraceful()) {

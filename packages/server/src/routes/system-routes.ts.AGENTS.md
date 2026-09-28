@@ -15,3 +15,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 ## Runtime overlay
 
 `/api/health.runtime` from `createRuntimeHealthProvider` (cached, no fs in handler). Electron starter: `ensureRuntimeRequest` at route setup so the app-menu local pick can bind. See change: electron-runtime-overlay-updates.
+
+`/api/restart` on an Electron-owned server (`restartsViaElectron`): exits `ELECTRON_RESTART_EXIT_CODE` (75) instead of the `spawnRestart` orchestrator; the app restarts it. See change: electron-runtime-overlay-updates.

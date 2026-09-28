@@ -30,6 +30,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
+import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
@@ -1318,6 +1319,14 @@ export function registerSystemRoutes(
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.
       try { await deleteTunnel(config.port); } catch { /* best-effort */ }
+
+      // Electron-owned server: the app respawns it (keeps the Electron starter,
+      // runtime identity and its watchdog). `cli start` would come back Standalone.
+      // See change: electron-runtime-overlay-updates.
+      if (restartsViaElectron(process.env)) {
+        setTimeout(() => process.exit(ELECTRON_RESTART_EXIT_CODE), 200);
+        return { ok: true };
+      }
 
       const cliPath = process.argv[1];
       if (!cliPath) return { ok: false, error: "Cannot determine CLI path" };
