@@ -21,7 +21,10 @@ import { describe, expect, it } from "vitest";
 // A minified-survivable @mdi/js export name that no shell code imports by
 // name — present only in a chunk that carries the FULL icon set.
 const MDI_MARKER = "mdiZodiacAquarius";
-const INDEX_GZ_CAP_BYTES = 900 * 1024;
+// 910 KB: raised from 900 KB (user-approved budget change) when develop sat at
+// ~898 KB in CI and the gmail-plugin's eager i18n catalog (~3 KB gz) tipped it
+// over; its settings UI is already lazy. See change: add-gmail-plugin.
+const INDEX_GZ_CAP_BYTES = 910 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
