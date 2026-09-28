@@ -95,14 +95,29 @@ test.describe("quota context strip", () => {
     const chip = strip.getByTestId("quota-chip-anthropic");
     await expect(chip).toBeVisible();
 
+    // A narrow group now wraps INSIDE its container (ToolbarGroup, D1), so the
+    // label pairs with the group's FIRST item, which may be the no-adapter note
+    // rather than a chip. See change: redesign-composer-session-strip.
+    const first = group.locator("[data-group-content] > *").first();
     const labelBox = await label.boundingBox();
+    const firstBox = await first.boundingBox();
     const chipBox = await chip.boundingBox();
     const groupBox = await group.boundingBox();
     expect(labelBox).not.toBeNull();
+    expect(firstBox).not.toBeNull();
     expect(chipBox).not.toBeNull();
     expect(groupBox).not.toBeNull();
-    // Same flex line: the label's top and the first chip's top coincide.
-    expect(Math.abs(labelBox!.y - chipBox!.y)).toBeLessThanOrEqual(4);
+    // Same first line: the label text sits on the first item's row.
+    const labelText = await label.evaluate((el) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const b = r.getBoundingClientRect();
+      return { top: b.top, bottom: b.bottom };
+    });
+    expect(labelText.top).toBeGreaterThanOrEqual(firstBox!.y - 4);
+    expect(labelText.bottom).toBeLessThanOrEqual(firstBox!.y + firstBox!.height + 4);
+    // Chips never escape the group.
+    expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(groupBox!.x + groupBox!.width + 1);
     // The group never leaves the left edge of the viewport.
     expect(groupBox!.x).toBeGreaterThanOrEqual(0);
   });

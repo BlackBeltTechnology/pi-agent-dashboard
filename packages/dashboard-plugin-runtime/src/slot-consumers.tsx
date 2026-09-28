@@ -458,7 +458,9 @@ export function ToolbarGroup({
       <span
         id={labelId}
         data-testid={labelTestId ?? (testId ? `${testId}-label` : undefined)}
-        className={`toolbar-group-label flex-shrink-0 inline-flex items-center px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
+        // Text pinned to the FIRST row (26 px = min-h-7 minus borders), so a
+        // group wrapping onto several rows keeps its label beside its first item.
+        className={`toolbar-group-label flex-shrink-0 inline-flex items-start leading-[26px] px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] rounded-l-lg ${
           isActions ? "bg-[var(--bg-surface)] border-r border-[var(--border-secondary)]" : ""
         }`}
       >

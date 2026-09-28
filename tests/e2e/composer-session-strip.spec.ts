@@ -17,7 +17,7 @@
 
 import { expect, type Locator, type Page, test } from "./fixtures.js";
 import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
-import { FIXTURE_GIT, pinDirectory } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
 import { BASE_URL } from "./lifecycle.js";
 
 const CHANGE = "e2e-artifact-demo";
@@ -96,14 +96,22 @@ function pushWorktreeWithPr(b: Bridge): void {
   });
 }
 
+/**
+ * Pin `FIXTURE_GIT` BEFORE any synthetic session registers there. Otherwise the
+ * synthetic cards make the folder group render UNPINNED, and later specs'
+ * `ensureGitSession` then trusts that group and dead-ends on the onboarding
+ * "Pin a folder first" CTA (specs share one container).
+ */
+async function ensurePinned(page: Page): Promise<void> {
+  const res = await page.request.get("/api/pinned-dirs");
+  const body = (await res.json()) as { data?: string[] };
+  if (!(body.data ?? []).includes(FIXTURE_GIT)) await pinDirectory(page, FIXTURE_GIT);
+}
+
 /** Select the synthetic session and wait for its composer. */
 async function openComposer(page: Page, sessionId: string): Promise<void> {
   const card = page.locator(`[data-session-id="${sessionId}"]`).first();
-  const shown = await card.waitFor({ state: "visible", timeout: 20_000 }).then(() => true).catch(() => false);
-  if (!shown) {
-    await pinDirectory(page, FIXTURE_GIT);
-    await expect(card).toBeVisible({ timeout: 30_000 });
-  }
+  await expect(card).toBeVisible({ timeout: 30_000 });
   await card.click();
   await expect(page.getByTestId("composer-card")).toBeVisible({ timeout: 20_000 });
 }
@@ -116,12 +124,20 @@ const box = async (l: Locator) => {
 
 test.describe("composer session strip (L3)", () => {
   test("#F8: an all-null badge slot hides the whole Status group; content brings the label back", async ({ page }) => {
-    await page.goto("/");
+    // The browser-relay plugin's badge is claimed for EVERY session and
+    // renders null until a relay tab exists — the real-world empty STATUS case.
+    // The harness ships it disabled; report it enabled to THIS page only.
+    await page.route("**/api/health", async (route) => {
+      const res = await route.fetch();
+      const body = (await res.json()) as { plugins?: Array<{ id: string; enabled?: boolean }> };
+      for (const p of body.plugins ?? []) if (p.id === "browser") p.enabled = true;
+      await route.fulfill({ response: res, json: body });
+    });
+    await gotoDashboard(page);
+    await ensurePinned(page);
     const b = await connectBridge(page, "f8");
     try {
       await openComposer(page, b.sessionId);
-      // The browser-relay badge is claimed for every session and renders null
-      // until a relay tab exists — the real-world empty STATUS case.
       const container = page.getByTestId("composer-status-container");
       await expect(container).toHaveCount(1, { timeout: 15_000 });
       await expect(container).toHaveCSS("display", "none");
@@ -141,13 +157,14 @@ test.describe("composer session strip (L3)", () => {
   });
 
   test("#F9: groups wrap without overflowing the strip; the label keeps the first item's top edge", async ({ page }) => {
-    await page.goto("/");
+    await gotoDashboard(page);
+    await ensurePinned(page);
     const b = await connectBridge(page, "f9");
     try {
       await openComposer(page, b.sessionId);
       pushWorktreeWithPr(b);
       const strip = page.getByTestId("composer-session-actions");
-      await expect(page.getByTestId("worktree-pr-segment")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("composer-git-group").getByTestId("worktree-pr-segment")).toBeVisible({ timeout: 20_000 });
 
       for (const width of [1440, 700, 420]) {
         await strip.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);
@@ -176,7 +193,8 @@ test.describe("composer session strip (L3)", () => {
 
   test("#F10: the action button follows the draft's bottom edge and stays ≥ 44×44", async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 900 });
-    await page.goto("/");
+    await gotoDashboard(page);
+    await ensurePinned(page);
     const b = await connectBridge(page, "f10");
     try {
       await openComposer(page, b.sessionId);
@@ -198,7 +216,8 @@ test.describe("composer session strip (L3)", () => {
 
   test("#F11: the @[44rem] fold holds with the longest model id selected", async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 900 });
-    await page.goto("/");
+    await gotoDashboard(page);
+    await ensurePinned(page);
     const b = await connectBridge(page, "f11");
     try {
       await openComposer(page, b.sessionId);
@@ -230,7 +249,31 @@ test.describe("composer session strip (L3)", () => {
 
   test("#F12: the composer lifecycle bar is in letters mode; the card bar keeps full labels", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/");
+    // The harness fixture has no `.pi/skills/openspec-explore/`, so its real
+    // readiness is STALE/missing-skills and the OpenSpec group (correctly)
+    // hides. Report READY to THIS page only — the real change data, server
+    // and UI stay authentic; the shared fixture is not mutated.
+    await page.routeWebSocket(/\/ws(\?|$)/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((m) => server.send(m));
+      server.onMessage((m) => {
+        if (typeof m !== "string" || !m.includes(FIXTURE_GIT)) return ws.send(m);
+        try {
+          const patch = (msg: { type?: string; cwd?: string; data?: { readiness?: unknown } }) => {
+            if ((msg.type === "openspec_update" || msg.type === "openspec_get_result") && msg.cwd === FIXTURE_GIT && msg.data) {
+              msg.data.readiness = { state: "READY" };
+            }
+            return msg;
+          };
+          const parsed = JSON.parse(m);
+          ws.send(JSON.stringify(Array.isArray(parsed) ? parsed.map(patch) : patch(parsed)));
+        } catch {
+          ws.send(m);
+        }
+      });
+    });
+    await gotoDashboard(page);
+    await ensurePinned(page);
     const b = await connectBridge(page, "f12");
     try {
       await openComposer(page, b.sessionId);
