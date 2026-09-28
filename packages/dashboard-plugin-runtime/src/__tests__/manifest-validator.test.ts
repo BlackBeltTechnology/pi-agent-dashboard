@@ -422,7 +422,9 @@ describe("validateManifest — settings-section nav hint", () => {
   });
 
   it("E5: Unicode Cc/Cf characters invalidate the hint", () => {
-    for (const label of ["a\u202Eb", "a\u200Eb", "a\u200Bb", "a\uFEFFb", "a\nb"]) {
+    // Boundary controls count too: trimming must not launder a leading/trailing
+    // newline, tab or BOM into a valid label.
+    for (const label of ["a\u202Eb", "a\u200Eb", "a\u200Bb", "a\uFEFFb", "a\nb", "\nModel roles", "Model roles\t", "\uFEFFModel roles"]) {
       const { m, warnings } = run({ group: "models", label });
       expect(m.claims[0].nav).toBeUndefined();
       expect(warnings).toHaveLength(1);

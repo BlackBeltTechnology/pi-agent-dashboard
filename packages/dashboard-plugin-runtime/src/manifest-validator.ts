@@ -42,9 +42,12 @@ function navText(
 ): { value: string } | { error: string } {
   if (v === undefined && !opts.required) return { value: "" };
   if (typeof v !== "string") return { error: opts.required ? "must be a non-empty string" : "must be a string if provided" };
-  const value = v.normalize("NFKC").trim();
+  const normalized = v.normalize("NFKC");
+  // Checked BEFORE trimming: `trim()` strips boundary newlines/tabs/BOM, which
+  // would otherwise launder a control character into a valid label.
+  if (CONTROL_OR_FORMAT.test(normalized)) return { error: "contains a Unicode control/format character" };
+  const value = normalized.trim();
   if (opts.required && !value) return { error: "must be a non-empty string" };
-  if (CONTROL_OR_FORMAT.test(value)) return { error: "contains a Unicode control/format character" };
   if (opts.max !== undefined && value.length > opts.max) return { error: `exceeds ${opts.max} characters` };
   return { value };
 }

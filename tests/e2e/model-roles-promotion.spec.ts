@@ -91,8 +91,11 @@ test.describe("Model roles promotion (L3)", () => {
       await picker.getByTestId("model-selector-button").first().click();
       const row = page.getByTestId("model-row").first();
       await expect(row).toBeVisible({ timeout: 15_000 });
-      const picked = ((await row.textContent()) ?? "").trim();
       await row.click();
+      // The exact ref that Save will persist ("saves <provider>/<id>[:level]").
+      const echo = page.getByTestId("roles-ref-echo");
+      await expect(echo).not.toHaveText(/—\s*$/);
+      const stagedRef = ((await echo.textContent()) ?? "").trim();
 
       const chip = page.getByTestId("save-bar-page-plugins/roles");
       await expect(chip).toHaveText(/Models › Model roles/);
@@ -105,7 +108,9 @@ test.describe("Model roles promotion (L3)", () => {
       const pill = page.getByTestId(`roles-row-${ROLE}`);
       await expect(pill).toBeVisible({ timeout: 30_000 });
       await expect(pill).not.toContainText("+ Add model");
-      expect(picked.length).toBeGreaterThan(0);
+      // Persisted value == the staged one, not merely "some model".
+      await pill.click();
+      await expect(page.getByTestId("roles-ref-echo")).toHaveText(stagedRef);
     } finally {
       // Leave the shared container's providers.json as we found it.
       const remove = page.getByTestId(`roles-row-${ROLE}-remove`);
