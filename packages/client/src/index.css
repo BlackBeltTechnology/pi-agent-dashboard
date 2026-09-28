@@ -234,8 +234,11 @@
   --elevation-rim: rgba(255, 255, 255, 0.10);
 
   /* Selected-card iridescent ring alphas.
-     See change: redesign-session-card-and-composer (1.1). */
-  --neon-rim-alpha: 0.45;
+     See change: redesign-session-card-and-composer (1.1).
+     3px rim at 0.75 carries the selection signal on its own; the glow is
+     masked to outside the card edge. See change: fix-selected-card-light-wash. */
+  --neon-rim-width: 3px;
+  --neon-rim-alpha: 0.75;
   --neon-glow-alpha: 0.10;
   --neon-glow-blur: 8px;
   --neon-glow-opacity: 0.42;
@@ -300,11 +303,13 @@
   --elevation-rim: rgba(255, 255, 255, 0.9);
 
   /* Light-theme override of the iridescent ring alphas.
-     See change: redesign-session-card-and-composer (1.1). */
-  --neon-rim-alpha: 0.50;
-  --neon-glow-alpha: 0.18;
+     See change: redesign-session-card-and-composer (1.1).
+     Halo boosted: only the band OUTSIDE the card shows now, so it needs more
+     weight to read on white. See change: fix-selected-card-light-wash. */
+  --neon-rim-alpha: 0.75;
+  --neon-glow-alpha: 0.30;
   --neon-glow-blur: 11px;
-  --neon-glow-opacity: 0.52;
+  --neon-glow-opacity: 0.65;
   --neon-bg-tint: rgba(37, 99, 235, 0.035);
 }
 
@@ -631,6 +636,13 @@ body {
 }
 .group-collapse > * {
   overflow: hidden;
+  /* Push the clip box's right edge 14px past the cards (content width
+     unchanged) so the selected card's outside-only glow halo
+     (`.card-glow-mask-outer`, 14px) is not cut. Horizontal only: vertical
+     padding would keep a collapsed (0fr) group from reaching 0 height.
+     See change: fix-selected-card-light-wash. */
+  padding-right: 14px;
+  margin-right: -14px;
 }
 
 /* Markdown search highlights */
@@ -761,14 +773,37 @@ mark.markdown-search-highlight-active {
    blur on the LAYER then spreads a soft halo just beyond the card. An inner
    layer (.card-glow-fx, tight + sharper) plus a wider outer layer
    (.card-glow-fx-outer, larger blur, lower opacity) read as a double glow
-   border. Both sit behind the crisp rim (z-index -2/-3 < -1). */
+   border. Both sit behind the crisp rim (z-index -2/-3 < -1).
+   Each glow sits inside a STATIC `.card-glow-mask` wrapper whose content box
+   equals the card rect; the content-box xor mask carves the card interior out,
+   so the blurred conic shows ONLY outside the card edge (it used to paint over
+   the whole interior, between the card background and its content, washing
+   light-mode text). The mask lives on the wrapper because the conic rotates.
+   Insets below are relative to the wrapper and keep the previous visual extent
+   (inner -2px, outer -7px from the card edge). See change:
+   fix-selected-card-light-wash. */
+.card-glow-mask {
+  position: absolute;
+  inset: -6px;
+  padding: 6px;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -2;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+.card-glow-mask-outer {
+  inset: -14px;
+  padding: 14px;
+  z-index: -3;
+}
 .card-glow-fx {
   position: absolute;
-  inset: -2px;
+  inset: 4px;
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
-  z-index: -2;
   filter: blur(var(--neon-glow-blur));
   opacity: var(--neon-glow-opacity);
   /* Query container so the rotating child can size to the LARGER edge (cqmax)
@@ -776,8 +811,7 @@ mark.markdown-search-highlight-active {
   container-type: size;
 }
 .card-glow-fx-outer {
-  inset: -7px;
-  z-index: -3;
+  inset: 7px;
   filter: blur(calc(var(--neon-glow-blur) * 2));
   opacity: calc(var(--neon-glow-opacity) * 0.7);
 }
@@ -814,12 +848,12 @@ mark.markdown-search-highlight-active {
    The dropdown menu lives unclipped on the card root, so this never clips it. */
 .card-ring-fx {
   position: absolute;
-  inset: -1px;
+  inset: calc(-1 * var(--neon-rim-width));
   border-radius: inherit;
   overflow: hidden;
   pointer-events: none;
   z-index: -1;
-  padding: 1px;
+  padding: var(--neon-rim-width);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -852,6 +886,7 @@ mark.markdown-search-highlight-active {
    force position: relative. Declared after that rule so source order wins. */
 .card-stripes-fx,
 .card-ring-fx,
+.card-glow-mask,
 .card-glow-fx {
   position: absolute;
 }
@@ -866,8 +901,8 @@ mark.markdown-search-highlight-active {
 }
 .card-stripes-fx,
 .card-ring-fx { z-index: -1; }
-.card-glow-fx { z-index: -2; }
-.card-glow-fx-outer { z-index: -3; }
+.card-glow-mask { z-index: -2; }
+.card-glow-mask-outer { z-index: -3; }
 
 @keyframes neon-breathe {
   0%, 100% { opacity: 0.35; }
@@ -893,7 +928,7 @@ mark.markdown-search-highlight-active {
     background: rgba(96, 165, 250, 0.5);
     animation: none;
   }
-  .card-glow-fx { display: none; }
+  .card-glow-mask { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
