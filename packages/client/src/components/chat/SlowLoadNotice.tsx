@@ -29,7 +29,7 @@ export function SlowLoadNotice({ startedAt, onRetry }: SlowLoadNoticeProps) {
         <button
           type="button"
           onClick={onRetry}
-          className="focus-ring ml-auto rounded px-2 py-0.5 text-[var(--accent)] hover:bg-[var(--bg-hover)]"
+          className="focus-ring ml-auto rounded px-2 py-0.5 text-[var(--accent-text)] hover:bg-[var(--bg-hover)]"
           data-testid="chat-history-slow-retry"
         >
           {i18nT("common.retry", undefined, "Retry")}
