@@ -4,6 +4,8 @@ import {
   challengeIdentity,
   decodePayloadString,
   type PairingPayload,
+  type PollResult,
+  pollOutcome,
   postJson,
 } from "../lib/protocol.js";
 
@@ -12,11 +14,6 @@ type Phase = "idle" | "verifying" | "confirm" | "polling" | "done" | "error";
 interface RedeemResult {
   pendingId: string;
   confirmCode: string;
-}
-
-interface PollResult {
-  status: "pending" | "approved" | "unknown";
-  token?: string;
 }
 
 const POLL_INTERVAL_MS = 2000;
@@ -88,7 +85,8 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         setError(`Poll failed: ${err instanceof Error ? err.message : String(err)}`);
         return;
       }
-      if (poll.status === "approved" && poll.token) {
+      const outcome = pollOutcome(poll);
+      if (outcome.kind === "approved") {
         try {
           await addServer({
             id: payload.id,
@@ -96,7 +94,7 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
             urls: payload.urls,
             pinnedPubkey,
             pinnedFingerprint: payload.id,
-            bearerToken: poll.token,
+            bearerToken: outcome.token,
           });
         } catch (err) {
           setPhase("error");
@@ -107,9 +105,9 @@ export function PairView({ onPaired }: { onPaired?: () => void }) {
         onPaired?.();
         return;
       }
-      if (poll.status === "unknown") {
+      if (outcome.kind !== "pending") {
         setPhase("error");
-        setError("Pairing expired or was rejected. Start over.");
+        setError(outcome.message);
         return;
       }
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));

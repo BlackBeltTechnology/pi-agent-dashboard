@@ -182,3 +182,33 @@ export async function challengeIdentity(base: string): Promise<IdentityProof> {
   const verified = await verifyNonce(data.publicKey, data.signature, nonce);
   return { fingerprint: data.fingerprint, publicKey: data.publicKey, verified };
 }
+
+/** `/api/pair/poll` response body. */
+export interface PollResult {
+  status: string;
+  token?: string;
+}
+
+type PollOutcome =
+  | { kind: "pending" }
+  | { kind: "approved"; token: string }
+  | { kind: "rejected"; message: string }
+  | { kind: "expired"; message: string };
+
+/**
+ * Map a poll response to what the pair view does next. Only `pending` keeps
+ * polling; `rejected` (operator denied) gets its own message; `unknown` and
+ * any status this shell does not know are terminal "expired" — a future
+ * server status can never poll forever. See change: add-pairing-approval-dialog.
+ */
+export function pollOutcome(poll: PollResult): PollOutcome {
+  if (poll.status === "approved" && poll.token) return { kind: "approved", token: poll.token };
+  if (poll.status === "pending") return { kind: "pending" };
+  if (poll.status === "rejected") {
+    return {
+      kind: "rejected",
+      message: "The dashboard declined this device. If this was a mistake, ask for a new pairing link.",
+    };
+  }
+  return { kind: "expired", message: "Pairing expired. Start over." };
+}

@@ -136,6 +136,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // render site gets its OWN `Suspense`; in particular the
 // `shellRenderers.renderDiff` callback below needs a local boundary or its
 // suspension escapes into the shell.
+// Pairing approval host: own chunk, off the cold-landing entry (mdi-chunk-size
+// cap). See change: add-pairing-approval-dialog.
+const PairingApprovalHost = lazy(() =>
+  import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
+);
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
@@ -2765,6 +2770,13 @@ export default function App() {
   // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
   // See change: add-access-grant-dialog.
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  // Pairing approval dialog: mounted beside the grant host in BOTH returns.
+  // See change: add-pairing-approval-dialog.
+  const pairingApprovalHost = (
+    <Suspense fallback={null}>
+      <PairingApprovalHost onMessage={onMessage} ws={ws} />
+    </Suspense>
+  );
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
@@ -2897,6 +2909,7 @@ export default function App() {
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
         {grantPromptHost}
+        {pairingApprovalHost}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -2943,6 +2956,7 @@ export default function App() {
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
       {grantPromptHost}
+      {pairingApprovalHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}
