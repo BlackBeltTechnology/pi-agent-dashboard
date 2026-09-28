@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PiUpdateBadge } from "../packages/PiUpdateBadge.js";
 
 vi.mock("wouter", () => ({ useLocation: () => ["/", vi.fn()] }));
-vi.mock("../../hooks/useLaunchSource.js", () => ({ useLaunchSource: () => "electron" }));
+let launchSource: string | null = "electron";
+vi.mock("../../hooks/useLaunchSource.js", () => ({ useLaunchSource: () => launchSource }));
 
 afterEach(() => {
 	cleanup();
@@ -15,7 +16,8 @@ afterEach(() => {
 });
 
 describe("PiUpdateBadge under Electron", () => {
-	it("E21: stays hidden even with core updates available", async () => {
+	it.each([["electron"], [null]])("E21: stays hidden with core updates available (launchSource=%s)", async (src) => {
+		launchSource = src;
 		(globalThis as { fetch: unknown }).fetch = vi.fn().mockResolvedValue({
 			ok: true,
 			json: () => Promise.resolve({ success: true, data: { packages: [], updatesAvailable: 3, lastChecked: new Date().toISOString() } }),

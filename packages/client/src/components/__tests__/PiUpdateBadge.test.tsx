@@ -1,10 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PiUpdateBadge } from "../packages/PiUpdateBadge.js";
 
 const navigateMock = vi.fn();
 
+// Standalone: the badge renders only once the launch source is known and not Electron.
+vi.mock("../../hooks/useLaunchSource.js", () => ({ useLaunchSource: () => "standalone" }));
 vi.mock("wouter", () => ({
 	useLocation: () => ["/", navigateMock],
 }));

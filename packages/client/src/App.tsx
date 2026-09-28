@@ -2022,7 +2022,7 @@ export default function App() {
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
         <div className="flex items-center gap-2">
-          {launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
           {launchSource === "electron" && <RuntimeUpdateBadge />}
           <ServerSelector
             currentHost={currentServerHost}

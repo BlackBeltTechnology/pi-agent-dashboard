@@ -22,6 +22,11 @@ export function claimCandidate(pid: number): void {
   claimedCandidatePids.add(pid);
 }
 
+/** Commit: the candidate is now the live runtime — its exits belong to the watchdog again. */
+export function releaseCandidate(pid: number): void {
+  claimedCandidatePids.delete(pid);
+}
+
 /** Clear every switch-scoped expectation/claim (commit, rollback, abort). */
 export function releaseRuntimeSwitchOwnership(): void {
   expectedExitPids.clear();

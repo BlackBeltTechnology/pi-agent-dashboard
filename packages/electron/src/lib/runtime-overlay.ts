@@ -28,7 +28,7 @@ import {
   readRuntimeState,
 } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import type { LaunchSource, RuntimeLaunchInputs } from "./launch-source.js";
-import { claimCandidate, expectExit, releaseRuntimeSwitchOwnership } from "./runtime-switch-ownership.js";
+import { claimCandidate, expectExit, releaseCandidate, releaseRuntimeSwitchOwnership } from "./runtime-switch-ownership.js";
 
 /** Old server must exit within this window, else the switch aborts (D3). */
 export const SWITCH_OLD_EXIT_DEADLINE_MS = 60_000;
@@ -391,6 +391,7 @@ async function startRuntime(runtimeId: string, oldPid: number | null, deps: Swit
     return fail(null, `health_identity_mismatch pid=${health?.pid ?? "none"} runtime=${health?.runtimeId ?? "none"}`);
   }
   committed = true;
+  releaseCandidate(reportedPid); // a crash from here on is the watchdog's (X8)
   return { ok: true, pid: reportedPid };
 }
 

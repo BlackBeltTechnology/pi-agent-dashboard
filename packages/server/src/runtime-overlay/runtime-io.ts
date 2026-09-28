@@ -46,7 +46,7 @@ async function npm(args: string[], cwd: string, timeoutMs = NPM_TIMEOUT_MS): Pro
   return String(stdout);
 }
 
-/** List members; refuse any that are absolute or climb out (`..`) — before extracting. */
+/** List members; refuse any that are absolute, climb out (`..`), or are links — before extracting. */
 async function safeMembers(tgz: string): Promise<string[]> {
   const { stdout } = await execFileAsync("tar", ["-tzf", tgz], { timeout: NPM_TIMEOUT_MS, maxBuffer: MAX_BUFFER });
   const names = String(stdout).split(/\r?\n/).filter(Boolean);
@@ -55,6 +55,12 @@ async function safeMembers(tgz: string): Promise<string[]> {
       throw new Error(`unsafe_archive member ${JSON.stringify(name)}`);
     }
   }
+  // Links could point out of the staging dir and a later member write through
+  // them. A runtime tree has no links (npm ci output, plugins copied), so refuse
+  // all. `tar -tv` (bsdtar and GNU) starts each line with the entry type.
+  const { stdout: verbose } = await execFileAsync("tar", ["-tvzf", tgz], { timeout: NPM_TIMEOUT_MS, maxBuffer: MAX_BUFFER });
+  const link = String(verbose).split(/\r?\n/).find((line) => /^[lh]/.test(line));
+  if (link) throw new Error(`unsafe_archive link member ${JSON.stringify(link.trim())}`);
   return names;
 }
 

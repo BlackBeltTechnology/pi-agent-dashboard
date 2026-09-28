@@ -34,6 +34,7 @@ import {
   switchRuntime,
   watchActivationRequests,
 } from "../runtime-overlay.js";
+import { takeExitOwnership } from "../runtime-switch-ownership.js";
 import { releaseRuntimeSwitchOwnership } from "../server-lifecycle.js";
 
 let dir: string;
@@ -363,6 +364,15 @@ describe("switchRuntime", () => {
     expect(state.attempts?.["0.9.1"]).toBeUndefined();
     // extension re-pointed BEFORE the spawn
     expect(world.events.indexOf("register:/ext/0.9.1")).toBeLessThan(world.events.indexOf("spawn:0.9.1"));
+  });
+
+  it("X8: once committed, the new runtime's crash reaches the watchdog even before the switch's finally", async () => {
+    const world = freshWorld();
+    let ownerAfterCommit: string | null = null;
+    // pruneVersions runs after commit, inside the switch (before `finally` releases ownership).
+    const res = await switchRuntime("0.9.1", makeDeps(world, { pruneVersions: () => { ownerAfterCommit = takeExitOwnership(200); } }));
+    expect(res.kind).toBe("committed");
+    expect(ownerAfterCommit).toBe("watchdog");
   });
 
   it("X4: unhealthy candidate → bad + lastFailure; previous re-pointed before its spawn; previous stays current", async () => {
