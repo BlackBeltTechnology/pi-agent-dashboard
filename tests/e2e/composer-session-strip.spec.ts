@@ -176,8 +176,10 @@ test.describe("composer session strip (L3)", () => {
       }
 
       // At 420 px the Git content wraps INSIDE its container…
+      // Segments sit inside WorktreeActionsMenu's `display:contents` root, so
+      // collect laid-out boxes through it.
       const tops = await page.getByTestId("composer-git-group").evaluate((el) =>
-        Array.from(el.children)
+        Array.from(el.querySelectorAll(":scope > *, :scope > [data-testid='worktree-actions-menu'] > *"))
           .filter((c) => (c as HTMLElement).getBoundingClientRect().width > 0)
           .map((c) => Math.round((c as HTMLElement).getBoundingClientRect().top)),
       );
