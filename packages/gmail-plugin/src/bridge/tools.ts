@@ -15,7 +15,7 @@
 import type { GoogleEndpoints } from "../shared/endpoints.js";
 import type { LeaseReply } from "../shared/protocol.js";
 import type { Op } from "../shared/scopes.js";
-import { readInsideCwd, saveInsideCwd } from "./attachments.js";
+import { MAX_ATTACH_BYTES, readInsideCwd, saveInsideCwd } from "./attachments.js";
 import { extractBody, GmailApi, type GmailMessage, header, listAttachments } from "./gmail-api.js";
 import { GmailToolError, type LeaseClient } from "./lease-client.js";
 import { buildMime, type MimeAttachment, toRaw } from "./mime.js";
@@ -370,7 +370,11 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
           });
         }
         const att = await g.attachment(messageId, attachmentId);
-        const written = await saveInsideCwd(ctx?.cwd as string, saveAs, Buffer.from(att.data ?? "", "base64url"));
+        const data = att.data ?? "";
+        if ((att.size ?? 0) > MAX_ATTACH_BYTES || data.length > Math.ceil((MAX_ATTACH_BYTES * 4) / 3) + 4) {
+          throw new GmailToolError("too_large", "too_large: attachment exceeds the 20 MiB save limit");
+        }
+        const written = await saveInsideCwd(ctx?.cwd as string, saveAs, Buffer.from(data, "base64url"));
         return text(`Saved attachment to ${written}.`, { untrusted: true, account: lease.email, path: written });
       }),
     },
@@ -396,8 +400,8 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const messageId = str(p.messageId, "messageId") as string;
         const body = str(p.body, "body", false) ?? "";
         const files = strList(p.attachments, "attachments", { max: 10 });
-        let lease = await deps.leases.lease(account, "send");
-        const orig = await api(lease).getMessage(messageId, "metadata", [
+        const readLease = await deps.leases.lease(account, "read");
+        const orig = await api(readLease).getMessage(messageId, "metadata", [
           "Message-ID",
           "References",
           "Subject",
@@ -406,7 +410,7 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
           "To",
           "Cc",
         ]);
-        const self = lease.email.toLowerCase();
+        const self = readLease.email.toLowerCase();
         const origId = header(orig.payload, "Message-ID");
         const replyTo = header(orig.payload, "Reply-To") ?? header(orig.payload, "From") ?? "";
         const split = (v?: string) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -422,8 +426,9 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const references = [header(orig.payload, "References"), origId].filter(Boolean).join(" ") || undefined;
         await confirmWrite(ctx, `Gmail: reply from ${account}`, messageLines({ account, to, cc, subject, files, body }));
         const attachments = await loadAttachments(ctx, files);
-        // A confirm may outlast the lease's ≥60 s validity — re-lease only then.
-        if (lease.expiresAt - Date.now() < 30_000) lease = await deps.leases.lease(account, "send");
+        // Fresh send lease AFTER the confirm: a level lowered while the prompt
+        // was open must refuse, and the token must not have aged out.
+        const lease = await deps.leases.lease(account, "send");
         const raw = toRaw(buildMime({ to, cc, subject, body, inReplyTo: origId, references, attachments }));
         const s = await api(lease).send(raw, orig.threadId);
         return text(`Replied from ${lease.email} (message ${s.id}, thread ${s.threadId}).`, {

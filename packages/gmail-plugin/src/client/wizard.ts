@@ -55,6 +55,7 @@ export function errorStep(code: string | undefined | null): WizardStep | null {
     case "missing_secret":
     case "not_json":
     case "no_client":
+    case "client_in_use":
       return 5;
     default:
       return null;

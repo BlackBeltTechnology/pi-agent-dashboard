@@ -118,6 +118,12 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     scope.put(`${PREFIX}/client`, guarded, async (request, reply) => {
       const result = validateClientJson((request.body as { json?: unknown } | null)?.json ?? request.body);
       if (!result.ok) return reply.code(400).send({ error: result.error.code, step: result.error.step });
+      // Refresh tokens are bound to the client that minted them: swapping the
+      // client under connected accounts would break every refresh silently.
+      const current = await store.getClient();
+      if (current && current.clientId !== result.client.clientId && (await store.list()).length > 0) {
+        return reply.code(409).send({ error: "client_in_use", step: 5 });
+      }
       await store.setClient(result.client);
       logger.info("[gmail] oauth client configured");
       return { ok: true, clientId: result.client.clientId, projectId: result.client.projectId };

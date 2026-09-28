@@ -128,6 +128,11 @@ export function SetupWizard({
     web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
     not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
     bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),
+    client_in_use: t(
+      "errClientInUse",
+      undefined,
+      "Accounts are connected with the current client. Revoke them first, then upload a different client.",
+    ),
     missing_secret: t("errMissingSecret", undefined, "The file has no client secret. Download it again from the client page (step 5)."),
   };
 

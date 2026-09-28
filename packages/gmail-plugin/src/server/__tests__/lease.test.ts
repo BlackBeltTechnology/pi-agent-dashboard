@@ -217,3 +217,52 @@ describe("E29 — secrets never logged", () => {
     expect(log).not.toMatch(/ACCESS-|REFRESH-|SECRET-client/);
   });
 });
+
+describe("review round 1 — races across the refresh await", () => {
+  it("a downgrade landing during the refresh is enforced before the token is returned", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { lease, store } = setup({
+      expiresIn: 0,
+      refresh: async () => {
+        await gate;
+        return { access_token: "ACCESS-new", expires_in: 3600, token_type: "Bearer" };
+      },
+    });
+    const p = lease({ account: "work", op: "send" });
+    await new Promise((r) => setTimeout(r, 5));
+    await store.setTier("s1", "readonly");
+    release();
+    await expect(p).rejects.toMatchObject({ code: "tier_denied" });
+  });
+
+  it("invalid_grant for a grant already replaced by a re-auth does not mark reauth_required", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { lease, store, creds } = setup({
+      expiresIn: 0,
+      refresh: async () => {
+        await gate;
+        return { status: 400, body: { error: "invalid_grant" } };
+      },
+    });
+    const p = lease({ account: "work", op: "read" });
+    await new Promise((r) => setTimeout(r, 5));
+    await store.upsertFromSignIn({
+      sub: "s1",
+      email: "a@x.com",
+      tier: "send",
+      scopes: [SCOPE.modify],
+      access: "ACCESS-reauth",
+      refresh: "REFRESH-reauth",
+      expires: NOW + 3_600_000,
+    });
+    release();
+    await expect(p).rejects.toMatchObject({ code: "reauth_required" });
+    expect(creds.data.get(acctKey("s1"))?.status).toBe("ok");
+  });
+});

@@ -154,8 +154,11 @@ export class AccountStore {
     return this.patch(sub, (prev) => ({ ...prev, tier }));
   }
 
-  async markReauth(sub: string): Promise<void> {
-    await this.creds.update(acctKey(sub), (prev) => (prev ? { ...prev, status: "reauth_required" } : prev));
+  /** Mark `reauth_required` ONLY while the record still holds the grant that failed (a concurrent re-auth wins). */
+  async markReauthIf(sub: string, failedRefresh: string): Promise<void> {
+    await this.creds.update(acctKey(sub), (prev) =>
+      prev && prev.refresh === failedRefresh ? { ...prev, status: "reauth_required" } : prev,
+    );
   }
 
   /**

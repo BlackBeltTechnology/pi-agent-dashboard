@@ -80,7 +80,7 @@ export function createLeaseHandler(deps: LeaseDeps) {
       tokens = await oauth.processRefreshTokenResponse(as, c, res);
     } catch (err) {
       if (err instanceof oauth.ResponseBodyError && err.error === "invalid_grant") {
-        await deps.store.markReauth(acct.sub);
+        await deps.store.markReauthIf(acct.sub, acct.refresh);
         deps.logger.warn(`[gmail] refresh ${acct.email}: invalid_grant → reauth_required`);
         throw new LeaseError("reauth_required", `${acct.email} needs re-authentication in the Gmail panel`);
       }
@@ -142,16 +142,27 @@ export function createLeaseHandler(deps: LeaseDeps) {
       outcome(refused.code);
       throw refused;
     }
-    let { access, expires } = acct;
-    if (!access || expires - now() <= REFRESH_WINDOW_MS) {
-      try {
-        ({ access, expires } = await refreshOnce(acct));
-      } catch (err) {
-        outcome(err instanceof LeaseError ? err.code : "refresh_failed");
-        throw err;
-      }
+    if (acct.access && acct.expires - now() > REFRESH_WINDOW_MS) {
+      outcome("ok");
+      return { accessToken: acct.access, expiresAt: acct.expires, email: acct.email, tier: acct.tier };
     }
+    let fresh: { access: string; expires: number };
+    try {
+      fresh = await refreshOnce(acct);
+    } catch (err) {
+      outcome(err instanceof LeaseError ? err.code : "refresh_failed");
+      throw err;
+    }
+    // The refresh awaited the network: a downgrade / revoke / re-auth may have
+    // landed meanwhile. Re-read and re-gate before handing out a token.
+    const latest = await deps.store.get(acct.sub);
+    const late = latest ? refusal(latest, op) : new LeaseError("not_found", `${acct.email} was removed`);
+    if (late) {
+      outcome(late.code);
+      throw late;
+    }
+    const cur = latest as AccountRecord;
     outcome("ok");
-    return { accessToken: access, expiresAt: expires, email: acct.email, tier: acct.tier };
+    return { accessToken: fresh.access, expiresAt: fresh.expires, email: cur.email, tier: cur.tier };
   };
 }

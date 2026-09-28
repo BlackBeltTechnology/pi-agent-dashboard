@@ -165,6 +165,18 @@ describe("client upload + state", () => {
     expect(state.json().client).toMatchObject({ configured: true, clientId: "x.apps.googleusercontent.com" });
   });
 
+  it("refuses replacing the client while accounts are connected (409 client_in_use)", async () => {
+    const { app, creds } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
+    const r = await app.inject({
+      method: "PUT",
+      url: "/api/plugins/gmail/client",
+      payload: { json: { installed: { client_id: "other.apps.googleusercontent.com", client_secret: "s2" } } },
+    });
+    expect(r.statusCode).toBe(409);
+    expect(r.json()).toEqual({ error: "client_in_use", step: 5 });
+    expect(creds.data.get(CLIENT_KEY)?.clientId).toBe(CLIENT.clientId);
+  });
+
   it("state lists accounts without tokens", async () => {
     const { app } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
     const state = await app.inject({ method: "GET", url: "/api/plugins/gmail/state" });

@@ -55,7 +55,12 @@ function fullPayload(html: boolean | undefined) {
 }
 
 /** Canned Gmail REST replies by path. */
-function route(url: URL, method: string, body: Record<string, unknown> | undefined, opts: { html?: boolean }): unknown {
+function route(
+  url: URL,
+  method: string,
+  body: Record<string, unknown> | undefined,
+  opts: { html?: boolean; attachmentSize?: number },
+): unknown {
   const p = url.pathname;
   if (p.endsWith("/messages") && method !== "POST") return { messages: [{ id: "m1", threadId: "t1" }] };
   if (p.endsWith("/messages/m1")) {
@@ -63,13 +68,13 @@ function route(url: URL, method: string, body: Record<string, unknown> | undefin
     return { id: "m1", threadId: "t1", snippet: "hi…", payload };
   }
   if (p.endsWith("/labels")) return { labels: [{ id: "INBOX", name: "INBOX" }] };
-  if (p.endsWith("/attachments/att1")) return { data: b64u("PDF"), size: 3 };
+  if (p.endsWith("/attachments/att1")) return { data: b64u("PDF"), size: opts.attachmentSize ?? 3 };
   if (p.endsWith("/messages/send")) return { id: "sent1", threadId: body?.threadId ?? "tNew" };
   if (p.endsWith("/drafts")) return { id: "d1" };
   return {};
 }
 
-function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean } = {}) {
+function fakeGmail(opts: { status?: number; retryAfter?: string; html?: boolean; attachmentSize?: number } = {}) {
   const calls: GmailCall[] = [];
   const base = `${TEST_ENDPOINTS.gmail}/users/me/`;
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -267,5 +272,34 @@ describe("X6 — Gmail 429", () => {
     expect(err).toMatchObject({ code: "rate_limited" });
     expect((err as Error).message).toContain("retry after 2 s");
     expect(gmail.calls).toHaveLength(1);
+  });
+});
+
+describe("review round 1 — reply re-leases after the confirm", () => {
+  it("a level lowered while the reply confirm is open refuses the send", async () => {
+    const { run, store, gmail } = setup();
+    const ctx: ToolContext = {
+      hasUI: true,
+      cwd: process.cwd(),
+      ui: {
+        confirm: async () => {
+          await store.setTier("s1", "readonly");
+          return true;
+        },
+      },
+    };
+    const err = await run("gmail_reply", { account: "work", messageId: "m1", body: "x" }, ctx).catch((e) => e);
+    expect(err).toMatchObject({ code: "tier_denied" });
+    expect(gmail.calls.filter((c) => c.path === "messages/send")).toHaveLength(0);
+  });
+});
+
+describe("review round 1 — attachment download bound", () => {
+  it("refuses an attachment over 20 MiB before decoding or writing", async () => {
+    const { run } = setup({ gmail: { attachmentSize: 21 * 1024 * 1024 } });
+    const err = await run("gmail_attachments", { account: "work", messageId: "m1", attachmentId: "att1", saveAs: "never-written.bin" }, ui(true).ctx).catch(
+      (e) => e,
+    );
+    expect(err).toMatchObject({ code: "too_large" });
   });
 });
