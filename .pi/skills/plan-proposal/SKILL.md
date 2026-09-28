@@ -171,9 +171,10 @@ Never commit without the manifest — a missing `test-plan.md` means Step 3 was
 skipped; go back and run `scenario-design`.
 
 Commit `proposal.md`, `design.md`, `specs/**`, `tasks.md`, and `test-plan.md` to
-`develop` — plus, when mockups were adopted, the change's `mockups/**` and the
-adoption's root-side edits (`mockups/AGENTS.md`, the renamed-away sources), so
-the worktree `ship-it` builds in carries the mockup. The worktree is spawned from that commit via the existing worktree
+`develop` — plus the change's `mockups/**` whenever it exists (adopted or
+written there directly), and, when mockups were adopted, the adoption's
+root-side edits (`mockups/AGENTS.md`, the renamed-away sources), so the
+worktree `ship-it` builds in carries the mockup. The worktree is spawned from that commit via the existing worktree
 flow (dashboard "start work" / `git worktree add`).
 
 Then **STOP**. `plan-proposal` does not enter the implementation phase. Report:
