@@ -1,4 +1,5 @@
 export * from "./binary-lookup.js";
+export * from "./check-rollup.js";
 export * from "./commands.js";
 export * from "./detached-spawn.js";
 export * from "./env-path-key.js";

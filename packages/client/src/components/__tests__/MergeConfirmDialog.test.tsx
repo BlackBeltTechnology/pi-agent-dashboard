@@ -77,3 +77,49 @@ describe("MergeConfirmDialog", () => {
     expect(document.body.textContent).toContain("CONFLICT in foo");
   });
 });
+
+// test-plan #E14 (task 8.14) + #X4 dialog half (task 8.34).
+// See change: redesign-composer-session-strip (D6).
+describe("MergeConfirmDialog — PR warnings (#E14)", () => {
+  const MIN = 60_000;
+  const STAT = { ok: true, data: { summary: "a | 1 +", filesChanged: 1, insertions: 1, deletions: 0, base: "main", branch: "feat/x" } };
+  const open = async (props: Partial<React.ComponentProps<typeof MergeConfirmDialog>>) => {
+    fetchDiffStatMock.mockResolvedValueOnce(STAT);
+    render(<MergeConfirmDialog cwd="/repo/.worktrees/x" onClose={() => {}} {...props} />);
+    await waitFor(() => expect(screen.getByTestId("merge-diff-stat")).toBeTruthy());
+    expect((screen.getByTestId("merge-confirm") as HTMLButtonElement).disabled).toBe(false);
+  };
+  const fresh = () => Date.now() - 1 * MIN;
+
+  it("open PR, checks failing → failing warning", async () => {
+    await open({ prNumber: 742, prState: "open", prChecks: "failing", prCheckedAt: fresh() });
+    expect(screen.getByTestId("merge-warn-checks").textContent).toContain("PR #742 checks are failing");
+    expect(screen.queryByTestId("merge-warn-stale")).toBeNull();
+  });
+
+  it("open PR, checks pending → still-running warning", async () => {
+    await open({ prNumber: 742, prState: "open", prChecks: "pending", prCheckedAt: fresh() });
+    expect(screen.getByTestId("merge-warn-checks").textContent).toContain("PR #742 checks are still running");
+  });
+
+  it.each(["passing", "none"] as const)("open PR, checks %s → no warning", async (prChecks) => {
+    await open({ prNumber: 742, prState: "open", prChecks, prCheckedAt: fresh() });
+    expect(screen.queryByTestId("merge-pr-warnings")).toBeNull();
+  });
+
+  it("no PR → no warning", async () => {
+    await open({});
+    expect(screen.queryByTestId("merge-pr-warnings")).toBeNull();
+  });
+
+  it("#X4: open passing PR checked 20 min ago → stale warning", async () => {
+    await open({ prNumber: 742, prState: "open", prChecks: "passing", prCheckedAt: Date.now() - 20 * MIN });
+    expect(screen.getByTestId("merge-warn-stale").textContent).toContain("PR status may be stale");
+    expect(screen.queryByTestId("merge-warn-checks")).toBeNull();
+  });
+
+  it("closed PR with failing checks → no checks warning", async () => {
+    await open({ prNumber: 742, prState: "closed", prChecks: "failing", prCheckedAt: fresh() });
+    expect(screen.queryByTestId("merge-pr-warnings")).toBeNull();
+  });
+});

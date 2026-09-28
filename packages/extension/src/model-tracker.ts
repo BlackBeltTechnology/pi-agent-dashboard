@@ -43,11 +43,20 @@ export function sendSessionNameIfChanged(bc: BridgeContext): void {
 }
 
 /**
- * Send git_info_update if branch, PR, or worktree state has changed since last send.
+ * Send git_info_update if branch, PR tuple, worktree or status changed since
+ * last send. The ONE change-detector: the git-poll tick, reconnect and the
+ * PR-status scheduler's probe completion all call it. The PR tuple comes from
+ * the async scheduler's cache — no `gh` runs here.
+ * See change: redesign-composer-session-strip (D5).
  */
 export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
   const info = gatherGitInfo(cwd);
   if (!info) return;
+  // Sync: may reset the tuple (branch change → all-null) and START a probe;
+  // never waits for it.
+  bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: info.gitBranch });
+  const pr = bc.prStatus?.tuple() ?? {};
+  const nextPrJson = JSON.stringify(pr);
   // Worktree state diff: serialise to a stable string. `"null"` marks an
   // explicit "cwd is not a worktree" so a subsequent transition into a
   // worktree still counts as a change.
@@ -60,18 +69,20 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
   const nextStatusJson = status ? JSON.stringify(status) : "null";
   if (
     info.gitBranch === bc.lastGitBranch &&
-    info.gitPrNumber === bc.lastGitPrNumber &&
+    nextPrJson === bc.lastGitPrJson &&
     nextWorktreeJson === bc.lastGitWorktreeJson &&
     nextStatusJson === bc.lastGitStatusJson
   ) return;
   bc.lastGitBranch = info.gitBranch;
-  bc.lastGitPrNumber = info.gitPrNumber;
+  bc.lastGitPrJson = nextPrJson;
   bc.lastGitWorktreeJson = nextWorktreeJson;
   bc.lastGitStatusJson = nextStatusJson;
   bc.connection.send({
     type: "git_info_update",
     sessionId: bc.sessionId,
     ...info,
+    // Always the full cached tuple; unknown fields are omitted.
+    ...pr,
     // `info` present ⇒ branch resolved ⇒ cwd is a confirmed git repo.
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: true,
@@ -255,7 +266,7 @@ export function resetReconnectCaches(bc: BridgeContext): void {
   // Defensive: reset git so a reconnect through a stale state cache
   // doesn't surface stale branch info if .meta.json wasn't persisted yet.
   bc.lastGitBranch = undefined;
-  bc.lastGitPrNumber = undefined;
+  bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
   bc.lastGitStatusJson = undefined;
 }
