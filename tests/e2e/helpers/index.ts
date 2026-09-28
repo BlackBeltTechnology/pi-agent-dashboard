@@ -75,6 +75,15 @@ export const TESTIDS = {
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",
+  // Group containers (ToolbarGroup, role="group") around the content nodes
+  // above, the composer card rows and the PR status segment.
+  // See change: redesign-composer-session-strip.
+  composerOpenspecContainer: "composer-openspec-container",
+  composerGitContainer: "composer-git-container",
+  composerStatusContainer: "composer-status-container",
+  composerInputRow: "composer-input-row",
+  composerSettingsRow: "composer-settings-row",
+  worktreePrSegment: "worktree-pr-segment",
   gitInitBtn: "git-init-btn",
   // Worktree-init hook feedback surfaces (folder row). See change:
   // friendlier-worktree-init.

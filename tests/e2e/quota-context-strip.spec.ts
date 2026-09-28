@@ -55,6 +55,14 @@ test.describe("quota context strip", () => {
     await expect(chip).toContainText("5h");
     await expect(chip).toContainText("7d");
 
+    // The group is a named, dashed (read-only) ToolbarGroup and the chips carry
+    // no border of their own. See change: redesign-composer-session-strip (D1).
+    await expect(group).toHaveAttribute("role", "group");
+    await expect(group).toHaveAttribute("data-group", "info");
+    await expect(page.getByRole("group", { name: "Quota" })).toBeVisible();
+    await expect(group).toHaveCSS("border-top-style", "dashed");
+    await expect(chip).toHaveCSS("border-top-width", "0px");
+
     // The chip renders ONCE, in the strip — no duplicate quota widget elsewhere
     // (the old footer mount's wrapper carries no testid, so a `` footer``-scoped
     // locator would be structurally unfailable).
