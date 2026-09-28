@@ -100,13 +100,27 @@ describe("PairingApprovalHost", () => {
     expect(screen.getByText("Pairing request handled in another window.")).toBeTruthy();
   });
 
-  it("F8: reconnect fetches the list with no hint frame and shows the dialog", async () => {
+  it("F8: fetches on mount, and again on reconnect with no hint frame, then shows the dialog", async () => {
     const h = setup();
-    h.setList([entry("aaa")]);
-    expect(h.api.listPending).not.toHaveBeenCalled();
-    h.connect();
     await waitFor(() => expect(h.api.listPending).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("pairing-dialog")).toBeNull();
+    h.setList([entry("aaa")]);
+    h.connect();
+    await waitFor(() => expect(h.api.listPending).toHaveBeenCalledTimes(2));
     await screen.findByTestId("pairing-dialog");
+  });
+
+  it("an older list response resolving after a newer one never overwrites it", async () => {
+    const resolvers: Array<(l: PendingPairing[]) => void> = [];
+    const h = setup({ list: () => new Promise<PendingPairing[]>((r) => resolvers.push(r)) });
+    await waitFor(() => expect(resolvers).toHaveLength(1)); // mount fetch (stale)
+    await h.hint(); // newer fetch
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    await act(async () => resolvers[1]([entry("aaa")]));
+    await screen.findByTestId("pairing-dialog");
+    await act(async () => resolvers[0]([]));
+    expect(h.store.getState().pending.map((p) => p.pendingId)).toEqual(["aaa"]);
+    expect(screen.getByTestId("pairing-dialog")).toBeTruthy();
   });
 
   it("F9: waits while a grant dialog is open, opens right after, and is never dismissed", async () => {
@@ -123,6 +137,17 @@ describe("PairingApprovalHost", () => {
     });
     await screen.findByTestId("pairing-dialog");
     expect(h.store.getState().dismissed.has("aaa")).toBe(false);
+  });
+
+  it("deny answered elsewhere (no_pending) closes with the handled-elsewhere notice", async () => {
+    const h = setup();
+    h.api.denyPending.mockResolvedValueOnce({ ok: false, error: "no_pending" } as never);
+    h.setList([entry("aaa")]);
+    h.connect();
+    await screen.findByTestId("pairing-dialog");
+    fireEvent.click(screen.getByTestId("pairing-deny"));
+    await waitFor(() => expect(screen.queryByTestId("pairing-dialog")).toBeNull());
+    expect(screen.getByText("Pairing request handled in another window.")).toBeTruthy();
   });
 
   it("F10: a paired-device browser never fetches and never renders", async () => {
@@ -145,7 +170,7 @@ describe("PairingApprovalHost", () => {
         return calls === 1 ? fail() : [entry("aaa")];
       },
     });
-    h.connect();
+    // The mount fetch is the failing one.
     await waitFor(() => expect(h.api.listPending).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId("pairing-dialog")).toBeNull();
     await h.hint();

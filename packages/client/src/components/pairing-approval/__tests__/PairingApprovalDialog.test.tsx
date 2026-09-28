@@ -179,6 +179,15 @@ describe("PairingApprovalDialog", () => {
     expect((screen.getByTestId("pairing-approve") as HTMLButtonElement).disabled).toBe(false);
   });
 
+  it("a device name over 64 UTF-8 bytes is refused locally, before any API call", () => {
+    const { input, onApprove } = renderDialog();
+    type(input, "12345678");
+    fireEvent.change(screen.getByTestId("pairing-name-input"), { target: { value: "é".repeat(33) } });
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(screen.getByTestId("pairing-dialog-error").textContent).toContain("too long");
+  });
+
   it("never displays a confirmation code and shows the queue count", () => {
     renderDialog({ queued: 1 });
     expect(screen.getByTestId("pairing-dialog-queued").textContent).toBe("+1 more waiting");

@@ -52,10 +52,15 @@ export function PairingApprovalHost({
   /** Requests this tab is answering / has answered — their disappearance is expected. */
   const answered = useRef(new Set<string>());
 
+  /** Monotonic fetch id: only the newest request may write the list, so an older
+   *  response resolving late can never erase a newer pending device. */
+  const fetchSeq = useRef(0);
   const refresh = useCallback(async () => {
     if (getBearer()) return;
+    const seq = ++fetchSeq.current;
     try {
-      store.setPending(await api.listPending());
+      const list = await api.listPending();
+      if (seq === fetchSeq.current) store.setPending(list);
     } catch {
       // Network error / 401 / 500: show nothing; the next hint or reconnect retries.
     }
@@ -69,9 +74,11 @@ export function PairingApprovalHost({
     [onMessage, refresh],
   );
 
-  // Catch up on every (re)connect without waiting for a new hint.
+  // Catch up on mount and on every (re)connect without waiting for a new hint.
+  const mounted = useRef(false);
   useEffect(() => {
-    if (ws !== null) void refresh();
+    if (ws !== null || !mounted.current) void refresh();
+    mounted.current = true;
   }, [ws, refresh]);
 
   // `showToast` is recreated each render; read it through a ref so the
@@ -145,13 +152,17 @@ export function PairingApprovalHost({
         }}
         onDeny={async () => {
           answered.current.add(id);
+          let res: { ok: boolean; error?: string };
           try {
-            await api.denyPending(id);
+            res = await api.denyPending(id);
           } catch (err) {
             answered.current.delete(id);
             throw err;
           }
-          close();
+          if (res.ok) return close();
+          if (res.error === "no_pending") return handledElsewhere();
+          answered.current.delete(id);
+          throw new Error(res.error ?? "deny failed");
         }}
         onDismiss={() => {
           store.dismiss(id);

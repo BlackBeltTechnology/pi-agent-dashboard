@@ -20,6 +20,8 @@ import { describeUserAgent, deviceNameFromUserAgent } from "../../lib/pairing/de
 import type { ApprovePendingOutcome, PendingPairing } from "../../lib/pairing/pairing-api.js";
 
 const CODE_DIGITS = 8;
+/** Server bound on the device label (UTF-8 bytes, `MAX_DEVICE_LABEL_BYTES`). */
+const MAX_NAME_BYTES = 64;
 /** D5: the success state stays visible, then closes on its own. */
 export const SUCCESS_AUTO_CLOSE_MS = 4000;
 
@@ -239,8 +241,14 @@ export function PairingApprovalDialog({
       return;
     }
     setFieldError(null);
-    setBusy(true);
     const trimmed = name.trim();
+    if (new TextEncoder().encode(trimmed).length > MAX_NAME_BYTES) {
+      setFormError(
+        i18nT("pairingApproval.nameTooLong", undefined, "Device name is too long (at most 64 bytes)."),
+      );
+      return;
+    }
+    setBusy(true);
     let outcome: ApprovePendingOutcome;
     try {
       outcome = await onApprove(digits, trimmed.length > 0 ? trimmed : undefined);
