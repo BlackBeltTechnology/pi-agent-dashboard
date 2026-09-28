@@ -1069,6 +1069,13 @@ describe("universal guard — denial log cannot be forged or bloated", () => {
 // loopback must never admit it. See change: fix-trusted-network-tunnel-bypass.
 
 const LOOPBACK_PEERS = ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.5", "::ffff:127.0.0.5"];
+
+describe("E1b isTrustedSource — hex-form IPv4-mapped relayed peer", () => {
+  it("refuses ::ffff:7f00:1 with a forwarding header even when that exact address is trusted", () => {
+    expect(isTrustedSource("::ffff:7f00:1", { "x-forwarded-for": "203.0.113.9" }, ["::ffff:7f00:1"])).toBe(false);
+    expect(isTrustedSource("0:0:0:0:0:0:0:1", { "x-forwarded-for": "203.0.113.9" }, ["0:0:0:0:0:0:0:1"])).toBe(false);
+  });
+});
 const FORWARDING_HEADERS: Array<Record<string, string>> = [
   { "x-forwarded-for": "203.0.113.9" },
   { "x-forwarded-proto": "https" },

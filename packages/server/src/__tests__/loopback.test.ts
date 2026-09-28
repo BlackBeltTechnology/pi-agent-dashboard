@@ -22,6 +22,15 @@ describe("E4 isLoopbackRange boundaries", () => {
     expect(isLoopbackRange(ip)).toBe(expected);
   });
 
+  it("covers every textual form of an IPv4-mapped / IPv6 loopback address", () => {
+    for (const ip of ["::ffff:7f00:1", "0:0:0:0:0:ffff:7f00:1", "0:0:0:0:0:0:0:1", "0::1", "::FFFF:7F00:5"]) {
+      expect(isLoopbackRange(ip), ip).toBe(true);
+    }
+    for (const ip of ["::ffff:8000:1", "fe80::1", "::"]) {
+      expect(isLoopbackRange(ip), ip).toBe(false);
+    }
+  });
+
   it("rejects malformed dotted quads", () => {
     expect(isLoopbackRange("127.0.0.256")).toBe(false);
     expect(isLoopbackRange("127.0.0")).toBe(false);
