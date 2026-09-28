@@ -7,6 +7,7 @@ import type {
   PluginClaim,
   PluginManifest,
   PluginRequirements,
+  SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
   type SettingsTab,
@@ -25,6 +26,72 @@ export class ManifestValidationError extends Error {
 }
 
 const VALID_SLOT_IDS = new Set<string>(Object.keys(SLOT_DEFINITIONS));
+
+const NAV_LABEL_MAX = 40;
+const NAV_DESCRIPTION_MAX = 200;
+/** Unicode control (Cc) + format (Cf): bidi overrides, LRM/RLM, ZWSP, BOM, newlines. */
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
+
+/**
+ * Validate a `settings-section` claim's optional `nav` promotion hint.
+ * Drop-don't-throw: an invalid hint returns `undefined` after ONE warning
+ * naming plugin id, claim index and offending field; a placement hint must
+ * never unload a plugin. See change: promote-model-roles-settings (D7).
+ */
+function validateNavHint(raw: unknown, pluginId: string, index: number): SettingsNavHint | undefined {
+  const drop = (field: string, why: string): undefined => {
+    console.warn(
+      `[plugin:${pluginId}] claims[${index}].${field} ${why}; ignoring the settings-section nav hint`,
+    );
+    return undefined;
+  };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return drop("nav", "must be a plain object");
+  }
+  const n = raw as Record<string, unknown>;
+  const norm = (v: string) => v.normalize("NFKC").trim();
+  const checkText = (v: string, max?: number) => {
+    if (CONTROL_OR_FORMAT.test(v)) return "contains a Unicode control/format character";
+    if (max !== undefined && v.length > max) return `exceeds ${max} characters`;
+    return null;
+  };
+
+  if (typeof n.group !== "string" || !norm(n.group)) {
+    return drop("nav.group", "must be a non-empty string");
+  }
+  const group = norm(n.group);
+  const groupErr = checkText(group);
+  if (groupErr) return drop("nav.group", groupErr);
+
+  if (typeof n.label !== "string" || !norm(n.label)) {
+    return drop("nav.label", "must be a non-empty string");
+  }
+  const label = norm(n.label);
+  const labelErr = checkText(label, NAV_LABEL_MAX);
+  if (labelErr) return drop("nav.label", labelErr);
+
+  let description: string | undefined;
+  if (n.description !== undefined) {
+    if (typeof n.description !== "string") {
+      return drop("nav.description", "must be a string if provided");
+    }
+    const d = norm(n.description);
+    const descErr = checkText(d, NAV_DESCRIPTION_MAX);
+    if (descErr) return drop("nav.description", descErr);
+    if (d) description = d;
+  }
+
+  if (n.order !== undefined && (typeof n.order !== "number" || !Number.isFinite(n.order))) {
+    return drop("nav.order", "must be a finite number if provided");
+  }
+
+  return {
+    group,
+    label,
+    ...(description !== undefined ? { description } : {}),
+    ...(typeof n.order === "number" ? { order: n.order } : {}),
+  };
+}
 
 function validateClaim(claim: unknown, pluginId: string, index: number): PluginClaim {
   if (!claim || typeof claim !== "object") {
@@ -171,6 +238,13 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // settings-section: optional `nav` promotion hint (non-fatal). `nav` on any
+  // other slot is dropped silently. See change: promote-model-roles-settings.
+  const navHint =
+    slotId === "settings-section" && "nav" in c && c.nav !== undefined
+      ? validateNavHint(c.nav, pluginId, index)
+      : undefined;
+
   return {
     slot: slotId,
     ...(typeof c.component === "string" ? { component: c.component } : {}),
@@ -186,6 +260,7 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
       ? { presentation: c.presentation }
       : {}),
     ...(typeof c.tab === "string" ? { tab: c.tab as SettingsTab } : {}),
+    ...(navHint ? { nav: navHint } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
     ...(c.config && typeof c.config === "object" && !Array.isArray(c.config)

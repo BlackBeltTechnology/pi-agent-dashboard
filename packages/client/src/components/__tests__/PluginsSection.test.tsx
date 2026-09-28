@@ -7,12 +7,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
+import type { SettingsPromotion } from "../../lib/settings-promotions.js";
 
 // PluginsSection takes its list/toggle from SettingsPanel so the index and the
 // nav rail share one fetch and one desired-state overlay. This harness mounts
 // the real hooks so the tests still exercise the true fetch/toggle path.
 // See change: plugin-settings-pages.
-function MountedPluginsSection() {
+function MountedPluginsSection({ promotions }: { promotions?: ReadonlyMap<string, SettingsPromotion> } = {}) {
   const list = usePluginList();
   const toggle = usePluginToggle(list);
   // Same predicate SettingsPanel supplies (claims OR intent).
@@ -23,6 +24,7 @@ function MountedPluginsSection() {
       list={list}
       toggle={toggle}
       contributesSettings={contributesSettings as never}
+      promotions={promotions}
     />
   );
 }
@@ -211,5 +213,34 @@ describe("PluginsSection", () => {
 
     expect(await screen.findByTestId("install-piExtension-link-some-unknown-extension")).toBeTruthy();
     expect(screen.queryByTestId("install-piExtension-some-unknown-extension")).toBeNull();
+  });
+});
+
+// See change: promote-model-roles-settings (test-plan #F10).
+describe("PluginsSection — promoted rows", () => {
+  it("F10: a disabled promoted row says it is shown in Models; others keep 'not in Settings nav'", async () => {
+    const disabled = (id: string, displayName: string) =>
+      pluginRow({
+        id,
+        displayName,
+        status: { id, displayName, enabled: false, loaded: false, claims: 1, missingRequirements: [] },
+      });
+    const { fetchImpl } = makeFetchSequence([
+      {
+        url: /\/api\/plugins$/,
+        body: { success: true, plugins: [disabled("roles", "Roles"), disabled("subagents", "Subagents")] },
+      },
+      { url: /\/api\/health/, body: { ok: true, startedAt: "2025-01-01T00:00:00Z", plugins: [] } },
+    ]);
+    vi.stubGlobal("fetch", fetchImpl);
+    const promotions = new Map<string, SettingsPromotion>([
+      ["roles", { pluginId: "roles", group: "models", label: "Model roles", order: 1000 }],
+    ]);
+    render(<MountedPluginsSection promotions={promotions} />);
+
+    const roles = await screen.findByTestId("plugin-disabled-note-roles");
+    expect(roles.textContent).toContain("Models");
+    expect(roles.textContent).not.toContain("not in Settings nav");
+    expect(screen.getByTestId("plugin-disabled-note-subagents").textContent).toContain("not in Settings nav");
   });
 });

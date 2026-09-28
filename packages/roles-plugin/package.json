@@ -58,7 +58,12 @@
       {
         "slot": "settings-section",
         "component": "BuiltInRolesSettings",
-        "tab": "general"
+        "tab": "general",
+        "nav": {
+          "group": "models",
+          "label": "Model roles",
+          "description": "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere."
+        }
       }
     ]
   }

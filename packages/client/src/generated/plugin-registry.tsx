@@ -416,7 +416,12 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "settings-section",
                 "component": "BuiltInRolesSettings",
-                "tab": "general"
+                "tab": "general",
+                "nav": {
+                    "group": "models",
+                    "label": "Model roles",
+                    "description": "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere."
+                }
             }
         ],
         "client": "./src/index.tsx",
@@ -627,4 +632,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "f67978be002f35766697ce46476741c5ca238e94ae6a4e9d623af53216ee8c44";
+export const PLUGIN_REGISTRY_HASH = "db8d84c789da9088a7653b51795ffc1d7454492c5d02dc711fbed1efd70dc985";

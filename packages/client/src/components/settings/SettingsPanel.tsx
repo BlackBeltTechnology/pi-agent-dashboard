@@ -24,7 +24,7 @@ import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/mod
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GroupByMode, GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
+import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
@@ -52,6 +52,7 @@ import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktr
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
 import { logRejection } from "../../lib/report-error.js";
+import { RESERVED_SETTINGS_LABELS, resolveSettingsPromotions } from "../../lib/settings-promotions.js";
 import { useCustomEventGroups } from "../../lib/state/custom-event-groups.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
@@ -464,6 +465,19 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
+/**
+ * Health dot for a plugin nav entry (Plugins child or promoted entry) — one
+ * mapping so both render identically. See change: promote-model-roles-settings.
+ */
+function pluginNavHealth(st: { error?: string; loaded?: boolean } | null | undefined): {
+  cls: string;
+  label: string;
+} {
+  if (st?.error) return { cls: "bg-[var(--accent-red)]", label: "error" };
+  if (st?.loaded === false) return { cls: "bg-[var(--accent-yellow)]", label: "not loaded" };
+  return { cls: "bg-[var(--accent-green)]", label: "loaded" };
+}
+
 function resolveSettingsPage(raw: string | undefined | null): string | null {
   if (!raw) return null;
   const aliased = SETTINGS_PAGE_ALIASES[raw] ?? raw;
@@ -610,16 +624,26 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   // unknown id or a settings-less plugin falls back to the activation index
   // plus a notice (design D2).
   const activePluginHasSettings = !!activePluginRow && contributesSettings(activePluginRow);
-  // Nav children: enabled AND contributing settings, alphabetical by display
-  // name. Keys on `enabled`, NOT `loaded` — a plugin that failed to load is
-  // exactly when the user needs to reach its page (design D4).
+  // Plugin pages promoted into another nav group (today: Models). Keyed on the
+  // MANIFEST claims on the row, so a disabled promoted plugin stays listed.
+  // See change: promote-model-roles-settings (design D2/D6).
+  const promotions = useMemo(
+    () => resolveSettingsPromotions(pluginRows, RESERVED_SETTINGS_LABELS),
+    [pluginRows],
+  );
+  // Nav children: enabled AND contributing settings AND not promoted,
+  // alphabetical by display name. Keys on `enabled`, NOT `loaded` — a plugin
+  // that failed to load is exactly when the user needs to reach its page
+  // (design D4). An ENABLED promoted plugin appears here as a never-active
+  // pointer row instead, sorted together with the children
+  // (promote-model-roles-settings D4).
   const pluginNavChildren = useMemo(
     () =>
       pluginRows
         .filter((r) => r.status?.enabled !== false && contributesSettings(r))
-        .slice()
-        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
-    [pluginRows, contributesSettings],
+        .map((r) => ({ row: r, pointer: promotions.has(r.id) }))
+        .sort((a, b) => a.row.displayName.localeCompare(b.row.displayName)),
+    [pluginRows, contributesSettings, promotions],
   );
 
   // Global-scope resource card pages (Resources nav group). One fetch backs the
@@ -1116,8 +1140,19 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   };
 
   // Left-nav page groups. See change: reorganize-settings-into-pages.
-  const navGroups: { label: string; items: { id: string; label: string; icon: string }[] }[] = [
+  // Models is FIRST: it decides which model every session, agent and flow runs
+  // on. Promoted plugin pages render after its built-in items.
+  // See change: promote-model-roles-settings.
+  const navGroups: { id: string; label: string; items: { id: string; label: string; icon: string }[] }[] = [
     {
+      id: "models",
+      label: t("settings.groupModels", undefined, "Models"),
+      items: [
+        { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
+      ],
+    },
+    {
+      id: "dashboard",
       label: t("settings.groupDashboard", undefined, "Dashboard"),
       items: [
         { id: "general", label: t("settings.general", undefined, "General"), icon: mdiCog },
@@ -1126,6 +1161,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
+      id: "network",
       label: t("settings.groupNetwork", undefined, "Network"),
       items: [
         { id: "remote", label: t("settings.remoteServers", undefined, "Remote Servers"), icon: mdiWeb },
@@ -1135,15 +1171,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
+      id: "extensions",
       label: t("settings.groupExtensions", undefined, "Extensions"),
       items: [
-        { id: "providers", label: t("settings.providers", undefined, "Providers"), icon: mdiKey },
         { id: "packages", label: t("settings.packages", undefined, "Packages"), icon: mdiPackageVariant },
         { id: "plugins", label: t("settings.plugins", undefined, "Plugins"), icon: mdiPuzzle },
         { id: "openspec", label: t("settings.openspec", undefined, "OpenSpec"), icon: mdiClipboardText },
       ],
     },
     {
+      id: "resources",
       label: t("settings.groupResources", undefined, "Resources"),
       items: [
         { id: "skills", label: i18nT("common.skills", undefined, "Skills"), icon: mdiBookOpenPageVariant },
@@ -1154,6 +1191,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       ],
     },
     {
+      id: "advanced",
       label: t("settings.groupAdvanced", undefined, "Advanced"),
       items: [
         { id: "developer", label: t("settings.developer", undefined, "Developer"), icon: mdiWrench },
@@ -1168,6 +1206,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
   const dirtyPageEntries = Array.from(dirtyPages).map((page) => {
     if (page.startsWith("plugins/")) {
       const id = page.slice("plugins/".length);
+      // A promoted page is named by its placement: `<Group> › <nav.label>`.
+      // See change: promote-model-roles-settings (design D4).
+      const promo = promotions.get(id);
+      if (promo) {
+        const groupLabel = navGroups.find((g) => g.id === promo.group)?.label ?? promo.group;
+        return { page, label: `${groupLabel} › ${promo.label}`, to: `/settings/${page}` };
+      }
       const name = pluginRows.find((r) => r.id === id)?.displayName ?? id;
       return { page, label: `${t("settings.plugins", undefined, "Plugins")} › ${name}`, to: `/settings/${page}` };
     }
@@ -1252,8 +1297,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           className="shrink-0 w-full md:w-56 flex md:flex-col gap-0.5 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-[var(--border-primary)] p-2"
         >
           {navGroups.map((group) => (
-            <div key={group.label} className="contents md:block">
-              <div className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">
+            <div key={group.id} className="contents md:block" data-testid={`settings-nav-group-${group.id}`}>
+              <div
+                className="hidden md:block px-3 pt-3 pb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]"
+                data-testid={`settings-nav-group-label-${group.id}`}
+              >
                 {group.label}
               </div>
               {group.items.map((item) => {
@@ -1286,14 +1334,28 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     )}
                   </button>
                   {item.id === "plugins" &&
-                    pluginNavChildren.map((p) => {
+                    pluginNavChildren.map(({ row: p, pointer }) => {
+                      if (pointer) {
+                        // Promoted plugin: a dimmed pointer to the same URL. A
+                        // separate branch that NEVER sets `aria-current`, so the
+                        // promoted entry stays the single active one (D4).
+                        const promo = promotions.get(p.id);
+                        const groupLabel =
+                          navGroups.find((g) => g.id === promo?.group)?.label ?? promo?.group ?? "";
+                        return (
+                          <button
+                            key={`plugins/${p.id}`}
+                            onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
+                            data-testid={`nav-plugin-pointer-${p.id}`}
+                            className="w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer opacity-60 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                          >
+                            <span className="truncate">{p.displayName}</span>
+                            <span className="ml-auto text-[11px] text-[var(--text-tertiary)]">↗ {groupLabel}</span>
+                          </button>
+                        );
+                      }
                       const childActive = activePluginId === p.id;
-                      const st = p.status;
-                      const health = st?.error
-                        ? { cls: "bg-[var(--accent-red)]", label: "error" }
-                        : st?.loaded === false
-                          ? { cls: "bg-[var(--accent-yellow)]", label: "not loaded" }
-                          : { cls: "bg-[var(--accent-green)]", label: "loaded" };
+                      const health = pluginNavHealth(p.status);
                       return (
                         <button
                           key={`plugins/${p.id}`}
@@ -1327,6 +1389,57 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   </div>
                 );
               })}
+              {Array.from(promotions.values())
+                .filter((promo) => promo.group === group.id)
+                .map((promo) => {
+                  // Promoted plugin page: placement only, URL unchanged. Keyed
+                  // by the plugin page key so the dirty dot works unchanged; a
+                  // disabled plugin stays listed, dimmed, with an "off" marker
+                  // (design D4/D6). See change: promote-model-roles-settings.
+                  const row = pluginRows.find((r) => r.id === promo.pluginId);
+                  const enabled = row?.status?.enabled !== false;
+                  const promoActive = activeTab === "plugins" && activePluginId === promo.pluginId;
+                  const health = pluginNavHealth(row?.status ?? null);
+                  return (
+                    <button
+                      key={`plugins/${promo.pluginId}`}
+                      onClick={() => requestRailNavigate(`/settings/plugins/${promo.pluginId}`)}
+                      aria-current={promoActive ? "page" : undefined}
+                      data-testid={`nav-promoted-${promo.pluginId}`}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
+                        promoActive
+                          ? "bg-blue-600/15 text-[var(--text-primary)] font-semibold"
+                          : "text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
+                      } ${enabled ? "" : "opacity-60"}`}
+                    >
+                      <Icon path={mdiPackageVariantClosed} size={0.65} />
+                      <span className="truncate">{promo.label}</span>
+                      {enabled ? (
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${health.cls}`}
+                          data-testid={`nav-plugin-status-${promo.pluginId}`}
+                          role="img"
+                          aria-label={health.label}
+                          title={health.label}
+                        />
+                      ) : (
+                        <span
+                          className="text-[10px] text-[var(--text-tertiary)]"
+                          data-testid={`nav-promoted-off-${promo.pluginId}`}
+                        >
+                          {t("settings.promotedOff", undefined, "off")}
+                        </span>
+                      )}
+                      {dirtyPages.has(`plugins/${promo.pluginId}`) && (
+                        <span
+                          data-testid={`nav-dirty-plugins/${promo.pluginId}`}
+                          title={t("settings.unsavedOnPage", undefined, "Unsaved changes on this page")}
+                          className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
             </div>
           ))}
         </nav>
@@ -2274,6 +2387,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   toggle={pluginToggle}
                   onLeaveGuard={pluginDisableGuard}
                   onNavigate={requestRailNavigate}
+                  promotion={promotions.get(activePluginRow.id)}
                 />
               ) : (
                 <>
@@ -2284,7 +2398,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   {activePluginId && !pluginList.loading && !activePluginHasSettings && (
                     <PluginNotFoundNotice pluginId={activePluginId} />
                   )}
-                  <PluginsSection list={pluginList} toggle={pluginToggle} contributesSettings={contributesSettings} />
+                  <PluginsSection list={pluginList} toggle={pluginToggle} contributesSettings={contributesSettings} promotions={promotions} />
                 </>
               )
             )}

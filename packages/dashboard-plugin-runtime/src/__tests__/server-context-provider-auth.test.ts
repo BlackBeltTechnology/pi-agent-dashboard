@@ -13,6 +13,7 @@ import {
   type PluginProviderAuth,
   type ServerContextDeps,
 } from "../server/server-context.js";
+import { createGatedProviderAuth, isFirstPartyPluginPackage } from "../server/first-party.js";
 
 function baseDeps(): ServerContextDeps {
   return {
@@ -70,5 +71,36 @@ describe("ServerPluginContext providerAuth", () => {
     expect(ctx.providerAuth).toBeUndefined();
     // Consumers must optional-chain rather than assume the seam exists.
     expect(ctx.providerAuth?.getCredential("anthropic")).toBeUndefined();
+  });
+});
+
+// See change: promote-model-roles-settings (test-plan #E11) — the scope gate
+// is the shared `isFirstPartyPluginPackage` helper; behaviour unchanged.
+
+describe("first-party providerAuth gate", () => {
+  const auth = { anthropic: { type: "oauth", access: "a" } };
+
+  it("withholds credentials from a non-scoped plugin", () => {
+    expect(createGatedProviderAuth("acme-x", () => auth).getCredential("anthropic")).toBeUndefined();
+  });
+
+  it("returns the auth.json entry to a first-party plugin", () => {
+    expect(
+      createGatedProviderAuth("@blackbelt-technology/y", () => auth).getCredential("anthropic"),
+    ).toEqual({ type: "oauth", access: "a" });
+  });
+
+  it("degrades to undefined when auth.json cannot be read", () => {
+    const pa = createGatedProviderAuth("@blackbelt-technology/y", () => {
+      throw new Error("EACCES");
+    });
+    expect(pa.getCredential("anthropic")).toBeUndefined();
+  });
+
+  it("predicate: scope prefix only; empty name is not first-party", () => {
+    expect(isFirstPartyPluginPackage("@blackbelt-technology/pi-dashboard-roles-plugin")).toBe(true);
+    expect(isFirstPartyPluginPackage("acme-dashboard-x")).toBe(false);
+    expect(isFirstPartyPluginPackage("")).toBe(false);
+    expect(isFirstPartyPluginPackage(undefined)).toBe(false);
   });
 });
