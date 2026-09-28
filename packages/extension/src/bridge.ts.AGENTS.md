@@ -26,3 +26,5 @@ Terminal-hosted `/reload`: `reload` option = `createTerminalReload(...).reload` 
 Installs the plugin-request symbol on `onOpen`, uninstalls + `failAll("disconnected")` on `onClose`; `plugin_reply` → `pluginRequests.handleReply` (never re-emitted on `pi.events`). See change: expose-plugin-credential-and-oauth-seams.
 
 Plugin lane uses `connection.sendIfOpen`; `pluginLaneUp/Down` follow the CURRENT connection (`primaryConnection` guard) and the `/dashboard-connect` move target (its `onOpen`/`onClose` + `plugin_reply` dispatch; lane re-raised after rebind). See change: expose-plugin-credential-and-oauth-seams.
+
+Creates per-bridge `prStatus` (`createPrStatusScheduler`, probe `git.prStatusAsync`, `alive: isActive`, timers in bridge registry); `git_info_refresh` via `handleGitInfoRefresh`; `/dashboard-where` prints `pr-probe:` invocation count. See change: redesign-composer-session-strip.

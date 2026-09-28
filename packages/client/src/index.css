@@ -1146,3 +1146,20 @@ mark.markdown-search-highlight-active {
   .group-by-chip { position: relative; }
   .group-by-chip::after { content: ""; position: absolute; inset: -13px -6px; }
 }
+
+/* Composer context strip groups (ToolbarGroup, dashboard-plugin-runtime).
+   A group whose content element is empty — e.g. the Status fieldset when every
+   badge claim renders null (error-boundary / provider layers emit no DOM) —
+   hides entirely, label included. Browsers without :has() keep today's
+   behaviour (empty label visible). See change: redesign-composer-session-strip (D8). */
+[data-group]:has(> [data-group-content]:empty) {
+  display: none;
+}
+
+/* Composer lifecycle-bar box: a definite inline size under the stepper's
+   250px container-query cutoff, so the composer bar is always in letters mode
+   while the session card keeps full labels. See change:
+   redesign-composer-session-strip (D2). */
+:root {
+  --composer-lifecycle-w: 9.5rem;
+}

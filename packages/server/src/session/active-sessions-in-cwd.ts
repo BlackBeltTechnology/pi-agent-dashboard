@@ -61,3 +61,25 @@ export function sessionsUnder(
   }
   return out;
 }
+
+/**
+ * Active sessions whose REALPATH-normalized `cwd` is at the realpath of
+ * `targetPath` or inside it. Symlinked worktree roots and symlinked session
+ * cwds both match. Drives the post-Push / post-Open-PR `git_info_refresh`
+ * fan-out. `realpath` is injected for tests (prod: `safeRealpathSync`).
+ * See change: redesign-composer-session-strip (D5).
+ */
+export function activeSessionsUnderResolved(
+  targetPath: string,
+  sessions: ReadonlyArray<Pick<DashboardSession, "id" | "cwd" | "status">>,
+  realpath: (p: string) => string,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  if (!targetPath) return [];
+  const root = realpath(targetPath);
+  return activeSessionsUnder(
+    root,
+    sessions.map((s) => ({ ...s, cwd: s.cwd ? realpath(s.cwd) : s.cwd })),
+    platform,
+  );
+}

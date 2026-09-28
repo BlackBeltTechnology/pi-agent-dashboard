@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   ComposerContextGroup,
@@ -58,7 +58,9 @@ describe("ComposerSessionActions", () => {
     expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
-  it("IMPLEMENTING attached change: Explore + Archive hidden, Apply enabled", () => {
+  // Artifact chips replaced by the lifecycle bar + one primary + ⋯.
+  // See change: redesign-composer-session-strip (D2).
+  it("IMPLEMENTING attached change: Explore + Archive not standalone, Apply enabled", () => {
     render(
       <ComposerSessionActions
         session={makeSession({ attachedProposal: "add-auth" })}
@@ -67,11 +69,13 @@ describe("ComposerSessionActions", () => {
       />,
     );
     expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
-    expect((screen.getByTestId("composer-apply-btn") as HTMLButtonElement).disabled).toBe(false);
+    const apply = screen.getByTestId("composer-apply-btn") as HTMLButtonElement;
+    expect(apply.disabled).toBe(false);
+    expect(apply.getAttribute("aria-disabled")).toBeNull();
     expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
-  it("COMPLETE attached change: Archive enabled", () => {
+  it("COMPLETE attached change: Archive is the primary; Verify inside ⋯", () => {
     render(
       <ComposerSessionActions
         session={makeSession({ attachedProposal: "add-auth" })}
@@ -79,8 +83,12 @@ describe("ComposerSessionActions", () => {
         openspecHasDir={true}
       />,
     );
-    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByTestId("composer-verify-btn")).toBeTruthy();
+    const archive = screen.getByTestId("composer-archive-btn") as HTMLButtonElement;
+    expect(archive.disabled).toBe(false);
+    expect(archive.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByTestId("composer-verify-btn")).toBeNull();
+    fireEvent.click(screen.getByTestId("composer-openspec-overflow-btn"));
+    expect(screen.getByTestId("composer-openspec-overflow-menu").contains(screen.getByTestId("composer-verify-btn"))).toBe(true);
   });
 
   it("OpenSpec group hidden when openspecHasDir is false and not pending", () => {
@@ -111,20 +119,27 @@ describe("ComposerSessionActions", () => {
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-apply-change add-auth");
   });
 
-  it("streaming session disables every action button", () => {
-    // Refresh button moved to StatusBar `leading` slot — lives in App.tsx now.
+  it("streaming session gates every action (aria-disabled, focusable) and locks Tasks", () => {
+    const onSendPrompt = vi.fn();
     render(
       <ComposerSessionActions
         session={makeSession({ status: "streaming", attachedProposal: "add-auth" })}
         changes={[implementingChange()]}
         openspecHasDir={true}
+        onSendPrompt={onSendPrompt}
       />,
     );
-    expect((screen.getByTestId("composer-apply-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("composer-artifact-t") as HTMLButtonElement).disabled).toBe(true);
+    const apply = screen.getByTestId("composer-apply-btn") as HTMLButtonElement;
+    expect(apply.getAttribute("aria-disabled")).toBe("true");
+    expect(apply.disabled).toBe(false);
+    fireEvent.click(apply);
+    expect(onSendPrompt).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("composer-stepper-segment-tasks"));
+    expect(screen.queryByTestId("tasks-popover")).toBeNull();
   });
 
-  // Lifecycle-bar gating. See change: compact-openspec-lifecycle-bar (E10, F13).
+  // Lifecycle-bar gating. See changes: compact-openspec-lifecycle-bar (E10, F13),
+  // redesign-composer-session-strip (the composer now renders the bar itself).
   describe("lifecycle gating (E10)", () => {
     const impl1239 = (): OpenSpecChange => ({ ...implementingChange(), completedTasks: 12, totalTasks: 39 });
 
@@ -134,30 +149,27 @@ describe("ComposerSessionActions", () => {
       expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
     });
 
-    it("attached IMPLEMENTING 12/39 → no Explore/Archive; T chip is a count chip", () => {
+    it("attached IMPLEMENTING 12/39 → no Explore/Archive; Tasks segment shows the count", () => {
       render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[impl1239()]} openspecHasDir />);
       expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
       expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
-      const chip = screen.getByTestId("composer-artifact-t");
-      expect(chip.textContent).toContain("12/39");
-      expect(chip.getAttribute("aria-label")).toBe("Tasks 12 of 39 done");
-      const bar = chip.querySelector<HTMLElement>("[data-testid='composer-tasks-underline']");
-      expect(bar?.style.width).toBe("31%");
+      expect(screen.getByTestId("composer-stepper-segment-tasks").textContent).toContain("12/39");
+      expect(screen.getByTestId("composer-stepper-tasks-fill").style.width).toBe("31%");
     });
 
     it("attached COMPLETE → enabled Archive", () => {
       render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[completeChange()]} openspecHasDir />);
-      expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.getByTestId("composer-archive-btn").getAttribute("aria-disabled")).toBeNull();
     });
 
-    it("skipped specs renders as done", () => {
+    it("skipped specs renders as skipped on the bar", () => {
       const c = { ...impl1239(), artifacts: [...implementingArtifacts.slice(0, 2), { id: "specs" as const, status: "skipped" as const }] };
       render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[c]} openspecHasDir />);
-      expect(screen.getByTestId("composer-artifact-s").getAttribute("data-state")).toBe("done");
+      expect(screen.getByTestId("composer-stepper-segment-specs").getAttribute("data-state")).toBe("skipped");
     });
   });
 
-  it("streaming: P chip reads, tasks chip disabled with no popover (F13)", () => {
+  it("streaming: P segment reads, Tasks segment opens no popover (F13)", () => {
     const onReadArtifact = vi.fn();
     render(
       <ComposerSessionActions
@@ -167,11 +179,9 @@ describe("ComposerSessionActions", () => {
         onReadArtifact={onReadArtifact}
       />,
     );
-    fireEvent.click(screen.getByTestId("composer-artifact-p"));
+    fireEvent.click(screen.getByTestId("composer-stepper-segment-proposal"));
     expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
-    const t = screen.getByTestId("composer-artifact-t") as HTMLButtonElement;
-    expect(t.disabled).toBe(true);
-    fireEvent.click(t);
+    fireEvent.click(screen.getByTestId("composer-stepper-segment-tasks"));
     expect(screen.queryByTestId("tasks-popover")).toBeNull();
   });
 
@@ -280,7 +290,7 @@ describe("ComposerSessionActions composer-context-group", () => {
     // Plugin contribution stays interactive...
     expect((screen.getByTestId("ctx-btn") as HTMLButtonElement).disabled).toBe(false);
     // ...while host actions are gated by streaming.
-    expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("composer-explore-btn").getAttribute("aria-disabled")).toBe("true");
     expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
@@ -337,5 +347,270 @@ describe("ComposerSessionActions composer-context-group", () => {
       </PluginContextProvider>,
     );
     expect(withEmpty.container.querySelectorAll('[aria-hidden="true"]').length).toBe(baselineDividers);
+  });
+});
+
+// ── redesign-composer-session-strip scenarios ──────────────────────────────
+
+const WT = { mainPath: "/main", name: "feat-x", base: "develop" };
+const MIN = 60_000;
+const openPr = (checks: "passing" | "failing", over: Partial<DashboardSession> = {}): Partial<DashboardSession> => ({
+  gitWorktree: WT,
+  gitPrNumber: 747,
+  gitPrUrl: "https://gh/pr/747",
+  gitPrState: "open",
+  gitPrDraft: false,
+  gitPrChecks: checks,
+  gitPrCheckedAt: Date.now() - 1 * MIN,
+  ...over,
+});
+const three: OpenSpecChange[] = [
+  implementingChange(),
+  { name: "b", status: "in-progress", completedTasks: 0, totalTasks: 3, artifacts: implementingArtifacts },
+  { name: "c", status: "complete", completedTasks: 3, totalTasks: 3, artifacts: implementingArtifacts },
+];
+
+describe("unattached OpenSpec group (#E7)", () => {
+  it.each([
+    ["all", ["new", "propose", "explore", "apply", "archive"], true],
+    ["core", ["propose", "explore", "apply", "archive"], false],
+  ] as const)("wf %s, 3 changes → attach chip enabled; Explore; ⋯ per wf; no stepper, no archive", (_n, workflows, hasNew) => {
+    render(
+      <ComposerSessionActions
+        session={makeSession()}
+        changes={three}
+        openspecHasDir
+        onAttach={() => {}}
+        openspecConfig={{ workflows: [...workflows] } as any}
+      />,
+    );
+    const chip = screen.getByTestId("composer-attach-chip") as HTMLButtonElement;
+    expect(chip.disabled).toBe(false);
+    expect(screen.getByTestId("composer-explore-btn")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("composer-openspec-overflow-btn"));
+    expect(!!screen.queryByTestId("composer-new-change-btn")).toBe(hasNew);
+    expect(screen.getByTestId("composer-propose-btn")).toBeTruthy();
+    expect(screen.queryByTestId("composer-openspec-stepper")).toBeNull();
+    expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
+  });
+
+  it("0 changes → disabled 'No changes' chip", () => {
+    render(<ComposerSessionActions session={makeSession()} changes={[]} openspecHasDir onAttach={() => {}} />);
+    const chip = screen.getByTestId("composer-attach-chip") as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
+    expect(chip.textContent).toContain("No changes");
+  });
+
+  it("flat picker (no groups) → onAttach(name)", () => {
+    const onAttach = vi.fn();
+    render(<ComposerSessionActions session={makeSession()} changes={three} openspecHasDir onAttach={onAttach} />);
+    fireEvent.click(screen.getByTestId("composer-attach-chip"));
+    fireEvent.click(screen.getByText("add-auth"));
+    expect(onAttach).toHaveBeenCalledWith("add-auth");
+  });
+
+  it("grouped picker (groups present) → onAttach(name)", () => {
+    const onAttach = vi.fn();
+    render(
+      <ComposerSessionActions
+        session={makeSession()}
+        changes={three}
+        openspecHasDir
+        onAttach={onAttach}
+        groups={[{ id: "g1", name: "Group 1" } as any]}
+        assignments={{ "add-auth": "g1" }}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("composer-attach-chip"));
+    fireEvent.click(screen.getByText("add-auth"));
+    expect(onAttach).toHaveBeenCalledWith("add-auth");
+  });
+});
+
+describe("attached OpenSpec group (#E8)", () => {
+  it("IMPLEMENTING 12/39 → chip, letters bar 12/39, Apply, ⋯ with Explore… and no Detach; no standalone Explore", () => {
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth" })}
+        changes={[{ ...implementingChange(), completedTasks: 12, totalTasks: 39 }]}
+        openspecHasDir
+      />,
+    );
+    expect(screen.getByTestId("composer-change-chip").textContent).toContain("add-auth");
+    expect(screen.getByTestId("composer-stepper-segment-tasks").textContent).toContain("12/39");
+    expect(screen.getByTestId("composer-apply-btn")).toBeTruthy();
+    expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
+    fireEvent.click(screen.getByTestId("composer-openspec-overflow-btn"));
+    const menu = screen.getByTestId("composer-openspec-overflow-menu");
+    expect(menu.textContent).toContain("Explore");
+    expect(menu.querySelector("[data-testid$='detach-btn']")).toBeNull();
+  });
+});
+
+describe("change chip popover (#F6)", () => {
+  it("focus → Open proposal; Detach → onDetach once; Escape → focus back on chip; portalled outside the group", async () => {
+    const onDetach = vi.fn();
+    const onReadArtifact = vi.fn();
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth" })}
+        changes={[implementingChange()]}
+        openspecHasDir
+        onDetach={onDetach}
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    const chip = screen.getByTestId("composer-change-chip");
+    fireEvent.click(chip);
+    await act(async () => { await new Promise<void>((r) => requestAnimationFrame(() => r())); });
+    const openProposal = screen.getByTestId("composer-change-open-proposal");
+    expect(document.activeElement).toBe(openProposal);
+    expect(screen.getByTestId("composer-openspec-container").contains(screen.getByTestId("composer-change-menu"))).toBe(false);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("composer-change-menu")).toBeNull();
+    expect(document.activeElement).toBe(chip);
+    fireEvent.click(chip);
+    fireEvent.click(screen.getByTestId("composer-change-detach"));
+    expect(onDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("Open proposal reads the proposal artifact", () => {
+    const onReadArtifact = vi.fn();
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth" })}
+        changes={[implementingChange()]}
+        openspecHasDir
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    fireEvent.click(screen.getByTestId("composer-change-open-proposal"));
+    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
+  });
+});
+
+describe("Git identity segment (#E9)", () => {
+  const ST = (over: Partial<NonNullable<DashboardSession["gitStatus"]>> = {}) => ({ dirtyCount: 0, staged: 0, unstaged: 0, untracked: 0, ahead: 0, behind: 0, ...over });
+  const renderGit = (over: Partial<DashboardSession>) =>
+    render(<ComposerSessionActions session={makeSession({ gitWorktree: WT, gitBranch: "os/x", ...over })} changes={[]} openspecHasDir={false} showGitInfo />);
+
+  it("(a) dirty 3 ahead 2 → branch, base, 3 changed files, ↑2, no ↓", () => {
+    renderGit({ gitStatus: ST({ dirtyCount: 3, ahead: 2 }) });
+    expect(screen.getByTestId("composer-git-branch").textContent).toContain("os/x");
+    expect(screen.getByTestId("composer-git-base").textContent).toContain("develop");
+    expect(screen.getByTestId("composer-git-dirty").textContent).toContain("3");
+    expect(screen.getByTestId("composer-git-dirty").textContent).toContain("3 changed files");
+    expect(screen.getByTestId("composer-git-ahead").textContent).toContain("↑2");
+    expect(screen.queryByTestId("composer-git-behind")).toBeNull();
+    expect(screen.getByTestId("composer-git-identity").getAttribute("title")).toBe("feat-x — /main");
+  });
+
+  it("(b) base absent → no ←", () => {
+    renderGit({ gitWorktree: { mainPath: "/main", name: "feat-x" } });
+    expect(screen.queryByTestId("composer-git-base")).toBeNull();
+  });
+
+  it("(c) all zero → 'no local changes', never 'in sync'", () => {
+    renderGit({ gitStatus: ST() });
+    expect(screen.getByTestId("composer-git-clean").textContent).toContain("no local changes");
+    expect(screen.getByTestId("composer-git-identity").textContent).not.toMatch(/in sync/i);
+  });
+
+  it("(d) status absent → no drift / no-changes marker", () => {
+    renderGit({});
+    expect(screen.queryByTestId("composer-git-clean")).toBeNull();
+    expect(screen.queryByTestId("composer-git-dirty")).toBeNull();
+    expect(screen.queryByTestId("composer-git-ahead")).toBeNull();
+  });
+
+  it("(e) branch absent → no ⎇ text", () => {
+    renderGit({ gitBranch: undefined });
+    expect(screen.queryByTestId("composer-git-branch")).toBeNull();
+    expect(screen.getByTestId("composer-git-identity").textContent).not.toContain("⎇");
+  });
+});
+
+describe("host group test ids (#E11)", () => {
+  it("attached worktree session with a badge claim keeps all five legacy ids", () => {
+    render(
+      <PluginContextProvider registry={badgeRegistry()}>
+        <ComposerSessionActions
+          session={makeSession({ attachedProposal: "add-auth", gitWorktree: WT })}
+          changes={[implementingChange()]}
+          openspecHasDir
+          showGitInfo
+        />
+      </PluginContextProvider>,
+    );
+    for (const id of ["composer-openspec-group-label", "composer-git-group-label", "composer-status-group-label", "composer-git-group", "composer-status-group"]) {
+      expect(screen.getByTestId(id), id).toBeTruthy();
+    }
+    expect(screen.getByTestId("composer-status-group").tagName).toBe("FIELDSET");
+    for (const c of ["composer-openspec-container", "composer-git-container", "composer-status-container"]) {
+      expect(screen.getByTestId(c).getAttribute("role")).toBe("group");
+    }
+  });
+});
+
+describe("single filled primary in the composer (#E12)", () => {
+  const filled = () => Array.from(document.querySelectorAll("[data-emphasis='filled']")).map((e) => e.getAttribute("data-testid"));
+  it.each([
+    ["COMPLETE + passing", completeChange(), "passing", "worktree-action-merge"],
+    ["IMPLEMENTING + passing", implementingChange(), "passing", "composer-apply-btn"],
+    ["COMPLETE + failing", completeChange(), "failing", "composer-archive-btn"],
+  ] as const)("%s → exactly one filled: %s", (_n, change, checks, expected) => {
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth", ...openPr(checks) })}
+        changes={[change]}
+        openspecHasDir
+        showGitInfo
+      />,
+    );
+    expect(filled()).toEqual([expected]);
+  });
+
+  it("#X4: COMPLETE + open passing PR checked 20 min ago → Merge outlined, Archive filled", () => {
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth", ...openPr("passing", { gitPrCheckedAt: Date.now() - 20 * MIN }) })}
+        changes={[completeChange()]}
+        openspecHasDir
+        showGitInfo
+      />,
+    );
+    expect(filled()).toEqual(["composer-archive-btn"]);
+    expect(screen.getByTestId("worktree-action-merge").getAttribute("data-emphasis")).toBe("outlined");
+  });
+});
+
+describe("working = streaming ∨ retrying (#F7, composer half)", () => {
+  it.each([
+    ["idle", "active", false, false],
+    ["streaming", "streaming", false, true],
+    ["retrying", "active", true, true],
+  ] as const)("%s → primary / Push / Merge gated iff working; chip + previews stay live", (_n, status, retrying, gated) => {
+    const onReadArtifact = vi.fn();
+    render(
+      <ComposerSessionActions
+        session={makeSession({ status, attachedProposal: "add-auth", ...openPr("passing") })}
+        changes={[completeChange()]}
+        openspecHasDir
+        showGitInfo
+        working={status === "streaming" || retrying}
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    for (const id of ["composer-archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+      const el = screen.getByTestId(id) as HTMLButtonElement;
+      expect(el.getAttribute("aria-disabled"), id).toBe(gated ? "true" : null);
+      expect(el.disabled, id).toBe(false); // focusable
+      if (gated) expect(el.getAttribute("title"), id).toBe("Session is streaming");
+    }
+    if (gated) expect(document.querySelectorAll("[data-emphasis='filled']")).toHaveLength(0);
+    fireEvent.click(screen.getByTestId("composer-stepper-segment-proposal"));
+    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
+    expect(screen.getByTestId("composer-change-chip").getAttribute("aria-disabled")).toBeNull();
   });
 });
