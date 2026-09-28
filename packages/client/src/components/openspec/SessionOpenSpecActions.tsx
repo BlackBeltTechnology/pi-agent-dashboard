@@ -12,15 +12,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { ExploreDialog } from "./ExploreDialog.js";
-import { GroupedAttachDialog } from "../workspace/GroupedAttachDialog.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
+import { AttachChangePicker } from "./AttachChangePicker.js";
 import { NewChangeDialog } from "./NewChangeDialog.js";
 import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "./openspec-actions.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
-import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
 import { TasksPopover } from "../session/TasksPopover.js";
 
 /**
@@ -51,7 +50,7 @@ function ActionButton({ label, icon, onClick, testId, disabled, ariaDisabled, ti
       title={title}
       data-testid={testId}
       data-variant={variant}
-      data-emphasis={emphasis}
+      data-emphasis={emphasis && (emphasis === "filled" && !inert ? "filled" : "outlined")}
       className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}${emphasis === "filled" && !inert ? " font-semibold !bg-[var(--accent-soft)]" : ""}`}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
@@ -353,28 +352,6 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       );
     }
 
-    const changeOptions: SelectOption[] = [
-      ...changes.filter((c) => c.status !== "complete"),
-      ...changes.filter((c) => c.status === "complete"),
-    ].map((c) => {
-      const state = deriveChangeState(c);
-      const stateLabels: Record<string, string> = {
-        PLANNING: i18nT("openspec.statePlanning", undefined, "Planning"),
-        READY: i18nT("openspec.stateReady", undefined, "Ready to implement"),
-        IMPLEMENTING: i18nT("openspec.stateImplementing", { completed: c.completedTasks, total: c.totalTasks }, "Implementing — {completed}/{total} tasks"),
-        COMPLETE: i18nT("openspec.stateComplete", { completed: c.completedTasks, total: c.totalTasks }, "Complete — {completed}/{total} tasks"),
-      };
-      const desc = stateLabels[state] || c.status;
-      const artifactNames = c.artifacts.map(a => a.id).join(", ");
-      return {
-        value: c.name,
-        label: c.name,
-        description: artifactNames ? `${desc} · ${artifactNames}` : desc,
-        badge: c.status === "complete" ? "✓" : c.status === "in-progress" ? `${c.completedTasks}/${c.totalTasks}` : undefined,
-        badgeColor: c.status === "complete" ? "text-green-400" : "text-blue-400",
-      };
-    });
-
     return (
       <div className="mt-1" data-testid="session-openspec-actions">
         <div className="flex items-center gap-1.5">
@@ -433,11 +410,11 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             onClose={() => setExploreOpen(false)}
           /></DialogPortal>
         )}
-        {attachPickerOpen && (groups && groups.length > 0 ? (
-          <GroupedAttachDialog
+        {attachPickerOpen && (
+          <AttachChangePicker
             changes={changes}
             groups={groups}
-            assignments={assignments ?? {}}
+            assignments={assignments}
             onSelect={(value) => {
               setAttachingName(value);
               onAttach(value);
@@ -445,20 +422,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
             }}
             onCancel={() => setAttachPickerOpen(false)}
           />
-        ) : (
-          <SearchableSelectDialog
-            title={i18nT("openspec.attachOpenspecChange2", undefined, "Attach OpenSpec Change")}
-            options={changeOptions}
-            placeholder={i18nT("common.searchChanges", undefined, "Search changes...")}
-            emptyMessage={i18nT("openspec.noChangesAvailable", undefined, "No changes available")}
-            onSelect={(value) => {
-              setAttachingName(value);
-              onAttach(value);
-              setAttachPickerOpen(false);
-            }}
-            onCancel={() => setAttachPickerOpen(false)}
-          />
-        ))}
+        )}
       </div>
     );
   }

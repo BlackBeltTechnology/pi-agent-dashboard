@@ -1899,3 +1899,72 @@ describe("SessionCard OpenSpec ⋯ menu", () => {
     expect(onSelect).toHaveBeenCalledTimes(0);
   });
 });
+
+// ── redesign-composer-session-strip: one filled primary + working gate ────────
+// test-plan #E13 (task 8.13), #F7 card half (task 8.30), tasks 3.4 / 5.3.
+
+describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
+  const done = [
+    { id: "proposal" as const, status: "done" as const },
+    { id: "design" as const, status: "done" as const },
+    { id: "specs" as const, status: "done" as const },
+  ];
+  const COMPLETE = { name: "add-auth", status: "complete" as const, completedTasks: 3, totalTasks: 3, artifacts: done };
+  const IMPLEMENTING = { name: "add-auth", status: "in-progress" as const, completedTasks: 1, totalTasks: 3, artifacts: done };
+  const wtSession = (checks: "passing" | "failing", over: Partial<DashboardSession> = {}) =>
+    makeSession({
+      cwd: "/repo/.worktrees/feat",
+      gitWorktree: { mainPath: "/repo", name: "feat" },
+      attachedProposal: "add-auth",
+      gitPrNumber: 747,
+      gitPrUrl: "https://gh/pr/747",
+      gitPrState: "open",
+      gitPrDraft: false,
+      gitPrChecks: checks,
+      gitPrCheckedAt: Date.now() - 60_000,
+      ...over,
+    });
+  const renderCard = (session: DashboardSession, change: typeof COMPLETE | typeof IMPLEMENTING, isRetrying = false) =>
+    render(
+      <SessionCard
+        session={session}
+        {...defaultProps}
+        openspecChanges={[change]}
+        onSendPrompt={() => {}}
+        onAttachProposal={() => {}}
+        onDetachProposal={() => {}}
+        isRetrying={isRetrying}
+      />,
+    );
+  const filled = () => Array.from(document.querySelectorAll("[data-emphasis='filled']")).map((e) => e.getAttribute("data-testid"));
+
+  it.each([
+    ["COMPLETE + passing", COMPLETE, "passing", "worktree-action-merge"],
+    ["IMPLEMENTING + passing", IMPLEMENTING, "passing", "apply-btn"],
+    ["COMPLETE + failing", COMPLETE, "failing", "archive-btn"],
+  ] as const)("%s → exactly one filled primary: %s", (_n, change, checks, expected) => {
+    renderCard(wtSession(checks), change);
+    expect(filled()).toEqual([expected]);
+  });
+
+  it.each([
+    ["streaming", "streaming", false],
+    ["retrying", "active", true],
+  ] as const)("%s → OpenSpec primary, Push and Merge gated (aria-disabled, focusable, reason)", (_n, status, retrying) => {
+    renderCard(wtSession("passing", { status }), COMPLETE, retrying);
+    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+      const el = screen.getByTestId(id) as HTMLButtonElement;
+      expect(el.getAttribute("aria-disabled"), id).toBe("true");
+      expect(el.disabled, id).toBe(false);
+      expect(el.getAttribute("title"), id).toBe("Session is streaming");
+    }
+    expect(filled()).toEqual([]);
+  });
+
+  it("idle → nothing gated", () => {
+    renderCard(wtSession("passing"), COMPLETE);
+    for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
+      expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBeNull();
+    }
+  });
+});

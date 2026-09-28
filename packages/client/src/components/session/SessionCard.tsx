@@ -34,6 +34,8 @@ export const sourceBadgeColors = sourceBadgeColorsExt;
 
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ClosedReason, CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isMergePrimary } from "../../lib/git/merge-primary.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
@@ -861,6 +863,24 @@ export function SessionCard({
   // See change: improve-dashboard-attention-routing.
   const hasWidgetBarPrompt = useHasWidgetBarPrompt(session.id);
   const dotColor = deriveDotColorWithFlags(session, { hasError, isRetrying, hasWidgetBarPrompt, hasNotice });
+  // One working-state definition on both surfaces (D9), and ONE
+  // Merge-emphasis decision per card (D6): threaded to the OpenSpec actions
+  // (outlines their primary) and to the worktree actions (fills Merge).
+  // See change: redesign-composer-session-strip.
+  const working = session.status === "streaming" || isRetrying === true;
+  const attachedChange = session.attachedProposal
+    ? openspecChanges?.find((c) => c.name === session.attachedProposal)
+    : undefined;
+  const mergeIsPrimary = isMergePrimary({
+    hasWorktree: !!session.gitWorktree,
+    prState: session.gitPrState,
+    prDraft: session.gitPrDraft,
+    prChecks: session.gitPrChecks,
+    prCheckedAt: session.gitPrCheckedAt,
+    working,
+    attached: !!session.attachedProposal,
+    attachedChangeState: attachedChange ? deriveChangeState(attachedChange) : undefined,
+  });
   // State marker class stays on the <li>; the matching color class drives the
   // compositor-only `.card-stripes-fx` overlay rendered behind card content.
   // See change: throttle-idle-ui-animations.
@@ -1335,6 +1355,8 @@ export function SessionCard({
                 assignments={openspecAssignments}
                 openspecConfig={openspecConfig}
                 /* See change: redesign-session-card-and-composer (config-driven-workflow). */
+                working={working}
+                mergeIsPrimary={mergeIsPrimary}
               />
             )}
           </SessionSubcard>
@@ -1364,6 +1386,8 @@ export function SessionCard({
           allSessions={allSessions ?? []}
           onShutdownSession={onShutdown ?? (() => { /* unwired */ })}
           menu={menuFor("git")}
+          working={working}
+          mergeIsPrimary={mergeIsPrimary}
         />
       )}
       {showStatus && <BadgeSubcard session={session} menu={menuFor("status")} />}
@@ -1752,7 +1776,7 @@ function OpenSpecDisabledPanel({
   );
 }
 
-function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void; menu?: SubcardMenuTarget }) {
+function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu, working, mergeIsPrimary }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void; menu?: SubcardMenuTarget; working: boolean; mergeIsPrimary: boolean }) {
   // Worktree sessions need their own GitInfo line even in multi-session
   // groups (parent group header shows the main checkout's branch).
   const renderGitInfo = showGitInfo || !!session.gitWorktree;
@@ -1761,7 +1785,15 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu
   return (
     <SessionSubcard title={i18nT("session.subcardGit", undefined, "GIT")} menu={menu}>
       {renderGitInfo ? <GitInfo session={session} /> : null}
-      {hasWorktreeActions ? <WorktreeActionsMenu session={session} allSessions={allSessions} onShutdownSession={onShutdownSession} /> : null}
+      {hasWorktreeActions ? (
+        <WorktreeActionsMenu
+          session={session}
+          allSessions={allSessions}
+          onShutdownSession={onShutdownSession}
+          disabled={working}
+          mergeIsPrimary={mergeIsPrimary}
+        />
+      ) : null}
     </SessionSubcard>
   );
 }

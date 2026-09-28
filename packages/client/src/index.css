@@ -1119,3 +1119,11 @@ mark.markdown-search-highlight-active {
 [data-group]:has(> [data-group-content]:empty) {
   display: none;
 }
+
+/* Composer lifecycle-bar box: a definite inline size under the stepper's
+   250px container-query cutoff, so the composer bar is always in letters mode
+   while the session card keeps full labels. See change:
+   redesign-composer-session-strip (D2). */
+:root {
+  --composer-lifecycle-w: 9.5rem;
+}
