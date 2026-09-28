@@ -54,18 +54,42 @@ Each claim targets one slot:
 { "slot": "settings-section", "component": "MySettings", "tab": "general" }
 ```
 
-### `settings-section` tab field
+### `settings-section` placement
 
-Use `tab` to control which tab of the Settings page your section appears in:
+Every `settings-section` claim renders on the owning plugin's own page,
+`/settings/plugins/<id>`, beneath host-owned chrome. That page is listed under
+the **Plugins** nav entry while the plugin is enabled.
 
-| Value | Tab |
-|-------|-----|
-| `general` (default) | General |
-| `servers` | Servers |
-| `packages` | Packages |
-| `providers` | Providers |
-| `security` | Security |
-| `advanced` | Advanced |
+`tab` is **inert**: accepted for backwards compatibility (any string, no
+warning), read by nothing. It does not pick a Settings page.
+
+### `settings-section` nav hint
+
+A claim may ask the host to PROMOTE the plugin's page into a settings nav group:
+
+```json
+{
+  "slot": "settings-section",
+  "component": "BuiltInRolesSettings",
+  "nav": { "group": "models", "label": "Model roles", "description": "Pick which model answers each @role.", "order": 1000 }
+}
+```
+
+| Field | Rule |
+|-------|------|
+| `group` | required, non-empty after trim. Only `models` is honoured; unknown values are accepted and ignored (forward-compat). |
+| `label` | required, non-empty, ≤ 40 chars after NFKC + trim. Rail label + page title. |
+| `description` | optional, ≤ 200 chars. Page lede. Blank → dropped alone. |
+| `order` | optional finite number, default 1000. Sort key inside the group (independent of manifest `priority`). |
+
+- Placement only: the URL stays `/settings/plugins/<id>`; no capability is granted.
+- Invalid hint (non-object, missing/blank field, over-length, any Unicode Cc/Cf character, non-finite `order`) → **dropped with one warning** naming plugin id, claim index, field. Never fatal: the plugin loads normally. `nav` on any other slot is dropped silently.
+- Honoured only for a **first-party** plugin — npm package in the `@blackbelt-technology/` scope (`firstParty` on `GET /api/plugins` rows; not `priority`).
+- A label colliding with any built-in settings page or group label (English + every shipped locale, NFKC + case-fold) is ignored; between promoted plugins, the lower (`order`, id) wins.
+- A promoted page gets a compact host chrome (label title, description lede, "Provided by the <X> plugin" + toggle, pill only when unhealthy, metadata behind a disclosure). A disabled promoted plugin stays listed in its group, marked "off".
+- Strings render as plain text, never markup.
+
+See change: promote-model-roles-settings.
 
 ## Client-side PluginContext API
 

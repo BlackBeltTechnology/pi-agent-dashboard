@@ -4,6 +4,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single active, pointer `Roles ↗ Models`); mobile strip `Providers`, `Model roles`; custom `@e2e-role` edit → Save Bar `Models › Model roles`, persists, cleaned up. Needs live session. See change: promote-model-roles-settings. |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account` in container `plugin-credentials.json`; F2 cancel → `Cancelled`, restart works; X13 `[[faux:demo-echo]]` → expanded tool step shows `echo: hi`. Settings at `/settings/plugins/demo`. See change: expose-plugin-credential-and-oauth-seams. |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute out-of-cwd `write`) never prompts; video/PDF click-to-ask; outcomes via paired-device bearer (disclosure). Flips enforce+prompting, restores stores; `promptBudget` paces 5/min. #F2/#F3 at L1 (premise unreachable). See change: surface-denial-remedy-in-previews. |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |

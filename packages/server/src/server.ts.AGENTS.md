@@ -30,3 +30,5 @@ Plugin ctx `updatePluginConfig` broadcast now carries `id` — `PluginConfigUpda
 Plugin context wires `pluginCredentials` (`createPluginCredentialStore`), `startPluginOAuthFlow` (`beginFlow` with `plugin:<id>:<key>`, persist callback, no bridge notify) and `registerPiRequestHandler` (`pluginRequestLane`); `dispatchPluginRequest` → `piGateway.sendToSession`. Bridge auto-registration filters `fixtureEntryAllowed`. See change: expose-plugin-credential-and-oauth-seams.
 
 Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registration + reconciliation. See change: expose-plugin-credential-and-oauth-seams.
+
+providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
