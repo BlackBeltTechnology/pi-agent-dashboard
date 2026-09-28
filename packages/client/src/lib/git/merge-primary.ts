@@ -17,7 +17,7 @@
  */
 import { ChangeState, type GitPrChecks, type GitPrState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
-export const PR_STATUS_FRESH_MS = 15 * 60_000;
+const PR_STATUS_FRESH_MS = 15 * 60_000;
 
 export interface MergePrimaryInput {
   hasWorktree: boolean;

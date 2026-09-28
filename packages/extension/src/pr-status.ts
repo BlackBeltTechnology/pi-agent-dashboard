@@ -23,17 +23,18 @@
  * - A probe that has not settled after 20 s is treated as a failure (the
  *   runner also times `gh` out at 20 s; this guards a hung mock / runner).
  */
-import type { GitPrChecks, GitPrState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { PrStatusProbe } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 
-export const PR_PROBE_INTERVAL_MS = 120_000;
-export const PR_PROBE_MAX_BACKOFF_MS = 600_000;
-export const PR_PROBE_TIMEOUT_MS = 20_000;
-export const PR_FORCED_WINDOW_MS = 30_000;
-export const PR_OPEN_RETRY_DELAYS_MS = [5_000, 15_000] as const;
+import type { PrStatusProbe } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import type { GitPrChecks, GitPrState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+const PR_PROBE_INTERVAL_MS = 120_000;
+const PR_PROBE_MAX_BACKOFF_MS = 600_000;
+const PR_PROBE_TIMEOUT_MS = 20_000;
+const PR_FORCED_WINDOW_MS = 30_000;
+const PR_OPEN_RETRY_DELAYS_MS = [5_000, 15_000] as const;
 
 /** Wire-shaped PR tuple. `undefined` keys are omitted on the wire. */
-export interface PrTuple {
+interface PrTuple {
   gitPrNumber?: number | null;
   gitPrUrl?: string | null;
   gitPrState?: GitPrState | null;

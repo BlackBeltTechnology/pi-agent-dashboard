@@ -3,9 +3,9 @@
  * Avoids passing 14+ closure variables to every extracted function.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { shouldSkipByPrefilter } from "./auto-session-namer.js";
 import type { ConnectionManager } from "./connection.js";
 import type { PrStatusScheduler } from "./pr-status.js";
-import { shouldSkipByPrefilter } from "./auto-session-namer.js";
 
 export interface BridgeContext {
   pi: ExtensionAPI;

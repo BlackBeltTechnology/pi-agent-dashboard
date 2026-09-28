@@ -10,8 +10,8 @@
  */
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import React, { useEffect, useState } from "react";
 import type { GitPrChecks, GitPrState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import React, { useEffect, useState } from "react";
 import { fetchWorktreeDiffStat, mergeWorktree } from "../../lib/git/git-api.js";
 import { isPrStatusStale } from "../../lib/git/merge-primary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";

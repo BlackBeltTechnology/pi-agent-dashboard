@@ -36,7 +36,7 @@ export type OpenSpecActionKey =
   | "new"
   | "propose";
 
-export type OpenSpecActionVariant = "primary" | "success" | "info" | "accent" | "neutral";
+type OpenSpecActionVariant = "primary" | "success" | "info" | "accent" | "neutral";
 
 export interface ActionSpec {
   key: OpenSpecActionKey;
@@ -78,7 +78,7 @@ export interface OpenSpecActions {
   unattached: ActionSpec[];
 }
 
-export const WORKING_REASON_KEY = "session.sessionIsStreaming";
+const WORKING_REASON_KEY = "session.sessionIsStreaming";
 
 type Base = Omit<ActionSpec, "testId" | "blocked" | "blockedReasonKey" | "dividerBefore"> & { id: string; wf?: string };
 
