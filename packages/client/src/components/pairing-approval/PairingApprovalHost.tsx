@@ -25,6 +25,9 @@ import { type PairingApprovalStore, pairingApprovalStore } from "../../lib/pairi
 import { Toast, useToast } from "../primitives/Toast.js";
 import { PairingApprovalDialog } from "./PairingApprovalDialog.js";
 
+/** Approve outcomes after which the dialog no longer shows the form. */
+const TERMINAL_ERRORS: ReadonlySet<string> = new Set(["locked_out", "expired", "no_pending"]);
+
 export interface PairingApprovalHostProps {
   onMessage(handler: (msg: ServerToBrowserMessage) => void): () => void;
   /** The live socket; `null` while disconnected. A non-null change refetches. */
@@ -142,8 +145,9 @@ export function PairingApprovalHost({
           answered.current.add(id);
           try {
             const outcome = await api.approvePending(id, confirmCode, label);
-            // Still pending after a wrong code → its disappearance is news again.
-            if (!outcome.ok && outcome.error === "mismatch") answered.current.delete(id);
+            // Any non-terminal failure (wrong code, 401, validation…) leaves the
+            // dialog in its form, so the request's disappearance is news again.
+            if (!outcome.ok && !TERMINAL_ERRORS.has(outcome.error)) answered.current.delete(id);
             return outcome;
           } catch (err) {
             answered.current.delete(id);

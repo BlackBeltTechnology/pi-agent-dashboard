@@ -191,6 +191,21 @@ describe("PairingApprovalHost", () => {
     await screen.findByTestId("pairing-dialog");
   });
 
+  it("a non-terminal approve failure (e.g. 401) keeps handled-elsewhere detection armed", async () => {
+    const h = setup();
+    h.api.approvePending.mockResolvedValueOnce({ ok: false, error: "operator credential required" } as never);
+    h.setList([entry("aaa")]);
+    h.connect();
+    await screen.findByTestId("pairing-dialog");
+    fireEvent.change(screen.getByTestId("pairing-code-input"), { target: { value: "12345678" } });
+    fireEvent.click(screen.getByTestId("pairing-approve"));
+    await screen.findByTestId("pairing-dialog-error");
+    h.setList([]);
+    await h.hint();
+    await waitFor(() => expect(screen.queryByTestId("pairing-dialog")).toBeNull());
+    expect(screen.getByText("Pairing request handled in another window.")).toBeTruthy();
+  });
+
   it("deny calls the API for the open request and closes without a toast", async () => {
     const h = setup();
     h.setList([entry("aaa")]);
