@@ -12,8 +12,8 @@ import { describe, expect, it } from "vitest";
 import { deriveFlowEdges } from "../client/flow-edges.js";
 import {
   buildIdleFlowState,
-  isAttachmentConsumed,
   type IdleLoad,
+  isAttachmentConsumed,
   resolveFlowSlot,
 } from "../client/flow-idle-state.js";
 import { reduceFlowEvent } from "../reducer.js";

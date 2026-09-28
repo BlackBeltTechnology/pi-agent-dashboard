@@ -24,12 +24,13 @@
  *
  * See change: pluginize-flows-via-registry.
  */
-import { useMemo } from "react";
-import type {
-  FlowState,
-  DashboardEvent,
-} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
 import { useSessionEvents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import type {
+  DashboardEvent,
+  FlowState,
+} from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { useMemo } from "react";
 import { isFlowEvent, reduceFlowEvent } from "../reducer.js";
 import { toEventTime } from "./flow-idle-state.js";
 

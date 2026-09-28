@@ -20,10 +20,35 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FlowActivityBadge } from "./FlowActivityBadge.js";
 import { FlowAuthorPromptDialog } from "./FlowAuthorPromptDialog.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
-import { newAttachmentId, setAttachment } from "./flow-attach-store.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import type { FlowsPluginConfig } from "./FlowsSettings.js";
+import { newAttachmentId, setAttachment } from "./flow-attach-store.js";
 import { makeSafeSend } from "./send-safe.js";
+
+/** Open flow… — disabled (with tooltip) while any flow runs. See change:
+ *  attach-flow-before-run (D7). */
+function OpenFlowButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  const t = useT();
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      disabled={disabled}
+      title={disabled ? t("openFlowDisabledRunning", undefined, "A flow is running") : undefined}
+      className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+      data-testid="flows-open-button"
+    >
+      <Icon path={mdiEyeOutline} size={0.4} className="inline mr-0.5" />{t("openFlowButton", undefined, "Open flow…")}
+    </button>
+  );
+}
+
+function isAnyFlowRunning(
+  flowState: FlowState | null | undefined,
+  flowStates: ReadonlyMap<string, FlowState> | undefined,
+): boolean {
+  if (flowState?.status === "running") return true;
+  return flowStates ? Array.from(flowStates.values()).some((s) => s.status === "running") : false;
+}
 
 export function SessionFlowActions({
   flows,
@@ -89,9 +114,7 @@ export function SessionFlowActions({
 
   if (flows.length === 0 && !editMode && !badgeProps) return null;
 
-  const anyRunning =
-    flowState?.status === "running" ||
-    (flowStates ? Array.from(flowStates.values()).some((s) => s.status === "running") : false);
+  const anyRunning = isAnyFlowRunning(flowState, flowStates);
 
   const flowOptions: SelectOption[] = flows.map((f) => ({
     value: f.name,
@@ -123,15 +146,7 @@ export function SessionFlowActions({
             </button>
           )}
           {onOpenFlow && flows.length > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setOpenPickerOpen(true); }}
-              disabled={anyRunning}
-              title={anyRunning ? t("openFlowDisabledRunning", undefined, "A flow is running") : undefined}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-              data-testid="flows-open-button"
-            >
-              <Icon path={mdiEyeOutline} size={0.4} className="inline mr-0.5" />{t("openFlowButton", undefined, "Open flow…")}
-            </button>
+            <OpenFlowButton disabled={anyRunning} onClick={() => setOpenPickerOpen(true)} />
           )}
           {editMode && (
             <button

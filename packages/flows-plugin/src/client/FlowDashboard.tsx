@@ -18,18 +18,83 @@ import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { FlowLaunchDialog } from "./FlowLaunchDialog.js";
 import { FlowQuestionCard } from "./FlowQuestionCard.js";
-import { makeSafeSend } from "./send-safe.js";
 import { FlowQuestionTranscriptPill } from "./FlowQuestionTranscriptPill.js";
 import { FlowSummary } from "./FlowSummary.js";
-import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
+import { type FlowsSessionState, useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { clearAttachment, resolveBaseline, useFlowAttachment } from "./flow-attach-store.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
-import { buildIdleFlowState, type FlowAttachment, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
+import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
+import { makeSafeSend } from "./send-safe.js";
+
+/**
+ * Selection survives run progress; it resets only when the displayed flow
+ * changes (tab switch / replacement) or the selected step no longer exists.
+ * See change: attach-flow-before-run (D9).
+ */
+function useSelectionReset(
+  displayState: FlowState,
+  selectedStepId: string | null,
+  setSelectedStepId: (id: string | null) => void,
+) {
+  const prevNameRef = useRef(displayState.flowName);
+  useEffect(() => {
+    if (prevNameRef.current !== displayState.flowName) {
+      prevNameRef.current = displayState.flowName;
+      setSelectedStepId(null);
+      return;
+    }
+    if (selectedStepId && !hasStep(displayState, selectedStepId)) setSelectedStepId(null);
+  }, [displayState, selectedStepId, setSelectedStepId]);
+}
+
+function hasStep(state: FlowState, stepId: string): boolean {
+  if (state.agents.has(stepId)) return true;
+  if (state.dagSteps?.some((s) => s.id === stepId)) return true;
+  return Array.from(state.agents.values()).some((a) => (a.stepId || a.agentName) === stepId);
+}
+
+/** Run `onEnter` when `isIdle` flips false → true (not on first mount). */
+function useOnEnterIdle(isIdle: boolean, onEnter: () => void) {
+  const prevRef = useRef(isIdle);
+  useEffect(() => {
+    if (isIdle && !prevRef.current) onEnter();
+    prevRef.current = isIdle;
+  }, [isIdle, onEnter]);
+}
+
+/** Idle header controls: rejection reason, Run, Close. */
+function IdleControls({ idle }: { idle: FlowDashboardIdle }) {
+  const t = useT();
+  return (
+    <>
+      {idle.rejectionReason && (
+        <span className="text-[10px] text-red-400 truncate" data-testid="flow-run-rejected">
+          {idle.rejectionReason}
+        </span>
+      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); idle.onRun(); }}
+        disabled={idle.runDisabled}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
+        data-testid="flow-idle-run"
+      >
+        <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlow", undefined, "Run")}
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); idle.onClose(); }}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+        data-testid="flow-idle-close"
+      >
+        <Icon path={mdiClose} size={0.4} className="inline mr-0.5" />{t("closeAttachedFlow", undefined, "Close")}
+      </button>
+    </>
+  );
+}
 
 /** Not-started (attached) mode controls. See change: attach-flow-before-run (D2). */
-export interface FlowDashboardIdle {
+interface FlowDashboardIdle {
   onRun: () => void;
   onClose: () => void;
   /** Run submitted and not yet started/rejected. */
@@ -113,36 +178,17 @@ export function FlowDashboard({
   const handleSelectStep = useCallback((stepId: string) => {
     setSelectedStepId((prev) => (prev === stepId ? null : stepId));
   }, []);
-  // Selection survives run progress; it resets only when the displayed flow
-  // changes (tab switch / replacement) or the selected step no longer exists.
-  // See change: attach-flow-before-run (D9).
-  const prevDisplayNameRef = useRef(displayState.flowName);
-  useEffect(() => {
-    if (prevDisplayNameRef.current !== displayState.flowName) {
-      prevDisplayNameRef.current = displayState.flowName;
-      setSelectedStepId(null);
-      return;
-    }
-    if (!selectedStepId) return;
-    const exists =
-      displayState.agents.has(selectedStepId) ||
-      (displayState.dagSteps?.some((s) => s.id === selectedStepId) ?? false) ||
-      Array.from(displayState.agents.values()).some((a) => (a.stepId || a.agentName) === selectedStepId);
-    if (!exists) setSelectedStepId(null);
-  }, [displayState, selectedStepId]);
+  useSelectionReset(displayState, selectedStepId, setSelectedStepId);
   // Entering idle (new attach / re-attach) starts fresh; leaving idle for live
   // keeps everything (same instance). See change: attach-flow-before-run (D2).
-  const isIdle = !!idle;
-  const prevIdleRef = useRef(isIdle);
-  useEffect(() => {
-    if (isIdle && !prevIdleRef.current) {
-      setSelectedStepId(null);
-      setGraphOpen(false);
-      setActiveTabId(flowState.flowName);
-      setFollowMode(true);
-    }
-    prevIdleRef.current = isIdle;
-  }, [isIdle, flowState.flowName]);
+  const flowName = flowState.flowName;
+  const resetOnEnterIdle = useCallback(() => {
+    setSelectedStepId(null);
+    setGraphOpen(false);
+    setActiveTabId(flowName);
+    setFollowMode(true);
+  }, [flowName]);
+  useOnEnterIdle(!!idle, resetOnEnterIdle);
   // Esc clears selection (Dialog handles its own Esc independently).
   useEffect(() => {
     if (!selectedStepId) return;
@@ -166,7 +212,9 @@ export function FlowDashboard({
   const totalCount = allAgents.length;
   const isRunning = !idle && flowState.status === "running";
   const isComplete = !idle && !isRunning;
-  const notStarted = t("flowNotStarted", undefined, "not started");
+  const progressText = idle
+    ? t("flowNotStarted", undefined, "not started")
+    : t("stepsCount", { done: doneCount, total: totalCount }, `${doneCount}/${totalCount} steps`);
 
   // After completion, show summary. Forward sessionId so the summary's per-session
   // collapse state persists (the hook no-ops without a session id).
@@ -205,7 +253,7 @@ export function FlowDashboard({
       >
         <span className="text-blue-400 text-sm">π</span>
         <span className="text-sm text-[var(--text-primary)] truncate flex-1">
-          {flowState.flowName} · {idle ? notStarted : `${doneCount}/${totalCount} steps`}
+          {flowState.flowName} · {progressText}
         </span>
         <span className="text-[10px] text-[var(--text-tertiary)]">tap to expand</span>
       </div>
@@ -234,15 +282,8 @@ export function FlowDashboard({
         )}
         <span className="text-sm text-[var(--text-primary)] truncate flex-1">
           {flowState.flowName}
-          <span className="text-[var(--text-tertiary)] ml-1.5">
-            {idle ? notStarted : t("stepsCount", { done: doneCount, total: totalCount }, `${doneCount}/${totalCount} steps`)}
-          </span>
+          <span className="text-[var(--text-tertiary)] ml-1.5">{progressText}</span>
         </span>
-        {idle?.rejectionReason && (
-          <span className="text-[10px] text-red-400 truncate" data-testid="flow-run-rejected">
-            {idle.rejectionReason}
-          </span>
-        )}
 
         {/* Controls */}
         <button
@@ -256,25 +297,7 @@ export function FlowDashboard({
         >
           <Icon path={mdiRobotOutline} size={0.4} className="inline mr-0.5" />AUTO
         </button>
-        {idle && (
-          <>
-            <button
-              onClick={(e) => { e.stopPropagation(); idle.onRun(); }}
-              disabled={idle.runDisabled}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 disabled:opacity-50 disabled:cursor-not-allowed"
-              data-testid="flow-idle-run"
-            >
-              <Icon path={mdiPlay} size={0.4} className="inline mr-0.5" />{t("runFlow", undefined, "Run")}
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); idle.onClose(); }}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-              data-testid="flow-idle-close"
-            >
-              <Icon path={mdiClose} size={0.4} className="inline mr-0.5" />{t("closeAttachedFlow", undefined, "Close")}
-            </button>
-          </>
-        )}
+        {idle && <IdleControls idle={idle} />}
         {isRunning && (
           <button
             onClick={(e) => { e.stopPropagation(); onAbort(); }}
@@ -539,6 +562,65 @@ function useAttachedFlowState(attachment: FlowAttachment | null): IdleLoad {
   return state.load;
 }
 
+type Translate = ReturnType<typeof useT>;
+
+function slotMessage(slot: FlowSlot, t: Translate): string {
+  if (slot.mode === "loading") return t("flowLoading", undefined, "loading…");
+  if (slot.error?.kind === "unavailable") return t("flowNoLongerAvailable", undefined, "no longer available");
+  return slot.error?.message ?? "";
+}
+
+/**
+ * Idle Run state: launch dialog → pending until the panel leaves idle or a
+ * rejection for this flow newer than the submit arrives (compared on the event
+ * clock, never the browser clock). A new attach starts fresh.
+ * See change: attach-flow-before-run (D7).
+ */
+function useIdleRun(
+  isIdle: boolean,
+  attachmentId: string | undefined,
+  flowName: string | undefined,
+  lastRejection: FlowsSessionState["lastRejection"],
+) {
+  const t = useT();
+  const [launchOpen, setLaunchOpen] = useState(false);
+  const [pendingAfter, setPendingAfter] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string | undefined>(undefined);
+  const reset = useCallback(() => {
+    setLaunchOpen(false);
+    setPendingAfter(null);
+    setRejectionReason(undefined);
+  }, []);
+  useEffect(() => {
+    if (!isIdle) reset();
+  }, [isIdle, reset]);
+  const attachRef = useRef(attachmentId);
+  useEffect(() => {
+    if (attachRef.current !== attachmentId) reset();
+    attachRef.current = attachmentId;
+  }, [attachmentId, reset]);
+  useEffect(() => {
+    if (pendingAfter === null || !lastRejection) return;
+    if (lastRejection.flowName !== flowName || lastRejection.timestamp <= pendingAfter) return;
+    setPendingAfter(null);
+    setRejectionReason(lastRejection.reason ?? t("flowRunRejected", undefined, "Start rejected"));
+  }, [lastRejection, pendingAfter, flowName, t]);
+  return {
+    launchOpen,
+    pending: pendingAfter !== null,
+    rejectionReason,
+    open: () => {
+      setRejectionReason(undefined);
+      setLaunchOpen(true);
+    },
+    cancel: () => setLaunchOpen(false),
+    submitted: () => {
+      setLaunchOpen(false);
+      setPendingAfter(lastRejection?.timestamp ?? Number.NEGATIVE_INFINITY);
+    },
+  };
+}
+
 /** Minimal header for an attached flow that is loading or failed to load. */
 function FlowSlotMessage({
   name,
@@ -620,29 +702,9 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
     if (attachment && slot.attachmentConsumed) clearAttachment(sessionId, attachment.id);
   }, [attachment, slot.attachmentConsumed, sessionId]);
 
-  // Idle Run: launch dialog → pending until the panel leaves idle or a newer
-  // rejection for this flow arrives (compared on the event clock). (D7)
-  const [launchOpen, setLaunchOpen] = useState(false);
-  const [runPendingAfter, setRunPendingAfter] = useState<number | null>(null);
-  const [rejectionReason, setRejectionReason] = useState<string | undefined>(undefined);
   const attachedName = attachment?.name;
   const isIdle = slot.mode === "idle";
-  useEffect(() => {
-    if (isIdle) return;
-    setLaunchOpen(false);
-    setRunPendingAfter(null);
-    setRejectionReason(undefined);
-  }, [isIdle]);
-  useEffect(() => {
-    setRejectionReason(undefined);
-    setRunPendingAfter(null);
-  }, [attachment?.id]);
-  useEffect(() => {
-    if (runPendingAfter === null || !lastRejection) return;
-    if (lastRejection.flowName !== attachedName || lastRejection.timestamp <= runPendingAfter) return;
-    setRunPendingAfter(null);
-    setRejectionReason(lastRejection.reason ?? t("flowRunRejected", undefined, "Start rejected"));
-  }, [lastRejection, runPendingAfter, attachedName, t]);
+  const run = useIdleRun(isIdle, attachment?.id, attachedName, lastRejection);
 
   // AUTO shows the last known value (engine default on). Shallow override keeps
   // the memoized agents / dagSteps references. (D8)
@@ -672,16 +734,10 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   if (slot.mode === "none") return null;
 
   if (slot.mode === "loading" || slot.mode === "error") {
-    const message =
-      slot.mode === "loading"
-        ? t("flowLoading", undefined, "loading…")
-        : slot.error?.kind === "unavailable"
-          ? t("flowNoLongerAvailable", undefined, "no longer available")
-          : slot.error?.message ?? "";
     return (
       <FlowSlotMessage
         name={attachedName ?? ""}
-        message={message}
+        message={slotMessage(slot, t)}
         tone={slot.mode === "error" ? "error" : "muted"}
         onClose={detach}
       />
@@ -702,13 +758,10 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
         idle={
           isIdle
             ? {
-                onRun: () => {
-                  setRejectionReason(undefined);
-                  setLaunchOpen(true);
-                },
+                onRun: run.open,
                 onClose: detach,
-                runDisabled: runPendingAfter !== null,
-                rejectionReason,
+                runDisabled: run.pending,
+                rejectionReason: run.rejectionReason,
               }
             : undefined
         }
@@ -719,17 +772,16 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
           send({ type: "send_prompt", sessionId, text, images })
         }
       />
-      {isIdle && launchOpen && (
+      {isIdle && run.launchOpen && (
         <FlowLaunchDialog
           flowName={shown.flowName}
           description={flowInfo?.description}
           session={session}
           onSubmit={(task) => {
-            setLaunchOpen(false);
-            setRunPendingAfter(lastRejection?.timestamp ?? Number.NEGATIVE_INFINITY);
+            run.submitted();
             dispatch({ type: "flow_management", sessionId, action: "run", flowName: shown.flowName, task: task || undefined });
           }}
-          onCancel={() => setLaunchOpen(false)}
+          onCancel={run.cancel}
         />
       )}
     </>

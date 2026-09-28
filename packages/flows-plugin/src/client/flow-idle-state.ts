@@ -18,7 +18,7 @@ import { parse as parseYaml } from "yaml";
 import { reduceFlowEvent } from "../reducer.js";
 
 /** One step of the pi-flows 0.5.0 `flow:flow-started` payload. */
-export interface StartedStep {
+interface StartedStep {
   id: string;
   stepType: string;
   agent?: string;
@@ -88,7 +88,7 @@ function toStartedStep(raw: unknown, index: number): StartedStep {
 }
 
 /** Parse a flow.yaml into the 0.5.0 started-step payload. Throws on any error. */
-export function flowYamlToStartedSteps(content: string): StartedStep[] {
+function flowYamlToStartedSteps(content: string): StartedStep[] {
   const doc = parseYaml(content) as unknown;
   if (!doc || typeof doc !== "object") throw new Error("flow.yaml: empty or not a mapping");
   requireField(doc as Raw, "name", "flow");
@@ -150,7 +150,7 @@ export type IdleLoad =
   | { kind: "error"; message: string }
   | { kind: "ready"; flowState: FlowState };
 
-export type FlowSlotError = { kind: "unavailable" } | { kind: "load"; message: string };
+type FlowSlotError = { kind: "unavailable" } | { kind: "load"; message: string };
 
 export interface FlowSlot {
   mode: "live" | "idle" | "loading" | "error" | "none";
@@ -158,6 +158,16 @@ export interface FlowSlot {
   error?: FlowSlotError;
   /** True when an attachment exists and has been consumed (caller deletes it). */
   attachmentConsumed: boolean;
+}
+
+function findRunning(
+  live: FlowState | null,
+  liveStates: ReadonlyMap<string, FlowState>,
+): FlowState | undefined {
+  if (live?.status === "running") return live;
+  let running: FlowState | undefined;
+  for (const s of liveStates.values()) if (s.status === "running") running = s;
+  return running;
 }
 
 /**
@@ -174,9 +184,7 @@ export function resolveFlowSlot(input: {
   flowsList: ReadonlyArray<{ name: string }>;
 }): FlowSlot {
   const { live, liveStates, attachment, idle, lastFlowStartedAt, flowsList } = input;
-  let running: FlowState | undefined;
-  if (live?.status === "running") running = live;
-  else for (const s of liveStates.values()) if (s.status === "running") running = s;
+  const running = findRunning(live, liveStates);
   if (running) return { mode: "live", flowState: running, attachmentConsumed: !!attachment };
 
   if (attachment && !isAttachmentConsumed(attachment.baselineStartedAt, lastFlowStartedAt)) {

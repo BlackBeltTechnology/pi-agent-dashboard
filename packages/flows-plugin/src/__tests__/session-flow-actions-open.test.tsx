@@ -5,8 +5,8 @@
  * See change: attach-flow-before-run (D7).
  */
 import {
-  createUiPrimitiveRegistry,
   CurrentPluginLayer,
+  createUiPrimitiveRegistry,
   PluginContextProvider,
   publishSessionData,
   publishSessionEvents,
@@ -18,8 +18,8 @@ import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-tech
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionFlowActionsClaim } from "../client/SessionFlowActions.js";
 import { __resetFlowAttachStoreForTests, getAttachment } from "../client/flow-attach-store.js";
+import { SessionFlowActionsClaim } from "../client/SessionFlowActions.js";
 
 const registry = createUiPrimitiveRegistry();
 registerUiPrimitive(registry, UI_PRIMITIVE_KEYS.confirmDialog, (() => null) as never);
