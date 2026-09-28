@@ -17,6 +17,7 @@ import { READINESS_POLL_INTERVAL_MS } from "@blackbelt-technology/pi-dashboard-s
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { GatewayConfigShape } from "../../lib/gateway/gateway-action.js";
 import { getConfig, getProviderReadiness } from "../../lib/gateway/gateway-api.js";
+import { safeApprovalUrl } from "../../lib/gateway/gateway-connection.js";
 import {
   INITIAL_POLL_STATE,
   onClose,
@@ -183,6 +184,7 @@ function ReadinessRow({
   const { t } = useI18n();
   const severity = readinessSeverity(readiness.state);
   const label = READINESS_LABEL[readiness.state];
+  const approvalUrl = safeApprovalUrl(readiness.approvalUrl);
 
   return (
     <li>
@@ -223,6 +225,22 @@ function ReadinessRow({
           ›
         </span>
       </button>
+      {/* Admin-approval gate (tailscale Serve/Funnel not enabled on the
+          tailnet). Outside the row button: an <a> may not nest in a <button>. */}
+      {approvalUrl && (
+        <p className="mt-1 px-3 text-[11px] text-[var(--text-secondary)]" data-testid={`gateway-readiness-${readiness.provider}-approval-note`}>
+          {t("gateway.readiness.approvalNeeded", undefined, "Not enabled on your tailnet yet — ")}
+          <a
+            data-testid={`gateway-readiness-${readiness.provider}-approval`}
+            href={approvalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--accent)] underline"
+          >
+            {t("gateway.readiness.approve", undefined, "approve in Tailscale admin ↗")}
+          </a>
+        </p>
+      )}
       {/* OUTSIDE the row button: a nested <button> is invalid HTML and the
           browser drops it, which would silently delete both actions.
 

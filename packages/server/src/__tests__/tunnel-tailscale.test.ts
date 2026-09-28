@@ -5,6 +5,7 @@ import {
   checkFunnelGates,
   deriveEndpoints,
   isBackendRunning,
+  parseServeEnableUrl,
   parseTailscaleAuthUrl,
   TailscaleProvider,
 } from "../tunnel-providers/tailscale.js";
@@ -72,7 +73,12 @@ describe("TailscaleProvider daemon lifecycle (4.1)", () => {
       if (args[0] === "serve" && args[1] === "status") return { code: 0, stdout: "{}", stderr: "" };
       return { code: 0, stdout: "", stderr: "" };
     };
-    const p = new TailscaleProvider(run);
+    const p = new TailscaleProvider(run, undefined, {
+      runServe: async (args) => {
+        calls.push(args);
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
     const { endpoints } = await p.connect(8000, "private");
     expect(calls.some((c) => c[0] === "serve" && c.includes("localhost:8000"))).toBe(true);
     expect(endpoints.find((e) => e.kind === "mesh")?.url).toBe("http://100.101.22.7:8000");
@@ -90,10 +96,65 @@ describe("TailscaleProvider daemon lifecycle (4.1)", () => {
     await expect(p.connect(8000, "public")).rejects.toThrow(/funnel gates/);
   });
 
+  it("probeLive with no serve config falls back to the dashboard's own port (magicdns + mesh listed)", async () => {
+    const runAsync = async (args: string[]) =>
+      args[0] === "status"
+        ? { code: 0, stdout: JSON.stringify({ ...STATUS, BackendState: "Running" }), stderr: "" }
+        : { code: 0, stdout: "{}", stderr: "" };
+    const p = new TailscaleProvider(undefined, runAsync, { fallbackPort: () => 8000 });
+    const eps = await p.probeLive();
+    expect(eps.find((e) => e.kind === "magicdns")?.url).toMatch(/^http:\/\/.+:8000$/);
+    expect(eps.find((e) => e.kind === "mesh")?.url).toBe("http://100.101.22.7:8000");
+  });
+
+  it("probeLive without any port source still reports the url-less live marker", async () => {
+    const runAsync = async (args: string[]) =>
+      args[0] === "status"
+        ? { code: 0, stdout: JSON.stringify({ ...STATUS, BackendState: "Running" }), stderr: "" }
+        : { code: 0, stdout: "{}", stderr: "" };
+    const p = new TailscaleProvider(undefined, runAsync);
+    expect(await p.probeLive()).toEqual([{ kind: "magicdns", url: "", tls: false }]);
+  });
+
   it("disconnect issues an idempotent serve reset", async () => {
     const calls: string[][] = [];
     const p = new TailscaleProvider((args) => { calls.push(args); return { code: 0, stdout: "", stderr: "" }; });
     await p.disconnect(8000);
     expect(calls).toContainEqual(["serve", "reset"]);
+  });
+});
+
+describe("Serve/Funnel not enabled on the tailnet", () => {
+  const PROMPT = "\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=nJLFZgVqZA21CNTRL\n\n";
+
+  it("parseServeEnableUrl extracts the admin approval link", () => {
+    expect(parseServeEnableUrl(PROMPT)).toBe("https://login.tailscale.com/f/serve?node=nJLFZgVqZA21CNTRL");
+    expect(parseServeEnableUrl("Funnel is not enabled on your tailnet.\nTo enable, visit:\n https://login.tailscale.com/f/funnel?node=X"))
+      .toBe("https://login.tailscale.com/f/funnel?node=X");
+    expect(parseServeEnableUrl("Available within your tailnet: https://box.ts.net/")).toBeNull();
+  });
+
+  it("connect runs serve through the bounded async runner and records the approval link", async () => {
+    const sync = vi.fn((args: string[]) =>
+      args[0] === "status" ? { code: 0, stdout: JSON.stringify(STATUS), stderr: "" } : { code: 0, stdout: "{}", stderr: "" },
+    );
+    const runServe = vi.fn(async () => ({ code: 1, stdout: PROMPT, stderr: "killed" }));
+    const p = new TailscaleProvider(sync, undefined, { runServe });
+    const { endpoints } = await p.connect(8000, "private");
+    expect(runServe).toHaveBeenCalledWith(["serve", "--bg", "--set-path=/", "localhost:8000"]);
+    expect(sync.mock.calls.some(([a]) => a[0] === "serve" && a[1] === "--bg")).toBe(false);
+    expect(p.approvalUrl()).toBe("https://login.tailscale.com/f/serve?node=nJLFZgVqZA21CNTRL");
+    // Direct MagicDNS/mesh on the dashboard port still works without serve.
+    expect(endpoints.find((e) => e.kind === "mesh")?.url).toBe("http://100.101.22.7:8000");
+  });
+
+  it("a successful serve clears a previously recorded approval link", async () => {
+    const sync = () => ({ code: 0, stdout: JSON.stringify(STATUS), stderr: "" });
+    let out = PROMPT;
+    const p = new TailscaleProvider(sync, undefined, { runServe: async () => ({ code: 0, stdout: out, stderr: "" }) });
+    await p.connect(8000, "private");
+    out = "Available within your tailnet:\nhttps://box.ts.net/";
+    await p.connect(8000, "private");
+    expect(p.approvalUrl()).toBeUndefined();
   });
 });

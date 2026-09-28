@@ -17,6 +17,7 @@ import {
   everyModeAvailable,
   isUnregisteredGatewayUrl,
   retainAvailableModes,
+  suggestMeshGatewayDraft,
   validateGatewayDraft,
 } from "../gateway/gateway-action.js";
 import { suggestTrustEntries } from "../gateway/gateway-config-ops.js";
@@ -395,5 +396,33 @@ describe("D9: trusted-network always demands its CIDR", () => {
         validateGatewayDraft({ url, authModes: ["trusted-network"], trustedNetworks: [] }).errors,
       ).toContain("trusted-network-empty");
     }
+  });
+});
+
+describe("suggestMeshGatewayDraft — Add-gateway defaults from a live tailnet", () => {
+  const ts = (endpoints: { kind: "magicdns" | "mesh"; url: string; tls: boolean }[], state = "connected") =>
+    [{ provider: "tailscale" as const, state: state as "connected", endpoints }];
+  const EPS = [
+    { kind: "magicdns" as const, url: "http://box.tail1.ts.net:8000", tls: false },
+    { kind: "mesh" as const, url: "http://100.97.246.31:8000", tls: false },
+  ];
+
+  it("prefills the MagicDNS URL, trusted-network mode and the exact /32 mesh host (D12)", () => {
+    expect(suggestMeshGatewayDraft(ts(EPS), {})).toEqual({
+      url: "http://box.tail1.ts.net:8000",
+      authModes: ["trusted-network"],
+      cidr: "100.97.246.31",
+    });
+  });
+
+  it("the suggested draft is valid as-is", () => {
+    const d = suggestMeshGatewayDraft(ts(EPS), {})!;
+    expect(validateGatewayDraft({ url: d.url, authModes: d.authModes, trustedNetworks: [d.cidr] }).ok).toBe(true);
+  });
+
+  it("returns null when the provider is not connected, the URL is empty, or already registered", () => {
+    expect(suggestMeshGatewayDraft(ts(EPS, "disconnected"), {})).toBeNull();
+    expect(suggestMeshGatewayDraft(ts([{ kind: "magicdns", url: "", tls: false }]), {})).toBeNull();
+    expect(suggestMeshGatewayDraft(ts(EPS), { publicBaseUrls: ["http://box.tail1.ts.net:8000"] })).toBeNull();
   });
 });
