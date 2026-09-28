@@ -10,7 +10,7 @@ import { createLeaseHandler } from "../../server/lease.js";
 import { ACCOUNTS_TYPE, LEASE_TYPE } from "../../shared/protocol.js";
 import { SCOPE, TIER_SCOPES, type Tier } from "../../shared/scopes.js";
 import { GmailToolError, type LaneRequest, LeaseClient } from "../lease-client.js";
-import { createGmailTools, type GmailToolDef, type ToolContext } from "../tools.js";
+import { createGmailTools, type GmailToolDef, splitAddresses, type ToolContext } from "../tools.js";
 
 const b64u = (s: string) => Buffer.from(s, "utf8").toString("base64url");
 
@@ -311,5 +311,11 @@ describe("CodeRabbit — replyAll self-filter matches whole addresses", () => {
     const send = gmail.calls.find((c) => c.path === "messages/send");
     const raw = Buffer.from(String(send?.body?.raw), "base64url").toString("utf8");
     expect(raw).toMatch(/^Cc: carol@z\.com, Lisa <lisa@x\.com>\r?$/m);
+  });
+});
+
+describe("CodeRabbit — address lists split outside quotes", () => {
+  it("keeps a quoted display name with a comma intact", () => {
+    expect(splitAddresses('"Doe, John" <j@x.com>, b@y.com, <c@z.com>')).toEqual(['"Doe, John" <j@x.com>', "b@y.com", "<c@z.com>"]);
   });
 });

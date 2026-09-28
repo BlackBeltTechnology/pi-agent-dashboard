@@ -44,7 +44,8 @@ function textPart(body: string): string {
 }
 
 function attachmentPart(a: MimeAttachment): string {
-  const name = encodeHeaderWord(a.filename).replace(/"/g, "");
+  // `"` and `\` are quoted-string specials: a trailing `\` would escape the closing quote.
+  const name = encodeHeaderWord(a.filename).replace(/["\\]/g, "_");
   const type = /^[\w.+-]+\/[\w.+-]+$/.test(a.mimeType) ? a.mimeType : "application/octet-stream";
   return [
     `Content-Type: ${type}; name="${name}"`,

@@ -116,6 +116,15 @@ describe("level change", () => {
     expect(started[0]?.key).toBe("reauth-s1");
   });
 
+  it("a grant whose scopes do not cover the requested level is refused (scope_missing), nothing stored", async () => {
+    const { app, started, store } = await setup();
+    await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts", payload: { tier: "send" } });
+    await expect(started[0]?.persist(cred("s9", "z@x.com", { tier: "send", grantedScopes: [SCOPE.readonly] }))).rejects.toMatchObject({
+      code: "scope_missing",
+    });
+    expect(await store.list()).toHaveLength(0);
+  });
+
   it("re-auth persisting a different account is refused", async () => {
     const { app, started } = await setup({ [acctKey("s1")]: account("s1", "a@x.com") });
     await app.inject({ method: "POST", url: "/api/plugins/gmail/accounts/s1/reauth" });

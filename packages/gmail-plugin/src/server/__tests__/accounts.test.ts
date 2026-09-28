@@ -97,3 +97,12 @@ describe("E7 — re-auth updates in place", () => {
     expect((await store.get("s1"))?.refresh).toBe("r-s1");
   });
 });
+
+describe("CodeRabbit — alias uniqueness under concurrency", () => {
+  it("two concurrent PATCHes of the same alias: exactly one wins", async () => {
+    const store = new AccountStore(memoryCredentials({ [acctKey("s1")]: acct("s1", "a@x.com"), [acctKey("s2")]: acct("s2", "b@y.com") }));
+    const results = await Promise.allSettled([store.setAlias("s1", "work"), store.setAlias("s2", "work")]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect((await store.list()).filter((a) => a.alias === "work")).toHaveLength(1);
+  });
+});

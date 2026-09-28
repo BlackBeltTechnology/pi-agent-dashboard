@@ -80,6 +80,8 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
         persist: async (credential) => {
           const c = credential as GoogleSignInResult;
           if (expect && c.sub !== expect.sub) throw new GmailFlowError("account_mismatch");
+          // Consent-screen checkboxes can be cleared: never store a level the grant cannot serve.
+          if (!scopesCoverTier(c.grantedScopes, c.tier)) throw new GmailFlowError("scope_missing");
           const acct = await store.upsertFromSignIn({
             sub: c.sub,
             email: c.email,

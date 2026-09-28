@@ -124,7 +124,7 @@ export function SetupWizard({
   const stepClass = (n: WizardStep) =>
     `rounded border p-2 ${focus === n ? "border-[var(--warning)]" : "border-[var(--border)]"}`;
   const uploadMsg: Record<string, string> = {
-    not_json: t("errNotJson", undefined, "That file is not valid JSON. Download the client JSON again (step 4)."),
+    not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
     web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
     not_installed: t("errNotInstalled", undefined, "No Desktop (`installed`) client in this file. Create a Desktop app client (step 4)."),
     bad_client_id: t("errBadClientId", undefined, "The client id does not end in .apps.googleusercontent.com (step 4)."),

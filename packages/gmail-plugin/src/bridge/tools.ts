@@ -105,6 +105,25 @@ function recipients(v: unknown, name: string, min: number): string[] {
   return list;
 }
 
+/** Split an address-list header on commas OUTSIDE quotes / angle brackets (`"Doe, John" <j@x>`). */
+export function splitAddresses(v: string | undefined): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  let angle = 0;
+  for (const ch of v ?? "") {
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch === "<") angle++;
+    else if (!quoted && ch === ">") angle = Math.max(0, angle - 1);
+    if (ch === "," && !quoted && angle === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
 /** Bare lower-cased address of a header entry (`Name <a@b>` or `a@b`). */
 function addressOf(entry: string): string {
   const m = /<([^<>]+)>\s*$/.exec(entry);
@@ -419,11 +438,10 @@ export function createGmailTools(deps: GmailToolDeps): GmailToolDef[] {
         const self = readLease.email.toLowerCase();
         const origId = header(orig.payload, "Message-ID");
         const replyTo = header(orig.payload, "Reply-To") ?? header(orig.payload, "From") ?? "";
-        const split = (v?: string) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const to = [replyTo];
         const cc =
           p.replyAll === true
-            ? [...split(header(orig.payload, "To")), ...split(header(orig.payload, "Cc"))].filter(
+            ? [...splitAddresses(header(orig.payload, "To")), ...splitAddresses(header(orig.payload, "Cc"))].filter(
                 // Exact address match — a substring test would drop `lisa@x.com` for `a@x.com`.
                 (a) => addressOf(a) !== self && addressOf(a) !== addressOf(replyTo),
               )

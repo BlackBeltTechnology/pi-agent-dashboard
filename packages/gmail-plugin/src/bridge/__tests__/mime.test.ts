@@ -51,3 +51,15 @@ describe("E26 — MIME", () => {
     expect(text).not.toMatch(/^X-Evil/m);
   });
 });
+
+describe("CodeRabbit — quoted filename parameter", () => {
+  it("a trailing backslash or quote cannot break the quoted filename", () => {
+    const text = buildMime({
+      to: ["a@x.com"],
+      subject: "s",
+      body: "b",
+      attachments: [{ filename: 'we"ird\\', mimeType: "text/plain", data: Buffer.from("x") }],
+    });
+    expect(text).toMatch(/filename="we_ird_"\r?$/m);
+  });
+});

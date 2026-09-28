@@ -88,6 +88,9 @@ function labels(accounts: AccountRecord[]): string {
 }
 
 export class AccountStore {
+  /** Serializes alias check+write: the store's `update()` is per-key, uniqueness is cross-key. */
+  private aliasChain: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly creds: PluginCredentials) {}
 
   async getClient(): Promise<ClientRecord | undefined> {
@@ -134,7 +137,13 @@ export class AccountStore {
   }
 
   /** Set or clear an alias. Aliases are unique (case-insensitive) across accounts. */
-  async setAlias(sub: string, alias: string | undefined): Promise<AccountRecord> {
+  setAlias(sub: string, alias: string | undefined): Promise<AccountRecord> {
+    const run = this.aliasChain.then(() => this.setAliasNow(sub, alias));
+    this.aliasChain = run.catch(() => {});
+    return run;
+  }
+
+  private async setAliasNow(sub: string, alias: string | undefined): Promise<AccountRecord> {
     const next = alias?.trim() || undefined;
     if (next !== undefined && !ALIAS_RE.test(next)) {
       throw new AccountError("invalid_alias", "Alias must be 1–40 letters, digits, '.', '_' or '-'.");

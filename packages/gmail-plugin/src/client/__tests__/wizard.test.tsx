@@ -57,6 +57,18 @@ describe("E1 — client JSON validation (decision table)", () => {
   });
 });
 
+describe("CodeRabbit — error text and highlighted step agree", () => {
+  it("invalid JSON highlights step 5 and the message says step 5", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    render(<SetupWizard state={{ client: { configured: false }, accounts: [] }} highlight={null} onUploaded={vi.fn()} />);
+    const input = screen.getByTestId("gmail-client-upload") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(["{nope"], "c.json", { type: "application/json" })] } });
+    const alert = await screen.findByTestId("gmail-upload-error");
+    expect(alert.dataset.step).toBe("5");
+    expect(alert.textContent).toMatch(/step 5/);
+  });
+});
+
 describe("E2 — sign-in error → wizard step", () => {
   it.each([
     ["access_denied", 3],
