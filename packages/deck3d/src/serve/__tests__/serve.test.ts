@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
 import { run } from "../../cli.js";
 import { type ServeHandle, startServe } from "../index.js";
 
@@ -29,6 +30,8 @@ function deckDir(): string {
   writeFileSync(join(dir, "deck.md"), DECK);
   return dir;
 }
+
+const hasChromium = await chromiumAvailable();
 
 const open: ServeHandle[] = [];
 async function serve(dir: string, opts: Partial<Parameters<typeof startServe>[1]> = {}): Promise<ServeHandle> {
@@ -176,7 +179,13 @@ describe("S serve: write endpoints", () => {
   }, 120_000);
 });
 
-describe.skipIf(!process.env.CI && !existsSync(join(process.env.HOME ?? "", "Library/Caches/ms-playwright")))("S serve: browser (chromium)", () => {
+/**
+ * Gated by an actual launch probe, not by `CI` + a macOS cache path: the CI
+ * harness runs with an ephemeral HOME, so the old gate FORCED this suite to
+ * run in CI precisely where no browser cache exists (and `Library/Caches` is
+ * macOS-only, so it never matched on Linux anyway).
+ */
+describe.skipIf(!hasChromium)("S serve: browser (chromium)", () => {
   it("#S4b reloads onto the slide the author was on, and Save writes to disk", async () => {
     const { chromium } = await import("playwright");
     const dir = deckDir();
