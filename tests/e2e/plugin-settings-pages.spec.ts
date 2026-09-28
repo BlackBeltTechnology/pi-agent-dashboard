@@ -110,10 +110,12 @@ test.describe("plugin settings pages (L3)", () => {
   // ── Routing + rail ────────────────────────────────────────────────────────
 
   // (test-plan #F5) — design D8a: exactly one active entry.
+  // `flows`, not `roles`: roles is PROMOTED into the Models group, so its
+  // active entry is `nav-promoted-roles` (change: promote-model-roles-settings).
   test("a plugin page marks its nav child active, not the parent", async ({ page }) => {
-    await gotoSettings(page, "/settings/plugins/roles");
+    await gotoSettings(page, "/settings/plugins/flows");
     const rail = page.getByTestId("settings-nav-rail");
-    await expect(rail.getByTestId("nav-plugin-roles")).toHaveAttribute("aria-current", "page");
+    await expect(rail.getByTestId("nav-plugin-flows")).toHaveAttribute("aria-current", "page");
     await expect(rail.locator("[aria-current='page']")).toHaveCount(1);
   });
 

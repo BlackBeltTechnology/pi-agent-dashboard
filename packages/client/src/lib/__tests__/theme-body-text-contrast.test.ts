@@ -171,3 +171,59 @@ describe("remediation preserves hue and saturation", () => {
     }
   }
 });
+
+// History-load ring tokens (non-text UI component, WCAG 1.4.11: 3:1) against
+// every backdrop the ring paints on: the unselected card (`--bg-primary`), the
+// chip / selected-card base (`--bg-tertiary`) and the selected card itself
+// (`--tint-blue-bg`, a color-mix). A token a palette does not override falls
+// back to index.css for its mode (then `:root`); `var()` and `color-mix(in
+// srgb …)` resolve through the palette first.
+// See change: show-session-history-load-state (test-plan #E6).
+describe("history-load ring contrast (WCAG 1.4.11 3:1) — all 18 palettes", () => {
+  const RING_TOKENS = ["--accent-text", "--text-tertiary", "--tint-red-fg"] as const;
+  const CARD_BGS = ["--bg-primary", "--bg-tertiary", "--tint-blue-bg"] as const;
+  const scopes = { dark: css.indexOf(":root {"), light: css.indexOf('[data-theme="light"]') };
+  function cssToken(mode: (typeof MODES)[number], name: string): string | undefined {
+    for (const m of [mode, "dark"] as const) {
+      const start = scopes[m];
+      const block = css.slice(start, css.indexOf("\n}", start));
+      const hit = new RegExp(`\\s${name}:\\s*([^;]+?)\\s*;`).exec(block)?.[1].trim();
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+  const rgb = (h: string) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16));
+  const toHex = (c: number[]) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+  function resolveValue(vars: Record<string, unknown>, mode: (typeof MODES)[number], raw: string, depth: number): string {
+    const v = raw.trim();
+    if (depth > 8) return v;
+    const alias = /^var\((--[\w-]+)\)$/.exec(v);
+    if (alias) return resolveToken(vars, mode, alias[1], depth + 1);
+    const mix = /^color-mix\(in srgb,\s*(.+?)\s+(\d+)%,\s*(.+)\)$/.exec(v);
+    if (mix) {
+      const a = rgb(resolveValue(vars, mode, mix[1], depth + 1));
+      const b = rgb(resolveValue(vars, mode, mix[3], depth + 1));
+      const p = Number(mix[2]) / 100;
+      return toHex(a.map((x, i) => x * p + b[i] * (1 - p)));
+    }
+    return v;
+  }
+  function resolveToken(vars: Record<string, unknown>, mode: (typeof MODES)[number], name: string, depth = 0): string {
+    return resolveValue(vars, mode, (vars[name] as string | undefined) ?? cssToken(mode, name) ?? "", depth);
+  }
+  for (const [name, vars] of PALETTES) {
+    const mode = name.endsWith(":light") ? "light" : "dark";
+    for (const token of RING_TOKENS) {
+      for (const bg of CARD_BGS) {
+        it(`${name} ${token} on ${bg}`, () => {
+          const fg = resolveToken(vars, mode, token);
+          const back = resolveToken(vars, mode, bg);
+          expect(fg, `${name} ${token} must resolve to #rrggbb`).toMatch(/^#[0-9a-f]{6}$/i);
+          expect(back, `${name} ${bg} must resolve to #rrggbb`).toMatch(/^#[0-9a-f]{6}$/i);
+          const ratio = contrast(fg, back);
+          expect(ratio, `${name} ${token} ${fg} on ${bg} ${back} = ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+  }
+});

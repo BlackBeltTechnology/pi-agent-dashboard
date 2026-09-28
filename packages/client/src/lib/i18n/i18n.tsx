@@ -1764,6 +1764,13 @@ const zhCN: Record<string, string> = {
   "settings.discard": "放弃",
   "settings.gateway": "网关",
   "settings.groupAdvanced": "高级",
+  "settings.groupModels": "模型",
+  "packages.requirementsPill": "依赖缺失",
+  "packages.providedByPlugin": "由 {name} 插件提供",
+  "packages.pluginDetails": "插件详情",
+  "packages.pluginIdLabel": "ID：",
+  "packages.shownInModels": "显示在“模型”中",
+  "settings.promotedOff": "已关闭",
   "settings.groupDashboard": "仪表板",
   "settings.groupExtensions": "扩展",
   "settings.groupNetwork": "网络",
@@ -1795,6 +1802,12 @@ const zhCN: Record<string, string> = {
   "settings.unsavedTitle": "未保存的更改",
   "status.loadingChanges": "正在加载更改…",
   "status.loadingConversation": "正在加载对话…",
+  "status.historyFailed": "无法加载历史记录",
+  "status.historyFailedBody": "此会话的历史记录未能送达。请重新加载。",
+  "status.historyLoading": "正在加载历史记录…",
+  "status.historyStillLoading": "仍在加载历史记录",
+  "status.historyWaiting": "等待连接",
+  "status.historyWaitingBody": "仪表板重新连接后将加载历史记录。",
   "status.retryingAttempt": "正在重试…",
   "tunnel.startATunnel": "设置网关",
   "worktree.afterSpawningAWorktreeAutoRun": "创建工作树后，自动运行其声明的",
@@ -1957,6 +1970,20 @@ export function registerPluginCatalog(
       target[`plugin.${id}.${k}`] = v;
     }
   }
+}
+
+/**
+ * Every shipped-locale translation of a core key (languages lacking it are
+ * skipped). Locale-independent: used to build static sets such as the
+ * reserved settings-nav labels. See change: promote-model-roles-settings.
+ */
+export function translationsOf(key: string): string[] {
+  const out: string[] = [];
+  for (const dict of Object.values(dictionaries)) {
+    const v = dict[key];
+    if (typeof v === "string" && v) out.push(v);
+  }
+  return out;
 }
 
 type Vars = Record<string, string | number>;

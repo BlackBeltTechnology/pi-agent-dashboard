@@ -40,7 +40,6 @@ import type {
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { ThinkingBlock } from "./components/chat/ThinkingBlock.js";
 import { ToolCallStep } from "./components/chat/ToolCallStep.js";
-import { PairLanding } from "./components/connectivity/PairLanding.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
 import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
@@ -52,6 +51,13 @@ import {
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
+
+// `/pair` is a device-only landing; load it on demand so it stays off the
+// dashboard's cold-landing entry chunk (mdi-chunk-size gzip cap).
+// See change: add-pairing-approval-dialog.
+const PairLanding = React.lazy(() =>
+  import("./components/connectivity/PairLanding.js").then((m) => ({ default: m.PairLanding })),
+);
 
 // Global unhandled-rejection reporter — the regression guard for the promise
 // handling cleanup. Installed as the first executable statement so a rejection
@@ -186,7 +192,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <I18nProvider>
             <MobileProvider>
-              {isPairRoute ? <PairLanding /> : <App />}
+              {isPairRoute ? (
+                <React.Suspense fallback={null}>
+                  <PairLanding />
+                </React.Suspense>
+              ) : (
+                <App />
+              )}
             </MobileProvider>
           </I18nProvider>
         </ThemeProvider>

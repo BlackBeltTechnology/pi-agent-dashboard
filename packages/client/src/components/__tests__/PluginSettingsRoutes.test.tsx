@@ -68,6 +68,9 @@ interface RowOpts {
   error?: string;
   claims?: boolean;
   dependsOn?: string[];
+  /** settings-section nav hint + first-party flag (promote-model-roles-settings). */
+  nav?: { group: string; label: string; description?: string; order?: number };
+  firstParty?: boolean;
 }
 
 function pluginRow(o: RowOpts) {
@@ -78,7 +81,11 @@ function pluginRow(o: RowOpts) {
     hasServer: false,
     hasBridge: false,
     hasClient: true,
-    claims: o.claims === false ? [] : [{ slot: "settings-section", component: "S" }],
+    ...(o.firstParty === undefined ? {} : { firstParty: o.firstParty }),
+    claims:
+      o.claims === false
+        ? []
+        : [{ slot: "settings-section", component: "S", ...(o.nav ? { nav: o.nav } : {}) }],
     requires: null,
     ...(o.dependsOn ? { dependsOn: o.dependsOn } : {}),
     status: {
@@ -377,5 +384,74 @@ describe("intent-only plugins are first-class", () => {
       expect(screen.getByTestId("plugins-section")).toBeTruthy();
     });
     expect(within(rail).queryByTestId("nav-plugin-intentional")).toBeNull();
+  });
+});
+
+// Promoted plugin pages: Models entry, Plugins pointer row, disabled state.
+// See change: promote-model-roles-settings (test-plan #F2, #F3, #X2).
+describe("promoted plugin pages", () => {
+  const rolesNav = { group: "models", label: "Model roles", description: "Pick which model answers each @role." };
+  const roles = (o: Partial<RowOpts> = {}) =>
+    pluginRow({ id: "roles", displayName: "Roles", nav: rolesNav, firstParty: true, ...o });
+
+  it("F2: Plugins subtree shows a never-active pointer; the Models entry is the single active one", async () => {
+    await mount("/settings/plugins/roles", [
+      roles(),
+      pluginRow({ id: "flows", displayName: "Flows" }),
+      pluginRow({ id: "goal", displayName: "Goal" }),
+    ]);
+    const rail = screen.getByTestId("settings-nav-rail");
+    await waitFor(() => expect(within(rail).getByTestId("nav-plugin-pointer-roles")).toBeTruthy());
+    const order = Array.from(
+      rail.querySelectorAll("[data-testid^='nav-plugin-flows'], [data-testid^='nav-plugin-goal'], [data-testid='nav-plugin-pointer-roles']"),
+    )
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id) => id && !id.startsWith("nav-plugin-status-"));
+    expect(order).toEqual(["nav-plugin-flows", "nav-plugin-goal", "nav-plugin-pointer-roles"]);
+    const pointer = within(rail).getByTestId("nav-plugin-pointer-roles");
+    expect(pointer.textContent).toContain("Roles");
+    expect(pointer.textContent).toContain("Models");
+    expect(within(rail).queryByTestId("nav-plugin-roles")).toBeNull();
+    const active = Array.from(rail.querySelectorAll("[aria-current='page']"));
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("data-testid")).toBe("nav-promoted-roles");
+    expect(active[0].textContent).toContain("Model roles");
+    act(() => {
+      pointer.click();
+    });
+    expect(window.location.pathname).toBe("/settings/plugins/roles");
+    expect(pointer.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("F3: a disabled promoted plugin stays in Models (off), has no pointer, and renders no body", async () => {
+    await mount("/settings/plugins/roles", [roles({ enabled: false })]);
+    const rail = screen.getByTestId("settings-nav-rail");
+    const entry = await within(rail).findByTestId("nav-promoted-roles");
+    expect(within(entry).getByTestId("nav-promoted-off-roles")).toBeTruthy();
+    expect(within(rail).queryByTestId("nav-plugin-pointer-roles")).toBeNull();
+    expect(within(rail).queryByTestId("nav-plugin-roles")).toBeNull();
+    expect(await screen.findByTestId("plugin-page-disabled-notice")).toBeTruthy();
+    expect(screen.getByTestId("plugin-page-reenable-btn")).toBeTruthy();
+    expect(screen.queryByTestId("plugin-page-body-roles")).toBeNull();
+  });
+
+  it("F8: a markup-looking nav label renders as literal text in the rail and title", async () => {
+    await mount("/settings/plugins/roles", [roles({ nav: { group: "models", label: "<b>x</b>" } })]);
+    const rail = screen.getByTestId("settings-nav-rail");
+    const entry = await within(rail).findByTestId("nav-promoted-roles");
+    expect(entry.textContent).toContain("<b>x</b>");
+    expect(entry.querySelector("b")).toBeNull();
+    expect((await screen.findByTestId("plugin-page-title")).textContent).toBe("<b>x</b>");
+  });
+
+  it("X2: a promoted plugin that is not installed does not appear; its URL falls back to the index", async () => {
+    await mount("/settings/plugins/roles", [pluginRow({ id: "flows", displayName: "Flows" })]);
+    expect(await screen.findByTestId("plugin-not-found-notice")).toBeTruthy();
+    expect(screen.getByTestId("plugins-section")).toBeTruthy();
+    const rail = screen.getByTestId("settings-nav-rail");
+    const models = within(rail).getByTestId("settings-nav-group-models");
+    expect(Array.from(models.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())).toEqual([
+      "Providers",
+    ]);
   });
 });

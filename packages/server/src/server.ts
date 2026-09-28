@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
@@ -143,7 +143,7 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
-import { PairingManager } from "./pairing/pairing.js";
+import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -1029,6 +1029,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveServerManager = createLiveServerManager(preferencesStore);
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore);
+  // App-wide pairing approval dialog: a content-free hint on every pending
+  // change; operator browsers refetch the guarded list (D1).
+  // See change: add-pairing-approval-dialog.
+  wirePendingHint(pairingManager, (msg) => browserGateway.broadcastToAll(msg));
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -2951,16 +2955,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
               registerPiRequestHandler: (id, type, handler) =>
                 pluginRequestLane.register(id, type, handler),
-              providerAuth: {
-                getCredential: (provider: string) => {
-                  if (!plugin.packageName.startsWith("@blackbelt-technology/")) return undefined;
-                  try {
-                    return readAuthJson()[provider];
-                  } catch {
-                    return undefined;
-                  }
-                },
-              },
+              // First-party scope gate shared with the `/api/plugins` `firstParty`
+              // projection. See change: promote-model-roles-settings.
+              providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),
               modelRuntime: {
                 getModelRegistry: async () => {
                   try {
@@ -3549,6 +3546,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { sub(); } catch (err) { console.error("[plugin-onShutdown]", err); }
       }
       pendingForkRegistry.dispose();
+      pairingManager.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();
