@@ -253,6 +253,20 @@ describe("NotifyRenderer — repeat badge (test-plan #E15)", () => {
   });
 });
 
+describe("NotifyRenderer — out-of-range timestamps (review round 1)", () => {
+  // The server accepts any finite ts > 0; 1e300 is outside the Date range and
+  // Intl.DateTimeFormat.format would throw a RangeError on it.
+  it("renders the count without crashing and omits the unrenderable range", () => {
+    const { getByTestId, queryByTestId } = renderNotify({
+      message: "m",
+      repeat: { count: 4, firstTs: 1e300, lastTs: 1e300 },
+    });
+    expect(getByTestId("notify-repeat-count").textContent).toBe("×4");
+    expect(queryByTestId("notify-repeat-range")).toBeNull();
+    expect(getByTestId("notify-repeat").getAttribute("aria-label")).toBe("Repeated 4 times");
+  });
+});
+
 describe("NotifyRenderer — range across days (test-plan #E16)", () => {
   it("same day → HH:MM–HH:MM; different days → both ends carry a short date", () => {
     const sameDay = renderNotify({

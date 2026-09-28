@@ -105,6 +105,11 @@ function asRepeat(value: unknown): NotifyRepeat | null {
   return r as NotifyRepeat;
 }
 
+/** True when `ts` is a timestamp `Date` (and so `Intl`) can represent. */
+function isDateTs(ts: number): boolean {
+  return Number.isFinite(new Date(ts).getTime());
+}
+
 function sameLocalDay(a: number, b: number): boolean {
   const da = new Date(a);
   const db = new Date(b);
@@ -142,12 +147,14 @@ function RepeatBadge({
 }) {
   const repeat = asRepeat(raw);
   if (!repeat) return null;
-  const range = formatRepeatRange(repeat.firstTs, repeat.lastTs, language);
-  const label = t(
-    "common.notifyRepeat.label",
-    { count: repeat.count, range },
-    "Repeated {count} times, {range}",
-  );
+  // The wire only guarantees a finite ts > 0; a value past the Date range
+  // would make Intl throw, so such a range is omitted rather than rendered.
+  const range = isDateTs(repeat.firstTs) && isDateTs(repeat.lastTs)
+    ? formatRepeatRange(repeat.firstTs, repeat.lastTs, language)
+    : null;
+  const label = range
+    ? t("common.notifyRepeat.label", { count: repeat.count, range }, "Repeated {count} times, {range}")
+    : t("common.notifyRepeat.labelNoRange", { count: repeat.count }, "Repeated {count} times");
   return (
     <div
       className="mt-1 flex items-center gap-2 text-xs opacity-80"
@@ -162,9 +169,11 @@ function RepeatBadge({
       >
         {t("common.notifyRepeat.badge", { count: repeat.count }, "×{count}")}
       </span>
-      <span data-testid="notify-repeat-range" aria-hidden="true">
-        {range}
-      </span>
+      {range && (
+        <span data-testid="notify-repeat-range" aria-hidden="true">
+          {range}
+        </span>
+      )}
     </div>
   );
 }

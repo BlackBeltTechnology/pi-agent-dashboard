@@ -83,6 +83,7 @@ const zhCN: Record<string, string> = {
   "common.none": "无",
   "common.notifyRepeat.badge": "{count} 次",
   "common.notifyRepeat.label": "重复 {count} 次，{range}",
+  "common.notifyRepeat.labelNoRange": "重复 {count} 次",
   "common.open": "打开",
   "folders.addFolders": "添加文件夹",
   "folders.addFoldersAction": "添加文件夹",
