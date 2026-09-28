@@ -1346,6 +1346,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                           <button
                             key={`plugins/${p.id}`}
                             onClick={() => requestRailNavigate(`/settings/plugins/${p.id}`)}
+                            type="button"
                             data-testid={`nav-plugin-pointer-${p.id}`}
                             className="w-full flex items-center gap-2 pl-9 pr-3 py-1.5 rounded-md text-[13px] whitespace-nowrap transition-colors cursor-pointer opacity-60 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-secondary)]"
                           >
@@ -1405,6 +1406,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       key={`plugins/${promo.pluginId}`}
                       onClick={() => requestRailNavigate(`/settings/plugins/${promo.pluginId}`)}
                       aria-current={promoActive ? "page" : undefined}
+                      type="button"
                       data-testid={`nav-promoted-${promo.pluginId}`}
                       className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm whitespace-nowrap transition-colors cursor-pointer ${
                         promoActive

@@ -33,6 +33,23 @@ const NAV_DESCRIPTION_MAX = 200;
 const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/u;
 
 /**
+ * Normalise one `nav` text field (NFKC + trim) and check it. Returns the
+ * value (`""` when blank/absent and optional) or an error reason.
+ */
+function navText(
+  v: unknown,
+  opts: { required: boolean; max?: number },
+): { value: string } | { error: string } {
+  if (v === undefined && !opts.required) return { value: "" };
+  if (typeof v !== "string") return { error: opts.required ? "must be a non-empty string" : "must be a string if provided" };
+  const value = v.normalize("NFKC").trim();
+  if (opts.required && !value) return { error: "must be a non-empty string" };
+  if (CONTROL_OR_FORMAT.test(value)) return { error: "contains a Unicode control/format character" };
+  if (opts.max !== undefined && value.length > opts.max) return { error: `exceeds ${opts.max} characters` };
+  return { value };
+}
+
+/**
  * Validate a `settings-section` claim's optional `nav` promotion hint.
  * Drop-don't-throw: an invalid hint returns `undefined` after ONE warning
  * naming plugin id, claim index and offending field; a placement hint must
@@ -49,46 +66,23 @@ function validateNavHint(raw: unknown, pluginId: string, index: number): Setting
     return drop("nav", "must be a plain object");
   }
   const n = raw as Record<string, unknown>;
-  const norm = (v: string) => v.normalize("NFKC").trim();
-  const checkText = (v: string, max?: number) => {
-    if (CONTROL_OR_FORMAT.test(v)) return "contains a Unicode control/format character";
-    if (max !== undefined && v.length > max) return `exceeds ${max} characters`;
-    return null;
+  const fields = {
+    group: navText(n.group, { required: true }),
+    label: navText(n.label, { required: true, max: NAV_LABEL_MAX }),
+    description: navText(n.description, { required: false, max: NAV_DESCRIPTION_MAX }),
   };
-
-  if (typeof n.group !== "string" || !norm(n.group)) {
-    return drop("nav.group", "must be a non-empty string");
+  for (const [field, r] of Object.entries(fields)) {
+    if ("error" in r) return drop(`nav.${field}`, r.error);
   }
-  const group = norm(n.group);
-  const groupErr = checkText(group);
-  if (groupErr) return drop("nav.group", groupErr);
-
-  if (typeof n.label !== "string" || !norm(n.label)) {
-    return drop("nav.label", "must be a non-empty string");
-  }
-  const label = norm(n.label);
-  const labelErr = checkText(label, NAV_LABEL_MAX);
-  if (labelErr) return drop("nav.label", labelErr);
-
-  let description: string | undefined;
-  if (n.description !== undefined) {
-    if (typeof n.description !== "string") {
-      return drop("nav.description", "must be a string if provided");
-    }
-    const d = norm(n.description);
-    const descErr = checkText(d, NAV_DESCRIPTION_MAX);
-    if (descErr) return drop("nav.description", descErr);
-    if (d) description = d;
-  }
-
   if (n.order !== undefined && (typeof n.order !== "number" || !Number.isFinite(n.order))) {
     return drop("nav.order", "must be a finite number if provided");
   }
-
+  const value = (r: { value: string } | { error: string }) => ("value" in r ? r.value : "");
+  const description = value(fields.description);
   return {
-    group,
-    label,
-    ...(description !== undefined ? { description } : {}),
+    group: value(fields.group),
+    label: value(fields.label),
+    ...(description ? { description } : {}),
     ...(typeof n.order === "number" ? { order: n.order } : {}),
   };
 }
