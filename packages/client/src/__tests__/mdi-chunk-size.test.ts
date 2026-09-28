@@ -21,7 +21,11 @@ import { describe, expect, it } from "vitest";
 // A minified-survivable @mdi/js export name that no shell code imports by
 // name — present only in a chunk that carries the FULL icon set.
 const MDI_MARKER = "mdiZodiacAquarius";
-const INDEX_GZ_CAP_BYTES = 900 * 1024;
+// 900 → 910 KB: develop sat at the 900 KB edge; promote-model-roles-settings
+// adds ~2.2 KB gz to the eager SettingsPanel path (Models nav group, promotion
+// resolver, compact plugin chrome). Budget bump approved by the maintainer; the
+// cap still guards against the full @mdi/js set (~hundreds of KB) returning.
+const INDEX_GZ_CAP_BYTES = 910 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(here, "../../dist");
