@@ -1,15 +1,16 @@
 /**
  * Inline action menu rendered inside the WORKSPACE subcard for sessions
- * with `session.gitWorktree`. Four actions:
+ * with `session.gitWorktree`. A PR status segment (link) followed by the
+ * PR-state-dependent actions:
  *   - Push           → POST /api/git/worktree/push
- *   - Open / View PR → POST /api/git/worktree/pr  (or link to existing PR)
- *   - Merge          → opens MergeConfirmDialog
- *   - Close worktree → opens CloseWorktreeDialog
+ *   - Open PR        → POST /api/git/worktree/pr (no PR / closed PR only)
+ *   - Merge          → opens MergeConfirmDialog (not once merged)
+ *   - Close worktree → opens CloseWorktreeDialog (always last, separated)
  *
  * On mobile (`useMobile() === true`) collapses to a single `⋯` button
- * opening an inline action sheet listing the same four actions.
+ * opening an inline action sheet listing the same items.
  *
- * See change: add-worktree-lifecycle-actions.
+ * See changes: add-worktree-lifecycle-actions, redesign-composer-session-strip (D6).
  */
 
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -75,6 +76,18 @@ interface Props {
    * See change: redesign-session-card-and-composer (statusbar-disable-on-streaming).
    */
   disabled?: boolean;
+  /**
+   * Merge is this surface's ONE filled primary (`isMergePrimary`, evaluated
+   * once per surface by the caller). Ignored while disabled — a disabled
+   * Merge is never filled. See change: redesign-composer-session-strip (D6).
+   */
+  mergeIsPrimary?: boolean;
+  /**
+   * `chips` (session card, default): bordered chips. `segments` (composer
+   * Git `ToolbarGroup`): borderless segments; the root renders
+   * `display:contents` so each item is a direct child of the group content.
+   */
+  appearance?: "chips" | "segments";
 }
 
 interface ToastMsg {
@@ -103,7 +116,88 @@ function labelForCode(code: string): string {
   }
 }
 
-export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, disabled: externalDisabled }: Props) {
+/** Glyph + state word for the PR segment (never colour-only). */
+function prSegmentParts(session: DashboardSession): {
+  glyph: string;
+  word?: string;
+  checks?: { glyph: string; word: string };
+  tone: string;
+  aria: string;
+} | null {
+  const n = session.gitPrNumber;
+  if (n == null) return null;
+  const st = session.gitPrState;
+  const prLabel = i18nT("worktree.prAria", { number: n }, "Pull request {number}");
+  if (st == null) return { glyph: "", tone: "text-[var(--text-secondary)]", aria: prLabel };
+  const checksWord: Record<string, string> = {
+    passing: i18nT("worktree.prChecksPassing", undefined, "passing"),
+    failing: i18nT("worktree.prChecksFailing", undefined, "failing"),
+    pending: i18nT("worktree.prChecksPending", undefined, "pending"),
+  };
+  const checksGlyph: Record<string, string> = { passing: "✓", failing: "✕", pending: "…" };
+  if (st === "merged") {
+    const word = i18nT("worktree.prMerged", undefined, "merged");
+    return { glyph: "⑂", word, tone: "text-purple-400", aria: `${prLabel}, ${word}` };
+  }
+  if (st === "closed") {
+    const word = i18nT("worktree.prClosed", undefined, "closed");
+    return { glyph: "⊘", word, tone: "text-[var(--text-muted)]", aria: `${prLabel}, ${word}` };
+  }
+  const draft = session.gitPrDraft === true;
+  const word = draft ? i18nT("worktree.prDraft", undefined, "draft") : i18nT("worktree.prOpen", undefined, "open");
+  const c = session.gitPrChecks;
+  const checks = c && c !== "none" ? { glyph: checksGlyph[c]!, word: checksWord[c]! } : undefined;
+  const tone = draft
+    ? "text-[var(--text-secondary)]"
+    : c === "failing"
+      ? "text-red-400"
+      : c === "pending"
+        ? "text-orange-400"
+        : "text-green-400";
+  const aria = checks
+    ? `${prLabel}, ${word}, ${i18nT("worktree.prChecksAria", { state: checks.word }, "checks {state}")}`
+    : `${prLabel}, ${word}`;
+  return { glyph: draft ? "◌" : "●", word, checks, tone, aria };
+}
+
+/**
+ * PR status segment: number, state (draft/open/merged/closed) and, for an
+ * open PR, the CI checks summary. Links to the PR when a URL is known; plain
+ * text otherwise. Legacy bridges (number only) render `#N` alone.
+ * See change: redesign-composer-session-strip (D6).
+ */
+function PrSegment({ session, className }: { session: DashboardSession; className: string }) {
+  const parts = prSegmentParts(session);
+  if (!parts) return null;
+  const body = (
+    <>
+      {parts.glyph && <span aria-hidden="true">{parts.glyph}</span>}
+      <span className="tabular-nums">#{session.gitPrNumber}</span>
+      {parts.word && <span aria-hidden="true">{parts.word}</span>}
+      {parts.checks && (
+        <span aria-hidden="true" data-testid="worktree-pr-checks" data-checks={session.gitPrChecks ?? undefined}>
+          · {parts.checks.glyph} {parts.checks.word}
+        </span>
+      )}
+    </>
+  );
+  const common = {
+    "data-testid": "worktree-pr-segment",
+    "data-pr-state": session.gitPrState ?? undefined,
+    "aria-label": parts.aria,
+    title: parts.aria,
+    className: `inline-flex items-center gap-1 ${parts.tone} ${className}`,
+  };
+  return session.gitPrUrl ? (
+    <a {...common} href={session.gitPrUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+      {body}
+    </a>
+  ) : (
+    <span {...common}>{body}</span>
+  );
+}
+
+export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, disabled: externalDisabled, mergeIsPrimary = false, appearance = "chips" }: Props) {
   const [busy, setBusy] = useState<null | "push" | "pr">(null);
   const [toast, setToast] = useState<ToastMsg | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -135,11 +229,17 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
 
   if (!session.gitWorktree) return null;
 
-  // PR button visibility:
-  //   - If session already has a PR (`gitPrNumber` set), always show the
-  //     "View PR" link (just opens the URL — doesn't need gh).
-  //   - Otherwise only show "Open PR" when `gh` is resolvable.
-  const showPrButton = session.gitPrNumber != null || ghAvailable === true;
+  // PR-state-dependent action set (design D6):
+  //   no PR / closed → Push, Open PR (gh-gated), Merge
+  //   open / draft (and legacy number-only) → Push, Merge
+  //   merged → Push only when ahead, no Merge
+  // Close is always last, after a separator. The PR itself is the status
+  // segment (a link), not a "View PR #N" button.
+  const prState = session.gitPrNumber == null ? "none" : (session.gitPrState ?? "open");
+  const noOpenPr = prState === "none" || prState === "closed";
+  const showPrButton = noOpenPr && ghAvailable === true;
+  const showPush = prState !== "merged" || (session.gitStatus?.ahead ?? 0) > 0;
+  const showMerge = prState !== "merged";
 
   const onPush = async () => {
     setBusy("push");
@@ -151,10 +251,6 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
   };
 
   const onOpenPr = async () => {
-    if (session.gitPrUrl) {
-      window.open(session.gitPrUrl, "_blank", "noopener,noreferrer");
-      return;
-    }
     setBusy("pr");
     setToast(null);
     const result = await createWorktreePR({ cwd: session.cwd });
@@ -176,42 +272,44 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     title: string;
     disabled?: boolean;
     variant: BtnVariant;
+    emphasis?: "filled" | "outlined";
   }> = [
-    {
+    ...(showPush ? [{
       key: "push",
       label: i18nT("worktree.push", undefined, "Push"),
       icon: mdiArrowUpBoldOutline,
       onClick: onPush,
       title: i18nT("worktree.pushBranchToOrigin", undefined, "Push branch to origin"),
       disabled: busy !== null,
-      variant: "warn",
-    },
+      variant: "warn" as const,
+    }] : []),
     ...(showPrButton ? [{
       key: "pr",
-      label: session.gitPrNumber != null ? i18nT("worktree.viewPrNumber", { number: session.gitPrNumber }, "View PR #{number}") : i18nT("worktree.openPr", undefined, "Open PR"),
+      label: i18nT("worktree.openPr", undefined, "Open PR"),
       icon: mdiSourcePull,
       onClick: onOpenPr,
-      title: session.gitPrNumber != null ? i18nT("worktree.openPrNumberInBrowser", { number: session.gitPrNumber }, "Open PR #{number} in browser") : i18nT("worktree.openPrViaGh", undefined, "Open a pull request via gh"),
+      title: i18nT("worktree.openPrViaGh", undefined, "Open a pull request via gh"),
       disabled: busy !== null,
       variant: "warn" as const,
     }] : []),
-    {
+    ...(showMerge ? [{
       key: "merge",
       label: i18nT("worktree.merge", undefined, "Merge"),
       icon: mdiSourceMerge,
       onClick: () => setMergeOpen(true),
       title: i18nT("worktree.mergeBranchIntoBase", undefined, "Merge this branch into its base"),
-      variant: "success",
-    },
-    {
-      key: "close",
-      label: i18nT("worktree.close", undefined, "Close"),
-      icon: mdiCloseBoxOutline,
-      onClick: () => setCloseOpen(true),
-      title: i18nT("worktree.closeRemoveWorktree", undefined, "Close (remove) this worktree"),
-      variant: "danger",
-    },
+      variant: "success" as const,
+      emphasis: (mergeIsPrimary && !externalDisabled ? "filled" : "outlined") as "filled" | "outlined",
+    }] : []),
   ];
+  const closeButton: (typeof buttons)[number] = {
+    key: "close",
+    label: i18nT("worktree.close", undefined, "Close"),
+    icon: mdiCloseBoxOutline,
+    onClick: () => setCloseOpen(true),
+    title: i18nT("worktree.closeRemoveWorktree", undefined, "Close (remove) this worktree"),
+    variant: "danger",
+  };
 
   // Palette mirrors ComposerSessionActions — keep both surfaces visually
   // consistent. See change: redesign-session-card-and-composer
@@ -222,25 +320,61 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
     danger:  "text-red-400 border-red-500/40 bg-red-500/5 hover:text-red-300 hover:border-red-500/70",
     neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-[var(--text-primary)]",
   };
+  const segmentText: Record<BtnVariant, string> = {
+    warn: "text-orange-400 hover:text-orange-300",
+    success: "text-green-400 hover:text-green-300",
+    danger: "text-red-400 hover:text-red-300",
+    neutral: "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+  };
+  const segments = appearance === "segments";
+  const itemBase = segments
+    ? "inline-flex items-center gap-0.5 px-2 min-h-6 self-stretch bg-transparent hover:bg-[var(--bg-hover)]"
+    : "inline-flex items-center px-1.5 py-[1px] rounded border";
+  const streamingTip = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
 
-  const renderButton = (b: (typeof buttons)[number]) => (
-    <button
-      key={b.key}
-      type="button"
-      onClick={b.onClick}
-      disabled={b.disabled || externalDisabled}
-      title={externalDisabled ? i18nT("session.sessionIsStreaming", undefined, "Session is streaming") : b.title}
-      data-testid={`worktree-action-${b.key}`}
-      data-variant={b.variant}
-      className={`inline-flex items-center px-1.5 py-[1px] rounded border disabled:opacity-50 disabled:cursor-not-allowed ${variantClasses[b.variant]}`}
-    >
-      <Icon path={b.icon} size={0.45} className="inline mr-0.5" />
-      {b.label}
-    </button>
+  const renderButton = (b: (typeof buttons)[number]) => {
+    const filled = b.emphasis === "filled";
+    return (
+      <button
+        key={b.key}
+        type="button"
+        onClick={() => { if (!externalDisabled) b.onClick(); }}
+        disabled={b.disabled}
+        // Working (streaming ∨ retrying): inert but focusable, reason kept
+        // reachable (design D9). `busy` stays a native disable.
+        aria-disabled={externalDisabled ? "true" : undefined}
+        title={externalDisabled ? streamingTip : b.title}
+        data-testid={`worktree-action-${b.key}`}
+        data-variant={b.variant}
+        data-emphasis={b.emphasis}
+        className={`${itemBase} disabled:opacity-50 disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:cursor-not-allowed ${
+          segments ? segmentText[b.variant] : variantClasses[b.variant]
+        }${filled ? " font-semibold !bg-[var(--accent-soft)] !text-[var(--text-primary)]" : ""}`}
+      >
+        <Icon path={b.icon} size={0.45} className="inline mr-0.5" />
+        {b.label}
+      </button>
+    );
+  };
+  const separator = (
+    <span
+      key="sep"
+      aria-hidden="true"
+      data-testid="worktree-actions-separator"
+      className={segments ? "w-px self-stretch bg-[var(--border-secondary)]" : "inline-block h-3 w-px bg-[var(--border-secondary)] mx-0.5"}
+    />
   );
+  const prSegment = (
+    <PrSegment
+      key="pr-seg"
+      session={session}
+      className={segments ? "px-2 min-h-6 self-stretch no-underline hover:underline" : "px-1 hover:underline"}
+    />
+  );
+  const items = [prSegment, ...buttons.map(renderButton), separator, renderButton(closeButton)];
 
   return (
-    <div data-testid="worktree-actions-menu" className="flex items-center gap-1 text-[10px] flex-wrap">
+    <div data-testid="worktree-actions-menu" className={segments ? "contents text-[10px]" : "flex items-center gap-1 text-[10px] flex-wrap"}>
       {isMobile ? (
         <div className="relative">
           <button
@@ -261,12 +395,12 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
                 sheetAnchorRight ? "right-0" : "left-0"
               } ${sheetFlipUp ? "bottom-full mb-1" : "top-full mt-1"}`}
             >
-              {buttons.map(renderButton)}
+              {items}
             </div>
           )}
         </div>
       ) : (
-        buttons.map(renderButton)
+        items
       )}
 
       {toast && (
@@ -303,6 +437,10 @@ export function WorktreeActionsMenu({ session, allSessions, onShutdownSession, d
         <MergeConfirmDialog
           cwd={session.cwd}
           onClose={() => setMergeOpen(false)}
+          prNumber={session.gitPrNumber ?? undefined}
+          prState={session.gitPrState ?? undefined}
+          prChecks={session.gitPrChecks ?? undefined}
+          prCheckedAt={session.gitPrCheckedAt ?? undefined}
         />
       )}
     </div>

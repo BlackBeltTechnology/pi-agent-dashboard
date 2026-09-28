@@ -3,18 +3,8 @@ import type { DashboardSession, ImageContent, OpenSpecChange, OpenSpecConfig, Op
 import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArchiveArrowUp,
-  mdiArchiveOutline,
-  mdiCheckCircleOutline,
-  mdiChevronRight,
-  mdiCompassOutline,
   mdiDotsHorizontal,
-  mdiFastForward,
-  mdiFormatListChecks,
-  mdiLightbulbOnOutline,
-  mdiLinkOff,
   mdiPaperclip,
-  mdiPlayCircleOutline,
-  mdiPlus,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
@@ -27,6 +17,7 @@ import { GroupedAttachDialog } from "../workspace/GroupedAttachDialog.js";
 // and replace the standalone letters button. See change:
 // redesign-session-card-and-composer (stepper-click-to-open).
 import { NewChangeDialog } from "./NewChangeDialog.js";
+import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "./openspec-actions.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 import { ProposeDialog } from "./ProposeDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
@@ -49,7 +40,7 @@ const SIDECARD_VARIANT_CLASSES: Record<BtnVariant, string> = {
   neutral: "text-[var(--text-secondary)] border-[var(--border-secondary)] hover:text-blue-400 hover:border-blue-500/50",
 };
 
-function ActionButton({ label, icon, onClick, testId, disabled, ariaDisabled, title, variant = "neutral" }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; /** Inert but focusable (keeps the tooltip keyboard-reachable). */ ariaDisabled?: boolean; title?: string; variant?: BtnVariant }) {
+function ActionButton({ label, icon, onClick, testId, disabled, ariaDisabled, title, variant = "neutral", emphasis }: { label: string; icon?: string; onClick: () => void; testId?: string; disabled?: boolean; /** Inert but focusable (keeps the tooltip keyboard-reachable). */ ariaDisabled?: boolean; title?: string; variant?: BtnVariant; /** Primary emphasis — exactly one filled primary per surface (D6). */ emphasis?: "filled" | "outlined" }) {
   const inert = disabled || ariaDisabled;
   return (
     <button
@@ -60,19 +51,22 @@ function ActionButton({ label, icon, onClick, testId, disabled, ariaDisabled, ti
       title={title}
       data-testid={testId}
       data-variant={variant}
-      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}`}
+      data-emphasis={emphasis}
+      className={`text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-40 disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:cursor-not-allowed ${SIDECARD_VARIANT_CLASSES[variant]}${emphasis === "filled" && !inert ? " font-semibold !bg-[var(--accent-soft)]" : ""}`}
     >
       {icon && <Icon path={icon} size={0.4} className="inline mr-0.5" />}{label}
     </button>
   );
 }
 
-interface OverflowItem {
+export interface OverflowItem {
   testId: string;
   label: string;
   icon: string;
   onSelect: () => void;
   disabled?: boolean;
+  /** Reason shown while `disabled` (tooltip / accessible description). */
+  disabledReason?: string;
   /** Render a divider above this item. */
   dividerBefore?: boolean;
 }
@@ -86,7 +80,24 @@ interface OverflowItem {
  * `SessionCard`'s `onClick={onSelect}` and the board's dnd listeners.
  * See change: compact-openspec-lifecycle-bar (D4).
  */
-function OverflowMenu({ items }: { items: OverflowItem[] }) {
+export function OverflowMenu({
+  items,
+  idPrefix = "",
+  ariaDisabled = false,
+  buttonClassName,
+}: {
+  items: OverflowItem[];
+  /** Test-id prefix for the ⋯ button + menu ("composer-" in the composer). */
+  idPrefix?: string;
+  /**
+   * Render disabled items as `aria-disabled` (focusable, reason reachable)
+   * instead of native `disabled`. The composer uses it; the card keeps native
+   * `disabled` (#745 contract). See change: redesign-composer-session-strip.
+   */
+  ariaDisabled?: boolean;
+  /** Override the ⋯ button look (composer: borderless segment). */
+  buttonClassName?: string;
+}) {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const label = i18nT("openspec.moreActions", undefined, "More actions");
@@ -100,26 +111,26 @@ function OverflowMenu({ items }: { items: OverflowItem[] }) {
       <button
         ref={btnRef}
         type="button"
-        data-testid="openspec-overflow-btn"
+        data-testid={`${idPrefix}openspec-overflow-btn`}
         aria-label={label}
         title={label}
         aria-haspopup="dialog"
         aria-expanded={anchorEl ? "true" : "false"}
         onClick={(e) => { e.stopPropagation(); setAnchorEl(anchorEl ? null : e.currentTarget); }}
-        className={`text-[10px] px-1 py-0.5 rounded border ${SIDECARD_VARIANT_CLASSES.neutral}`}
+        className={buttonClassName ?? `text-[10px] px-1 py-0.5 rounded border ${SIDECARD_VARIANT_CLASSES.neutral}`}
       >
         <Icon path={mdiDotsHorizontal} size={0.45} />
       </button>
       {anchorEl && (
         <Popover anchorEl={anchorEl} onDismiss={() => close(true)}>
-          <OverflowMenuBody items={items} onPick={() => close(false)} stop={stop} />
+          <OverflowMenuBody items={items} onPick={() => close(false)} stop={stop} idPrefix={idPrefix} ariaDisabled={ariaDisabled} />
         </Popover>
       )}
     </>
   );
 }
 
-function OverflowMenuBody({ items, onPick, stop }: { items: OverflowItem[]; onPick: () => void; stop: (e: React.SyntheticEvent) => void }) {
+function OverflowMenuBody({ items, onPick, stop, idPrefix, ariaDisabled }: { items: OverflowItem[]; onPick: () => void; stop: (e: React.SyntheticEvent) => void; idPrefix: string; ariaDisabled: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -130,7 +141,7 @@ function OverflowMenuBody({ items, onPick, stop }: { items: OverflowItem[]; onPi
   return (
     <div
       ref={ref}
-      data-testid="openspec-overflow-menu"
+      data-testid={`${idPrefix}openspec-overflow-menu`}
       onClick={stop}
       onPointerDown={stop}
       className="min-w-[170px] p-1 rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] shadow-lg flex flex-col"
@@ -141,9 +152,16 @@ function OverflowMenuBody({ items, onPick, stop }: { items: OverflowItem[]; onPi
           <button
             type="button"
             data-testid={item.testId}
-            disabled={item.disabled}
-            onClick={(e) => { e.stopPropagation(); onPick(); item.onSelect(); }}
-            className="flex items-center gap-2 min-h-[26px] px-2 py-1 rounded text-[11px] text-left text-[var(--text-primary)] hover:bg-[var(--bg-surface)] focus-ring disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={ariaDisabled ? undefined : item.disabled}
+            aria-disabled={ariaDisabled && item.disabled ? "true" : undefined}
+            title={item.disabled ? item.disabledReason : undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (ariaDisabled && item.disabled) return;
+              onPick();
+              item.onSelect();
+            }}
+            className="flex items-center gap-2 min-h-[26px] px-2 py-1 rounded text-[11px] text-left text-[var(--text-primary)] hover:bg-[var(--bg-surface)] focus-ring disabled:opacity-40 disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
           >
             <Icon path={item.icon} size={0.5} />
             {item.label}
@@ -238,9 +256,21 @@ interface Props {
    * See change: redesign-session-card-and-composer (config-driven-workflow).
    */
   openspecConfig?: OpenSpecConfig;
+  /**
+   * Working = streaming ∨ retrying (design D9). Defaults to
+   * `status === "streaming"` for callers that don't know the retry state.
+   * See change: redesign-composer-session-strip.
+   */
+  working?: boolean;
+  /**
+   * The Git group's Merge is this surface's filled primary → render the
+   * OpenSpec primary outlined, so exactly one filled primary shows.
+   * See change: redesign-composer-session-strip (D6).
+   */
+  mergeIsPrimary?: boolean;
 }
 
-export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onReplaceProposal, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig }: Props) {
+export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, onReplaceProposal, onSendPrompt, onReadArtifact, onBulkArchive, groups, assignments, openspecConfig, working: workingProp, mergeIsPrimary = false }: Props) {
   const cfg = openspecConfig ?? DEFAULT_OPENSPEC_CONFIG;
   const wf = (name: string) => cfg.workflows.includes(name);
   const [exploreOpen, setExploreOpen] = useState(false);
@@ -271,6 +301,9 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     ) : null;
   const hasCompletedChanges = changes.some((c) => c.status === "complete");
   const actionsDisabledGlobal = session.status === "streaming";
+  const working = workingProp ?? session.status === "streaming";
+  const label = (a: ActionSpec) => i18nT(a.labelKey, undefined, a.labelFallback);
+  const reason = (a: ActionSpec) => (a.blockedReasonKey ? i18nT(a.blockedReasonKey, undefined, "Session is streaming") : undefined);
 
   const bulkArchiveButton = hasCompletedChanges && onBulkArchive && wf("bulk-archive") ? (
     <ActionButton
@@ -300,6 +333,15 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   if (attachingName && attached === attachingName) {
     setAttachingName(null);
   }
+
+  const unattachedHandlers: Partial<Record<OpenSpecActionKey, () => void>> = {
+    new: () => setNewChangeOpen(true),
+    propose: () => setProposeOpen(true),
+    explore: () => setExploreOpen(true),
+  };
+  const { unattached: unattachedActions } = deriveOpenSpecActions({
+    attached: false, found: false, wf, isEnded, working, showArchiveAnyway: false, includeDetach: true, idPrefix: "",
+  });
 
   // Not attached: show combo box or attaching indicator
   if (!attached) {
@@ -344,22 +386,23 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
           >
             <Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{changes.length === 0 ? i18nT("openspec.noChanges", undefined, "No changes") : i18nT("openspec.attachChange", undefined, "Attach change...")}
           </button>
-          {!isEnded && (
-            <>
-              {wf("new") && (
-                <ActionButton label={i18nT("common.change", undefined, "Change")} icon={mdiPlus} onClick={() => setNewChangeOpen(true)} testId="new-change-btn" variant="primary" />
-              )}
-              {wf("propose") && (
-                <ActionButton label={i18nT("common.propose", undefined, "Propose")} icon={mdiLightbulbOnOutline} onClick={() => setProposeOpen(true)} testId="propose-btn" variant="primary" />
-              )}
-              {wf("explore") && (
-                <ActionButton label={i18nT("common.explore", undefined, "Explore")} icon={mdiCompassOutline} onClick={() => setExploreOpen(true)} testId="explore-unattached-btn" variant="info" />
-              )}
-              {/* Archive + Bulk Archive intentionally hidden in the unattached
-                  branch — they're meaningless without an attached proposal.
-                  See change: redesign-session-card-and-composer (cleanup-pass). */}
-            </>
-          )}
+          {/* New / Propose / Explore from the shared derivation (wf-gated,
+              hidden when ended). Archive + Bulk Archive intentionally hidden
+              in the unattached branch. See changes:
+              redesign-session-card-and-composer (cleanup-pass),
+              redesign-composer-session-strip (D2). */}
+          {unattachedActions.map((a) => (
+            <ActionButton
+              key={a.key}
+              label={label(a)}
+              icon={a.icon}
+              onClick={() => unattachedHandlers[a.key]?.()}
+              testId={a.testId}
+              ariaDisabled={a.blocked}
+              title={reason(a)}
+              variant={a.variant}
+            />
+          ))}
         </div>
         {bulkArchiveDialog}
         {newChangeOpen && (
@@ -422,23 +465,27 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   // Attached: find the change
   const change = changes.find((c) => c.name === attached);
-  // Detach is never workflow-gated and survives ended/streaming/not-found.
-  const detachItem: OverflowItem = {
-    testId: "detach-btn",
-    label: i18nT("common.detach", undefined, "Detach"),
-    icon: mdiLinkOff,
-    onSelect: onDetach,
-    dividerBefore: true,
-  };
+  const toItem = (a: ActionSpec, onSelect: () => void): OverflowItem => ({
+    testId: a.testId,
+    label: label(a),
+    icon: a.icon,
+    onSelect,
+    disabled: a.blocked,
+    disabledReason: reason(a),
+    dividerBefore: a.dividerBefore,
+  });
 
-  // Attached but change not found in data
+  // Attached but change not found in data → Detach only.
   if (!change) {
+    const { overflow } = deriveOpenSpecActions({
+      attached: true, found: false, wf, isEnded, working, showArchiveAnyway: false, includeDetach: true, idPrefix: "",
+    });
     return (
       <div className="mt-1" data-testid="session-openspec-actions">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-[var(--text-tertiary)]"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
           <span className="flex-1" />
-          <OverflowMenu items={[detachItem]} />
+          <OverflowMenu items={overflow.map((a) => toItem(a, onDetach))} />
         </div>
         {replaceDialog}
       </div>
@@ -453,40 +500,27 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     state === ChangeState.IMPLEMENTING && change.isComplete === true && allArtifactsDone;
   const uncheckedCount = Math.max(0, change.totalTasks - change.completedTasks);
 
-  const streaming = session.status === "streaming";
-  const streamingTip = i18nT("session.sessionIsStreaming", undefined, "Session is streaming");
+  const streaming = working;
   const send = (skill: string) => () => onSendPrompt(`/skill:${skill} ${attached}`);
 
-  // One primary per ChangeState: first workflow-enabled candidate wins; the
-  // rest of the candidates move into ⋯. See change: compact-openspec-lifecycle-bar (D4b).
-  type Candidate = { wf: string; testId: string; label: string; icon: string; onSelect: () => void; variant: BtnVariant };
-  const C = {
-    continue: { wf: "continue", testId: "continue-btn", label: i18nT("common.continue", undefined, "Continue"), icon: mdiChevronRight, onSelect: send("openspec-continue-change"), variant: "primary" },
-    ff: { wf: "ff", testId: "ff-btn", label: i18nT("openspec.ff", undefined, "FF"), icon: mdiFastForward, onSelect: send("openspec-ff-change"), variant: "primary" },
-    apply: { wf: "apply", testId: "apply-btn", label: i18nT("common.apply", undefined, "Apply"), icon: mdiPlayCircleOutline, onSelect: send("openspec-apply-change"), variant: "primary" },
-    archive: { wf: "archive", testId: "archive-btn", label: i18nT("openspec.archive", undefined, "Archive"), icon: mdiArchiveOutline, onSelect: () => setArchiveConfirm(true), variant: "accent" },
-    verify: { wf: "verify", testId: "verify-btn", label: i18nT("common.verify", undefined, "Verify"), icon: mdiCheckCircleOutline, onSelect: send("openspec-verify-change"), variant: "success" },
-  } satisfies Record<string, Candidate>;
-  const candidatesByState: Record<ChangeState, Candidate[]> = {
-    [ChangeState.PLANNING]: [C.continue, C.ff],
-    [ChangeState.READY]: [C.apply],
-    [ChangeState.IMPLEMENTING]: [C.apply],
-    [ChangeState.COMPLETE]: [C.archive, C.verify],
+  // One primary per ChangeState + the rest in ⋯, from the shared derivation.
+  // See changes: compact-openspec-lifecycle-bar (D4b), redesign-composer-session-strip (D2).
+  const handlers: Record<OpenSpecActionKey, () => void> = {
+    continue: send("openspec-continue-change"),
+    ff: send("openspec-ff-change"),
+    apply: send("openspec-apply-change"),
+    archive: () => setArchiveConfirm(true),
+    verify: send("openspec-verify-change"),
+    archiveAnyway: () => setArchiveAnywayConfirm(true),
+    explore: () => setExploreOpen(true),
+    detach: onDetach,
+    new: () => setNewChangeOpen(true),
+    propose: () => setProposeOpen(true),
   };
-  const enabled = isEnded ? [] : candidatesByState[state].filter((c) => wf(c.wf));
-  const primary = enabled[0];
-  const menuItems: OverflowItem[] = isEnded
-    ? [{ ...detachItem, dividerBefore: false }]
-    : [
-        ...enabled.slice(1).map((c) => ({ testId: c.testId, label: c.label, icon: c.icon, onSelect: c.onSelect, disabled: streaming })),
-        ...(showArchiveAnyway && wf("archive")
-          ? [{ testId: "archive-anyway-btn", label: i18nT("openspec.archiveAnyway", undefined, "Archive anyway"), icon: mdiArchiveArrowUp, onSelect: () => setArchiveAnywayConfirm(true), disabled: streaming }]
-          : []),
-        ...(wf("explore")
-          ? [{ testId: "explore-menu-item", label: i18nT("openspec.exploreChange", undefined, "Explore…"), icon: mdiCompassOutline, onSelect: () => setExploreOpen(true), disabled: streaming }]
-          : []),
-        detachItem,
-      ];
+  const { primary, overflow } = deriveOpenSpecActions({
+    attached: true, found: true, state, wf, isEnded, working, showArchiveAnyway, includeDetach: true, idPrefix: "",
+  });
+  const menuItems = overflow.map((a) => toItem(a, handlers[a.key]));
   // Archive segment mirrors the primary's gate (D6); Tasks locked while streaming (D4d).
   const canArchive = state === ChangeState.COMPLETE && !streaming && !isEnded && wf("archive");
 
@@ -497,13 +531,14 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
         <span className="flex-1" />
         {primary && (
           <ActionButton
-            label={primary.label}
+            label={label(primary)}
             icon={primary.icon}
-            onClick={primary.onSelect}
+            onClick={handlers[primary.key]}
             testId={primary.testId}
-            ariaDisabled={streaming}
-            title={streaming ? streamingTip : undefined}
+            ariaDisabled={primary.blocked}
+            title={reason(primary)}
             variant={primary.variant}
+            emphasis={mergeIsPrimary ? "outlined" : "filled"}
           />
         )}
         <OverflowMenu items={menuItems} />

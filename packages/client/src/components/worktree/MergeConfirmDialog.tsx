@@ -11,16 +11,27 @@
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import React, { useEffect, useState } from "react";
+import type { GitPrChecks, GitPrState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { fetchWorktreeDiffStat, mergeWorktree } from "../../lib/git/git-api.js";
+import { isPrStatusStale } from "../../lib/git/merge-primary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 interface Props {
   cwd: string;
   onClose: () => void;
   onMerged?: (result: { mergeSha: string; branchDeleted: boolean }) => void;
+  /**
+   * PR status for non-blocking warnings (failing / pending checks on an open
+   * PR; stale status after 15 min). Confirm stays enabled — this is a local
+   * merge. See change: redesign-composer-session-strip (D6).
+   */
+  prNumber?: number;
+  prState?: GitPrState;
+  prChecks?: GitPrChecks;
+  prCheckedAt?: number;
 }
 
-export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
+export function MergeConfirmDialog({ cwd, onClose, onMerged, prNumber, prState, prChecks, prCheckedAt }: Props) {
   const [stat, setStat] = useState<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string } | null>(null);
   const [statError, setStatError] = useState<string | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(true);
@@ -50,8 +61,25 @@ export function MergeConfirmDialog({ cwd, onClose, onMerged }: Props) {
     if (!result.ok) setError({ code: result.code, stderr: result.stderr });
   };
 
+  const openPr = prNumber != null && prState === "open";
+  const checksWarning =
+    openPr && prChecks === "failing"
+      ? i18nT("worktree.mergeWarnChecksFailing", { number: prNumber }, "PR #{number} checks are failing")
+      : openPr && prChecks === "pending"
+        ? i18nT("worktree.mergeWarnChecksPending", { number: prNumber }, "PR #{number} checks are still running")
+        : null;
+  const staleWarning = openPr && isPrStatusStale(prCheckedAt)
+    ? i18nT("worktree.mergeWarnStale", undefined, "PR status may be stale")
+    : null;
+
   return (
     <Dialog open onClose={onClose} title={i18nT("worktree.mergeWorktree", undefined, "Merge worktree")} size="lg" testId="merge-confirm-dialog">
+        {(checksWarning || staleWarning) && (
+          <div role="status" data-testid="merge-pr-warnings" className="space-y-0.5 rounded border border-orange-500/40 bg-orange-500/5 px-2 py-1 text-[11px] text-orange-300">
+            {checksWarning && <div data-testid="merge-warn-checks">⚠ {checksWarning}</div>}
+            {staleWarning && <div data-testid="merge-warn-stale">⚠ {staleWarning}</div>}
+          </div>
+        )}
         {stat ? (
           <div className="space-y-1">
             <div className="text-[11px] text-[var(--text-muted)]">
