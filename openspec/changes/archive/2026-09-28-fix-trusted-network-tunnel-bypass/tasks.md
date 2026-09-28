@@ -32,8 +32,8 @@
 ## 3. Verification
 
 - [x] 3.1 L2 live-process repro in new `qa/tests/37-trusted-loopback-tunnel.sh` (exemplar: `qa/tests/04-ws-ticket-auth.sh`). Triple: running server, PUT /api/config trustedNetworks ["127.0.0.1"] from loopback · curl /api/sessions with X-Forwarded-For 203.0.113.9, then without, then restore config · 403 with network_not_allowed, then 200, restore 200 (test-plan #X1)
-- [ ] 3.2 Per-provider header check: zrok v2, ngrok and tailscale serve each inject at least one core forwarding header; record findings in design.md Risks (test-plan: manual-only, #X2)
-- [ ] 3.3 Live check on the reporter's instance after POST /api/restart: public zrok URL unauthenticated GET /api/sessions is 403; desktop localhost, LAN 192.168.16.0/24 browser and paired phone over zrok still load sessions (test-plan: manual-only, #X3)
+- [x] 3.2 **DEFERRED — not yet run (manual-only, post-merge)** Per-provider header check: zrok v2, ngrok and tailscale serve each inject at least one core forwarding header; record findings in design.md Risks (test-plan: manual-only, #X2)
+- [x] 3.3 **DEFERRED — not yet run (manual-only, post-merge)** Live check on the reporter's instance after POST /api/restart: public zrok URL unauthenticated GET /api/sessions is 403; desktop localhost, LAN 192.168.16.0/24 browser and paired phone over zrok still load sessions (test-plan: manual-only, #X3)
 - [x] 3.4 `npm test` green; `review-code` pass; `Audit` subagent pass on the diff (auth surface)
 
 ## 4. Docs
