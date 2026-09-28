@@ -176,6 +176,13 @@ export interface EventWiringDeps {
    */
   viewedSessionTracker?: ViewedSessionTracker;
   /**
+   * Optional push fan-out. Called from `stampUnreadIfTriggered` on every
+   * qualifying live trigger (fire-and-forget, never awaited). Push requires
+   * `viewedSessionTracker` too: the helper returns early without it.
+   * See change: add-server-push-notifications.
+   */
+  pushDispatcher?: import("./push/push-dispatcher.js").PushDispatcher;
+  /**
    * Optional client-correlation registry. When provided, the wiring
    * consumes the requestId for the resolved spawnToken after a successful
    * three-tier link and surfaces it on `session_added` as `spawnRequestId`,
@@ -274,6 +281,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingPluginRefRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
+    pushDispatcher,
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
@@ -670,10 +678,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (!isUnreadTrigger(eventType, before, after, payload)) return;
     if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
     const session = sessionManager.get(sessionId);
-    if (session && !session.unread) {
+    const unreadEdge = !!session && !session.unread;
+    if (unreadEdge) {
       sessionManager.update(sessionId, { unread: true });
       browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
     }
+    // Single push hook: fire-and-forget, the dispatcher applies the hybrid
+    // cadence. See change: add-server-push-notifications (Decision 10).
+    if (session) pushDispatcher?.fanout(sessionId, { eventType, after, payload, unreadEdge });
   }
 
   /**

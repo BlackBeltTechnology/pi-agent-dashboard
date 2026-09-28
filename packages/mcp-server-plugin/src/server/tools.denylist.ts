@@ -25,6 +25,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-server-push-notifications (Decision 12).
+  { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
   // Access-grant review + creation (change: add-access-grants-and-review). The
   // tab is a local operator surface, and `POST /api/access/grants` is a
   // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).

@@ -1,0 +1,11 @@
+# DOX — packages/server/src/push/push-transports
+
+One `PushTransport` per delivery channel. A new channel = one file here + a `push-service.ts` entry. Transports return `{ok, gone?, status?, errorCode?}`; never log or return a URL/endpoint/raw error. One row per source file.
+
+| File | Purpose |
+|------|---------|
+| `fcm.ts` | `createFcmTransport({serviceAccountPath, fetchImpl?, now?})` → `{ok:true, transport}` or `{ok:false, error}` (missing/invalid service account → FCM disabled). HTTP v1 `messages:send`; RS256 JWT via `crypto.createSign`, access token cached, refresh at 3500 s, one re-sign + retry on 401. `NOT_FOUND`/`UNREGISTERED`/404 → gone. No Firebase SDK. See change: add-server-push-notifications. |
+| `types.ts` | `PushTransportKind`, `PUSH_TRANSPORT_KINDS`, `isDeviceTransport`, `PushTrigger`, `PushPayload`, `PushToken`, `PushSendResult`, `PushTransport`, `PushLogger`, `consolePushLogger`. See change: add-server-push-notifications. |
+| `web-push.ts` | `createWebPushTransport({vapidKeys, contactEmail, sendNotification?})`. `deviceToken` = PushSubscription JSON; VAPID subject `mailto:`; TTL 3600, 5 s timeout. 404/410 → gone; other status → `{ok:false, status}`. See change: add-server-push-notifications. |
+| `webhook-url.ts` | Webhook SSRF helpers. `validateWebhookUrl` (http/https, absolute, no userinfo, WHATWG-canonical), `isBlockedAddress` (`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, IPv4-mapped; `net.BlockList`), `resolveAndVet(host, port, selfPort, lookupAll?)` (all records; any blocked → refuse; self port on loopback/local interface → refuse; unresolvable → refuse), `effectivePort`, `redactWebhookUrl`, `defaultLookupAll`. See change: add-server-push-notifications. |
+| `webhook.ts` | `createWebhookTransport({selfPort, timeoutMs?=5000, lookupAll?})`. Per delivery: `resolveAndVet`, then `undici.request` POST JSON via a per-delivery `Agent` whose `connect.lookup` returns only vetted addresses (DNS-rebinding pin); no redirects; headers/body timeout + `AbortSignal.timeout`; `body.dump()`. 2xx ok, 410 gone, else failure (incl 404). `WEBHOOK_TIMEOUT_MS`. See change: add-server-push-notifications. |

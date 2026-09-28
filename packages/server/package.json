@@ -67,6 +67,8 @@
     "node-pty": "1.2.0-beta.13",
     "proper-lockfile": "^4.1.2",
     "tsx": "^4.21.0",
+    "undici": "^7.29.0",
+    "web-push": "^3.6.7",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5"
   },
@@ -79,6 +81,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/mailparser": "^3.4.6",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1"
   }
 }

@@ -454,3 +454,30 @@ describe("effectiveServerMaxOldSpaceMb", () => {
     expect(effectiveServerMaxOldSpaceMb([], "")).toBeNull();
   });
 });
+
+// Push config errors: disclosed as `push.errors` only when
+// `canDiscloseAccessPosture` holds; otherwise the key is absent.
+// See change: add-server-push-notifications (test-plan #X18).
+describe("GET /api/health — push.errors disclosure (test-plan #X18)", () => {
+  let pushHandle: TestServerHandle | undefined;
+
+  afterEach(async () => {
+    await pushHandle?.stop();
+    pushHandle = undefined;
+  });
+
+  it("hides push from a relayed caller and names contactEmail for a local one", async () => {
+    pushHandle = await createTestServer({ push: { enabled: true, coalesceWindowMs: 30_000 } });
+    const url = `http://127.0.0.1:${pushHandle.httpPort}/api/health`;
+    const relayed = (await (await fetch(url, { headers: { "x-forwarded-for": "203.0.113.9" } })).json()) as Record<string, unknown>;
+    expect("push" in relayed).toBe(false);
+    const local = (await (await fetch(url)).json()) as { push?: { errors: string[] } };
+    expect(local.push?.errors.some((e) => e.includes("contactEmail"))).toBe(true);
+  });
+
+  it("has no push key when push is disabled", async () => {
+    pushHandle = await createTestServer();
+    const body = (await (await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`)).json()) as Record<string, unknown>;
+    expect("push" in body).toBe(false);
+  });
+});

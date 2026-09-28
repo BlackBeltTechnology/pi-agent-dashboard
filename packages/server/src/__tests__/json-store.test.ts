@@ -66,5 +66,21 @@ describe("json-store", () => {
       writeJsonFile(fp, {});
       expect(fs.existsSync(fp + ".tmp")).toBe(false);
     });
+
+    // A stale `.tmp` left by a crash keeps its old mode, because writeFileSync's
+    // `mode` only applies on create. The chmod must be unconditional.
+    // See change: add-server-push-notifications (test-plan #X14).
+    it.skipIf(process.platform === "win32")(
+      "writes mode 0600 even over a stale 0644 .tmp (test-plan #X14)",
+      () => {
+        const fp = path.join(tmpDir, "push-tokens.json");
+        fs.writeFileSync(fp + ".tmp", "stale", { mode: 0o644 });
+        fs.chmodSync(fp + ".tmp", 0o644);
+        writeJsonFile(fp, { tokens: [] }, { mode: 0o600 });
+        expect(fs.statSync(fp).mode & 0o777).toBe(0o600);
+        expect(fs.existsSync(fp + ".tmp")).toBe(false);
+        expect(JSON.parse(fs.readFileSync(fp, "utf-8"))).toEqual({ tokens: [] });
+      },
+    );
   });
 });
