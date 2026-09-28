@@ -177,6 +177,9 @@ describe("buildIdleFlowState — definition cannot be loaded (E4)", () => {
     ["fork without options", `${head}  - id: a\n    type: fork\n    question: q\n`],
     ["missing flow name", "description: d\nsteps:\n  - id: a\n    type: agent\n    agent: x\n"],
     ["steps not an array", "name: f\ndescription: d\nsteps: nope\n"],
+    ["non-integer max_concurrent", `name: f\ndescription: d\nmax_concurrent: many\nsteps:\n  - id: a\n    type: agent\n    agent: x\n`],
+    ["non-integer step timeout", `${head}  - id: a\n    type: code\n    timeout: soon\n`],
+    ["input without a valid type", `name: f\ndescription: d\ninputs:\n  q: { type: date }\nsteps:\n  - id: a\n    type: agent\n    agent: x\n`],
   ];
   for (const [label, yaml] of cases) {
     it(`${label} → error`, () => {

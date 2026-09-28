@@ -51,6 +51,12 @@ describe("flow-attach-store (E11)", () => {
     expect(s.getAttachment("S1")).toBe(s.getAttachment("S1"));
   });
 
+  it("coerces a legacy entry missing baselineStartedAt to null", async () => {
+    localStorage.setItem("dashboard:flow-attached:L", JSON.stringify({ id: "l", name: "A", source: 7 }));
+    const s = await freshStore();
+    expect(s.getAttachment("L")).toEqual({ id: "l", name: "A", source: undefined, baselineStartedAt: null });
+  });
+
   it("resolveBaseline sets a null baseline only for the matching id", async () => {
     const s = await freshStore();
     s.setAttachment("S2", b);

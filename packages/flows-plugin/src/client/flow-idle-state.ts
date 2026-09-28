@@ -48,6 +48,28 @@ function branchesOf(raw: Raw): Record<string, string> {
   return out;
 }
 
+/** 0.5.0 `toInt`: an optional integer field must parse. */
+function checkInt(obj: Raw, key: string, where: string): void {
+  if (obj[key] === undefined) return;
+  if (Number.isNaN(Number.parseInt(String(obj[key]), 10))) {
+    throw new Error(`flow.yaml: ${where} "${key}" must be an integer`);
+  }
+}
+
+const INPUT_TYPES = new Set(["string", "number", "boolean", "object", "array"]);
+
+/** 0.5.0 `parseFlowInputs`: optional mapping of name → { type }. */
+function checkInputs(raw: unknown): void {
+  if (raw === undefined) return;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error('flow.yaml: "inputs" must be a mapping');
+  for (const [k, v] of Object.entries(raw as Raw)) {
+    const type = (v as Raw | null)?.type;
+    if (typeof type !== "string" || !INPUT_TYPES.has(type)) {
+      throw new Error(`flow.yaml: input "${k}" needs a valid "type"`);
+    }
+  }
+}
+
 function onErrorOf(raw: Raw): string | undefined {
   return raw.on_error ? String(raw.on_error) : undefined;
 }
@@ -66,6 +88,8 @@ function toStartedStep(raw: unknown, index: number): StartedStep {
   const type = r.type;
   if (!type || typeof type !== "string") throw new Error(`flow.yaml: step "${id}" missing required "type" field`);
   const where = `step "${id}"`;
+  checkInt(r, "timeout", where);
+  checkInt(r, "max_iterations", where);
   switch (type) {
     case "agent":
       return { id, stepType: type, agent: requireField(r, "agent", where), blockedBy: blockedByOf(r), onError: onErrorOf(r) };
@@ -93,6 +117,8 @@ function flowYamlToStartedSteps(content: string): StartedStep[] {
   if (!doc || typeof doc !== "object") throw new Error("flow.yaml: empty or not a mapping");
   requireField(doc as Raw, "name", "flow");
   requireField(doc as Raw, "description", "flow");
+  checkInt(doc as Raw, "max_concurrent", "flow");
+  checkInputs((doc as Raw).inputs);
   const steps = (doc as Raw).steps;
   if (!Array.isArray(steps)) throw new Error('flow.yaml: "steps" must be an array');
   return steps.map(toStartedStep);

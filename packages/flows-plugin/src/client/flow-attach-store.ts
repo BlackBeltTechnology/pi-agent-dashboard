@@ -28,9 +28,16 @@ const subscribers = new Map<string, Set<() => void>>();
 function parse(raw: string | null): FlowAttachment | null {
   if (!raw) return null;
   try {
-    const v = JSON.parse(raw) as FlowAttachment;
+    const v = JSON.parse(raw) as Partial<FlowAttachment> | null;
     if (!v || typeof v.id !== "string" || typeof v.name !== "string") return null;
-    return v;
+    // Coerce the rest so a legacy / hand-edited entry cannot strand the panel.
+    return {
+      id: v.id,
+      name: v.name,
+      source: typeof v.source === "string" ? v.source : undefined,
+      baselineStartedAt:
+        typeof v.baselineStartedAt === "number" && Number.isFinite(v.baselineStartedAt) ? v.baselineStartedAt : null,
+    };
   } catch {
     return null;
   }
