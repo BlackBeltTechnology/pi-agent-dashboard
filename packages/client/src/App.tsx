@@ -6,6 +6,7 @@ import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
+import { PairingApprovalHost } from "./components/pairing-approval/PairingApprovalHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
@@ -2737,6 +2738,9 @@ export default function App() {
   // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
   // See change: add-access-grant-dialog.
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  // Pairing approval dialog: mounted beside the grant host in BOTH returns.
+  // See change: add-pairing-approval-dialog.
+  const pairingApprovalHost = <PairingApprovalHost onMessage={onMessage} ws={ws} />;
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
@@ -2869,6 +2873,7 @@ export default function App() {
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
         {grantPromptHost}
+        {pairingApprovalHost}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -2915,6 +2920,7 @@ export default function App() {
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
       {grantPromptHost}
+      {pairingApprovalHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}

@@ -14,3 +14,5 @@ Prompt-capability issuance (tasks 2b.1, 3.2). `setPromptCapabilityPolicy(policy 
 - `frameClassOf`: `group_by_prefs_updated` is `state` (coalesced by type, never shed).
 - Dispatch: `set_folder_group_by` / `set_default_group_by` / `set_lane_collapsed` → directory-handler. See change: session-list-group-by.
 Card sections: routes `set_card_section_visibility` / `reset_folder_card_sections` to directory-handler; connect burst sends `card_sections_updated` before `sessions_snapshot` unconditionally (incl. `{}` — reconnect drops stale client state); `frameClassOf` classes it `state`. See change: configurable-session-card-sections.
+
+`frameClassOf`: `pair_pending_changed` → `{cls:"state", key:"pair_pending"}` (coalescing, never shed — a shed hint is a dialog that never appears). See change: add-pairing-approval-dialog.

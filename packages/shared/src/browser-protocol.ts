@@ -1242,7 +1242,8 @@ export type ServerToBrowserMessage =
   | BrowserRelayStatusMessage
   | GrantChannelMessage
   | GrantRequestMessage
-  | GrantDismissMessage;
+  | GrantDismissMessage
+  | PairPendingChangedMessage;
 
 /**
  * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
@@ -2490,4 +2491,14 @@ export interface GrantDismissMessage {
   plane: AccessPlaneId;
   subject: string;
   reason: "settled" | "expired";
+}
+
+/**
+ * Server → browser: the set of pending pairing devices changed (add / approve /
+ * deny / lockout / expire). Deliberately content-free — an operator browser
+ * refetches `GET /api/pair/pending` (operator-guarded); a paired-device browser
+ * learns nothing but "something changed". See change: add-pairing-approval-dialog (D1).
+ */
+export interface PairPendingChangedMessage {
+  type: "pair_pending_changed";
 }

@@ -687,6 +687,10 @@ describe("status-reconcile is loop-safe and releases on abnormal teardown (X1/X3
 });
 
 describe("collapsed-folder frames (X7)", () => {
+  it("X5: pair_pending_changed is state-class, key pair_pending — never shed (add-pairing-approval-dialog)", () => {
+    expect(frameClassOf({ type: "pair_pending_changed" })).toEqual({ cls: "state", key: "pair_pending" });
+  });
+
   it("group_by_prefs_updated is state-class (session-list-group-by)", () => {
     const m = {
       type: "group_by_prefs_updated",

@@ -142,7 +142,7 @@ import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec
 import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
-import { PairingManager } from "./pairing/pairing.js";
+import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -1028,6 +1028,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveServerManager = createLiveServerManager(preferencesStore);
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore);
+  // App-wide pairing approval dialog: a content-free hint on every pending
+  // change; operator browsers refetch the guarded list (D1).
+  // See change: add-pairing-approval-dialog.
+  wirePendingHint(pairingManager, (msg) => browserGateway.broadcastToAll(msg));
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -3544,6 +3548,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { sub(); } catch (err) { console.error("[plugin-onShutdown]", err); }
       }
       pendingForkRegistry.dispose();
+      pairingManager.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();

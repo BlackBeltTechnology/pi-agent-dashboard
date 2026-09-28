@@ -137,7 +137,7 @@ describe("D12 compare-code approval", () => {
     if (!r.ok) return;
 
     // Wrong code → mismatch, no token.
-    expect(mgr.approve(p.code, "00000000")).toEqual({ ok: false, error: "mismatch" });
+    expect(mgr.approve(p.code, "00000000")).toEqual({ ok: false, error: "mismatch", attemptsLeft: 4 });
     // Right code → device recorded + token issued.
     const ok = mgr.approve(p.code, r.confirmCode, "My iPhone");
     expect(ok.ok).toBe(true);
