@@ -8,3 +8,5 @@
 ## electron-runtime-overlay-updates
 
 `GET /api/runtime/status` observe; `POST /api/runtime/{source,update,activate,rollback}` operate. See change: electron-runtime-overlay-updates.
+
+`GET /api/push/vapid-public-key` → `observe`; `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` → `operate`. See change: add-server-push-notifications.

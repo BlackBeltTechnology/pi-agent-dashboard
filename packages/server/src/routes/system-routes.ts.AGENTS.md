@@ -17,3 +17,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `/api/health.runtime` from `createRuntimeHealthProvider` (cached, no fs in handler). Electron starter: `ensureRuntimeRequest` at route setup so the app-menu local pick can bind. See change: electron-runtime-overlay-updates.
 
 `/api/restart` on an Electron-owned server (`restartsViaElectron`): exits `ELECTRON_RESTART_EXIT_CODE` (75) instead of the `spawnRestart` orchestrator; the app restarts it. See change: electron-runtime-overlay-updates.
+
+`readPushErrors?` dep. `/api/health` adds `push: {errors}` only when wired (push enabled) AND `canDiscloseAccessPosture(request)`; key absent otherwise. `/api/health` sends `Cache-Control: no-store, private` (caller-dependent disclosure-gated payload). See change: add-server-push-notifications.

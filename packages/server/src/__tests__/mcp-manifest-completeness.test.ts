@@ -12,6 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   hasRouteTier,
+  ROUTE_TIERS,
 } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import {
   ALLOWLISTED_CONTEXT_MEMBERS,
@@ -151,6 +152,33 @@ describe("E16 — every /api route has a ROUTE_TIERS entry", () => {
 
   it("is NOT vacuous — a fixture route without an entry fails", () => {
     expect(hasRouteTier("POST", "/api/fixture-not-registered")).toBe(false);
+  });
+});
+
+// Push routes: always registered, tiered, and denylisted from MCP (v1).
+// See change: add-server-push-notifications (test-plan #E33, Decision 12).
+describe("E33 — /api/push/* routes are tiered and denylisted", () => {
+  const PUSH_ROUTES = [
+    { method: "GET", path: "/api/push/vapid-public-key", tier: "observe" },
+    { method: "GET", path: "/api/push/register", tier: "operate" },
+    { method: "POST", path: "/api/push/register", tier: "operate" },
+    { method: "DELETE", path: "/api/push/register/:tokenId", tier: "operate" },
+    { method: "POST", path: "/api/push/test", tier: "operate" },
+  ] as const;
+
+  it("all five are registered even with push disabled", () => {
+    const registered = apiRoutes().filter((r) => r.path.startsWith("/api/push/"));
+    expect(registered.map((r) => `${r.method} ${r.path}`).sort()).toEqual(
+      PUSH_ROUTES.map((r) => `${r.method} ${r.path}`).sort(),
+    );
+  });
+
+  it("each has its ROUTE_TIERS tier and a DENYLIST entry", () => {
+    for (const r of PUSH_ROUTES) {
+      const row = ROUTE_TIERS.find((e) => e.method === r.method && e.path === r.path);
+      expect(row?.tier, `${r.method} ${r.path}`).toBe(r.tier);
+      expect(isDenylisted(r.path), r.path).toBe(true);
+    }
   });
 });
 

@@ -14,7 +14,9 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createPushService, type PushService } from "./push/push-service.js";
+import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
@@ -326,6 +328,9 @@ export interface ServerConfig {
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
+  /** Push notifications. Absent or `enabled !== true` means disabled (no dispatcher,
+   *  no VAPID keys). See change: add-server-push-notifications. */
+  push?: import("@blackbelt-technology/pi-dashboard-shared/config.js").PushConfig;
   /** Session behavior — hydration worker offload toggle.
    *  See change: offload-session-events-load-to-worker. */
   sessions?: import("@blackbelt-technology/pi-dashboard-shared/config.js").SessionsConfig;
@@ -1345,6 +1350,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
 
 
+  // Push fan-out: built ONLY when explicitly enabled (Decision 6), and always
+  // passed together with `viewedSessionTracker` (Decision 7).
+  // See change: add-server-push-notifications.
+  // A push init failure (e.g. unwritable VAPID file) must never take the
+  // dashboard down: log it, leave push disabled, report it in push.errors.
+  let pushService: PushService | null = null;
+  let pushInitError: string | null = null;
+  if (config.push?.enabled === true) {
+    try {
+      pushService = createPushService({
+        config: config.push,
+        dataDir: CONFIG_DIR,
+        getSession: (id) => sessionManager.get(id),
+        selfPort: () => {
+          const addr = fastify.server.address();
+          return addr && typeof addr === "object" ? addr.port : null;
+        },
+      });
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      pushInitError = `push init failed (${typeof code === "string" ? code : "error"}); push disabled`;
+      console.error(`[push] ${pushInitError}`);
+    }
+  }
+
   // Wire up event forwarding from pi gateway to browser gateway
   // D8: bridges whose extension differs from the active runtime's get one
   // `/reload` (through the same ladder as the reload button), once idle.
@@ -1389,6 +1419,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginSessionResolved,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
+    ...(pushService ? { pushDispatcher: pushService.dispatcher } : {}),
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
@@ -1938,7 +1969,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   // Assigned by the runtime-overlay block below; read lazily per request.
@@ -1957,6 +1988,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ]
         : [],
   });
+  registerPushRoutes(fastify, { getPush: () => pushService });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -3632,6 +3664,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
+      pushService?.shutdown();
       // Uninstall the module-level access-grant hooks so a create/stop cycle in
       // one process never leaves a stale coordinator answering for a dead server.
       // See change: add-access-grant-dialog.

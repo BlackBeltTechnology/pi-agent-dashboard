@@ -40,3 +40,5 @@ providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)
 D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.
 
 Doctor: `runtimeHealthForDoctor` holder (set in runtime-overlay block) feeds the `Dashboard runtime` extra check. See change: electron-runtime-overlay-updates.
+
+`ServerConfig.push?`. `createPushService({config.push, dataDir: CONFIG_DIR, getSession, selfPort})` only when `push.enabled === true`, inside try/catch (init failure → logged, push disabled, `push init failed (<code>)` in `push.errors`); dispatcher passed to `wireEvents` beside `viewedSessionTracker`; `registerPushRoutes(fastify, {getPush})` always; `readPushErrors` to system routes; `pushService.shutdown()` in `stop()`. See change: add-server-push-notifications.
