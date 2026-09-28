@@ -27,3 +27,7 @@ Row 1 (`header-app-bar`) renders conditional `YoloPill` right after `TunnelButto
 - Drag: `resolveLaneDrop` — cross-lane → toast (status vs location wording), order untouched; same lane → `mergeLaneOrder`; ended involved → legacy flat/drag-to-resume. Drag-over cross-lane → `denyLaneKey` dashed error outline.
 - Header chip on secondary row (git row when expanded; own row when collapsed/stub). Folder menu `radioGroup` (Use default (<Mode>) / None / Status / Location); urgency-sort item + `useFolderUrgencySort` REMOVED.
 - Reveal expands a collapsed target lane (add-only). Selected lane change → polite `lane-live-region` announcement + scrollIntoView. FLIP via `useFlipOnLaneChange(listRef, laneMembershipFp, drag active)`. See change: session-list-group-by.
+
+## show-session-history-load-state
+
+Prop `historyPhaseMap` (App `buildHistoryPhaseMap`); passes `historyPhase` + `historyStartedAt` primitives to each `SessionCard`. Absent id → no ring. See change: show-session-history-load-state.

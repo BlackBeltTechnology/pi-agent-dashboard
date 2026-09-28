@@ -249,3 +249,33 @@ describe("X8 — refusals are logged", () => {
     expect(typeof refusals[0].deviceId).toBe("string");
   });
 });
+
+// test-plan #E10 — a relayed-loopback device bearer is NOT exempt from the
+// tier gate by a loopback trusted entry. See change: fix-trusted-network-tunnel-bypass.
+describe("E10 — device-tier exemption refused for relayed loopback", () => {
+  it("relayed loopback + trusted [127.0.0.1]: observe bearer refused at operate", async () => {
+    const { app, tokens, restartCalls, refusals } = await mkApp({ trusted: ["127.0.0.1"] });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/restart",
+      remoteAddress: "127.0.0.1",
+      headers: { ...bearer(tokens.observe), "x-forwarded-for": "203.0.113.9" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "insufficient_scope", scope: "operate" });
+    expect(restartCalls()).toBe(0);
+    expect(refusals).toHaveLength(1);
+  });
+
+  it("LAN peer in trusted CIDR stays exempt (control)", async () => {
+    const { app, tokens, restartCalls } = await mkApp({ trusted: ["192.168.16.0/24"] });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/restart",
+      remoteAddress: "192.168.16.20",
+      headers: bearer(tokens.observe),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(restartCalls()).toBe(1);
+  });
+});

@@ -72,12 +72,33 @@ export function rearmLoadingHistory(
   timersRef: LoadingHistoryTimersRef,
   id: string,
   ms: number,
+  onTimeout?: (id: string) => void,
+): void {
+  if (!timersRef.current.has(id)) return;
+  armLoadingHistoryTimer(setFlag, timersRef, id, ms, onTimeout);
+}
+
+/**
+ * Arm (replacing any prior) the safety-net timer for `id`. On expiry the flag
+ * clears and, only then, `onTimeout(id)` runs — the TIMER edge is the one a
+ * caller may treat as a failure; `clearLoadingHistory` from a content /
+ * terminal edge never invokes it. Does not touch the flag itself.
+ * See change: show-session-history-load-state (design D2).
+ */
+export function armLoadingHistoryTimer(
+  setFlag: LoadingHistorySetter,
+  timersRef: LoadingHistoryTimersRef,
+  id: string,
+  ms: number,
+  onTimeout?: (id: string) => void,
 ): void {
   const existing = timersRef.current.get(id);
-  if (!existing) return;
-  clearTimeout(existing);
+  if (existing) clearTimeout(existing);
   timersRef.current.set(
     id,
-    setTimeout(() => clearLoadingHistory(setFlag, timersRef, id), ms),
+    setTimeout(() => {
+      clearLoadingHistory(setFlag, timersRef, id);
+      onTimeout?.(id);
+    }, ms),
   );
 }

@@ -21,4 +21,7 @@ See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSessio
 - State `groupByPrefs` (undefined until `group_by_prefs_updated`); passes `groupByPrefs`/`onSetFolderGroupBy`/`onSetLaneCollapsed` to SessionList and `groupByPrefs`/`onSetDefaultGroupBy` to both SettingsPanel mounts; effect runs `runUrgencyMigration` once prefs known. See change: session-list-group-by.
 `cardSections` state + `CardSectionsProvider` (value memoized on snapshot + `send`; `showToast` routed through a ref so the value stays stable); `VALID_FOLDER_SETTINGS_PAGES` gains `cards`. See change: configurable-session-card-sections.
 
+## show-session-history-load-state
+
+Flags/timers/failed/startedAt moved to `useHistoryLoadState({status, hasContent})` (reconnect reset inside). `hasChatContentFor` (refs). `useLayoutEffect` arms `beginLoadingHistory` (NOT `replayInFlight` — would flash the pill on warm reload) at selection before paint (connected, unsubscribed, no content). `historyPhaseMap` = `buildHistoryPhaseMap(...)` memo (deps incl. `status`) → `SessionList historyPhaseMap` + ChatView `historyPhase`/`historyStartedAt`/`onRetryHistory` (`handleRetryHistory` → `handleRefreshChat`). `markHistoryLoadFailed`/`clearHistoryLoadFailed` passed to `useMessageHandler`. Server switch calls `resetAllHistoryLoad()`. See change: show-session-history-load-state.
 Composer strip gets `onAttach`/`onDetach`/`groups`/`assignments` + `working` = streaming ∨ `retrySessionIds.has(id)`. See change: redesign-composer-session-strip.

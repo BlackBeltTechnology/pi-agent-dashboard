@@ -28,7 +28,7 @@
 import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
+import { isGenuinelyLocal, isTrustedSource } from "./localhost-guard.js";
 
 export interface TierRefusal {
   deviceId?: string;
@@ -66,7 +66,7 @@ export function tierRefusalFor(
   if ((request as any).authVia !== "device") return null;
   const headers = request.headers as Record<string, unknown>;
   if (isGenuinelyLocal(request.ip, headers)) return null;
-  if (isBypassedHost(request.ip, getTrustedNetworks())) return null;
+  if (isTrustedSource(request.ip, headers, getTrustedNetworks())) return null;
   const principalTier = (request as any).principalTier as Tier | undefined;
   if (!principalTier) return null;
   if (rank(requiredTier) <= rank(principalTier)) return null;

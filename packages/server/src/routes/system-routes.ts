@@ -30,7 +30,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { canDiscloseAccessPosture, localhostGuard } from "../auth/localhost-guard.js";
+import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
@@ -179,6 +179,10 @@ export function registerSystemRoutes(
     // `accessGrants`, failure-isolated like every other telemetry read.
     // See change: add-access-grant-dialog (task 9.3).
     readAccessGrants?: () => AccessGrantHealth;
+    // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
+    // `trustPosture` health field. Falls back to the boot list when unwired.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    readTrustedNetworks?: () => string[];
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
     // DERIVED from the store's exported TrimStats, never restated inline: an
@@ -211,7 +215,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -937,6 +941,16 @@ export function registerSystemRoutes(
     if (canDiscloseAccessPosture(request)) {
       try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
     }
+    // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
+    // admits tunnel traffic. Same disclosure gate as `accessGrants`.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    let trustPosture: { trustedHasLoopback: boolean } | null = null;
+    if (canDiscloseAccessPosture(request)) {
+      try {
+        const trusted = readTrustedNetworks?.() ?? config.resolvedTrustedNetworks ?? [];
+        trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
+      } catch { /* keep null */ }
+    }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
     const activeSessions = sessionManager.listActive();
@@ -953,6 +967,9 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      // Loopback-trusted-entry posture (additive; null unless disclosable).
+      // See change: fix-trusted-network-tunnel-bypass (D3).
+      trustPosture,
       // Rendezvous instance id (NOT the Ed25519 `identity`): names which
       // same-HOME instance answered, so a bridge can tell its own dashboard
       // from a foreign listener on a recycled port. An IDENTIFIER, never a

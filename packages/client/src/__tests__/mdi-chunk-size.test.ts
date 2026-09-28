@@ -21,10 +21,11 @@ import { describe, expect, it } from "vitest";
 // A minified-survivable @mdi/js export name that no shell code imports by
 // name — present only in a chunk that carries the FULL icon set.
 const MDI_MARKER = "mdiZodiacAquarius";
-// 900 → 910 KB: develop sat at the 900 KB edge; promote-model-roles-settings
-// adds ~2.2 KB gz to the eager SettingsPanel path (Models nav group, promotion
-// resolver, compact plugin chrome). Budget bump approved by the maintainer; the
-// cap still guards against the full @mdi/js set (~hundreds of KB) returning.
+// Raised 900 → 910 KB by show-session-history-load-state (user-approved):
+// develop already sat at ~900 KB in CI, and that change's always-rendered
+// session-card ring + chat load states add ~2.4 KB gz that cannot be lazy.
+// The @mdi/js full-set guard above is the load-bearing check; this cap only
+// catches large regressions. Do not raise it again without a size win first.
 const INDEX_GZ_CAP_BYTES = 910 * 1024;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
