@@ -941,7 +941,9 @@ export function SessionCard({
   // cards that actually carry an animation are observed. See change:
   // reduce-chat-render-cpu-umbrella (Phase 1, task 2.5).
   const cardFxRef = useFxVisibility<HTMLLIElement>();
-  const hasAnimatedFx = isSelected || !!stripeFxClass;
+  // The history ring's loading arc spins too; observe the card so
+  // `.fx-offscreen` pauses it offscreen. See change: show-session-history-load-state.
+  const hasAnimatedFx = isSelected || !!stripeFxClass || historyPhase === "loading";
   // OpenSpec workflow config gates which action buttons render in the
   // OPENSPEC subcard. See change: redesign-session-card-and-composer
   // (config-driven-workflow).

@@ -30,6 +30,20 @@ vi.mock("../SortableSessionCard.js", async (orig) => {
   };
 });
 
+// Offscreen-pause probe: record which nodes the card hands to the
+// IntersectionObserver-backed `observeFx` (it toggles `.fx-offscreen`).
+const observed = vi.hoisted(() => ({ nodes: [] as Element[] }));
+vi.mock("../../../lib/util/fx-visibility.js", async (orig) => {
+  const mod = await orig<typeof import("../../../lib/util/fx-visibility.js")>();
+  return {
+    ...mod,
+    observeFx: (node: Element) => {
+      observed.nodes.push(node);
+      return () => {};
+    },
+  };
+});
+
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
   Object.defineProperty(window, "matchMedia", {
@@ -94,5 +108,44 @@ describe("SessionCard history ring perf (#P2)", () => {
     expect(changes).toHaveLength(5);
     expect(commits - commitsBefore).toBeGreaterThanOrEqual(5); // chip's own commits
     expect(cardRenders.n - cardBefore).toBe(0);
+  });
+});
+
+// CodeRabbit PR #753: an unselected, stripe-less card must still be observed
+// while its ring spins, so `.fx-offscreen` can pause the arc offscreen (D7).
+describe("SessionCard history ring offscreen pause", () => {
+  function renderCard(historyPhase?: "loading" | "failed") {
+    const session: DashboardSession = {
+      id: "off-1", cwd: "/home/user/project", source: "tui", status: "ended",
+      startedAt: Date.now() - 60_000, tokensIn: 0, tokensOut: 0, cost: 0,
+    };
+    return render(
+      <ThemeProvider>
+        <SessionCard
+          session={session}
+          selectedId={undefined}
+          onSelect={() => {}}
+          now={Date.now()}
+          showGitInfo={false}
+          isHidden={false}
+          onArchive={() => {}}
+          historyPhase={historyPhase}
+          historyStartedAt={historyPhase === "loading" ? Date.now() : undefined}
+        />
+      </ThemeProvider>,
+    );
+  }
+  const cardObserved = () => observed.nodes.some((n) => n.getAttribute("data-session-id") === "off-1");
+
+  it("observes the card while its history ring is loading", () => {
+    observed.nodes = [];
+    renderCard("loading");
+    expect(cardObserved()).toBe(true);
+  });
+
+  it("does not observe an idle, unselected, stripe-less card (no animated fx)", () => {
+    observed.nodes = [];
+    renderCard(undefined);
+    expect(cardObserved()).toBe(false);
   });
 });

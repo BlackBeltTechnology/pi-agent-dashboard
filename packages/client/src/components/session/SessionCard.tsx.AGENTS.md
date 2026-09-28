@@ -19,5 +19,5 @@ See change: align-ui-with-theme-tokens. Action chips (Resume/Fork/+Session/Workt
 
 See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` / `tap-target` utilities (index chunk cap).
 
-Both status-chip branches (desktop `w-4 h-4`, mobile bare icon) render `<SessionStatusChip>` (markup + `session-status-icon` test id preserved). New props `historyPhase`, `historyStartedAt`. See change: show-session-history-load-state.
+Both status-chip branches (desktop `w-4 h-4`, mobile bare icon) render `<SessionStatusChip>` (markup + `session-status-icon` test id preserved). New props `historyPhase`, `historyStartedAt`. `hasAnimatedFx` includes `historyPhase === "loading"` so `.fx-offscreen` pauses the ring arc offscreen. See change: show-session-history-load-state.
 Computes `working` (streaming ∨ `isRetrying`) + `isMergePrimary` once; threads to `SessionOpenSpecActions` and `GitSubcard` → `WorktreeActionsMenu` (`disabled`, `mergeIsPrimary`). See change: redesign-composer-session-strip.
