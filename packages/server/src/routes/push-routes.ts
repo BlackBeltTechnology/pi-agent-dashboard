@@ -38,60 +38,72 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;
 }
 
+type TokenCheck = { ok: true; deviceToken: string } | { ok: false; error: string };
+
+const WEB_PUSH_ERROR = "deviceToken must be a PushSubscription JSON with an https endpoint and keys.p256dh + keys.auth";
+
+function parseJson(raw: unknown): unknown {
+  if (typeof raw !== "string") return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function isHttpsUrl(v: unknown): boolean {
+  if (!isNonEmptyString(v)) return false;
+  try {
+    return new URL(v).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** web-push: PushSubscription JSON, https endpoint, both keys; stored canonically so re-subscribing stays idempotent. */
+function checkWebPushToken(raw: unknown): TokenCheck {
+  const sub = parseJson(raw) as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | null;
+  if (!sub || !isHttpsUrl(sub.endpoint) || !isNonEmptyString(sub.keys?.p256dh) || !isNonEmptyString(sub.keys?.auth)) {
+    return { ok: false, error: WEB_PUSH_ERROR };
+  }
+  return { ok: true, deviceToken: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }) };
+}
+
+function checkDeviceToken(transport: PushTransportKind, raw: unknown): TokenCheck {
+  if (transport === "web-push") return checkWebPushToken(raw);
+  if (transport === "fcm") return isNonEmptyString(raw) ? { ok: true, deviceToken: raw } : { ok: false, error: "deviceToken must be a non-empty string" };
+  const v = validateWebhookUrl(raw);
+  return v.ok ? { ok: true, deviceToken: v.url.href } : { ok: false, error: v.error };
+}
+
+function checkLabel(raw: unknown): { ok: true; label?: string } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true };
+  if (typeof raw !== "string" || raw.length > MAX_LABEL) return { ok: false, error: `label must be a string of at most ${MAX_LABEL} characters` };
+  return { ok: true, label: raw.length > 0 ? raw : undefined };
+}
+
+function checkSessionFilter(raw: unknown): { ok: true; sessionFilter?: string[] } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true };
+  if (!Array.isArray(raw) || raw.length > MAX_SESSION_FILTER || !raw.every(isNonEmptyString)) {
+    return { ok: false, error: `sessionFilter must be an array of at most ${MAX_SESSION_FILTER} non-empty strings` };
+  }
+  return { ok: true, sessionFilter: raw as string[] };
+}
+
 /** Shape checks; the webhook SSRF vet (async) runs after this. */
 function validateBody(body: unknown): Validated {
   const b = (body ?? {}) as Record<string, unknown>;
-  const transport = b.transport;
-  if (typeof transport !== "string" || !PUSH_TRANSPORT_KINDS.includes(transport as PushTransportKind)) {
+  const transport = b.transport as PushTransportKind;
+  if (typeof transport !== "string" || !PUSH_TRANSPORT_KINDS.includes(transport)) {
     return { ok: false, error: `transport must be one of ${PUSH_TRANSPORT_KINDS.join(", ")}` };
   }
-  let label: string | undefined;
-  if (b.label !== undefined) {
-    if (typeof b.label !== "string" || b.label.length > MAX_LABEL) return { ok: false, error: `label must be a string of at most ${MAX_LABEL} characters` };
-    label = b.label.length > 0 ? b.label : undefined;
-  }
-  let sessionFilter: string[] | undefined;
-  if (b.sessionFilter !== undefined) {
-    if (!Array.isArray(b.sessionFilter) || b.sessionFilter.length > MAX_SESSION_FILTER || !b.sessionFilter.every(isNonEmptyString)) {
-      return { ok: false, error: `sessionFilter must be an array of at most ${MAX_SESSION_FILTER} non-empty strings` };
-    }
-    sessionFilter = b.sessionFilter as string[];
-  }
-  const raw = b.deviceToken;
-  let deviceToken: string;
-  switch (transport as PushTransportKind) {
-    case "web-push": {
-      let sub: { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | null = null;
-      try {
-        sub = typeof raw === "string" ? JSON.parse(raw) : null;
-      } catch {
-        sub = null;
-      }
-      let endpointOk = false;
-      try {
-        endpointOk = isNonEmptyString(sub?.endpoint) && new URL(sub.endpoint as string).protocol === "https:";
-      } catch {
-        endpointOk = false;
-      }
-      if (!sub || !endpointOk || !isNonEmptyString(sub.keys?.p256dh) || !isNonEmptyString(sub.keys?.auth)) {
-        return { ok: false, error: "deviceToken must be a PushSubscription JSON with an https endpoint and keys.p256dh + keys.auth" };
-      }
-      // Canonical form so re-subscribing the same browser stays idempotent.
-      deviceToken = JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: sub.keys?.p256dh, auth: sub.keys?.auth } });
-      break;
-    }
-    case "fcm":
-      if (!isNonEmptyString(raw)) return { ok: false, error: "deviceToken must be a non-empty string" };
-      deviceToken = raw;
-      break;
-    case "webhook": {
-      const v = validateWebhookUrl(raw);
-      if (!v.ok) return { ok: false, error: v.error };
-      deviceToken = v.url.href;
-      break;
-    }
-  }
-  return { ok: true, transport: transport as PushTransportKind, deviceToken, label, sessionFilter };
+  const label = checkLabel(b.label);
+  if (!label.ok) return label;
+  const filter = checkSessionFilter(b.sessionFilter);
+  if (!filter.ok) return filter;
+  const token = checkDeviceToken(transport, b.deviceToken);
+  if (!token.ok) return token;
+  return { ok: true, transport, deviceToken: token.deviceToken, label: label.label, sessionFilter: filter.sessionFilter };
 }
 
 export function registerPushRoutes(fastify: FastifyInstance, deps: PushRouteDeps): void {

@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
 
-export type PushStatus = "unknown" | "unsubscribed" | "subscribed" | "denied";
+type PushStatus = "unknown" | "unsubscribed" | "subscribed" | "denied";
 
 export interface PushSubscriptionState {
   /** Push API + service worker available AND a secure context. */
@@ -28,7 +28,7 @@ export interface PushSubscriptionState {
   sendTest(tokenId?: string): Promise<PushTestResult[]>;
 }
 
-export interface PushTestResult {
+interface PushTestResult {
   tokenId: string;
   ok: boolean;
   gone?: boolean;
@@ -74,7 +74,7 @@ export function usePushSubscription(): PushSubscriptionState {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch(`${getApiBase()}/api/push/vapid-public-key`);
         if (cancelled) return;
@@ -89,7 +89,8 @@ export function usePushSubscription(): PushSubscriptionState {
       } catch {
         if (!cancelled) setServerEnabled(false);
       }
-    })();
+    };
+    load().catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -98,7 +99,7 @@ export function usePushSubscription(): PushSubscriptionState {
   useEffect(() => {
     if (!supported || !serverEnabled) return;
     let cancelled = false;
-    (async () => {
+    const sync = async () => {
       try {
         if (Notification.permission === "denied") {
           setStatus("denied");
@@ -117,7 +118,8 @@ export function usePushSubscription(): PushSubscriptionState {
       } catch {
         if (!cancelled) setStatus("unsubscribed");
       }
-    })();
+    };
+    sync().catch(() => {});
     return () => {
       cancelled = true;
     };

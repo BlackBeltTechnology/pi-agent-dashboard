@@ -18,8 +18,8 @@ import { createWebhookTransport } from "./push-transports/webhook.js";
 import { type LookupAll, resolveAndVet, effectivePort, type VetResult } from "./push-transports/webhook-url.js";
 import { loadOrGenerateVapidKeys } from "./push-vapid.js";
 
-export const PUSH_TOKENS_FILE = "push-tokens.json";
-export const PUSH_VAPID_FILE = "push-vapid.json";
+const PUSH_TOKENS_FILE = "push-tokens.json";
+const PUSH_VAPID_FILE = "push-vapid.json";
 
 export interface PushService {
   registry: PushTokenRegistry;

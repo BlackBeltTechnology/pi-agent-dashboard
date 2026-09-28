@@ -18,9 +18,9 @@ import { Agent, request } from "undici";
 import type { PushPayload, PushSendResult, PushToken, PushTransport } from "./types.js";
 import { defaultLookupAll, effectivePort, type LookupAll, resolveAndVet, type VettedAddress, validateWebhookUrl } from "./webhook-url.js";
 
-export const WEBHOOK_TIMEOUT_MS = 5_000;
+const WEBHOOK_TIMEOUT_MS = 5_000;
 
-export interface WebhookSendResult extends PushSendResult {
+interface WebhookSendResult extends PushSendResult {
   status?: number;
   errorCode?: string;
 }

@@ -38,7 +38,7 @@ export interface FanoutContext {
   unreadEdge: boolean;
 }
 
-export interface PushTestResult {
+interface PushTestResult {
   tokenId: string;
   ok: boolean;
   gone?: boolean;

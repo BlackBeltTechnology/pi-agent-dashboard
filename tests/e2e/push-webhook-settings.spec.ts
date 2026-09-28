@@ -26,6 +26,7 @@ import { BASE_URL, harnessProject } from "./lifecycle.js";
 
 const RECEIVER_PORT = 18787;
 const RECEIVER_LOG = "/tmp/pi-e2e-push-receiver.log";
+const RECEIVER_PID = "/tmp/pi-e2e-push-receiver.pid";
 const WEBHOOK_URL = `http://127.0.0.1:${RECEIVER_PORT}/api/hooks/e2e-h1?key=e2e-s3cret`;
 const LABEL = "e2e-hook";
 
@@ -67,12 +68,13 @@ function startReceiver(): void {
     `rm -f ${RECEIVER_LOG}; nohup node -e '` +
       `require("http").createServer((q,s)=>{let b="";q.on("data",c=>b+=c);q.on("end",()=>{` +
       `require("fs").appendFileSync("${RECEIVER_LOG}",JSON.stringify({method:q.method,url:q.url,body:b})+"\\n");` +
-      `s.writeHead(204).end();});}).listen(${RECEIVER_PORT},"127.0.0.1");' >/dev/null 2>&1 &`,
+      `s.writeHead(204).end();});}).listen(${RECEIVER_PORT},"127.0.0.1");' >/dev/null 2>&1 & echo $! > ${RECEIVER_PID}`,
   );
 }
 
 function stopReceiver(): void {
-  inContainer(`pkill -f "listen(${RECEIVER_PORT}" || true; rm -f ${RECEIVER_LOG}`);
+  // No pkill in the image: kill the PID recorded at start.
+  inContainer(`[ -f ${RECEIVER_PID} ] && kill "$(cat ${RECEIVER_PID})" 2>/dev/null; rm -f ${RECEIVER_PID} ${RECEIVER_LOG}; true`);
 }
 
 function receiverRequests(): Array<{ method: string; url: string; body: string }> {

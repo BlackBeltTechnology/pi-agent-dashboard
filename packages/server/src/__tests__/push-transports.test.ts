@@ -59,7 +59,7 @@ describe("web-push transport (test-plan #X16)", () => {
   }
 
   it.each([410, 404])("%i → token pruned", async (status) => {
-    let t = 0;
+    const t = 0;
     const registry = createPushTokenRegistry({ path: path.join(tmpDir, `t${status}.json`), now: () => t });
     const { transport } = withStatuses([status]);
     const r = registry.add({ deviceToken: SUB, transport: "web-push" });

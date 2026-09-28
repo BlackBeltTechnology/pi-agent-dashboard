@@ -15,11 +15,11 @@ import fs from "node:fs";
 import { writeJsonFile } from "../persistence/json-store.js";
 import type { PushToken } from "./push-transports/types.js";
 
-export const MAX_PUSH_TOKENS = 50;
+const MAX_PUSH_TOKENS = 50;
 const TOUCH_PERSIST_INTERVAL_MS = 60_000;
 const FILE_MODE = 0o600;
 
-export interface PushTokenInput {
+interface PushTokenInput {
   deviceToken: string;
   transport: string;
   label?: string;
@@ -27,7 +27,7 @@ export interface PushTokenInput {
   sessionFilter?: string[];
 }
 
-export type PushTokenAddResult =
+type PushTokenAddResult =
   | { ok: true; token: PushToken; created: boolean }
   | { ok: false; reason: "capacity" };
 
