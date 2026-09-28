@@ -227,6 +227,8 @@
     "packages/demo-plugin": {
       "entry": [
         "src/client.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -357,6 +359,16 @@
       ]
     },
     "packages/image-fit-extension": {
+      "entry": [
+        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/untrusted-content-guard": {
       "entry": [
         "src/extension.ts",
         "**/vitest.config.ts",

@@ -49,24 +49,27 @@ export function useGoals(cwd: string | null | undefined): UseGoalsResult {
   return { goals, loading, error, refetch };
 }
 
-/** UI palette + label for a goal's durable status. */
+/**
+ * UI palette + label for a goal's durable status. Identity tints (tint fg on
+ * its own tint bg). See change: align-ui-with-theme-tokens (D2).
+ */
 export function statusMeta(status: GoalRecordStatus): { label: string; dot: string; cls: string } {
   switch (status) {
     case "achieved":
-      return { label: "Achieved", dot: "✓", cls: "text-green-400 border-green-500/40 bg-green-500/5" };
+      return { label: "Achieved", dot: "✓", cls: "text-[var(--tint-green-fg)] border-[var(--tint-green-border)] bg-[var(--tint-green-bg)]" };
     case "paused":
-      return { label: "Paused", dot: "⏸", cls: "text-amber-400 border-amber-500/40 bg-amber-500/5" };
+      return { label: "Paused", dot: "⏸", cls: "text-[var(--tint-orange-fg)] border-[var(--tint-orange-border)] bg-[var(--tint-orange-bg)]" };
     case "cleared":
-      return { label: "Cleared", dot: "○", cls: "text-[var(--text-muted)] border-[var(--border-subtle)] bg-transparent" };
+      return { label: "Cleared", dot: "○", cls: "text-[var(--text-secondary)] border-[var(--border-subtle)] bg-transparent" };
     case "respawning":
       // Visible, non-terminal: the supervisor has no live driver and a respawn
       // is pending. See change: add-goal-session-supervisor.
-      return { label: "Respawning", dot: "↻", cls: "text-sky-400 border-sky-500/40 bg-sky-500/5" };
+      return { label: "Restarting", dot: "↻", cls: "text-[var(--tint-blue-fg)] border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)]" };
     case "failed":
       // Terminal supervisor verdict (crash-loop breaker / stop failed).
-      return { label: "Failed", dot: "✕", cls: "text-red-400 border-red-500/40 bg-red-500/5" };
+      return { label: "Failed", dot: "✕", cls: "text-[var(--tint-red-fg)] border-[var(--tint-red-border)] bg-[var(--tint-red-bg)]" };
     case "pursuing":
     default:
-      return { label: "Pursuing", dot: "●", cls: "text-indigo-400 border-indigo-500/40 bg-indigo-500/5" };
+      return { label: "Pursuing", dot: "●", cls: "text-[var(--tint-purple-fg)] border-[var(--tint-purple-border)] bg-[var(--tint-purple-bg)]" };
   }
 }

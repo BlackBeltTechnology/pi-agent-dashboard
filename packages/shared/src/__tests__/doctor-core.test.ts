@@ -401,7 +401,7 @@ describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", ()
         detectSystemNode: () => ({ found: true, path: "/usr/local/bin/node" }),
       }),
     );
-    const row = checks.find((c) => c.name === "Spawn runtime (resolved)");
+    const row = checks.find((c) => c.name === "Session runtime (resolved)");
     expect(row).toBeDefined();
     expect(row!.section).toBe("runtime");
     expect(row!.status).toBe("warning");
@@ -421,7 +421,7 @@ describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", ()
         detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
       }),
     );
-    const row = checks.find((c) => c.name === "Spawn runtime (resolved)");
+    const row = checks.find((c) => c.name === "Session runtime (resolved)");
     expect(row!.status).toBe("ok");
     expect(row!.message).toContain("/resolved/node");
     expect(row!.message).toContain("v24.0.0");
@@ -449,7 +449,7 @@ describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", ()
         detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
       }),
     );
-    const row = checks.find((c) => c.name === "Spawn runtime (resolved)")!;
+    const row = checks.find((c) => c.name === "Session runtime (resolved)")!;
     expect(row.detail).toContain("Shadowed selection");
     expect(row.detail).toContain("/selected/by-family/node");
   });
@@ -461,7 +461,7 @@ describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", ()
         detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
       }),
     );
-    const row = checks.find((c) => c.name === "Spawn runtime (resolved)")!;
+    const row = checks.find((c) => c.name === "Session runtime (resolved)")!;
     expect(row.status).toBe("ok");
     expect(row.message).toContain("exceeds the dashboard-tested range");
     expect(row.detail).toContain("informational, not a failure");
@@ -469,7 +469,7 @@ describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", ()
 
   it("no spawnRuntime provided → row suppressed", async () => {
     const checks = await runSharedChecks(baseDeps());
-    expect(checks.find((c) => c.name === "Spawn runtime (resolved)")).toBeUndefined();
+    expect(checks.find((c) => c.name === "Session runtime (resolved)")).toBeUndefined();
   });
 });
 

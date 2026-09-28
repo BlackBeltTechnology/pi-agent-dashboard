@@ -1,11 +1,18 @@
 import type { DashboardSession, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
 import { formatProposePrompt } from "../openspec/ProposeDialog.js";
 import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
+
+// TasksPopover (opened by the Tasks segment) fetches on mount.
+vi.mock("../../lib/openspec/openspec-tasks-api.js", () => ({
+  fetchTasks: vi.fn(async () => ({ tasks: [], header: "" })),
+  toggleTask: vi.fn(),
+  LineMismatchError: class extends Error {},
+}));
 
 const coreConfig: OpenSpecConfig = { profile: "core", delivery: "both", workflows: [...CORE_WORKFLOWS] };
 const expandedConfig: OpenSpecConfig = { profile: "expanded", delivery: "both", workflows: [...EXPANDED_WORKFLOWS] };
@@ -229,111 +236,8 @@ describe("SessionOpenSpecActions", () => {
     expect(screen.queryByTestId("new-change-btn")).toBeNull();
   });
 
-  // --- Stepper-node click replaces the PDST button ---
-  // See change: redesign-session-card-and-composer (stepper-click-to-open).
-
-  it("PDST button removed in attached state — stepper nodes carry that role", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect(screen.queryByTestId("artifact-letters-btn")).toBeNull();
-    // The stepper P/D/S nodes render in place.
-    expect(screen.getByTestId("stepper-node-proposal")).toBeTruthy();
-    expect(screen.getByTestId("stepper-node-design")).toBeTruthy();
-    expect(screen.getByTestId("stepper-node-specs")).toBeTruthy();
-  });
-
-  // --- PLANNING state: Continue, FF, disabled Explore + Archive ---
-  // See change: redesign-session-card-and-composer (4.1 + 4.2).
-  // Explore is always-rendered-but-disabled when attached. Archive is
-  // always-rendered-but-disabled when state !== COMPLETE.
-
-  it("shows disabled Explore, Continue, FF, disabled Archive for PLANNING state", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "active" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect(screen.getByTestId("attached-badge").textContent).toContain("add-auth");
-    expect(screen.getByTestId("explore-btn")).toBeTruthy();
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("continue-btn")).toBeTruthy();
-    expect(screen.getByTestId("ff-btn")).toBeTruthy();
-    expect(screen.getByTestId("archive-btn")).toBeTruthy();
-    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("archive-btn").getAttribute("title")).toBe("Complete tasks first");
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("read-btn")).toBeNull();
-    expect(screen.queryByTestId("apply-btn")).toBeNull();
-    expect(screen.queryByTestId("verify-btn")).toBeNull();
-  });
-
-  // --- READY state: Apply, Explore, Read ---
-
-  it("shows disabled Explore, Apply, disabled Archive for READY state", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "ready-change", status: "active" })}
-        changes={[readyChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("apply-btn")).toBeTruthy();
-    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("continue-btn")).toBeNull();
-    expect(screen.queryByTestId("ff-btn")).toBeNull();
-    expect(screen.queryByTestId("verify-btn")).toBeNull();
-  });
-
-  // --- IMPLEMENTING state: Apply, Explore, Read ---
-
-  it("shows disabled Explore, Apply, disabled Archive for IMPLEMENTING state", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-        changes={[implementingChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("apply-btn")).toBeTruthy();
-    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("continue-btn")).toBeNull();
-    expect(screen.queryByTestId("ff-btn")).toBeNull();
-    expect(screen.queryByTestId("verify-btn")).toBeNull();
-  });
-
-  // --- COMPLETE state: Verify, Archive, Explore, Read ---
-
-  it("shows disabled Explore, Verify, enabled Archive for COMPLETE state", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "fix-bug", status: "active" })}
-        changes={[completeChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("verify-btn")).toBeTruthy();
-    expect(screen.getByTestId("archive-btn")).toBeTruthy();
-    expect((screen.getByTestId("archive-btn") as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("read-btn")).toBeNull();
-    expect(screen.queryByTestId("continue-btn")).toBeNull();
-    expect(screen.queryByTestId("ff-btn")).toBeNull();
-    expect(screen.queryByTestId("apply-btn")).toBeNull();
-  });
-
-  // --- Blue badge color ---
+  // --- Attached header: badge + one primary + ⋯ overflow ---
+  // See change: compact-openspec-lifecycle-bar (test-plan E6–E9, F1–F7, X1).
 
   it("renders attached proposal name with text-blue-400", () => {
     render(
@@ -349,8 +253,6 @@ describe("SessionOpenSpecActions", () => {
     expect(nameSpan!.textContent).toBe("add-auth");
   });
 
-  // --- Action callbacks ---
-
   it("Continue sends correct prompt", () => {
     const onSendPrompt = vi.fn();
     render(
@@ -365,20 +267,6 @@ describe("SessionOpenSpecActions", () => {
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-continue-change add-auth");
   });
 
-  it("Verify sends correct prompt", () => {
-    const onSendPrompt = vi.fn();
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "fix-bug", status: "active" })}
-        changes={[completeChange]}
-        {...defaultProps}
-        onSendPrompt={onSendPrompt}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("verify-btn"));
-    expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-verify-change fix-bug");
-  });
-
   it("Apply sends correct prompt", () => {
     const onSendPrompt = vi.fn();
     render(
@@ -391,121 +279,6 @@ describe("SessionOpenSpecActions", () => {
     );
     fireEvent.click(screen.getByTestId("apply-btn"));
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-apply-change ready-change");
-  });
-
-  it("Detach calls onDetach", () => {
-    const onDetach = vi.fn();
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "active" })}
-        changes={[planningChange]}
-        {...defaultProps}
-        onDetach={onDetach}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("detach-btn"));
-    expect(onDetach).toHaveBeenCalledOnce();
-  });
-
-  // --- Ended session ---
-
-  it("hides LLM action buttons when session is ended", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "ended" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect(screen.getByText(/add-auth/)).toBeTruthy();
-    expect(screen.queryByTestId("explore-btn")).toBeNull();
-    expect(screen.queryByTestId("continue-btn")).toBeNull();
-    expect(screen.queryByTestId("ff-btn")).toBeNull();
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-  });
-
-  // --- Stepper Proposal-node click calls onReadArtifact ---
-
-  it("calls onReadArtifact with proposal when the stepper Proposal node is clicked", () => {
-    const onReadArtifact = vi.fn();
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth" })}
-        changes={[planningChange]}
-        {...defaultProps}
-        onReadArtifact={onReadArtifact}
-      />,
-    );
-    fireEvent.click(screen.getByTestId("stepper-node-proposal"));
-    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
-  });
-
-  // --- Disabled when not active ---
-
-  it("keeps Explore disabled (attached) but enables other buttons when session is idle", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    // Explore stays disabled because a proposal is attached (4.1).
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByTestId("ff-btn") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("disables action buttons when session is streaming", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "streaming" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("keeps Explore disabled (attached) but enables Continue when session is active", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "active" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("disables action buttons when session is streaming", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "add-auth", status: "streaming" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect((screen.getByTestId("explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("continue-btn") as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  // --- Attached change not found ---
-
-  it("shows badge + Detach only when attached change not in data", () => {
-    render(
-      <SessionOpenSpecActions
-        session={makeSession({ attachedProposal: "archived-change" })}
-        changes={[planningChange]}
-        {...defaultProps}
-      />,
-    );
-    expect(screen.getByText(/archived-change/)).toBeTruthy();
-    expect(screen.getByTestId("detach-btn")).toBeTruthy();
-    expect(screen.queryByTestId("explore-btn")).toBeNull();
-    expect(screen.queryByTestId("continue-btn")).toBeNull();
   });
 
   // --- Bulk Archive ---
@@ -587,34 +360,113 @@ describe("SessionOpenSpecActions", () => {
     });
   });
 
-  // --- State pill ---
+  // --- Lifecycle header: primary by state + workflow gating (E6) ---
 
-  describe("state pill", () => {
-    it("renders IMPLEMENTING pill for attached implementing change", () => {
+  const allCfg = expandedConfig;
+  const minusArchiveCfg: OpenSpecConfig = { ...expandedConfig, workflows: expandedConfig.workflows.filter((w) => w !== "archive") };
+
+  const openMenu = () => {
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    return screen.getByTestId("openspec-overflow-menu");
+  };
+  const menuIds = (menu: HTMLElement) =>
+    Array.from(menu.querySelectorAll("button")).map((b) => b.getAttribute("data-testid"));
+
+  const assertNoLegacy = () => {
+    expect(screen.queryByTestId("state-pill")).toBeNull();
+    expect(screen.queryByTestId("explore-btn")).toBeNull();
+    const archive = screen.queryByTestId("archive-btn") as HTMLButtonElement | null;
+    if (archive) expect(archive.disabled).toBe(false);
+  };
+
+  describe("primary action by state (E6)", () => {
+    it.each([
+      ["PLANNING/all", "add-auth", planningChange, allCfg, "continue-btn"],
+      ["PLANNING/core", "add-auth", planningChange, coreConfig, null],
+      ["READY/all", "ready-change", readyChange, allCfg, "apply-btn"],
+      ["IMPLEMENTING/all", "impl-change", implementingChange, allCfg, "apply-btn"],
+      ["COMPLETE/all", "fix-bug", completeChange, allCfg, "archive-btn"],
+      ["COMPLETE/minus-archive", "fix-bug", completeChange, minusArchiveCfg, "verify-btn"],
+    ] as const)("%s → %s", (_l, name, change, cfg, primary) => {
       render(
         <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change" })}
+          session={makeSession({ attachedProposal: name, status: "idle" })}
+          changes={[change]}
+          {...defaultProps}
+          openspecConfig={cfg}
+        />,
+      );
+      const candidates = ["continue-btn", "ff-btn", "apply-btn", "archive-btn", "verify-btn"];
+      const visible = candidates.filter((id) => screen.queryByTestId(id));
+      expect(visible).toEqual(primary ? [primary] : []);
+      assertNoLegacy();
+    });
+  });
+
+  // --- ⋯ contents by state (E7) ---
+
+  describe("overflow menu contents (E7)", () => {
+    const implIsComplete: OpenSpecChange = { ...implementingChange, isComplete: true };
+    it.each([
+      ["PLANNING", "add-auth", planningChange, ["ff-btn", "explore-menu-item", "detach-btn"]],
+      ["READY", "ready-change", readyChange, ["explore-menu-item", "detach-btn"]],
+      ["IMPLEMENTING+isComplete", "impl-change", implIsComplete, ["archive-anyway-btn", "explore-menu-item", "detach-btn"]],
+      ["IMPLEMENTING", "impl-change", implementingChange, ["explore-menu-item", "detach-btn"]],
+      ["COMPLETE", "fix-bug", completeChange, ["verify-btn", "explore-menu-item", "detach-btn"]],
+    ] as const)("%s", (_l, name, change, expected) => {
+      render(
+        <SessionOpenSpecActions
+          session={makeSession({ attachedProposal: name, status: "idle" })}
+          changes={[change]}
+          {...defaultProps}
+          openspecConfig={allCfg}
+        />,
+      );
+      const btn = screen.getByTestId("openspec-overflow-btn");
+      expect(btn.getAttribute("aria-haspopup")).toBe("dialog");
+      expect(btn.getAttribute("aria-expanded")).toBe("false");
+      const menu = openMenu();
+      expect(btn.getAttribute("aria-expanded")).toBe("true");
+      expect(menuIds(menu)).toEqual(expected);
+      for (const b of Array.from(menu.querySelectorAll("button"))) expect(b.querySelector("svg")).toBeTruthy();
+    });
+
+    it("Archive anyway… from the menu opens the confirm and dispatches archive", () => {
+      const onSendPrompt = vi.fn();
+      render(
+        <SessionOpenSpecActions
+          session={makeSession({ attachedProposal: "impl-change", status: "idle" })}
+          changes={[implIsComplete]}
+          {...defaultProps}
+          onSendPrompt={onSendPrompt}
+        />,
+      );
+      openMenu();
+      fireEvent.click(screen.getByTestId("archive-anyway-btn"));
+      expect(screen.getByText(/3 of 5 tasks are unchecked/)).toBeTruthy();
+      fireEvent.click(screen.getByTestId("archive-anyway-confirm-action"));
+      expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-archive-change impl-change");
+    });
+  });
+
+  // --- Ended + not-found (E8) ---
+
+  describe("ended and not-found branches (E8)", () => {
+    it("ended attached → bar, no primary, ⋯ holds only Detach", () => {
+      render(
+        <SessionOpenSpecActions
+          session={makeSession({ attachedProposal: "impl-change", status: "ended" })}
           changes={[implementingChange]}
           {...defaultProps}
         />,
       );
-      const pill = screen.getByTestId("state-pill");
-      expect(pill.getAttribute("data-state")).toBe("IMPLEMENTING");
-      expect(pill.textContent).toBe("IMPLEMENTING");
+      expect(screen.getByTestId("openspec-stepper")).toBeTruthy();
+      expect(screen.queryByTestId("apply-btn")).toBeNull();
+      expect(screen.queryByTestId("detach-btn")).toBeNull();
+      expect(menuIds(openMenu())).toEqual(["detach-btn"]);
     });
 
-    it("renders COMPLETE pill for attached complete change", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "fix-bug" })}
-          changes={[completeChange]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.getByTestId("state-pill").getAttribute("data-state")).toBe("COMPLETE");
-    });
-
-    it("hides pill when attached change is missing from data", () => {
+    it("attached change missing → badge + ⋯ with only Detach, no bar", () => {
       render(
         <SessionOpenSpecActions
           session={makeSession({ attachedProposal: "archived-change" })}
@@ -622,132 +474,202 @@ describe("SessionOpenSpecActions", () => {
           {...defaultProps}
         />,
       );
-      expect(screen.queryByTestId("state-pill")).toBeNull();
+      expect(screen.getByText(/archived-change/)).toBeTruthy();
+      expect(screen.queryByTestId("openspec-stepper")).toBeNull();
+      expect(screen.queryByTestId("detach-btn")).toBeNull();
+      expect(menuIds(openMenu())).toEqual(["detach-btn"]);
     });
   });
 
-  // --- Archive-anyway as a plain button ---
-  // Was an overflow menu with a single item — now a direct button.
-  // See change: redesign-session-card-and-composer (cleanup-pass).
+  // --- Unattached regression guard (E9) ---
 
-  describe("archive-anyway button", () => {
-    const implementingCompleteChange: OpenSpecChange = {
-      ...implementingChange,
-      isComplete: true,
-    };
+  it("unattached active: combo + Change + enabled Explore, no Archive (E9)", () => {
+    render(
+      <SessionOpenSpecActions session={makeSession({ status: "active" })} changes={[planningChange]} {...defaultProps} />,
+    );
+    expect(screen.getByTestId("attach-combo")).toBeTruthy();
+    expect(screen.getByTestId("new-change-btn")).toBeTruthy();
+    expect((screen.getByTestId("explore-unattached-btn") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("archive-btn")).toBeNull();
+    expect(screen.queryByTestId("openspec-overflow-btn")).toBeNull();
+  });
 
-    it("renders Archive anyway button when IMPLEMENTING + isComplete + all artifacts done", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-          changes={[implementingCompleteChange]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("overflow-btn")).toBeNull();
-      expect(screen.getByTestId("archive-anyway-btn")).toBeTruthy();
-    });
+  // --- Segment clicks (F1) ---
 
-    it("hides Archive anyway when isComplete is false", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-          changes={[{ ...implementingChange, isComplete: false }]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("archive-anyway-btn")).toBeNull();
-    });
+  const impl1239: OpenSpecChange = { ...implementingChange, name: "add-auth", completedTasks: 12, totalTasks: 39 };
 
-    it("hides Archive anyway when isComplete is undefined", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-          changes={[implementingChange]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("archive-anyway-btn")).toBeNull();
-    });
+  it("Design segment reads the artifact; Tasks segment opens TasksPopover (F1)", () => {
+    const onReadArtifact = vi.fn();
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
+        changes={[impl1239]}
+        {...defaultProps}
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("stepper-segment-design"));
+    expect(onReadArtifact).toHaveBeenCalledTimes(1);
+    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "design");
+    fireEvent.click(screen.getByTestId("stepper-segment-tasks"));
+    expect(screen.getByTestId("tasks-popover")).toBeTruthy();
+  });
 
-    it("hides Archive anyway in COMPLETE state", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "fix-bug", status: "active" })}
-          changes={[{ ...completeChange, isComplete: true }]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("archive-anyway-btn")).toBeNull();
-    });
+  // --- Archive segment gating (F2) ---
 
-    it("hides Archive anyway when not all artifacts are done", () => {
-      const planningIsComplete: OpenSpecChange = {
-        name: "planning-ic",
-        status: "in-progress",
-        completedTasks: 2,
-        totalTasks: 5,
-        artifacts: [
-          { id: "proposal", status: "done" },
-          { id: "design", status: "ready" },
-        ],
-        isComplete: true,
-      };
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "planning-ic", status: "active" })}
-          changes={[planningIsComplete]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("archive-anyway-btn")).toBeNull();
-    });
+  describe("Archive segment (F2)", () => {
+    const complete: OpenSpecChange = { ...completeChange, name: "add-auth" };
 
-    it("clicking Archive anyway opens confirm dialog and dispatches archive prompt", () => {
+    it("COMPLETE + idle → confirm → archive prompt", () => {
       const onSendPrompt = vi.fn();
       render(
         <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-          changes={[implementingCompleteChange]}
+          session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
+          changes={[complete]}
+          {...defaultProps}
+          onSendPrompt={onSendPrompt}
+          openspecConfig={allCfg}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("stepper-segment-archive"));
+      fireEvent.click(screen.getByTestId("archive-confirm-action"));
+      expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-archive-change add-auth");
+    });
+
+    it.each([
+      ["COMPLETE streaming", complete, "streaming"],
+      ["IMPLEMENTING", { ...implementingChange, name: "add-auth" }, "idle"],
+    ] as const)("%s → inert div, no dialog", (_l, change, status) => {
+      const onSendPrompt = vi.fn();
+      render(
+        <SessionOpenSpecActions
+          session={makeSession({ attachedProposal: "add-auth", status })}
+          changes={[change]}
           {...defaultProps}
           onSendPrompt={onSendPrompt}
         />,
       );
-      fireEvent.click(screen.getByTestId("archive-anyway-btn"));
-      // 2/5 complete → 3 unchecked of 5
-      expect(screen.getByText(/3 of 5 tasks are unchecked/)).toBeTruthy();
-      fireEvent.click(screen.getByTestId("archive-anyway-confirm-action"));
-      expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-archive-change impl-change");
+      const seg = screen.getByTestId("stepper-segment-archive");
+      expect(seg.tagName).toBe("DIV");
+      fireEvent.click(seg);
+      expect(screen.queryByTestId("archive-confirm")).toBeNull();
+      expect(onSendPrompt).not.toHaveBeenCalled();
     });
   });
 
-  // --- Tasks button removed; stepper Tasks node now opens TasksPopover ---
-  // See change: redesign-session-card-and-composer (cleanup-pass).
+  // --- Streaming (F3) ---
 
-  describe("tasks button (removed)", () => {
-    it("no standalone Tasks N/M button — stepper Tasks node handles it", () => {
-      render(
-        <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "impl-change", status: "active" })}
-          changes={[implementingChange]}
-          {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("tasks-btn")).toBeNull();
-      // Stepper Tasks node is rendered + clickable.
-      const node = screen.getByTestId("stepper-node-tasks");
-      expect(node.getAttribute("data-clickable")).toBe("true");
-    });
+  it("streaming: previews open, Tasks locked, primary aria-disabled, menu disabled except Detach (F3)", () => {
+    const onReadArtifact = vi.fn();
+    const onSendPrompt = vi.fn();
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "add-auth", status: "streaming" })}
+        changes={[impl1239]}
+        {...defaultProps}
+        onSendPrompt={onSendPrompt}
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("stepper-segment-proposal"));
+    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
+    fireEvent.click(screen.getByTestId("stepper-segment-tasks"));
+    expect(screen.queryByTestId("tasks-popover")).toBeNull();
+    const primary = screen.getByTestId("apply-btn");
+    expect(primary.getAttribute("aria-disabled")).toBe("true");
+    expect(primary.getAttribute("title")).toBe("Session is streaming");
+    fireEvent.click(primary);
+    expect(onSendPrompt).not.toHaveBeenCalled();
+    const menu = openMenu();
+    for (const b of Array.from(menu.querySelectorAll("button"))) {
+      expect((b as HTMLButtonElement).disabled).toBe(b.getAttribute("data-testid") !== "detach-btn");
+    }
+  });
 
-    it("hides Tasks button when totalTasks is 0", () => {
-      render(
+  // --- Keyboard menu (F5) ---
+
+  it("⋯ open focuses the first enabled item; Escape closes and refocuses ⋯ (F5)", async () => {
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "ready-change", status: "idle" })}
+        changes={[readyChange]}
+        {...defaultProps}
+      />,
+    );
+    const btn = screen.getByTestId("openspec-overflow-btn");
+    btn.focus();
+    fireEvent.click(btn);
+    await act(async () => { await new Promise<void>((r) => requestAnimationFrame(() => r())); });
+    expect(document.activeElement).toBe(screen.getByTestId("explore-menu-item"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("openspec-overflow-menu")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId("openspec-overflow-btn"));
+  });
+
+  // --- Change-scoped Explore (F6) ---
+
+  it("Explore… sends a change-scoped explore prompt (F6)", async () => {
+    const onSendPrompt = vi.fn();
+    render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "add-auth", status: "idle" })}
+        changes={[impl1239]}
+        {...defaultProps}
+        onSendPrompt={onSendPrompt}
+      />,
+    );
+    openMenu();
+    fireEvent.click(screen.getByTestId("explore-menu-item"));
+    fireEvent.change(screen.getByTestId("explore-textarea"), { target: { value: "what does step 3 mean?" } });
+    fireEvent.click(screen.getByTestId("explore-send"));
+    await waitFor(() =>
+      expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-explore add-auth\nwhat does step 3 mean?", undefined),
+    );
+  });
+
+  // --- Detach via ⋯ (F7) ---
+
+  it.each(["idle", "ended"] as const)("Detach via ⋯ (%s) → onDetach, then unattached combo (F7)", (status) => {
+    const onDetach = vi.fn();
+    const { rerender } = render(
+      <SessionOpenSpecActions
+        session={makeSession({ attachedProposal: "add-auth", status })}
+        changes={[impl1239]}
+        {...defaultProps}
+        onDetach={onDetach}
+      />,
+    );
+    openMenu();
+    fireEvent.click(screen.getByTestId("detach-btn"));
+    expect(onDetach).toHaveBeenCalledOnce();
+    rerender(
+      <RunConfigHarness value={makeRunConfig()}>
         <SessionOpenSpecActions
-          session={makeSession({ attachedProposal: "ready-change", status: "active" })}
-          changes={[readyChange]}
+          session={makeSession({ attachedProposal: null, status })}
+          changes={[impl1239]}
           {...defaultProps}
-        />,
-      );
-      expect(screen.queryByTestId("tasks-btn")).toBeNull();
-    });
+          onDetach={onDetach}
+        />
+      </RunConfigHarness>,
+    );
+    expect(screen.getByTestId("attach-combo")).toBeTruthy();
+  });
+
+  // --- Change vanishes between renders (X1) ---
+
+  it("attached change removed between renders → bar + primary gone, badge + ⋯ remain (X1)", () => {
+    const { rerender } = render(
+      <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth", status: "idle" })} changes={[impl1239]} {...defaultProps} />,
+    );
+    expect(screen.getByTestId("apply-btn")).toBeTruthy();
+    rerender(
+      <RunConfigHarness value={makeRunConfig()}>
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth", status: "idle" })} changes={[]} {...defaultProps} />
+      </RunConfigHarness>,
+    );
+    expect(screen.queryByTestId("openspec-stepper")).toBeNull();
+    expect(screen.queryByTestId("apply-btn")).toBeNull();
+    expect(screen.getByText(/add-auth/)).toBeTruthy();
+    expect(menuIds(openMenu())).toEqual(["detach-btn"]);
   });
 });

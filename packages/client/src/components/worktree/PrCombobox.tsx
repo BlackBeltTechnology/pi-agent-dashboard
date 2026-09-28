@@ -172,7 +172,7 @@ export function PrCombobox({
         }`}
       >
         <span className="flex-1 truncate">{triggerLabel}</span>
-        <span className="text-[var(--text-muted)]">▾</span>
+        <span aria-hidden="true" className="text-[var(--text-secondary)]">▾</span>
       </button>
       {open && (
         <div

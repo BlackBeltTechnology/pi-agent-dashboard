@@ -69,6 +69,10 @@ export const UI_PRIMITIVE_KEYS = {
   /** Monospace log/stderr inset panel with a labelled header, copy control
    *  (always full text), and collapse/expand or `preview` (last-N-lines) mode. */
   logBlock: "ui:log-block",
+  /** Generic OAuth sign-in flow body (auth link, device code, paste field,
+   *  select/text prompts, cancel) driven by an `OAuthFlowStatus`.
+   *  See change: expose-plugin-credential-and-oauth-seams (D6). */
+  oauthFlow: "ui:oauth-flow",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -350,6 +354,24 @@ export interface UiLogBlockProps {
   copyIcon?: string;
 }
 
+/**
+ * Public prop signature for the OAuth flow view. `flow.status` is the latest
+ * `GET /api/provider-auth/flow/:flowId` body. The view renders while `phase` is
+ * `starting`/`waiting`; the host owns polling and the terminal outcome.
+ * See change: expose-plugin-credential-and-oauth-seams (D6).
+ */
+export interface UiOAuthFlowViewProps {
+  flow: {
+    phase: "starting" | "waiting" | "error";
+    // Inline type import: rest-api reaches node-only modules, and this file is
+    // value-imported by the browser bundle (no-node-only-shared-imports).
+    status?: import("../rest-api.js").OAuthFlowStatus;
+    error?: string;
+  };
+  onSendInput: (flowId: string, value: string) => Promise<void>;
+  onCancel: (flowId: string) => void;
+}
+
 export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
@@ -368,6 +390,7 @@ export interface UiPrimitiveMap {
   "ui:tool-call-step": ComponentType<UiToolCallStepProps>;
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;
   "ui:log-block": ComponentType<UiLogBlockProps>;
+  "ui:oauth-flow": ComponentType<UiOAuthFlowViewProps>;
 }
 
 /**

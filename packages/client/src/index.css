@@ -47,6 +47,20 @@
 @utility z-toast { z-index: var(--z-toast); }
 @utility z-lightbox { z-index: var(--z-lightbox); }
 
+/* Tinted action recipe (ui-contract.md "Tint action recipe"): tint fg on its
+   own tint bg + tint border; hover mixes the bg 70% toward the border. One
+   class per identity hue. Lives in CSS rather than four arbitrary-value
+   classes per call site so the recipe stays out of the JS index chunk
+   (mdi-chunk-size cap). Hover is gated on (hover: hover) like Tailwind's.
+   `tap-target`: 44px min height on touch, 32px from sm: up.
+   See change: align-ui-with-theme-tokens. */
+@utility tint-action-green { color: var(--tint-green-fg); border-color: var(--tint-green-border); background-color: var(--tint-green-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-green-bg) 70%, var(--tint-green-border)); } } }
+@utility tint-action-orange { color: var(--tint-orange-fg); border-color: var(--tint-orange-border); background-color: var(--tint-orange-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-orange-bg) 70%, var(--tint-orange-border)); } } }
+@utility tint-action-blue { color: var(--tint-blue-fg); border-color: var(--tint-blue-border); background-color: var(--tint-blue-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-blue-bg) 70%, var(--tint-blue-border)); } } }
+@utility tint-action-purple { color: var(--tint-purple-fg); border-color: var(--tint-purple-border); background-color: var(--tint-purple-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-purple-bg) 70%, var(--tint-purple-border)); } } }
+@utility tint-action-red { color: var(--tint-red-fg); border-color: var(--tint-red-border); background-color: var(--tint-red-bg); @media (hover: hover) { &:hover { background-color: color-mix(in srgb, var(--tint-red-bg) 70%, var(--tint-red-border)); } } }
+@utility tap-target { min-height: 44px; @media (width >= 40rem) { min-height: 32px; } }
+
 /* ── Theme Variables ─────────────────────────────────────────── */
 
 :root {
@@ -157,18 +171,40 @@
      tokyo-night light `info` (that theme's own body text is already sub-AA at
      3.5:1, so no derived tint can beat it). See change:
      unify-message-severity-colors, design.md D4/D6. */
-  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
-  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
-  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
-  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
-  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
-  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
-  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
-  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
-  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
-  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
-  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
-  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  /* Identity tints — same bg 10% / fg 46% / border 40% color-mix recipe as
+     the severity triples, keyed by HUE instead of meaning: pi/new session =
+     green, worktree = orange, fork/links/selected = blue, goals = purple,
+     destructive = red. A tint fg is only ever painted on its OWN tint bg.
+     The four accent severity triples below are aliases of the matching tint
+     (values byte-identical after resolution). See change:
+     align-ui-with-theme-tokens (design D1). */
+  --tint-green-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --tint-green-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --tint-green-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --tint-orange-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --tint-orange-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --tint-orange-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --tint-blue-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --tint-blue-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --tint-blue-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --tint-purple-bg: color-mix(in srgb, var(--accent-purple) 10%, var(--bg-tertiary));
+  --tint-purple-fg: color-mix(in srgb, var(--accent-purple) 46%, var(--text-primary));
+  --tint-purple-border: color-mix(in srgb, var(--accent-purple) 40%, transparent);
+  --tint-red-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --tint-red-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --tint-red-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-error-bg: var(--tint-red-bg);
+  --severity-error-fg: var(--tint-red-fg);
+  --severity-error-border: var(--tint-red-border);
+  --severity-warning-bg: var(--tint-orange-bg);
+  --severity-warning-fg: var(--tint-orange-fg);
+  --severity-warning-border: var(--tint-orange-border);
+  --severity-success-bg: var(--tint-green-bg);
+  --severity-success-fg: var(--tint-green-fg);
+  --severity-success-border: var(--tint-green-border);
+  --severity-info-bg: var(--tint-blue-bg);
+  --severity-info-fg: var(--tint-blue-fg);
+  --severity-info-border: var(--tint-blue-border);
   --severity-neutral-bg: var(--bg-tertiary);
   --severity-neutral-fg: var(--text-secondary);
   --severity-neutral-border: var(--border-primary);
@@ -864,41 +900,83 @@ mark.markdown-search-highlight-active {
   .card-glow-fx::before { animation: none; }
 }
 
-/* ── OpenSpec stepper node opaque base ────────────────────────
-   See change: redesign-session-card-and-composer (1.6).
-   Two-layer background — the inner linear-gradient tint stacks
-   over an opaque var(--bg-tertiary) base so the connecting line
-   between nodes can never bleed through the node interior. */
-.openspec-stepper-node-base {
-  background:
-    linear-gradient(var(--bg-tertiary), var(--bg-tertiary)),
-    var(--bg-tertiary);
-  background-color: var(--bg-tertiary);
+/* ── OpenSpec lifecycle bar ──────────────────────────────────
+   5 segments (Proposal · Design · Specs · Tasks · Archive). Each segment =
+   6 px track + label, ≥24 px hit row. Colour comes from `--seg-color`, set
+   inline from `statusPresentation(kind).tokenVar` — no raw hex. Container
+   query swaps labels to letters below 250 px of bar width (strict `<`).
+   See change: compact-openspec-lifecycle-bar. */
+.openspec-lifecycle-bar {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  container-type: inline-size;
 }
-/* Opacity cross-fade of two pre-painted box-shadow rings instead of animating
-   box-shadow itself (non-composited — repaints every frame). Base ring painted
-   once on the node; a larger static ring on the ::after cross-fades in/out.
-   Reuses the chat-stream-glow-pulse pattern. See change:
-   reduce-chat-render-cpu-umbrella (Phase 1, task 2.4). */
-@keyframes openspec-stepper-pulse-current {
-  0%, 100% { opacity: 0; }
-  50%      { opacity: 1; }
+.openspec-seg {
+  all: unset;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 18px;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 3px;
+  border-radius: 4px;
+  cursor: pointer;
 }
-.openspec-stepper-node-current {
-  box-shadow: 0 0 0 3px rgba(251, 146, 60, 0.18);
+.openspec-seg-tasks { flex: 1 1 0; min-width: 44px; }
+.openspec-seg[data-inert] { cursor: default; }
+.openspec-seg:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.openspec-seg-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
 }
-.openspec-stepper-node-current::after {
-  content: "";
+.openspec-seg-fill {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  box-shadow: 0 0 0 5px rgba(251, 146, 60, 0.30);
-  opacity: 0;
-  animation: openspec-stepper-pulse-current 2.4s ease-in-out infinite;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--seg-color);
+}
+.openspec-seg-label {
+  font-size: 9px;
+  line-height: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.openspec-seg-count { font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; font-size: 10px; }
+.openspec-seg-short { display: none; }
+@container (width < 250px) {
+  .openspec-seg-full { display: none; }
+  .openspec-seg-short { display: inline; }
+}
+.openspec-seg[data-state="done"] .openspec-seg-track { background: var(--seg-color); }
+.openspec-seg[data-state="done"] .openspec-seg-label,
+.openspec-seg[data-state="skipped"] .openspec-seg-label { color: var(--seg-color); }
+.openspec-seg[data-state="current"] .openspec-seg-label { color: var(--seg-color); font-weight: 600; }
+.openspec-seg[data-state="current"] .openspec-seg-track { background: color-mix(in srgb, var(--seg-color) 30%, transparent); }
+.openspec-seg[data-state="current"]:not(.openspec-seg-tasks) .openspec-seg-track {
+  background: var(--seg-color);
+  animation: openspec-seg-pulse 1.6s ease-in-out infinite;
+}
+.openspec-seg[data-state="skipped"] .openspec-seg-track {
+  background: repeating-linear-gradient(135deg, var(--seg-color) 0 3px, transparent 3px 6px);
+}
+.openspec-seg:not([data-inert]):hover .openspec-seg-track { filter: brightness(1.35); }
+.openspec-seg:not([data-inert]):hover .openspec-seg-label { color: var(--text-primary); }
+@keyframes openspec-seg-pulse {
+  50% { opacity: 0.55; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .openspec-stepper-node-current::after { animation: none; opacity: 0; }
+  .openspec-seg .openspec-seg-track { animation: none !important; }
 }
 
 /* ── OpenSpec board responsive column layout ──────────────────

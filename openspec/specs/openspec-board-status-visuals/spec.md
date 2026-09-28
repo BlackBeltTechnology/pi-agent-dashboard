@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change port-session-card-state-visuals-to-openspec-board. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Board session rows render status stripes identical to the sidebar card
 
 Each `BoardSessionRow` in the OpenSpec board SHALL render the same `.card-stripes-fx` status-stripe overlay that `SessionCard` renders, derived through the same `getCardPulseClass` → `getCardStripeFxClass` chain. The mapping SHALL be: `status === "streaming" || resuming` → `card-stripes-running` (yellow); `currentTool === "ask_user"` → `card-stripes-input` (purple, highest precedence); `unread` → `card-stripes-unread` (cyan); otherwise no overlay. The overlay SHALL be `aria-hidden` and rendered behind row content.
@@ -42,7 +44,7 @@ Each `ProposalCard` SHALL paint a single `.card-stripes-fx` overlay derived from
 #### Scenario: Completed proposal shows no stripe
 
 - **GIVEN** a proposal card whose every child session is `ended`
-- **THEN** the card SHALL render no `.card-stripes-fx` overlay, leaving completion to the COMPLETE state pill and task bar.
+- **THEN** the card SHALL render no `.card-stripes-fx` overlay, leaving the change's lifecycle phase to the card's lifecycle bar, which derives from the change state and not from session status.
 
 ### Requirement: Board auto-scrolls the active item into view
 
@@ -69,4 +71,3 @@ The pulse/stripe state-mapping helpers (`getCardPulseClass`, `getCardStripeFxCla
 - **GIVEN** the helper `getCardStripeFxClass`
 - **WHEN** both the sidebar card and the board row map a session's state to a stripe class
 - **THEN** they SHALL resolve through the same function in `session-status-visuals.ts`, producing identical classes for identical session state.
-

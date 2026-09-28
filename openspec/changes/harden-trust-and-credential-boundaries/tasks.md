@@ -13,6 +13,7 @@
 ## 3. Bridge event allowlist (B15)
 
 - [ ] 3.1 Add an allowlist of emittable dashboard-plugin event names; drop unknown types in `bridge.ts:plugin_emit_event`.
+  - **Coordination (expose-plugin-credential-and-oauth-seams, design D7):** `plugin_request` / `plugin_reply` are protocol message types, NOT `plugin_emit_event` names — the allowlist neither covers nor blocks them. `plugin_reply` is sent host-internally on the requesting session's socket regardless of plugin priority (it only answers that bridge's own request); do not route it through the priority-gated `sendExtensionMessage`.
 
 ## 4. Config file 0600 (B25)
 

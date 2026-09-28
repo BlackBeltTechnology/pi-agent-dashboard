@@ -360,7 +360,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
       if (body.spawn === true) {
         if (!spawnGoalSession) {
           reply.code(501);
-          return { success: false, error: "spawn not supported" } satisfies ApiResponse;
+          return { success: false, error: "starting sessions is not supported" } satisfies ApiResponse;
         }
         try {
           // Validate the goal exists before spawning.
@@ -370,7 +370,7 @@ export function registerGoalRoutes(fastify: FastifyInstance, deps: GoalRoutesDep
           const res = await spawnGoalSession(cwd!, id, model ? { model } : undefined);
           if (!res.success) {
             reply.code(500);
-            return { success: false, error: res.message ?? "spawn failed" } satisfies ApiResponse;
+            return { success: false, error: res.message ?? "session start failed" } satisfies ApiResponse;
           }
           return { success: true } satisfies ApiResponse;
         } catch (err) {

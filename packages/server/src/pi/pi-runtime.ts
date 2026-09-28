@@ -236,5 +236,5 @@ export function consumerDivergenceMessage(
 	if (!snap.consumerDiverged) return null;
 	const s = snap.spawn.version ?? "unknown";
 	const m = snap.module.version ?? "unknown";
-	return `pi runtime mismatch: sessions spawn pi ${s} while the server imports pi ${m}.`;
+	return `pi runtime mismatch: new sessions run pi ${s} while the server imports pi ${m}.`;
 }

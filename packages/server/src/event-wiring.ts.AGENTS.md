@@ -15,3 +15,5 @@ Wires `piGateway.onDisconnect` -> invalidate the provider catalogue once no brid
 Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `console.warn`s once and persists + broadcasts `command_feedback {command, status:"error", message:"bridge outdated — reload the session"}` (persist FIRST — a broadcast-only terminal re-creates the stuck "in progress" pill on browser reattach). No keeper socket is written; a throwing `eventStore.insertEvent` is caught and logged so the WS handler never rejects. See change: retire-slash-dispatch-via-expand-prompt-templates (D4).
 
 `event_forward` calls `routeReloadFeedback` BEFORE the replay-skip early return: terminal `/reload` `command_feedback` settles the forwarded-reload watch; late feedback after deadline dropped; inside replay-skip window persisted + broadcast here. See change: fix-terminal-session-dashboard-reload.
+
+`plugin_request` → `dispatchPluginRequest(sessionId,msg)` (new optional dep). See change: expose-plugin-credential-and-oauth-seams.

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
@@ -28,12 +30,22 @@ const THEMES = [
 const MODES = ["dark", "light"] as const;
 const ACCENT_TIERS = ["error", "warning", "success", "info"] as const;
 const ALL_TIERS = [...ACCENT_TIERS, "neutral"] as const;
+// Identity tints — same color-mix recipe as the severity triples, keyed by hue.
+// Swept SEPARATELY so ALL_TIERS (and its distinct-bg test) stays untouched.
+// See change: align-ui-with-theme-tokens (design D1, task 2.11).
+const TINT_TIERS = ["green", "orange", "blue", "purple", "red"] as const;
 
 const FLOOR = 3.0; // WCAG UI/large-text floor; severity color is a redundant cue.
 const AA = 4.5;
 // Documented theme-ceiling exceptions: cell key → its (lower) allowed floor.
 const EXCEPTIONS: Record<string, number> = {
   "tokyo-night/light/info": 2.5,
+  // `--severity-info-*` aliases `--tint-blue-*`: the SAME resolved colours as
+  // the info cell above (measured ~2.7:1). `purple` is new, no severity twin
+  // (measured ~2.9:1). Same theme deficiency — its body text is itself blue.
+  // See change: align-ui-with-theme-tokens (design D1).
+  "tokyo-night/light/blue": 2.5,
+  "tokyo-night/light/purple": 2.5,
   // Same theme deficiency, different surface: `--link` on `--bg-code`.
   // See change: repair-tool-error-surfaces (#F8).
   "tokyo-night/light/link": 2.5,
@@ -63,9 +75,13 @@ async function applyTheme(page: Page, theme: string, mode: string): Promise<void
   }
 }
 
-/** Read resolved bg/fg/close colors + contrast for every tier, in-browser. */
-function readTiers(page: Page, tiers: readonly string[]) {
-  return page.evaluate((TIERS) => {
+/**
+ * Read resolved bg/fg/close colors + contrast for every tier, in-browser.
+ * `prefix` selects the token family: `severity` → `--severity-<tier>-*`,
+ * `tint` → `--tint-<tier>-*` (change: align-ui-with-theme-tokens).
+ */
+function readTiers(page: Page, tiers: readonly string[], prefix: "severity" | "tint" = "severity") {
+  return page.evaluate(([TIERS, PREFIX]) => {
     // Normalize to 0..1 gamma-encoded sRGB channels + alpha. Chrome serializes
     // color-mix() results as `color(srgb r g b / a)` (0..1 floats) but plain
     // colors as `rgb(r, g, b)` (0..255) — handle both.
@@ -86,12 +102,12 @@ function readTiers(page: Page, tiers: readonly string[]) {
     const out: Record<string, { bg: number[]; fg: number[]; close: number[]; contrast: number }> = {};
     for (const t of TIERS) {
       const el = document.createElement("div");
-      el.style.backgroundColor = `var(--severity-${t}-bg)`;
-      el.style.color = `var(--severity-${t}-fg)`;
+      el.style.backgroundColor = `var(--${PREFIX}-${t}-bg)`;
+      el.style.color = `var(--${PREFIX}-${t}-fg)`;
       el.textContent = "sample";
       // Close-button pattern: variant -fg at reduced opacity (Tailwind /70).
       const close = document.createElement("span");
-      close.className = `text-[var(--severity-${t}-fg)]/70`;
+      close.className = `text-[var(--${PREFIX}-${t}-fg)]/70`;
       el.appendChild(close);
       document.body.appendChild(el);
       const cs = getComputedStyle(el);
@@ -101,7 +117,7 @@ function readTiers(page: Page, tiers: readonly string[]) {
       el.remove();
     }
     return out;
-  }, tiers as string[]);
+  }, [tiers as string[], prefix] as const);
 }
 
 /**
@@ -237,6 +253,97 @@ test.describe("severity tokens — derived-triple contrast (unify-message-severi
     // Documentation: the majority of the 90 cells meet full AA 4.5:1.
     expect(total).toBe(THEMES.length * MODES.length * ALL_TIERS.length);
     expect(aaCount, `only ${aaCount}/${total} cells meet AA 4.5:1`).toBeGreaterThanOrEqual(55);
+  });
+
+  // ── align-ui-with-theme-tokens E2 (task 5.2): tint contrast sweep ───────────
+  // Same relative gate as the severity sweep above, over the five identity
+  // tints, as a separate list with its own ≥ 55/90 AA count. A tint fg is only
+  // ever painted on its own tint bg, so fg-on-bg is the pairing that matters.
+  test("identity tints clear the same relative contrast gate across all themes", async ({ page }) => {
+    await gotoDashboard(page);
+
+    let aaCount = 0;
+    let total = 0;
+    const belowFloor: string[] = [];
+    const defaultBelowAA: string[] = [];
+
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const tiers = await readTiers(page, TINT_TIERS, "tint");
+        for (const tier of TINT_TIERS) {
+          const key = `${theme}/${mode}/${tier}`;
+          const c = tiers[tier].contrast;
+          total++;
+          if (c >= AA) aaCount++;
+          const floor = EXCEPTIONS[key] ?? FLOOR;
+          if (c + 0.01 < floor) belowFloor.push(`${key}=${c.toFixed(2)} (floor ${floor})`);
+          // Absolute AA on the default dark + light themes (what the mockup
+          // and the probe measure). design D1.
+          if (theme === "base" && c < AA) defaultBelowAA.push(`${key}=${c.toFixed(2)}`);
+        }
+      }
+    }
+
+    expect(total).toBe(THEMES.length * MODES.length * TINT_TIERS.length);
+    expect(belowFloor, `tint cells under floor: ${belowFloor.join(", ")}`).toEqual([]);
+    expect(defaultBelowAA, `default-theme tints under AA: ${defaultBelowAA.join(", ")}`).toEqual([]);
+    expect(aaCount, `only ${aaCount}/${total} tint cells meet AA 4.5:1`).toBeGreaterThanOrEqual(55);
+  });
+
+  // ── align-ui-with-theme-tokens E1 (task 5.1): severity values unchanged ────
+  // The four accent severity triples now alias the matching tint. Their
+  // resolved values must equal the baseline captured BEFORE that change
+  // (tests/e2e/fixtures/severity-baseline.json, task 4.3), in all 18 combos.
+  test("severity triples resolve to the pre-alias baseline in every theme/mode", async ({ page }) => {
+    const baseline = JSON.parse(
+      readFileSync(join(import.meta.dirname, "fixtures", "severity-baseline.json"), "utf8"),
+    ) as { combos: Record<string, Record<string, { bg: string; fg: string }>> };
+    await gotoDashboard(page);
+
+    const diffs: string[] = [];
+    let cells = 0;
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const now = await page.evaluate((TIERS) => {
+          // Same normalisation as the capture: 0–255 rounded, alpha 3 dp.
+          const norm = (s: string) => {
+            let m = s.match(/color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*\/\s*([\d.]+))?/);
+            let r: number[];
+            if (m) r = [+m[1] * 255, +m[2] * 255, +m[3] * 255, m[4] !== undefined ? +m[4] : 1];
+            else {
+              m = s.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/);
+              if (!m) return `unparsed:${s}`;
+              r = [+m[1], +m[2], +m[3], m[4] !== undefined ? +m[4] : 1];
+            }
+            return `${Math.round(r[0])},${Math.round(r[1])},${Math.round(r[2])},${r[3].toFixed(3)}`;
+          };
+          const out: Record<string, { bg: string; fg: string }> = {};
+          for (const t of TIERS) {
+            const d = document.createElement("div");
+            d.style.backgroundColor = `var(--severity-${t}-bg)`;
+            d.style.color = `var(--severity-${t}-fg)`;
+            document.body.appendChild(d);
+            const cs = getComputedStyle(d);
+            out[t] = { bg: norm(cs.backgroundColor), fg: norm(cs.color) };
+            d.remove();
+          }
+          return out;
+        }, [...ACCENT_TIERS] as string[]);
+        const key = `${theme}/${mode}`;
+        const want = baseline.combos[key];
+        expect(want, `baseline has no entry for ${key}`).toBeTruthy();
+        for (const t of ACCENT_TIERS) {
+          for (const part of ["bg", "fg"] as const) {
+            cells++;
+            if (now[t][part] !== want[t][part]) diffs.push(`${key}/${t}-${part}: ${want[t][part]} → ${now[t][part]}`);
+          }
+        }
+      }
+    }
+    expect(cells).toBe(THEMES.length * MODES.length * ACCENT_TIERS.length * 2);
+    expect(diffs, `severity values drifted: ${diffs.join("; ")}`).toEqual([]);
   });
 
   // ── F1/F2/F3 (tasks 5.13–5.15): base-theme render invariants ───────────────

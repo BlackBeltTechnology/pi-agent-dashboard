@@ -55,10 +55,10 @@ describe("ComposerSessionActions", () => {
     expect(screen.getByTestId("composer-session-actions")).toBeTruthy();
     expect(screen.getByTestId("composer-openspec-group-label")).toBeTruthy();
     expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
-  it("IMPLEMENTING attached change: Explore disabled, Apply enabled, Archive disabled", () => {
+  it("IMPLEMENTING attached change: Explore + Archive hidden, Apply enabled", () => {
     render(
       <ComposerSessionActions
         session={makeSession({ attachedProposal: "add-auth" })}
@@ -66,10 +66,9 @@ describe("ComposerSessionActions", () => {
         openspecHasDir={true}
       />,
     );
-    expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
     expect((screen.getByTestId("composer-apply-btn") as HTMLButtonElement).disabled).toBe(false);
-    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("composer-archive-btn").getAttribute("title")).toBe("Complete tasks first");
+    expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
   it("COMPLETE attached change: Archive enabled", () => {
@@ -121,9 +120,59 @@ describe("ComposerSessionActions", () => {
         openspecHasDir={true}
       />,
     );
-    expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("composer-apply-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("composer-artifact-t") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // Lifecycle-bar gating. See change: compact-openspec-lifecycle-bar (E10, F13).
+  describe("lifecycle gating (E10)", () => {
+    const impl1239 = (): OpenSpecChange => ({ ...implementingChange(), completedTasks: 12, totalTasks: 39 });
+
+    it("unattached → enabled Explore, no Archive", () => {
+      render(<ComposerSessionActions session={makeSession()} changes={[impl1239()]} openspecHasDir />);
+      expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(false);
+      expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
+    });
+
+    it("attached IMPLEMENTING 12/39 → no Explore/Archive; T chip is a count chip", () => {
+      render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[impl1239()]} openspecHasDir />);
+      expect(screen.queryByTestId("composer-explore-btn")).toBeNull();
+      expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
+      const chip = screen.getByTestId("composer-artifact-t");
+      expect(chip.textContent).toContain("12/39");
+      expect(chip.getAttribute("aria-label")).toBe("Tasks 12 of 39 done");
+      const bar = chip.querySelector<HTMLElement>("[data-testid='composer-tasks-underline']");
+      expect(bar?.style.width).toBe("31%");
+    });
+
+    it("attached COMPLETE → enabled Archive", () => {
+      render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[completeChange()]} openspecHasDir />);
+      expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("skipped specs renders as done", () => {
+      const c = { ...impl1239(), artifacts: [...implementingArtifacts.slice(0, 2), { id: "specs" as const, status: "skipped" as const }] };
+      render(<ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[c]} openspecHasDir />);
+      expect(screen.getByTestId("composer-artifact-s").getAttribute("data-state")).toBe("done");
+    });
+  });
+
+  it("streaming: P chip reads, tasks chip disabled with no popover (F13)", () => {
+    const onReadArtifact = vi.fn();
+    render(
+      <ComposerSessionActions
+        session={makeSession({ status: "streaming", attachedProposal: "add-auth" })}
+        changes={[{ ...implementingChange(), completedTasks: 12, totalTasks: 39 }]}
+        openspecHasDir
+        onReadArtifact={onReadArtifact}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("composer-artifact-p"));
+    expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
+    const t = screen.getByTestId("composer-artifact-t") as HTMLButtonElement;
+    expect(t.disabled).toBe(true);
+    fireEvent.click(t);
+    expect(screen.queryByTestId("tasks-popover")).toBeNull();
   });
 
   it("renders Git group label + worktree menu when session has gitWorktree", () => {
@@ -232,7 +281,7 @@ describe("ComposerSessionActions composer-context-group", () => {
     expect((screen.getByTestId("ctx-btn") as HTMLButtonElement).disabled).toBe(false);
     // ...while host actions are gated by streaming.
     expect((screen.getByTestId("composer-explore-btn") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("composer-archive-btn") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("composer-archive-btn")).toBeNull();
   });
 
   it("F3: the strip renders for a context-group claim even with no host group", () => {

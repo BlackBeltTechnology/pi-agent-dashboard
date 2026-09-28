@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the session card's OpenSpec attach combo box, attach dialog, workflow stepper, ChangeState pill, auto-rename behavior, and pending attach-intent plumbing that bind a session to an OpenSpec change.
+
 ## Requirements
+
 ### Requirement: Session card shows attach combo box when no proposal attached
 Each session card SHALL display a `<select>` dropdown listing available changes from the folder-level OpenSpec data when the session has no attached proposal and the directory has initialized OpenSpec data. **When the user opens the searchable attach dialog (the dialog reachable from the combo box's "Browse all changes…" entry or equivalent affordance), the dialog SHALL render group sections + pill row when the cwd has at least one defined group; otherwise the dialog renders the flat list exactly as today.** The inline `<select>` combo box itself remains a flat list — group structure is exposed only inside the searchable dialog.
 
@@ -34,184 +36,17 @@ Each session card SHALL display a `<select>` dropdown listing available changes 
 - **WHEN** the user opens the searchable attach dialog for cwd `/project/foo` and `groups.length === 0`
 - **THEN** the dialog SHALL render flat (in-progress-first sort, search input only) exactly as today
 
-### Requirement: Unattached active session shows + Change and Explore buttons
-When a session is active (not ended) and has no attached proposal, the `SessionOpenSpecActions` component SHALL render a "+ Change" button and an "Explore" button inline next to the attach combo box. The "Explore" button SHALL be enabled (the standard "no proposal → explore freely" affordance).
-
-When a session has an attached proposal, the action row SHALL still render an "Explore" button so the user discovers the affordance, BUT the button SHALL render in a disabled state with a `title` tooltip reading "Detach proposal to explore freely". Clicking a disabled Explore button SHALL be a no-op.
-
-#### Scenario: Active session with no attachment shows enabled Explore
-- **WHEN** session `"s1"` has `status = "active"` and `attachedProposal = null`
-- **THEN** the session card SHALL show the attach combo box, a "+ Change" button, and an enabled "Explore" button in a single row
-
-#### Scenario: + Change opens NewChangeDialog
-- **WHEN** the user clicks "+ Change" on session `"s1"`
-- **THEN** a `NewChangeDialog` SHALL open
-
-#### Scenario: + Change sends prompt to its own session
-- **WHEN** the user fills in the NewChangeDialog and clicks Send on session `"s1"`
-- **THEN** the `/opsx:new` prompt SHALL be sent via `onSendPrompt` to session `"s1"`
-
-#### Scenario: Explore opens ExploreDialog with no change name
-- **WHEN** the user clicks "Explore" on session `"s1"` with no attached proposal
-- **THEN** an `ExploreDialog` SHALL open with an empty change name for general explore mode
-
-#### Scenario: Attached session shows disabled Explore with tooltip
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`
-- **THEN** the action row SHALL render an "Explore" button in a disabled state
-- **AND** the button SHALL carry a `title` attribute reading "Detach proposal to explore freely"
-- **AND** clicking the button SHALL NOT open the `ExploreDialog`
-
-#### Scenario: Ended session hides + Change and Explore
-- **WHEN** session `"s1"` has `status = "ended"` and `attachedProposal = null`
-- **THEN** neither "+ Change" nor "Explore" buttons SHALL be rendered
-
-#### Scenario: Attached session does not show + Change
-- **WHEN** session `"s1"` has `attachedProposal = "my-change"`
-- **THEN** the "+ Change" button SHALL NOT be rendered
-
 ### Requirement: PDST rendered as single button navigating to proposal
-In both the attached badge line and the folder change list, artifact letters SHALL be rendered as a single combined button (`ArtifactLettersButton`). Each letter keeps its status color. Clicking the button navigates to the proposal artifact.
+The chat-view session header (desktop and mobile) SHALL render the attached change's artifact letters as a single combined button (`ArtifactLettersButton`). Each letter keeps its status color. Clicking the button navigates to the proposal artifact. The session card SHALL NOT render this button; there the lifecycle bar carries per-artifact state and navigation.
 
 #### Scenario: Single PDST button in attached session
 - **WHEN** session `"s1"` has `attachedProposal = "add-auth"` with artifacts `[proposal: done, design: ready, specs: blocked, tasks: blocked]`
-- **THEN** the session card SHALL show a single clickable button containing `P D S T` with green, yellow, muted, muted colors respectively
+- **THEN** the chat-view session header SHALL show a single clickable button containing `P D S T` with green, yellow, muted, muted colors respectively
+- **AND** the session card SHALL NOT show that button
 
 #### Scenario: Clicking PDST button opens proposal
 - **WHEN** the user clicks the PDST button for change `"add-auth"`
 - **THEN** `onReadArtifact("add-auth", "proposal")` SHALL be called
-
-### Requirement: Session card displays ChangeState pill next to attached badge
-When a session has an `attachedProposal` and the corresponding change is present in the folder's OpenSpec data, the session card SHALL render a small state pill adjacent to the attached-change badge displaying the `ChangeState` value (`PLANNING` / `READY` / `IMPLEMENTING` / `COMPLETE`) with a color-coded text/border scheme — zinc for `PLANNING`, blue for `READY`, amber for `IMPLEMENTING`, green for `COMPLETE`.
-
-#### Scenario: IMPLEMENTING pill for in-progress change
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `IMPLEMENTING`
-- **THEN** the session card SHALL display a pill reading `IMPLEMENTING` in amber next to the `📋 add-auth` badge
-
-#### Scenario: COMPLETE pill for completed change
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `COMPLETE`
-- **THEN** the session card SHALL display a pill reading `COMPLETE` in green next to the `📋 add-auth` badge
-
-#### Scenario: Attached change missing from OpenSpec data hides pill
-- **WHEN** session `"s1"` has `attachedProposal = "archived-change"` but the folder's OpenSpec data does not contain that change
-- **THEN** no state pill SHALL be rendered
-
-### Requirement: OpenSpec workflow stepper inside attached session card
-When a session has an `attachedProposal` AND the corresponding `OpenSpecChange` is present in the folder's OpenSpec data, the `SessionOpenSpecActions` component SHALL render a 7-node pills+lines stepper above the action button row. The stepper SHALL visualise the spec-driven workflow with nodes — in left-to-right order — `Explore`, `Proposal`, `Design`, `Specs`, `Tasks`, `Apply`, `Archive`.
-
-Node order MUST match the spec-driven schema where `tasks` is blocked by both `design` and `specs`; therefore `Specs` precedes `Tasks` in the stepper.
-
-Each node SHALL render in one of four states — `done`, `current`, `todo`, `disabled` — derived in a pure function from `(attachedProposal, change.artifacts, change.completedTasks, change.totalTasks, deriveChangeState(change))`:
-
-- `Explore` — `done` when at least one `OpenSpecChange` exists for the cwd OR a proposal is attached. `current` when no proposal is attached AND no changes exist. `disabled` when a proposal is attached (mirrors button gating).
-- `Proposal`, `Design`, `Specs` — `done` when `change.artifacts.find(a => a.id === <id>).status === "done"`; `current` when `status === "ready"`; `todo` when `status === "blocked"` or the artifact is absent.
-- `Tasks` — `done` when `change.completedTasks === change.totalTasks > 0`; `current` when `0 ≤ change.completedTasks < change.totalTasks` AND `deriveChangeState === IMPLEMENTING`; `todo` otherwise.
-- `Apply` — `done` when `deriveChangeState === COMPLETE` AND `change.totalTasks > 0 && change.completedTasks === change.totalTasks`; `current` when `deriveChangeState` is `READY` or `IMPLEMENTING`; `todo` otherwise.
-- `Archive` — `current` when `deriveChangeState === COMPLETE`; `todo` otherwise. (Archived changes are not in the active list, so `done` is not reachable from this view.)
-
-Nodes SHALL be connected by short horizontal lines. The connecting line between node N-1 and N SHALL render green (`var(--green)`) when both N-1 and N are `done` or `current`; otherwise grey (`var(--border-secondary)`). The node circle SHALL render with an opaque background base (`var(--bg-tertiary)`) so the connecting line never bleeds through the circle interior.
-
-Done nodes SHALL render with green border + green tint. Their interior glyph depends on whether the node owns an artifact letter (`Proposal`=`P`, `Design`=`D`, `Specs`=`S`, `Tasks`=`T`) and on the active `variant`:
-
-- A done artifact node (one with a letter) SHALL render the **mdi-check** in the `sidebar` variant — where the per-node text label already carries node identity — and SHALL render its **artifact letter** in the `compact` variant, where the label is hidden and the letter is the only surviving identity cue.
-- A done non-artifact node (`Explore`, `Apply`, `Archive` — no letter) SHALL render the mdi-check in BOTH variants.
-
-Current nodes SHALL render with orange border + tint and a soft halo pulse (2.4 s ease-in-out infinite, box-shadow goes `3px → 5px → 3px`). Todo nodes SHALL render dim with the artifact letter or icon glyph. Disabled nodes SHALL render at `opacity: 0.4`.
-
-Tasks node SHALL display a `<sub>` line below its label with the text `<completed>/<total>` when `change.totalTasks > 0`.
-
-The stepper component SHALL expose a `variant: "sidebar" | "compact"` prop. `sidebar` is the default (22 px node, 9 px label below each node). `compact` shrinks to 18 px nodes, hides per-node labels (replaced by `title` attribute for tooltip), and scales the row at `transform: scale(.92)` — used by the composer surface and the OpenSpec board cards.
-
-#### Scenario: Sidebar done artifact node renders the check
-- **WHEN** the stepper is rendered with `variant="sidebar"` and the `Proposal` node is `done`
-- **THEN** the `Proposal` node SHALL render the mdi-check icon
-- **AND** its text label `Proposal` SHALL render below the node
-
-#### Scenario: Compact done artifact node renders its letter
-- **WHEN** the stepper is rendered with `variant="compact"` and the `Proposal`, `Design`, `Specs` nodes are `done`
-- **THEN** each SHALL render its artifact letter (`P`, `D`, `S`) — NOT the mdi-check
-- **AND** each SHALL keep its green border + green tint to signal `done`
-
-#### Scenario: Compact done non-artifact node still renders the check
-- **WHEN** the stepper is rendered with `variant="compact"` and the `Explore` and `Apply` nodes are `done`
-- **THEN** both SHALL render the mdi-check icon (they own no artifact letter)
-
-### Requirement: Session card shows attached change badge and actions when attached
-When a session has an `attachedProposal`, the session card SHALL show the attached change name as a badge with `text-blue-400` color, a `ChangeState` pill next to the badge, and LLM action buttons driven by `deriveChangeState`.
-
-The action row SHALL always render an **Archive** button when a proposal is attached. The button SHALL be enabled when `deriveChangeState === COMPLETE`; otherwise rendered disabled with a `title` tooltip reading "Complete tasks first". This makes the archive affordance discoverable for users browsing an IMPLEMENTING change.
-
-When a session has no `attachedProposal`, the action row SHALL still render an **Archive** button in a disabled state with `title` tooltip reading "Attach a change to archive" so the affordance is discoverable. Clicking a disabled Archive button SHALL be a no-op.
-
-Action buttons are disabled when session status is `streaming` and hidden when `ended`. The disabled state from `status === "streaming"` SHALL take precedence over the gating tooltip (tooltip falls back to "Session is streaming").
-
-When `deriveChangeState` returns `IMPLEMENTING` AND the change has `isComplete === true` AND all artifacts are `done`, the action row SHALL additionally expose an **Archive anyway** action in an overflow menu (existing behavior preserved).
-
-#### Scenario: Attached change badge with blue color
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`
-- **THEN** the session card SHALL display `📋 add-auth` with the name in `text-blue-400`
-
-#### Scenario: LLM action buttons for PLANNING state include disabled Archive
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `PLANNING`
-- **THEN** the session card SHALL show buttons: [Explore (disabled)] [Continue] [FF] [Archive (disabled)] and [Detach]
-- **AND** the disabled Archive button SHALL carry `title="Complete tasks first"`
-
-#### Scenario: LLM action buttons for READY state include disabled Archive
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `READY`
-- **THEN** the session card SHALL show buttons: [Explore (disabled)] [Apply] [Archive (disabled)] and [Detach]
-
-#### Scenario: LLM action buttons for IMPLEMENTING state include disabled Archive
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `IMPLEMENTING`
-- **THEN** the session card SHALL show buttons: [Explore (disabled)] [Apply] [Tasks N/M] [Archive (disabled)] and [Detach]
-
-#### Scenario: LLM action buttons for COMPLETE state include enabled Archive
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `deriveChangeState` returns `COMPLETE`
-- **THEN** the session card SHALL show buttons: [Explore (disabled)] [Verify] [Tasks N/N] [Archive] and [Detach]
-- **AND** the Archive button SHALL be enabled (no `title` tooltip beyond the standard label)
-
-#### Scenario: Unattached session shows disabled Archive
-- **WHEN** session `"s1"` has `attachedProposal = null` and `status = "active"`
-- **THEN** the session card SHALL render a disabled "Archive" button
-- **AND** the button SHALL carry `title="Attach a change to archive"`
-
-#### Scenario: Streaming session disables Archive with override tooltip
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`, `deriveChangeState` returns `COMPLETE`, and `status = "streaming"`
-- **THEN** the Archive button SHALL render disabled
-- **AND** the button SHALL carry `title="Session is streaming"`
-
-#### Scenario: Archive-anyway overflow action for artifacts-done IMPLEMENTING
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`, `deriveChangeState` returns `IMPLEMENTING`, `change.isComplete === true`, and every artifact has `status === "done"`
-- **THEN** the action row SHALL include an overflow menu (⋯) containing an **Archive anyway** item
-- **AND** selecting **Archive anyway** SHALL open a `ConfirmDialog` with message "N of M tasks are unchecked. Archive anyway?"
-- **AND** confirming SHALL send `send_prompt` with text `/opsx:archive add-auth` to the session
-
-#### Scenario: Archive-anyway not shown when isComplete is false or undefined
-- **WHEN** session `"s1"` is IMPLEMENTING but `change.isComplete !== true` (false or undefined)
-- **THEN** no **Archive anyway** action SHALL be offered
-
-#### Scenario: Action buttons disabled when streaming
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` and `status = "streaming"`
-- **THEN** action buttons (Explore, Continue, FF, Apply, Verify, Archive, Archive anyway) SHALL be shown but disabled
-
-#### Scenario: Verify button sends verify command
-- **WHEN** the user clicks [Verify] on session `"s1"` with attached change `"add-auth"`
-- **THEN** the browser SHALL send `send_prompt` with text `/opsx:verify add-auth` to session `"s1"`
-
-#### Scenario: Action buttons send prompt to session
-- **WHEN** the user clicks [Continue] on session `"s1"` with attached change `"add-auth"`
-- **THEN** the browser SHALL send `send_prompt` with text `/opsx:continue add-auth` to session `"s1"`
-
-#### Scenario: Detach button clears attachment
-- **WHEN** the user clicks [Detach] on session `"s1"`
-- **THEN** the browser SHALL send `{ type: "detach_proposal", sessionId: "s1" }`
-- **AND** the combo box SHALL reappear
-
-#### Scenario: Ended session hides action buttons
-- **WHEN** session `"s1"` has `attachedProposal = "add-auth"` but `status = "ended"`
-- **THEN** the badge SHALL still show but LLM action buttons SHALL be hidden
-
-#### Scenario: Attached change not in OpenSpec data
-- **WHEN** session `"s1"` has `attachedProposal = "archived-change"` but the folder's OpenSpec data does not contain that change
-- **THEN** the badge SHALL still show `📋 archived-change` with a [Detach] button but no LLM action buttons
 
 ### Requirement: Bulk Archive button on session card when completed changes exist
 The `SessionOpenSpecActions` component SHALL render a "Bulk Archive" button **only on unattached sessions** when at least one change in the folder has `status === "complete"`. Attached-session action rows SHALL NOT render a Bulk Archive button.
@@ -522,3 +357,251 @@ Pill selection in the attach dialog SHALL be local to that dialog instance and S
 - **WHEN** the folder view's pill is set to `Server` and the user opens the attach dialog
 - **THEN** the dialog SHALL open with the "All" pill active, independent of the folder view
 
+### Requirement: Active session shows + Change and Explore only when unattached
+When a session is active (not ended) and has no attached proposal, the `SessionOpenSpecActions` component SHALL render a "+ Change" button and an enabled "Explore" button inline next to the attach combo box, each subject to the folder's workflow configuration. When a session has an attached proposal, neither "+ Change" nor an inline "Explore" button SHALL render. Change-scoped Explore is offered in the `⋯` menu instead (see `Attached session header shows one primary action and an overflow menu`).
+
+#### Scenario: Active session with no attachment shows enabled Explore
+- **WHEN** session `"s1"` has `status = "active"` and `attachedProposal = null`
+- **THEN** the session card SHALL show the attach combo box, a "+ Change" button, and an enabled "Explore" button in a single row
+
+#### Scenario: + Change opens NewChangeDialog
+- **WHEN** the user clicks "+ Change" on session `"s1"`
+- **THEN** a `NewChangeDialog` SHALL open
+
+#### Scenario: + Change sends prompt to its own session
+- **WHEN** the user fills in the NewChangeDialog and clicks Send on session `"s1"`
+- **THEN** the `/opsx:new` prompt SHALL be sent via `onSendPrompt` to session `"s1"`
+
+#### Scenario: Explore opens ExploreDialog with no change name
+- **WHEN** the user clicks "Explore" on session `"s1"` with no attached proposal
+- **THEN** an `ExploreDialog` SHALL open with an empty change name for general explore mode
+
+#### Scenario: Attached session shows no inline Explore or + Change
+- **WHEN** session `"s1"` has `attachedProposal = "add-auth"`
+- **THEN** no inline "Explore" button and no "+ Change" button SHALL render
+
+#### Scenario: Ended session hides + Change and Explore
+- **WHEN** session `"s1"` has `status = "ended"` and `attachedProposal = null`
+- **THEN** neither "+ Change" nor "Explore" buttons SHALL be rendered
+
+### Requirement: Lifecycle bar inside attached session card
+When a session has an `attachedProposal` AND the corresponding `OpenSpecChange` is present in the folder's OpenSpec data, the session card SHALL render a **lifecycle bar** directly below the attached-change header row. The bar SHALL contain exactly five segments, left to right: `Proposal`, `Design`, `Specs`, `Tasks`, `Archive`. There SHALL be no `Explore` segment and no separate `Apply` segment. The bar SHALL be exposed to assistive technology as a labelled group ("OpenSpec lifecycle").
+
+Each segment SHALL be one interactive-or-inert unit made of a horizontal track and a text label below it. Its total height SHALL be at least 24 CSS px. The `Tasks` segment SHALL take the remaining width. The other segments SHALL size to their label. Inert segments SHALL NOT be focusable.
+
+Each segment SHALL render in one of four states — `done`, `current`, `todo`, `skipped`. The states derive from `(change.artifacts, change.completedTasks, change.totalTasks, deriveChangeState(change))`:
+
+- `Proposal`, `Design`, `Specs`:
+  - `done` when the artifact's status is `done`;
+  - `skipped` when it is `skipped`;
+  - `current` when it is `ready`;
+  - `todo` when it is `blocked` or the artifact is absent.
+- `Tasks`:
+  - `done` when `deriveChangeState === COMPLETE`;
+  - `current` when `deriveChangeState` is `READY` or `IMPLEMENTING`, even when every task is already ticked;
+  - `todo` when it is `PLANNING`.
+- `Archive`: `current` when `deriveChangeState === COMPLETE`; `todo` otherwise.
+
+The number of `current` segments:
+- In `READY`, `IMPLEMENTING` and `COMPLETE`, exactly one segment SHALL be `current`.
+- In `PLANNING`, every artifact whose status is `ready` is `current`. More than one MAY be current, because several artifacts can be authorable at once.
+
+Segment state SHALL be presented through the shared status primitive:
+- the primitive's semantic token for `done` / `current` / `todo`;
+- `skipped` uses the `done` token with a dash glyph and a hatched track.
+
+State SHALL NOT be conveyed by color alone:
+- `done` labels SHALL carry a check glyph;
+- `skipped` labels SHALL carry a dash glyph;
+- the `current` label SHALL render at a heavier font weight.
+
+A `current` non-Tasks segment MAY pulse. The pulse SHALL stop under `prefers-reduced-motion: reduce`.
+
+When `totalTasks > 0`, the `Tasks` segment label SHALL show `<completed>/<total>`. Its track SHALL fill from the left in proportion to `completedTasks / totalTasks`. When `totalTasks === 0` the label SHALL show `Tasks —` and the segment SHALL be inert.
+
+When the bar's own width is below 250 CSS px, the segment labels SHALL collapse to single letters (`P`, `D`, `S`, `A`). The Tasks segment SHALL keep the `<completed>/<total>` count.
+
+Every segment SHALL expose an accessible name that includes the artifact or phase and its state. Examples: "Design, current", "Tasks 12 of 39 done".
+
+Clicking a segment:
+- `Proposal` / `Design` / `Specs` SHALL open that artifact.
+- `Tasks` SHALL open the tasks list when `totalTasks > 0` and the session is not `streaming`. The tasks list can toggle checkboxes, so it is locked while the agent may be rewriting `tasks.md`.
+- `Archive` SHALL open the archive confirm dialog only when the host surface enables it. On the session card that means `deriveChangeState === COMPLETE`, session neither `streaming` nor `ended`, and the archive workflow enabled. Otherwise it SHALL be inert.
+
+`Proposal`, `Design` and `Specs` segments SHALL remain clickable while the session is `streaming` or `ended`, because they open read-only previews. The `Tasks` segment SHALL be inert while `streaming` and clickable when `ended`. Clicks on a segment SHALL NOT bubble to the enclosing card.
+
+The bar SHALL also exist in a `compact` variant:
+- it renders the identical segments, states and click-to-open behavior;
+- it renders no primary action and no `⋯` menu;
+- its `Archive` segment is always inert.
+
+The OpenSpec board card uses the compact variant.
+
+#### Scenario: Implementing change renders five segments with a filled Tasks track
+- **WHEN** session `"s1"` is attached to `"add-auth"` with proposal/design/specs `done`, `completedTasks = 12`, `totalTasks = 39`, and `deriveChangeState` returns `IMPLEMENTING`
+- **THEN** the bar SHALL render segments `Proposal`, `Design`, `Specs`, `Tasks`, `Archive` in that order
+- **AND** `Proposal`, `Design`, `Specs` SHALL be `done`, `Tasks` SHALL be `current` with label `12/39` and a ~31 % fill, and `Archive` SHALL be `todo`
+- **AND** no `Explore` or `Apply` segment SHALL render
+
+#### Scenario: Only one current segment while implementing
+- **WHEN** `deriveChangeState` returns `IMPLEMENTING`
+- **THEN** exactly one segment (`Tasks`) SHALL be in the `current` state
+
+#### Scenario: All tasks ticked but change not complete keeps Tasks current
+- **WHEN** `deriveChangeState` returns `IMPLEMENTING` with `completedTasks = totalTasks = 39`
+- **THEN** `Tasks` SHALL be `current` with a full fill
+- **AND** `Archive` SHALL be `todo`
+
+#### Scenario: Planning with two authorable artifacts shows two current segments
+- **WHEN** `deriveChangeState` returns `PLANNING` with `proposal: done`, `design: ready`, `specs: ready`
+- **THEN** both `Design` and `Specs` SHALL be `current`
+- **AND** `Tasks` and `Archive` SHALL be `todo`
+
+#### Scenario: Skipped specs render distinctly from done
+- **WHEN** the change's `specs` artifact has status `skipped`
+- **THEN** the `Specs` segment SHALL render in the `skipped` state with a dash glyph and a hatched track
+
+#### Scenario: Clicking an artifact segment opens the artifact
+- **WHEN** the user clicks the `Design` segment for change `"add-auth"`
+- **THEN** the `design` artifact of `"add-auth"` SHALL open
+
+#### Scenario: Artifact segments stay clickable while streaming
+- **WHEN** the session is `streaming` and the user clicks the `Proposal` segment
+- **THEN** the `proposal` artifact SHALL open
+
+#### Scenario: Tasks segment inert while streaming
+- **WHEN** the session is `streaming`, `totalTasks = 39`, and the user clicks the `Tasks` segment
+- **THEN** the tasks list SHALL NOT open
+
+#### Scenario: Clicking Archive segment on a complete change opens archive confirm
+- **WHEN** `deriveChangeState` returns `COMPLETE`, the session is idle, and the user clicks the `Archive` segment
+- **THEN** the archive confirm dialog SHALL open for the attached change
+
+#### Scenario: Archive segment inert before completion
+- **WHEN** `deriveChangeState` returns `IMPLEMENTING` and the user clicks the `Archive` segment
+- **THEN** no dialog SHALL open and no prompt SHALL be sent
+
+#### Scenario: Narrow bar collapses labels to letters
+- **WHEN** the bar renders in a container narrower than 250 CSS px
+- **THEN** the `Proposal`, `Design`, `Specs`, `Archive` labels SHALL render as `P`, `D`, `S`, `A`
+- **AND** the `Tasks` segment SHALL still show `<completed>/<total>`
+
+#### Scenario: Segment hit target meets minimum size
+- **WHEN** the bar renders in the session card
+- **THEN** every interactive segment's hit area SHALL be at least 24 CSS px tall
+
+### Requirement: Attached session header shows one primary action and an overflow menu
+When a session has an `attachedProposal`, the session card SHALL show one header row:
+- the attached change name as a badge, name in `text-blue-400`;
+- then, right-aligned, at most **one primary action button**;
+- then a `⋯` overflow button.
+
+The header row SHALL NOT contain a state pill, an inline Explore button, or a standalone Detach button.
+
+Every action below is subject to the folder's OpenSpec workflow configuration. An action whose workflow is disabled SHALL NOT render anywhere. Detach is not a workflow and is never gated.
+
+The primary action is the first enabled candidate for the current `deriveChangeState`:
+- `PLANNING` → **Continue** (sends `/skill:openspec-continue-change <name>`), else **Fast-forward** (sends `/skill:openspec-ff-change <name>`).
+- `READY` or `IMPLEMENTING` → **Apply** (sends `/skill:openspec-apply-change <name>`).
+- `COMPLETE` → **Archive** (opens the archive confirm dialog; confirming sends `/skill:openspec-archive-change <name>`), else **Verify** (sends `/skill:openspec-verify-change <name>`).
+
+When no candidate is enabled, no primary button SHALL render.
+
+The `⋯` menu SHALL contain, in order and only when applicable and enabled:
+- **Fast-forward** — when `PLANNING` and it is not the primary;
+- **Verify** — when `COMPLETE` and it is not the primary;
+- **Archive anyway…** — when `IMPLEMENTING` AND `change.isComplete === true` AND every artifact is `done` or `skipped`;
+- **Explore…** — in every non-ended state where the change is present (gated by the `explore` workflow). It opens the `ExploreDialog` for the attached change, and submitting sends `/skill:openspec-explore <name>\n<text>`;
+- a divider, then **Detach** — always.
+
+No disabled Archive button SHALL render in any state.
+
+While the session is `streaming`:
+- the primary action SHALL be rendered `aria-disabled` with tooltip "Session is streaming";
+- every `⋯` item except **Detach** SHALL be disabled.
+
+While the session is `ended`:
+- the primary action SHALL be hidden;
+- the `⋯` menu SHALL render with **Detach** as its only item, so an ended session can still be detached.
+
+Activating a `⋯` item SHALL NOT select, navigate to, or drag the enclosing session card or board card, even though the menu is portalled. Each `⋯` item SHALL display its MDI icon, as the inline buttons do today.
+
+The `⋯` menu SHALL open on click or on keyboard activation. On open, focus SHALL move to its first enabled item. Escape or an outside click SHALL close it and return focus to the `⋯` button.
+
+This requirement applies wherever the session OpenSpec block is mounted, including the per-session OpenSpec panel on board cards.
+
+#### Scenario: PLANNING shows Continue as primary
+- **WHEN** session `"s1"` is attached to `"add-auth"`, `deriveChangeState` returns `PLANNING`, and all workflows are enabled
+- **THEN** the header row SHALL show the badge, a **Continue** button, and a `⋯` button
+- **AND** the `⋯` menu SHALL contain **Fast-forward**, **Explore…** and **Detach**
+- **AND** no inline Explore, no Archive and no state pill SHALL render
+
+#### Scenario: Core workflow profile without continue falls back or omits primary
+- **WHEN** `deriveChangeState` returns `PLANNING` and the workflow configuration enables neither `continue` nor `ff`
+- **THEN** no primary button SHALL render
+- **AND** the `⋯` menu SHALL contain **Explore…** (when `explore` is enabled) and **Detach**, and no Fast-forward
+
+#### Scenario: READY and IMPLEMENTING show Apply as primary
+- **WHEN** `deriveChangeState` returns `READY` or `IMPLEMENTING`
+- **THEN** the primary button SHALL be **Apply**
+- **AND** clicking it SHALL send `/skill:openspec-apply-change add-auth` to session `"s1"`
+
+#### Scenario: COMPLETE shows Archive as primary and Verify in overflow
+- **WHEN** `deriveChangeState` returns `COMPLETE` and all workflows are enabled
+- **THEN** the primary button SHALL be **Archive**
+- **AND** the `⋯` menu SHALL contain **Verify**, **Explore…** and **Detach**
+- **AND** clicking **Verify** SHALL send `/skill:openspec-verify-change add-auth`
+
+#### Scenario: Archive anyway offered in overflow
+- **WHEN** `deriveChangeState` returns `IMPLEMENTING`, `change.isComplete === true`, and every artifact is `done` or `skipped`
+- **THEN** the `⋯` menu SHALL contain **Archive anyway…**
+- **AND** selecting it SHALL open a confirm dialog with message "N of M tasks are unchecked. Archive anyway?"
+- **AND** confirming SHALL send `/skill:openspec-archive-change add-auth`
+
+#### Scenario: Archive anyway not offered when isComplete is not true
+- **WHEN** the change is `IMPLEMENTING` and `change.isComplete !== true`
+- **THEN** the `⋯` menu SHALL NOT contain **Archive anyway…**
+
+#### Scenario: Explore from overflow is change-scoped
+- **WHEN** session `"s1"` is attached to `"add-auth"` and the user selects **Explore…** from `⋯` and submits `what does step 3 mean?`
+- **THEN** `/skill:openspec-explore add-auth\nwhat does step 3 mean?` SHALL be sent to session `"s1"`
+
+#### Scenario: Detach from overflow clears attachment
+- **WHEN** the user selects **Detach** from the `⋯` menu on session `"s1"`
+- **THEN** the browser SHALL send `{ type: "detach_proposal", sessionId: "s1" }`
+- **AND** the attach combo SHALL reappear
+
+#### Scenario: Streaming disables primary and overflow actions except Detach
+- **WHEN** session `"s1"` is attached and `status = "streaming"`
+- **THEN** the primary button SHALL be `aria-disabled` with `title="Session is streaming"`
+- **AND** every `⋯` item except **Detach** SHALL be disabled
+
+#### Scenario: Ended session keeps Detach reachable
+- **WHEN** session `"s1"` is attached but `status = "ended"`
+- **THEN** the badge and lifecycle bar SHALL render
+- **AND** no primary button SHALL render
+- **AND** the `⋯` menu SHALL contain only **Detach**
+
+#### Scenario: Overflow menu item does not select the session card
+- **WHEN** the user selects **Explore…** from `⋯` on a sidebar session card that is not currently selected
+- **THEN** the `ExploreDialog` SHALL open
+- **AND** the session card SHALL NOT become selected
+
+#### Scenario: Overflow menu keyboard behavior
+- **WHEN** the user focuses the `⋯` button and presses Enter
+- **THEN** the menu SHALL open with focus on its first enabled item
+- **AND** pressing Escape SHALL close it and return focus to the `⋯` button
+
+#### Scenario: Overflow menu works inside the board session panel
+- **WHEN** the session OpenSpec block is opened from a board card's per-session OpenSpec panel and the user opens `⋯` and selects **Detach**
+- **THEN** the detach SHALL be sent for that session
+- **AND** opening the `⋯` menu SHALL NOT close the enclosing panel or start a card drag
+
+#### Scenario: Unattached session shows no Archive button
+- **WHEN** session `"s1"` has `attachedProposal = null` and `status = "active"`
+- **THEN** no Archive button SHALL render
+
+#### Scenario: Attached change not in OpenSpec data
+- **WHEN** session `"s1"` has `attachedProposal = "archived-change"` but the folder's OpenSpec data does not contain that change
+- **THEN** the badge SHALL show `archived-change` followed by the `⋯` button, whose menu contains only **Detach**
+- **AND** no lifecycle bar and no primary action SHALL render

@@ -43,13 +43,14 @@ import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { PairLanding } from "./components/connectivity/PairLanding.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
+import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
+import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
 } from "./lib/plugins/shell-primitives.js";
-import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
-import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
 import { installUnhandledRejectionReporter } from "./lib/report-error.js";
 
 // Global unhandled-rejection reporter — the regression guard for the promise
@@ -101,6 +102,9 @@ registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.actionList, ActionList)
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.statusPill, StatusPill);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.popover, Popover);
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.logBlock, LogBlock);
+// Generic OAuth sign-in flow body for plugin settings sections.
+// See change: expose-plugin-credential-and-oauth-seams (D6).
+registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.oauthFlow, OAuthFlowView);
 
 // `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
 // MinimalChatView) consume this to render tool calls with the same

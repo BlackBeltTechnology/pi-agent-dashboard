@@ -45,28 +45,31 @@ export function ConfirmRenderer({ params, status, result, onRespond, onCancel }:
   return (
     <div className="mx-4 my-2 p-3 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded-lg">
       <div className="flex items-center gap-2 mb-1">
-        <Icon path={mdiShieldAlert} size={0.6} className="text-yellow-400 shrink-0" />
+        <Icon path={mdiShieldAlert} size={0.6} className="text-[var(--severity-warning-fg)] shrink-0" />
         <span className="text-sm font-medium text-[var(--text-primary)]"><InlineMarkdown content={title} /></span>
       </div>
       {message && (
         <div className="text-xs text-[var(--text-secondary)] mb-3 ml-6"><MarkdownContent content={message} /></div>
       )}
-      <div className="flex gap-2 ml-6">
+      <div className="flex flex-wrap gap-2 ml-6">
         <button
+          type="button"
           onClick={() => onRespond({ confirmed: true })}
-          className="px-3 py-1 text-xs rounded bg-green-600 hover:bg-green-500 text-white transition-colors"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors bg-[var(--accent-solid)] text-white hover:brightness-110"
         >
           {i18nT("common.yes", undefined, "Yes")}
         </button>
         <button
+          type="button"
           onClick={() => onRespond({ confirmed: false })}
-          className="px-3 py-1 text-xs rounded bg-red-600 hover:bg-red-500 text-white transition-colors"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border tint-action-red"
         >
           {i18nT("common.no", undefined, "No")}
         </button>
         <button
+          type="button"
           onClick={onCancel}
-          className="px-3 py-1 text-xs rounded bg-transparent hover:bg-[var(--bg-surface)] text-[var(--text-tertiary)] border border-[var(--border-secondary)] transition-colors"
+          className="focus-ring inline-flex items-center justify-center px-3 min-w-[44px] min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md transition-colors border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-surface)]"
         >
           {i18nT("common.cancel", undefined, "Cancel")}
         </button>

@@ -68,7 +68,7 @@ export const catalog = {
     judgeModel: "评审模型",
     extensionDefault: "扩展默认",
     selfJudgeLabel: "自我评审（使用执行者模型进行评审）",
-    autoRespawnLabel: "驱动死亡时自动重生（受预算 + 崩溃循环断路器约束）",
+    autoRespawnLabel: "驱动死亡时自动重启（受预算 + 崩溃循环断路器约束）",
     cancel: "取消",
     turnsTooltip: "{used}/{max} 轮次",
     criteriaCount: "{done}/{total} 标准",
@@ -91,9 +91,9 @@ export const catalog = {
     settingsIntro1: "自主目标循环、评审模型和轮次预算由",
     settingsIntro2: "pi 扩展拥有。此插件将其状态显示为会话卡片标记。",
     settingsInstall: "将扩展安装到 pi 以激活。在会话中使用以下命令设置或控制目标：",
-    autoRespawnDefaultLabel: "默认自动重生新目标",
+    autoRespawnDefaultLabel: "默认自动重启新目标",
     autoRespawnHelp:
-      "当目标的驱动会话死亡时，仪表板会重生它以继续追求 — 受轮次预算和崩溃循环断路器约束。默认关闭；每个目标可以覆盖。",
+      "当目标的驱动会话死亡时，仪表板会重启它以继续追求 — 受轮次预算和崩溃循环断路器约束。默认关闭；每个目标可以覆盖。",
   },
   hu: {
     close: "Bezárás",

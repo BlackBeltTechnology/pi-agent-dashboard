@@ -830,6 +830,22 @@ export interface PluginPiMessage {
   payload: unknown;
 }
 
+/**
+ * Private request from a plugin bridge entry to its plugin server entry's
+ * `registerPiRequestHandler(messageType, …)` handler. Answered by exactly one
+ * {@link PluginReplyMessage} on the same socket. Never rides `pi.events`.
+ * See change: expose-plugin-credential-and-oauth-seams (D7).
+ */
+export interface PluginRequestMessage {
+  type: "plugin_request";
+  /** Bridge-generated correlation id (uuid). */
+  requestId: string;
+  /** Manifest id of the target plugin (claimed by the caller, not authenticated). */
+  pluginId: string;
+  messageType: string;
+  payload: unknown;
+}
+
 export type ExtensionToServerMessage =
   | SessionMovedMessage
   | SessionMoveCommitMessage
@@ -865,6 +881,7 @@ export type ExtensionToServerMessage =
   | CwdMissingMessage
   | PiVersionUpdateMessage
   | PluginPiMessage
+  | PluginRequestMessage
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
@@ -1371,6 +1388,20 @@ export type AutoNamerStopState = Pick<
   | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
 >;
 
+/**
+ * Host answer to a {@link PluginRequestMessage}. Sent host-internally on the
+ * requesting session's socket regardless of plugin priority. `error` is a
+ * handler message or one of `no_handler` / `reply_too_large` /
+ * `reply_not_serializable`. See change: expose-plugin-credential-and-oauth-seams (D7).
+ */
+export interface PluginReplyMessage {
+  type: "plugin_reply";
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 export type ServerToExtensionMessage =
   | ProvisionalAcceptedMessage
   | SessionMoveCommittedMessage
@@ -1398,6 +1429,7 @@ export type ServerToExtensionMessage =
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
+  | PluginReplyMessage
   | FlowManagementExtensionMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage

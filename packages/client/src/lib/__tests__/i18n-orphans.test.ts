@@ -56,3 +56,40 @@ describe("i18n orphan removal (E17)", () => {
     }
   });
 });
+
+/**
+ * Lifecycle-bar i18n: the Explore/Apply stepper nodes are gone, so their
+ * labels are orphaned; the overflow + segment accessible-name keys are new.
+ * See change: compact-openspec-lifecycle-bar (test-plan E12).
+ */
+describe("lifecycle bar i18n keys (E12)", () => {
+  const LIFECYCLE_REMOVED = ["openspec.node.explore", "openspec.node.apply"] as const;
+  const LIFECYCLE_ADDED = [
+    "openspec.lifecycle",
+    "openspec.moreActions",
+    "openspec.exploreChange",
+    "openspec.segment.tasksCount",
+    "openspec.segment.noTasks",
+    "openspec.segmentState.done",
+    "openspec.segmentState.current",
+    "openspec.segmentState.todo",
+    "openspec.segmentState.skipped",
+  ] as const;
+  const locales = catalogs.filter(([label]) => label === "i18n.tsx (zh-CN)" || label === "i18n-hu.ts" || label === "i18n-en-source.json");
+
+  it("removed stepper-node keys are absent", () => {
+    for (const key of LIFECYCLE_REMOVED) {
+      for (const [label, source] of locales) {
+        expect(source.includes(`"${key}"`), `${label} still contains ${key}`).toBe(false);
+      }
+    }
+  });
+
+  it("overflow + segment-name keys are present", () => {
+    for (const key of LIFECYCLE_ADDED) {
+      for (const [label, source] of locales) {
+        expect(source.includes(`"${key}"`), `${label} missing ${key}`).toBe(true);
+      }
+    }
+  });
+});

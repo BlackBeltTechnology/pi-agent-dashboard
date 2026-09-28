@@ -98,9 +98,10 @@ describe("SessionCard", () => {
       <SessionCard session={session} {...defaultProps} selectedId="test-session" />
     );
     const card = container.firstChild as HTMLElement;
-    // Current selected-state styling uses a full blue border + blue tint
-    // + ring, not the older `border-l-blue-500` left-accent.
-    expect(card.className).toContain("border-blue-500/60");
+    // Current selected-state styling uses a full blue-tint border + tint bg
+    // + ring (`--tint-blue-*`), not the older `border-l-blue-500` left-accent.
+    // See change: align-ui-with-theme-tokens (D2).
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
   });
 
   it("should call onSelect when clicked", () => {
@@ -1037,9 +1038,9 @@ describe("SessionCard subcard structure", () => {
       <SessionCard session={session} {...defaultProps} selectedId="test-session" />,
     );
     const card = container.firstChild as HTMLElement;
-    expect(card.className).toContain("border-blue-500/60");
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
     expect(card.className).toContain("ring-1");
-    expect(card.className).toContain("ring-blue-500/30");
+    expect(card.className).toContain("ring-[var(--tint-blue-border)]");
   });
 
   // §7 pauses ALL animations while the dashboard is visible but idle, so the
@@ -1055,8 +1056,8 @@ describe("SessionCard subcard structure", () => {
     );
     const card = container.querySelector("[data-testid='session-card-desktop']") as HTMLElement;
     expect(card.className).toContain("ring-1");
-    expect(card.className).toContain("ring-blue-500/30");
-    expect(card.className).toContain("border-blue-500/60");
+    expect(card.className).toContain("ring-[var(--tint-blue-border)]");
+    expect(card.className).toContain("border-[var(--tint-blue-border)]");
     expect(card.className).not.toMatch(/\banimate-[a-z]/);
   });
 
@@ -1454,7 +1455,7 @@ describe("SessionCard — +Worktree button (session-card-plus-session-button)", 
     const btn = screen.getByTestId("session-card-spawn-worktree");
     expect(btn).toBeTruthy();
     expect(btn.textContent).toContain("Worktree");
-    expect((btn as HTMLButtonElement).title).toBe("Create git worktree + spawn session inside it");
+    expect((btn as HTMLButtonElement).title).toBe("Create a git worktree and start a new session in it");
   });
 
   it("7.x absent when no handler", () => {
@@ -1864,5 +1865,38 @@ describe("SessionCard — archive affordance (archive-sessions-lazy-load)", () =
     expect(send).toHaveBeenCalledWith({ type: "archive_session", sessionId: "s1" });
     act(() => result.current.handleUnarchiveSession("s1"));
     expect(send).toHaveBeenCalledWith({ type: "unarchive_session", sessionId: "s1" });
+  });
+});
+
+// Portal bubbling: React events from the body-portalled `⋯` Popover bubble
+// through the React tree to the card's `onClick={onSelect}`. Menu items stop
+// propagation. See change: compact-openspec-lifecycle-bar (test-plan F4).
+describe("SessionCard OpenSpec ⋯ menu", () => {
+  it("selecting Explore… opens the dialog without selecting the card (F4)", async () => {
+    const { makeRunConfig, RunConfigHarness } = await import("../../test-support/runConfigHarness.js");
+    const onSelect = vi.fn();
+    const session = makeSession({ attachedProposal: "add-auth", status: "idle" });
+    const changes = [{
+      name: "add-auth",
+      status: "in-progress" as const,
+      completedTasks: 12,
+      totalTasks: 39,
+      artifacts: [
+        { id: "proposal", status: "done" as const },
+        { id: "design", status: "done" as const },
+        { id: "specs", status: "done" as const },
+      ],
+    }];
+    render(
+      <RunConfigHarness value={makeRunConfig()}>
+        <SessionCard session={session} {...defaultProps} selectedId="other" onSelect={onSelect}
+          openspecChanges={changes} openspecInitialized
+          onSendPrompt={() => {}} onAttachProposal={() => {}} onDetachProposal={() => {}} />
+      </RunConfigHarness>,
+    );
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    fireEvent.click(screen.getByTestId("explore-menu-item"));
+    expect(screen.getByTestId("explore-textarea")).toBeTruthy();
+    expect(onSelect).toHaveBeenCalledTimes(0);
   });
 });
