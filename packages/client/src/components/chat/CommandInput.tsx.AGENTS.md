@@ -13,3 +13,5 @@ See change: add-composer-grammar-check — optional `onGrammarCheck?: () => void
 - Composer dropdown (command + file/mention) applies BOTH `ddMinHeight` and `ddMaxHeight`, and opts into `minPopoverHeight: LIST_POPOVER_MIN_HEIGHT` (260) — both lists filter as you type.
 - That dropdown NOW consumes `boundaryRef` (it previously passed none). `left-3 right-3` pins both composer edges so it stays immune HORIZONTALLY, but it applies a height bound and an offset pane's bottom edge sits above the viewport's — the vertical axis must measure the pane. `boundaryRef` is hoisted above both hook calls.
 - Attach (＋) menu stays height-agnostic on purpose: horizontal axis only (`anchorRight`/`maxWidth`), hardcoded `bottom-full`, no height bound → no floor to lose.
+
+Card rows: `composer-input-row` [textarea | terminal · action, items-end] + hairline + `composer-settings-row` [＋ · model · thinking · Steer|Queue · ⋯ when folded]. Stop-after-turn + Stop = one split `stop-split` (label → ◎ below `@[30rem]`). Textarea has no focus-ring; focused card border full `--accent`. See change: redesign-composer-session-strip.

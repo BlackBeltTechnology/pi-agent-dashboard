@@ -7,3 +7,5 @@ See change: fix-popover-container-clip — mobile action sheet reads `usePopover
 ## fix-popover-pane-bounded-height
 
 - `usePopoverFlip` now returns `minHeight` (floor, capped by `maxHeight`) alongside `maxHeight` (bound, never floor-inflated). This file applies BOTH as inline styles — applying only `maxHeight` would silently lose the floor.
+
+PR status segment `worktree-pr-segment` (glyph + word, link iff `gitPrUrl`, `#N` for legacy) replaces "View PR #N". Actions by PR state: none/closed → Push, Open PR (gh), Merge; open/draft → Push, Merge; merged → Push iff ahead. Close last after `worktree-actions-separator`. Props `mergeIsPrimary?` (fills Merge, never while disabled), `appearance?: "chips"|"segments"`. `disabled` → aria-disabled, focusable. See change: redesign-composer-session-strip.

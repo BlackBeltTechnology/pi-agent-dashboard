@@ -91,6 +91,30 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
+  such as Quota, Status) is now one labelled `role="group"` container, spaced
+  wider apart than its items; a group wider than the strip wraps inside itself.
+  The OpenSpec group adopts the session card's model: the 5-segment lifecycle
+  bar (letters mode), one primary action and a `⋯` overflow, plus a change chip
+  for attach / detach. The Git group shows the worktree's branch, base and
+  drift, and a PR status segment (number, draft/open/merged/closed, CI checks)
+  replacing "View PR #N"; actions follow the PR state. Merge becomes the one
+  filled primary only for an open, non-draft PR with green (or no) checks,
+  fresh status, and no attached change or a COMPLETE one; the merge dialog
+  warns on failing / pending / stale checks. Composer card: terminal and
+  send/stop move into the text-field row, stop-after-turn joins Stop as one
+  split control, and the textarea's inner focus ring is gone. An empty STATUS
+  group no longer renders.
+  **Plugin note:** `ComposerContextGroup` keeps its signature but now renders a
+  dashed, named `role="group"` container (new runtime primitive `ToolbarGroup`);
+  contributions should drop their own chip borders.
+  **Protocol:** optional `gitPrState` / `gitPrDraft` / `gitPrChecks` /
+  `gitPrCheckedAt` on `git_info_update` and `DashboardSession`, plus a
+  server → bridge `git_info_refresh`. The bridge now probes PR status
+  asynchronously (`gh pr view`, ≥ 120 s cadence with back-off, forced after
+  Push / Open PR) instead of a blocking lookup on every 30 s tick. Older bridges
+  keep number-only behaviour. See change: redesign-composer-session-strip.
+
 - **BREAKING (UI): the per-folder "Float blocked sessions to top" toggle is
   removed** — Group by ▸ Status's "Needs you" lane supersedes it. On first load
   after upgrade, every folder that had the toggle on in that browser (and no
