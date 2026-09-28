@@ -1,6 +1,6 @@
 ## 1. Spikes (resolve design open questions)
 
-- [ ] 1.1 (DEFERRED — interim decision recorded in design.md open question 1) Spike: `npm ci --omit=dev` from a generated `runtime-lock.json` on macOS arm64; copy the tree to linux-x64 and win32-x64 and start the server there. Record whether one platform-independent GitHub asset works (all native deps ship prebuilds for all 6 platform/arch combinations). Write the result into design.md open question 1.
+- [x] 1.1 → moved to change `electron-runtime-release-pipeline` (task 1.1).
 - [ ] 1.2 (DEFERRED — interim decision recorded in design.md open question 2) Spike: run a pnpm-installed monorepo checkout under the shell's bundled Node (same and different major as the system Node). Record node-pty behaviour and decide between "preflight refuses on mismatch" and "link may use system Node". Write the result into design.md open question 2 and the D6 local rule.
 
 ## 2. Release declaration + runtime lock
@@ -8,10 +8,10 @@
 - [x] 2.1 Test (test-plan #E22): extend `packages/electron/src/__tests__/build-config-parity.test.ts` (exemplar). Input: `packages/server/package.json#piDashboard.bundledPlugins`. Trigger: `bundle-server.mjs` plugin list + the runtime materialize helper. Observable: both derive exactly that list; removing an id removes it from both.
 - [x] 2.2 Add `piDashboard.bundledPlugins` to `packages/server/package.json`. Extract a shared `materializeBundledPlugins(srcNodeModulesOrPackages, destResourcesPlugins, ids)` helper; `bundle-server.mjs` uses it and reads the field.
 - [x] 2.3 Add the shared `RuntimeManifest` type + `parseRuntimeManifest()` / `writeRuntimeManifest()` (`version`, `minShellVersion`, `nodeEngines`, `origin`, `integrity`, `piVersion`). Stamp `runtime-manifest.json` (origin `bundled`) into the bundle at build time.
-- [ ] 2.4 Release pipeline: generate `runtime-lock.json` (npm lockfile v3 over meta + server + web + extension + plugin-runtime + `bundledPlugins`, all at X; every `piDashboard.bundledPlugins` id is listed explicitly and pinned at exactly X — the server package does not depend on the plugins, so they are not pulled in transitively) into the published `@blackbelt-technology/pi-dashboard-server` package `files`. It is not `npm-shrinkwrap.json`, so Standalone `npm i -g` is unaffected.
-- [ ] 2.5 Release pipeline: publish prereleases under the npm `beta` dist-tag and as GitHub prereleases; attach the runtime asset(s) + `.sha512` per spike 1.1.
-- [ ] 2.7 Release gate (test-plan #X17): after the npm publish step and BEFORE `runtime-lock.json` / the GitHub runtime asset are published or the release is marked ready, assert every `bundledPlugins` package resolves on the registry at exactly X (`npm view <name>@X version`, with retry for registry propagation); any miss fails the release naming the package. New plugins publish via Trusted Publisher, so no manual first publish is assumed.
-- [ ] 2.6 Test (test-plan #X16): add a workflow assertion step modelled on `packages/electron/scripts/assert-runnable-bundle.mjs` (exemplar). Input: release workflow on a prerelease tag. Trigger: publish job. Observable: asset + `.sha512` attached; `npm dist-tag ls` shows `beta` = tag version; runtime manifest version equals the tag.
+- [x] 2.4 → moved to change `electron-runtime-release-pipeline` (task 2.1).
+- [x] 2.5 → moved to change `electron-runtime-release-pipeline` (task 2.3).
+- [x] 2.7 → moved to change `electron-runtime-release-pipeline` (task 2.2).
+- [x] 2.6 → moved to change `electron-runtime-release-pipeline` (task 2.4).
 
 ## 3. Runtime state (shared, pure)
 
@@ -82,10 +82,10 @@
 
 ## 8. Electron end-to-end
 
-- [ ] 8.1 Add a local npm registry fixture (verdaccio) to the electron E2E job serving a fake X+1 with `runtime-lock.json` (test-plan "New infra needed").
-- [ ] 8.2 Test (test-plan #X11): new `tests/e2e-electron/runtime-overlay-update.electron.spec.ts`, harness from `tests/e2e-electron/zombie-adoption.electron.spec.ts` + `electron-lifecycle.ts` (exemplars). Input: packaged 0.9.0 bundled, registry serves 0.9.1. Trigger: Check → Update → Activate. Observable: health `{origin:overlay, version:0.9.1}`; `settings.json` extension under `versions/0.9.1`; `/api/health.plugins[]` same first-party set as bundled.
-- [ ] 8.3 Test (test-plan #X12): same spec file. Input: overlay 0.9.1 whose server exits at boot; no previous. Trigger: Activate. Observable: `origin=bundled`; `lastFailure.version=0.9.1`; bundled extension re-registered.
-- [ ] 8.4 Test (test-plan #X10): same spec file. Input: app on overlay X. Trigger: kill the server PID. Observable: existing loading/recovery page appears.
+- [x] 8.1 → moved to change `electron-runtime-release-pipeline` (task 3.1).
+- [x] 8.2 → moved to change `electron-runtime-release-pipeline` (task 3.2).
+- [x] 8.3 → moved to change `electron-runtime-release-pipeline` (task 3.3).
+- [x] 8.4 → moved to change `electron-runtime-release-pipeline` (task 3.4).
 - [ ] 8.5 Test (test-plan #X13): new `tests/e2e-electron/runtime-local-link.electron.spec.ts`, harness from `tests/e2e-electron/zombie-adoption.electron.spec.ts` (exemplar). Input: app-menu pick of the built repo checkout (menu invoked via the test hook). Trigger: pick, edit a server log string, POST `/api/restart`. Observable: `origin:local`, `gitSha`=HEAD; the new log string appears in server.log after restart.
 - [ ] 8.6 Manual QA (test-plan: manual-only, #X15): Windows 11 + Linux AppImage installs: Update → Activate → Roll back (file locks, AppImage extension path rules).
 
