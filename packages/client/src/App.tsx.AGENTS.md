@@ -32,4 +32,4 @@ Composer strip gets `onAttach`/`onDetach`/`groups`/`assignments` + `working` = s
 
 ## electron-runtime-overlay-updates
 
-Electron header renders `RuntimeUpdateBadge` (`PiUpdateBadge` non-Electron only). See change: electron-runtime-overlay-updates.
+Electron header renders `RuntimeUpdateBadge` (lazy chunk, off the entry gzip cap; `PiUpdateBadge` non-Electron only). See change: electron-runtime-overlay-updates.

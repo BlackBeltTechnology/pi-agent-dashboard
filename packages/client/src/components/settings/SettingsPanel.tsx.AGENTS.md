@@ -50,4 +50,4 @@ Models nav group FIRST (`navGroups` gains `id`; Providers moved from Extensions)
 
 ## electron-runtime-overlay-updates
 
-Packages tab renders `ElectronRuntimeUpdates` → `RuntimeUpdatesSection` when `useLaunchSource()==="electron"`. See change: electron-runtime-overlay-updates.
+Packages tab renders `ElectronRuntimeUpdates` → lazy `RuntimeUpdatesSection` (own chunk, off the entry gzip cap) when `useLaunchSource()==="electron"`. See change: electron-runtime-overlay-updates.

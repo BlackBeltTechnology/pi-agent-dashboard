@@ -23,7 +23,6 @@ import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
 import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
 import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
-import { RuntimeUpdateBadge } from "./components/packages/RuntimeUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
 import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 // Flow components are no longer imported by the shell. They render
@@ -139,6 +138,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // suspension escapes into the shell.
 // Pairing approval host: own chunk, off the cold-landing entry (mdi-chunk-size
 // cap). See change: add-pairing-approval-dialog.
+// Electron-only header badge: its own chunk, off the entry gzip cap.
+// See change: electron-runtime-overlay-updates.
+const RuntimeUpdateBadge = lazy(() =>
+  import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
+);
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
 );
@@ -2023,7 +2027,11 @@ export default function App() {
       headerExtra={
         <div className="flex items-center gap-2">
           {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
-          {launchSource === "electron" && <RuntimeUpdateBadge />}
+          {launchSource === "electron" && (
+            <Suspense fallback={null}>
+              <RuntimeUpdateBadge />
+            </Suspense>
+          )}
           <ServerSelector
             currentHost={currentServerHost}
             currentPort={currentServerPort}

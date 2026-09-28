@@ -69,7 +69,6 @@ import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { useLaunchSource } from "../../hooks/useLaunchSource.js";
-import { RuntimeUpdatesSection } from "../packages/RuntimeUpdatesSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
@@ -3442,9 +3441,18 @@ function ListenInterfaceField({
   );
 }
 
+// Electron-only: its own chunk, off the entry gzip cap (Settings is eager).
+const RuntimeUpdatesSection = React.lazy(() =>
+  import("../packages/RuntimeUpdatesSection.js").then((m) => ({ default: m.RuntimeUpdatesSection })),
+);
+
 /** Runtime overlay updates are desktop-app only. See change: electron-runtime-overlay-updates. */
 function ElectronRuntimeUpdates() {
-  return useLaunchSource() === "electron" ? <RuntimeUpdatesSection /> : null;
+  return useLaunchSource() === "electron" ? (
+    <React.Suspense fallback={null}>
+      <RuntimeUpdatesSection />
+    </React.Suspense>
+  ) : null;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
