@@ -1158,7 +1158,7 @@ export function reseatTimedNotifies(messages: ChatMessage[]): ChatMessage[] {
   const rest: ChatMessage[] = [];
   for (const m of messages) {
     const ts = isNotifyRow(m) ? (m.args as any)?.params?.ts : undefined;
-    if (typeof ts === "number") timed.push({ row: m, ts });
+    if (typeof ts === "number" && Number.isFinite(ts)) timed.push({ row: m, ts });
     else rest.push(m);
   }
   if (timed.length === 0) return messages;
@@ -1194,7 +1194,8 @@ export function addNotify(
 ): SessionState {
   const id = `ui-${notifyId}`;
   if (state.messages.some((m) => m.id === id)) return state;
-  const timed = typeof ts === "number";
+  // Non-finite ts (NaN/±Infinity) cannot be ordered — treat as absent.
+  const timed = typeof ts === "number" && Number.isFinite(ts);
   const row: ChatMessage = {
     id,
     role: "interactiveUi",

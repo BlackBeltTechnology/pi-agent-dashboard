@@ -34,37 +34,46 @@ async function reloadAndWait(page: Page): Promise<void> {
 }
 
 /**
- * POST /api/restart and wait for a STABLE process — healthy AND the same pid
- * across two probes 3 s apart. A single healthy probe can land between two
- * restart waves (the re-exec hand-off), and the NEXT spec then races the
- * second bounce (observed: its first prompt is lost). Pattern:
- * `pending-prompt-recovery.spec.ts` `restartDashboardStable`.
+ * POST /api/restart and wait for a NEW, STABLE server generation. The
+ * generation is `/api/health` `pid` + `startedAt`: the first healthy probe
+ * must report a DIFFERENT generation than before the POST (a refused restart —
+ * e.g. `409` on an ephemeral server — would otherwise pass without the cold
+ * replay F2 is about), and a second probe 3 s later the SAME one (a single
+ * healthy probe can land between two restart waves; the NEXT spec then races
+ * the second bounce). Pattern: `pending-prompt-recovery.spec.ts`
+ * `restartDashboardStable` + `faux-ask.spec.ts` `serverIdentity`.
  */
 async function restartDashboardStable(): Promise<void> {
   const base = `http://localhost:${DASHBOARD_PORT}`;
-  await fetch(`${base}/api/restart`, { method: "POST" }).catch(
-    () => undefined, // the connection dies with the daemon; that is the point
-  );
-  await new Promise((r) => setTimeout(r, 2_000));
-  const pid = async (): Promise<number | null> => {
+  const generation = async (): Promise<string | null> => {
     try {
       const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(5_000) });
       if (!res.ok) return null;
-      return ((await res.json()) as { pid?: number }).pid ?? null;
+      const body = (await res.json()) as { pid?: number; startedAt?: string | number };
+      return body.pid == null ? null : `${body.pid}@${body.startedAt ?? ""}`;
     } catch {
       return null; // still down
     }
   };
+  const before = await generation();
+  expect(before, "server generation must be readable before restart").not.toBeNull();
+
+  const res = await fetch(`${base}/api/restart`, { method: "POST" }).catch(
+    () => undefined, // the connection dies with the daemon; that is the point
+  );
+  if (res) expect(res.ok, `POST /api/restart answered ${res.status}`).toBe(true);
+
+  await new Promise((r) => setTimeout(r, 2_000));
   const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
-    const first = await pid();
-    if (first !== null) {
+    const first = await generation();
+    if (first !== null && first !== before) {
       await new Promise((r) => setTimeout(r, 3_000));
-      if ((await pid()) === first) return;
+      if ((await generation()) === first) return;
     }
     await new Promise((r) => setTimeout(r, 1_000));
   }
-  throw new Error("dashboard did not come back (stably) after POST /api/restart");
+  throw new Error("dashboard did not come back as a new stable generation after POST /api/restart");
 }
 
 test.describe("notify collapse — adjacent identical notifies render once", () => {

@@ -12,7 +12,7 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { type MessageHandlerDeps, type MessageHandlerSetters, useMessageHandler } from "../hooks/useMessageHandler.js";
 import { applySessionMessage, useSessionState } from "../hooks/useSessionState.js";
-import { addNotify, type ChatMessage, createInitialState, type SessionState } from "../lib/chat/event-reducer.js";
+import { addNotify, type ChatMessage, createInitialState, reseatTimedNotifies, type SessionState } from "../lib/chat/event-reducer.js";
 
 const SID = "session-abc";
 
@@ -185,6 +185,23 @@ describe("notify placement by ts", () => {
     expect(order(embed.state)).toEqual(order(h.state));
     expect(h.state.interactiveRequests).toHaveLength(0);
     expect(embed.state.interactiveRequests).toHaveLength(0);
+  });
+
+  it("non-finite ts (NaN / ±Infinity) is treated as absent: tail append, never re-seated", () => {
+    vi.spyOn(Date, "now").mockReturnValue(9000);
+    try {
+      for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        const next = addNotify(stateOf([row(100), row(200)]), "n", "m", undefined, bad);
+        expect(order(next), String(bad)).toEqual(["r100", "r200", "N9000"]);
+        expect("ts" in (next.messages[2].args as any).params, String(bad)).toBe(false);
+      }
+      // A stored row carrying a non-finite params.ts is left where it is.
+      const stray = { ...row(50, "stray"), role: "interactiveUi", content: "notify", args: { method: "notify", params: { message: "m", ts: Number.NaN } } } as ChatMessage;
+      const list = [row(100), stray, row(200)];
+      expect(reseatTimedNotifies(list)).toBe(list);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 
   it("#X1 old-server frames (no ts) append in arrival order without throwing", () => {

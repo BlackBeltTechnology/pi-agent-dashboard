@@ -727,7 +727,7 @@ Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `p
 - Client `addNotify(state, notifyId, message, level?, ts?)`: `ts` → row `timestamp = ts`, placed by pure `insertByTs` — scan `messages` from end in array order, skip `historyGap`, insert after first row with `timestamp <= ts`; none → before first non-gap row; no non-gap row → append. No `ts` → tail append, client `Date.now()`. Dedup by `notifyId` unchanged.
 - History-backfill splice (`useMessageHandler.ts`) → `reseatTimedNotifies` re-places ts-placed notify rows, ascending `ts`.
 - `collapseRepeatedNotifies` (`packages/client/src/lib/chat/collapse-repeated-notifies.ts`) runs last inside ChatView `displayRows` memo, after `notifyMinLevel` gate. ≥2 adjacent notify rows, same normalized level + same non-empty rendered text → one row, first member `id` kept, `args.params.repeat = {count, firstTs, lastTs}`. State untouched.
-- `NotifyRenderer` renders `repeat.count > 1` as `×N` badge + first–last range (`Intl.DateTimeFormat`, UI language, short date across days) + aria-label; keys `common.notifyRepeat.badge` / `.label`.
+- `NotifyRenderer` renders `repeat.count > 1` as `×N` badge + first–last range (`Intl.DateTimeFormat`, UI language, short date across days) + aria-label; keys `common.notifyRepeat.badge` / `.label`. Timestamp outside JS `Date` range (`isDateTs`) → omit first–last range, label key `common.notifyRepeat.labelNoRange` — `Intl` would throw.
 - Trade-off: live mid-turn notify re-tailed by `reorderToolCardsForAssistantMessage`; replay places by `ts` → may shift within own assistant turn, never across turns.
 
 See change: `split-notify-from-prompt-request`.
