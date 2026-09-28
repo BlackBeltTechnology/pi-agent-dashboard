@@ -46,10 +46,14 @@ import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CustomEntryRow } from "./CustomEntryRow.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolCallStep } from "./ToolCallStep.js";
+import { type StopController, ToolStopControl, useToolStopState } from "./ToolStopControl.js";
 
 interface Props {
   burst: ToolBurstGroupData;
   toolContext: ToolContext;
+  /** Session-scoped abort; enables the shared burst stop control. See change: fix-chat-burst-tool-stop. */
+  onAbort?: () => void;
+  onForceKill?: () => void;
 }
 
 function isGroup(item: ChatItem): item is ToolCallGroup {
@@ -104,6 +108,7 @@ function GroupFrame({
   expanded,
   onToggle,
   isRunning,
+  stopSlot,
   children,
 }: {
   leftGlyph: ReactNode;
@@ -113,6 +118,7 @@ function GroupFrame({
   expanded: boolean;
   onToggle: () => void;
   isRunning: boolean;
+  stopSlot?: ReactNode;
   children: ReactNode;
 }) {
   const isMobile = useMobile();
@@ -128,10 +134,11 @@ function GroupFrame({
       data-testid="tool-burst-group"
       data-running={isRunning ? "true" : "false"}
     >
+      <div className="flex items-center">
       <button
         type="button"
         onClick={onToggle}
-        className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left rounded ${motionClass} ${isMobile ? "min-h-[44px] py-2" : ""}`}
+        className={`flex-1 min-w-0 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-left rounded ${motionClass} ${isMobile ? "min-h-[44px] py-2" : ""}`}
         data-testid="tool-burst-header"
       >
         {leftGlyph}
@@ -141,6 +148,8 @@ function GroupFrame({
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
         </span>
       </button>
+      {stopSlot}
+      </div>
       {expanded && (
         <div className="mt-1 space-y-0.5" data-testid="tool-burst-body">
           {children}
@@ -150,7 +159,7 @@ function GroupFrame({
   );
 }
 
-export function ToolBurstGroup({ burst, toolContext }: Props) {
+export function ToolBurstGroup({ burst, toolContext, onAbort, onForceKill }: Props) {
   const prefs = useDisplayPrefs();
   const isMobile = useMobile();
 
@@ -169,6 +178,10 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   // auto-expands a running group.
   const autoOpen = prefs.toolGroupDefaultCollapsed || isMobile ? false : isRunning;
   const expanded = override ?? autoOpen;
+  // One stop state per burst, shared by header + running rows. Called before
+  // the vanish early-return (rules of hooks). See change: fix-chat-burst-tool-stop.
+  const runningId = visibleMembers.find((m) => m.toolStatus === "running")?.id;
+  const stopController = useToolStopState({ active: isRunning, runKey: runningId, onAbort, onForceKill });
 
   // One-shot completion flash on the running→done flip.
   const prevRunning = useRef(isRunning);
@@ -283,6 +296,7 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
       expanded={expanded}
       onToggle={() => setOverride(!expanded)}
       isRunning={isRunning}
+      stopSlot={<ToolStopControl controller={stopController} testIdPrefix="tool-burst" labeled />}
     >
       {burst.items.map((it) => (
         <BurstBodyItem
@@ -295,6 +309,7 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
           // during a later turn.
           turnActive={isRunning}
           isVisible={isVisible}
+          stopController={stopController}
         />
       ))}
     </GroupFrame>
@@ -307,11 +322,13 @@ function BurstBodyItem({
   toolContext,
   turnActive,
   isVisible,
+  stopController,
 }: {
   item: ChatItem;
   toolContext: ToolContext;
   turnActive?: boolean;
   isVisible: (name: string | undefined) => boolean;
+  stopController?: StopController | null;
 }) {
   const prefs = useDisplayPrefs();
   if (isGroup(item)) {
@@ -364,6 +381,7 @@ function BurstBodyItem({
       duration={msg.duration}
       toolDetails={msg.toolDetails}
       showResultBody={prefs.toolResults || msg.toolName === "ask_user"}
+      stopController={msg.toolStatus === "running" ? stopController : undefined}
     />
   );
 }

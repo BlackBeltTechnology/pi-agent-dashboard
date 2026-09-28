@@ -1,6 +1,6 @@
 import { type ClaimEntry, CurrentPluginLayer, forToolName } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { mdiAlert, mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline, mdiStop } from "@mdi/js";
+import { mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
@@ -12,6 +12,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
 import { getToolRenderer, type ToolContext } from "../tool-renderers/index.js";
+import { type StopController, ToolStopControl, useToolStopState } from "./ToolStopControl.js";
 
 /**
  * Evaluate a `tool-renderer` claim's optional `shouldRender`. Absent or truthy
@@ -32,8 +33,6 @@ function claimShouldRender(claim: ClaimEntry, toolName: string): boolean {
     return false;
   }
 }
-
-type StopState = "idle" | "aborting" | "killing";
 
 interface Props {
   toolName: string;
@@ -68,6 +67,12 @@ interface Props {
   hideStatusIcon?: boolean;
   onAbort?: () => void;
   onForceKill?: () => void;
+  /**
+   * Shared stop state owned by an enclosing `ToolBurstGroup`. When given, it
+   * wins over this row's own `onAbort`/`onForceKill`.
+   * See change: fix-chat-burst-tool-stop.
+   */
+  stopController?: StopController | null;
 }
 
 const statusIcons: Record<string, ReactNode> = {
@@ -78,7 +83,7 @@ const statusIcons: Record<string, ReactNode> = {
   elided: <Icon path={mdiMinusCircleOutline} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill, stopController }: Props) {
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
@@ -90,7 +95,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   const isAskUser = toolName === "ask_user";
   const isFailedAskUser = isAskUser && status === "error";
   const [expanded, setExpanded] = useState(hasImages || isAgentRunning || (isAskUser && !isFailedAskUser));
-  const [stopState, setStopState] = useState<StopState>("idle");
+  // Hook always called (rules of hooks); inactive when a burst controller is supplied.
+  const ownStop = useToolStopState({ active: status === "running" && !stopController, onAbort, onForceKill });
+  const stop = stopController ?? ownStop;
   const Renderer = getToolRenderer(toolName);
 
   // Show-full-output affordance: when the rendered result carries the
@@ -125,11 +132,6 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
   }, [registry, toolName]);
   const PluginComponent = pluginClaim?.Component;
 
-  // Reset stop state when tool finishes
-  React.useEffect(() => {
-    if (status !== "running") setStopState("idle");
-  }, [status]);
-
   // Live tool results attach images at tool_execution_end, AFTER this card
   // mounted at tool_execution_start — so the useState(hasImages) seed above
   // missed them (replay/refresh seed at mount and are unaffected). Auto-expand
@@ -145,10 +147,12 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
 
   return (
     <div className={`${isMobile ? "mx-2" : "mx-4"} border-l-2 border-[var(--border-secondary)] pl-3`}>
+      <div className="flex items-center">
       <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
         title={getSummary(toolName, args)}
-        className={`flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] w-full text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
+        className={`flex-1 min-w-0 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] text-left ${isMobile ? "min-h-[44px] py-2" : ""}`}
       >
         {!hideStatusIcon && (
           <span className={`inline-flex ${
@@ -187,33 +191,12 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             {i18nT("chat.tool.elided", undefined, "result not loaded")}
           </span>
         )}
-        {status === "running" && onAbort && stopState === "idle" && (
-          <span
-            role="button"
-            data-testid="tool-stop-button"
-            onClick={(e) => { e.stopPropagation(); onAbort(); if (onForceKill) setStopState("aborting"); }}
-            /* severity-exempt: destructive-action control, not an error surface */
-            className="ml-1 p-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-900/30 inline-flex"
-            title={i18nT("common.stop", undefined, "Stop")}
-          >
-            <Icon path={mdiStop} size={0.45} />
-          </span>
-        )}
-        {status === "running" && onForceKill && stopState === "aborting" && (
-          <span
-            role="button"
-            data-testid="tool-force-stop-button"
-            onClick={(e) => { e.stopPropagation(); onForceKill(); setStopState("killing"); }}
-            className="ml-1 p-0.5 rounded text-orange-400 hover:text-orange-300 hover:bg-orange-900/30 animate-pulse inline-flex"
-            title={i18nT("common.forceStopKillTheProcess", undefined, "Force Stop — kill the process")}
-          >
-            <Icon path={mdiAlert} size={0.45} />
-          </span>
-        )}
         <span className="ml-auto text-[var(--text-muted)] inline-flex">
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.6} />
         </span>
       </button>
+      {status === "running" && <ToolStopControl controller={stop} testIdPrefix="tool" />}
+      </div>
       {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>

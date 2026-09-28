@@ -1833,7 +1833,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         // head churn cannot bleed one burst's state into another (finding 3).
         if ((item as ToolBurstGroupData).type === "burst") {
           const burst = item as ToolBurstGroupData;
-          return <ToolBurstGroup key={burst.id} burst={burst} toolContext={toolContext} />;
+          return <ToolBurstGroup key={burst.id} burst={burst} toolContext={toolContext} onAbort={onAbort} onForceKill={onForceKill} />;
         }
         // Bare semantic ×N group (sub-threshold burst that still folded a poll).
         if ((item as ToolCallGroup).type === "group") {
