@@ -179,6 +179,23 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **BREAKING (behavioral): a loopback trusted-network entry no longer admits
+  tunnel traffic.** zrok, ngrok and `tailscale serve` relay visitors from a
+  `127.0.0.1` socket and inject `X-Forwarded-*`; with `trustedNetworks` (or
+  `auth.bypassHosts`) containing `127.0.0.1`, `127.0.0.0/8`, `127.*` or
+  `0.0.0.0/0`, a public tunnel URL reached sessions, terminals and git routes
+  without signing in. One predicate, `isTrustedSource`, now refuses a trusted
+  match to any loopback-range peer carrying a forwarding header, at all five
+  trust sites (HTTP network guard, OAuth bypass-host skip, both WS upgrade
+  branches, device-tier exemption). Relayed-loopback denials no longer raise a
+  "trust 127.0.0.1?" grant prompt. A loopback entry logs a one-time
+  `[trusted-networks] … covers loopback` warning, and `/api/health` gains an
+  additive, disclosure-gated `trustPosture: { trustedHasLoopback } | null`.
+  Genuine same-host use is unaffected. Affected: tailnet devices via `tailscale
+  serve` and same-host nginx/Caddy/Traefik fronts that set `X-Forwarded-*` —
+  now 403 `network_not_allowed` / login redirect; pair the device or sign in.
+  See change: fix-trusted-network-tunnel-bypass.
+
 - **Universal network guard — the per-route opt-in `networkGuard` is now a single
   root `onRequest` hook, so no route can be forgotten.** Enforcement used to be
   exactly as strong as a registrar's memory: `networkGuard` was created once and

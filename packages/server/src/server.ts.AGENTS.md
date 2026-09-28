@@ -30,3 +30,5 @@ Plugin ctx `updatePluginConfig` broadcast now carries `id` — `PluginConfigUpda
 Plugin context wires `pluginCredentials` (`createPluginCredentialStore`), `startPluginOAuthFlow` (`beginFlow` with `plugin:<id>:<key>`, persist callback, no bridge notify) and `registerPiRequestHandler` (`pluginRequestLane`); `dispatchPluginRequest` → `piGateway.sendToSession`. Bridge auto-registration filters `fixtureEntryAllowed`. See change: expose-plugin-credential-and-oauth-seams.
 
 Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registration + reconciliation. See change: expose-plugin-credential-and-oauth-seams.
+
+See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trusts via `isTrustedSource(remoteAddress, wsHeaders, trusted)` (relayed loopback → 403); boot calls `noteTrustedList(liveTrustedNetworks(...))` once; `registerSystemRoutes` gets `readTrustedNetworks` (live list) for `/api/health` `trustPosture`.

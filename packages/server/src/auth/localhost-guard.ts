@@ -6,7 +6,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { isBypassed } from "./bypass-urls.js";
 import { verifyLocalToken } from "./local-token.js";
-import { isLoopback } from "./loopback.js";
+import { isLoopback, isLoopbackRange } from "./loopback.js";
 
 /**
  * Request headers a reverse proxy / tunnel injects. Their presence on a
@@ -155,6 +155,83 @@ export function isBypassedHost(sourceIp: string, bypassHosts: string[]): boolean
   return false;
 }
 
+/**
+ * A loopback-RANGE socket peer carrying a core proxy-forwarding header: a
+ * tunnel agent (zrok, ngrok, `tailscale serve`) or same-host reverse proxy
+ * relaying someone else's request. Never trusted by a network entry.
+ * See change: fix-trusted-network-tunnel-bypass (D1, D4).
+ */
+export function isRelayedLoopback(ip: string, headers: HeaderBag): boolean {
+  return isLoopbackRange(ip) && hasProxyForwardingHeaders(headers);
+}
+
+/**
+ * The ONE peer-IP trust predicate. Every trusted-network / bypass-host decision
+ * on a socket peer goes through here, never through {@link isBypassedHost}
+ * directly (enforced by `trusted-source-single-predicate.test.ts`). A relayed
+ * loopback peer is refused even when the list covers loopback / `0.0.0.0/0`:
+ * genuine local traffic is admitted by `isGenuinelyLocal` instead.
+ * See change: fix-trusted-network-tunnel-bypass (D1).
+ */
+export function isTrustedSource(ip: string, headers: HeaderBag, trusted: string[]): boolean {
+  if (trusted.length === 0) return false;
+  if (isRelayedLoopback(ip, headers)) return false;
+  return isBypassedHost(ip, trusted);
+}
+
+const LOOPBACK_PROBES = ["127.0.0.1", "::1", "::ffff:127.0.0.1"] as const;
+
+/**
+ * Entries of a trusted list that cover loopback - inert for tunnel traffic,
+ * redundant for local traffic. An entry counts when the matcher admits a
+ * loopback probe, OR its base (`/n` stripped, `*` -> `0`, a short dotted form
+ * padded to four octets) is in the loopback range (catches `127.0.0.5`,
+ * `127.0.0.4/30`, `::1/128`, and `127.*` - whose single `*` spans one
+ * octet, so the matcher itself never admits a real loopback address).
+ * See change: fix-trusted-network-tunnel-bypass (D3).
+ */
+export function loopbackCoveringEntries(list: readonly string[]): string[] {
+  return list.filter((entry) => {
+    if (LOOPBACK_PROBES.some((probe) => isBypassedHost(probe, [entry]))) return true;
+    let base = entry.split("/")[0].replace(/\*/g, "0");
+    if (!base.includes(":")) {
+      const octets = base.split(".");
+      while (octets.length < 4) octets.push("0");
+      base = octets.join(".");
+    }
+    return isLoopbackRange(base);
+  });
+}
+
+/**
+ * Build a trusted-list observer that warns ONCE per distinct set of
+ * loopback-covering entries. Memoized on the array REFERENCE: the config
+ * snapshot hands back the same array until a reparse, so a hot-path call on an
+ * unchanged list is one reference compare. The dedup key is the sorted
+ * covering-entry signature (not the config stamp, which changes on every
+ * unrelated write). A factory so the matcher is injectable in tests.
+ * See change: fix-trusted-network-tunnel-bypass (D3).
+ */
+export function createTrustedListNoter(covering: (list: readonly string[]) => string[] = loopbackCoveringEntries) {
+  let lastRef: readonly string[] | null = null;
+  let lastSignature = "";
+  return function noteTrustedList(list: readonly string[]): void {
+    if (list === lastRef) return;
+    lastRef = list;
+    const entries = [...covering(list)].sort();
+    const signature = entries.join("\n");
+    if (signature !== "" && signature !== lastSignature) {
+      console.warn(
+        `[trusted-networks] ${entries.map((e) => `"${e}"`).join(", ")} ${entries.length === 1 ? "covers" : "cover"} loopback — ignored for tunnel-relayed requests; local requests are already trusted`,
+      );
+    }
+    lastSignature = signature;
+  };
+}
+
+/** Process-wide noter, fed by the guard's trusted read and once at boot. */
+export const noteTrustedList = createTrustedListNoter();
+
 export function matchCidr(ip: string, cidr: string): boolean {
   const [base, bitsStr] = cidr.split("/");
   const bits = parseInt(bitsStr, 10);
@@ -230,9 +307,14 @@ function sendNetworkDenied(request: FastifyRequest, reply: FastifyReply): void {
       origin: readRequestOrigin(request.headers),
     });
   } catch { /* recording is best-effort, never blocks the denial */ }
-  try {
-    networkDenialObserver?.(request);
-  } catch { /* observing is best-effort, never blocks the denial */ }
+  // No grant prompt for a relayed-loopback peer: "trust 127.0.0.1?" would name
+  // the tunnel agent, and the resulting entry is inert under isTrustedSource
+  // (grant->deny loop). See change: fix-trusted-network-tunnel-bypass (D4).
+  if (!isRelayedLoopback(request.ip, request.headers as Record<string, unknown>)) {
+    try {
+      networkDenialObserver?.(request);
+    } catch { /* observing is best-effort, never blocks the denial */ }
+  }
   // Self-describing denial so clients can branch on policy-denial vs
   // transport failure. `error` is the stable machine-readable literal;
   // `reason`/`hint` are human copy. See change:
@@ -271,7 +353,8 @@ function hasNetworkPassCondition(
   // Affirmative local-IPC token.
   if (opts.localToken && verifyLocalToken(headers, opts.localToken)) return true;
   const trusted = opts.readTrusted();
-  if (trusted.length > 0 && isBypassedHost(request.ip, trusted)) return true;
+  noteTrustedList(trusted);
+  if (isTrustedSource(request.ip, headers, trusted)) return true;
   return Boolean((request as any).isAuthenticated);
 }
 
