@@ -1,7 +1,7 @@
 # push-notifications Specification
 
 ## Purpose
-TBD - created by archiving change add-server-push-notifications. Update Purpose after archive.
+Opt-in cross-device notifications when a session needs the user (turn finished, waiting for input, crash): Web Push, FCM and generic webhook transports behind one dispatcher, with SSRF-hardened, secret-redacting webhook delivery, a token registry, REST management API and a Settings UI.
 
 ## Requirements
 

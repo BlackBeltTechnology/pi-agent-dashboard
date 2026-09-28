@@ -90,7 +90,14 @@ function checkSessionFilter(raw: unknown): { ok: true; sessionFilter?: string[] 
   return { ok: true, sessionFilter: raw as string[] };
 }
 
-/** Shape checks; the webhook SSRF vet (async) runs after this. */
+/** The outbound URL a token makes the server call: webhook URL or Web Push endpoint. */
+function destinationOf(transport: PushTransportKind, deviceToken: string): URL | null {
+  if (transport === "webhook") return new URL(deviceToken);
+  if (transport === "web-push") return new URL((JSON.parse(deviceToken) as { endpoint: string }).endpoint);
+  return null;
+}
+
+/** Shape checks; the SSRF vet (async) runs after this. */
 function validateBody(body: unknown): Validated {
   const b = (body ?? {}) as Record<string, unknown>;
   const transport = b.transport as PushTransportKind;
@@ -118,8 +125,10 @@ export function registerPushRoutes(fastify: FastifyInstance, deps: PushRouteDeps
     if (!push) return notEnabled(reply);
     const v = validateBody(request.body);
     if (!v.ok) return reply.code(400).send({ error: v.error });
-    if (v.transport === "webhook") {
-      const vet = await push.vetWebhook(new URL(v.deviceToken));
+    // Both caller-supplied URLs get the SSRF policy (the delivery re-checks).
+    const destination = destinationOf(v.transport, v.deviceToken);
+    if (destination) {
+      const vet = await push.vetDestination(destination);
       if (!vet.ok) return reply.code(400).send({ error: vet.error });
     }
     const res = push.registry.add({

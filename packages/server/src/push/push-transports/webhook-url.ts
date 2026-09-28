@@ -13,7 +13,7 @@
  * See change: add-server-push-notifications.
  */
 import dns from "node:dns";
-import net from "node:net";
+import net, { type LookupFunction } from "node:net";
 import os from "node:os";
 
 export type ValidatedUrl = { ok: true; url: URL } | { ok: false; error: string };
@@ -138,6 +138,18 @@ export async function resolveAndVet(
     }
   }
   return { ok: true, addresses };
+}
+
+/**
+ * A `net`/`tls` `lookup` that answers ONLY with the already-vetted addresses,
+ * so the connection cannot be re-resolved to a different (rebound) host
+ * between the SSRF check and connect. Shared by the webhook + Web Push transports.
+ */
+export function pinnedLookup(addresses: VettedAddress[]): LookupFunction {
+  return ((_hostname: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => {
+    if (options?.all) callback(null, addresses.map((a) => ({ address: a.address, family: a.family })));
+    else callback(null, addresses[0].address, addresses[0].family);
+  }) as unknown as LookupFunction;
 }
 
 /** `label (origin)` or `origin`. Never the path or query. */

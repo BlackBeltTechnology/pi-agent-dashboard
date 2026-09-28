@@ -134,37 +134,47 @@ export function usePushSubscription(): PushSubscriptionState {
 
   const subscribe = useCallback(async () => {
     if (!supported || !publicKey) return;
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      setStatus(permission === "denied" ? "denied" : "unsubscribed");
-      return;
-    }
-    const reg = await navigator.serviceWorker.ready;
-    const sub =
-      (await reg.pushManager.getSubscription()) ??
-      (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }));
-    const tokenId = await registerSubscription(sub).catch(() => null);
-    if (!tokenId) {
-      // The server never learned this subscription: do not show the toggle on,
-      // and drop the browser side so a retry starts clean.
-      await sub.unsubscribe().catch(() => false);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setStatus(permission === "denied" ? "denied" : "unsubscribed");
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub =
+        (await reg.pushManager.getSubscription()) ??
+        (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }));
+      const tokenId = await registerSubscription(sub).catch(() => null);
+      if (!tokenId) {
+        // The server never learned this subscription: do not show the toggle on,
+        // and drop the browser side so a retry starts clean.
+        await sub.unsubscribe().catch(() => false);
+        setStatus("unsubscribed");
+        return;
+      }
+      localStorage.setItem(TOKEN_ID_KEY, tokenId);
+      setStatus("subscribed");
+    } catch {
+      // Push service unreachable, permission API or service worker failure:
+      // callers fire-and-forget this, so never reject — leave the toggle off.
       setStatus("unsubscribed");
-      return;
     }
-    localStorage.setItem(TOKEN_ID_KEY, tokenId);
-    setStatus("subscribed");
   }, [supported, publicKey]);
 
   const unsubscribe = useCallback(async () => {
     if (!supported) return;
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    const tokenId = localStorage.getItem(TOKEN_ID_KEY);
-    if (tokenId) {
-      await fetch(`${getApiBase()}/api/push/register/${encodeURIComponent(tokenId)}`, { method: "DELETE" }).catch(() => {});
-      localStorage.removeItem(TOKEN_ID_KEY);
+    try {
+      const tokenId = localStorage.getItem(TOKEN_ID_KEY);
+      if (tokenId) {
+        await fetch(`${getApiBase()}/api/push/register/${encodeURIComponent(tokenId)}`, { method: "DELETE" }).catch(() => {});
+        localStorage.removeItem(TOKEN_ID_KEY);
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      await sub?.unsubscribe().catch(() => false);
+    } catch {
+      /* service worker unavailable: the server side is already dropped */
     }
-    await sub?.unsubscribe().catch(() => false);
     setStatus("unsubscribed");
   }, [supported]);
 

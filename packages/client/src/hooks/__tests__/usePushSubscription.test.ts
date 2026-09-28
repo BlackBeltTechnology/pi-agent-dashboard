@@ -96,4 +96,31 @@ describe("usePushSubscription.subscribe", () => {
     await waitFor(() => expect(result.current.status).toBe("subscribed"));
     expect(localStorage.getItem("pi-dashboard.push.tokenId")).toBe("t1");
   });
+
+  it("a rejecting pushManager.subscribe() resolves, leaves the toggle off and raises nothing", async () => {
+    const { pushManager } = installPushApi();
+    pushManager.subscribe.mockRejectedValue(new Error("push service unreachable"));
+    mockFetch(200);
+    const { result } = renderHook(() => usePushSubscription());
+    await waitFor(() => expect(result.current.status).toBe("unsubscribed"));
+    await act(async () => {
+      await expect(result.current.subscribe()).resolves.toBeUndefined();
+    });
+    expect(result.current.status).toBe("unsubscribed");
+  });
+
+  it("a rejecting serviceWorker.ready in unsubscribe() resolves and leaves the toggle off", async () => {
+    installPushApi();
+    Object.defineProperty(navigator, "serviceWorker", {
+      value: { ready: Promise.reject(new Error("no sw")) },
+      configurable: true,
+    });
+    (navigator.serviceWorker.ready as Promise<unknown>).catch(() => {});
+    mockFetch(200);
+    const { result } = renderHook(() => usePushSubscription());
+    await act(async () => {
+      await expect(result.current.unsubscribe()).resolves.toBeUndefined();
+    });
+    expect(result.current.status).toBe("unsubscribed");
+  });
 });

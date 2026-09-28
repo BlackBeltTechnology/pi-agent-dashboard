@@ -54,9 +54,36 @@ describe("web-push transport (test-plan #X16)", () => {
       vapidKeys: { publicKey: "pub", privateKey: "priv" },
       contactEmail: "me@example.com",
       sendNotification,
+      selfPort: () => null,
+      lookupAll: async () => [{ address: "142.250.0.1", family: 4 }],
     });
     return { transport, calls };
   }
+
+  it("re-vets the push endpoint at delivery: a metadata address is never contacted", async () => {
+    const sendNotification = vi.fn(async () => ({ statusCode: 201, body: "", headers: {} }));
+    let answer = "142.250.0.1";
+    const transport = createWebPushTransport({
+      vapidKeys: { publicKey: "pub", privateKey: "priv" },
+      contactEmail: "me@example.com",
+      sendNotification,
+      selfPort: () => null,
+      lookupAll: async () => [{ address: answer, family: 4 }],
+    });
+    const tok = { id: "x", deviceToken: SUB, transport: "web-push", registeredAt: 0, lastUsedAt: 0 };
+    expect((await transport.send(tok, payload)).ok).toBe(true);
+    // Pinned: the request carries an https.Agent whose lookup returns the vetted address.
+    const agent = (sendNotification.mock.calls[0] as any[])[2].agent;
+    expect(agent).toBeDefined();
+    const pinned = await new Promise<string>((resolve) =>
+      agent.options.lookup("fcm.googleapis.com", {}, (_e: unknown, addr: string) => resolve(addr)),
+    );
+    expect(pinned).toBe("142.250.0.1");
+
+    answer = "169.254.169.254";
+    expect(await transport.send(tok, payload)).toMatchObject({ ok: false });
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+  });
 
   it.each([410, 404])("%i → token pruned", async (status) => {
     const t = 0;

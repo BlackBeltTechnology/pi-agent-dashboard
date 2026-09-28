@@ -13,23 +13,15 @@
  *   travel back to the dispatcher, which logs them with the redacted target.
  * See change: add-server-push-notifications.
  */
-import type { LookupFunction } from "node:net";
 import { Agent, request } from "undici";
 import type { PushPayload, PushSendResult, PushToken, PushTransport } from "./types.js";
-import { defaultLookupAll, effectivePort, type LookupAll, resolveAndVet, type VettedAddress, validateWebhookUrl } from "./webhook-url.js";
+import { defaultLookupAll, effectivePort, type LookupAll, pinnedLookup, resolveAndVet, validateWebhookUrl } from "./webhook-url.js";
 
 const WEBHOOK_TIMEOUT_MS = 5_000;
 
 interface WebhookSendResult extends PushSendResult {
   status?: number;
   errorCode?: string;
-}
-
-function pinnedLookup(addresses: VettedAddress[]): LookupFunction {
-  return ((_hostname: string, options: { all?: boolean }, callback: (...args: unknown[]) => void) => {
-    if (options?.all) callback(null, addresses.map((a) => ({ address: a.address, family: a.family })));
-    else callback(null, addresses[0].address, addresses[0].family);
-  }) as unknown as LookupFunction;
 }
 
 function errorCodeOf(err: unknown): string {

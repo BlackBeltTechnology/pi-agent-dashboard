@@ -27,8 +27,8 @@ export interface PushService {
   vapidPublicKey: string;
   /** Config / transport-init problems, surfaced in `/api/health.push.errors`. */
   readonly errors: readonly string[];
-  /** SSRF vet of a webhook URL, identical to the delivery-time check. */
-  vetWebhook(url: URL): Promise<VetResult>;
+  /** SSRF vet of a webhook URL or Web Push endpoint, identical to the delivery-time check. */
+  vetDestination(url: URL): Promise<VetResult>;
   shutdown(): void;
 }
 
@@ -56,7 +56,7 @@ export function createPushService(opts: {
   };
   const contactEmail = opts.config.webPush?.contactEmail;
   if (contactEmail) {
-    transports["web-push"] = createWebPushTransport({ vapidKeys: vapid, contactEmail });
+    transports["web-push"] = createWebPushTransport({ vapidKeys: vapid, contactEmail, selfPort: opts.selfPort, lookupAll: opts.lookupAll });
   } else {
     errors.push("web-push: disabled — push.webPush.contactEmail (VAPID contact) is not configured");
   }
@@ -82,7 +82,7 @@ export function createPushService(opts: {
     dispatcher,
     vapidPublicKey: vapid.publicKey,
     errors,
-    vetWebhook: (url) => resolveAndVet(url.hostname, effectivePort(url), opts.selfPort(), opts.lookupAll),
+    vetDestination: (url) => resolveAndVet(url.hostname, effectivePort(url), opts.selfPort(), opts.lookupAll),
     shutdown: () => dispatcher.shutdown(),
   };
 }

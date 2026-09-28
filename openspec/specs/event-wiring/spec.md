@@ -1,7 +1,7 @@
 # event-wiring Specification
 
 ## Purpose
-TBD - created by archiving change add-server-push-notifications. Update Purpose after archive.
+Server-side wiring of bridge events into session state and browser broadcasts, and the single unread-trigger site (`stampUnreadIfTriggered`) that also hands qualifying live triggers to the optional push dispatcher.
 
 ## Requirements
 
@@ -19,8 +19,8 @@ TBD - created by archiving change add-server-push-notifications. Update Purpose 
 - **AND** `fanout` SHALL be called once with `unreadEdge: false`
 
 #### Scenario: Double caller for one ask_user edge
-- **WHEN** the `event_forward` path and the `prompt_request` branch both reach the helper for the same `ask_user` edge
-- **THEN** exactly one of the two `fanout` calls SHALL carry `unreadEdge: true`
+- **WHEN** the `event_forward` path and the `prompt_request` branch both reach the helper for the same `ask_user` edge, in either order
+- **THEN** `fanout` SHALL be called exactly once, with `unreadEdge: true`, because the second caller sees `currentTool` already `"ask_user"` and `isUnreadTrigger` is false
 
 #### Scenario: prompt_request caller without payload
 - **WHEN** the `prompt_request` branch calls the helper with `eventType: "prompt_request"` and no payload, and `after.currentTool` is `"ask_user"`

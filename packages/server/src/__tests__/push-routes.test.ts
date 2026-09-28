@@ -65,6 +65,13 @@ describe("push routes (enabled)", () => {
     expect(typeof ok.json().tokenId).toBe("string");
   });
 
+  it("refuses a web-push endpoint on a link-local / metadata address", async () => {
+    const res = await register({ transport: "web-push", deviceToken: sub({ endpoint: "https://169.254.169.254/push/x" }) });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).not.toContain("/push/x");
+    expect(service.registry.list()).toHaveLength(0);
+  });
+
   it("caps at 50 distinct tokens; re-registering an existing one still works (test-plan #E22)", async () => {
     const ids: string[] = [];
     for (let i = 0; i < 50; i++) {
