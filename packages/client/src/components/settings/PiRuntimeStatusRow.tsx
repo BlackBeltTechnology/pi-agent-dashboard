@@ -39,7 +39,7 @@ export function PiRuntimeStatusRow({ piRuntime, onChangeRuntime }: {
 		>
 			<div className="font-medium text-[var(--text-primary)]">{t("piRuntime.title", undefined, "Pi runtime")}</div>
 			<div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-[var(--text-secondary)]">
-				<span>{t("piRuntime.laneSpawn", undefined, "Sessions spawn")}</span>
+				<span>{t("piRuntime.laneSpawn", undefined, "New sessions")}</span>
 				<span data-testid="pi-runtime-status-spawn">{version(piRuntime.spawnVersion)}</span>
 				<span>{t("piRuntime.laneImport", undefined, "Server imports")}</span>
 				<span data-testid="pi-runtime-status-import">{version(piRuntime.moduleVersion)}</span>

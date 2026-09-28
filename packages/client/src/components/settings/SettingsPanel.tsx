@@ -2042,7 +2042,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       <p className="mt-1 text-xs text-red-400">{i18nT("common.mustBeAnIntegerBetween5000", undefined, "Must be an integer between 5000 and 120000.")}</p>
                     )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a spawned pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
+                      {i18nT("common.howLongToWaitForA", undefined, "How long to wait for a new pi session to connect before showing a warning. Default 30000 (30s). Range 5000–120000.")}
                     </p>
                   </div>
                 </Section>
@@ -2069,7 +2069,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     hint={t(
                       "settings.hint.sessionHeapMaxOldSpace",
                       undefined,
-                      `Old-space ceiling requested for each spawned pi session. Default ${DEFAULT_SESSION_HEAP.maxOldSpaceMb} MB. V8 adds a fixed overhead, so the reported limit is higher than the request.`,
+                      `Old-space ceiling requested for each new pi session. Default ${DEFAULT_SESSION_HEAP.maxOldSpaceMb} MB. V8 adds a fixed overhead, so the reported limit is higher than the request.`,
                     )}
                     onChange={(v) => update((c) => {
                       c.sessionHeap = { ...(c.sessionHeap ?? {}), maxOldSpaceMb: v };
@@ -2143,7 +2143,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 </Section>
                 <Section title={t("settings.worktrees", undefined, "Worktrees")}>
                   <ToggleField
-                    label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show worktree spawn buttons in folders and OpenSpec rows")}
+                    label={i18nT("worktree.showWorktreeSpawnButtonsInFolders", undefined, "Show New Worktree buttons in folders and OpenSpec rows")}
                     value={config.gitWorktreeEnabled ?? true}
                     onChange={(v) => update((c) => { c.gitWorktreeEnabled = v; })}
 
@@ -2153,7 +2153,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                   />
                   <WorktreeAutoInitToggle
                     hint={<>
-                      {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After spawning a worktree, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
+                      {i18nT("worktree.afterSpawningAWorktreeAutoRun", undefined, "After creating a worktree session, automatically run its declared")} <code>worktreeInit</code> {i18nT("common.hookOnlyWhenAlreadyTrusted", undefined, "hook — only when the hook is already trusted. Untrusted hooks still require a manual Initialize click to grant trust. Default off.")}
                     </>}
                   />
                   {/* Windows-only: bundled-vs-host git & bash. Hidden on
@@ -2175,7 +2175,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         <strong>{gitSourceReadout.source}</strong>
                         {gitSourceReadout.gitPath ? <> — <code>{gitSourceReadout.gitPath}</code></> : null}
                         {gitSourceReadout.gitVersion ? <> ({gitSourceReadout.gitVersion})</> : null}
-                        . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for newly spawned sessions. macOS/Linux ignore this setting.")}
+                        . {i18nT("git.gitSourceTakesEffect", undefined, "Takes effect for new sessions. macOS/Linux ignore this setting.")}
                       </>}
                     />
                   )}
@@ -2412,7 +2412,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     {i18nT("settings.controlsHowAggressivelyTheServerPolls", undefined, "Controls how aggressively the server polls")} <code>{i18nT("openspec.openspecList", undefined, "openspec list")}</code> and <code>{i18nT("openspec.openspecStatus", undefined, "openspec status")}</code> {i18nT("folders.forEachKnownDirectoryLongerInterval", undefined, "for each known directory. Longer interval → less CPU, slightly staler UI. Lower concurrency → smoother curve. Change detection")} <code>mtime</code> {i18nT("openspec.skipsRePollingUnchangedProposalsRecom", undefined, "skips re-polling unchanged proposals (recommended).")}
                   </p>
                   <ToggleField
-                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and spawn sessions for them. Off disables every setting below.")}
+                    hint={i18nT("settings.hint.enableOpenspecPolling", undefined, "Watch registered folders for OpenSpec changes and start new sessions for them. Off disables every setting below.")}
                     label={t("settings.enableOpenSpec", undefined, "Enable OpenSpec")}
                     value={config.openspec?.enabled ?? DEFAULT_OPENSPEC_UI.enabled}
                     onChange={(v) => update((c) => {
@@ -2439,7 +2439,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                           })}
                         />
                         <NumberField
-                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Upper bound on sessions polling spawns at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
+                          hint={i18nT("settings.hint.maxConcurrentSpawns", undefined, "Maximum new sessions OpenSpec polling starts at once. Each one is a full pi process — raise only if your machine has the RAM. Range 1–16.")}
                           label={i18nT("session.maxConcurrentSessions116", undefined, "Max concurrent +Sessions")}
                           disabled={openspecOff}
                           value={config.openspec?.maxConcurrentSpawns ?? DEFAULT_OPENSPEC_UI.maxConcurrentSpawns}
@@ -2497,7 +2497,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     label={t("settings.capturePiOutput", undefined, "Capture pi session output (debug)")}
                     value={config.keeperLog?.capturePiOutput ?? false}
                     onChange={(v) => update((c) => { c.keeperLog = { ...c.keeperLog, capturePiOutput: v }; })}
-                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to newly spawned sessions.")}
+                    hint={t("settings.capturePiOutputHint", undefined, "Archives each session's full pi stdout/stderr into keeper-<id>.log for debugging. Consumes significant disk on long sessions — leave off unless diagnosing a session. Applies to new sessions.")}
                   />
                 </Section>
                 <DiagnosticsSection />
@@ -2881,7 +2881,7 @@ function DisplayPrefsSection() {
         <ToggleField label={t("settings.toolRead", undefined, "Read")} value={prefs.toolCalls.read} onChange={(v) => patch({ toolCalls: { read: v } })} hint={i18nT("settings.hint.toolRead", undefined, "File reads.")} />
         <ToggleField label={t("settings.toolBash", undefined, "Bash")} value={prefs.toolCalls.bash} onChange={(v) => patch({ toolCalls: { bash: v } })} hint={i18nT("settings.hint.toolBash", undefined, "Shell commands.")} />
         <ToggleField label={t("settings.toolEdit", undefined, "Edit / Write")} value={prefs.toolCalls.edit} onChange={(v) => patch({ toolCalls: { edit: v } })} hint={i18nT("settings.hint.toolEditWrite", undefined, "File mutations.")} />
-        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "Subagent spawns.")} />
+        <ToggleField label={t("settings.toolAgent", undefined, "Agent")} value={prefs.toolCalls.agent} onChange={(v) => patch({ toolCalls: { agent: v } })} hint={i18nT("settings.hint.toolAgent", undefined, "New subagent sessions.")} />
         <ToggleField label={t("settings.toolOther", undefined, "Other")} value={prefs.toolCalls.generic} onChange={(v) => patch({ toolCalls: { generic: v } })} hint={i18nT("settings.hint.toolOther", undefined, "Every remaining tool, incl. MCP tools.")} />
       </div>
       <div className="pt-2">

@@ -297,7 +297,7 @@ export class SpawnRegisterWatchdog {
       // The timeout that ACTUALLY applied to this entry, not the constructor
       // default — the latter is stale after any live Settings change.
       // See change: fix-spawn-correlation-ttl-coupling (D5).
-      message: `Pi session spawned but never registered (timeout ${entryTimeoutMs}ms)`,
+      message: `Pi session started but never registered (timeout ${entryTimeoutMs}ms)`,
       ...(pid !== undefined ? { pid } : {}),
       ...(entry.spawnToken ? { spawnToken: entry.spawnToken } : {}),
       ...(stderrTail ? { stderrTail } : {}),

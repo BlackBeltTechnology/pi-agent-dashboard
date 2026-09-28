@@ -6,9 +6,11 @@ A running tool can be stopped from the session card (PROCESS subcard → `Sessio
 
 - **A — per-row stop restored:** `ChatView` threads `onAbort`/`onForceKill` into `ToolBurstGroup`; running member rows render a stop control.
 - **B — header stop:** a running burst's header row renders a stop control (Stop → Force Stop → Killing) visible whether expanded or collapsed.
-- **One shared stop state per burst:** header and running rows render the same `idle | aborting | killing` state, owned by `ToolBurstGroup`; it survives body collapse/re-expand.
+- **One shared stop state per burst:** header and running rows render the same `idle | arming | aborting | killing` state, owned by `ToolBurstGroup`; it survives body collapse/re-expand.
 - Stop logic extracted from `ToolCallStep` into a shared hook + presentational control (single state machine for burst and standalone rows).
 - Stop controls become real focusable `<button>`s with accessible names, placed beside (not inside) the toggle button — fixes click-through-to-toggle and keyboard reach; 44 px hit area on mobile.
+- **Double-click safety:** after Stop, controls show a disabled "Stopping…" for 600 ms before Force Stop accepts clicks, so an accidental double-click never force-kills.
+- **Token + shape per state:** Stop (square, error tokens) → Stopping… (hourglass) → Force stop (triangle, warning tokens) → Killing (spinner); raw red/orange literals and their `severity-exempt` carve-out removed. Header shows a text label on desktop, glyph-only on mobile. Mockup: `mockups/index.html`.
 - Wire semantics unchanged: Stop sends `{type:"abort"}` via `handleAbort` (also clears the optimistic `pendingPrompt`, as the composer Stop already does); Force Stop sends `{type:"force_kill"}`. Both session-scoped.
 - `CollapsedToolGroup` (`×N`) not touched: the semantic pass never groups running tools.
 

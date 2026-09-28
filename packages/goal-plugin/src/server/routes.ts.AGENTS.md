@@ -1,3 +1,5 @@
 # goal-routes.ts — index
 
 REST routes for folder GoalRecords. `parseJudge(raw)` validates `judge` on POST/PATCH (clamp-or-reject, mirrors parseBudget). Rejects missing provider/modelId. `autoRespawn?:boolean` validated + persisted on POST/PATCH. `VALID_STATUS` includes `respawning`+`failed`. A PATCH to a terminal/pause status (`paused`/`cleared`/`achieved`/`failed`) OR a DELETE routes through `abortGoalSupervision` dep (supervisor finalize+kill: terminal-status-first, generation-guarded) BEFORE the record is finalized/removed. See changes: sophisticate-goal-authoring-and-control, add-goal-session-supervisor. Every goal-record response (GET list, POST/PATCH, link/unlink `data:updated`) now passes through `decorateGoalsWithSpend` (local `withSpend` wrapper) so each carries server-derived `totalSpendUsd`. See change: fix-goal-detail-turns-and-spend.
+
+See change: align-ui-with-theme-tokens. UI-visible errors "starting sessions is not supported" / "session start failed".

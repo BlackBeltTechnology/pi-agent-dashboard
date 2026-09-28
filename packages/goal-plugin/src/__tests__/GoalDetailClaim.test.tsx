@@ -121,8 +121,8 @@ describe("GoalDetailClaim", () => {
     await waitFor(() => getByTestId("goal-gauge-spend"));
     const gauge = getByTestId("goal-gauge-spend");
     expect(gauge.querySelector(".font-mono")?.textContent).toBe("$0.29 · no cap");
-    // No cap → the emerald fill element is not rendered.
-    expect(gauge.querySelector(".bg-emerald-400\\/70")).toBeNull();
+    // No cap → the fill element is not rendered.
+    expect(gauge.querySelector('[data-testid="goal-gauge-spend-fill"]')).toBeNull();
   });
 
   it("F4: totalSpendUsd 0.29, cap 5 → '$0.29 / $5.00' + fill ≈6%", async () => {
@@ -131,7 +131,7 @@ describe("GoalDetailClaim", () => {
     await waitFor(() => getByTestId("goal-gauge-spend"));
     const gauge = getByTestId("goal-gauge-spend");
     expect(gauge.querySelector(".font-mono")?.textContent).toBe("$0.29 / $5.00");
-    const fill = gauge.querySelector(".bg-emerald-400\\/70") as HTMLElement | null;
+    const fill = gauge.querySelector('[data-testid="goal-gauge-spend-fill"]') as HTMLElement | null;
     expect(fill).not.toBeNull();
     expect(fill?.style.width).toBe("6%");
   });

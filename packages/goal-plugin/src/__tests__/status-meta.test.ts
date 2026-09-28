@@ -11,9 +11,9 @@ import { describe, expect, it } from "vitest";
 import { statusMeta } from "../client/useGoals.js";
 
 describe("statusMeta supervisor states", () => {
-  it("respawning is a distinct, non-pursuing visible state", () => {
+  it("respawning (label Restarting) is a distinct, non-pursuing visible state", () => {
     const m = statusMeta("respawning");
-    expect(m.label).toBe("Respawning");
+    expect(m.label).toBe("Restarting");
     expect(m.label).not.toBe("Pursuing");
     expect(m.dot).toBe("↻");
   });

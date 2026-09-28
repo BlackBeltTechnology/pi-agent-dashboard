@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup — session history load state (card + chat)</title>
+<style>
+  /* Token mirror of packages/client/src/index.css (:root + [data-theme="light"]).
+     Components below reference ONLY var(--…) — no raw literals. */
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858; --text-faint:#3a3a3a;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06); --border-strong:#808080;
+    --accent:#3b82f6; --accent-soft:#1d3a63; --accent-solid:#2563eb; --accent-text:#60a5fa;
+    --status-idle:#22c55e; --status-working:#eab308; --status-error:#ef4444; --status-needs-you:#a855f7;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaa; --text-faint:#d0d0d0;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06); --border-strong:#777;
+    --accent:#2563eb; --accent-soft:#dbeafe; --accent-solid:#2563eb; --accent-text:#1d4ed8;
+    --status-idle:#16a34a; --status-working:#a16207; --status-error:#dc2626;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:var(--font); background:var(--bg-primary); color:var(--text-primary); font-size:14px; }
+  button { font:inherit; color:inherit; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+
+  /* ---------- control bar (mockup chrome, not product UI) ---------- */
+  .controls { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center;
+    padding:10px 16px; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); }
+  .controls h1 { font-size:13px; margin:0; font-weight:600; }
+  .controls fieldset { border:0; margin:0; padding:0; display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+  .controls legend { float:left; font-size:11px; color:var(--text-tertiary); margin-right:6px; }
+  .seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; }
+  .seg label { cursor:pointer; }
+  .seg input { position:absolute; opacity:0; }
+  .seg span { display:block; padding:4px 9px; font-size:12px; color:var(--text-secondary); }
+  .seg input:checked + span { background:var(--accent-soft); color:var(--text-primary); }
+  .seg input:focus-visible + span { outline:2px solid var(--accent); outline-offset:-2px; }
+  .btn { border:1px solid var(--border-secondary); background:var(--bg-tertiary); border-radius:6px; padding:4px 10px; font-size:12px; cursor:pointer; }
+  .btn:hover { background:var(--bg-hover); }
+  .btn-primary { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; }
+
+  /* ---------- app frame ---------- */
+  .frame { display:grid; grid-template-columns: 320px 1fr; height: 560px; border-bottom:1px solid var(--border-primary); }
+  @media (max-width: 760px) { .frame { grid-template-columns: 1fr; height:auto; } .chat-body { min-height:340px; } .seg { flex-wrap:wrap; } }
+  .sidebar { background:var(--bg-secondary); border-right:1px solid var(--border-primary); padding:12px 12px 12px 20px; overflow:auto; }
+  .folder { font-size:11px; color:var(--text-tertiary); margin:2px 0 8px; display:flex; gap:6px; align-items:center; }
+  .folder b { color:var(--text-secondary); font-weight:600; }
+
+  /* SessionCard (trimmed to the two lines that matter) */
+  .card { position:relative; border:1px solid var(--border-subtle); background:var(--bg-primary); border-radius:12px;
+    padding:8px 12px; margin-bottom:8px; cursor:pointer; overflow:hidden; }
+  .card:hover { background:var(--bg-hover); }
+  .card.selected { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; background:var(--bg-tertiary); }
+  .l1 { display:flex; align-items:center; gap:8px; }
+  .chip { position:relative; flex:none; width:16px; height:16px; border-radius:999px; background:var(--bg-tertiary);
+    display:inline-flex; align-items:center; justify-content:center; box-shadow:0 1px 2px rgba(0,0,0,.3); }
+  .card.selected .chip { background:var(--bg-surface); }
+  .chip svg { width:10px; height:10px; }
+  .chip .shape { position:absolute; right:-2px; bottom:-2px; width:6px; height:6px; border-radius:999px; border:1px solid var(--bg-primary); }
+  .name { flex:1; min-width:0; font-weight:600; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .time { font-size:10px; color:var(--text-muted); white-space:nowrap; }
+  .l2 { margin-top:2px; font-size:12px; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* ---- Variant A: arc ring around the status chip ---- */
+  .ring { position:absolute; inset:-3px; border-radius:999px; border:2px solid transparent;
+    border-top-color:var(--accent); border-right-color:var(--accent); animation:spin .9s linear infinite; }
+  /* --text-tertiary, not --text-muted: ring is non-text UI, needs >=3:1 (WCAG 1.4.11) */
+  .ring.static { animation:none; border-color:var(--text-tertiary); border-style:dashed; }
+  /* ---- Variant B: inline status label replaces relative time ---- */
+  .loadlabel { display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--text-tertiary); white-space:nowrap; }
+  .loadlabel svg { width:12px; height:12px; }
+  .loadlabel .spin { color:var(--accent-text); }
+  /* word stays --text-secondary (AA at 10px); red only on the icon (3:1 non-text, WCAG 1.4.11) */
+  .loadlabel.warn { color:var(--text-secondary); }
+  .loadlabel.warn svg { color:var(--status-error); }
+  /* ---- Variant C: indeterminate edge bar ---- */
+  .edgebar { position:absolute; left:0; right:0; bottom:0; height:2px; overflow:hidden; background:var(--border-subtle); }
+  .edgebar::before { content:""; position:absolute; top:0; bottom:0; width:35%; background:var(--accent); animation:slide 1.2s ease-in-out infinite; }
+  .edgebar.static::before { animation:none; width:100%; background:repeating-linear-gradient(90deg,var(--text-muted) 0 6px,transparent 6px 10px); }
+
+  .spin { animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes slide { 0% { left:-35%; } 100% { left:100%; } }
+  @keyframes shimmer { 0%,100% { opacity:.55; } 50% { opacity:1; } }
+
+  /* ---------- chat pane ---------- */
+  .chat { position:relative; display:flex; flex-direction:column; background:var(--bg-primary); min-width:0; }
+  .chat-head { padding:10px 16px; border-bottom:1px solid var(--border-primary); font-size:13px; display:flex; gap:8px; align-items:center; }
+  .chat-head .muted { color:var(--text-tertiary); font-size:12px; }
+  .chat-body { position:relative; flex:1; overflow:auto; padding:12px 16px; }
+  .composer { border-top:1px solid var(--border-primary); padding:10px 16px; }
+  .composer div { border:1px solid var(--border-secondary); border-radius:10px; padding:10px 12px; color:var(--text-muted); font-size:13px; background:var(--bg-tertiary); }
+
+  .bubble { max-width:78%; border-radius:12px; padding:8px 12px; margin:8px 0; font-size:13px; line-height:1.45; }
+  .bubble.user { margin-left:auto; background:var(--accent-soft); }
+  .bubble.asst { background:var(--bg-tertiary); color:var(--text-secondary); }
+  .sk { border-radius:12px; margin:10px 0; background:var(--bg-tertiary); animation:shimmer 1.4s ease-in-out infinite; }
+  .sk.user { margin-left:auto; width:46%; height:36px; }
+  .sk.asst { width:70%; height:64px; }
+
+  .state { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:8px; padding:24px; }
+  .state svg { width:28px; height:28px; color:var(--text-tertiary); }
+  .state h3 { margin:0; font-size:14px; font-weight:600; }
+  .state p { margin:0; font-size:12px; color:var(--text-tertiary); max-width:340px; }
+  .state.error svg { color:var(--status-error); }
+
+  .slow-note { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-tertiary);
+    border:1px solid var(--border-secondary); background:var(--bg-secondary); border-radius:8px; padding:6px 10px; margin-bottom:6px; }
+  .slow-note .grow { flex:1; }
+  .linkbtn { background:none; border:0; color:var(--accent-text); cursor:pointer; padding:0; font-size:12px; text-decoration:underline; }
+
+  .pill { position:absolute; left:50%; bottom:16px; transform:translateX(-50%); display:flex; align-items:center; gap:6px;
+    border-radius:999px; background:var(--bg-surface); border:1px solid var(--border-strong); padding:4px 12px; font-size:11px;
+    box-shadow:0 6px 16px rgba(0,0,0,.35); z-index:2; }
+  .pill svg { width:13px; height:13px; }
+  .scrim { position:absolute; inset:auto 0 0 0; height:110px; background:linear-gradient(to top,var(--bg-primary),transparent); pointer-events:none; }
+
+  /* ---------- doc sections ---------- */
+  .doc { max-width:1100px; margin:0 auto; padding:20px 16px 48px; }
+  .doc h2 { font-size:15px; margin:24px 0 8px; }
+  .doc a { color:var(--accent-text); }
+  .doc p, .doc li { font-size:13px; color:var(--text-secondary); line-height:1.55; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th, td { border:1px solid var(--border-primary); padding:6px 8px; text-align:left; vertical-align:top; }
+  th { background:var(--bg-secondary); color:var(--text-secondary); font-weight:600; }
+  td code, .doc code { font-family:var(--mono); font-size:11px; background:var(--bg-code); padding:1px 4px; border-radius:4px; }
+  .variants { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; }
+  .vbox { border:1px solid var(--border-primary); border-radius:10px; padding:12px; background:var(--bg-secondary); }
+  .vbox h3 { font-size:13px; margin:0 0 8px; }
+  .vbox .card { cursor:default; }
+  .rec { border-color:var(--accent); }
+  .tag { font-size:10px; padding:1px 6px; border-radius:999px; background:var(--accent-soft); color:var(--text-primary); margin-left:6px; }
+
+  .phase-caption { font-size:11px; color:var(--text-tertiary); padding:6px 16px; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); font-family:var(--mono); }
+
+  html.reduce * { animation-duration:0s !important; animation-iteration-count:1 !important; }
+  @media (prefers-reduced-motion: reduce) { .spin, .ring, .edgebar::before, .sk { animation:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="controls" role="region" aria-label="Mockup controls">
+  <h1>History load state</h1>
+  <fieldset>
+    <legend>Phase</legend>
+    <div class="seg" id="phases"></div>
+  </fieldset>
+  <fieldset>
+    <legend>Card variant</legend>
+    <div class="seg" id="variants"></div>
+  </fieldset>
+  <button class="btn btn-primary" id="play" type="button">▶ Play realistic sequence</button>
+  <button class="btn" id="theme" type="button">Toggle light/dark</button>
+  <label style="font-size:12px;color:var(--text-secondary)"><input type="checkbox" id="rm"> reduced motion</label>
+</div>
+
+<div class="phase-caption" id="caption" aria-live="polite"></div>
+
+<div class="frame">
+  <aside class="sidebar" aria-label="Sessions">
+    <div class="folder">▾ <b>pi-agent-dashboard</b> · 4 sessions</div>
+    <div id="cards"></div>
+  </aside>
+  <main class="chat" aria-label="Chat">
+    <div class="chat-head"><strong>refactor replay cache</strong><span class="muted">claude-opus-4 (high)</span></div>
+    <div class="chat-body" id="chat"></div>
+    <div class="composer"><div>Message pi…</div></div>
+  </main>
+</div>
+
+<div class="doc">
+  <h2>Card variants, side by side (phase = loading / waiting / failed)</h2>
+  <div class="variants" id="variantGallery"></div>
+
+  <h2>State matrix</h2>
+  <table>
+    <thead><tr><th>Phase</th><th>Trigger (client)</th><th>Chat view</th><th>Session card (chosen: A · ring)</th><th>a11y</th></tr></thead>
+    <tbody>
+      <tr><td><code>idle</code></td><td>never subscribed</td><td>—</td><td>relative time (unchanged)</td><td>—</td></tr>
+      <tr><td><code>pending</code></td><td>selected, IndexedDB <code>rehydrateSession()</code> in flight</td><td>skeleton (immediate, as today)</td><td>spinning ring (after 300 ms)</td><td><code>aria-busy</code></td></tr>
+      <tr><td><code>waiting</code></td><td><code>status !== "connected"</code>, no messages</td><td>“Waiting for connection” state (NEW, replaces false “No messages yet”)</td><td>dashed static ring, <em>no spin</em>; tooltip “Waiting for connection”</td><td><code>role=status</code></td></tr>
+      <tr><td><code>loading</code></td><td><code>doSubscribe()</code> → <code>loadingHistory</code></td><td>skeleton bubbles (exists)</td><td>spinning accent ring; tooltip “Loading history…”</td><td><code>role=status</code>, sr-only “Loading history”</td></tr>
+      <tr><td><code>loading · slow</code></td><td>&gt;10 s since subscribe (cold disk hydrate)</td><td>skeleton + “Still loading · 14 s” + Retry (NEW)</td><td>spinning ring; tooltip “Still loading · 14s”</td><td>polite live region, once</td></tr>
+      <tr><td><code>streaming</code></td><td>first content, <code>replayInFlight</code> still true</td><td>messages + “Loading earlier messages…” pill (exists)</td><td>spinning ring</td><td>pill is <code>role=status</code></td></tr>
+      <tr><td><code>loaded</code></td><td><code>isLast</code></td><td>messages, or “No messages yet” if truly empty</td><td>relative time</td><td>—</td></tr>
+      <tr><td><code>failed</code></td><td>safety-net timeout (15 s / 90 s)</td><td>“Couldn’t load history” + Retry (NEW, replaces false empty)</td><td>solid red ring; tooltip “Couldn’t load history”</td><td><code>role=alert</code> in chat only</td></tr>
+    </tbody>
+  </table>
+
+  <h2>UX rationale (each decision → public rule)</h2>
+  <ul>
+    <li><b>Never say “No messages yet” unless we know it.</b> Pending, waiting, and timeout currently all fall through to the empty state — a false statement of system status. <a href="https://www.nngroup.com/articles/ten-usability-heuristics/">Nielsen H1 Visibility of system status</a>, H9 help users recognize/recover from errors.</li>
+    <li><b>300 ms show-delay before any indicator</b> (reuse <code>REPLAY_PILL_DELAY_MS</code>). Warm replays resolve under it; flashing a spinner for 100 ms reads as flicker. <a href="https://www.nngroup.com/articles/response-times-3-important-limits/">NN/g response-time limits (0.1 s / 1 s / 10 s)</a>, <a href="https://lawsofux.com/doherty-threshold/">Doherty threshold (400 ms)</a>.</li>
+    <li><b>Skeleton in chat, spinner on card.</b> Chat is a content-layout load → skeleton predicts shape; card is a small status → compact spinner. <a href="https://www.nngroup.com/articles/skeleton-screens/">NN/g skeleton screens</a>.</li>
+    <li><b>&gt;10 s → elapsed time + Retry.</b> No percent-done exists (server heartbeats carry none), so elapsed seconds + an escape hatch is the honest substitute. NN/g 10 s limit; H3 user control &amp; freedom.</li>
+    <li><b>Waiting = static, not spinning.</b> A spinner implies progress; while disconnected nothing progresses. Static icon + text. H1 (accurate status).</li>
+    <li><b>Ring (A) chosen — compact, zero layout shift, co-located with the status chip</b> (Gestalt proximity). Its colour+motion-only risk (<a href="https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html">WCAG 1.4.1</a>) is mitigated three ways: (1) three distinct <em>shapes</em> — spinning arc / dashed / solid — not just hues; (2) chip <code>title</code> + sr-only text name the state in words; (3) the chat pane states it in text for the selected session. Static ring uses <code>--text-tertiary</code> for ≥3:1 non-text contrast (<a href="https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html">WCAG 1.4.11</a>). Ring sits at <code>inset:-3px</code> so it never overlaps the status-shape badge dot.</li>
+    <li><b>Announce without stealing focus.</b> <code>role="status"</code> for loading, <code>role="alert"</code> only for the chat failure. <a href="https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html">WCAG 4.1.3 Status Messages</a>. Card: only the SELECTED/subscribing card carries an sr-only <code>role=status</code>; others stay silent (avoids announcement spam from 20 cards).</li>
+    <li><b>Reduced motion</b> stops the spin/shimmer; the ring still differs by <em>shape</em> (partial arc vs dashed vs solid), and tooltip/sr-only text still name it. <a href="https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html">WCAG 2.3.3</a>; existing <code>fx-idle</code>/<code>app-hidden</code> pause rules already exempt <code>animate-spin</code>.</li>
+    <li><b>No layout shift.</b> Ring is <code>position:absolute; inset:-3px</code> around the existing 16px chip — card never reflows; timestamp stays. <a href="https://web.dev/articles/cls">web.dev CLS</a>.</li>
+    <li><b>Default state shows nothing.</b> Most cards are <code>idle</code> (lazy load); marking “not loaded” on every card would be noise. Progressive disclosure / signal-to-noise, <a href="https://www.nngroup.com/articles/progressive-disclosure/">NN/g</a>.</li>
+  </ul>
+</div>
+
+<script>
+const ICON = {
+  console: "M20,19V7H4V19H20M20,3A2,2 0 0,1 22,5V19A2,2 0 0,1 20,21H4A2,2 0 0,1 2,19V5C2,3.89 2.9,3 4,3H20M13,17V15H18V17H13M9.58,13L5.57,9H8.4L11.7,12.3C12.09,12.69 12.09,13.33 11.7,13.72L8.42,17H5.59L9.58,13Z",
+  loading: "M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z",
+  alert: "M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z",
+  refresh: "M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z",
+  // simple "link broken" glyph drawn locally (not an MDI path) — stand-in for an offline icon
+  offline: "M3,3L21,21L19.6,22.4L16.2,19H6A4,4 0 0,1 2,15A4,4 0 0,1 5.7,11L1.6,4.4L3,3M19.5,17.2L8.3,6A6,6 0 0,1 17.7,9.1A4,4 0 0,1 22,13A4,4 0 0,1 19.5,17.2Z",
+};
+const svg = (p, cls = "") => `<svg viewBox="0 0 24 24" class="${cls}" fill="currentColor" aria-hidden="true"><path d="${p}"/></svg>`;
+
+const PHASES = [
+  ["idle", "idle"], ["pending", "pending"], ["waiting", "waiting"], ["loading", "loading"],
+  ["slow", "loading · slow"], ["streaming", "streaming"], ["loaded", "loaded"], ["empty", "loaded · empty"], ["failed", "failed"],
+];
+const VARIANTS = [["A", "A · ring (chosen)"], ["B", "B · label"], ["C", "C · edge bar"]];
+const CAPTION = {
+  idle: "idle — session never opened. Card shows nothing new. (Chat shows another session here.)",
+  pending: "pending — selected; IndexedDB cache read before subscribe. TODAY: 'No messages yet' flashes. PROPOSED: skeleton immediately.",
+  waiting: "waiting — WS not connected, no messages. TODAY: 'No messages yet' (false). PROPOSED: static 'Waiting for connection'.",
+  loading: "loading — subscribe sent, loadingHistory=true. Skeleton (exists) + card indicator (NEW).",
+  slow: "loading · slow — >10 s cold hydrate. Elapsed time + Retry (NEW).",
+  streaming: "streaming — first content arrived, replayInFlight=true. Pill (exists) + card indicator (NEW).",
+  loaded: "loaded — isLast. Indicators clear.",
+  empty: "loaded · empty — genuinely empty session. 'No messages yet' is now TRUE.",
+  failed: "failed — safety-net timeout. TODAY: silently 'No messages yet'. PROPOSED: error + Retry.",
+};
+let phase = "loading", variant = "A";
+
+function cardIndicator(v, ph, elapsed) {
+  const busy = ["pending", "loading", "slow", "streaming"].includes(ph);
+  const time = `<span class="time">3h ago</span>`;
+  if (v === "B") {
+    if (busy) return { time: `<span class="loadlabel" role="status">${svg(ICON.loading, "spin")}loading${ph === "slow" ? ` ${elapsed}s` : ""}</span>` };
+    if (ph === "waiting") return { time: `<span class="loadlabel" role="status">${svg(ICON.offline)}offline</span>` };
+    if (ph === "failed") return { time: `<span class="loadlabel warn">${svg(ICON.alert)}failed</span>` };
+    return { time };
+  }
+  if (v === "A") {
+    const tip = ph === "slow" ? `Still loading history · ${elapsed}s` : "Loading history…";
+    // live-region text is STATIC (no seconds) and only the selected card gets role=status (spec)
+    if (busy) return { time, title: tip, ring: `<span class="ring"></span><span class="sr-only">Loading history</span>` };
+    if (ph === "waiting") return { time, title: "Waiting for connection", ring: `<span class="ring static"></span><span class="sr-only">Waiting for connection</span>` };
+    if (ph === "failed") return { time, title: "Couldn’t load history", ring: `<span class="ring static" style="border-color:var(--status-error);border-style:solid"></span><span class="sr-only">Couldn’t load history</span>` };
+    return { time };
+  }
+  if (busy) return { time, bar: `<div class="edgebar"></div><span class="sr-only" role="status">Loading history</span>` };
+  if (ph === "waiting") return { time, bar: `<div class="edgebar static"></div>` };
+  if (ph === "failed") return { time, bar: `<div class="edgebar static" style="background:var(--status-error)"></div>` };
+  return { time };
+}
+
+function card({ name, model, status, selected, ph, v, elapsed }) {
+  const ind = cardIndicator(v, ph, elapsed);
+  const color = { idle: "var(--status-idle)", ended: "var(--text-muted)", working: "var(--status-working)" }[status];
+  return `<div class="card ${selected ? "selected" : ""}" ${selected ? 'aria-current="true"' : ""}>
+    ${ind.bar ?? ""}
+    <div class="l1">
+      <span class="chip" style="color:${color}" ${ind.title ? `title="${ind.title}"` : ""}>${svg(ICON.console)}<span class="shape" style="background:${color}"></span>${ind.ring ?? ""}</span>
+      <span class="name">${name}</span>${ind.time}
+    </div>
+    <div class="l2">${model}</div>
+  </div>`;
+}
+
+function renderCards(elapsed) {
+  document.getElementById("cards").innerHTML = [
+    card({ name: "refactor replay cache", model: "claude-opus-4 (high)", status: "ended", selected: phase !== "idle", ph: phase, v: variant, elapsed }),
+    card({ name: "fix mosaic rail gutter", model: "gpt-5 (medium)", status: "idle", selected: phase === "idle", ph: "loaded", v: variant }),
+    card({ name: "openspec poll tuning", model: "claude-sonnet-4", status: "ended", ph: "idle", v: variant }),
+    card({ name: "kb eval fixtures", model: "claude-haiku-4", status: "ended", ph: "idle", v: variant }),
+  ].join("");
+}
+
+const MSGS = `
+  <div class="bubble user">The replay cache misses after a page reload — can you trace why?</div>
+  <div class="bubble asst">Reading <code>rehydrateSession()</code>… the cursor is written before the IndexedDB put resolves, so a reload between the two leaves <code>lastSeq</code> ahead of the persisted events.</div>
+  <div class="bubble user">Fix it and add a test.</div>
+  <div class="bubble asst">Done — moved the cursor write into the put's <code>oncomplete</code>; added <code>replay-cache.reload.test.ts</code>.</div>`;
+const SKEL = `<div aria-busy="true" role="status" aria-label="Loading conversation…">
+  <div class="sk user"></div><div class="sk asst"></div><div class="sk user"></div><div class="sk asst"></div></div>`;
+
+function renderChat(elapsed) {
+  const el = document.getElementById("chat");
+  const S = {
+    idle: `<div class="bubble asst">(another session is open — the idle card is unaffected)</div>`,
+    pending: SKEL,
+    loading: SKEL,
+    slow: `<div class="slow-note" role="status">${svg(ICON.loading, "spin").replace('class="spin"', 'class="spin" width="14" height="14"')}<span class="grow">Still loading history · ${elapsed}s — large session being read from disk</span><button class="linkbtn" type="button">Retry</button></div>${SKEL}`,
+    waiting: `<div class="state" role="status">${svg(ICON.offline)}<h3>Waiting for connection</h3><p>History loads as soon as the dashboard reconnects. Nothing is lost.</p></div>`,
+    streaming: `${MSGS}<div class="scrim"></div><div class="pill" role="status">${svg(ICON.loading, "spin")}Loading earlier messages…</div>`,
+    loaded: MSGS,
+    empty: `<div class="state"><h3>No messages yet</h3><p>Send a prompt below to start this session.</p></div>`,
+    failed: `<div class="state error" role="alert">${svg(ICON.alert)}<h3>Couldn’t load history</h3><p>The server didn’t answer within 90 s. The session itself is fine.</p><button class="btn btn-primary" type="button">${"Retry"}</button></div>`,
+  };
+  el.innerHTML = S[phase];
+}
+
+function renderGallery() {
+  document.getElementById("variantGallery").innerHTML = VARIANTS.map(([v, label]) => `
+    <div class="vbox ${v === "A" ? "rec" : ""}"><h3>${label}${v === "A" ? '<span class="tag">chosen</span>' : ""}</h3>
+      ${card({ name: "loading", model: "subscribe in flight", status: "ended", selected: true, ph: "loading", v })}
+      ${card({ name: "waiting", model: "WS disconnected", status: "ended", selected: true, ph: "waiting", v })}
+      ${card({ name: "failed", model: "safety-net timeout", status: "ended", selected: true, ph: "failed", v })}
+      <p style="font-size:12px;color:var(--text-tertiary);margin:6px 0 0">${{
+        A: "CHOSEN. Compact, zero layout shift, sits on the status chip. Three shapes (spinning arc / dashed / solid red) + chip tooltip + sr-only text carry the state beyond colour. Hover the chip to see the tooltip.",
+        B: "Explicit word + icon; replaces the low-value timestamp while loading; reads in reduced-motion and for screen readers. Needs min-width to avoid reflow.",
+        C: "Most ambient; good for ‘background’ loads. Colour+motion only, easy to miss, and clashes with the selected-card glow/stripe FX.",
+      }[v]}</p></div>`).join("");
+}
+
+let t0 = Date.now();
+function render() {
+  const elapsed = phase === "slow" ? 14 : 0;
+  renderCards(elapsed); renderChat(elapsed);
+  document.getElementById("caption").textContent = CAPTION[phase];
+  document.querySelectorAll('input[name=phase]').forEach(i => i.checked = i.value === phase);
+}
+
+function seg(id, name, items, cur, onChange) {
+  document.getElementById(id).innerHTML = items.map(([v, l]) =>
+    `<label><input type="radio" name="${name}" value="${v}" ${v === cur ? "checked" : ""}><span>${l}</span></label>`).join("");
+  document.getElementById(id).addEventListener("change", e => onChange(e.target.value));
+}
+seg("phases", "phase", PHASES, phase, v => { stop(); phase = v; render(); });
+seg("variants", "variant", VARIANTS, variant, v => { variant = v; render(); });
+
+let timers = [];
+function stop() { timers.forEach(clearTimeout); timers = []; }
+document.getElementById("play").onclick = () => {
+  stop();
+  const seq = [["idle", 0], ["pending", 900], ["loading", 1300], ["streaming", 2600], ["loaded", 4200]];
+  seq.forEach(([p, at]) => timers.push(setTimeout(() => { phase = p; render(); }, at)));
+};
+document.getElementById("theme").onclick = () => {
+  const r = document.documentElement; r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+};
+document.getElementById("rm").onchange = e => document.documentElement.classList.toggle("reduce", e.target.checked);
+
+renderGallery(); render();
+</script>
+</body>
+</html>

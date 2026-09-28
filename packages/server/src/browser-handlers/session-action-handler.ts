@@ -230,7 +230,7 @@ export async function handleHeadlessReload(
       ctx,
       msg.sessionId,
       "error",
-      "No session file — cannot respawn on reload",
+      "No session file — cannot restart on reload",
     );
     return;
   }

@@ -228,7 +228,7 @@ describe("chat-gateway orchestrator", () => {
     });
 
     expect(adapter.sent).toHaveLength(1);
-    expect(adapter.sent[0].content).toContain("Spawn failed");
+    expect(adapter.sent[0].content).toContain("Session start failed");
     expect(store.all()).toEqual([]);
   });
 
