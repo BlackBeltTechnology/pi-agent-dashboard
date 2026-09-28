@@ -78,4 +78,22 @@ describe("usePushSubscription.subscribe", () => {
     expect(localStorage.getItem("pi-dashboard.push.tokenId")).toBeNull();
     expect(subscription.unsubscribe).toHaveBeenCalled();
   });
+
+  it("an existing subscription the server rejects on mount is NOT shown as subscribed", async () => {
+    const { pushManager, subscription } = installPushApi();
+    pushManager.getSubscription.mockResolvedValue(subscription as never);
+    mockFetch(500);
+    const { result } = renderHook(() => usePushSubscription());
+    await waitFor(() => expect(result.current.status).toBe("unsubscribed"));
+    expect(localStorage.getItem("pi-dashboard.push.tokenId")).toBeNull();
+  });
+
+  it("an existing subscription the server accepts on mount is shown as subscribed", async () => {
+    const { pushManager, subscription } = installPushApi();
+    pushManager.getSubscription.mockResolvedValue(subscription as never);
+    mockFetch(200);
+    const { result } = renderHook(() => usePushSubscription());
+    await waitFor(() => expect(result.current.status).toBe("subscribed"));
+    expect(localStorage.getItem("pi-dashboard.push.tokenId")).toBe("t1");
+  });
 });

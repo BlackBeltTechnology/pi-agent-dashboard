@@ -112,9 +112,16 @@ export function usePushSubscription(): PushSubscriptionState {
           setStatus("unsubscribed");
           return;
         }
+        // Only "subscribed" when the server holds the token; a rejected
+        // re-register leaves the toggle off (toggling on re-registers).
         const tokenId = await registerSubscription(sub);
-        if (tokenId) localStorage.setItem(TOKEN_ID_KEY, tokenId);
-        if (!cancelled) setStatus("subscribed");
+        if (cancelled) return;
+        if (!tokenId) {
+          setStatus("unsubscribed");
+          return;
+        }
+        localStorage.setItem(TOKEN_ID_KEY, tokenId);
+        setStatus("subscribed");
       } catch {
         if (!cancelled) setStatus("unsubscribed");
       }
