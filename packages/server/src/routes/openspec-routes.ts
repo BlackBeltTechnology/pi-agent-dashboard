@@ -30,7 +30,14 @@ import {
   toggleTask,
 } from "../openspec/openspec-tasks.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { isWithinFolder, joinSkillProvenance, type SkillReporter, sessionCommandRegistry } from "../pi/session-skill-registry.js";
+import { sessionFlowSourceRegistry } from "../pi/session-flow-source-registry.js";
+import {
+  canonicalPath,
+  isWithinFolder,
+  joinSkillProvenance,
+  type SkillReporter,
+  sessionCommandRegistry,
+} from "../pi/session-skill-registry.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -538,13 +545,19 @@ export function registerOpenSpecRoutes(
       for (const dir of preferencesStore.getPinnedDirectories()) knownCwds.add(dir);
 
       const normalizedPath = path.resolve(filePath);
-      const isAllowed =
+      const inStaticAllowList =
         normalizedPath.startsWith(globalPiDir + path.sep) ||
         [...knownCwds].some(
           (cwd) => normalizedPath.startsWith(path.join(cwd, ".pi") + path.sep),
         ) ||
         normalizedPath.includes(path.join(".pi", "git") + path.sep) ||
         normalizedPath.includes("node_modules" + path.sep);
+      // Exact flow.yaml files a live session reported (extension-registered
+      // flow dirs). Read the canonical path so the validated file is the one
+      // read (no symlink swap in between). See change: attach-flow-before-run.
+      const viaFlowSource = !inStaticAllowList && sessionFlowSourceRegistry.has(normalizedPath);
+      const isAllowed = inStaticAllowList || viaFlowSource;
+      const readPath = viaFlowSource ? canonicalPath(normalizedPath) : normalizedPath;
 
       if (!isAllowed) {
         reply.code(403);
@@ -552,7 +565,7 @@ export function registerOpenSpecRoutes(
       }
 
       try {
-        const content = await fs.readFile(normalizedPath, "utf-8");
+        const content = await fs.readFile(readPath, "utf-8");
         return { success: true, data: { type: "file", content } } satisfies ApiResponse;
       } catch {
         reply.code(404);

@@ -28,6 +28,7 @@ import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
+import { sessionFlowSourceRegistry } from "./pi/session-flow-source-registry.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
@@ -1830,6 +1831,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       localityNoticesSent.delete(sessionId);
       locallyEvidencedChanges.delete(sessionId);
       sessionCommandRegistry.remove(sessionId);
+      sessionFlowSourceRegistry.remove(sessionId);
       browserGateway.broadcastSessionRemoved(sessionId);
     }
 
@@ -1847,6 +1849,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "flows_list") {
+      // Retain the reported flow.yaml sources so /api/pi-resource-file can serve
+      // exactly those files. See change: attach-flow-before-run.
+      sessionFlowSourceRegistry.retain(sessionId, msg.flows);
       browserGateway.sendToSubscribers(sessionId, {
         type: "flows_list",
         sessionId,

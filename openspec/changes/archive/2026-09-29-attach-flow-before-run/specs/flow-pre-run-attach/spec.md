@@ -86,6 +86,12 @@ Picking a flow in the Open picker SHALL attach it to that session's flow slot. T
 - **WHEN** the attached flow's definition is still being fetched
 - **THEN** the flow slot SHALL show the flow name, a loading indicator, and **Close**
 
+#### Scenario: Extension-registered flow can be opened
+- **GIVEN** a flow whose definition file lives in a flows directory an extension registered at runtime, outside the project and package resource locations
+- **WHEN** the user attaches it
+- **THEN** the flow slot SHALL show its not-started panel
+- **AND** no other file in that directory SHALL become readable through the resource endpoint
+
 #### Scenario: Definition cannot be loaded
 - **WHEN** the attached flow's definition file cannot be fetched or parsed, or a step lacks a node type
 - **THEN** the flow slot SHALL show the flow name, an error message, and **Close**, and SHALL NOT show a graph or cards
