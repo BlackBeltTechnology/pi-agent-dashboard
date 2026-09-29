@@ -8,6 +8,7 @@ import { mdiCallSplit, mdiCodeBraces, mdiCodeTags, mdiEyeOffOutline, mdiEyeOutli
 import { Icon } from "@mdi/react";
 import React, { useEffect, useState } from "react";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
+import { fetchFlowFile } from "./flow-files.js";
 import { formatCost } from "./format-cost.js";
 
 /**
@@ -83,26 +84,19 @@ export function FlowAgentCard({
     }
     let cancelled = false;
     setSourceState({ kind: "loading" });
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(agent.sourcePath)}`)
-      .then(async (r) => {
-        const json = await r.json();
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setSourceState({ kind: "loaded", content: json.data.content });
-        } else {
-          setSourceState({
-            kind: "error",
-            error: typeof json?.error === "string" ? json.error : "Failed to read source",
-          });
-        }
+    // Plugin file endpoint (runtime-registered dirs) → host fallback.
+    // See change: attach-flow-before-run.
+    fetchFlowFile(sessionId, agent.sourcePath)
+      .then((content) => {
+        if (!cancelled) setSourceState({ kind: "loaded", content });
       })
-      .catch((err) => {
-        if (!cancelled) setSourceState({ kind: "error", error: String(err) });
+      .catch((err: unknown) => {
+        if (!cancelled) setSourceState({ kind: "error", error: err instanceof Error ? err.message : "Failed to read source" });
       });
     return () => {
       cancelled = true;
     };
-  }, [sourceOpen, agent.sourcePath]);
+  }, [sourceOpen, agent.sourcePath, sessionId]);
 
   // Fetch the code node's handler .ts when its popover opens. `codeTarget` is
   // emitted absolute by the upstream flow runtime, so it is passed verbatim to
@@ -116,26 +110,19 @@ export function FlowAgentCard({
     }
     let cancelled = false;
     setCodeSourceState({ kind: "loading" });
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(agent.codeTarget)}`)
-      .then(async (r) => {
-        const json = await r.json();
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setCodeSourceState({ kind: "loaded", content: json.data.content });
-        } else {
-          setCodeSourceState({
-            kind: "error",
-            error: typeof json?.error === "string" ? json.error : "Failed to read handler",
-          });
-        }
+    // Plugin file endpoint (runtime-registered dirs) → host fallback.
+    // See change: attach-flow-before-run.
+    fetchFlowFile(sessionId, agent.codeTarget)
+      .then((content) => {
+        if (!cancelled) setCodeSourceState({ kind: "loaded", content });
       })
-      .catch((err) => {
-        if (!cancelled) setCodeSourceState({ kind: "error", error: String(err) });
+      .catch((err: unknown) => {
+        if (!cancelled) setCodeSourceState({ kind: "error", error: err instanceof Error ? err.message : "Failed to read handler" });
       });
     return () => {
       cancelled = true;
     };
-  }, [codeSourceOpen, agent.codeTarget]);
+  }, [codeSourceOpen, agent.codeTarget, sessionId]);
 
   const displayName = agent.label || agent.stepId || agent.agentName;
   const displayRole = agent.cardRole || agent.model || "";
@@ -296,7 +283,7 @@ export function FlowAgentCard({
                   open={codeSourceOpen}
                   onClose={() => setCodeSourceOpen(false)}
                   title={agent.codeTarget.split("/").pop() || "Handler"}
-                  size="lg"
+                  size="xl"
                 >
                   <div className="text-[11px] text-[var(--text-tertiary)] font-mono break-all" title={agent.codeTarget}>
                     {agent.codeTarget}
@@ -332,7 +319,7 @@ export function FlowAgentCard({
                   open={sourceOpen}
                   onClose={() => setSourceOpen(false)}
                   title={agent.sourcePath.split("/").pop() || "Source"}
-                  size="lg"
+                  size="xl"
                 >
                   {/* Pinned path header; body scrolls inside a fixed-height
                       region so the dialog stays a fixed size. See change:

@@ -25,6 +25,7 @@ import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { clearAttachment, resolveBaseline, useFlowAttachment } from "./flow-attach-store.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
+import { fetchFlowFile, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
 import { makeSafeSend } from "./send-safe.js";
 
@@ -172,7 +173,10 @@ export function FlowDashboard({
     return flowState;
   }, [idle, flowStates, activeTabId, flowState]);
 
-  const agents = Array.from(displayState.agents.values());
+  // Agent / handler file paths so every card (idle, pending, running) can open
+  // its file. See change: attach-flow-before-run.
+  const nodeFiles = useFlowNodeFiles(sessionId);
+  const agents = Array.from(withNodeFiles(displayState, nodeFiles).agents.values());
   const allAgents = Array.from(flowState.agents.values());
 
   const handleSelectStep = useCallback((stepId: string) => {
@@ -354,6 +358,7 @@ export function FlowDashboard({
               <FlowYamlPopoverButton
                 flowSource={displayState.flowSource}
                 flowName={displayState.flowName}
+                sessionId={sessionId}
               />
             </div>
           )}
@@ -525,7 +530,7 @@ const LOADING: IdleLoad = Object.freeze({ kind: "loading" }) as IdleLoad;
  * in React state, so its `agents` / `dagSteps` references are stable.
  * See change: attach-flow-before-run (D6).
  */
-function useAttachedFlowState(attachment: FlowAttachment | null): IdleLoad {
+function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: string): IdleLoad {
   const t = useT();
   const name = attachment?.name ?? "";
   const source = attachment?.source;
@@ -538,21 +543,16 @@ function useAttachedFlowState(attachment: FlowAttachment | null): IdleLoad {
     const fail = (message: string) => {
       if (!cancelled) setState({ key, load: { kind: "error", message } });
     };
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(source)}`)
-      .then(async (r) => {
-        const json = await r.json().catch(() => null);
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setState({ key, load: buildIdleFlowState(json.data.content, { name, source }) });
-        } else {
-          fail(typeof json?.error === "string" ? json.error : `HTTP ${r.status}`);
-        }
+    // Plugin file endpoint (runtime-registered flow dirs) → host fallback.
+    fetchFlowFile(sessionId, source)
+      .then((content) => {
+        if (!cancelled) setState({ key, load: buildIdleFlowState(content, { name, source }) });
       })
       .catch((err: unknown) => fail(err instanceof Error ? err.message : String(err)));
     return () => {
       cancelled = true;
     };
-  }, [key, name, source]);
+  }, [key, name, source, sessionId]);
 
   if (!attachment) return LOADING;
   if (!source) {
@@ -685,7 +685,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   const events = useSessionEvents(sessionId);
   const flowsList = useSessionData<FlowInfo[]>(sessionId, "flowsList") ?? EMPTY_FLOWS;
   const attachment = useFlowAttachment(sessionId);
-  const idleLoad = useAttachedFlowState(attachment);
+  const idleLoad = useAttachedFlowState(attachment, sessionId);
   const send = usePluginSend();
   const t = useT();
 

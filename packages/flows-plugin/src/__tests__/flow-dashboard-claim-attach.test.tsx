@@ -611,6 +611,43 @@ describe("attached flow no longer available (X6)", () => {
   });
 });
 
+// ── idle cards get their file buttons from the plugin files endpoint ─
+describe("idle cards open their files (plugin-reported paths)", () => {
+  it("agent card shows the source button; a code node shows the handler button", async () => {
+    const yaml = `
+name: A
+description: d
+steps:
+  - id: load
+    type: code
+  - id: fill
+    type: agent
+    agent: filler
+    blockedBy: [load]
+`;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).startsWith("/api/plugins/flows/files")) {
+          return {
+            status: 200,
+            json: async () => ({
+              success: true,
+              data: { reported: true, agents: { filler: "/pkg/agents/filler.md" }, handlers: { A: { load: "/pkg/flows/A/load.ts" } } },
+            }),
+          };
+        }
+        return { status: 200, json: async () => ({ success: true, data: { content: yaml } }) };
+      }),
+    );
+    const sid = nextSid();
+    attach(sid, "A");
+    renderClaim(sid);
+    await waitFor(() => expect(screen.getByTitle("View handler source")).toBeTruthy());
+    expect(screen.getByTitle(/View fill source/)).toBeTruthy();
+  });
+});
+
 // ── 5.23 X7 unmount safety ─────────────────────────────────────────
 describe("loader unmount safety (X7)", () => {
   it("no state update or attachment change after unmount", async () => {

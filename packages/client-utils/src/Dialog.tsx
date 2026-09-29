@@ -12,7 +12,7 @@ import { useEscapeDismiss } from "./escape-stack.js";
 import { LayerHostProvider } from "./LayerPortal.js";
 import { useFocusTrap } from "./useFocusTrap.js";
 
-export type DialogSize = "sm" | "md" | "lg" | "full";
+export type DialogSize = "sm" | "md" | "lg" | "xl" | "full";
 export type DialogIntent = "primary" | "danger" | "neutral";
 
 interface DialogProps {
@@ -51,16 +51,18 @@ const SIZE_MAX_W: Record<DialogSize, string> = {
   sm: "max-w-sm",
   md: "max-w-md",
   lg: "max-w-lg",
+  xl: "max-w-3xl",
   full: "max-w-[95vw]",
 };
 
 // `full` gets a taller cap (near-fullscreen wide stage, e.g. horizontal flow
-// graphs); sm/md/lg keep the 80vh column cap. See change:
+// graphs); sm/md/lg/xl keep the 80vh column cap. See change:
 // improve-flow-graph-dialog-and-card-interaction.
 const SIZE_MAX_H: Record<DialogSize, string> = {
   sm: "max-h-[80vh]",
   md: "max-h-[80vh]",
   lg: "max-h-[80vh]",
+  xl: "max-h-[80vh]",
   full: "max-h-[92vh]",
 };
 

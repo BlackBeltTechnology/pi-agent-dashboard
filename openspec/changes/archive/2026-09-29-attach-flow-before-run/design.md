@@ -183,6 +183,14 @@ In `reduceFlowEvent`, `case "flow_complete"` returns `flowState` unchanged (and 
 
 This modifies the `flows-plugin` "flow_complete event handling" requirement (delta spec).
 
+### D11 — Node files served by the plugin, not the host
+
+Runtime-registered flow dirs (`flow:register-flows-dir` / `flow:register-agents-dir`: InvoiceBot, RackInspect) sit outside the host `/api/pi-resource-file` allow-list, so YAML, agent and handler buttons failed.
+- The flows-plugin **bridge** (`bridge/flow-files-reporter.ts`) reads `flow:list-flows` + `flow:get-agents` and reports sources over the private plugin lane (`requestPluginServer`).
+- The flows-plugin **server** (`server/flow-files.ts`) keeps an exact per-session allow-list: reported flow YAML, agent `.md`, and the code handlers pi-flows would run (`target` ? `resolve(cwd, target)` : `<dirname(flow.source)>/<id>.ts`, execute-code-step). It serves `/api/plugins/flows/files` and `/api/plugins/flows/file` behind `networkGuard`.
+- Client `fetchFlowFile` uses the plugin endpoint first, then `/api/pi-resource-file`. `withNodeFiles` gives idle / pending cards their `sourcePath` / `codeTarget`, so the existing file buttons render before a run.
+- No host-core flow code changes. The core `flow_*` event forwarding InvoiceBot's UI depends on is untouched. The one core edit is a generic `xl` (`max-w-3xl`) Dialog size, used by the file viewers.
+
 ## Risks / Trade-offs
 
 - **[Risk]** Keying by `flowName` remounts when two different live flows run back to back (today the instance is reused). → Intended "replaced" semantics. Collapse persists per session. Covered by claim tests.

@@ -10,6 +10,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { provideFlowsActions } from "./automation-actions.js";
 import { readFlowInputs } from "./flow-inputs.js";
+import { registerFlowFileRoutes } from "./flow-files.js";
 import { renderSessionFlowActions } from "./render-actions.js";
 import { stateStore } from "./state-store.js";
 
@@ -65,6 +66,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     const cwd = typeof q.cwd === "string" ? q.cwd : process.cwd();
     const flow = typeof q.flow === "string" ? q.flow : "";
     return { inputs: flow ? readFlowInputs(cwd, flow) : [] };
+  });
+
+  // Flow YAML / agent / code-handler files reported by this plugin's bridge,
+  // so the UI can open files in runtime-registered flow dirs. Plugin-owned
+  // (no host allow-list change). See change: attach-flow-before-run.
+  registerFlowFileRoutes({
+    fastify: ctx.fastify as never,
+    networkGuard: ctx.networkGuard,
+    registerPiRequestHandler: ctx.registerPiRequestHandler,
+    sessionManager: ctx.sessionManager,
+    emitEventToSession,
   });
 
   /**

@@ -127,8 +127,9 @@ export interface UiDialogProps {
   title?: string;
   /** Optional leading icon (mdi path string). */
   icon?: string;
-  /** `full` = near-fullscreen wide stage (max-w-[95vw]/max-h-[92vh]). See change: improve-flow-graph-dialog-and-card-interaction. */
-  size?: "sm" | "md" | "lg" | "full";
+  /** `xl` = wide reading width (max-w-3xl), e.g. file/source viewers.
+   *  `full` = near-fullscreen wide stage (max-w-[95vw]/max-h-[92vh]). See change: improve-flow-graph-dialog-and-card-interaction. */
+  size?: "sm" | "md" | "lg" | "xl" | "full";
   /**
    * Edge-to-edge body for a self-framed child: no padding, clipped overflow,
    * and a flex COLUMN context. The panel carries only a `max-h` cap and no

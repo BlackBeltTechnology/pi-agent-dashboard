@@ -122,6 +122,7 @@ describe("Dialog", () => {
     ["sm", "max-w-sm"],
     ["md", "max-w-md"],
     ["lg", "max-w-lg"],
+    ["xl", "max-w-3xl"],
     ["full", "max-w-[95vw]"],
   ] as const)("applies %s size class %s", (size, cls) => {
     const { baseElement } = render(

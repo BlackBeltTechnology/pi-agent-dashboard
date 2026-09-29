@@ -18,6 +18,7 @@ import { Icon } from "@mdi/react";
 import { mdiFileDocumentOutline } from "@mdi/js";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { fetchFlowFile } from "./flow-files.js";
 
 type YamlFetchState =
   | { kind: "idle" }
@@ -28,9 +29,13 @@ type YamlFetchState =
 export function FlowYamlPopoverButton({
   flowSource,
   flowName,
+  sessionId,
 }: {
   flowSource: string;
   flowName: string;
+  /** Owning session — lets the plugin serve YAML from runtime-registered flow
+   *  dirs. See change: attach-flow-before-run. */
+  sessionId?: string;
 }) {
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
@@ -44,26 +49,17 @@ export function FlowYamlPopoverButton({
     if (!open) return;
     let cancelled = false;
     setState({ kind: "loading" });
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(flowSource)}`)
-      .then(async (r) => {
-        const json = await r.json();
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setState({ kind: "loaded", content: json.data.content });
-        } else {
-          setState({
-            kind: "error",
-            error: typeof json?.error === "string" ? json.error : "Failed to read flow YAML",
-          });
-        }
+    fetchFlowFile(sessionId, flowSource)
+      .then((content) => {
+        if (!cancelled) setState({ kind: "loaded", content });
       })
-      .catch((err) => {
-        if (!cancelled) setState({ kind: "error", error: String(err) });
+      .catch((err: unknown) => {
+        if (!cancelled) setState({ kind: "error", error: err instanceof Error ? err.message : String(err) });
       });
     return () => {
       cancelled = true;
     };
-  }, [open, flowSource]);
+  }, [open, flowSource, sessionId]);
 
   return (
     <>
@@ -85,7 +81,7 @@ export function FlowYamlPopoverButton({
         open={open}
         onClose={() => setOpen(false)}
         title={`${flowName} · YAML`}
-        size="lg"
+        size="xl"
       >
         {/* Pinned path header; YAML scrolls inside a fixed-height region so the
             dialog stays a fixed size. See change:

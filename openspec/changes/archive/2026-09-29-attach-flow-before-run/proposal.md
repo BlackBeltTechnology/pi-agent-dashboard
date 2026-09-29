@@ -29,7 +29,7 @@ The flow slot (`content-header-sticky` → `FlowDashboardClaim`) only renders af
 
 - `packages/flows-plugin/src/client/`: `SessionFlowActions.tsx` (Open button + picker), `FlowDashboard.tsx` (idle mode, selection-reset rule, claim priority), `FlowsSessionStateContext.tsx` (`lastFlowStartedAt`, `lastAutonomousMode`), new `flow-idle-state.ts` (0.5.0 step mapping, fake `flow_started`, slot resolution) + `flow-attach-store.ts` (per-session `localStorage` + cross-tab `storage` sync), `i18n.ts` keys. `flow-yaml-parse.ts` / `FlowWriteToolRenderer` untouched.
 - `packages/flows-plugin/src/flow-reducer.ts`: `flow_complete` with `status: "rejected"` returns the current state unchanged (fixes a pre-existing clobber of the running panel reachable from subcard Run / automation).
-- No server, bridge, shared-type, or protocol changes. Reuses `/api/pi-resource-file`, `reduceFlowEvent`, `FlowGraph`, `FlowAgentCard`, `FlowLaunchDialog`, `flow_management run`.
+- Plugin-owned file serving (design D11): the flows-plugin bridge reports flow/agent sources to the flows-plugin server, which serves the exact YAML / agent / handler files (runtime-registered dirs). Idle cards get file buttons; file dialogs use a new generic `xl` Dialog size. No host flow-code, bridge-core, or protocol changes. Reuses `/api/pi-resource-file`, `reduceFlowEvent`, `FlowGraph`, `FlowAgentCard`, `FlowLaunchDialog`, `flow_management run`.
 - Tests: vitest unit tests for the attach store, synth-event builder, claim priority; client component tests for idle rendering and the Open button gating.
 
 ## Discipline Skills
