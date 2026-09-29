@@ -47,7 +47,7 @@ See proposal.md for motivation. Current wiring (pi-flows **0.5.0**, the installe
 **Non-Goals:**
 - Graph edge changes of any kind.
 - Agent frontmatter enrichment of idle cards.
-- Bridge, protocol or shared-type changes (server: only D11).
+- Server, bridge, protocol or shared-type changes.
 - The dead `FlowYamlPreviewClaim`.
 - Exposing the shell's hydration state to plugins.
 
@@ -183,16 +183,6 @@ In `reduceFlowEvent`, `case "flow_complete"` returns `flowState` unchanged (and 
 
 This modifies the `flows-plugin` "flow_complete event handling" requirement (delta spec).
 
-### D11 — Serve exactly the flow files a live session reported
-
-Extension flow dirs registered via `flow:register-flows-dir` live outside the `/api/pi-resource-file` allow-list (`~/.pi/agent/**`, `<cwd>/.pi/**`, `node_modules/**`), so attaching them failed with 403.
-- `sessionFlowSourceRegistry` (`packages/server/src/pi/session-flow-source-registry.ts`) retains each session's `flows_list` sources on every `flows_list`, drops them on `session_unregister` (pattern of `sessionCommandRegistry`).
-- Only absolute `.yaml`/`.yml` sources are kept; both sides are realpath-canonicalized.
-- The endpoint allows an **exact** match only — no sibling, parent dir, or handler file is widened.
-- Trust basis: the path was reported by a connected bridge (already a trusted peer that can run code); the endpoint keeps `networkGuard`.
-
-**Alternative:** bridge ships the YAML content (protocol change). Rejected as larger.
-
 ## Risks / Trade-offs
 
 - **[Risk]** Keying by `flowName` remounts when two different live flows run back to back (today the instance is reused). → Intended "replaced" semantics. Collapse persists per session. Covered by claim tests.
@@ -200,7 +190,7 @@ Extension flow dirs registered via `flow:register-flows-dir` live outside the `/
 - **[Trade-off]** During `session_state_reset` → replay, an already-consumed attachment whose deletion effect hasn't run yet can flash idle for a moment. → The D4 deletion effect removes it on the first render where it's consumed. The window is a single render.
 - **[Trade-off]** Replay windowing on the server can leave out the `flow_started` that should consume an attachment (catch-up only). → The idle panel stays until the user closes it or a newer flow starts. Benign.
 - **[Trade-off]** The idle AUTO value can be stale after a server restart (D8). → It corrects on the next toggle or run.
-- **[Resolved by D11]** Flows from extra registered dirs sat outside the `/api/pi-resource-file` allow-list and showed the error state (found in smoke test with `rackinspect:defect-analysis`).
+- **[Trade-off]** Flows from extra registered dirs whose source is outside the `/api/pi-resource-file` allow-list show the error state. → The spec's error scenario covers this. Widening the allow-list is out of scope.
 - **[Trade-off]** A file edited after discovery can differ from what pi-flows would run. → The builder mirrors every 0.5.0 parser throw (D1), so a bad edit shows the error state instead of a wrong panel.
 - **[Trade-off, pre-existing]** On the **live** panel, `FlowQuestionsSection` still shows the full per-`flowId` transcript, including earlier runs of the same flow. Unchanged by this change.
 - **[Trade-off]** Idle cards carry only what the YAML declares (id, kind badge, `waiting: <blockedBy>`). Model and label arrive at `flow_agent_started`. Intended ("stale and empty").
