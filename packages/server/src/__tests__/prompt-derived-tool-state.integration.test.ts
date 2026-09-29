@@ -779,6 +779,123 @@ describe("prompt-derived currentTool (integration)", () => {
     expect(log.map((e) => e.notifyId)).toEqual(["restored", "n1"]);
   });
 
+  // ── collapse-and-order-notify-rows: server-side `ts` ─────────────
+  //
+  // A real in-process server runs on real timers, so "server clock" is pinned
+  // by bracketing: an invalid `ts` must be replaced by a receipt time inside
+  // [before-send, after-delivery]. See test-plan #E2, #E3, #X3.
+
+  /** Send one notify frame with a raw (possibly hostile) `ts`. */
+  function notifyWithTs(ws: WebSocket, sessionId: string, notifyId: string, ts: unknown) {
+    send(ws, { type: "notify", sessionId, notifyId, message: `m-${notifyId}`, ...(ts === ABSENT ? {} : { ts }) });
+  }
+  const ABSENT = Symbol("absent");
+
+  it("#E2 keeps a valid bridge ts and stamps receipt time for every invalid one", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    const cases: Array<[string, unknown]> = [
+      ["valid-big", 1758650000000],
+      ["valid-one", 1],
+      ["zero", 0],
+      ["negative", -5],
+      ["nan", Number.NaN], // JSON-encodes to null
+      ["string", "x"],
+      ["absent", ABSENT],
+    ];
+    const before = Date.now();
+    for (const [id, ts] of cases) notifyWithTs(bridge, "s1", id, ts);
+    await waitFor(() => notifies(messages, "s1").length === cases.length);
+    const after = Date.now();
+
+    const log = server.sessionManager.get("s1")!.notifyLog!;
+    const frames = notifies(messages, "s1");
+    const byId = (list: any[], id: string) => list.find((e) => e.notifyId === id);
+    expect(byId(log, "valid-big").ts).toBe(1758650000000);
+    expect(byId(frames, "valid-big").ts).toBe(1758650000000);
+    expect(byId(log, "valid-one").ts).toBe(1);
+    expect(byId(frames, "valid-one").ts).toBe(1);
+    for (const id of ["zero", "negative", "nan", "string", "absent"]) {
+      for (const entry of [byId(log, id), byId(frames, id)]) {
+        expect(typeof entry.ts, id).toBe("number");
+        expect(entry.ts, id).toBeGreaterThanOrEqual(before);
+        expect(entry.ts, id).toBeLessThanOrEqual(after);
+      }
+      // The log entry and the forwarded frame carry the SAME stamp.
+      expect(byId(frames, id).ts, id).toBe(byId(log, id).ts);
+    }
+  });
+
+  it("#E3 a legacy prompt_request notify is stamped with receipt time", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    const before = Date.now();
+    legacyNotify(bridge, "s1", "p1", "from-old-bridge", "warning");
+    await waitFor(() => notifies(messages, "s1").length === 1);
+    const after = Date.now();
+
+    const frame = notifies(messages, "s1")[0];
+    const entry = server.sessionManager.get("s1")!.notifyLog![0];
+    expect(frame.ts).toBeGreaterThanOrEqual(before);
+    expect(frame.ts).toBeLessThanOrEqual(after);
+    expect(entry.ts).toBe(frame.ts);
+  });
+
+  it("#X3 hostile ts (Infinity, numeric string, object) → receipt time, no throw", async () => {
+    await boot();
+    const bridge = await openBridge();
+    const { messages } = await connectBrowser("s1");
+    await registerLive(bridge, "s1");
+
+    const before = Date.now();
+    // Infinity cannot survive JSON; send the raw overflow literal so the server
+    // parses `1e999` → Infinity itself.
+    bridge.send('{"type":"notify","sessionId":"s1","notifyId":"inf","message":"m","ts":1e999}');
+    notifyWithTs(bridge, "s1", "str", "1758650000000");
+    notifyWithTs(bridge, "s1", "obj", {});
+    await waitFor(() => notifies(messages, "s1").length === 3);
+    const after = Date.now();
+
+    for (const entry of server.sessionManager.get("s1")!.notifyLog!) {
+      expect(Number.isFinite(entry.ts), entry.notifyId).toBe(true);
+      expect(entry.ts, entry.notifyId).toBeGreaterThanOrEqual(before);
+      expect(entry.ts, entry.notifyId).toBeLessThanOrEqual(after);
+    }
+    // The server is still serving the session after the garbage.
+    notifyWithTs(bridge, "s1", "after", 42);
+    await waitFor(() => notifies(messages, "s1").length === 4);
+    expect(notifies(messages, "s1")[3].ts).toBe(42);
+  });
+
+  it("#E4 replay forwards a persisted ts unchanged and omits it for a pre-change entry", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    fwd(bridge, "s1", "agent_start");
+    await wait(80);
+    // Post-restart state: the session record carries the persisted rows,
+    // the gateway's in-memory log is cold and hydrates on first replay.
+    server.sessionManager.update("s1", {
+      notifyLog: [
+        { notifyId: "timed", message: "has ts", level: "info", ts: 111 },
+        { notifyId: "legacy", message: "no ts", level: "info" },
+      ],
+    });
+
+    const { messages } = await connectBrowser("s1");
+    await waitFor(() => notifies(messages, "s1").length === 2);
+    const frames = notifies(messages, "s1");
+    expect(frames.map((f) => f.notifyId)).toEqual(["timed", "legacy"]);
+    expect(frames[0].ts).toBe(111);
+    expect("ts" in frames[1]).toBe(false);
+  });
+
   it("#P1 the log stays bounded under a chatty emitter", async () => {
     await boot();
     const bridge = await openBridge();

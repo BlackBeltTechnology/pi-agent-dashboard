@@ -139,7 +139,7 @@ export function applySessionMessage(
     // Render-only chat row — never an interactiveRequests entry.
     // See change: split-notify-from-prompt-request.
     case "notify":
-      return settle(acc, addNotify(acc.state, msg.notifyId, msg.message, msg.level));
+      return settle(acc, addNotify(acc.state, msg.notifyId, msg.message, msg.level, msg.ts));
 
     case "ui_dismiss":
       return settle(acc, dismissInteractiveRequest(acc.state, msg.requestId));

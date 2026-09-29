@@ -719,6 +719,17 @@ Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `p
 
 **Accepted skew:** old client + new server resolves on reload (client ships with the server). Old server + new bridge drops the notification for the skew window — no catch-all forward, no version handshake; accepted, bounded.
 
+**Emit time, ordering, collapse** (change: `collapse-and-order-notify-rows`):
+
+- Bridge `createNotifyProxy` (`packages/extension/src/notify-proxy.ts`) stamps `ts: Date.now()` — bridge clock = transcript-event clock.
+- Server `handleNotify` (`packages/server/src/event-wiring.ts`) keeps bridge `ts` only when finite number > 0 (`isValidNotifyTs`); else stamps receipt `Date.now()`. Covers live `notify`, legacy `fromLegacyPromptRequest`, server-created notices. Every logged `NotifyLogEntry` + browser `notify` carries `ts`.
+- `ts` persists in `.meta.json` notify log; `replayNotifyLog` forwards it; pre-change entries replay without `ts`.
+- Client `addNotify(state, notifyId, message, level?, ts?)`: `ts` → row `timestamp = ts`, placed by pure `insertByTs` — scan `messages` from end in array order, skip `historyGap`, insert after first row with `timestamp <= ts`; none → before first non-gap row; no non-gap row → append. No `ts` → tail append, client `Date.now()`. Dedup by `notifyId` unchanged.
+- History-backfill splice (`useMessageHandler.ts`) → `reseatTimedNotifies` re-places ts-placed notify rows, ascending `ts`.
+- `collapseRepeatedNotifies` (`packages/client/src/lib/chat/collapse-repeated-notifies.ts`) runs last inside ChatView `displayRows` memo, after `notifyMinLevel` gate. ≥2 adjacent notify rows, same normalized level + same non-empty rendered text → one row, first member `id` kept, `args.params.repeat = {count, firstTs, lastTs}`. State untouched.
+- `NotifyRenderer` renders `repeat.count > 1` as `×N` badge + first–last range (`Intl.DateTimeFormat`, UI language, short date across days) + aria-label; keys `common.notifyRepeat.badge` / `.label`. Timestamp outside JS `Date` range (`isDateTs`) → omit first–last range, label key `common.notifyRepeat.labelNoRange` — `Intl` would throw.
+- Trade-off: live mid-turn notify re-tailed by `reorderToolCardsForAssistantMessage`; replay places by `ts` → may shift within own assistant turn, never across turns.
+
 See change: `split-notify-from-prompt-request`.
 
 ### Push Notifications (change: add-server-push-notifications)

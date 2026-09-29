@@ -702,6 +702,8 @@ export interface NotifyMessage {
   notifyId: string;
   message: string;
   level?: NotifyLevel;
+  /** Emit time, epoch ms. Stamped by the bridge; the server backfills its receipt time when absent/invalid. See change: collapse-and-order-notify-rows. */
+  ts?: number;
 }
 
 export interface PromptDismissMessage {

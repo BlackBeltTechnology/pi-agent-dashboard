@@ -750,8 +750,13 @@ The fold threshold SHALL sit above the composer's natural inline width, so the f
 ### Requirement: Notify visibility SHALL be applied at both virtualization gate sites
 
 The chat view derives `displayRows` by filtering grouped messages through
-`isRowVisible`, and the virtualizer's `count` is `displayRows.length`; a separate
-render branch then produces each row's element. The `notifyMinLevel` gate SHALL
+`isRowVisible` and then collapsing runs of adjacent identical notify rows (see
+`notify-message-channel`: "Adjacent identical notify rows render collapsed with a
+repeat count"). Both steps happen inside the single `displayRows` derivation, so
+the virtualizer's `count` is `displayRows.length`, and every index-keyed consumer
+(size estimates, the turn map, selection spans, scroll anchors, and the render
+lookup) reads the same collapsed array. A separate render branch then produces
+each row's element. The `notifyMinLevel` gate SHALL
 be applied at BOTH sites, using the same shared predicate, so the two never
 disagree.
 
@@ -797,6 +802,12 @@ that lowering the floor re-reveals it without a reload or refetch.
 - **WHEN** the user sets `"errors"` from the chat View popover for one session
 - **THEN** only that session's transcript SHALL hide sub-error notifies
 - **AND** the popover SHALL show its modified marker for the session
+
+#### Scenario: Collapsed runs share one index space
+- **GIVEN** a transcript with a run of 10 identical adjacent `warning` notifies between two assistant messages
+- **WHEN** the chat view renders at `notifyMinLevel = "all"`
+- **THEN** `displayRows` SHALL contain 3 rows for that span
+- **AND** the virtualizer count, the per-row size estimates, and the turn map SHALL all be derived from that same 3-row array
 
 ### Requirement: Running burst exposes a shared stop control
 

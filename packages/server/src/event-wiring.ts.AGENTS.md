@@ -19,3 +19,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 `onBridgeRegister?(sid, extensionIdentity)` dep, called on non-provisional `session_register` (D8). See change: electron-runtime-overlay-updates.
 
 `EventWiringDeps.pushDispatcher?`. `stampUnreadIfTriggered` computes `unreadEdge = !!session && !session.unread`, stamps unread on the edge, then `if (session) pushDispatcher?.fanout(sessionId, {eventType, after, payload, unreadEdge})` — fire-and-forget, never awaited (AST lint in push-dispatcher.test.ts). One ask_user edge reaches fanout once (second caller sees currentTool already ask_user). See change: add-server-push-notifications.
+
+`handleNotify(sessionId, incoming)` validates `incoming.ts` via module-level `isValidNotifyTs` (finite number > 0) else stamps `Date.now()`; every logged entry + browser `notify` carries `ts` (live, legacy `fromLegacyPromptRequest`, server-created locality notice). Live `notify` branch forwards raw `msg.ts`. See change: collapse-and-order-notify-rows.

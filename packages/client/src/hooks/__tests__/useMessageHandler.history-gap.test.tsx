@@ -19,7 +19,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
-import { HISTORY_GAP_ROW_ID, type HistoryGapState, createHistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
+import { createHistoryGapState, HISTORY_GAP_ROW_ID, type HistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
 import { createReplayCache } from "../../lib/replay/replay-cache.js";
 import { createReplayPersister } from "../../lib/replay/replay-persist.js";
 import { type MessageHandlerSetters, useMessageHandler } from "../useMessageHandler.js";
@@ -900,5 +900,58 @@ describe("session_updated reconcile — unknown session is a no-op (E6)", () => 
     h.fire(reconcile(SID));
 
     expect(h.get().get(SID)?.status).toBe("streaming");
+  });
+});
+
+// ── collapse-and-order-notify-rows: backfill re-seats timed notifies (#E10) ──
+describe("history_backfill_result — re-seats ts-placed notifies (D5)", () => {
+  const at = (eventType: string, text: string, timestamp: number): DashboardEvent =>
+    ({ ...evt(eventType, text), timestamp }) as DashboardEvent;
+  /** Tail-only window: leading divider, then tail rows stamped 500 / 600. */
+  const primedTailOnly = () => {
+    const h = mount();
+    h.fire(windowMsg({ headMaxSeq: 0, oldestGapSeq: 1, gapCount: 4799 }));
+    h.fire({
+      type: "event_replay",
+      sessionId: SID,
+      events: [
+        { seq: 4800, event: at("message_start", "t500", 500) },
+        { seq: 4801, event: at("message_start", "t600", 600) },
+      ],
+      isLast: true,
+    } as ServerToBrowserMessage);
+    return h;
+  };
+  const labels = (h: Harness) =>
+    (h.states.get(SID)?.messages ?? []).map((m) =>
+      m.role === "historyGap" ? "gap" : m.role === "interactiveUi" ? `N${m.timestamp}` : String(m.timestamp),
+    );
+  const backfill = (h: ReturnType<typeof mount>, stamps: number[]) =>
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: stamps.map((ts, i) => ({ seq: 4700 + i, event: at("message_start", `b${ts}`, ts) })),
+      servedFrom: 4700,
+      servedTo: 4700 + stamps.length - 1,
+      remainingGapCount: 100,
+    } as ServerToBrowserMessage);
+  const notify = (h: ReturnType<typeof mount>, id: string, ts: number) =>
+    h.fire({ type: "notify", sessionId: SID, notifyId: id, message: id, ts } as ServerToBrowserMessage);
+
+  it("a notify older than the backfilled rows moves between them", () => {
+    const h = primedTailOnly();
+    notify(h, "n150", 150);
+    expect(labels(h.get())).toEqual(["gap", "N150", "500", "600"]);
+
+    backfill(h, [100, 200]);
+    expect(labels(h.get())).toEqual(["gap", "100", "N150", "200", "500", "600"]);
+  });
+
+  it("two ts-placed notifies re-seat in ascending ts", () => {
+    const h = primedTailOnly();
+    notify(h, "n250", 250);
+    notify(h, "n150", 150);
+    backfill(h, [100, 200, 300]);
+    expect(labels(h.get())).toEqual(["gap", "100", "N150", "200", "N250", "300", "500", "600"]);
   });
 });

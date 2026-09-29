@@ -46,6 +46,9 @@ export const huCatalog: Record<string, string> = {
   // --- Zone 1 batch 3 (lint cleanup) ---
   "common.howToUpgrade": "Hogyan frissíts",
   "common.modelRefreshFailed": "nem sikerült elérni: {providers} — a legutóbb ismert lista látható",
+  "common.notifyRepeat.badge": "{count}×",
+  "common.notifyRepeat.label": "{count} alkalommal ismételve, {range}",
+  "common.notifyRepeat.labelNoRange": "{count} alkalommal ismételve",
   "common.overflowMore": "+{count} további",
   "common.piDashboard": "Pi Irányítópult",
   "common.viewLog": "Napló megtekintése",

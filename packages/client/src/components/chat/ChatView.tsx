@@ -18,6 +18,7 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
+import { collapseRepeatedNotifies } from "../../lib/chat/collapse-repeated-notifies.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
@@ -52,9 +53,10 @@ import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewCont
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
-import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
 // a lazy boundary so a chat transcript without terminal history does not fetch
 // xterm. A session whose history DOES contain a terminal card legitimately pays
@@ -62,6 +64,7 @@ import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 const InlineTerminalCard = lazy(() =>
   import("../terminal/InlineTerminalCard.js").then((m) => ({ default: m.InlineTerminalCard })),
 );
+
 import type { ToolContext } from "../tool-renderers/index.js";
 import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
@@ -72,8 +75,8 @@ import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { MultiAskPanel } from "./MultiAskPanel.js";
 import { RawEventCard } from "./RawEventCard.js";
-import { SlowLoadNotice } from "./SlowLoadNotice.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { SlowLoadNotice } from "./SlowLoadNotice.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
 import { ToolCallStep } from "./ToolCallStep.js";
@@ -1102,11 +1105,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       if (!isBurst(last) && !isGroup(last)) {
         const lastMsg = last as import("../../lib/chat/event-reducer.js").ChatMessage;
         if (lastMsg.role === "assistant" && lastMsg.content.startsWith(frozenTailText)) {
-          return rows.slice(0, -1);
+          return collapseRepeatedNotifies(rows.slice(0, -1));
         }
       }
     }
-    return rows;
+    // Final step: adjacent identical notifies render as one row with a count,
+    // INSIDE this memo so every index-keyed consumer reads one array (CR-5).
+    // See change: collapse-and-order-notify-rows (D3).
+    return collapseRepeatedNotifies(rows);
   }, [groupedMessages, isRowVisible, frozenTailText, state.streamingText]);
   // Precompute each row's aggregate rendered text length ONCE per displayRows
   // rebuild (task 2.1), so `estimateSize` stays O(1) per scroll pass and never

@@ -27,6 +27,9 @@ export function createNotifyProxy(
       sessionId: opts.sessionId,
       notifyId: newId(),
       message,
+      // Emit time on the bridge clock — the clock that stamps transcript events.
+      // See change: collapse-and-order-notify-rows.
+      ts: Date.now(),
       ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
     });
   };
