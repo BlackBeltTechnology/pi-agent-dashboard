@@ -29,6 +29,7 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
+import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
 import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
@@ -76,6 +77,14 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchd
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
+import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+import {
+  deriveLocalIdentity,
+  ensureRuntimeRequest,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 
 /**
  * `/api/health` → `piRuntime`.
@@ -940,6 +949,20 @@ export function registerSystemRoutes(
   // it made an unauthenticated, frequently-polled route do file I/O
   // (CodeQL js/missing-rate-limiting).
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
+  // Runtime-overlay identity, refreshed off the request path.
+  // See change: electron-runtime-overlay-updates (D10).
+  const runtimeOverlayDir = getRuntimeOverlayDir();
+  if (parseLaunchSource(process.env) === "electron") {
+    try { ensureRuntimeRequest(runtimeOverlayDir); } catch { /* non-fatal: menu pick reports request_unreadable */ }
+  }
+  const runtimeHealth = createRuntimeHealthProvider({
+    env: process.env,
+    serverVersion: version ?? "unknown",
+    readRequest: () => readRuntimeRequest(runtimeOverlayDir),
+    readState: () => readRuntimeState(runtimeOverlayDir),
+    localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+  });
+  fastify.addHook("onClose", async () => runtimeHealth.stop());
 
   // Health endpoint — includes server + agent process metrics
   fastify.get("/api/health", async (request, reply) => {
@@ -1019,6 +1042,11 @@ export function registerSystemRoutes(
       // node_modules/ is read-only). See change:
       // eliminate-electron-runtime-install task 3.2.
       launchSource: parseLaunchSource(process.env),
+      // Active dashboard runtime (origin/id/version/updatable/source/…); redacted
+      // (no local path / git / failure detail) for unauthenticated remote callers. Drives
+      // ONLY the Settings → Updates section; pi-core gates are unchanged.
+      // See change: electron-runtime-overlay-updates (D10).
+      runtime: canDiscloseAccessPosture(request) ? runtimeHealth.get() : redactRuntimeHealth(runtimeHealth.get()),
       // Boot parent PID (static, captured at module load) + live parent PID
       // (reparenting-aware, read fresh per request) + boot-parent liveness.
       // Powers Electron zombie detection: POSIX compares live `ppid` against
@@ -1329,6 +1357,14 @@ export function registerSystemRoutes(
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.
       try { await deleteTunnel(config.port); } catch { /* best-effort */ }
+
+      // Electron-owned server: the app respawns it (keeps the Electron starter,
+      // runtime identity and its watchdog). `cli start` would come back Standalone.
+      // See change: electron-runtime-overlay-updates.
+      if (restartsViaElectron(process.env)) {
+        setTimeout(() => process.exit(ELECTRON_RESTART_EXIT_CODE), 200);
+        return { ok: true };
+      }
 
       const cliPath = process.argv[1];
       if (!cliPath) return { ok: false, error: "Cannot determine CLI path" };

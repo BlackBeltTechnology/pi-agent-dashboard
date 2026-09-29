@@ -173,5 +173,7 @@ Keep `current` + `previous`. Prune other `versions/*` after commit. Staging uses
 
 ## Open Questions
 
-1. **GitHub asset shape** (spike 1.1): one platform-independent tree vs one per platform. It depends on whether every native dependency in the lock ships prebuilds for all six platform/arch combinations. D5 is unchanged either way; only the asset-name lookup differs.
-2. **Local-link Node** (spike 1.2): whether a pnpm checkout runs under the shell's bundled Node. The outcome only changes the D6 local preflight rule (refuse on mismatch vs allow system Node).
+1. **GitHub asset shape** (spike 1.1 → moved to change `electron-runtime-release-pipeline`): one platform-independent tree vs one per platform. It depends on whether every native dependency in the lock ships prebuilds for all six platform/arch combinations. D5 is unchanged either way; only the asset-name lookup differs.
+   - **Interim decision (spike deferred, needs linux-x64 + win32-x64 hosts):** assume **one asset per platform/arch** (`pi-dashboard-runtime-<X>-<platform>-<arch>.tgz` + `.sha512`). Conservative: correct whatever the spike finds; collapsing to one asset later is a lookup change only.
+2. **Local-link Node** (spike 1.2 → moved to change `electron-local-link-node-compat`): whether a pnpm checkout runs under the shell's bundled Node. The outcome only changes the D6 local preflight rule (refuse on mismatch vs allow system Node).
+   - **Interim decision (spike deferred):** **preflight refuses on mismatch.** A linked checkout always runs under the shell's bundled Node (never system Node); it is refused with `node_engines <range>` when that Node falls outside the checkout's root `package.json#engines.node`. Implemented in `packages/shared/src/runtime-overlay/compat.ts`. Relaxing to "may use system Node" stays possible once the spike runs.

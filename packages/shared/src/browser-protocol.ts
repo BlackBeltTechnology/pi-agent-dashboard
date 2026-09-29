@@ -845,6 +845,21 @@ export interface PiCoreUpdateCompleteMessage {
 }
 
 /**
+ * Runtime-overlay staging events (Settings → Updates). `progress` streams the
+ * stager phases; `staged` / `failed` end a staging job.
+ * See change: electron-runtime-overlay-updates.
+ */
+export type RuntimeUpdateMessage =
+  | {
+      type: "runtime_update_progress";
+      version: string;
+      phase: "fetch" | "install" | "verify" | "materialize" | "done" | "error";
+      message?: string;
+    }
+  | { type: "runtime_update_staged"; version: string }
+  | { type: "runtime_update_failed"; version: string; message: string };
+
+/**
  * Bootstrap state snapshot. Mirrors `BootstrapState` in
  * `packages/server/src/bootstrap-state.ts` but kept as a structural
  * subset here so the shared package doesn't take a runtime dependency
@@ -1211,6 +1226,7 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
+  | RuntimeUpdateMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage

@@ -5,6 +5,7 @@
  * forwards all pi events, and relays commands back.
  */
 
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -2021,6 +2022,7 @@ function initBridge(pi: ExtensionAPI) {
               if (connection === targetManager) pluginLaneUp();
               targetManager?.send({
                 type: "session_register",
+                extensionIdentity: bridgeExtensionIdentity(),
                 sessionId,
                 cwd: process.cwd(),
                 source: "tui",
@@ -3461,6 +3463,7 @@ function initBridge(pi: ExtensionAPI) {
     const spawnToken = consumeSpawnToken();
     connection.send({
       type: "session_register",
+      extensionIdentity: bridgeExtensionIdentity(),
       sessionId,
       cwd: startCwd,
       name: lastSessionName || undefined,

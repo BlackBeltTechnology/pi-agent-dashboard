@@ -138,6 +138,11 @@ const NAV_TRACKER = { predecessor, popNav };
 // suspension escapes into the shell.
 // Pairing approval host: own chunk, off the cold-landing entry (mdi-chunk-size
 // cap). See change: add-pairing-approval-dialog.
+// Electron-only header badge: its own chunk, off the entry gzip cap.
+// See change: electron-runtime-overlay-updates.
+const RuntimeUpdateBadge = lazy(() =>
+  import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
+);
 const PairingApprovalHost = lazy(() =>
   import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
 );
@@ -2021,7 +2026,12 @@ export default function App() {
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
         <div className="flex items-center gap-2">
-          {launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource === "electron" && (
+            <Suspense fallback={null}>
+              <RuntimeUpdateBadge />
+            </Suspense>
+          )}
           <ServerSelector
             currentHost={currentServerHost}
             currentPort={currentServerPort}

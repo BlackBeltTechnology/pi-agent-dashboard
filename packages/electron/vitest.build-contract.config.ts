@@ -27,7 +27,18 @@ export default defineConfig({
 			"src/__tests__/macos-floor-check.test.ts",
 			"src/__tests__/update-min-system-version.test.ts",
 			"src/__tests__/build-config-parity.test.ts",
+			"src/__tests__/shared-mjs-exports.test.ts",
+			"src/__tests__/tray-icon-asset.test.ts",
 			"src/__tests__/forge-config-windows-version.test.ts",
+			// Launch-source precedence is shipped contract too, and the resolver
+			// takes every probe by injection (pure). See change:
+			// electron-runtime-overlay-updates (test-plan E4, E23).
+			"src/lib/__tests__/launch-source.test.ts",
+			// Runtime-overlay state machine + switchRuntime (all process/network I/O
+			// injected; state files in a temp dir) and PID-scoped watchdog
+			// ownership. test-plan E3 E11-E13 P1 X4-X9.
+			"src/lib/__tests__/runtime-overlay.test.ts",
+			"src/lib/__tests__/server-watchdog.test.ts",
 		],
 		environment: "node",
 		pool: "forks",

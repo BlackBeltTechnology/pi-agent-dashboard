@@ -1,0 +1,3 @@
+# __tests__/site-deploy-workflow-contract.test.ts — index
+
+Static contracts for change fix-deploy-site-ship-shell (E9–E15): deploy-site.yml push trigger stays `[develop]` with `site/**`+`packages/shell/**` paths; dead `release:` path (trigger/`redispatch-on-release`/`github.event_name != 'release'` guards) never returns; sync-release-version.yml pushes `HEAD:develop`; shell composes into `site/dist/app/` before the Pages upload; `site/public/CNAME` is exactly `pi-dashboard.dev`; `workflow_dispatch` stays available; `site/package.json` stays dependency-free (manifest half — workflow half pinned by pnpm-migration-contract X6).

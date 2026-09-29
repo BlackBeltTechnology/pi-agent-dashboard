@@ -3,6 +3,7 @@
  * Extracted from bridge.ts for clarity.
  */
 
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -155,6 +156,7 @@ export function sendStateSync(
 
   bc.connection.send({
     type: "session_register",
+    extensionIdentity: bridgeExtensionIdentity(),
     sessionId: bc.sessionId,
     cwd: process.cwd(),
     name: bc.pi.getSessionName() ?? undefined,
@@ -270,6 +272,7 @@ export function handleSessionChange(
   const cwd = safeCwd(ctx);
   bc.connection.send({
     type: "session_register",
+    extensionIdentity: bridgeExtensionIdentity(),
     sessionId: bc.sessionId,
     cwd,
     name: bc.lastSessionName || undefined,

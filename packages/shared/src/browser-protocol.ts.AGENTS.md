@@ -21,3 +21,7 @@ Card sections: `SetCardSectionVisibilityMessage` (`set_card_section_visibility {
 Server→browser: `PairPendingChangedMessage` (`pair_pending_changed`, NO fields) — content-free pending-pairing hint; operator browsers refetch `GET /api/pair/pending`. See change: add-pairing-approval-dialog.
 
 `BrowserNotifyMessage` gains optional `ts` (emit time, epoch ms). See change: collapse-and-order-notify-rows.
+
+## electron-runtime-overlay-updates
+
+`RuntimeUpdateMessage` = `runtime_update_progress` (version, phase fetch/install/verify/materialize/done/error, message) \| `runtime_update_staged` \| `runtime_update_failed`. See change: electron-runtime-overlay-updates.

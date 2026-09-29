@@ -252,6 +252,14 @@ export interface EventWiringDeps {
   sessionArchive?: import("./session/session-archive.js").SessionArchive;
   /** One-shot idle-alive archive intents. See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
+  /**
+   * Every bridge (re-)register with its reported extension identity — the D8
+   * convergent-reload guard. See change: electron-runtime-overlay-updates.
+   */
+  onBridgeRegister?: (
+    sessionId: string,
+    identity: import("@blackbelt-technology/pi-dashboard-shared/protocol.js").BridgeExtensionIdentity | undefined,
+  ) => void;
 }
 
 /** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
@@ -1330,6 +1338,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "session_register") {
+      if (!msg.provisional) deps.onBridgeRegister?.(sessionId, msg.extensionIdentity);
       // Reset the once-per-activation liveness guard on every (re)register so
       // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
       // activity event. Without this, a session manually closed (sidecar
