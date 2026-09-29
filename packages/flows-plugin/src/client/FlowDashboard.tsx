@@ -618,6 +618,11 @@ function useIdleRun(
       setLaunchOpen(false);
       setPendingAfter(lastRejection?.timestamp ?? Number.NEGATIVE_INFINITY);
     },
+    /** The run request never reached the server — no rejection will arrive. */
+    sendFailed: () => {
+      setPendingAfter(null);
+      setRejectionReason(t("flowRunSendFailed", undefined, "Could not start the flow"));
+    },
   };
 }
 
@@ -674,8 +679,6 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   const attachment = useFlowAttachment(sessionId);
   const idleLoad = useAttachedFlowState(attachment);
   const send = usePluginSend();
-  // Dialog callbacks cannot own the send promise. See change: cleanup-client-plugin-promises.
-  const dispatch = useMemo(() => makeSafeSend(send), [send]);
   const t = useT();
 
   const slot = resolveFlowSlot({
@@ -779,7 +782,14 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
           session={session}
           onSubmit={(task) => {
             run.submitted();
-            dispatch({ type: "flow_management", sessionId, action: "run", flowName: shown.flowName, task: task || undefined });
+            // Own the promise: a failed send yields no rejection event, so
+            // re-enable Run here. See change: attach-flow-before-run (D7).
+            void Promise.resolve(
+              send({ type: "flow_management", sessionId, action: "run", flowName: shown.flowName, task: task || undefined }),
+            ).catch((err: unknown) => {
+              console.error("[flows-plugin] plugin send failed:", err);
+              run.sendFailed();
+            });
           }}
           onCancel={run.cancel}
         />

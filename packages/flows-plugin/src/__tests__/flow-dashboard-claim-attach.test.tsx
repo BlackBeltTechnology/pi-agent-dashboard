@@ -364,6 +364,29 @@ describe("run from the not-started panel (F9)", () => {
     expect(root()?.getAttribute("data-flow-mode")).toBe("idle");
   });
 
+  it("(c) a failed send re-enables Run with an error (CodeRabbit #763)", async () => {
+    const sid = nextSid();
+    attach(sid, "A");
+    const send = vi.fn((m: unknown) =>
+      (m as { type: string }).type === "flow_management" ? Promise.reject(new Error("socket closed")) : undefined,
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <PluginContextProvider send={send}>
+        <UiPrimitiveProvider value={registry}>
+          <FlowDashboardClaim session={{ id: sid } as DashboardSession} />
+        </UiPrimitiveProvider>
+      </PluginContextProvider>,
+    );
+    await screen.findByTestId("flow-dashboard");
+    fireEvent.click(screen.getByTestId("flow-idle-run"));
+    fireEvent.click(screen.getByTestId("flow-launch-run"));
+    await waitFor(() => expect((screen.getByTestId("flow-idle-run") as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("flow-run-rejected").textContent).toMatch(/could not start/i);
+    expect(root()?.getAttribute("data-flow-mode")).toBe("idle");
+    errors.mockRestore();
+  });
+
   it("(b) another flow starts → dialog gone, live B", async () => {
     const sid = nextSid();
     attach(sid, "A");
