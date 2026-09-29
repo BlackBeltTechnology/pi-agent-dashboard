@@ -586,7 +586,11 @@ function useIdleRun(
   const [launchOpen, setLaunchOpen] = useState(false);
   const [pendingAfter, setPendingAfter] = useState<number | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | undefined>(undefined);
+  // Identity of the latest submission; a stale send failure must not touch a
+  // newer submission (or a new attach). Bumped on every submit and reset.
+  const submissionRef = useRef(0);
   const reset = useCallback(() => {
+    submissionRef.current++;
     setLaunchOpen(false);
     setPendingAfter(null);
     setRejectionReason(undefined);
@@ -614,12 +618,16 @@ function useIdleRun(
       setLaunchOpen(true);
     },
     cancel: () => setLaunchOpen(false),
-    submitted: () => {
+    /** Returns the submission id to pass to `sendFailed`. */
+    submitted: (): number => {
       setLaunchOpen(false);
       setPendingAfter(lastRejection?.timestamp ?? Number.NEGATIVE_INFINITY);
+      return ++submissionRef.current;
     },
-    /** The run request never reached the server — no rejection will arrive. */
-    sendFailed: () => {
+    /** The run request never reached the server — no rejection will arrive.
+     *  Ignored when a newer submission / attach superseded `submission`. */
+    sendFailed: (submission: number) => {
+      if (submission !== submissionRef.current) return;
       setPendingAfter(null);
       setRejectionReason(t("flowRunSendFailed", undefined, "Could not start the flow"));
     },
@@ -781,14 +789,14 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
           description={flowInfo?.description}
           session={session}
           onSubmit={(task) => {
-            run.submitted();
+            const submission = run.submitted();
             // Own the promise: a failed send yields no rejection event, so
             // re-enable Run here. See change: attach-flow-before-run (D7).
             void Promise.resolve(
               send({ type: "flow_management", sessionId, action: "run", flowName: shown.flowName, task: task || undefined }),
             ).catch((err: unknown) => {
               console.error("[flows-plugin] plugin send failed:", err);
-              run.sendFailed();
+              run.sendFailed(submission);
             });
           }}
           onCancel={run.cancel}

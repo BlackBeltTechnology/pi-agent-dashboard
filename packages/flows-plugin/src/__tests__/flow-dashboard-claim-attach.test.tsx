@@ -387,6 +387,34 @@ describe("run from the not-started panel (F9)", () => {
     errors.mockRestore();
   });
 
+  it("(d) a stale send failure after re-attach does not touch the new attach", async () => {
+    const sid = nextSid();
+    attach(sid, "A");
+    let rejectFirst!: (e: Error) => void;
+    const send = vi.fn((m: unknown) =>
+      (m as { type: string }).type === "flow_management"
+        ? new Promise<void>((_, rej) => { rejectFirst = rej; })
+        : undefined,
+    );
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(
+      <PluginContextProvider send={send}>
+        <UiPrimitiveProvider value={registry}>
+          <FlowDashboardClaim session={{ id: sid } as DashboardSession} />
+        </UiPrimitiveProvider>
+      </PluginContextProvider>,
+    );
+    await screen.findByTestId("flow-dashboard");
+    fireEvent.click(screen.getByTestId("flow-idle-run"));
+    fireEvent.click(screen.getByTestId("flow-launch-run"));
+    // Same-name re-attach replaces the attachment while the first send is in flight.
+    attach(sid, "A");
+    await waitFor(() => expect(root()?.getAttribute("data-flow-mode")).toBe("idle"));
+    await act(async () => rejectFirst(new Error("socket closed")));
+    expect(screen.queryByTestId("flow-run-rejected")).toBeNull();
+    errors.mockRestore();
+  });
+
   it("(b) another flow starts → dialog gone, live B", async () => {
     const sid = nextSid();
     attach(sid, "A");
