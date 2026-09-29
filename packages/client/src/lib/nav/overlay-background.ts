@@ -62,12 +62,12 @@ export function captureBackground(url: string): void {
   const location = splitLocation(url);
   if (isOverlayRoute(location.path)) return;
   captured = location;
-  // Landing on a real route means we are no longer inside ANY overlay, so the
+  // Landing on a real route means we are no longer inside ANY overlay, so every
   // launcher is spent. Clearing only in `clearBackground` (the explicit dismiss
   // path) let a browser-Back exit strand a stale launcher, and the NEXT
   // overlay's Esc then navigated to a surface the user had already left.
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
-  launcher = undefined;
+  launchers = [];
 }
 
 /** The current capture, or `undefined` when nothing is frozen. */
@@ -78,7 +78,7 @@ export function peekBackground(): BackgroundLocation | undefined {
 /** Drop the capture so the next overlay re-captures (called on dismissal). */
 export function clearBackground(): void {
   captured = undefined;
-  launcher = undefined;
+  launchers = [];
 }
 
 /**
@@ -95,8 +95,13 @@ export function clearBackground(): void {
  *
  * Collapsing the two would either blank the underlay or drop the user out of the
  * surface they were working in.
+ *
+ * A STACK, not a single slot: returning INTO a launcher (dismiss or browser
+ * Back) must pop it. A single slot recorded that return as a fresh launch from
+ * the overlay just left, so settings ⇄ tunnel-setup flipped forever on every
+ * dismiss. See change: fix-overlay-dismiss-flip-loop.
  */
-let launcher: string | undefined;
+let launchers: string[] = [];
 
 /**
  * Note that `to` was reached from `from`.
@@ -104,12 +109,21 @@ let launcher: string | undefined;
  * Recorded only when `from` is an overlay of a DIFFERENT surface than `to`. An
  * in-surface move (`/settings/general` → `/settings/security`) must not register,
  * or one `Esc` would land mid-surface instead of leaving it (S-10).
+ *
+ * Arriving back on the top launcher's surface is a RETURN, not a launch: it
+ * pops instead of pushing.
  */
 export function recordLauncher(from: string, to: string): void {
   const fromPath = splitLocation(from).path;
   if (!isOverlayRoute(fromPath)) return;
-  if (overlaySurfaceId(fromPath) === overlaySurfaceId(splitLocation(to).path)) return;
-  launcher = from;
+  const toSurface = overlaySurfaceId(splitLocation(to).path);
+  if (overlaySurfaceId(fromPath) === toSurface) return;
+  const top = launchers[launchers.length - 1];
+  if (top && overlaySurfaceId(splitLocation(top).path) === toSurface) {
+    launchers.pop();
+    return;
+  }
+  launchers.push(from);
 }
 
 /**
@@ -120,6 +134,7 @@ export function recordLauncher(from: string, to: string): void {
  */
 export function resolveDismissTarget(currentRoute: string): string {
   const currentPath = splitLocation(currentRoute).path;
+  const launcher = launchers[launchers.length - 1];
   if (launcher && splitLocation(launcher).path !== currentPath) return launcher;
   const background = resolveBackground(currentRoute);
   if (background.path === currentPath) return "/";

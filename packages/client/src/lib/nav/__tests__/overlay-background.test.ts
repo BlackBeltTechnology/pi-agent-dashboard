@@ -266,3 +266,62 @@ describe("clearBackground", () => {
     expect(resolveBackground("/settings/general").source).toBe("synthesized");
   });
 });
+
+// Regression: an overlay opened from another overlay, dismissed twice, flipped
+// forever between the two — the RETURN to the launcher was recorded as a NEW
+// launch from the overlay just left. Launchers now form a stack: returning to
+// the top launcher's surface pops it. See change: fix-overlay-dismiss-flip-loop.
+describe("launcher stack — dismissing back into a launching overlay", () => {
+  /** Simulates App's location effect: launcher bookkeeping + base capture. */
+  function move(from: string, to: string) {
+    recordLauncher(from, to);
+    captureBackground(to);
+  }
+
+  it("open → dismiss → dismiss lands on the original base route, no flip", () => {
+    move("/", "/session/abc");
+    move("/session/abc", "/settings/gateway");
+    move("/settings/gateway", "/tunnel-setup");
+
+    const first = resolveDismissTarget("/tunnel-setup");
+    expect(first).toBe("/settings/gateway");
+    move("/tunnel-setup", first);
+
+    // Back in settings: dismissal must leave the surface, not re-open tunnel.
+    const second = resolveDismissTarget("/settings/gateway");
+    expect(second).toBe("/session/abc");
+  });
+
+  it("returning to the launcher keeps the base background (underlay not lost)", () => {
+    move("/", "/session/abc");
+    move("/session/abc", "/settings/gateway");
+    move("/settings/gateway", "/tunnel-setup");
+    move("/tunnel-setup", "/settings/gateway");
+    expect(resolveBackground("/settings/gateway")).toMatchObject({
+      path: "/session/abc",
+      source: "captured",
+    });
+  });
+
+  it("browser Back from the nested overlay also pops (no stale launcher)", () => {
+    move("/", "/session/abc");
+    move("/session/abc", "/settings/gateway");
+    move("/settings/gateway", "/tunnel-setup");
+    // popstate → same location effect, landing on a different page of the surface.
+    move("/tunnel-setup", "/settings/general");
+    expect(resolveDismissTarget("/settings/general")).toBe("/session/abc");
+  });
+
+  it("supports two levels of nesting, unwinding one level per dismiss", () => {
+    move("/", "/session/abc");
+    move("/session/abc", "/settings/gateway");
+    move("/settings/gateway", "/tunnel-setup");
+    move("/tunnel-setup", "/pi-view?url=https://x");
+
+    expect(resolveDismissTarget("/pi-view?url=https://x")).toBe("/tunnel-setup");
+    move("/pi-view?url=https://x", "/tunnel-setup");
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/settings/gateway");
+    move("/tunnel-setup", "/settings/gateway");
+    expect(resolveDismissTarget("/settings/gateway")).toBe("/session/abc");
+  });
+});
