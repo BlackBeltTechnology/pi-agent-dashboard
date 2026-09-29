@@ -72,6 +72,15 @@ describe("GET /api/health — shape", () => {
     assertOwnershipShape(body);
   });
 
+  it("carries a runtime block; non-electron is not updatable (E20)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as { runtime?: Record<string, unknown> };
+    expect(body.runtime).toMatchObject({ origin: "npmGlobal", updatable: false });
+    expect(typeof body.runtime?.version).toBe("string");
+  });
+
   it("launchSource is 'electron' when DASHBOARD_STARTER=Electron", async () => {
     process.env.DASHBOARD_STARTER = "Electron";
     handle = await createTestServer();

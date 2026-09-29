@@ -1893,6 +1893,13 @@ export function useMessageHandler(
         window.dispatchEvent(new CustomEvent("pi-package-event", { detail: msg }));
         break;
 
+      case "runtime_update_progress":
+      case "runtime_update_staged":
+      case "runtime_update_failed":
+        // Settings → Dashboard runtime. See change: electron-runtime-overlay-updates.
+        window.dispatchEvent(new CustomEvent("runtime-update-event", { detail: msg }));
+        break;
+
       case "pi_core_update_progress":
       case "pi_core_update_complete":
         // Dispatch to PiCore hooks via custom DOM event

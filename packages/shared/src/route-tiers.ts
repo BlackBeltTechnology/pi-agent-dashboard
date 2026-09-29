@@ -131,6 +131,8 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/paired-devices", tier: "operate" },
   { method: "GET", path: "/api/pi-core/changelog", tier: "observe" },
   { method: "GET", path: "/api/pi-core/versions", tier: "observe" },
+  // Runtime overlay (see change: electron-runtime-overlay-updates).
+  { method: "GET", path: "/api/runtime/status", tier: "observe" },
   { method: "GET", path: "/api/pi-resource-file", tier: "observe" },
   { method: "GET", path: "/api/pi-resources", tier: "observe" },
   { method: "GET", path: "/api/pi-retry", tier: "observe" },
@@ -247,6 +249,12 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/pair/redeem", tier: "operate" },
   { method: "POST", path: "/api/paired-devices", tier: "operate" },
   { method: "POST", path: "/api/pi-core/update", tier: "operate" },
+  // Runtime overlay mutations: stage / activate / roll back the dashboard
+  // runtime (Electron-only). See change: electron-runtime-overlay-updates.
+  { method: "POST", path: "/api/runtime/activate", tier: "operate" },
+  { method: "POST", path: "/api/runtime/rollback", tier: "operate" },
+  { method: "POST", path: "/api/runtime/source", tier: "operate" },
+  { method: "POST", path: "/api/runtime/update", tier: "operate" },
   { method: "POST", path: "/api/pi/runtime", tier: "operate" },
   { method: "POST", path: "/api/plugins/:id/toggle", tier: "operate" },
   { method: "POST", path: "/api/plugins/automation/create", tier: "control" },

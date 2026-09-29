@@ -109,6 +109,16 @@ export interface BridgeDiagnosticMessage {
 
 // ── Extension → Server ──────────────────────────────────────────────
 
+/**
+ * The bridge's own extension package: realpath'd package dir + version.
+ * Compared by the server with the active runtime's extension (D8).
+ * See change: electron-runtime-overlay-updates.
+ */
+export interface BridgeExtensionIdentity {
+  dir: string;
+  version?: string;
+}
+
 export interface SessionRegisterMessage {
   type: "session_register";
   /**
@@ -124,6 +134,8 @@ export interface SessionRegisterMessage {
   cwd: string;
   name?: string;
   source: SessionSource;
+  /** Bridge extension identity (D8). Absent on pre-overlay bridges. */
+  extensionIdentity?: BridgeExtensionIdentity;
   model?: string;
   thinkingLevel?: string;
   sessionFile?: string;

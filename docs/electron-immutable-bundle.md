@@ -27,6 +27,74 @@ electron-updater replaces the whole `.app` / `.exe` / `.AppImage`. No in-app ins
 
 Standalone (`npm i -g`) arm and bridge arm keep the pi-core update endpoint for in-place pi-core upgrades. Electron arm hides that UI: `useLaunchSource()` returns `"electron"` → `UnifiedPackagesSection` skips Core sub-group + `App.tsx` skips `<PiUpdateBadge />`.
 
+## Runtime overlay
+
+Second runtime location, opt-in. Bundle stays immutable. Dashboard runtime — server, web client, bridge extension, first-party plugins, pi/openspec/tsx — runs from `~/.pi/dashboard/runtime/versions/<X>/` instead of `<resourcesPath>/server/`. Bundle untouched. Bundle = final fallback.
+
+Unit of update = one locked runtime release **X**. `runtime-lock.json` ships inside `@blackbelt-technology/pi-dashboard-server@X`; pins every package exactly. Not an in-place package mutation — whole runtime replaced.
+
+`getRuntimeOverlayDir()` = `<configDir>/runtime` = `~/.pi/dashboard/runtime/`.
+
+```
+~/.pi/dashboard/runtime/
+  request.json          # SERVER writer only
+  state.json            # ELECTRON writer only
+  versions/<X>/
+    package.json        # synthetic root, deps = lock roots
+    package-lock.json   # runtime-lock.json of X
+    node_modules/...    # npm ci --omit=dev result
+    resources/plugins/  # materialized first-party plugins
+    runtime-manifest.json
+```
+
+Server entry: `versions/<X>/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`. Bridge extension: `versions/<X>/node_modules/@blackbelt-technology/pi-dashboard-extension`. Web client: resolved through `node_modules/@blackbelt-technology/pi-dashboard-web` the same way as `client-dist.ts`.
+
+### One writer per file
+
+- `request.json` — server only. `source` (`bundled|npm|github`), `sourceEpoch` (uuid, created with file), `sourceSeq` (int ≥ 1, +1 per selection), `channel`, `pin`, `pending`, `pendingNonce`, `activateNonce`.
+- `state.json` — Electron only. `localPath`, `localBinding {epoch,seq}`, `current`, `previous`, `bad`, `attempts`, `handledNonce`, `handledPendingNonce`, `lastFailure`.
+
+Both writers: atomic tmp+rename (Windows EPERM/EBUSY retry), preserve unknown keys, missing/corrupt file → defaults, never throw. Effective source derived, not stored (`deriveEffectiveSource()`): `local` only when `state.localPath` set AND `state.localBinding` equals request `{sourceEpoch, sourceSeq}`. Local can only turn off, never on, without an app-menu action.
+
+### Sources
+
+| Source | Meaning |
+|---|---|
+| `bundled` | No overlay (default). `<resourcesPath>/server/`. |
+| `npm` | Stage release X: `runtime-lock.json` from server@X → synthetic root → `npm ci --omit=dev` (bundled Node/npm, `.npmrc` honoured). |
+| `github` | Download release asset `vX` + verify `.sha512` → extract. |
+| `local` | Link mode. Run checkout in place, copy nothing. Set from app menu only (`Runtime → Use Local Folder…`). |
+
+The server never selects `local`. No `/api/runtime/*` route sets a local path; `/api/runtime/source` rejects `local` and any `localPath` field. Selecting any source in Settings bumps `sourceSeq` and turns local off.
+
+### Staging + activation
+
+Stager installs X into `versions/X.partial/`, lockstep-checks every `@blackbelt-technology/*` package == X, materializes first-party plugins into `resources/plugins/`, writes `runtime-manifest.json`, renames to `versions/X/`, sets `pending`. Never activates. Any failure removes `.partial`; `request.json` untouched.
+
+Activation is Electron-owned. Server writes `activateNonce`; Electron watcher stops old server, gates, re-points extension, spawns X, health-gates, commits or rolls back. Full sequence: [electron-bootstrap-flow.md](./electron-bootstrap-flow.md).
+
+### runtime-manifest.json
+
+`{ version, minShellVersion, nodeEngines, origin, integrity?, piVersion? }`. `parseRuntimeManifest()` / `writeRuntimeManifest()` shared by the build script (`bundle-server.mjs`) and runtime code.
+
+### pi follows the runtime
+
+Overlay is a locked release X. `runtime-lock.json` pins pi/openspec/tsx exactly, so `piVersion` in `runtime-manifest.json` follows the runtime, not the shell. Opt-in only: source `bundled` keeps pi-on-app-release behaviour. Deliberate, overlay-scoped reversal of the `eliminate-electron-runtime-install` rule.
+
+### Compatibility gate
+
+Electron refuses a runtime it cannot host, before spawn (`evaluateRuntimeCandidate()` + preflight):
+
+- `runtime-manifest.minShellVersion <= app.getVersion()` — else `requires_app >=<minShellVersion>`.
+- Shell's bundled Node satisfies `runtime-manifest.nodeEngines` (server `engines.node` range; node-pty 1.x is N-API → range, not equality) — else `node_engines <range>`.
+- Required files exist: server `cli.ts`, web `dist/index.html`, extension entry, `resources/plugins/` (`preflightOverlay`). Local requires `packages/server/src/cli.ts`, `packages/client/dist/index.html`, `packages/extension`, `node_modules` (`preflightLocal`).
+
+Local link runs under the shell's bundled Node, never system Node; refused `node_engines <range>` when the checkout root `package.json#engines.node` excludes it.
+
+### Retention + fallback
+
+Keep `current` + `previous`. `pruneVersions()` deletes every other `versions/*` after commit (`*.partial` is the stager's). Peak disk ≈ 3× runtime size during staging (partial + current + previous), 2× at steady state. A `bad` runtime is never retried automatically; explicit Update/Activate or re-picking the local folder clears `bad` + `attempts`. An overlay failing compat, preflight, or the health gate never stops the app starting — the bundle catches it.
+
 ## Legacy `~/.pi-dashboard/`
 
 Pre-R3 builds installed pi/openspec/tsx into `~/.pi-dashboard/node_modules/` at runtime. R3 leaves that dir untouched. `detectLegacyManagedDir({ homedir })` in `packages/shared/src/legacy-managed-dir.ts` returns `{present:true, path, pkgCount, sizeMb}` when detected; Doctor surfaces a warning-severity advisory ("Legacy install directory"). Server CLI logs the path once at startup. Safe to delete manually (`rm -rf ~/.pi-dashboard`).

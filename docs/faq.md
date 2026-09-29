@@ -316,6 +316,33 @@ Cadence: `workflow_dispatch` + `pull_request` path-filter on `packages/electron/
 
 See change: run-electron-e2e-native-surface.
 
+## How do I run my checkout inside the Electron app?
+
+App menu **Runtime → Use Local Folder…** (native folder picker). Only way — no HTTP path. `/api/runtime/source` rejects `local` and any `localPath` field; the server never writes `state.json`.
+
+Checkout must be a built pi-agent-dashboard monorepo with:
+- `packages/server/src/cli.ts`
+- `packages/client/dist/index.html` — run `npm run build` if missing. Preflight message names it.
+- `packages/extension/src/bridge.ts`
+- `node_modules` — run `pnpm install` if missing. Preflight message names it.
+
+Local link copies nothing. Runtime runs in place from the checkout. Runs under the shell's bundled Node (never system Node); refused `node_engines <range>` when the checkout root `package.json#engines.node` excludes that Node.
+
+`request.json` must exist to bind the pick. Open Settings → Updates once (or just boot) so the server records a runtime selection. Missing / unreadable → dialog "Local folder not used", error `request_unreadable`, nothing bound.
+
+Edit → restart loop: change server/client code, then `POST /api/restart`. Local link re-spawns the same checkout path, so the new code loads. `/api/restart` never switches runtimes.
+
+Stop: app menu **Runtime → Stop Using Local Folder**, or pick another source in Settings (bumps `sourceSeq`, turns local off).
+
+Settings → Packages → Dashboard runtime shows the local path, git SHA, dirty flag — read-only. Hint "Set from the app menu (Runtime → Use Local Folder…)". No editable path input.
+
+Cross-refs:
+- docs/electron-bootstrap-flow.md (switchRuntime)
+- docs/electron-immutable-bundle.md (Runtime overlay)
+- packages/electron/src/lib/app-menu.ts
+- packages/electron/src/lib/runtime-overlay.ts (`pickLocalFolder`)
+- packages/shared/src/runtime-overlay/compat.ts (`preflightLocal`)
+
 ## How do I configure the dashboard?
 
 Edit `~/.pi/dashboard/config.json` or click gear icon in sidebar header.

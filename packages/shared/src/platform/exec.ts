@@ -35,7 +35,6 @@ import {
   type ChildProcess,
   type SpawnSyncReturns,
 } from "node:child_process";
-import { promisify } from "node:util";
 
 // ── Argv safety (Windows .cmd / .bat handling) ─────────────────────────────
 
@@ -216,17 +215,45 @@ export function spawn(
 // ── Promise-returning variants ──────────────────────────────────────────────
 
 /** Promise-returning exec. */
-export const execAsync = promisify(exec) as unknown as (
+/**
+ * Settle an exec callback the way Node's own promisified exec/execFile does:
+ * resolve `{ stdout, stderr }`; reject with the error carrying both.
+ *
+ * NOT `promisify(wrapper)`: promisifying these wrappers loses Node's
+ * `util.promisify.custom`, so the promise resolved to the bare stdout string
+ * while typed as `{ stdout, stderr }` (every `.stdout` read was undefined).
+ * See change: electron-runtime-overlay-updates.
+ */
+function settle(
+  resolve: (v: { stdout: string | Buffer; stderr: string | Buffer }) => void,
+  reject: (e: unknown) => void,
+) {
+  return (err: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
+    if (err) reject(Object.assign(err, { stdout, stderr }));
+    else resolve({ stdout, stderr });
+  };
+}
+
+/** Promise-returning exec. */
+export function execAsync(
   command: string,
   options?: ExecOptions,
-) => Promise<{ stdout: string | Buffer; stderr: string | Buffer }>;
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  return new Promise((resolve, reject) => {
+    exec(command, { encoding: "utf8", ...options }, settle(resolve, reject));
+  });
+}
 
 /** Promise-returning execFile. */
-export const execFileAsync = promisify(execFile) as unknown as (
+export function execFileAsync(
   file: string,
   args?: readonly string[],
   options?: ExecFileOptions,
-) => Promise<{ stdout: string | Buffer; stderr: string | Buffer }>;
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args ?? [], { encoding: "utf8", ...options }, settle(resolve, reject));
+  });
+}
 
 // ── Types pass-through for convenience ──────────────────────────────────────
 

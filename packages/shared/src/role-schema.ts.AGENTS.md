@@ -1,0 +1,3 @@
+# role-schema.ts — index
+
+Pure, `node:fs`-free role-schema core shared by every role read surface (bridge `role-manager.ts`, roles-plugin `/api/roles` route, roles-plugin client). Exports `RoleConfig`/`RolePreset`, `DEFAULT_ROLE_NAMES`, `effectiveRoleNames(cfg)`, `overlayRoles(cfg)` (excludes a removed name even when assigned — an assignment never reintroduces it), `splitRef`/`joinRef` (last-colon model/level, first-slash provider, never throws), and the TOTAL `parseRoleConfig(raw)` (discards non-string/empty role values + structurally invalid preset entries, dedups preset names first-wins, coerces non-string `activePreset`→null). See change: add-roles-read-api.

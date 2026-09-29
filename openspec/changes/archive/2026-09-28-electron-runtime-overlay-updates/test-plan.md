@@ -67,13 +67,14 @@ Hard gate resolved (answered): the checker only notifies (staging and activation
 | X7 | Port-in-use environmental | fault-injection | L1 | automated | candidate spawn exits EADDRINUSE | `switchRuntime(X)` | Aborted; X not marked bad; old runtime remains current |
 | X8 | Watchdog ownership | state-transition | L1 | automated | (a) planned stop of the old PID; (b) candidate exits before commit; (c) committed runtime exits later; (d) abort then the surviving runtime crashes | `makeServerWatchdog` onExit | (a) graceful, no recovery page; (b) handled by rollback only, watchdog silent; (c) and (d) the watchdog `onCrash` fires |
 | X9 | Stale state cannot enable local after rollback | fault-injection | L1 | automated | local bound `{E,2}`; `request.json` rewritten by an "older server" without `sourceEpoch` | derive + launch | Source not local; the resolver never returns `localLink` |
-| X10 | Crash detection preserved end-to-end | fault-injection | electron | automated | packaged app on overlay X; kill the server PID | observe the app | Loading/recovery page appears (existing crash handling), same as the bundled runtime |
-| X11 | Full npm update cycle | end-to-end | electron | automated | packaged app 0.9.0 bundled; local verdaccio serving 0.9.1 with `runtime-lock.json` | Check → Update → Activate | `/api/health.runtime {origin:overlay, version:0.9.1}`; `settings.json` extension path under `versions/0.9.1`; first-party plugins listed in `/api/health.plugins[]` same as bundled |
-| X12 | Broken overlay falls back to bundle | end-to-end | electron | automated | overlay 0.9.1 whose server exits at boot; no previous | Activate | `runtime.origin=bundled`; `lastFailure.version=0.9.1`; bundled extension re-registered |
+| X10 | → moved to change `electron-runtime-release-pipeline` | — | — | moved | — | — | — |
+| X11 | → moved to change `electron-runtime-release-pipeline` | — | — | moved | — | — | — |
+| X12 | → moved to change `electron-runtime-release-pipeline` | — | — | moved | — | — | — |
 | X13 | Local link loop | end-to-end | electron | automated | packaged app; app menu picks the repo checkout (built) | pick, edit a server log string, POST `/api/restart` | health `origin:local`, `gitSha` = HEAD; after restart the new log string appears in server.log |
 | X14 | Remote client cannot enable local | end-to-end | L3 | automated | dashboard reached via the harness port as a remote client | UI + direct POST attempts | No path input rendered; POST rejected; `/api/health.runtime.source` unchanged |
 | X15 | Cross-OS activation (Windows file locks, AppImage paths) | multi-OS runtime | — | manual-only | Windows 11 + Linux AppImage installs | Update → Activate → Roll back | [judgment: needs real OS installs; no CI harness for native Windows/AppImage overlay] |
-| X16 | GitHub asset + beta dist-tag published | workflow assertion | ci | automated | release workflow on a prerelease tag | publish job | The asset + `.sha512` are attached; `npm dist-tag ls` shows `beta` = tag version; the manifest version equals the tag |
+| X17 | → moved to change `electron-runtime-release-pipeline` | — | — | moved | — | — | — |
+| X16 | → moved to change `electron-runtime-release-pipeline` | — | — | moved | — | — | — |
 
 ---
 
@@ -86,5 +87,5 @@ Hard gate resolved (answered): the checker only notifies (staging and activation
 
 ## New infra needed
 
-- **Local npm registry fixture for X11** (verdaccio or similar) inside the electron E2E job, to serve a fake 0.9.1 with `runtime-lock.json`. There is no registry fixture today.
+- Local npm registry fixture for X11 → moved to change `electron-runtime-release-pipeline`.
 - **Two-bridge delayed-reconnect control in the docker harness for F5**. Check `tests/e2e/headless-reload-dispatch.spec.ts` for reusable reconnect hooks first.

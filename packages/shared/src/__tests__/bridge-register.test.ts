@@ -1,7 +1,7 @@
 /**
  * Tests for the shared bridge-register module.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -247,6 +247,52 @@ describe("shared bridge-register", () => {
       const packages = settings.packages as string[];
       expect(packages).toContain(npmEntry);
       expect(packages).toContain(localExt);
+    });
+  });
+
+  // ── E15: exactly one dashboard-extension entry per runtime switch ───────────
+  // See change: electron-runtime-overlay-updates (D8).
+  describe("runtime re-point (E15)", () => {
+    const EXT = "@blackbelt-technology/pi-dashboard-extension";
+    function makeExt(dir: string, name = EXT): string {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name }));
+      return dir;
+    }
+
+    it.each(["overlay", "local", "bundled"] as const)("re-points to the %s runtime with one entry, unrelated kept", (target) => {
+      const bundled = makeExt(path.join(tmpDir, "app", "resources", "server", "packages", "extension"));
+      const local = makeExt(path.join(tmpDir, "co", "packages", "extension"));
+      const overlay = makeExt(path.join(tmpDir, "rt", "versions", "0.9.1", "node_modules", EXT));
+      const unrelated = makeExt(path.join(tmpDir, "other-ext"), "some-other-ext");
+      writeSettings({ packages: [bundled, local, unrelated, "npm:pi-subagents"] });
+
+      const want = { overlay, local, bundled }[target];
+      registerBridgeExtension(want);
+
+      const packages = readSettings().packages as string[];
+      const dashboardEntries = packages.filter((p) => p === bundled || p === local || p === overlay);
+      expect(dashboardEntries).toEqual([want]);
+      expect(packages).toContain(unrelated);
+      expect(packages).toContain("npm:pi-subagents");
+    });
+
+    it("strict mode throws when settings.json cannot be written", () => {
+      const overlay = makeExt(path.join(tmpDir, "o2", "extension"));
+      // settings.json path occupied by a directory → the write/rename fails
+      fs.mkdirSync(settingsPath, { recursive: true });
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      expect(() => registerBridgeExtension(overlay, { strict: true })).toThrow();
+      expect(() => registerBridgeExtension(overlay)).not.toThrow();
+      errSpy.mockRestore();
+    });
+
+    it("an already-registered target still drops other same-identity entries", () => {
+      const bundled = makeExt(path.join(tmpDir, "b", "extension"));
+      const overlay = makeExt(path.join(tmpDir, "o", "extension"));
+      writeSettings({ packages: [overlay, bundled] });
+      registerBridgeExtension(overlay);
+      expect(readSettings().packages).toEqual([overlay]);
     });
   });
 });

@@ -48,6 +48,11 @@ export interface PiDashboardApi {
    * See change: fix-remote-connect-cors-gates.
    */
   probeServer: (url: string) => Promise<PiDashboardProbeResult>;
+  /**
+   * Whole-app (electron-updater) check, from Settings → Dashboard runtime when
+   * a runtime requires a newer app. See change: electron-runtime-overlay-updates.
+   */
+  checkAppUpdate: () => Promise<void>;
 }
 
 const piDashboard: PiDashboardApi = {
@@ -55,6 +60,7 @@ const piDashboard: PiDashboardApi = {
   openDoctor: () => ipcRenderer.send("dashboard:open-doctor"),
   readServerLog: (lines) => ipcRenderer.invoke("dashboard:read-server-log", { lines: lines ?? 20 }),
   probeServer: (url) => ipcRenderer.invoke("dashboard:probe-server", { url }),
+  checkAppUpdate: () => ipcRenderer.invoke("dashboard:check-app-update"),
   onStatus: (cb) => {
     const listener = (_e: unknown, payload: PiDashboardLaunchStatus) => cb(payload);
     ipcRenderer.on("dashboard:launch-status", listener);
