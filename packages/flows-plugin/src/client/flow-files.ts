@@ -7,7 +7,8 @@
  * See change: attach-flow-before-run.
  */
 import type { FlowState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "wouter";
 
 const RETRY_MS = 1_200;
 
@@ -109,4 +110,20 @@ export function withNodeFiles(state: FlowState, files: FlowNodeFiles | null): Fl
     agents.set(key, { ...a, sourcePath, codeTarget });
   }
   return agents ? { ...state, agents } : state;
+}
+
+/**
+ * Open a file in the host's built-in editor (Monaco, Split view) via its
+ * `/session/:id/editor?file=<path>` deep link — the same in-app route the
+ * host's own file links use. `null` without a session (no editor to target).
+ */
+export function useOpenFileInEditor(sessionId: string | undefined): ((filePath: string) => void) | null {
+  const [, navigate] = useLocation();
+  const open = useCallback(
+    (filePath: string) => {
+      if (sessionId) navigate(`/session/${encodeURIComponent(sessionId)}/editor?file=${encodeURIComponent(filePath)}`);
+    },
+    [navigate, sessionId],
+  );
+  return sessionId ? open : null;
 }

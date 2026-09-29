@@ -189,7 +189,7 @@ Runtime-registered flow dirs (`flow:register-flows-dir` / `flow:register-agents-
 - The flows-plugin **bridge** (`bridge/flow-files-reporter.ts`) reads `flow:list-flows` + `flow:get-agents` and reports sources over the private plugin lane (`requestPluginServer`).
 - The flows-plugin **server** (`server/flow-files.ts`) keeps an exact per-session allow-list: reported flow YAML, agent `.md`, and the code handlers pi-flows would run (`target` ? `resolve(cwd, target)` : `<dirname(flow.source)>/<id>.ts`, execute-code-step). It serves `/api/plugins/flows/files` and `/api/plugins/flows/file` behind `networkGuard`.
 - Client `fetchFlowFile` uses the plugin endpoint first, then `/api/pi-resource-file`. `withNodeFiles` gives idle / pending cards their `sourcePath` / `codeTarget`, so the existing file buttons render before a run.
-- No host-core flow code changes. The core `flow_*` event forwarding InvoiceBot's UI depends on is untouched. The one core edit is a generic `xl` (`max-w-3xl`) Dialog size, used by the file viewers.
+- No host-core flow code changes. The core `flow_*` event forwarding InvoiceBot's UI depends on is untouched. File buttons (flow YAML, agent `.md`, handler) open the file in the host's built-in editor via the existing `/session/:id/editor?file=<path>` route (wouter navigation, as goal-plugin does), replacing the source dialogs. The one core edit: `ROUTE_TIERS` rows (`observe`) for the two new plugin routes; unlisted routes fail closed to `operate` and refuse paired LAN devices.
 
 ## Risks / Trade-offs
 

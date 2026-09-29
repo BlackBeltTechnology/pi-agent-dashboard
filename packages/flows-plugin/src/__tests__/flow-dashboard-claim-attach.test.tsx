@@ -643,8 +643,8 @@ steps:
     const sid = nextSid();
     attach(sid, "A");
     renderClaim(sid);
-    await waitFor(() => expect(screen.getByTitle("View handler source")).toBeTruthy());
-    expect(screen.getByTitle(/View fill source/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTitle("Open handler in editor")).toBeTruthy());
+    expect(screen.getByTitle(/Open fill source in editor/)).toBeTruthy();
   });
 });
 

@@ -3,9 +3,10 @@
  *
  * Code / code-decision nodes carry `codeTarget` (the resolved .ts handler path,
  * emitted absolute by the flow runtime). The card renders an mdiCodeBraces
- * button that opens a ui:dialog, fetches the handler via
- * /api/pi-resource-file, and renders it wrapped in a fenced ```ts block.
- * See change: open-code-handler-from-flow-card.
+ * button; agent nodes with `sourcePath` a document button. Both open the file
+ * in the host's built-in editor via `/session/:id/editor?file=<path>`
+ * (wouter navigation), and are hidden without a session.
+ * See change: open-code-handler-from-flow-card, attach-flow-before-run.
  */
 
 import {
@@ -15,9 +16,11 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { FlowAgentCard } from "../client/FlowAgentCard.js";
 
 const registry = createUiPrimitiveRegistry();
@@ -79,13 +82,20 @@ function makeAgent(over: Partial<FlowAgentState>): FlowAgentState {
   } as FlowAgentState;
 }
 
-function renderCard(agent: FlowAgentState) {
+let mem = memoryLocation({ path: "/session/S1", record: true });
+
+function renderCard(agent: FlowAgentState, sessionId: string | null = "S1") {
+  mem = memoryLocation({ path: "/session/S1", record: true });
   return render(
-    <UiPrimitiveProvider value={registry}>
-      <FlowAgentCard agent={agent} />
-    </UiPrimitiveProvider>,
+    <Router hook={mem.hook}>
+      <UiPrimitiveProvider value={registry}>
+        <FlowAgentCard agent={agent} sessionId={sessionId ?? undefined} />
+      </UiPrimitiveProvider>
+    </Router>,
   );
 }
+
+const editorUrl = (p: string) => `/session/S1/editor?file=${encodeURIComponent(p)}`;
 
 const HANDLER_PATH = "/home/u/proj/.pi/flows/flows/custom/test-flow/verify.ts";
 
@@ -95,55 +105,51 @@ afterEach(() => {
 });
 
 describe("FlowAgentCard code-handler source", () => {
-  it("3.1 renders the code button only for code nodes with a target", () => {
+  it("3.1 renders the code button only for code nodes with a target, and only with a session", () => {
     const { queryByTitle, unmount } = renderCard(
       makeAgent({ nodeKind: "code", codeTarget: HANDLER_PATH }),
     );
-    expect(queryByTitle("View handler source")).not.toBeNull();
+    expect(queryByTitle("Open handler in editor")).not.toBeNull();
     unmount();
 
     // agent node — no code button
     const agentCard = renderCard(makeAgent({ nodeKind: "agent" }));
-    expect(agentCard.queryByTitle("View handler source")).toBeNull();
+    expect(agentCard.queryByTitle("Open handler in editor")).toBeNull();
     agentCard.unmount();
 
     // code node without target — no code button
     const noTarget = renderCard(makeAgent({ nodeKind: "code", codeTarget: undefined }));
-    expect(noTarget.queryByTitle("View handler source")).toBeNull();
+    expect(noTarget.queryByTitle("Open handler in editor")).toBeNull();
+    noTarget.unmount();
+
+    // no session — no editor to open in
+    const noSession = renderCard(makeAgent({ nodeKind: "code", codeTarget: HANDLER_PATH }), null);
+    expect(noSession.queryByTitle("Open handler in editor")).toBeNull();
   });
 
-  it("3.2 clicking the code button opens a dialog and fetches the handler path", async () => {
-    const fetchMock = vi.fn(async () => ({
-      json: async () => ({ success: true, data: { type: "file", content: "export const x = 1;" } }),
-    }));
+  it("3.2 clicking the code button opens the handler in the editor (no fetch, no dialog)", () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-
-    const { getByTitle, findByTestId } = renderCard(
-      makeAgent({ nodeKind: "code", codeTarget: HANDLER_PATH }),
+    const onSelect = vi.fn();
+    const { getByTitle, queryByTestId } = render(
+      <Router hook={(mem = memoryLocation({ path: "/session/S1", record: true })).hook}>
+        <UiPrimitiveProvider value={registry}>
+          <FlowAgentCard agent={makeAgent({ nodeKind: "code-decision", codeTarget: HANDLER_PATH })} sessionId="S1" onSelect={onSelect} />
+        </UiPrimitiveProvider>
+      </Router>,
     );
-    fireEvent.click(getByTitle("View handler source"));
-
-    await findByTestId("dialog");
-    expect(fetchMock).toHaveBeenCalledWith(
-      `/api/pi-resource-file?path=${encodeURIComponent(HANDLER_PATH)}`,
-    );
+    fireEvent.click(getByTitle("Open handler in editor"));
+    expect(mem.history?.at(-1)).toBe(editorUrl(HANDLER_PATH));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queryByTestId("dialog")).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled(); // click does not bubble to card select
   });
 
-  it("3.3 loaded handler content is wrapped in a ```ts fence", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        json: async () => ({ success: true, data: { type: "file", content: "export const x = 1;" } }),
-      })),
-    );
-
-    const { getByTitle, findByTestId } = renderCard(
-      makeAgent({ nodeKind: "code-decision", codeTarget: HANDLER_PATH }),
-    );
-    fireEvent.click(getByTitle("View handler source"));
-
-    const md = await findByTestId("md");
-    expect(md.textContent).toBe("```ts\nexport const x = 1;\n```");
+  it("3.3 the agent document button opens the agent .md in the editor", () => {
+    const md = "/home/u/proj/agents/filler.md";
+    const { getByTitle } = renderCard(makeAgent({ nodeKind: "agent", sourcePath: md }));
+    fireEvent.click(getByTitle(/source in editor$/));
+    expect(mem.history?.at(-1)).toBe(editorUrl(md));
   });
 
   it("3.5 code-node log preview renders via LogBlock with copy carrying the FULL log", () => {
@@ -168,23 +174,4 @@ describe("FlowAgentCard code-handler source", () => {
     );
   });
 
-  it("3.4 fetch error surfaces in the dialog", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        json: async () => ({ success: false, error: "path not in allowed resource location" }),
-      })),
-    );
-
-    const { getByTitle, findByTestId } = renderCard(
-      makeAgent({ nodeKind: "code", codeTarget: HANDLER_PATH }),
-    );
-    fireEvent.click(getByTitle("View handler source"));
-
-    const dialog = await findByTestId("dialog");
-    await waitFor(() =>
-      expect(dialog.textContent).toContain("path not in allowed resource location"),
-    );
-    expect(dialog.querySelector('[data-testid="md"]')).toBeNull();
-  });
 });
