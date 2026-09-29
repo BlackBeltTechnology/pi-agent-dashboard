@@ -48,6 +48,66 @@ describe("parseDeck", () => {
   });
 });
 
+/**
+ * test-plan #E37 — the D2 built-kind table, evaluated in order, first match
+ * wins. A bare content slide should already carry a 3D object; a bullet-less
+ * section slide never should.
+ */
+describe("E37 built-kind table", () => {
+  const CASES: Array<[string, string, string[], string]> = [
+    ["years", "Rollout", ["2026: MVP", "2027: GA"], "timeline-rail"],
+    ["percentages", "Adoption", ["88% adoption", "12% none"], "bars"],
+    ["funnel", "Deal pipeline review", ["a", "b"], "funnel"],
+    ["swarm", "Our agents", ["a", "b"], "swarm"],
+    ["loop", "Feedback loop", ["a", "b"], "loop"],
+    ["brain", "The LLM", ["a", "b"], "brain"],
+    ["globe", "Global trade", ["a", "b"], "globe"],
+    ["orbit-cluster", "Partner ecosystem", ["a", "b"], "orbit-cluster"],
+    ["stack", "Compute layers", ["a", "b"], "stack"],
+    ["no match", "Lunch menu", ["a", "b"], "none"],
+    ["section slide (no bullets)", "Timeline", [], "none"],
+  ];
+
+  it.each(CASES)("%s: %s → %j yields the built kind", async (_name, title, bullets, expected) => {
+    const md = `# ${title}\n\n${bullets.map((b) => `- ${b}`).join("\n")}\n`;
+    const { ir } = await parseDeck(md, OPTS);
+    expect(ir.slides[0].diagram.kind).toBe(expected);
+  });
+
+  it("assigns no built kind when autoStyle is off", async () => {
+    const md = "---\nautoStyle: false\n---\n\n# Global trade\n\n- a\n- b\n";
+    const { ir } = await parseDeck(md, OPTS);
+    expect(ir.slides[0].diagram.kind).toBe("none");
+  });
+
+  it("lets a supported mermaid block win and warns that the override is inert", async () => {
+    const md = "# Global trade\n\n- a\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+    const { ir } = await parseDeck(md, OPTS);
+    expect(ir.slides[0].diagram.kind).toBe("flowchart");
+  });
+});
+
+/**
+ * test-plan #E38 — bullets drive the geometry. A leading year is a caption,
+ * never a magnitude, and a partially numeric series carries no values at all
+ * (equal heights beat silently inventing a number).
+ */
+describe("E38 diagram.data harvest", () => {
+  it("strips leading magnitudes into labels and omits a partial value series", async () => {
+    const md = "# Mixed\n\n- 88% adoption\n- 2026: MVP\n- 0 churn\n- plain\n";
+    const { ir } = await parseDeck(md, OPTS);
+    const data = ir.slides[0].diagram.data;
+    expect(data?.labels).toEqual(["adoption", "2026: MVP", "churn", "plain"]);
+    expect(data).not.toHaveProperty("values");
+  });
+
+  it("keeps values when every bullet carries a non-year magnitude", async () => {
+    const md = "# Adoption\n\n- 88% adoption\n- 12% none\n";
+    const { ir } = await parseDeck(md, OPTS);
+    expect(ir.slides[0].diagram.data).toEqual({ labels: ["adoption", "none"], values: [88, 12] });
+  });
+});
+
 describe("deriveDeckIR override preservation", () => {
   it("keeps a prior override while derived bullets change (E5)", async () => {
     const first = await parseDeck(MD, OPTS);

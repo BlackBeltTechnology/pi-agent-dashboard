@@ -47,3 +47,25 @@ describe("deck3d CLI", () => {
     expect(r.stderr).toContain("invalid JSON");
   });
 });
+
+/**
+ * test-plan #E43 — the help text is the CLI's discovery surface: a command an
+ * agent cannot see is a command it will not use.
+ */
+describe("E43 help lists every new command and flag", () => {
+  it.each([
+    "fx scaffold",
+    "fx hash",
+    "fx promote",
+    "overrides apply",
+    "--style",
+    "--role",
+    "--prompt",
+    "--topic",
+    "--palette",
+  ])("names %s", (token) => {
+    const r = spawnSync(BIN, ["--help"], { encoding: "utf8" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(token);
+  });
+});

@@ -1,0 +1,37 @@
+{
+  "id": "city-grid",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "urban",
+      "structured"
+    ],
+    "content": [
+      "infrastructure",
+      "growth"
+    ],
+    "topic": [
+      "work",
+      "sales"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_instancing_performance",
+  "licence": "MIT"
+}

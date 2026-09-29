@@ -8,6 +8,7 @@
  * `server.ts`, `auth.ts`, and the existing `tunnel*.test.ts` are untouched —
  * behaviour is byte-identical. See change: add-tunnel-providers.
  */
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type {
@@ -190,8 +191,133 @@ export async function connectResolvedProviders(
   return { plan, connected, failures };
 }
 
+/** Why the zrok child last failed or died (null after a success). */
+export function getZrokLastError(): string | null {
+  return zrokRuntime.getLastError();
+}
+
+/** Outcome of {@link connectGateway}. */
+export interface GatewayConnectResult {
+  ok: boolean;
+  /** The primary's URL (redirect base), when it has one. */
+  url?: string | null;
+  /** Set only when zrok is up via the legacy child path - the caller arms the watchdog. */
+  zrokUrl: string | null;
+  error?: string;
+  failures: { provider: TunnelProviderId; error: string }[];
+}
+
+/**
+ * The Connect action: bring up the primary AND every enabled extra.
+ *
+ * - A zrok primary (or no provider = legacy zrok) goes through the existing
+ *   `createTunnel` child path (watchdog + reserved name); an already-active zrok
+ *   is reused, NOT an early return - extras still connect.
+ * - Any other primary connects through its provider; zrok is never started for it.
+ * - Primary failure fails the connect; an extra's failure is reported only.
+ */
+export async function connectGateway(
+  tunnelConfig: Parameters<typeof resolveTunnelPlan>[0],
+  port: number,
+  deps: {
+    zrokActiveUrl: () => string | null;
+    createZrok: () => Promise<string | null>;
+    /** Real reason the zrok child failed (`ChildTunnelRuntime.getLastError`). */
+    zrokLastError?: () => string | null;
+    zerotierNetworkId?: string;
+  },
+): Promise<GatewayConnectResult> {
+  const cfg = tunnelConfig?.provider ? tunnelConfig : { ...tunnelConfig, provider: "zrok" as const };
+  const plan = resolveTunnelPlan(cfg);
+  if (plan.refuseConnect) {
+    return { ok: false, zrokUrl: null, error: plan.errors[0]?.message ?? "connect refused", failures: [] };
+  }
+  const zrokPrimary = cfg.provider === "zrok";
+  let zrokUrl: string | null = null;
+  if (zrokPrimary) {
+    zrokUrl = deps.zrokActiveUrl() ?? (await deps.createZrok());
+    connectOutcomes.set(
+      "zrok",
+      zrokUrl ? { ok: true } : { ok: false, error: deps.zrokLastError?.() ?? "Failed to create tunnel" },
+    );
+  }
+  const { connected, failures } = await connectResolvedProviders(cfg, port, {
+    zerotierNetworkId: deps.zerotierNetworkId,
+    skipPrimary: zrokPrimary,
+  });
+  for (const id of connected) connectOutcomes.set(id, { ok: true });
+  for (const f of failures) connectOutcomes.set(f.provider, { ok: false, error: f.error });
+  if (zrokPrimary) {
+    const zrokError = connectOutcomes.get("zrok")?.error;
+    return zrokUrl
+      ? { ok: true, url: zrokUrl, zrokUrl, failures }
+      : { ok: false, zrokUrl: null, error: `zrok: ${zrokError ?? "Failed to create tunnel"}`, failures };
+  }
+  const primaryFailure = failures.find((f) => f.provider === cfg.provider);
+  if (primaryFailure) return { ok: false, zrokUrl: null, error: primaryFailure.error, failures };
+  return { ok: true, url: getTunnelUrl(), zrokUrl: null, failures };
+}
+
+/**
+ * Providers THIS process has connected (zrok via its child runtime, the rest
+ * via `status().active`). Distinct from readiness: an OS-level tailscale daemon
+ * reads `connected` there even though the Gateway never connected it, which
+ * would leave a Connect/Disconnect toggle stuck on "Disconnect". In-memory only.
+ */
+export function connectedProviderIds(): TunnelProviderId[] {
+  // zrok straight from its runtime: it may be up (boot auto-connect) before
+  // any singleton was built.
+  const out: TunnelProviderId[] = zrokRuntime.getTunnelUrl() ? ["zrok"] : [];
+  for (const [id, provider] of providerSingletons ?? []) {
+    if (id === "zrok") continue;
+    try {
+      if (provider.status().active) out.push(id);
+    } catch {
+      /* a throwing status is not connected */
+    }
+  }
+  return out;
+}
+
+/**
+ * Outcome of the last Connect per provider, so status can tell `failed` (with
+ * its reason) and `dropped` (connected, then died) apart from `idle`. Cleared by
+ * an operator Disconnect.
+ */
+const connectOutcomes = new Map<TunnelProviderId, { ok: boolean; error?: string }>();
+
+/** One provider's Gateway connection state for the Setup toggle / toolbar. */
+export interface GatewayProviderState {
+  provider: TunnelProviderId;
+  primary: boolean;
+  /** connected: up now; failed: last connect failed; dropped: was up, now gone; idle: not attempted. */
+  state: "connected" | "failed" | "dropped" | "idle";
+  error?: string;
+}
+
+/**
+ * Per-provider state for every provider the config PLANS to run (primary +
+ * enabled extras). In-memory only (no shell-out) - safe to poll.
+ */
+export function gatewayProviderStatus(
+  tunnelConfig: Parameters<typeof resolveTunnelPlan>[0],
+): GatewayProviderState[] {
+  const cfg = tunnelConfig?.provider ? tunnelConfig : { ...tunnelConfig, provider: "zrok" as const };
+  const live = new Set(connectedProviderIds());
+  return resolveTunnelPlan(cfg).providers.map(({ provider, primary }) => {
+    const outcome = connectOutcomes.get(provider);
+    if (live.has(provider)) return { provider, primary, state: "connected" as const };
+    if (!outcome) return { provider, primary, state: "idle" as const };
+    if (!outcome.ok) return { provider, primary, state: "failed" as const, ...(outcome.error ? { error: outcome.error } : {}) };
+    // Was connected and is not any more - the zrok runtime knows why.
+    const why = provider === "zrok" ? zrokRuntime.getLastError() : null;
+    return { provider, primary, state: "dropped" as const, ...(why ? { error: why } : {}) };
+  });
+}
+
 /** Disconnect every provider this process connected. */
 export async function disconnectResolvedProviders(port: number): Promise<void> {
+  connectOutcomes.clear();
   for (const provider of providerSingletons?.values() ?? []) {
     try {
       if (provider.status().active) await provider.disconnect(port);
@@ -291,7 +417,7 @@ export function knownProviders(opts?: { zerotierNetworkId?: string }): TunnelPro
     providerSingletons = new Map<TunnelProviderId, TunnelProvider>([
       ["zrok", new ZrokProvider()],
       ["ngrok", new NgrokProvider()],
-      ["tailscale", new TailscaleProvider()],
+      ["tailscale", new TailscaleProvider(undefined, undefined, { fallbackPort: () => loadConfig().port })],
       ["zerotier", new ZeroTierProvider({ networkId: opts?.zerotierNetworkId })],
     ]);
   }

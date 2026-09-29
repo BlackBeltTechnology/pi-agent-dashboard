@@ -15,13 +15,13 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |
 | `doctor-skill.md` | Modular doctor diagnostic skill. Router + 7 capability modules + _lib. → see `doctor-skill.md.AGENTS.md` |
-| `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. → see `electron-bootstrap-flow.md.AGENTS.md` |
+| `electron-bootstrap-flow.md` | Electron startup state machine. `app.whenReady()` → dashboard window. Launch kinds attach/devMonorepo/localLink/overlay/bundled. `switchRuntime` + 2 s activation watcher. → see `electron-bootstrap-flow.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `electron-build-methods.md` | 3 Electron build paths: local native (`npm run electron:build`), Docker cross-compile (--windows/--linux), CI publish.yml (tag push). Per-platform artifact/signing/node-pty matrix. |
-| `electron-immutable-bundle.md` | Invariant: Electron bundle read-only at runtime. No post-install `npm install`. pi/openspec/tsx ship as deps under `<resourcesPath>/server/node_modules/`. electron-updater whole-app replacement. |
+| `electron-immutable-bundle.md` | Invariant: Electron bundle read-only at runtime. Runtime overlay in `~/.pi/dashboard/runtime/versions/<X>/` opt-in; bundle = final fallback. No post-install `npm install`. pi/openspec/tsx ship as deps under `<resourcesPath>/server/node_modules/`. electron-updater whole-app replacement. See change: electron-runtime-overlay-updates. |
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
-| `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. → see `faq.md.AGENTS.md` |
+| `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. → see `faq.md.AGENTS.md` See change: electron-runtime-overlay-updates. |
 | `features.md` | Full feature catalog. 562 capabilities. Derived from README.md + openspec/specs/. Categorized by surface. Source for end-user subset → docs/user-features.md. |
 | `heap-limits.md` | V8 heap reference. Config keys `sessionHeap` (`maxOldSpaceMb` 512, `initialOldSpaceMb`, `maxSemiSpaceMb`) +… → see `heap-limits.md.AGENTS.md` |
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… → see `grammar-checker.md.AGENTS.md` |

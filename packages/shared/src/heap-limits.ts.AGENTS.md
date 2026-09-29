@@ -1,0 +1,3 @@
+# heap-limits.ts — index
+
+BROWSER-SAFE V8 heap types + defaults, same split rationale as `memory-limits.ts`. Exports `SessionHeapConfig`, `ServerHeapConfig`, `MIN_HEAP_MB` (64), `HEAP_WARN_ABOVE_MB` (8192), `DEFAULT_SESSION_HEAP` (512), `DEFAULT_SERVER_HEAP` (1536), `SUBAGENT_HEAP_GUIDANCE_MB` (100), `subagentHeapBudget`. DISTINCT from `memory-limits.ts`: that bounds the EVENT STORE, this bounds V8. `subagentHeapBudget(mb, n)` → `{perChildMb: floor(mb/(n+1)), warn: perChildMb < 100}` — ONE formula shared by the settings panel and its tests so the warned figure cannot drift from the asserted one. `config.ts` re-exports all of it. See change: bound-session-heap-and-gc-telemetry.

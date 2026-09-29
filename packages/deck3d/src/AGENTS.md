@@ -2,9 +2,11 @@
 
 | File | Purpose |
 |------|---------|
-| `cli.ts` | `deck3d` CLI entry: `parse | validate | render | build | check | snapshot` + `fx`/`props` sub-trees. `--help`/`--version`; subcommand handlers wired as their modules land. |
+| `cli-io.ts` | `CliIO` + `CliRun` types, split out of `cli.ts` so `serve/` can type its injected runner without importing `cli.ts` back. Breaks a real cycle: with `cli.ts` as process entry its top-level `await run(...)` stayed pending and the dynamic `import("./serve/index.js")` never resolved (exit 13). See change: deck3d-cinematic-worlds. |
+| `cli.ts` | `deck3d` CLI entry: `parse | validate | render | build | serve | check | snapshot | overrides` + `fx`/`props` sub-trees. `--help`/`--version`. `serve <deck.md> [--port n] [--check]` runs the loopback authoring server (watch, rebuild, live reload, `/__overrides` + `/__apply` writes). `overrides apply` validate-then-write, so a bad patch leaves `deck.json` byte-unchanged. `fx list --topic`, `fx preview --palette` + `local:<name>`, `fx scaffold|hash|promote`, `check --style`, `props search --role ambient`, `props generate --prompt`, `style: <n>/<N> slides styled` line at end of `build`. `VALUE_FLAGS` single list of flags consuming next argv. See change: deck3d-cinematic-worlds. |
 | `ir/AGENTS.md` | Subfolder — Deck IR schema, ids, merge, validation. |
 | `parse/AGENTS.md` | Subfolder — markdown grammar + mermaid harvest. |
+| `serve/AGENTS.md` | Subfolder — watch-and-rebuild authoring server (`deck3d serve`), SSE live reload, pre-validated loopback write endpoints (`/__overrides`, `/__apply`). |
 | `runtime/AGENTS.md` | Subfolder — bundler-inlined browser engine (three.js). |
 | `render/AGENTS.md` | Subfolder — deck.html renderer (template + inline runtime + IR + font). |
 | `check/AGENTS.md` | Subfolder — browser fit/legibility/overlap/occlusion/contrast rules + driver. |

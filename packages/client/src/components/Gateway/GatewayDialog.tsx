@@ -16,6 +16,7 @@ import { useLocation } from "wouter";
 import { disconnectTunnel, getConfig, getTunnelStatusDetail, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { GatewayConnectToggle } from "./GatewayConnectToggle.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
@@ -185,18 +186,8 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             {error}
           </span>
         )}
-        <button
-          type="button"
-          data-testid="gateway-disconnect"
-          onClick={() =>
-            void disconnectTunnel().catch((e) =>
-              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
-            )
-          }
-          className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
-        >
-          {t("gateway.disconnect", undefined, "Disconnect")}
-        </button>
+        {/* State-aware Connect ↔ Disconnect (busy, inline error, refresh). */}
+        <GatewayConnectToggle dirty={dirty} />
         {/* Releasing a reserved name is IRREVERSIBLE: the name returns to zrok's
             global pool and anyone may claim it. Confirm-gated, zrok-only, and
             the copy names the exact URL being destroyed rather than "the

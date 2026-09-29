@@ -393,7 +393,9 @@ export function QuotaWidget({ session }: { session?: DashboardSession }) {
                 whiteSpace: "nowrap",
                 color: ringed ? "var(--text-primary, #e4e4e7)" : "var(--text-secondary, #a1a1aa)",
                 opacity: dimmed ? 0.5 : 1,
-                boxShadow: ringed ? "inset 0 0 0 1px var(--accent, #3b82f6)" : undefined,
+                boxShadow: ringed
+                  ? "inset 0 0 0 1px color-mix(in srgb, var(--accent, #3b82f6) 35%, var(--border-subtle, rgba(82,82,91,0.6)))"
+                  : undefined,
               }}
             >
               <span style={{ fontWeight: 600 }}>{providerLabel(p.provider)}</span>

@@ -18,7 +18,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, retailPendingInteractiveRows, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryInteractiveRequests, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, reseatTimedNotifies, retailPendingInteractiveRows, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
   createHistoryGapState,
@@ -1159,13 +1159,15 @@ export function useMessageHandler(
              * before it. `at + 1`, not `at`.
              * See change: fix-lazy-history-backfill-ux (D3).
              */
-            const messages = [
+            // Re-seat ts-placed notifies so a backfilled row older than a
+            // notify ends above it. See change: collapse-and-order-notify-rows (D5).
+            const messages = reseatTimedNotifies([
               ...current.messages.slice(0, at + 1),
               // Correctness floor before merge: no orphaned spinner, no
               // permanently-streaming bubble (D5).
               ...finalizeBackfillSegment(seg.messages),
               ...current.messages.slice(at + 1),
-            ];
+            ]);
             const next = new Map(prev);
             next.set(msg.sessionId, { ...current, messages });
             return next;
@@ -1781,7 +1783,7 @@ export function useMessageHandler(
         setSessionStates((prev) => {
           const next = new Map(prev);
           const current = next.get(msg.sessionId) ?? createInitialState();
-          const updated = addNotify(current, msg.notifyId, msg.message, msg.level);
+          const updated = addNotify(current, msg.notifyId, msg.message, msg.level, msg.ts);
           if (updated === current) return prev;
           next.set(msg.sessionId, updated);
           return next;
@@ -1891,6 +1893,13 @@ export function useMessageHandler(
       case "package_operation_complete":
         // Dispatch to component-level hooks via custom DOM event
         window.dispatchEvent(new CustomEvent("pi-package-event", { detail: msg }));
+        break;
+
+      case "runtime_update_progress":
+      case "runtime_update_staged":
+      case "runtime_update_failed":
+        // Settings → Dashboard runtime. See change: electron-runtime-overlay-updates.
+        window.dispatchEvent(new CustomEvent("runtime-update-event", { detail: msg }));
         break;
 
       case "pi_core_update_progress":

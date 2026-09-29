@@ -1,0 +1,62 @@
+{
+  "id": "extruded-shapes",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "playful",
+      "bold"
+    ],
+    "content": [
+      "shapes",
+      "brand",
+      "icons"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "shape": {
+      "type": "string",
+      "default": "star",
+      "enum": [
+        "star",
+        "gear",
+        "rose",
+        "heart",
+        "superformula",
+        "arrow"
+      ]
+    },
+    "lobes": {
+      "type": "number",
+      "default": 5,
+      "minimum": 3,
+      "maximum": 12
+    },
+    "svgPath": {
+      "type": "string",
+      "default": ""
+    },
+    "depth": {
+      "type": "number",
+      "default": 0.35,
+      "minimum": 0.05,
+      "maximum": 1.5
+    },
+    "spin": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_geometry_extrude_shapes",
+  "licence": "MIT"
+}

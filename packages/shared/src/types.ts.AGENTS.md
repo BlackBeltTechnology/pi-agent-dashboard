@@ -13,3 +13,5 @@ Adds `ProviderSource` — the six-member pi-ai union (`stored | runtime | enviro
 `ProviderInfo.configured` is REGISTRY-level, not auth.json-level: an env var or a key in pi's runtime configuration also sets it, with `source` naming which. Consumers must not read `configured: true` as "stored in auth.json" — test `source === "stored"` for that. See change: redesign-providers-settings-page (CodeRabbit PR #709).
 
 Adds `GitPrState`, `GitPrChecks`; `DashboardSession.gitPrNumber|Url` `| null` + `gitPrState|Draft|Checks|CheckedAt` (not persisted). See change: redesign-composer-session-strip.
+
+`NotifyLogEntry` gains optional `ts` (emit time, epoch ms; persisted with the notify log). See change: collapse-and-order-notify-rows.

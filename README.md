@@ -287,6 +287,12 @@ CLI flags → environment variables → config file → built-in defaults.
 | — | — | `devBuildOnReload` | `false` | Rebuild client + restart server on `/reload` |
 | — | — | `askUserPromptTimeoutSeconds` | `300` | `ask_user` prompt timeout in seconds. `≤ 0` (e.g. `-1`) = wait indefinitely |
 | — | `PI_CODING_AGENT_SESSION_DIR` | `piSessionsDir` | `~/.pi/agent/sessions` | Pi sessions root the dashboard scans. See [Pi sessions directory](#pi-sessions-directory) |
+| — | — | `push.enabled` | `false` | Server push notifications (opt-in) |
+| — | — | `push.coalesceWindowMs` | `30000` | Webhook per-(session, token) coalescing window. Clamped `5000–300000` |
+| — | — | `push.webPush.contactEmail` | — | VAPID `mailto:` subject. Web Push disabled without it |
+| — | — | `push.fcm.serviceAccountPath` | — | Path to Google service-account JSON (FCM) |
+
+Push notifications: manage devices and webhooks under Settings ▸ Sessions ▸ Push notifications; details in "Push Notifications" in [docs/architecture.md](docs/architecture.md).
 
 The bridge also honours `PI_DASHBOARD_URL=ws://host:port` to point at a remote server instead of localhost.
 

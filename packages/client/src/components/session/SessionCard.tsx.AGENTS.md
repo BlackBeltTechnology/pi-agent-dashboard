@@ -21,3 +21,5 @@ See change: align-ui-with-theme-tokens. Tint/target recipe via `tint-action-*` /
 
 Both status-chip branches (desktop `w-4 h-4`, mobile bare icon) render `<SessionStatusChip>` (markup + `session-status-icon` test id preserved). New props `historyPhase`, `historyStartedAt`. `hasAnimatedFx` includes `historyPhase === "loading"` so `.fx-offscreen` pauses the ring arc offscreen. See change: show-session-history-load-state.
 Computes `working` (streaming ∨ `isRetrying`) + `isMergePrimary` once; threads to `SessionOpenSpecActions` and `GitSubcard` → `WorktreeActionsMenu` (`disabled`, `mergeIsPrimary`). See change: redesign-composer-session-strip.
+Selected card wraps each `.card-glow-fx` in an `aria-hidden` `.card-glow-mask` (outer: `card-glow-mask-outer`) — static mask wrapper so the glow never paints over card content. Test: `components/__tests__/selected-card-fx.test.tsx`. See change: fix-selected-card-light-wash.
+Desktop selected card background = `--bg-primary` (blue `--tint-blue-bg` fill dropped; rim carries selection). Mobile selected card keeps blue fill. See change: fix-selected-card-light-wash.

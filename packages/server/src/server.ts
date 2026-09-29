@@ -2,6 +2,7 @@
  * Dashboard HTTP + WebSocket server.
  */
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +14,11 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createPushService, type PushService } from "./push/push-service.js";
+import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -24,6 +28,13 @@ import {
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import {
+  deriveEffectiveSource,
+  deriveLocalIdentity,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -199,6 +210,7 @@ import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
+import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
@@ -206,6 +218,12 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { activeExtensionFromEnv, createExtensionReloadGuard } from "./runtime-overlay/extension-reload.js";
+import { bundledFallbackIntact, buildRuntimeDoctorCheck } from "./runtime-overlay/runtime-doctor.js";
+import { buildRuntimeHealth, type RuntimeHealth } from "./runtime-overlay/runtime-health.js";
+import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
+import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
+import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
 import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
@@ -310,6 +328,9 @@ export interface ServerConfig {
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
+  /** Push notifications. Absent or `enabled !== true` means disabled (no dispatcher,
+   *  no VAPID keys). See change: add-server-push-notifications. */
+  push?: import("@blackbelt-technology/pi-dashboard-shared/config.js").PushConfig;
   /** Session behavior — hydration worker offload toggle.
    *  See change: offload-session-events-load-to-worker. */
   sessions?: import("@blackbelt-technology/pi-dashboard-shared/config.js").SessionsConfig;
@@ -390,6 +411,31 @@ export interface DashboardServer {
 }
 
 
+/**
+ * pi-coding-agent version as resolved from this server (its `exports` hide
+ * package.json, so walk the resolution paths). Cached. See change:
+ * electron-runtime-overlay-updates.
+ */
+let piVersionCache: string | null | undefined;
+function resolvedPiVersion(): string | undefined {
+  if (piVersionCache === undefined) {
+    piVersionCache = null;
+    for (const dir of createRequire(import.meta.url).resolve.paths("@earendil-works/pi-coding-agent") ?? []) {
+      const file = path.join(dir, "@earendil-works", "pi-coding-agent", "package.json");
+      try {
+        const v = (JSON.parse(readFileSync(file, "utf8")) as { version?: unknown }).version;
+        if (typeof v === "string") {
+          piVersionCache = v;
+          break;
+        }
+      } catch {
+        // not in this node_modules — keep walking
+      }
+    }
+  }
+  return piVersionCache ?? undefined;
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
@@ -399,7 +445,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // baseDir MUST be <repo>/ so findBundledExtension resolves
   // <repo>/packages/extension. Three levels up, not two.
   const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-  const extPath = findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
+  // Under Electron the active runtime's extension dir is authoritative (D8):
+  // the same path Electron registered before spawning; for an overlay the
+  // sibling search below cannot find `node_modules/@…/pi-dashboard-extension`.
+  // See change: electron-runtime-overlay-updates.
+  const activeExtension = activeExtensionFromEnv();
+  if (process.env.PI_DASHBOARD_EXTENSION_DIR && !activeExtension) {
+    console.warn(`[runtime-overlay] ignoring PI_DASHBOARD_EXTENSION_DIR=${process.env.PI_DASHBOARD_EXTENSION_DIR} (not an Electron-started dashboard extension)`);
+  }
+  const extPath = activeExtension?.dir ?? findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
   if (extPath) {
     registerBridgeExtension(extPath);
     console.log(`[dashboard] Bridge extension registered: ${extPath}`);
@@ -1296,8 +1350,55 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
 
 
+  // Push fan-out: built ONLY when explicitly enabled (Decision 6), and always
+  // passed together with `viewedSessionTracker` (Decision 7).
+  // See change: add-server-push-notifications.
+  // A push init failure (e.g. unwritable VAPID file) must never take the
+  // dashboard down: log it, leave push disabled, report it in push.errors.
+  let pushService: PushService | null = null;
+  let pushInitError: string | null = null;
+  if (config.push?.enabled === true) {
+    try {
+      pushService = createPushService({
+        config: config.push,
+        dataDir: CONFIG_DIR,
+        getSession: (id) => sessionManager.get(id),
+        selfPort: () => {
+          const addr = fastify.server.address();
+          return addr && typeof addr === "object" ? addr.port : null;
+        },
+      });
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      pushInitError = `push init failed (${typeof code === "string" ? code : "error"}); push disabled`;
+      console.error(`[push] ${pushInitError}`);
+    }
+  }
+
   // Wire up event forwarding from pi gateway to browser gateway
+  // D8: bridges whose extension differs from the active runtime's get one
+  // `/reload` (through the same ladder as the reload button), once idle.
+  // Electron only: validated PI_DASHBOARD_EXTENSION_DIR set at spawn.
+  const extensionReloadGuard = createExtensionReloadGuard({
+    active: () => activeExtension,
+    isBusy: (sid) => {
+      const s = sessionManager.get(sid);
+      return s?.status === "streaming" || s?.compacting === true;
+    },
+    reload: (sid) => {
+      console.log(`[runtime-overlay] extension identity differs → /reload session=${sid} runtime=${activeExtension?.runtimeId}`);
+      return dispatchReload(sid);
+    },
+    onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
+  });
+
   wireEvents({
+    onBridgeRegister: (sid, identity) => {
+      const outcome = extensionReloadGuard.onRegister(sid, identity);
+      if (outcome !== "skipped") {
+        console.log(`[runtime-overlay] bridge register session=${sid} extension=${identity?.dir ?? "(none)"} outcome=${outcome}`);
+      }
+    },
     sessionManager,
     remoteTranscriptStore,
     eventStore,
@@ -1318,6 +1419,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginSessionResolved,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
+    ...(pushService ? { pushDispatcher: pushService.dispatcher } : {}),
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
@@ -1867,10 +1969,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
-  registerDoctorRoutes(fastify);
+  // Assigned by the runtime-overlay block below; read lazily per request.
+  let runtimeHealthForDoctor: (() => RuntimeHealth) | null = null;
+  registerDoctorRoutes(fastify, {
+    // See change: electron-runtime-overlay-updates (task 9.2).
+    extraChecks: () =>
+      runtimeHealthForDoctor
+        ? [
+            buildRuntimeDoctorCheck({
+              health: runtimeHealthForDoctor(),
+              piVersion: resolvedPiVersion(),
+              mismatches: extensionReloadGuard.mismatches(),
+              bundledIntact: bundledFallbackIntact(),
+            }),
+          ]
+        : [],
+  });
+  registerPushRoutes(fastify, { getPush: () => pushService });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2012,6 +2130,63 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     });
   });
   registerPiChangelogRoutes(fastify, {});
+
+  // Runtime overlay updates (Electron). Checker is notify-only; staging and
+  // activation are explicit user actions. See change: electron-runtime-overlay-updates.
+  {
+    const runtimeDir = getRuntimeOverlayDir();
+    const runtimeHealthNow = () =>
+      buildRuntimeHealth({
+        env: process.env,
+        serverVersion: pkgVersion,
+        readRequest: () => readRuntimeRequest(runtimeDir),
+        readState: () => readRuntimeState(runtimeDir),
+        localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+      });
+    runtimeHealthForDoctor = runtimeHealthNow;
+    const runtimeChecker = new RuntimeUpdateChecker({
+      readSelection: () => {
+        const req = readRuntimeRequest(runtimeDir);
+        return {
+          source: deriveEffectiveSource(req, readRuntimeState(runtimeDir)),
+          channel: req?.channel,
+          pin: typeof req?.pin === "string" ? req.pin : undefined,
+        };
+      },
+      activeVersion: () => pkgVersion,
+      feeds: runtimeReleaseFeeds,
+    });
+    const stagerDeps = createStagerDeps();
+    registerRuntimeRoutes(fastify, {
+      dir: runtimeDir,
+      launchSource: () => parseLaunchSource(process.env),
+      networkGuard,
+      checker: runtimeChecker,
+      stage: (version, source, onProgress) => stageRuntime({ dir: runtimeDir, version, source, deps: stagerDeps, onProgress }),
+      exclusive: (fn) => packageManagerWrapper.runExclusive(fn),
+      runtimeHealth: runtimeHealthNow,
+      piVersion: resolvedPiVersion,
+      broadcast: (msg) => browserGateway.broadcastToAll(msg),
+    });
+    // Scheduled notify-only check (Electron only): once shortly after boot,
+    // then daily. Never stages or activates. Timers never hold the process.
+    if (parseLaunchSource(process.env) === "electron") {
+      const runCheck = () => {
+        runtimeChecker
+          .check()
+          .then((st) => console.log(`[runtime-overlay] check state=${st.state}${"target" in st ? ` target=${st.target}` : ""}${"reason" in st ? ` reason=${st.reason}` : ""}`))
+          .catch((err: unknown) => console.warn(`[runtime-overlay] check error: ${String(err)}`));
+      };
+      const first = setTimeout(runCheck, 60_000);
+      const daily = setInterval(runCheck, 24 * 3600_000);
+      first.unref();
+      daily.unref();
+      fastify.addHook("onClose", async () => {
+        clearTimeout(first);
+        clearInterval(daily);
+      });
+    }
+  }
 
   registerPiCoreRoutes(fastify, {
     piCoreChecker,
@@ -3489,6 +3664,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
+      pushService?.shutdown();
       // Uninstall the module-level access-grant hooks so a create/stop cycle in
       // one process never leaves a stale coordinator answering for a dead server.
       // See change: add-access-grant-dialog.

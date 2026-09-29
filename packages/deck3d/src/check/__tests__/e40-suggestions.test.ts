@@ -8,7 +8,10 @@
  * the CLI hint is always a key a human/LLM can actually write.
  */
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import {
   contrastFindings,
   type Finding,
@@ -101,4 +104,94 @@ describe("check suggestions are overrides keys (E40)", () => {
       expect(resolves(f.suggest), `${f.rule}: ${f.suggest}`).toBe(true);
     }
   });
+});
+
+/**
+ * test-plan #X4 — a throwing local effect must surface as an ERROR finding
+ * naming the effect and the phase, and must NOT carry the browser's message
+ * text (that would make the report non-reproducible).
+ */
+describe.skipIf(!(await chromiumAvailable()))("X4 local-fx-error finding (chromium)", () => {
+  it("reports the effect, the phase and a usable suggestion, with no message text", async () => {
+    const src = 'export default function (ctx, params) { throw new Error("boom"); }\n';
+    const { dir } = makeLocalDeck({ effects: [{ name: "x", src }] }, "deck3d-x4-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const r = runDeckCli(["check", "deck.html", "-o", "r.json"], dir);
+    expect(r.status).not.toBe(0);
+
+    const report = JSON.parse(readFileSync(join(dir, "r.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<Record<string, unknown>> }>;
+    };
+    const found = report.viewports[0].findings.filter((f) => f.rule === "local-fx-error");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      rule: "local-fx-error",
+      slide: "geo",
+      effectId: "local:x",
+      phase: "create",
+      severity: "error",
+      suggest: 'overrides.slides["geo"].effects',
+    });
+    expect(found[0]).not.toHaveProperty("message");
+  }, 180_000);
+});
+
+/**
+ * #X16 — backgrounds render depth-isolated behind the slide, so they cannot
+ * cover the text. The one hole is a module that `add()`s children AFTER
+ * creation: those land on the content layer and can slice the card (exactly
+ * how `geo-fragments` cut through slide 15). `check` must catch that.
+ */
+describe.skipIf(!(await chromiumAvailable()))("X16 fx-content-layer finding (chromium)", () => {
+  const leaky = [
+    "export default function (ctx, params) {",
+    "  var g = new ctx.THREE.Group();",
+    "  var added = false;",
+    "  return {",
+    "    object: g,",
+    "    tick: function (t) {",
+    // A plate parked between camera and card, attached once the deck ticks.
+    "      if (added) return;",
+    "      added = true;",
+    "      var m = new ctx.THREE.Mesh(new ctx.THREE.PlaneGeometry(40, 40), new ctx.THREE.MeshBasicMaterial());",
+    "      m.position.set(0, 0, 6);",
+    "      g.add(m);",
+    "    },",
+    "    dispose: function () {},",
+    "  };",
+    "}",
+    "",
+  ].join("\n");
+
+  it("reports a module that moves geometry onto the content layer", async () => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "leak", src: leaky }] }, "deck3d-x16-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const r = runDeckCli(["check", "deck.html", "-o", "r.json"], dir);
+    expect(r.status).not.toBe(0);
+
+    const report = JSON.parse(readFileSync(join(dir, "r.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<Record<string, unknown>> }>;
+    };
+    const found = report.viewports[0].findings.filter((f) => f.rule === "fx-content-layer");
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      rule: "fx-content-layer",
+      slide: "geo",
+      effectId: "local:leak",
+      severity: "error",
+      suggest: 'overrides.slides["geo"].effects',
+    });
+  }, 180_000);
+
+  it("stays silent for a well-behaved module", async () => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "ok" }] }, "deck3d-x16b-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+    runDeckCli(["check", "deck.html", "-o", "r.json"], dir);
+    const report = JSON.parse(readFileSync(join(dir, "r.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<Record<string, unknown>> }>;
+    };
+    expect(report.viewports[0].findings.filter((f) => f.rule === "fx-content-layer")).toEqual([]);
+  }, 180_000);
 });

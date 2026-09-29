@@ -8,8 +8,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single… → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
+| `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
 | `plugin-oauth-flow.spec.ts` | L3 demo-plugin seams, unmocked: F1 start → auth link + paste `ok` → `complete`, `signed in`, `demo-account`… → see `plugin-oauth-flow.spec.ts.AGENTS.md` |
 | `preview-denial-remedy.spec.ts` | L3 for preview denial remedy (#F1,#F4-#F13,#X1,#X2): click-opened image → dialog; agent auto-open (absolute… → see `preview-denial-remedy.spec.ts.AGENTS.md` |
+| `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `helpers/computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs`: `measureText` (canvas-resolved fg over composited bg… → see `helpers/computed-contrast.ts.AGENTS.md` |
 | `fixtures/severity-baseline.json` | Computed `--severity-{success,warning,info,error}-{bg,fg}` for all 18 theme×mode combos, captured BEFORE the… → see `fixtures/severity-baseline.json.AGENTS.md` |
@@ -129,6 +131,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `oversized-event-liveness.spec.ts` | L3 per-event size ceiling (bound-subagent-event-serializati… → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue`… → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change… → see `pairing-qr.spec.ts.AGENTS.md` |
+| `runtime-extension-reload-convergence.spec.ts` | F5 → see `runtime-extension-reload-convergence.spec.ts.AGENTS.md` |
+| `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides "more"; no same-offset retry. → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
 | `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect snapshot re-arms a stale exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |

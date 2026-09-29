@@ -8,7 +8,7 @@
  * `measure()` rects cannot isolate it because the diagram rotates with time).
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -63,4 +63,64 @@ describe.skipIf(!hasChromium)("F7 message order animation (chromium)", () => {
       await browser.close();
     }
   }, 120_000);
+});
+
+/**
+ * test-plan #E25 — every built topology must be reachable AND measurable. A
+ * topology that renders but exposes nothing to `measure()` is invisible to
+ * `check`, so the fit/legibility gate would silently pass a broken slide.
+ */
+const BUILT_KINDS = ["brain", "loop", "swarm", "bars", "funnel", "timeline-rail", "globe", "orbit-cluster", "stack"] as const;
+const CAPTIONS = ["Alpha", "Beta", "Gamma", "Delta"];
+
+describe.skipIf(!hasChromium)("E25 every built kind is measurable (chromium)", () => {
+  it("returns at least four labelled parts for each of the nine topologies", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-e25-"));
+    const md = BUILT_KINDS.map((k) => `# ${k}\n\n${CAPTIONS.map((c) => `- ${c}`).join("\n")}\n`).join("\n");
+    writeFileSync(join(dir, "kinds.md"), md);
+    expect(runCli(["parse", "kinds.md", "-o", "kinds.json"], dir).status).toBe(0);
+
+    const deck = JSON.parse(readFileSync(join(dir, "kinds.json"), "utf8"));
+    deck.overrides.slides = Object.fromEntries(
+      BUILT_KINDS.map((kind) => [kind, { diagram: { kind, data: { labels: CAPTIONS } } }]),
+    );
+    writeFileSync(join(dir, "kinds.json"), JSON.stringify(deck, null, 2));
+    expect(runCli(["render", "kinds.json", "-o", "kinds.html"], dir).status).toBe(0);
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
+      await page.goto(pathToFileURL(join(dir, "kinds.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+
+      for (const [i, kind] of BUILT_KINDS.entries()) {
+        const rows = await page.evaluate((n) => {
+          window.__deck3d?.gotoSlide(n);
+          window.__deck3d?.setTime(0);
+          return window.__deck3d?.measure() ?? [];
+        }, i + 1);
+        expect(rows.filter((r) => r.kind === "node"), `${kind} nodes`).toHaveLength(4);
+        const captions = rows.filter((r) => CAPTIONS.includes(r.text)).map((r) => r.text);
+        expect([...captions].sort(), `${kind} labels`).toEqual([...CAPTIONS].sort());
+      }
+
+      // The rail reads left-to-right only if consecutive captions alternate
+      // sides; same-side captions would stack and collide.
+      const railY = await page.evaluate(
+        ({ n, captions }) => {
+          window.__deck3d?.gotoSlide(n);
+          window.__deck3d?.setTime(0);
+          const rows = window.__deck3d?.measure() ?? [];
+          return rows.filter((r) => captions.includes(r.text)).map((r) => r.rect.y);
+        },
+        { n: BUILT_KINDS.indexOf("timeline-rail") + 1, captions: CAPTIONS },
+      );
+      const centre = railY.reduce((a, b) => a + b, 0) / railY.length;
+      for (let k = 0; k + 1 < railY.length; k++) {
+        expect(railY[k] < centre, `caption ${k} vs ${k + 1}`).not.toBe(railY[k + 1] < centre);
+      }
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 });

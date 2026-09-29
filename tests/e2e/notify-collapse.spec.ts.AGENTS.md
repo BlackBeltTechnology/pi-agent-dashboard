@@ -1,0 +1,3 @@
+# notify-collapse.spec.ts — index
+
+L3 spec (change: collapse-and-order-notify-rows). #F1: `[[faux:notify-repeat]]` (5 identical warnings in one `e2e_notify` call) → exactly one `inline-message` row with `notify-repeat-count` `×5`, same after reload. #F3: `[[faux:notify-repeat-slow]]` (10 warnings 800 ms apart) → badge seen mid-growth (<10), wrapper `[data-index]` tagged, then `×10` on the SAME tagged wrapper + same `data-index` (no remount). #F2: `notify-probe` then `plain-text` → notify row stays ABOVE the later marker after reload and after `POST /api/restart` + reload (cold notify-log replay by `ts`). Needs `PI_E2E_SEED=1`.

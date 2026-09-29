@@ -1,3 +1,4 @@
+import * as THREE from "three";
 /**
  * Palette resolution (ported from the strategy lab). A named palette plus
  * mode yields the five colours; `custom` derives bg/text from the card colour.
@@ -40,6 +41,42 @@ export const PALETTES: Record<Exclude<Palette, "custom">, PaletteDef> = {
     dark: { bg: "#0B1120", card: "#1E293B", text: "#F8FAFC" },
     light: { bg: "#F8FAFC", card: "#FFFFFF", text: "#0F172A" },
   },
+  midnight: {
+    accent: "#818CF8",
+    second: "#94A3B8",
+    dark: { bg: "#0F172A", card: "#1E293B", text: "#E2E8F0" },
+    light: { bg: "#EEF2FF", card: "#FFFFFF", text: "#1E1B4B" },
+  },
+  ember: {
+    accent: "#F59E0B",
+    second: "#A8A29E",
+    dark: { bg: "#1C1917", card: "#292524", text: "#FAFAF9" },
+    light: { bg: "#FFFBEB", card: "#FFFFFF", text: "#292524" },
+  },
+  arctic: {
+    accent: "#06B6D4",
+    second: "#64748B",
+    dark: { bg: "#07172B", card: "#133046", text: "#E0F2FE" },
+    light: { bg: "#F5FCFF", card: "#FFFFFF", text: "#0C4A6E" },
+  },
+  forest: {
+    accent: "#4D7C0F",
+    second: "#A16207",
+    dark: { bg: "#0F1A0F", card: "#1F2E1B", text: "#F0FDF4" },
+    light: { bg: "#FAF8F0", card: "#FFFFFF", text: "#1A2E05" },
+  },
+  mono: {
+    accent: "#FFFFFF",
+    second: "#9CA3AF",
+    dark: { bg: "#000000", card: "#262626", text: "#FFFFFF" },
+    light: { bg: "#FFFFFF", card: "#F5F5F5", text: "#000000" },
+  },
+  neon: {
+    accent: "#FF2E9A",
+    second: "#22D3EE",
+    dark: { bg: "#05020A", card: "#1A0B24", text: "#FDF4FF" },
+    light: { bg: "#FDF2F8", card: "#FFFFFF", text: "#4A044E" },
+  },
 };
 
 export function resolvePalette(cfg: SlideConfig): PaletteColors {
@@ -60,4 +97,15 @@ export function resolvePalette(cfg: SlideConfig): PaletteColors {
   }
   const p = PALETTES[palette];
   return { accent: p.accent, second: p.second, ...p[mode] };
+}
+
+/**
+ * Blend two palettes channel-wise. Used to MORPH the scene look across a
+ * transition when neighbouring slides carry different palettes — snapping the
+ * background at t=0 changed the world a full `durationSec` before the camera
+ * arrived.
+ */
+export function mixPalette(a: PaletteColors, b: PaletteColors, k: number): PaletteColors {
+  const mix = (x: string, y: string): string => `#${new THREE.Color(x).lerp(new THREE.Color(y), k).getHexString()}`;
+  return { accent: mix(a.accent, b.accent), second: mix(a.second, b.second), bg: mix(a.bg, b.bg), card: mix(a.card, b.card), text: mix(a.text, b.text) };
 }

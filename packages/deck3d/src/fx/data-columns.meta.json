@@ -9,6 +9,9 @@
     "content": [
       "data",
       "observability"
+    ],
+    "topic": [
+      "data"
     ]
   },
   "cost": 3,

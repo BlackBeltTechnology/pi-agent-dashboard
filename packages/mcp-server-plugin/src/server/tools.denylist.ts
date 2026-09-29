@@ -19,12 +19,17 @@ export const DENYLIST: readonly DenylistEntry[] = [
       "single-provider credential write; the whole-map set_providers row remains the MCP surface",
   },
   { pattern: "/api/electron/", reason: "Electron-only" },
+  // Stages, activates and rolls back the dashboard runtime (downloads + runs
+  // code; Electron-only). Never an LLM action. See change: electron-runtime-overlay-updates.
+  { pattern: "/api/runtime/", reason: "Electron-only runtime update/activation; downloads and runs code" },
   { pattern: "/api/mcp-client/", reason: "MCP client config; UI-only" },
   { pattern: "/api/live-server/", reason: "live-server preview UI" },
   { pattern: "/api/node/", reason: "node runtime UI" },
   { pattern: "/api/preferences/", reason: "UI preferences" },
   { pattern: "/api/grammar/", reason: "UI-only" },
   { pattern: "/api/kb/", reason: "kb engine admin" },
+  // add-server-push-notifications (Decision 12).
+  { pattern: "/api/push/", reason: "push management is UI/REST-only in v1" },
   // Access-grant review + creation (change: add-access-grants-and-review). The
   // tab is a local operator surface, and `POST /api/access/grants` is a
   // TRUST-WIDENING action bound to a denial the operator saw (design D12/D15).

@@ -5,8 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { ToastVariant } from "../../hooks/useAsyncAction.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { GatewayDialog } from "../Gateway/GatewayDialog.js";
+import { gatewayIndicator } from "../../lib/gateway/gateway-connection.js";
 import { logRejection } from "../../lib/report-error.js";
+import { GatewayDialog } from "../Gateway/GatewayDialog.js";
 
 const POLL_INTERVAL = 30_000;
 
@@ -44,30 +45,28 @@ export function TunnelButton(_props: { showToast?: (text: string, variant?: Toas
 
   const handleClick = useCallback(async () => {
     const s = await fetchStatus();
-    if (s?.status === "unavailable") {
+    // "Not set up" only when NO provider is planned or up - a tailscale-only
+    // Gateway is set up even though zrok (the `status` projection) is absent.
+    if (gatewayIndicator(s).tone === "unset") {
       navigate("/settings/gateway");
     } else {
       setDialogOpen(true);
     }
   }, [fetchStatus, navigate]);
 
-  const isActive = status?.status === "active";
-  const isUnavailable = !status || status.status === "unavailable";
-  const iconPath = isUnavailable ? mdiTunnel : mdiQrcode;
-  const color = isActive
-    ? "text-green-400"
-    : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]";
-  const title = isActive
-    ? `Gateway: ${status.url} (click to open)`
-    : status?.status === "inactive"
-      ? "Gateway: disconnected (click to configure)"
-      : status?.status === "unavailable"
-        ? "Gateway: not set up (click for setup)"
-        : "Gateway status";
+  // Across ALL planned providers (`gateway` counts), not only zrok.
+  const { tone, title } = gatewayIndicator(status);
+  const iconPath = tone === "unset" ? mdiTunnel : mdiQrcode;
+  const color =
+    tone === "ok"
+      ? "text-green-400"
+      : tone === "partial"
+        ? "text-amber-400"
+        : "text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]";
 
   return (
     <>
-      <button type="button" onClick={handleClick} className={color} title={title} data-testid="tunnel-btn">
+      <button type="button" onClick={handleClick} className={color} title={title} data-testid="tunnel-btn" data-tone={tone}>
         <Icon path={iconPath} size={0.6} />
       </button>
       {dialogOpen && <GatewayDialog onClose={() => setDialogOpen(false)} />}

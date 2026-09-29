@@ -4,3 +4,9 @@
 
 `GET /api/pair/pending`, `POST /api/pair/approve-pending`, `POST /api/pair/deny` → `operate`. See change: add-pairing-approval-dialog.
 `/api/plugins/gmail/*` (state, client, accounts, accounts/:sub, :sub/level, :sub/reauth) all `operate` — credential-bearing sign-in/level/revoke surface; MCP-denylisted. See change: add-gmail-plugin.
+
+## electron-runtime-overlay-updates
+
+`GET /api/runtime/status` observe; `POST /api/runtime/{source,update,activate,rollback}` operate. See change: electron-runtime-overlay-updates.
+
+`GET /api/push/vapid-public-key` → `observe`; `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` → `operate`. See change: add-server-push-notifications.

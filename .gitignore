@@ -80,3 +80,14 @@ SHIP_IT_BLOCKED.md
 # here rather than in `.git/info/exclude`, which is local-only and therefore
 # hid the problem on the authoring machine while CI still saw it.
 .pi/skills/manage-flows/
+
+# Generated deck3d output. A self-contained `deck.html` inlines the whole
+# runtime bundle (~2.9 MB each), and it is reproducible from `deck.md` +
+# `deck.json` with `deck3d render`. Committing it cost three separate CI
+# problems: CodeQL alerts inside the BUNDLED three.js (insecure-randomness,
+# overly-large-range), a Biome file-size warning that `scripts/lint-ledger.mjs`
+# counts as a phantom orphan diagnostic site, and ~5.8 MB of churn per rebuild.
+# Nothing reads the committed copy — tests read `deck.json` and render their own
+# HTML. See change: deck3d-cinematic-worlds.
+packages/deck3d/fixtures/*/deck.html
+presentations/*/deck.html

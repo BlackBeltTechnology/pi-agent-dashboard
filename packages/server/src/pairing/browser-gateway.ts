@@ -728,6 +728,9 @@ export function createBrowserGateway(
         notifyId: entry.notifyId,
         message: entry.message,
         ...(entry.level === undefined ? {} : { level: entry.level }),
+        // Forward the persisted emit time; pre-change entries replay without it.
+        // See change: collapse-and-order-notify-rows.
+        ...(entry.ts === undefined ? {} : { ts: entry.ts }),
       } as ServerToBrowserMessage);
     }
   }

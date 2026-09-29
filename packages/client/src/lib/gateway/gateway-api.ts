@@ -10,7 +10,7 @@
  *
  * See change: add-tunnel-providers.
  */
-import type { ReservedNameResult, TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ReservedNameResult, TunnelStatus, TunnelStatusDetail } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 
 /**
@@ -157,10 +157,10 @@ export async function setReservedName(name: string | null): Promise<ReservedName
  * owns but is not serving is not already-public information. The dialog needs
  * the name to say WHICH one was not used, so it reads this twin instead.
  */
-export async function getTunnelStatusDetail(): Promise<TunnelStatus | null> {
+export async function getTunnelStatusDetail(): Promise<TunnelStatusDetail | null> {
   const res = await fetch(`${getApiBase()}/api/tunnel-status-detail`);
   if (!res.ok) return null;
-  return (await res.json().catch(() => null)) as TunnelStatus | null;
+  return (await res.json().catch(() => null)) as TunnelStatusDetail | null;
 }
 
 export async function getProviderReadiness(signal?: AbortSignal): Promise<ProviderReadiness[]> {

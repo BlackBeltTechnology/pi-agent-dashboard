@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
 const CARD = JSON.parse(readFileSync(new URL("../starfield.meta.json", import.meta.url), "utf8")) as {
@@ -57,5 +58,58 @@ describe("E24 card param bounds drive validate", () => {
       expect(r.stderr).toContain(path);
       expect(r.stderr).toContain(String(density));
     }
+  });
+});
+
+/**
+ * test-plan #E4 — a local card may only declare a kind the `{ object, tick }`
+ * handle grammar can actually fulfil. `post`/`material`/`light`/`edge`/
+ * `transition` need composer or material hooks a local module cannot provide.
+ */
+describe("E4 local card kind", () => {
+  it.each([
+    ["background", true],
+    ["motion", true],
+    ["post", false],
+    ["material", false],
+    ["light", false],
+    ["edge", false],
+    ["transition", false],
+  ])("kind %s is allowed=%s", (kind, allowed) => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "k", card: { kind } }] }, "deck3d-e4-");
+    const r = runDeckCli(["validate", "deck.json"], dir);
+    if (allowed) {
+      expect(r.status, r.stderr).toBe(0);
+    } else {
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toContain("fx/k.meta.json");
+      expect(r.stderr).toContain("background, motion");
+    }
+  });
+});
+
+/**
+ * test-plan #E5 — a local card bounds its params exactly like a corpus card,
+ * so a bad override is caught before it reaches the browser.
+ */
+describe("E5 local card param bounds", () => {
+  const validateDensity = (density: unknown) => {
+    const { dir } = makeLocalDeck({ effects: [{ name: "d" }] }, "deck3d-e5-");
+    const path = join(dir, "deck.json");
+    const deck = JSON.parse(readFileSync(path, "utf8"));
+    deck.overrides.slides.geo.effects[0].params = { density };
+    writeFileSync(path, `${JSON.stringify(deck, null, 2)}\n`);
+    // Param bounds are checked by `render`, which resolves the local cards.
+    return runDeckCli(["render", "deck.json", "-o", "deck.html"], dir);
+  };
+
+  it.each([[0], [1]])("accepts density %s", (density) => {
+    expect(validateDensity(density).status).toBe(0);
+  });
+
+  it.each([[-0.01], [1.01]])("rejects density %s naming the path and the range", (density) => {
+    const r = validateDensity(density);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('overrides.slides["geo"].effects[0].params.density');
   });
 });

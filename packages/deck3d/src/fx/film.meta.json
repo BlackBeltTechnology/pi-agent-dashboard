@@ -15,9 +15,9 @@
   "params": {
     "intensity": {
       "type": "number",
-      "default": 1,
+      "default": 0.5,
       "minimum": 0,
-      "maximum": 2
+      "maximum": 1
     }
   },
   "conflicts": [],

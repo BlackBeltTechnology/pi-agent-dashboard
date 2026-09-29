@@ -790,6 +790,8 @@ export interface BrowserNotifyMessage {
   notifyId: string;
   message: string;
   level?: NotifyLevel;
+  /** Emit time, epoch ms. Stamped by the bridge; the server backfills its receipt time when absent/invalid. See change: collapse-and-order-notify-rows. */
+  ts?: number;
 }
 
 export interface BrowserPromptDismissMessage {
@@ -841,6 +843,21 @@ export interface PiCoreUpdateCompleteMessage {
   results: Array<{ name: string; success: boolean; error?: string }>;
   sessionsReloaded: number;
 }
+
+/**
+ * Runtime-overlay staging events (Settings → Updates). `progress` streams the
+ * stager phases; `staged` / `failed` end a staging job.
+ * See change: electron-runtime-overlay-updates.
+ */
+export type RuntimeUpdateMessage =
+  | {
+      type: "runtime_update_progress";
+      version: string;
+      phase: "fetch" | "install" | "verify" | "materialize" | "done" | "error";
+      message?: string;
+    }
+  | { type: "runtime_update_staged"; version: string }
+  | { type: "runtime_update_failed"; version: string; message: string };
 
 /**
  * Bootstrap state snapshot. Mirrors `BootstrapState` in
@@ -1209,6 +1226,7 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
+  | RuntimeUpdateMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage

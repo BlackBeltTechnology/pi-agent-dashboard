@@ -326,3 +326,16 @@ describe("liveness without an address", () => {
     expect(tunnel.liveTunnelOrigins()).not.toContain("");
   });
 });
+
+describe("an admin-approval gate is surfaced on the row", () => {
+  it("copies a provider's approvalUrl onto its readiness row, whatever the state", async () => {
+    const p: any = stub({ id: "tailscale", kind: "daemon", probeLive: async () => [] });
+    p.approvalUrl = () => "https://login.tailscale.com/f/serve?node=X";
+    expect((await evaluateProvider(p)).approvalUrl).toBe("https://login.tailscale.com/f/serve?node=X");
+  });
+
+  it("omits the field when the provider reports none", async () => {
+    const row = await evaluateProvider(stub({ id: "zrok" }));
+    expect("approvalUrl" in row).toBe(false);
+  });
+});

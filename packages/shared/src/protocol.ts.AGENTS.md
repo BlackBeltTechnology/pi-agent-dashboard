@@ -15,3 +15,9 @@ Adds optional `ProcessMetrics.fanoutAdmitted?` / `fanoutRefused?` / `fanoutSatur
 Adds `PluginRequestMessage` (`plugin_request`: `requestId`,`pluginId`,`messageType`,`payload`; extension→server) and `PluginReplyMessage` (`plugin_reply`: `requestId`,`ok`,`result?`,`error?`; server→extension). See change: expose-plugin-credential-and-oauth-seams.
 
 `GitInfoUpdateMessage`: `gitPrNumber|Url` widened `| null`; adds `gitPrState|Draft|Checks|CheckedAt` (each `| null`). Adds `GitInfoRefreshExtensionMessage` `git_info_refresh {reason:"push"|"pr"}` (server → bridge, no session id). See change: redesign-composer-session-strip.
+
+`NotifyMessage` gains optional `ts` (bridge emit time, epoch ms). See change: collapse-and-order-notify-rows.
+
+## electron-runtime-overlay-updates
+
+`BridgeExtensionIdentity {dir, version?}`; `SessionRegisterMessage.extensionIdentity?` (D8). See change: electron-runtime-overlay-updates.

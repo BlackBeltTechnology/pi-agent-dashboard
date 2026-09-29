@@ -4,7 +4,17 @@
  */
 
 export type Mode = "dark" | "light";
-export type Palette = "blackbelt" | "zenit" | "dapp" | "custom";
+export type Palette =
+  | "blackbelt"
+  | "zenit"
+  | "dapp"
+  | "midnight"
+  | "ember"
+  | "arctic"
+  | "forest"
+  | "mono"
+  | "neon"
+  | "custom";
 export type Material = "glass" | "metal" | "matte";
 export type Quality = "low" | "medium" | "high";
 export type NodeShape =
@@ -17,11 +27,32 @@ export type NodeShape =
   | "diamond"
   | "cylinder";
 export type EdgeKind = "normal" | "dotted" | "thick";
-export type DiagramKind = "none" | "flowchart" | "sequence" | "brain" | "loop" | "swarm";
+/** Topologies `builders.ts` can raise from `diagram.data` alone (no mermaid harvest). */
+export type BuiltDiagramKind =
+  | "none"
+  | "brain"
+  | "loop"
+  | "swarm"
+  | "bars"
+  | "funnel"
+  | "timeline-rail"
+  | "globe"
+  | "orbit-cluster"
+  | "stack";
+export type DiagramKind = BuiltDiagramKind | "flowchart" | "sequence";
+
+/** Label/value series driving a built topology. Atomic: an override replaces it whole. */
+export interface DiagramData {
+  labels?: string[];
+  values?: number[];
+}
 export type FlowchartDir = "TD" | "TB" | "BT" | "LR" | "RL";
 
 export interface EffectRef {
+  /** Corpus id (`bloom`), or `local:<name>` for a module in `fx/` beside the deck. */
   id: string;
+  /** Lowercase hex sha256 of `fx/<name>.js`. Required for `local:` ids, forbidden otherwise. */
+  sha256?: string;
   params?: Record<string, unknown>;
 }
 
@@ -37,6 +68,21 @@ export interface PropOverride {
   count?: number;
   restyle?: "palette" | "original";
   anim?: "none" | "float" | "orbit" | "spin";
+}
+
+/** Slide composition presets. `split` is the v1 look (title + card left, diagram right). */
+export type Layout = "split" | "split-reverse";
+
+/** Topology the slides are strung along (deck-level). `line` is the v1 rail. */
+export type Rail = "line" | "orbit" | "tunnel" | "helix" | "grid";
+
+/** Contour treatment for extruded title glyphs. */
+export type TitleEdge = "none" | "contrast";
+
+/** World-unit nudge on the text card, applied after the layout preset places it. */
+export interface CardOffset {
+  x?: number;
+  y?: number;
 }
 
 export interface CameraKnobs {
@@ -58,6 +104,14 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   material?: Material;
   envReflections?: boolean;
   mirrorFloor?: boolean;
+  /** Floor surface: reflective plane (default) or animated water. */
+  floor?: "mirror" | "water";
+  /** Reflect backdrop geometry (backgrounds, local fx) in the floor, not just slide content. */
+  reflectBackdrop?: boolean;
+  /** Floor roughness: 0 = mirror, 1 = fully scattered reflection. */
+  floorMatte?: number;
+  /** Floor reflection strength: 1 = full mirror, 0 = none. */
+  floorReflectivity?: number;
   softShadows?: boolean;
   bloom?: boolean;
   rimLight?: boolean;
@@ -68,6 +122,14 @@ export interface Defaults extends CameraKnobs, LabelKnobs, CheckKnobs {
   depthRelief?: number;
   quality?: Quality;
   extrudeDepth?: number;
+  /** Contour on extruded title glyphs: `contrast` paints the side walls in the palette text colour. */
+  titleEdge?: TitleEdge;
+  autoStyle?: boolean;
+  layout?: Layout;
+  /** Slide topology. Deck-level only. */
+  rail?: Rail;
+  /** World-unit gap between slide anchors. Deck-level only; also scales the cull radius. */
+  spacing?: number;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
@@ -114,6 +176,7 @@ export interface DiagramMessage {
 
 export interface Diagram {
   kind: DiagramKind;
+  data?: DiagramData;
   dir?: FlowchartDir;
   scale?: number;
   offset?: { x?: number; y?: number };
@@ -133,10 +196,32 @@ export interface Slide {
   bullets: string[];
   scene: string;
   diagram: Diagram;
+  layout?: Layout;
+  cardOffset?: CardOffset;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
   effects?: EffectRef[];
+  /**
+   * Look knobs, per slide. The runtime always supported this — `effective()`
+   * is `{...defaults, ...slide}` — but the schema used to reject them, so the
+   * configurator could apply a value live and then export a deck that would
+   * not render. `rail`/`spacing` stay deck-only: they move every anchor.
+   */
+  bloom?: boolean;
+  rimLight?: boolean;
+  fog?: boolean;
+  floor?: "mirror" | "water";
+  mirrorFloor?: boolean;
+  reflectBackdrop?: boolean;
+  floorMatte?: number;
+  floorReflectivity?: number;
+  softShadows?: boolean;
+  envReflections?: boolean;
+  depthRelief?: number;
+  extrudeDepth?: number;
+  colors?: { card?: string; accent?: string; secondary?: string };
+  durationSec?: number;
 }
 
 export interface Overrides {
@@ -152,15 +237,38 @@ export interface SlideOverride {
   mode?: Mode;
   palette?: Palette;
   material?: Material;
+  titleEdge?: TitleEdge;
   transition?: string;
   quality?: Quality;
   scene?: string;
   backgroundIntensity?: number;
-  diagram?: { scale?: number; offset?: { x?: number; y?: number } };
+  diagram?: { kind?: BuiltDiagramKind; data?: DiagramData; scale?: number; offset?: { x?: number; y?: number } };
+  layout?: Layout;
+  cardOffset?: CardOffset;
   camera?: CameraKnobs;
   labels?: LabelKnobs;
   check?: CheckKnobs;
   effects?: EffectRef[];
+  /**
+   * Look knobs, per slide. The runtime always supported this — `effective()`
+   * is `{...defaults, ...slide}` — but the schema used to reject them, so the
+   * configurator could apply a value live and then export a deck that would
+   * not render. `rail`/`spacing` stay deck-only: they move every anchor.
+   */
+  bloom?: boolean;
+  rimLight?: boolean;
+  fog?: boolean;
+  floor?: "mirror" | "water";
+  mirrorFloor?: boolean;
+  reflectBackdrop?: boolean;
+  floorMatte?: number;
+  floorReflectivity?: number;
+  softShadows?: boolean;
+  envReflections?: boolean;
+  depthRelief?: number;
+  extrudeDepth?: number;
+  colors?: { card?: string; accent?: string; secondary?: string };
+  durationSec?: number;
 }
 
 export interface NodeOverride {
@@ -214,4 +322,12 @@ export interface MergedDeck {
   effects?: EffectRef[];
   /** Prop placements from `overrides.props` (render-only runtime input). */
   props?: PropOverride[];
+  /**
+   * Dotted key paths that came from `overrides`, so the configurator can mark
+   * them `●`. The merged view has folded the overrides in and cannot tell
+   * otherwise; the `overrides` block itself is deliberately not embedded.
+   */
+  overriddenKeys?: { deck: string[]; slides: Record<string, string[]> };
+  /** `meta.derivedHash`, carried through so the configurator can key its state per deck. */
+  derivedHash?: string;
 }

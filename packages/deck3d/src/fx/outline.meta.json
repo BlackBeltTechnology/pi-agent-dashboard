@@ -1,0 +1,43 @@
+{
+  "id": "outline",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "technical",
+      "bold"
+    ],
+    "content": [
+      "diagram",
+      "emphasis"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "strength": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "thickness": {
+      "type": "number",
+      "default": 1.5,
+      "minimum": 0.5,
+      "maximum": 4
+    },
+    "parts": {
+      "type": "string",
+      "default": "diagram",
+      "enum": [
+        "diagram",
+        "title",
+        "props",
+        "all"
+      ]
+    }
+  },
+  "conflicts": [],
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
+}

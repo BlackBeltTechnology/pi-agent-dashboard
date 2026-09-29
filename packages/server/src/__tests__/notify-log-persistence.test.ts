@@ -21,8 +21,10 @@ import { createMemorySessionManager, type SessionManager } from "../session/memo
 import { scanAllSessions } from "../session/session-scanner.js";
 import { sessionToMeta } from "../session/session-to-meta.js";
 
+// Mixed provenance: `ts` must round-trip, and a pre-change entry without it
+// must stay without it. See change: collapse-and-order-notify-rows (#E4).
 const LOG: NotifyLogEntry[] = [
-  { notifyId: "n1", message: "first", level: "info" },
+  { notifyId: "n1", message: "first", level: "info", ts: 111 },
   { notifyId: "n2", message: "second", level: "success" },
 ];
 

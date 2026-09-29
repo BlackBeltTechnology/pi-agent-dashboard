@@ -1112,13 +1112,24 @@ export function SessionCard({
          See change: session-card-directory-rail. */
       className={`group/card relative isolate pl-1.5 pr-2 py-2 cursor-pointer rounded-xl shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)] hover:-translate-y-0.5 transition-all duration-200 before:content-[''] before:absolute before:-left-[11px] before:top-[19px] before:w-[9px] before:h-0.5 before:rounded-full before:bg-[var(--rail-directory)] ${
         isSelected
-          ? "border-[var(--tint-blue-border)] bg-[var(--tint-blue-bg)] ring-1 ring-[var(--tint-blue-border)] card-selected-ring"
+          ? "border-[var(--tint-blue-border)] bg-[var(--bg-primary)] ring-1 ring-[var(--tint-blue-border)] card-selected-ring"
           : "border-[var(--border-subtle)] bg-[var(--bg-primary)]"
       } ${isHidden ? "opacity-40" : ""} ${session.closing ? "opacity-50" : ""} ${pulseClass}`}
       data-testid="session-card-desktop"
     >
-      {isSelected ? <div className="card-glow-fx card-glow-fx-outer" aria-hidden="true" /> : null}
-      {isSelected ? <div className="card-glow-fx" aria-hidden="true" /> : null}
+      {/* Static `.card-glow-mask` wrappers carve the card interior out so the
+          rotating glow shows only OUTSIDE the edge (no wash over content).
+          See change: fix-selected-card-light-wash. */}
+      {isSelected ? (
+        <div className="card-glow-mask card-glow-mask-outer" aria-hidden="true">
+          <div className="card-glow-fx card-glow-fx-outer" />
+        </div>
+      ) : null}
+      {isSelected ? (
+        <div className="card-glow-mask" aria-hidden="true">
+          <div className="card-glow-fx" />
+        </div>
+      ) : null}
       {stripeFxClass ? <div className={`card-stripes-fx ${stripeFxClass}`} aria-hidden="true" /> : null}
       {isSelected ? <div className="card-ring-fx" aria-hidden="true" /> : null}
       {/* Drag bead: an opaque 15x26 pill parked in the directory-rail band to

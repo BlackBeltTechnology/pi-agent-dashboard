@@ -1,0 +1,35 @@
+{
+  "id": "dot-screen",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "retro",
+      "print"
+    ],
+    "content": [
+      "stylised",
+      "halftone"
+    ]
+  },
+  "cost": 1,
+  "modes": "both",
+  "params": {
+    "scale": {
+      "type": "number",
+      "default": 1.2,
+      "minimum": 0.2,
+      "maximum": 4
+    },
+    "angle": {
+      "type": "number",
+      "default": 1.57,
+      "minimum": 0,
+      "maximum": 3.1416
+    }
+  },
+  "conflicts": [
+    "sobel"
+  ],
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
+}

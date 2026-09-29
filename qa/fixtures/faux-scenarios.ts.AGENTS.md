@@ -5,3 +5,5 @@ Shared scenario catalog `SCENARIOS: Record<id,{script,expect}>`. `script` = `Fau
 See change: surface-denial-remedy-in-previews — Adds `denial-write-png-{f4,f6,f13,x2}`: absolute out-of-cwd `write` of `/tmp/denial-canvas-<id>/a.png` → agent canvas auto-open outside cwd.
 Adds `demo-echo` (calls `demo_echo({text:"hi"})`, then text `demo echo done`). See change: expose-plugin-credential-and-oauth-seams.
 Adds `gmail-send` (`gmail_send` a@fake.test → x@/y@dest.test, raises the tool's own confirm) and `gmail-search` (`gmail_search` a@fake.test, drives reauth badge) for gmail-plugin L3 F5/F6. See change: add-gmail-plugin.
+
+Adds `notify-repeat` (one `e2e_notify` call, 5 identical warnings) + `notify-repeat-slow` (10 warnings 800 ms apart, watched growing live) + exported `NOTIFY_REPEAT_MESSAGE` / `NOTIFY_REPEAT_DONE`. Drive `tests/e2e/notify-collapse.spec.ts`. See change: collapse-and-order-notify-rows.

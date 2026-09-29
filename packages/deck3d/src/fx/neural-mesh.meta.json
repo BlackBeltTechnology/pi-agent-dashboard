@@ -1,0 +1,54 @@
+{
+  "id": "neural-mesh",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "technical",
+      "intelligent"
+    ],
+    "content": [
+      "network",
+      "model"
+    ],
+    "topic": [
+      "ai"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "drift": {
+      "type": "number",
+      "default": 0.5,
+      "minimum": 0,
+      "maximum": 2
+    },
+    "metalness": {
+      "type": "number",
+      "default": 0.9,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "glow": {
+      "type": "number",
+      "default": 0.8,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_lines_dashed",
+  "licence": "MIT"
+}

@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 import { describe, expect, it } from "vitest";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
 const hasChromium = await chromiumAvailable();
@@ -81,4 +82,41 @@ describe.skipIf(!hasChromium)("E35 JSON inlined safely (chromium)", () => {
       await browser.close();
     }
   }, 120_000);
+});
+
+/**
+ * test-plan #E8 — a local module is LLM-written source inlined into the page.
+ * A `</script>` sequence inside it must not terminate the script block, or the
+ * rest of the module becomes live markup.
+ */
+describe.skipIf(!hasChromium)("E8 script terminator inside a local module", () => {
+  it("keeps the document intact and the effect running", async () => {
+    const src = [
+      "export default function (ctx, params) {",
+      '  const marker = "</script><script>window.pwned=1</script>";',
+      "  const group = new ctx.THREE.Group();",
+      "  group.name = marker.length > 0 ? 'local-ok' : 'empty';",
+      "  return { object: group, dispose: function () {} };",
+      "}",
+      "",
+    ].join("\n");
+
+    const { dir } = makeLocalDeck({ effects: [{ name: "x", src }] }, "deck3d-e8-");
+    expect(runDeckCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+    // The literal must be escaped in the output, never present verbatim.
+    expect(readFileSync(join(dir, "deck.html"), "utf8")).not.toContain("<script>window.pwned=1");
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+      await page.goto(pathToFileURL(join(dir, "deck.html")).href);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.evaluate(() => window.__deck3d?.gotoSlide(1));
+      expect(await page.evaluate(() => (window as unknown as { pwned?: number }).pwned)).toBeUndefined();
+      // The effect constructed cleanly: no recorded failure.
+      expect(await page.evaluate(() => window.__deck3d?.effects().errors ?? [])).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  }, 180_000);
 });

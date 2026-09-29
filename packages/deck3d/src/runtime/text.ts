@@ -55,13 +55,20 @@ export interface TitleResult {
   lines: number;
 }
 
-/** Extruded hero text (multi-line, wrapped). */
+/**
+ * Extruded hero text (multi-line, wrapped).
+ *
+ * `mat` may be a two-entry array: `ExtrudeGeometry` emits one group pair per
+ * glyph shape — material 0 = the front/back faces, material 1 = the extrusion
+ * walls plus the bevel — so `[face, edge]` draws a contour around every
+ * character (`defaults.titleEdge`).
+ */
 export function buildTitle(
   font: Font,
   text: string,
   size: number,
   depth: number,
-  mat: THREE.Material,
+  mat: THREE.Material | THREE.Material[],
 ): TitleResult {
   const group = new THREE.Group();
   const missing = new Set<string>();
@@ -119,9 +126,13 @@ export function buildLabel(str: string, size: number, P: PaletteColors): LabelHa
   const h = size * 1.15;
   const plane = new THREE.Mesh(
     new THREE.PlaneGeometry((h * canvas.width) / canvas.height, h),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, toneMapped: false }),
+    // `depthTest: false`: a caption is an annotation, not scenery. With depth
+    // on, the plinth swallowed the bottom caption and the globe swallowed its
+    // own far-side ones. Every caller is a diagram label (builders.ts only),
+    // so this cannot lift chrome or body text out of the depth order.
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, toneMapped: false }),
   );
-  plane.renderOrder = 2;
+  plane.renderOrder = 12;
   const group = new THREE.Group();
   group.add(plane);
   return { group, height: h, canvasWidth: canvas.width };

@@ -2795,7 +2795,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         // body would resolve against stale rects.
         // See change: drag-folders-across-workspaces.
         <DndContext sensors={sensors} collisionDetection={compatibleClosestCenter} measuring={{ droppable: { strategy: MeasuringStrategy.Always } }} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
-        <ul className="flex flex-col gap-2 p-2">
+        {/* pr-4 (16px) clears the selected card's outside-only glow halo
+            (`.card-glow-mask-outer`, 14px past the edge), which the
+            overflow-y-auto scroller would otherwise clip on the right.
+            See change: fix-selected-card-light-wash. */}
+        <ul className="flex flex-col gap-2 p-2 pr-4">
           {/* Elevated dashboard-scope add buttons: rendered as the FIRST list
               item, above workspace tiers and pinned folder groups.
               See change: elevate-dashboard-add-buttons. */}

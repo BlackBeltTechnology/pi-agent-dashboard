@@ -4,7 +4,7 @@
  */
 import { createHash } from "node:crypto";
 import { REGISTRY } from "./index.js";
-import type { FxCard } from "./types.js";
+import type { FxCard, FxTopic } from "./types.js";
 
 export interface CatalogueEntry {
   id: string;
@@ -13,6 +13,7 @@ export interface CatalogueEntry {
   modes: FxCard["modes"];
   mood: string[];
   content: string[];
+  topic?: FxTopic[];
   source: string;
   licence: string;
   params: string;
@@ -28,6 +29,7 @@ export function catalogue(): CatalogueEntry[] {
       modes: card.modes,
       mood: card.tags.mood,
       content: card.tags.content,
+      ...(card.tags.topic ? { topic: card.tags.topic } : {}),
       source: card.source,
       licence: card.licence,
       params: Object.keys(card.params).sort().join(", "),

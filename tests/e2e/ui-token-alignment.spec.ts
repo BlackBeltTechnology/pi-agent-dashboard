@@ -166,12 +166,13 @@ test.describe("session card action chips (F2, F9)", () => {
         .filter((b) => (b as HTMLElement).offsetParent !== null)
         .map((b) => b.getBoundingClientRect())
         .filter((r) => r.right > cardBox.right + 1 || r.left < cardBox.left - 1).length;
-      // scrollWidth would count the selected-card glow layers (card-glow-fx /
-      // card-ring-fx), which bleed past the edge by design; measure content only.
+      // scrollWidth would count the selected-card glow layers (card-glow-mask /
+      // card-glow-fx / card-ring-fx), which bleed past the edge by design;
+      // measure content only. See change: fix-selected-card-light-wash.
       const overhang = Math.max(
         0,
         ...[...el.querySelectorAll("*")]
-          .filter((c) => !c.closest("[class*='card-glow-fx'],[class*='card-ring-fx']"))
+          .filter((c) => !c.closest("[class*='card-glow-mask'],[class*='card-glow-fx'],[class*='card-ring-fx']"))
           .map((c) => c.getBoundingClientRect())
           .filter((r) => r.width > 0)
           .map((r) => r.right - cardBox.right),

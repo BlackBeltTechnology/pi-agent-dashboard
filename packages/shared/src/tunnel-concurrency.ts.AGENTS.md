@@ -1,0 +1,3 @@
+# tunnel-concurrency.ts — index
+
+Resolves WHICH providers run and in which mode. `resolveTunnelPlan`/`primaryOf`/`soleMode`. `tunnel.provider` = the PRIMARY (so `getTunnelUrl()` still answers with one URL and no auth requirement changes); extras opt in via `tunnel.<id>.enabled`. Per-provider `mode` is required because `PROVIDER_MODES` makes zerotier private-only and zrok public-only — one shared `mode` cannot express zrok+zerotier. Defaults only where a provider has exactly ONE mode (tailscale has two → per-provider config error, never a guess). Unsupported mode: primary ⇒ `refuseConnect`, non-primary ⇒ that provider alone. See change: add-zrok-custom-reserved-name.

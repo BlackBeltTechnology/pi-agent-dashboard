@@ -413,6 +413,8 @@ export const SECTION_OF: Record<string, DoctorSection> = {
   "Bundled Node.js": "runtime",
   "Bundled npm": "runtime",
   "Managed Node runtime": "runtime",
+  // Electron runtime overlay. See change: electron-runtime-overlay-updates.
+  "Dashboard runtime": "runtime",
   // pi-tooling
   // Two-row split: library (embedded, used by dashboard internals via
   // Node module resolution) vs. CLI on PATH (callable from a user's
@@ -601,6 +603,12 @@ export const SUGGESTIONS: Record<string, SuggestionFn> = {
   // this factory never runs in production. Kept to satisfy the Decision-8
   // lint (every `SECTION_OF` name must have a non-empty suggestion for
   // non-ok statuses). See change: fix-doctor-stale-managed-install-check.
+  "Dashboard runtime": (status) =>
+    status === "ok"
+      ? undefined
+      : status === "error"
+        ? "The bundled fallback runtime is missing — reinstall the desktop app."
+        : "Open **Settings → Packages → Dashboard runtime** to roll back or use the bundled runtime; an `extension_mismatch` session needs a manual `/reload`.",
   "Legacy install directory": (status) =>
     status === "ok"
       ? undefined

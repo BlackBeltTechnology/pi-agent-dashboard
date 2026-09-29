@@ -1,3 +1,7 @@
 # tunnel.ts — index
 
 Tunnel ("Gateway") integration — thin delegation layer over `tunnel-core.ts` + `tunnel-providers/zrok.ts` (byte-identical behaviour). Exports `detectZrokBinary`, `cleanupStaleZrok`, `createTunnel(port,reservedToken,retries)`, `deleteTunnel(port)`, `scavengeOrphanZrokProcesses(port)`, `getTunnelUrl`, `getTunnelStatus`, `loadZrokEnv`, `releaseShare`, `writeZrokPid`/`readZrokPid`/`removeZrokPid`, `_resetBinaryCache`/`_setBinaryAvailable`. See change: add-tunnel-providers.
+
+`connectGateway(tunnelCfg, port, {zrokActiveUrl, createZrok})` — the Connect action: zrok primary (or unset) via legacy child path (active zrok reused, NOT an early return), any other primary via its provider (zrok never started for it), extras always connected; primary failure fails, extra failure reported in `failures`. `connectedProviderIds()` — providers THIS process connected (zrok from runtime + singletons `status().active`); feeds `connectedProviders` on `/api/tunnel-status-detail`. Route reads `loadConfig().tunnel` fresh (not boot snapshot). TailscaleProvider built with `fallbackPort: () => loadConfig().port`.
+
+Per-provider status: `connectOutcomes` map (set by `connectGateway`, cleared by `disconnectResolvedProviders`) → `gatewayProviderStatus(cfg)` = planned providers × {connected|failed(+error)|dropped(+zrok last error)|idle}; in-memory. `getZrokLastError()`; zrok primary failure error = `zrok: <real CLI error>`. Routes: status-detail `providers`, connect response `providers`, ungated `/api/tunnel-status` `gateway:{connected,expected}` counts only.

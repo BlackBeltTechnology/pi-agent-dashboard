@@ -176,6 +176,13 @@ export interface EventWiringDeps {
    */
   viewedSessionTracker?: ViewedSessionTracker;
   /**
+   * Optional push fan-out. Called from `stampUnreadIfTriggered` on every
+   * qualifying live trigger (fire-and-forget, never awaited). Push requires
+   * `viewedSessionTracker` too: the helper returns early without it.
+   * See change: add-server-push-notifications.
+   */
+  pushDispatcher?: import("./push/push-dispatcher.js").PushDispatcher;
+  /**
    * Optional client-correlation registry. When provided, the wiring
    * consumes the requestId for the resolved spawnToken after a successful
    * three-tier link and surfaces it on `session_added` as `spawnRequestId`,
@@ -245,12 +252,26 @@ export interface EventWiringDeps {
   sessionArchive?: import("./session/session-archive.js").SessionArchive;
   /** One-shot idle-alive archive intents. See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
+  /**
+   * Every bridge (re-)register with its reported extension identity — the D8
+   * convergent-reload guard. See change: electron-runtime-overlay-updates.
+   */
+  onBridgeRegister?: (
+    sessionId: string,
+    identity: import("@blackbelt-technology/pi-dashboard-shared/protocol.js").BridgeExtensionIdentity | undefined,
+  ) => void;
+}
+
+/** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
+function isValidNotifyTs(ts: unknown): ts is number {
+  return typeof ts === "number" && Number.isFinite(ts) && ts > 0;
 }
 
 /**
  * Wire up all event forwarding from pi gateway to browser gateway.
  * Sets piGateway.onEvent and sessionManager.onUnregister.
  */
+
 export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
@@ -274,6 +295,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingPluginRefRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
+    pushDispatcher,
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
@@ -670,10 +692,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (!isUnreadTrigger(eventType, before, after, payload)) return;
     if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
     const session = sessionManager.get(sessionId);
-    if (session && !session.unread) {
+    const unreadEdge = !!session && !session.unread;
+    if (unreadEdge) {
       sessionManager.update(sessionId, { unread: true });
       browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
     }
+    // Single push hook: fire-and-forget, the dispatcher applies the hybrid
+    // cadence. See change: add-server-push-notifications (Decision 10).
+    if (session) pushDispatcher?.fanout(sessionId, { eventType, after, payload, unreadEdge });
   }
 
   /**
@@ -683,7 +709,20 @@ export function wireEvents(deps: EventWiringDeps): void {
    * stamp, no reorder, no `session_updated` broadcast.
    * See change: split-notify-from-prompt-request.
    */
-  function handleNotify(sessionId: string, entry: NotifyLogEntry): void {
+  function handleNotify(
+    sessionId: string,
+    incoming: Omit<NotifyLogEntry, "ts"> & { ts?: unknown },
+  ): void {
+    // Keep a valid bridge `ts` (bridge clock = transcript clock); otherwise
+    // stamp receipt time, so every logged entry carries one.
+    // See change: collapse-and-order-notify-rows (D1).
+    const ts = isValidNotifyTs(incoming.ts) ? incoming.ts : Date.now();
+    const entry: NotifyLogEntry = {
+      notifyId: incoming.notifyId,
+      message: incoming.message,
+      ...(incoming.level === undefined ? {} : { level: incoming.level }),
+      ts,
+    };
     browserGateway.appendNotify(sessionId, entry);
     browserGateway.sendToSubscribers(sessionId, {
       type: "notify",
@@ -691,6 +730,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       notifyId: entry.notifyId,
       message: entry.message,
       ...(entry.level === undefined ? {} : { level: entry.level }),
+      ts,
     } satisfies BrowserNotifyMessage);
   }
 
@@ -1298,6 +1338,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "session_register") {
+      if (!msg.provisional) deps.onBridgeRegister?.(sessionId, msg.extensionIdentity);
       // Reset the once-per-activation liveness guard on every (re)register so
       // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
       // activity event. Without this, a session manually closed (sidecar
@@ -2120,6 +2161,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         notifyId,
         message,
         ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
+        ts: (msg as any).ts,
       });
       return;
     }

@@ -21,8 +21,8 @@ flowchart TD
 | State | Purpose |
 |---|---|
 | `checking-server-health` | Probe `GET /api/health` on configured port. 3 s deadline. |
-| `launch-server` | `selectLaunchSource()` → `spawnFromSource()`. Stamps `DASHBOARD_STARTER=Electron`. `setSpawnedPid(pid)`. |
-| `health-wait` | Poll `/api/health` until 200. Deadline `SERVER_READY_DEADLINE_MS = 15000`. |
+| `launch-server` | `resolveAndSpawnRuntime()` → `selectLaunchSource()` fallback loop → `spawnFromSource()`. Stamps `DASHBOARD_STARTER=Electron` + runtime identity env. `setSpawnedPid(pid)`. |
+| `health-wait` | Poll `/api/health` until 200. Deadline `getServerReadyDeadlineMs(kind)` — 15 s installed tree, 60 s TS checkout. |
 | `attach` (end) | Server already running. Open main window, no spawn. |
 | `done` (end) | Server up, owned by this Electron. Open main window. |
 | `loading-page-error` (end) | Spawn failed or deadline elapsed. Open `loading.html` with `[Start server]` + `[Open Doctor]` + server-log tail. |
@@ -35,15 +35,111 @@ flowchart TD
 | `health-check-result` | `isDashboardRunning(port)` result |
 | `server-spawn-result` | `spawnFromSource` resolve / reject |
 
-## launchSource resolution (3 strategies)
+## launchSource resolution (5 strategies)
 
-`selectLaunchSource()` in `packages/electron/src/lib/launch-source.ts`:
+`selectLaunchSource()` in `packages/electron/src/lib/launch-source.ts`. Precedence:
 
-1. `attach` — `isDashboardRunning(port)` returns running.
-2. `devMonorepo` — `!app.isPackaged AND existsSync(cwd/packages/server/src/cli.ts)`.
-3. `bundled` — fallback. `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`. `BundledServerMissingError` when missing.
+`attach → devMonorepo → localLink → overlay → bundled`.
 
-Override: `DASHBOARD_PREFER_SOURCE=attach|bundled|devMonorepo`. Pre-R3 kinds (`piExtension`, `npmGlobal`, `extracted`) rejected with warning.
+| # | Kind | Condition |
+|---|---|---|
+| 1 | `attach` | `isDashboardRunning(port)` returns running. Skipped with `skipAttach` — activation never attaches. |
+| 2 | `devMonorepo` | `!app.isPackaged` AND `cwd/packages/server/src/cli.ts` + `cwd/packages/extension/src/bridge.ts` exist. Unchanged. |
+| 3 | `localLink` | Effective source `local` AND `state.localPath` set AND binding matches (`deriveEffectiveSource()`). Runs checkout in place. |
+| 4 | `overlay` | Effective source `npm`/`github`. Candidates in order pending → current → previous. |
+| 5 | `bundled` | Fallback. `<resourcesPath>/server/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts`. `BundledServerMissingError` when missing. |
+
+`localLink` / `overlay` candidate failing its gate (compat + preflight) falls through to the next kind. Failure recorded via `onFallThrough` → `state.lastFailure`.
+
+Override: `DASHBOARD_PREFER_SOURCE=attach|devMonorepo|localLink|overlay|bundled`. `PinnedSourceUnavailableError` when a pinned kind cannot resolve. Pre-R3 kinds (`piExtension`, `npmGlobal`, `extracted`) rejected with warning.
+
+## Server readiness deadlines
+
+`getServerReadyDeadlineMs(kind)`:
+
+| Kind | Deadline | Why |
+|---|---|---|
+| `devMonorepo`, `localLink` | `SERVER_READY_DEADLINE_DEV_MS = 60_000` | jiti compiles TS checkout on cold boot |
+| `bundled`, `overlay`, `attach` | `SERVER_READY_DEADLINE_MS = 15_000` | installed tree, pre-compiled |
+
+## Cold launch: fallback + retry-once
+
+`resolveAndSpawnRuntime()` loops `selectLaunchSource`. Each failing overlay/local candidate is recorded (`recordColdFailure`), added to an exclude set, then re-resolved (`skipAttach`). Bundle is the last fallback; bundle/dev failure throws.
+
+- Overlay pending tried ≤ `MAX_ATTEMPTS = 2`. `state.bad[id]` set after. App died mid-activation (`pending` with `attempts == 2`, not current) → `bad` reason `crashed_before_commit`.
+- Local → `bad` on first cold failure.
+- Port conflict = environmental. Attempt undone (`undoAttempt`), error rethrown, nothing marked bad.
+- `bad[id]` + `attempts[id]` cleared only by explicit user action: Update/Activate nonce (`pendingNonce`), or re-picking the local folder (`pickLocalFolder`). Automatic paths never clear it.
+
+## switchRuntime
+
+Primitive in `packages/electron/src/lib/runtime-overlay.ts`. NOT `requestServerLaunch`. PID-scoped watchdog ownership (`expectExit`, `claimCandidate`, `releaseRuntimeSwitchOwnership`) instead of the global graceful flag. Old server must exit within `SWITCH_OLD_EXIT_DEADLINE_MS = 60_000`; poll `STOP_POLL_MS = 250`.
+
+```mermaid
+sequenceDiagram
+    participant C as Client Settings
+    participant S as Server active runtime
+    participant E as Electron main
+    participant W as server-watchdog
+    C->>S: POST /api/runtime/activate
+    S->>S: request.json.activateNonce = uuid
+    E->>E: watchActivationRequests poll 2 s
+    E->>E: clearBad pending id
+    E->>S: GET /api/health probe pid runtime.id owner
+    alt server not owned by this app
+        E-->>E: abort not_owned never stop
+    else owned
+        E->>E: expectExit oldPid
+        E->>S: POST /api/shutdown restart intent
+        E->>E: wait old PID exit + port free max 60 s
+        alt old still alive
+            E-->>E: abort old_server_alive old stays current
+        else old exited
+            E->>E: gateCandidate X compat + preflight
+            E->>E: register extension for X fsync BEFORE spawn
+            E->>E: beginAttempt X if not current
+            E->>E: spawn X claimCandidate pid
+            E->>S: GET /api/health require pid spawned AND runtime.id X
+            alt healthy
+                E->>E: commitRuntime current X previous old
+                E->>E: pruneVersions
+                Note over W: committed PID watchdog-owned
+            else candidate failed
+                alt environmental port in use or extension register
+                    E->>E: abort undo attempt restore prior
+                else unhealthy
+                    E->>E: bad X + lastFailure
+                    E->>E: start previous then bundled re-point + spawn each
+                end
+            end
+        end
+    end
+    E->>E: patchRuntimeState handledNonce
+```
+
+No false commits: the health gate accepts only a server whose `pid` equals the spawned child, is not the old pid, and whose `runtime.id` equals the candidate. Rollback marks the candidate `bad`, then starts `previous` → `bundled`, re-pointing the extension before each spawn.
+
+## Activation watcher (2 s)
+
+`watchActivationRequests()` polls `request.json#activateNonce` every 2 s (`setInterval`, `ACTIVATION_POLL_MS = 2_000`). One switch per new nonce, serialized by `createSwitchQueue`. `state.handledNonce` recorded after the switch resolves. Source/channel edits alone do nothing until activation.
+
+App-menu local actions call `switchRuntime()` directly, no nonce: `Runtime → Use Local Folder…` (`pickLocalFolder` binds `{epoch,seq}`, refuses `request_unreadable`, clears bad), `Runtime → Stop Using Local Folder` (`stopUsingLocalFolder` clears `localPath`).
+
+## Bridge extension + convergent reload (D8)
+
+Before spawning any runtime (candidate, rollback target, bundle), Electron registers that runtime's extension path, durable (fsync). `extensionPathFor(id, dir, resourcesPath)`:
+
+| Runtime id | Extension path |
+|---|---|
+| `bundled` | `<resourcesPath>/server/packages/extension` |
+| `local:<realpath>` | `<realpath>/packages/extension` |
+| overlay `X` | `versions/<X>/node_modules/@blackbelt-technology/pi-dashboard-extension` |
+
+Electron stamps `PI_DASHBOARD_EXTENSION_DIR` at spawn (except `devMonorepo`). Server `activeExtensionFromEnv()` validates it: Electron owner token set, dir is a real dir, `package.json#name` is the dashboard extension. Anything else → null (fail closed).
+
+On every bridge (re-)register, `createExtensionReloadGuard()` compares the bridge's reported identity (realpath dir + version) with the active one. Mismatch → one `/reload` per session per active runtime id (`reloadedFor` map → no loop). Persistent mismatch after the reload → `extension_mismatch` diagnostic for the Doctor row. Late-reconnecting bridges converge when they register.
+
+Runtime identity env (`runtimeIdentityEnv()`): `PI_DASHBOARD_RUNTIME_ID`, `PI_DASHBOARD_RUNTIME_ORIGIN`, `PI_DASHBOARD_ELECTRON_INSTANCE` (per-app token surviving `/api/restart`). `/api/health.runtime` echoes these; `owner` gates the switch.
 
 ## Node binary resolution (2 strategies)
 
@@ -82,6 +178,8 @@ Override: `DASHBOARD_PREFER_SOURCE=attach|bundled|devMonorepo`. Pre-R3 kinds (`p
 | Electron stops server only when it owns it | `decideShutdownOnQuit` pure helper |
 | first-run-done marker written on first `done` | `~/.pi/dashboard/first-run-done` |
 | Bundled-server missing → `BundledServerMissingError` | corrupted-install signal |
+| Bundle is final runtime fallback | `resolveAndSpawnRuntime` falls through to `bundled` |
+| One writer per runtime state file | server → `request.json`, Electron → `state.json` |
 
 ## Zombie adoption
 

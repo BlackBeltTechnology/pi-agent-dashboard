@@ -29,6 +29,20 @@ import type { TunnelEndpoint, TunnelProviderId } from "@blackbelt-technology/pi-
 const DEFAULT_SPAWN_TIMEOUT_MS = 30_000;
 
 /**
+ * The real reason a tunnel CLI failed, from its combined output. zrok nests its
+ * API error (`[POST /share][500] shareInternalServerError ""`); that is compacted
+ * to `POST /share 500 shareInternalServerError[: message]`. Otherwise the last
+ * `[ERROR]:` line. Capped at 200 chars; null when there is no error.
+ */
+export function extractTunnelError(output: string): string | null {
+  const api = [...output.matchAll(/\[(GET|POST|PUT|PATCH|DELETE) ([^\]]+)\]\[(\d{3})\]\s*(\w+)(?:\s*"([^"]*)")?/g)].pop();
+  const text = api
+    ? `${api[1]} ${api[2]} ${api[3]} ${api[4]}${api[5] ? `: ${api[5]}` : ""}`
+    : [...output.matchAll(/\[ERROR\]:?\s*(.+)/g)].pop()?.[1]?.trim();
+  return text ? text.slice(0, 200) : null;
+}
+
+/**
  * The provider-specific slice a {@link ChildTunnelRuntime} needs. Everything
  * here is zrok/ngrok-flavoured; the runtime owns the generic lifecycle.
  */
@@ -75,6 +89,8 @@ export interface ChildProviderSpec {
 export class ChildTunnelRuntime {
   private activeProcess: ChildProcess | null = null;
   private activeTunnelUrl: string | null = null;
+  /** Why the last create failed / the live tunnel died; cleared on success. */
+  private lastError: string | null = null;
   private pendingCreate: Promise<string | null> | null = null;
 
   constructor(private readonly spec: ChildProviderSpec) {}
@@ -188,11 +204,13 @@ export class ChildTunnelRuntime {
     return new Promise((resolve, reject) => {
       void (async () => {
       if (!this.spec.detectBinary()) {
+        this.lastError = `${this.spec.id} not installed`;
         resolve(null);
         return;
       }
       if (!this.spec.isEnrolled()) {
         console.warn(`${this.spec.id} not enrolled — skipping tunnel creation`);
+        this.lastError = `${this.spec.id} not enrolled`;
         resolve(null);
         return;
       }
@@ -216,6 +234,7 @@ export class ChildTunnelRuntime {
         if (!resolved) {
           resolved = true;
           console.warn(`${this.spec.id} tunnel creation timed out (${spawnTimeoutMs / 1000}s)`);
+          this.lastError = extractTunnelError(output) ?? `timed out after ${spawnTimeoutMs / 1000}s`;
           try {
             if (child.pid != null) killPidWithGroup(child.pid, "SIGTERM");
             else child.kill("SIGTERM");
@@ -241,6 +260,7 @@ export class ChildTunnelRuntime {
           const url = this.spec.normalizeUrl ? this.spec.normalizeUrl(urlMatch[0]) : urlMatch[0];
           this.activeTunnelUrl = url;
           this.activeProcess = child;
+          this.lastError = null;
           this.writePid(child.pid!);
           resolve(url);
         }
@@ -254,6 +274,7 @@ export class ChildTunnelRuntime {
           resolved = true;
           clearTimeout(timeout);
           console.warn(`${this.spec.id} tunnel spawn failed: ${err.message}`);
+          this.lastError = `could not start: ${err.message}`.slice(0, 200);
           resolve(null);
         }
       });
@@ -262,6 +283,7 @@ export class ChildTunnelRuntime {
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
+          this.lastError = extractTunnelError(output) ?? `exited before producing a URL (code ${code})`;
           if (token && callerProvidedToken && retriesLeft > 0) {
             // Reserved name (caller-provided): retry the SAME name; NEVER
             // release/regenerate it (a reserved name must survive to keep a
@@ -282,6 +304,7 @@ export class ChildTunnelRuntime {
           }
         } else if (this.activeProcess === child) {
           console.warn(`${this.spec.id} tunnel process exited unexpectedly (code ${code})`);
+          this.lastError = extractTunnelError(output) ?? `tunnel process exited unexpectedly (code ${code})`;
           this.activeProcess = null;
           this.activeTunnelUrl = null;
           this.removePid();
@@ -311,5 +334,10 @@ export class ChildTunnelRuntime {
 
   getTunnelUrl(): string | null {
     return this.activeTunnelUrl;
+  }
+
+  /** Why the last create failed or the live tunnel died; null after a success. */
+  getLastError(): string | null {
+    return this.lastError;
   }
 }

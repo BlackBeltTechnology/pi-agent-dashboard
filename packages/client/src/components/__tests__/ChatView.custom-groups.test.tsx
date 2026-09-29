@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
@@ -171,3 +171,40 @@ function matchAllIndexes(source: string, re: RegExp): number[] {
   }
   return out;
 }
+
+/**
+ * Burst branch forwards the session abort handlers (test-plan #F14).
+ * See change: fix-chat-burst-tool-stop.
+ */
+describe("ChatView burst stop wiring", () => {
+  it("#F14 a running tool burst exposes a stop that calls onAbort", () => {
+    const onAbort = vi.fn();
+    const onForceKill = vi.fn();
+    const running = {
+      id: "t-run",
+      role: "toolResult",
+      content: "",
+      toolName: "bash",
+      toolCallId: "tc-run",
+      toolStatus: "running",
+      args: { command: "sleep 60" },
+      timestamp: Date.now(),
+    } as ChatMessage;
+    const { container } = render(
+      <ThemeProvider>
+        <ChatView
+          sessionId="s1"
+          state={stateWith([running])}
+          toolContext={defaultToolContext}
+          onRespondToUi={vi.fn()}
+          onAbort={onAbort}
+          onForceKill={onForceKill}
+        />
+      </ThemeProvider>,
+    );
+    const stop = container.querySelector('[data-testid="tool-burst-stop-button"]') as HTMLButtonElement;
+    expect(stop).not.toBeNull();
+    fireEvent.click(stop);
+    expect(onAbort).toHaveBeenCalledTimes(1);
+  });
+});

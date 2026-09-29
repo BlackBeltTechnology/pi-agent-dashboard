@@ -79,6 +79,17 @@ export async function evaluateProvider(
   provider: TunnelProvider,
   opts: { timeoutMs?: number; rescan?: (id: TunnelProviderId) => void } = {},
 ): Promise<ProviderReadiness> {
+  const row = await evaluateProviderState(provider, opts);
+  // An admin-approval gate (tailscale Serve/Funnel not enabled) is in-memory
+  // state from the last connect, surfaced whatever the row's state.
+  const approvalUrl = (provider as { approvalUrl?: () => string | undefined }).approvalUrl?.();
+  return approvalUrl ? { ...row, approvalUrl } : row;
+}
+
+async function evaluateProviderState(
+  provider: TunnelProvider,
+  opts: { timeoutMs?: number; rescan?: (id: TunnelProviderId) => void },
+): Promise<ProviderReadiness> {
   const id = provider.id;
   const bound = <T>(fn: () => T | Promise<T>) => withBound(fn, opts.timeoutMs);
   const empty: TunnelEndpoint[] = [];
