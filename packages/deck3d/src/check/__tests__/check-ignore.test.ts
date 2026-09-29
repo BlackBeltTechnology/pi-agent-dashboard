@@ -7,11 +7,14 @@
  * would report `fit` errors reports none once `check.ignore: ["fit"]` is set.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { glbOfSize } from "../../__tests__/helpers/mock-http.js";
+import { runCli as runStyleCli } from "../../__tests__/helpers/local-fx.js";
 import { contrastFindings, filterIgnored, fitFindings, legibilityFindings, type Measurement, type SlideRef } from "../rules.js";
 
 const hasChromium = await chromiumAvailable();
@@ -76,4 +79,59 @@ describe.skipIf(!hasChromium)("deck3d check applies per-slide check.ignore (B)",
     writeTunedDeck(ignored, ["fit"]);
     expect(checkReport(ignored).viewports[0].findings.some((f) => f.rule === "fit")).toBe(false);
   }, 180_000);
+});
+
+/**
+ * test-plan #X7 — `--style` is opt-in and precise: exactly the slides still
+ * running parse defaults, and nothing without the flag.
+ */
+describe.skipIf(!hasChromium)("X7 check --style", () => {
+  it("flags only the untouched slide, and only with the flag", () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-x7-"));
+    // bare | effects override | prop only | built-kind override only
+    writeFileSync(
+      join(dir, "deck.md"),
+      ["# Bare", "", "- one", "", "# Tuned", "", "- one", "", "# Propped", "", "- one", "", "# Kinded", "", "- one", ""].join("\n"),
+    );
+    expect(runStyleCli(["parse", "deck.md", "-o", "deck.json"], dir).status).toBe(0);
+
+    const deck = JSON.parse(readFileSync(join(dir, "deck.json"), "utf8"));
+    deck.overrides.slides = {
+      tuned: { effects: [{ id: "starfield" }] },
+      kinded: { diagram: { kind: "globe", data: { labels: ["a", "b"] } } },
+    };
+    // A REAL (placeable) prop: a dangling one is inert, so it would correctly
+    // leave the slide on defaults.
+    const glb = glbOfSize(2048);
+    mkdirSync(join(dir, ".deck3d", "props"), { recursive: true });
+    writeFileSync(join(dir, ".deck3d", "props", "vendored-robot.glb"), glb);
+    deck.overrides.props = [
+      {
+        source: "vendored",
+        id: "robot",
+        licence: "CC0-1.0",
+        author: "x",
+        sha256: createHash("sha256").update(glb).digest("hex"),
+        slide: "propped",
+        role: "ambient",
+        count: 4,
+      },
+    ];
+    writeFileSync(join(dir, "deck.json"), JSON.stringify(deck, null, 2));
+    expect(runStyleCli(["render", "deck.json", "-o", "deck.html"], dir).status).toBe(0);
+
+    const styleRun = runStyleCli(["check", "deck.html", "--style", "-o", "s.json"], dir);
+    expect(styleRun.status, styleRun.stderr).toBe(0);
+    const styled = JSON.parse(readFileSync(join(dir, "s.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<{ rule: string; slide: string }> }>;
+    };
+    const flagged = styled.viewports[0].findings.filter((f) => f.rule === "style-defaults");
+    expect(flagged.map((f) => f.slide)).toEqual(["bare"]);
+
+    runStyleCli(["check", "deck.html", "-o", "p.json"], dir);
+    const plain = JSON.parse(readFileSync(join(dir, "p.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<{ rule: string }> }>;
+    };
+    expect(plain.viewports.flatMap((v) => v.findings).filter((f) => f.rule === "style-defaults")).toEqual([]);
+  }, 240_000);
 });

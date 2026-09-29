@@ -18,6 +18,16 @@
       "default": 1,
       "minimum": 0,
       "maximum": 2
+    },
+    "parts": {
+      "type": "string",
+      "default": "diagram",
+      "enum": [
+        "diagram",
+        "title",
+        "props",
+        "all"
+      ]
     }
   },
   "conflicts": [],

@@ -1,0 +1,37 @@
+{
+  "id": "vault-glyphs",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "secure",
+      "formal"
+    ],
+    "content": [
+      "security",
+      "compliance"
+    ],
+    "topic": [
+      "trust",
+      "security"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "speed": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_geometry_shapes",
+  "licence": "MIT"
+}

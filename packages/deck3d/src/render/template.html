@@ -13,10 +13,75 @@
   }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
   canvas { display: block; }
+
+  /* Configurator (design D4). Hidden by default: a deck that is never
+     configured must render exactly as it did before the panel existed. */
+  #deck3d-hud-toggle {
+    position: fixed; right: 12px; bottom: 12px; z-index: 10;
+    width: 34px; height: 34px; border-radius: 17px;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(20,20,22,.55);
+    color: #fff; font: 16px/1 system-ui, sans-serif; cursor: pointer;
+    opacity: .35; transition: opacity .15s;
+  }
+  #deck3d-hud-toggle:hover, #deck3d-hud-toggle:focus { opacity: 1; }
+  /* `ascii` post mode: the canvas is hidden and this grid is drawn from its pixels each frame. */
+  .deck3d-ascii {
+    position: fixed; inset: 0; margin: 0; z-index: 5; overflow: hidden; pointer-events: none;
+    font-family: ui-monospace, Menlo, Consolas, monospace; white-space: pre; letter-spacing: 0;
+  }
+  #deck3d-hud {
+    display: none; position: fixed; right: 12px; bottom: 56px; z-index: 11;
+    width: 286px; max-height: 78vh; overflow: auto;
+    padding: 12px 14px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,.18); background: rgba(16,16,18,.92);
+    color: #f2f2f2; font: 12px/1.5 system-ui, sans-serif;
+  }
+  .deck3d-hud-payload { margin-top: 8px; display: grid; gap: 6px; }
+      .deck3d-hud-payload textarea { width: 100%; box-sizing: border-box; font: 11px/1.4 ui-monospace, monospace;
+        color: #e5e7eb; background: #0b0f19; border: 1px solid #2a3344; border-radius: 4px; padding: 6px; resize: vertical; }
+      #deck3d-hud-counter { font-weight: 700; margin-bottom: 8px; }
+  .deck3d-hud-scopes { display: flex; gap: 6px; margin-bottom: 10px; }
+  .deck3d-hud-scopes button {
+    flex: 1; padding: 4px 6px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.2); background: transparent; color: inherit; font: inherit;
+  }
+  .deck3d-hud-scopes button.active { background: rgba(255,255,255,.16); }
+  .deck3d-hud-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 5px 0; }
+  .deck3d-hud-row select, .deck3d-hud-row input { width: 108px; font: inherit; }
+  .deck3d-hud-row input[type=checkbox] { width: auto; }
+  .deck3d-hud-row input[type=color] { width: 108px; height: 22px; padding: 0; background: none; border: 1px solid rgba(255,255,255,.2); }
+  .deck3d-hud-block { border-top: 1px solid rgba(255,255,255,.12); padding: 6px 0; }
+  .deck3d-hud-block > summary {
+    cursor: pointer; font-weight: 600; letter-spacing: .02em; padding: 2px 0;
+    list-style: none; display: flex; align-items: center; gap: 6px;
+  }
+  .deck3d-hud-block > summary::-webkit-details-marker { display: none; }
+  .deck3d-hud-block > summary::before { content: "\25B8"; opacity: .6; transition: transform .12s; }
+  .deck3d-hud-block[open] > summary::before { transform: rotate(90deg); }
+  .deck3d-hud-effects { margin: 6px 0; }
+  .deck3d-hud-effect { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  /* One effect = one slot: kind picker, stepper over that kind, remove. */
+  .deck3d-hud-slot { margin: 5px 0; padding: 4px 0; border-top: 1px solid rgba(255,255,255,.08); }
+  .deck3d-hud-slot-head { display: grid; grid-template-columns: 76px 20px 1fr 20px 20px; align-items: center; gap: 4px; }
+  .deck3d-hud-slot-head button { padding: 1px 0; line-height: 1; }
+  .deck3d-hud-slot[data-inherited] { opacity: .55; }
+  .deck3d-hud-effects button[data-add-slot] { width: 100%; margin-top: 5px; }
+  .deck3d-hud-effects select[data-add-effect] { width: 100%; margin-top: 5px; }
+  /* Per-effect knobs, indented under the effect they belong to. */
+  .deck3d-hud-fxparams { margin: 0 0 7px 18px; padding-left: 7px; border-left: 1px solid rgba(255,255,255,.14); }
+  .deck3d-hud-fxparam { display: grid; grid-template-columns: 62px 1fr 30px; align-items: center; gap: 5px; margin: 2px 0; font-size: 11px; opacity: .85; }
+  .deck3d-hud-fxparam span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .deck3d-hud-fxparam input[type=range] { width: 100%; }
+  .deck3d-hud-fxparam em { font-style: normal; text-align: right; opacity: .65; font-variant-numeric: tabular-nums; }
+  .deck3d-hud-note { margin: 8px 0; opacity: .7; font-size: 11px; }
+  #deck3d-hud-export { width: 100%; padding: 6px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.1); color: inherit; font: inherit; }
 </style>
 </head>
 <body>
-<script>window.__DECK=__DECK__;window.__DECK_FONT="__FONT__";window.__DECK_PROPS=__DECK_PROPS__;</script>
+<button id="deck3d-hud-toggle" type="button" aria-label="Configurator">⚙</button>
+<aside id="deck3d-hud" aria-label="Deck configurator"></aside>
+<script>window.__DECK=__DECK__;window.__DECK_FONT="__FONT__";window.__DECK_PROPS=__DECK_PROPS__;window.__DECK_LOCAL_FX=__DECK_LOCAL_FX__;</script>
 <script>__RUNTIME__</script>
 </body>
 </html>

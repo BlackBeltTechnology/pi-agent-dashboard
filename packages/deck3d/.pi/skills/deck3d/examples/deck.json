@@ -3,7 +3,7 @@
     "engine": "0.1.0",
     "mermaid": "11.17.2",
     "source": "fixture.md",
-    "derivedHash": "40f1337aff8abb966b64e0dadced4308b34cd3062e14418cce882e97d2639680"
+    "derivedHash": "fa060f4b7cc10bb8a84d6698df96f76ce85afdef9fd2ce44466a913a5e1b3e71"
   },
   "defaults": {
     "mode": "dark",
@@ -21,6 +21,7 @@
     "depthRelief": 0.7,
     "quality": "high",
     "extrudeDepth": 0.18,
+    "titleEdge": "none",
     "camera": {
       "distance": 9
     },

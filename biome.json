@@ -19,6 +19,8 @@
       "!**/*.css",
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",
+      "!**/deck3d/fixtures/**/deck.html",
+      "!presentations/**/deck.html",
       "!packages/pi-forms-bpmn/.pi/skills/**/assets/**",
       "!site/vendor/**",
       "!packages/browser-plugin/src/server/relay/vendor/playwright-core/**",

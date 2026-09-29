@@ -1,0 +1,61 @@
+{
+  "id": "points-on-geometry",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "technical",
+      "glow"
+    ],
+    "content": [
+      "wireframe",
+      "points",
+      "hologram"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "geometry": {
+      "type": "string",
+      "default": "sphere",
+      "enum": [
+        "sphere",
+        "box",
+        "knot"
+      ]
+    },
+    "size": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.3,
+      "maximum": 3
+    },
+    "pulse": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "x": {
+      "type": "number",
+      "default": 4,
+      "minimum": -12,
+      "maximum": 12
+    },
+    "spin": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_custom_attributes_points2",
+  "licence": "MIT"
+}

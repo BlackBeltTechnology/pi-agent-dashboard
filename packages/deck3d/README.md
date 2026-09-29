@@ -24,17 +24,44 @@ Deps: `three@0.160.0`, `mermaid@11.17.2` (exact pin, harvest), `opentype.js`,
 ```bash
 deck3d parse   <deck.md> [-o deck.json] [--fresh]   # markdown (+ mermaid) → IR
 deck3d validate <deck.json>                          # schema + derived-edit checks
-deck3d render  <deck.json> -o deck.html              # IR → self-contained HTML
+deck3d render  <deck.json> -o deck.html [--embed-video] # IR → self-contained HTML
 deck3d build   <deck.md> -o deck.html                # parse → render; writes .json beside
+deck3d serve   <deck.md> [--port n] [--check]        # watch + rebuild + live reload; panel saves to disk
 deck3d check   <deck.html> [--viewport WxH[,WxH]] [--slide n] [--strict] [-o report.json]
 deck3d snapshot <deck.html> [--slide n] [-o png]     # one slide → PNG
-deck3d fx      list [--kind k] [--tag t] [--json]    # effect catalogue
-deck3d props   search <query>                        # candidate models
+deck3d check   <deck.html> [--style]                 # + warn on slides still on parse defaults
+deck3d fx      list [--kind k] [--tag t] [--topic p] # effect catalogue
+deck3d fx      preview <id|local:name> [--palette p] # one effect → PNG
+deck3d fx      scaffold <name> [--kind k] [--for id] # write fx/<name>.{js,meta.json}
+deck3d fx      hash <name>                           # sha256 of fx/<name>.js
+deck3d fx      promote <name> --source u --licence l # local effect → corpus
+deck3d props   search <query> [--role ambient]       # candidate models
 deck3d props   fetch <source> <id>                    # cache + hash-pin, prints override entry
+deck3d props   generate --prompt <text> --name <n>   # text → image → GLB
+deck3d overrides apply <deck.json> <file>            # merge an overrides-grammar file
 ```
 
 Exit codes: `0` ok, `1` failure (one-line stderr reason), `2` usage.
 Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/viewport.
+
+## Serve
+
+`deck3d serve <deck.md> [--port n] [--check]` starts authoring server.
+
+- Binds `127.0.0.1` only (exposes filesystem write endpoints). `--port` omitted ⇒ OS assigns free port.
+- Serves media sitting beside the deck (`video/`, `.mp4/.webm/.png/.jpg/.webp`), confined to the deck directory. A video layer needs this: a `file://` clip is cross-origin, taints the canvas, and cannot be uploaded as a WebGL texture.
+- Watches `deck.md`, `fx/`, `deck.json`. Rebuilds on change (debounced, default 120 ms) — including an out-of-band `deck3d overrides apply` or hand edit of `deck.json`.
+- Re-pins local effect `sha256` in `deck.json` on rebuild; editing `fx/*.js` live never trips render hash check.
+- Broken edit keeps serving last good deck; reports error overlay in browser; recovers on next valid edit.
+- Injects SSE reload client (`/__events`) into served copy only; `build` output stays offline and self-contained.
+- Live reload preserves current slide via `location.hash` and staged configurator values via `localStorage`.
+- Title contour: `titleEdge: "contrast"` (deck default or per slide; configurator Camera & labels) paints the extruded glyph SIDE walls in the palette text colour, so each character keeps a readable outline instead of merging into one lit silhouette. Unlit on purpose — the walls face sideways, where a lit material goes black — and held under the bloom threshold, so the contour does not halo.
+- Water floor: `overrides.deck.floor: "water"` (or the configurator's Lighting & FX → floor) swaps the mirror for an animated ocean surface tinted from the palette; `mirrorFloor: false` hides either.
+- Stylistic backgrounds (explicit presets, never auto-routed): `clipped-solids`, `extruded-shapes` (`shape` or an SVG `svgPath`), `scatter`, `tessellate`, `curve-flow`, `sprites`, `volume-cloud`, `volume-perlin`, `billboards`, `points-on-geometry`, `shader-particles`, `dynamic-instances`; `constellation` gained `nodeShape`. `deck3d fx list --kind background` shows them all.
+- Post-processing: list any `post` card in a slide's `effects[]` and it enables a real composer pass for that slide only — `bloom`, `selective-bloom` (`parts: diagram|title|props|all`), `film`, `vignette`, `smaa`, `sao`, `depth-of-field` (`focus: 0` = auto), `chromatic-aberration`, `god-rays`, `pixelate`, `outline`, `sobel`, `dot-screen`, `ascii`. Pass order is canonical (not list order); params surface in the configurator's per-effect block.
+- Configurator (`C`) adds **Save overrides.json** (POST `/__overrides`) and **Apply to deck.json** (POST `/__apply`, merges via `overrides apply` grammar, then rebuilds). Unserved decks fall back to panel copy/download (avoids silent drops in download-restricted iframes).
+- Write endpoints IR-validate payload before write. Invalid payload returns 400 and leaves target file untouched. Write targets confined to deck directory (path traversal refused). 1 MB body cap.
+- `--check` runs fit check out of band after rebuild; findings stream over SSE as `findings` event; reload never waits for check.
 
 ## Markdown grammar
 
@@ -53,17 +80,26 @@ Default check viewports: `1920x1080,1280x720`. Default `check` timeout 120 s/vie
 
 - `slides[]` and below are DERIVED (regenerated every parse).
 - Write only `overrides`: `deck`, `slides`, `nodes`, `edges`, `effects`, `props`.
-- Objects deep-merge. Arrays replace.
+- Objects deep-merge. Arrays replace. `diagram.data` replaces as a whole object.
 - Suggest keys spell the overrides grammar: `overrides.slides["arch"].diagram.scale`.
+- The deck's `⚙` configurator (`C` key) exports an `overrides.json` in this
+  grammar; merge it with `deck3d overrides apply`.
+- Its **Effects** block adds as well as removes: the `add effect…` picker lists
+  the whole corpus plus the deck's `local:` cards, grouped by kind. Either way
+  the current slide is rebuilt live and `window.__DECK` is untouched.
 
 ## Tune loop
 
+Interactive authoring: `deck3d serve talk.md [--check]` watches sources, reloads browser in place, and lets configurator save/apply overrides directly. Headless/scripted loop:
+
 1. `deck3d parse talk.md`
 2. `deck3d validate talk.json`
-3. `deck3d build talk.md -o talk.html` (runs `check`)
-4. Fix only the suggested override key. Re-run 3.
-5. `deck3d snapshot talk.html --slide 5 -o s5.png`
-6. Repeat.
+3. `deck3d build talk.md -o talk.html` (runs `check`, prints `style: n/N slides styled`)
+4. Style: `deck3d check talk.html --style`, then pick an effect / built diagram /
+   props per flagged slide.
+5. Fix only the suggested override key. Re-run 3.
+6. `deck3d snapshot talk.html --slide 5 -o s5.png`
+7. Repeat.
 
 Full knobs: `.pi/skills/deck3d/reference/ir-fields.md`.
 Effect catalogue: `.pi/skills/deck3d/reference/effects.md`.
@@ -72,10 +108,45 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
 ## Effects
 
 - `parse` assigns deterministic defaults: title→`swarm`, flowchart→`tokens`,
-  sequence→`rings`, security→`glyph-rain`, data→`data-columns`.
+  sequence→`rings`, security→`glyph-rain`, data→`data-columns`, then routes the
+  remainder by `tags.topic`. `autoStyle: false` restores the v1 fallback.
 - Replace: `overrides.slides["<id>"].effects = [{ id, params? }]`.
+- Per-deck effects live in `fx/<name>.js` + `.meta.json` beside `deck.md`, are
+  referenced as `{ id: "local:<name>", sha256 }`, and are embedded at render.
+  Inside one, `Math.random` is the deck's seeded stream and `window`/`fetch`/
+  `setTimeout`/`Date` are `undefined`.
+- `video-screen` plays a looping clip on a framed screen in the scene:
+  `{ "id": "video-screen", "params": { "src": "video/demo.mp4", "width": 7.5, "x": 5 } }`.
+  The clip must be **same-origin**: `deck3d serve` serves it from beside the
+  deck, or `render --embed-video` inlines clips as `data:` URLs for one portable
+  file (~33% size cost). A bare `file://` deck next to a `video/` folder will not
+  render the clip, because that source is cross-origin and taints the canvas.
+  Playback freezes during transitions and runs only while the slide is settled,
+  so `check`/`snapshot` stay deterministic.
 - Conflicts fail `render`. Mode-incompatible effects skip + warn.
 - Quality budget: `low` 6, `medium` 12, `high` 20.
+- Palettes: `blackbelt zenit dapp midnight ember arctic forest mono neon custom`.
+- Built topologies (no mermaid needed): `brain loop swarm bars funnel
+  timeline-rail globe orbit-cluster stack`, driven by `diagram.data`.
+
+## Backgrounds never cover text
+
+Backgrounds and every `local:` effect render in a depth-isolated pass behind the
+slide, so an effect cannot occlude a title, card or diagram whatever its
+geometry reaches. A module that attaches geometry AFTER creation escapes that
+pass; `check` reports it as `fx-content-layer`.
+
+## Placement
+
+- `defaults.rail` — how the slides are strung in space: `line` (straight dolly,
+  default), `orbit` (ring, each slide turned to face its camera), `tunnel`
+  (recedes along -Z), `helix` (ascending orbit), `grid` (rows + columns).
+  Deck-level; `defaults.spacing` (default 40) sets the gap and scales culling.
+- `layout` — composition within a slide: `split` (title + card left, diagram
+  right, default) or `split-reverse` (mirrored). Deck-wide or per slide.
+- `cardOffset: {x, y}` and `diagram.offset`/`diagram.scale` — per-slide nudges
+  applied after the preset places things.
+- All of it is live in the configurator (`C`) under the **Layout** block.
 
 ## Props
 
@@ -83,6 +154,9 @@ Playbook: `.pi/skills/deck3d/SKILL.md`.
   (`POLY_PIZZA_KEY`). Offline/unreachable ⇒ vendored-only + notice.
 - `deck3d props fetch <source> <id>` — writes `.deck3d/props/<source>-<id>.glb`,
   pins sha256, prints the `overrides.props[]` entry.
+- `--role ambient` filters to ≤ 2 000-triangle models and prints a placement entry.
+- `deck3d props generate --prompt "<text>" --name <n>` — text → image
+  (`DECK3D_T2I_URL`) → GLB. Optional python path; authoring-time network only.
 - Roles: `hero`, `illustration`, `ambient`, `node:<id>`.
 - Cap: `.glb` ≤ 8 MiB (inclusive). External `.gltf` URIs rejected.
 

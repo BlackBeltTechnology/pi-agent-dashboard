@@ -1,0 +1,35 @@
+{
+  "id": "ascii",
+  "kind": "post",
+  "tags": {
+    "mood": [
+      "retro",
+      "playful"
+    ],
+    "content": [
+      "stylised",
+      "terminal"
+    ]
+  },
+  "cost": 2,
+  "modes": "both",
+  "params": {
+    "size": {
+      "type": "number",
+      "default": 9,
+      "minimum": 4,
+      "maximum": 24
+    },
+    "invert": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "conflicts": [
+    "sobel",
+    "pixelate",
+    "dot-screen"
+  ],
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
+}

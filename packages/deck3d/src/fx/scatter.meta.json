@@ -1,0 +1,49 @@
+{
+  "id": "scatter",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "organic",
+      "dense"
+    ],
+    "content": [
+      "growth",
+      "surface",
+      "field"
+    ]
+  },
+  "cost": 3,
+  "modes": "both",
+  "params": {
+    "density": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
+    },
+    "surface": {
+      "type": "string",
+      "default": "knot",
+      "enum": [
+        "knot",
+        "sphere",
+        "plane"
+      ]
+    },
+    "size": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.3,
+      "maximum": 3
+    },
+    "spin": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_instancing_scatter",
+  "licence": "MIT"
+}

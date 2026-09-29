@@ -1,0 +1,58 @@
+{
+  "id": "volume-cloud",
+  "kind": "background",
+  "tags": {
+    "mood": [
+      "atmospheric",
+      "soft"
+    ],
+    "content": [
+      "cloud",
+      "fog",
+      "nebula"
+    ]
+  },
+  "cost": 4,
+  "modes": "both",
+  "params": {
+    "threshold": {
+      "type": "number",
+      "default": 0.25,
+      "minimum": 0,
+      "maximum": 1
+    },
+    "opacity": {
+      "type": "number",
+      "default": 0.12,
+      "minimum": 0.02,
+      "maximum": 1
+    },
+    "range": {
+      "type": "number",
+      "default": 0.1,
+      "minimum": 0.01,
+      "maximum": 0.5
+    },
+    "scale": {
+      "type": "number",
+      "default": 14,
+      "minimum": 4,
+      "maximum": 30
+    },
+    "drift": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
+    },
+    "x": {
+      "type": "number",
+      "default": -4,
+      "minimum": -12,
+      "maximum": 12
+    }
+  },
+  "conflicts": [],
+  "source": "https://threejs.org/examples/#webgl_volume_cloud",
+  "licence": "MIT"
+}

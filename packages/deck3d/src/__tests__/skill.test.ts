@@ -28,3 +28,25 @@ describe("skill ships with the CLI (E45)", () => {
     }
   });
 });
+
+/**
+ * test-plan #E44 — the Style pass is what turns a `check: clean` deck into a
+ * deck that was actually designed, so the skill must teach it as a numbered
+ * step, not a footnote.
+ */
+describe("E44 SKILL.md teaches the Style pass", () => {
+  it("has a numbered loop step titled Style", () => {
+    expect(skill).toMatch(/^\d+\.\s+\*\*Style\*\*/m);
+  });
+
+  it.each([
+    "check --style",
+    "fx scaffold",
+    "props search --role ambient",
+    "overrides apply",
+    "markdown inline overrides win",
+    "Math.random",
+  ])("mentions %s", (token) => {
+    expect(skill).toContain(token);
+  });
+});

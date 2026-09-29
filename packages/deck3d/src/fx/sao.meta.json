@@ -1,5 +1,5 @@
 {
-  "id": "n8ao",
+  "id": "sao",
   "kind": "post",
   "tags": {
     "mood": [
@@ -13,14 +13,20 @@
   "cost": 2,
   "modes": "both",
   "params": {
-    "radius": {
+    "intensity": {
       "type": "number",
       "default": 1,
       "minimum": 0,
       "maximum": 4
+    },
+    "radius": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0.2,
+      "maximum": 3
     }
   },
   "conflicts": [],
-  "source": "https://github.com/N8python/n8ao",
-  "licence": "CC0-1.0"
+  "source": "https://github.com/mrdoob/three.js",
+  "licence": "MIT"
 }

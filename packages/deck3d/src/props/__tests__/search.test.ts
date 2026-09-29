@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type MockServer, startMockServer } from "../../__tests__/helpers/mock-http.js";
-import { parsePolyResponse, searchPolyPizza, searchProps, vendoredCandidates } from "../search.js";
+import { validIR } from "../../ir/__tests__/fixtures.js";
+import { validate } from "../../ir/validate.js";
+import { ambientCandidates, ambientTemplate, parsePolyResponse, type PropCandidate, searchPolyPizza, searchProps, vendoredCandidates } from "../search.js";
 
 let server: MockServer;
 beforeAll(async () => {
@@ -60,5 +62,38 @@ describe("Poly Pizza source (7b.3)", () => {
   it("skips the online source without a key (X7)", async () => {
     const r = await searchPolyPizza("robot", { key: "" });
     expect(r.notice).toContain("no POLY_PIZZA_KEY");
+  });
+});
+
+/**
+ * test-plan #E39 — `--role ambient` filters by triangle budget (inclusive) and
+ * prints a placement template, because an ambient entry needs `count`/`anim`/
+ * `size` that are easy to get wrong by hand.
+ */
+describe("E39 ambient prop filter", () => {
+  const candidate = (id: string, tris: number): PropCandidate => ({
+    source: "vendored",
+    id,
+    name: id,
+    tags: [],
+    tris,
+    bytes: 100,
+    licence: "CC0-1.0",
+    author: "x",
+  });
+
+  it("keeps candidates at or under the cap and drops the one over it", () => {
+    const rows = ambientCandidates([candidate("a", 1999), candidate("b", 2000), candidate("c", 2001)]);
+    expect(rows.map((c) => c.id)).toEqual(["a", "b"]);
+  });
+
+  it("emits an entry that validates once the sha256 is filled in", () => {
+    const template = ambientTemplate(candidate("a", 1999));
+    expect(template).toMatchObject({ role: "ambient", count: 12, anim: "float", restyle: "palette", size: 0.6 });
+
+    const ir = validIR();
+    ir.overrides.props = [{ ...template, sha256: "0".repeat(64), slide: "intro" } as never];
+    const result = validate(ir);
+    expect(result.errors).toEqual([]);
   });
 });

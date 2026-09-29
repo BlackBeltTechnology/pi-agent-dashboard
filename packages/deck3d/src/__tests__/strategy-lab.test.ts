@@ -26,7 +26,7 @@ describe.skipIf(!hasChromium)("strategy-lab parity (9.1)", () => {
     expect(ir.slides[5].diagram.kind).toBe("sequence");
 
     const html = renderDeck(ir, { runtime: await ensureRuntime() });
-    expect(Buffer.byteLength(html)).toBeLessThanOrEqual(2_621_440); // P2 budget
+    expect(Buffer.byteLength(html)).toBeLessThanOrEqual(2_883_584); // P2 budget (raised with Section 25-28, see p2-build-size)
     const dir = mkdtempSync(join(tmpdir(), "deck3d-parity-"));
     const file = join(dir, "strategy-lab.html");
     writeFileSync(file, html);
