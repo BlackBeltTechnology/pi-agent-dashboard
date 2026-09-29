@@ -30,5 +30,5 @@
 
 ## 5. Manual QA
 
-- [ ] 5.1 Light + dark, all four themes: select a card with OpenSpec + Git sections; verify accent text legibility and that `#tag` chips are out of scope (tracked separately).
-- [ ] 5.2 `prefers-reduced-motion: reduce` → rim/glow static but visible.
+- [x] 5.1 Light + dark, all four themes: select a card with OpenSpec + Git sections; verify accent text legibility and that `#tag` chips are out of scope (tracked separately).
+- [x] 5.2 `prefers-reduced-motion: reduce` → rim/glow static but visible.
