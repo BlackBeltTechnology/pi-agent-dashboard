@@ -62,7 +62,7 @@
 
 - [x] 7.1 Write `tests/e2e/flow-attach-before-run.spec.ts` (exemplar `tests/e2e/flow-roundtrip.spec.ts`, harness port from `.pi-test-harness.json`). Docker harness session, `e2e:synthetic` · subcard Open flow… → pick → idle Run → submit · before Run: "not started" + 2 graph nodes + 2 pending cards; after: exactly one flow panel element, "not started" gone, both cards complete, then summary (test-plan #F15)
 - [x] 7.2 Add a case to `tests/e2e/flow-attach-before-run.spec.ts` (exemplar `tests/e2e/flow-roundtrip.spec.ts`): start `e2e:synthetic` via subcard Run Flow… · while running · Open flow… has `disabled`, enabled again after completion (test-plan #F16)
-- [ ] 7.3 Manual check: open the idle `e2e:synthetic` panel on desktop and mobile widths and confirm it clearly reads as "not started" and empty, not mistaken for a stuck run (test-plan: manual-only, #F17)
+- [x] 7.3 Manual check: open the idle `e2e:synthetic` panel on desktop and mobile widths and confirm it clearly reads as "not started" and empty, not mistaken for a stuck run (test-plan: manual-only, #F17)
 
 ## 8. Docs + quality gate
 

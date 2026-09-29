@@ -65,7 +65,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `file-mention-resolve.spec.ts` | L3 server-side-file-mention-resolution (S19). → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted… → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec… → see `fixtures.ts.AGENTS.md` |
-| `flow-attach-before-run.spec.ts` | L3 (change: attach-flow-before-run, F15/F16). Open flow… → idle panel → Run → live → summary. |
+| `flow-attach-before-run.spec.ts` | L3 attach-flow-before-run F15/F16. → see `flow-attach-before-run.spec.ts.AGENTS.md` |
 | `flow-live-no-double-render.spec.ts` | L3 (change: render-inline-reasoning-and-custom-entries, F1). → see `flow-live-no-double-render.spec.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows… → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1… → see `folder-action-banner.spec.ts.AGENTS.md` |
@@ -165,7 +165,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `session-context-injection.spec.ts` | L3 context injection via `[[faux:echo-system-context]]`. → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-ended-orphan-heal.spec.ts` | L3 #F6/#F7: a session killed while holding a long-running… → see `session-ended-orphan-heal.spec.ts.AGENTS.md` |
 | `session-heap-settings.spec.ts` | L3 heap settings copy, save round-trip, coupling warning… → see `session-heap-settings.spec.ts.AGENTS.md` |
-| `session-history-load-state.spec.ts` | Playwright spec. History-load states: no empty flash on cold select (F11), card arc during multi-batch replay… → see `session-history-load-state.spec.ts.AGENTS.md` |
+| `session-history-load-state.spec.ts` | Playwright spec. History-load states (F11+). → see `session-history-load-state.spec.ts.AGENTS.md` |
 | `session-list-group-by.spec.ts` | L3 Group by is server state: folder-menu radio → `group_by_prefs_updated` → chip; persists across reload… → see `session-list-group-by.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears… → see `session-spawn.spec.ts.AGENTS.md` |
@@ -195,7 +195,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `tail-only-splice-anchor.spec.ts` | L3 gate for D7a (F9, F10, F18). Asserts the anchor BY THE… → see `tail-only-splice-anchor.spec.ts.AGENTS.md` |
 | `tail-only-trigger-suppression.spec.ts` | L3 for D7's suppression model (F5, F6, F8, F20). Asserts… → see `tail-only-trigger-suppression.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard… → see `table-copy.spec.ts.AGENTS.md` |
-| `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`: two reloads without touching TUI → one `completed` pill each, same pid,… → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
+| `terminal-reload-inprocess.spec.ts` | L3 terminal-hosted (tmux) `/reload`. → see `terminal-reload-inprocess.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
 | `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, clicks session card… → see `terminal.spec.ts.AGENTS.md` |
 | `tmux-session-shutdown.spec.ts` | L3 gate for the tmux shutdown leak (test-plan #T2): spawn… → see `tmux-session-shutdown.spec.ts.AGENTS.md` |
