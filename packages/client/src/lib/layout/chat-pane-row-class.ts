@@ -51,6 +51,21 @@ export const CHAT_COMPOSER_BOUND = 72;
 export const CHAT_COMPOSER_WEIGHT = 1;
 
 /**
+ * Declared bound/floor/weight for the sticky header slot (`content-header-sticky`).
+ *
+ * The wrapper renders for every selected session while its contribution may be
+ * empty (no flow attached, or a collapsed flow panel), so the bound is 0 — no
+ * pixel floor to pad an empty slot into a dead band. Its own `overflow-y-auto`
+ * makes the flex automatic minimum 0, so `min-height: 0` is the honest lower
+ * bound. Weight 2 makes its large content base height the primary deficit donor.
+ * Floor 1 is nominal (floor > bound, the composer's idiom; the base height is
+ * content-driven). See change: consolidate-flow-agent-cards (D6).
+ */
+export const CHAT_HEADER_BOUND = 0;
+export const CHAT_HEADER_FLOOR = 1;
+export const CHAT_HEADER_WEIGHT = 2;
+
+/**
  * Single source of truth for row classifications in `split-chat-pane`.
  * Covers every row rendered by `App.tsx` into the chat pane, including conditionals.
  */
@@ -70,12 +85,15 @@ export const CHAT_PANE_ROW_TABLE: Record<string, ChatPaneRowSpec> = {
     bound: CHAT_COMPOSER_BOUND,
     weight: CHAT_COMPOSER_WEIGHT,
   },
+  "content-header-sticky": {
+    rowClass: "shrinkable",
+    // Content-driven base height; bound 0 so an empty slot takes no pane height.
+    floor: CHAT_HEADER_FLOOR,
+    bound: CHAT_HEADER_BOUND,
+    weight: CHAT_HEADER_WEIGHT,
+  },
 
   // Fixed rows (hold content height, shrink-0)
-  "content-header-sticky": {
-    rowClass: "fixed",
-    bound: "content",
-  },
   "error-boundary-fallback": {
     rowClass: "fixed",
     bound: "content",

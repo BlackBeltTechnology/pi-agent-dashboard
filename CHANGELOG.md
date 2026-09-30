@@ -20,6 +20,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   to verify claims against the repository, label unverifiable ones
   `unverified`, and check every listed candidate requirement.
 
+- **`review-code` sweeps named defect classes.** The published
+  `@blackbelt-technology/pi-dashboard-eng-disciplines` `review-code` rubric
+  names eight defect classes (spec/task conformance, canonicalize before check,
+  degenerate input, stale state, error-path cleanup, shared-helper blast radius,
+  concurrency, test fidelity) with sweep guidance, a four-step fix protocol
+  (reproducing test, smallest fix, sibling sweep, re-read), and a per-class
+  sweep summary in Verification.
+
 - **Session list Group by.** Each folder's actions menu gains a "Group sessions
   by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
   · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use

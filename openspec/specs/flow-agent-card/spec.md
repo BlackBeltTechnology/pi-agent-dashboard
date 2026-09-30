@@ -2,22 +2,41 @@
 
 ## Purpose
 TBD - created by archiving change open-code-handler-from-flow-card. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Code nodes expose a handler-source open affordance
 
-A `FlowAgentCard` SHALL render a code-source button (`mdiCodeBraces`) in the
-card's bottom-right control row when its node kind is `code` or `code-decision`
-AND it has a resolved `codeTarget`. The button SHALL open the shell `ui:dialog`
-primitive. The dialog body SHALL fetch the
-handler file via `GET /api/pi-resource-file?path=<codeTarget>` and render the
-returned content. Because the handler is TypeScript (not markdown), the content
-SHALL be wrapped in a fenced `ts` code block before being passed to the
-`ui:markdown-content` primitive. The fetch SHALL reuse the same loading / loaded
-/ error state machine the card uses for the agent `.md` source.
+A `FlowAgentCard` SHALL render a code-source button (`mdiCodeBraces`, title
+"Open handler in editor") in the card's bottom-right control row when its node
+kind is `code` or `code-decision` AND it has a resolved `codeTarget`. Clicking it
+SHALL open that handler file in the HOST editor pane, by navigating to the in-app
+route `/session/:id/editor?file=<path>` through the shared `useOpenFileInEditor`
+hook (wouter navigation, the same deep link the host's own file links and the
+`goal-plugin`/flows YAML button use). The card SHALL NOT open a shell `ui:dialog`
+for the handler and SHALL NOT fetch the handler's content: no `Dialog`, no fenced
+`ts` rendering, and no `/api/pi-resource-file` request SHALL be issued by the card.
+
+The affordance SHALL be available only where an editor can be targeted: without a
+session id the hook yields no opener, so the code-source button SHALL NOT render.
 
 The existing agent `.md` doc-open affordance (gated on `sourcePath`) SHALL be
-unchanged; the code-source affordance is additive and SHALL render only for
-code-kind cards.
+unchanged in behaviour and SHALL be additive and independent of the code-source
+button: both use the same session-scoped editor route, and a code-kind card
+carrying both a `sourcePath` and a `codeTarget` SHALL render both buttons, each
+opening its own file. The code-source affordance SHALL render only for code-kind
+nodes.
+
+**Name note (why two scenarios below still say "dialog").** This requirement was
+authored by `open-code-handler-from-flow-card`, whose implementation opened a
+`Dialog` and fetched `/api/pi-resource-file?path=<codeTarget>`. That was
+superseded by `attach-flow-before-run`, whose design states that the file buttons
+(flow YAML, agent `.md`, handler) open the file in the host's built-in editor via
+the existing `/session/:id/editor?file=<path>` route, replacing the source
+dialogs. This MODIFIED block is the reconciliation of that drift. A MODIFIED
+block replaces the whole requirement and MUST NOT drop a scenario name the
+current spec still has, so the two dialog-named scenarios are retained verbatim
+in name and restated in body to the shipped editor behaviour.
 
 #### Scenario: Code icon shows for a code node with a target
 
@@ -25,6 +44,7 @@ code-kind cards.
   `code-decision` and `codeTarget` is set
 - **THEN** the card SHALL render a code-source (`mdiCodeBraces`) button in its
   control row
+- **AND** that button's title SHALL be "Open handler in editor"
 
 #### Scenario: No code icon for agent nodes
 
@@ -40,23 +60,42 @@ code-kind cards.
 #### Scenario: Clicking the code icon opens the handler in a dialog
 
 - **WHEN** the user clicks the code-source button on a code-kind card
-- **THEN** a `Dialog` SHALL open and the card SHALL fetch
-  `/api/pi-resource-file?path=<codeTarget>`
-- **AND** on success the handler content SHALL be rendered as a fenced `ts`
-  code block via `ui:markdown-content`
+- **THEN** the app SHALL navigate to
+  `/session/<sessionId>/editor?file=<codeTarget>`
+- **AND** the handler SHALL render in the host editor pane
+- **AND** no `Dialog` SHALL open
+- **AND** the card SHALL NOT fetch the handler's content
 
 #### Scenario: Fetch error surfaces in the dialog
 
-- **WHEN** the handler fetch fails or returns an error response
-- **THEN** the dialog SHALL show the error message instead of source content
+- **WHEN** the handler path cannot be read by the host editor
+- **THEN** the error SHALL surface in the host editor pane, which owns the
+  read and its failure state
+- **AND** the card SHALL NOT carry a loading / loaded / error state for the
+  handler, because it performs no fetch of its own
+
+#### Scenario: Code icon is hidden without a session id
+
+- **WHEN** a code-kind card with a `codeTarget` renders without a session id
+- **THEN** the card SHALL NOT render the code-source button, because no editor can
+  be targeted
+
+#### Scenario: Agent doc button stays additive
+
+- **WHEN** a code-kind card carries both a `sourcePath` and a `codeTarget`
+- **THEN** the card SHALL render both the agent doc button and the code-source
+  button
+- **AND** each button SHALL open its own file in the host editor via the same
+  `/session/<sessionId>/editor?file=<path>` route
 
 #### Scenario: Absolute target passed verbatim
 
-- **WHEN** the card fetches a code node's handler source
-- **THEN** the card SHALL pass `codeTarget` verbatim to
-  `/api/pi-resource-file?path=<codeTarget>` (the upstream `flow_agent_started`
-  event emits an absolute path, which `path.resolve` leaves unchanged and the
-  server allow-list `<cwd>/.pi/...` accepts)
+- **WHEN** the card opens a code node's handler
+- **THEN** the card SHALL pass `codeTarget` verbatim as the route's `file` query
+  parameter (`useOpenFileInEditor` percent-encodes it and nothing else)
+- **AND** the path SHALL NOT be resolved, rewritten, or trimmed by the card (the
+  upstream `flow_agent_started` event emits an absolute path; a relative path is
+  left as emitted, and interpreting it is the editor route's job)
 
 ### Requirement: Agent card displays per-agent cost
 
@@ -105,4 +144,3 @@ event omits it.
 
 - **WHEN** a completed agent card renders a `cost` value at or above `1`
 - **THEN** the displayed amount SHALL show two decimal places (e.g. `$1.20`)
-

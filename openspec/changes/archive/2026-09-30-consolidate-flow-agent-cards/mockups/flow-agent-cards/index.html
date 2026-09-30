@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flow agent cards — consolidation directions</title>
+<style>
+  /* ── tokens: mirror packages/client/src/index.css (studio dark + light) ── */
+  :root, [data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent:#3b82f6; --accent-text:#60a5fa; --accent-green:#22c55e; --accent-yellow:#eab308;
+    --accent-red:#ef4444; --accent-purple:#a855f7;
+    --tint-cyan-bg:rgba(34,211,238,.10); --tint-cyan-fg:#67e8f9;
+    --tint-amber-bg:rgba(251,191,36,.10); --tint-amber-fg:#fcd34d;
+    --card-bg:color-mix(in srgb, var(--bg-secondary), var(--bg-tertiary));
+    /* graph-node chrome: the shipped FlowGraph hardcodes these; the mockup
+       promotes them to tokens so theme switching covers the strip too. */
+    --node-bg:#181818; --node-fg:#e5e5e5; --node-glyph:#22d3ee; --node-border:#000000;
+    --on-accent:#ffffff;
+    --ok:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  }
+  [data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaaaaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent:#2563eb; --accent-text:#1d4ed8; --accent-green:#16a34a; --accent-yellow:#a16207;
+    --accent-red:#dc2626; --accent-purple:#9333ea;
+    --tint-cyan-bg:rgba(8,145,178,.12); --tint-cyan-fg:#0e7490;
+    --tint-amber-bg:rgba(180,83,9,.12); --tint-amber-fg:#b45309;
+    --card-bg:color-mix(in srgb, var(--bg-secondary), var(--bg-tertiary));
+    --node-bg:#1f2937; --node-fg:#e5e5e5; --node-glyph:#22d3ee; --node-border:#111827;
+    --on-accent:#ffffff;
+    --ok:#15803d; --warn:#b45309; --bad:#b91c1c;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-secondary);
+    font:13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding:20px 24px 72px; }
+  h1 { color:var(--text-primary); font-size:18px; margin:0 0 6px; }
+  h2 { color:var(--text-primary); font-size:15px; margin:0 0 2px; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  h2 .tag { font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+    padding:2px 6px; border-radius:4px; border:1px solid var(--border-secondary); color:var(--text-tertiary); }
+  h2 .tag.pick { color:var(--accent-text); border-color:var(--accent); }
+  h3 { color:var(--text-primary); font-size:12px; margin:14px 0 4px; }
+  p { margin:0 0 10px; max-width:1080px; color:var(--text-tertiary); font-size:12px; }
+  ul { margin:4px 0 10px; padding-left:18px; color:var(--text-tertiary); font-size:12px; max-width:1080px; }
+  li { margin:2px 0; }
+  code, .mono { font-family:'SF Mono', Menlo, Monaco, Consolas, monospace; }
+  code { font-size:11px; color:var(--text-primary); background:var(--bg-surface); padding:0 4px; border-radius:3px; }
+  a { color:var(--accent-text); }
+
+  .toolbar { position:sticky; top:0; z-index:20; background:var(--bg-primary);
+    padding:8px 0 10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+    border-bottom:1px solid var(--border-primary); margin-bottom:16px; }
+  .toolbar button { font:inherit; font-size:11px; padding:4px 10px; border-radius:6px;
+    border:1px solid var(--border-secondary); background:var(--bg-surface);
+    color:var(--text-primary); cursor:pointer; }
+  .toolbar button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent-text); }
+  .toolbar .spacer { flex:1; }
+  .toolbar .hint { font-size:11px; color:var(--text-tertiary); }
+
+  section { border-top:1px solid var(--border-primary); padding-top:18px; margin-top:22px; min-width:0; }
+  .stage { background:var(--bg-primary); border:1px dashed var(--border-secondary);
+    border-radius:10px; padding:12px; margin:10px 0 6px; max-width:100%; }
+  .stage.narrow { width:min(390px, 100%); padding:12px 10px; }
+  .tw { overflow-x:auto; max-width:100%; -webkit-overflow-scrolling:touch; }
+  .stage-cap { font-size:10px; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--text-tertiary); margin-bottom:8px; }
+  .row { display:flex; gap:20px; flex-wrap:wrap; align-items:flex-start; min-width:0; }
+  .row > * { min-width:0; max-width:100%; }
+
+  /* metrics table */
+  table.metrics { border-collapse:collapse; font-size:11px; margin:8px 0 4px; }
+  table.metrics th, table.metrics td { border:1px solid var(--border-primary); padding:4px 8px; text-align:left; }
+  table.metrics th { color:var(--text-tertiary); font-weight:600; background:var(--bg-secondary); }
+  table.metrics td b { color:var(--text-primary); }
+  .pass { color:var(--ok); font-weight:600; }
+  .fail { color:var(--bad); font-weight:600; }
+
+  /* ── the flow panel chrome (shared by every variant) ── */
+  .panel { background:var(--bg-primary); }
+  .panel-head { display:flex; align-items:center; gap:8px; padding:8px 10px;
+    background:var(--bg-tertiary); border-bottom:1px solid var(--border-primary); border-radius:8px 8px 0 0; }
+  .panel-head .ttl { color:var(--text-primary); font-size:13px; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .panel-head .clk { display:flex; gap:6px; }
+  .btn { font-size:11px; padding:2px 8px; border-radius:5px; border:1px solid var(--border-secondary);
+    color:var(--text-secondary); background:transparent; display:inline-flex; align-items:center; gap:4px; }
+  .btn.auto { background:var(--tint-cyan-bg); color:var(--tint-cyan-fg); border-color:transparent; font-size:9px; }
+  .btn.run { color:var(--accent-text); border-color:var(--accent); }
+  .panel-body { padding:10px; }
+
+  /* graph strip (context; unchanged by this change) */
+  .graph { display:flex; align-items:center; gap:10px; padding:6px 2px 10px; overflow-x:auto; }
+  .node { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:8px 14px 8px 10px;
+    background:var(--node-bg); border:1px solid var(--node-border);
+    border-left:3px solid var(--node-glyph); border-radius:8px;
+    color:var(--node-fg); font-size:13px; }
+  .node .g { color:var(--node-glyph); display:flex; }
+  .node.sel { outline:2px solid var(--accent); outline-offset:1px; }
+  .edge { flex:0 0 auto; color:var(--text-tertiary); font-size:11px; }
+  .goverlay { border:1px solid var(--border-secondary); border-radius:8px; padding:10px;
+    background:var(--bg-secondary); width:min(420px, 100%); height:243px;
+    display:flex; flex-direction:column; overflow:hidden; }
+  .filebar { display:flex; align-items:center; gap:6px; padding:6px 8px; background:var(--bg-tertiary);
+    border:1px solid var(--border-primary); border-radius:6px; font-size:11px; color:var(--text-secondary); }
+  .tabs { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .tab { font-size:11px; padding:3px 8px; border-radius:5px; background:var(--bg-tertiary);
+    border:1px solid var(--border-primary); color:var(--text-tertiary); display:inline-flex; gap:4px; align-items:center; }
+  .tab.on { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+
+  /* ══════════ BASELINE (current component) ══════════ */
+  .grid-current { display:grid; gap:8px;
+    grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); }
+  .grid-current > .slot { outline:1px dashed var(--accent-purple); outline-offset:2px; }
+  .card-cur { border:1px solid var(--border-subtle); border-radius:8px; padding:10px;
+    display:flex; flex-direction:column; background:var(--card-bg); }
+  .card-cur .hd { display:flex; align-items:center; gap:6px; }
+  .card-cur .nm { font-size:14px; font-weight:500; color:var(--text-primary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .card-cur .stats { font-size:11px; color:var(--text-tertiary); margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-cur .wait { font-size:11px; color:var(--text-muted); margin-top:2px; }
+  .card-cur .path { font-size:10px; color:var(--text-muted); margin-top:4px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-cur .pad { height:30px; }
+  .card-cur .ft { display:flex; justify-content:flex-end; gap:4px; margin-top:auto; padding-top:4px; }
+  .iconbtn-cur { padding:2px; color:var(--text-tertiary); display:inline-flex; line-height:0; }
+  .iconbtn-cur.tiny { width:15px; height:21px; justify-content:center; align-items:center; }
+  .details-cur { font-size:11px; padding:2px 6px; border-radius:5px; border:1px solid var(--border-subtle);
+    color:var(--text-tertiary); display:inline-flex; align-items:center; gap:4px; }
+  .details-cur span { font-size:10px; }
+  .chip-cur { font-size:9px; padding:0 4px; border-radius:4px; display:inline-flex;
+    align-items:center; gap:2px; flex:0 0 auto; }
+  .chip-cur.cyan { color:var(--tint-cyan-fg); background:var(--tint-cyan-bg); }
+  .chip-cur.amber { color:var(--tint-amber-fg); background:var(--tint-amber-bg); }
+
+  /* ── shared: the icon cluster ── */
+  .ibtn { width:24px; height:24px; border-radius:5px; border:1px solid transparent;
+    color:var(--text-tertiary); display:inline-flex; align-items:center; justify-content:center;
+    background:transparent; padding:0; cursor:pointer; flex:0 0 auto; }
+  .ibtn:hover { color:var(--text-primary); background:var(--bg-hover); border-color:var(--border-subtle); }
+  .ibtn.on { color:var(--accent-text); border-color:var(--accent); }
+  /* a disabled SLOT keeps the row's geometry identical on every card */
+  .ibtn.slot-empty { visibility:hidden; }
+  /* Keep the visual 24×24 (WCAG 2.5.8 AA), but give coarse pointers a 44×44 hit
+     area on the same pixel footprint — Apple HIG / WCAG 2.5.5 (AAA) guidance. */
+  @media (pointer: coarse) {
+    .ibtn, .details-cur { position:relative; }
+    .ibtn::after { content:''; position:absolute; inset:-10px; }
+    .card-b .ft, .card-a .ft { gap:6px; }
+  }
+  .kind { font-size:9px; padding:1px 5px; border-radius:4px; flex:0 0 auto; }
+  .kind.code { color:var(--tint-cyan-fg); background:var(--tint-cyan-bg); }
+  .kind.decision { color:var(--tint-amber-fg); background:var(--tint-amber-bg); }
+  .kind.agent { color:var(--text-secondary); background:var(--bg-surface); }
+
+  /* ══════════ A — compact uniform tiles ══════════ */
+  .grid-a { display:grid; gap:8px; grid-auto-rows:88px;
+    grid-template-columns:repeat(auto-fill, minmax(168px, 1fr)); }
+  .card-a { border:1px solid var(--border-subtle); border-radius:8px; height:100%;
+    padding:8px 9px 6px; display:flex; flex-direction:column; overflow:hidden;
+    background:var(--card-bg); }
+  .card-a .hd { display:flex; align-items:center; gap:6px; }
+  .card-a .nm { font-size:13px; font-weight:500; color:var(--text-primary); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-a .info { margin-top:4px; min-height:15px; font-size:11px; color:var(--text-tertiary);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-a .info b { color:var(--text-secondary); font-weight:400; }
+  .card-a .ft { margin-top:auto; display:flex; justify-content:flex-end; gap:2px; }
+
+  /* ══════════ B — uniform tiles, keep the body ══════════ */
+  .grid-b { display:grid; gap:8px; grid-auto-rows:124px;
+    grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); }
+  .card-b { border:1px solid var(--border-subtle); border-radius:8px; background:var(--card-bg);
+    height:100%; padding:8px 9px 6px; display:flex; flex-direction:column; overflow:hidden; }
+  .card-b .hd { display:flex; align-items:center; gap:6px; }
+  .card-b .nm { font-size:13px; font-weight:500; color:var(--text-primary); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-b .mono { min-height:15px; font-size:10px; color:var(--text-tertiary);
+    font-family:'SF Mono',Menlo,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .card-b .line { min-height:15px; font-size:11px; color:var(--text-tertiary); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  .card-b .body { min-height:30px; font-size:10px; color:var(--text-tertiary); line-height:1.5; }
+  .card-b .body .muted { color:var(--text-secondary); }
+  .card-b .ft { margin-top:auto; padding-top:4px; display:flex; align-items:center;
+    justify-content:flex-end; gap:2px; }
+  /* Phone / narrow pane: B collapses to A's compact tile. Container query, so it
+     keys off the PANE width (split editor open) as well as the phone viewport. */
+  .bwrap { container-type:inline-size; }
+  @container (max-width: 480px) {
+    .grid-b { grid-auto-rows:76px; grid-template-columns:1fr; gap:6px; }
+    .card-b .mono, .card-b .body { display:none; }
+    .card-b .line { margin-top:4px; }
+  }
+
+  /* ══════════ C — dense list rows ══════════ */
+  .list-c { border:1px solid var(--border-subtle); border-radius:8px; overflow:hidden;
+    background:var(--card-bg); }
+  .lhead, .lrow { display:grid; gap:8px; align-items:center; font-size:12px;
+    grid-template-columns:16px minmax(96px,1.1fr) 74px minmax(0,1.7fr) auto; padding:0 8px; }
+  .lhead { font-size:9px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-tertiary);
+    background:var(--bg-secondary); height:22px; border-bottom:1px solid var(--border-primary); }
+  .lrow { height:30px; border-bottom:1px solid var(--border-primary); color:var(--text-secondary); }
+  .lrow:last-child { border-bottom:0; }
+  .lrow:nth-child(even) { background:var(--bg-hover); }
+  .lrow .nm { color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lrow .mid { font-size:11px; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; font-size:11px; }
+  .lrow .ka { display:flex; justify-content:flex-end; }
+  .lrow .ka .ibtn { width:26px; height:26px; }
+  /* Narrow panes: the fixed columns would crush "waiting on" to ~1px and lose the
+     row's key datum. Drop the kind column (kind is still carried by the action
+     icon set and the graph glyph) so name + waiting keep real width. */
+  @media (max-width: 480px) {
+    .lhead, .lrow { grid-template-columns:16px minmax(0,1fr) minmax(0,1.2fr) auto; }
+    .lhead > :nth-child(3), .lrow > :nth-child(3) { display:none; }
+  }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--text-tertiary); margin:6px 0 0; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; }
+  .swatch { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  .note { background:var(--bg-secondary); border-left:3px solid var(--accent);
+    padding:8px 10px; border-radius:0 6px 6px 0; font-size:12px; color:var(--text-secondary); max-width:1080px; }
+  .note.warn { border-left-color:var(--warn); }
+  .note.bad { border-left-color:var(--bad); }
+  .measure { font-size:10px; color:var(--accent-text); font-family:'SF Mono',Menlo,monospace; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <strong style="color:var(--text-primary);font-size:12px">Flow agent cards</strong>
+  <button id="themeBtn" aria-pressed="false">Light theme</button>
+  <button id="measureBtn" aria-pressed="true">Measurements</button>
+  <span class="spacer"></span>
+  <span class="hint">Real data: <code>rackinspect:defect-analysis</code> · 5 steps · idle state</span>
+</div>
+
+<h1>Flow agent cards — consolidation directions</h1>
+<p>
+  Same flow, same five steps, same container widths in every block below — so the only variable is the card design.
+  Data is the real <code>rackinspect:defect-analysis</code> flow (<code>load-ticket</code>, <code>transcribe</code>,
+  <code>fill-form</code>, <code>check-form</code>, <code>assemble</code>). The graph strip stays as-is for context.
+</p>
+
+<div class="note">
+  <b style="color:var(--text-primary)">What is actually wrong today</b> (measured on the live dashboard, 1280×577):
+  <ul style="margin:6px 0 0">
+    <li><b>Unequal cards.</b> The grid child is a bare <code>&lt;div data-step&gt;</code> that stretches to the
+      <b>154px</b> row height, but <code>AgentCardShell</code> has no <code>h-full</code> — so the visible cards are
+      <b>137 / 154 / 135 / 154 / 154px</b> and their button rows sit at <b>498 / 500 / 517 / 517 / 517px</b>.</li>
+    <li><b>Truncated absolute paths</b> eat the widest line of 4 of 5 cards
+      (<code>‹› /Users/bmiller/Projects/Rack…</code>) — irrelevant to any decision a reader is making.</li>
+    <li><b>Icon buttons are 15×21px</b> — under the WCAG 2.5.8 minimum target of 24×24.</li>
+    <li><b>Equal height is faked</b> with three <code>&amp;nbsp;</code> pad rows in the card body.</li>
+    <li><b>The two readable lines fail WCAG AA.</b> Both the <code>waiting:</code> line and the path line use
+      <code>--text-muted</code>, which measures <b>2.47:1</b> on the card fill in dark and <b>2.13:1</b> in light —
+      against the <b>4.5:1</b> that WCAG 1.4.3 (Contrast Minimum) requires for body text. <code>--text-tertiary</code>
+      clears it at <b>5.58:1 / 5.51:1</b>. Every direction below uses <code>--text-tertiary</code>.</li>
+  </ul>
+</div>
+
+<!-- ══════════════ BASELINE ══════════════ -->
+<section id="baseline">
+  <h2>0 · Baseline — what ships now <span class="tag">for comparison</span></h2>
+  <p>Purple dashed outline = the grid slot. The card inside does not fill it, which is why the row looks ragged.</p>
+  <div class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="ttl">rackinspect:defect-analysis &nbsp;not started</span>
+        <span class="clk">
+          <span class="btn auto">AUTO</span><span class="btn run">Run</span><span class="btn">✕ Close</span>
+        </span>
+      </div>
+      <div class="panel-body">
+        <div class="graph">
+          <span class="node"><span class="g">‹›</span>load-ticket</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>transcribe</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">◍</span>fill-form</span>
+          <span class="node"><span class="g">⋔</span>check-form</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>assemble</span>
+        </div>
+        <div class="grid-current" id="gridCurrent"></div>
+      </div>
+    </div>
+  </div>
+  <p class="measure" data-m>slot height 154px · card heights 137/154/135/154/154 · button rows 498/500/517/517/517</p>
+</section>
+
+<!-- ══════════════ A ══════════════ -->
+<section id="a">
+  <h2>A · Compact uniform tiles <span class="tag pick">recommended</span> <span class="tag">88px</span></h2>
+  <p>
+    One fixed row height, so every tile is byte-identical in geometry. The card keeps only what a reader needs at a glance —
+    status, name, kind, and <em>one</em> muted line — and its control row becomes a fixed three-slot cluster, so the row's
+    geometry is identical on every card.
+  </p>
+  <ul>
+    <li><b>Fixed height</b> (<code>grid-auto-rows</code> + <code>h-full</code>) replaces the <code>&amp;nbsp;</code> padding hack — same guarantee, in the layout layer where it belongs.</li>
+    <li><b>The path is gone</b>, not merely truncated: it is already behind the handler button and the graph. Nielsen heuristic #8, aesthetic and minimalist design — drop what the reader does not act on.</li>
+    <li><b>A fixed three-slot control row</b>, each slot a real 24×24 target (WCAG 2.5.8 Target Size Minimum). An affordance that does not apply keeps its box (hidden, not collapsed) so a click can never land on the neighbouring card.</li>
+    <li><b>One muted line, priority ordered</b>: <code>waiting: X</code> → last tool → model. Gestalt similarity: the same slot carries the same class of information on every card.</li>
+    <li>Smaller column (<code>minmax(168px, 1fr)</code>) puts 6 per row on a 1060px pane instead of 5.</li>
+  </ul>
+  <div class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="ttl">rackinspect:defect-analysis &nbsp;not started</span>
+        <span class="clk"><span class="btn auto">AUTO</span><span class="btn run">Run</span><span class="btn">✕ Close</span></span>
+      </div>
+      <div class="panel-body">
+        <div class="graph">
+          <span class="node"><span class="g">‹›</span>load-ticket</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>transcribe</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">◍</span>fill-form</span>
+          <span class="node"><span class="g">⋔</span>check-form</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>assemble</span>
+        </div>
+        <div class="grid-a" id="gridA"></div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <h3>Narrow pane (390px)</h3>
+      <div class="stage narrow">
+        <div class="grid-a" id="gridA2"></div>
+      </div>
+    </div>
+    <div>
+      <h3>Split-open state — does the grid survive?</h3>
+      <p style="max-width:100%">With the editor pane open the chat pane is only <b>243px</b> tall and
+        <code>overflow:hidden</code>. A variant whose panel exceeds that budget is clipped and its buttons become
+        unclickable.</p>
+      <div class="goverlay">
+        <div class="filebar">📄 Files &nbsp;/…/defect-form-filler.md</div>
+        <div class="tabs">
+          <span class="tab">load-ticket.ts</span><span class="tab">transcribe.ts</span>
+          <span class="tab on">defect-form-filler.md</span>
+        </div>
+        <p style="margin-top:10px;font-size:11px;color:var(--text-muted)">
+          243px pane budget — the tiles above end well inside it.
+        </p>
+      </div>
+    </div>
+  </div>
+  <p class="measure" data-m>row height 88px · 6 tiles per row at 1060px · button targets 24×24 (WCAG 2.5.8 pass)</p>
+</section>
+
+<!-- ══════════════ B ══════════════ -->
+<section id="b">
+  <h2>B · Uniform tiles, keep the grid body <span class="tag pick">chosen</span> <span class="tag">124px</span></h2>
+  <p>
+    Keeps today's information set — a status line plus the <b>last 2 tool calls</b> — but makes the geometry honest:
+    equal height, bottom-aligned control row, every slot always reserved, and the path reduced to its basename.
+  </p>
+  <ul>
+    <li>Body = the <b>last 2 tool calls</b>, newest first (<code>▸</code> newest, <code>·</code> previous). Two reserved lines, so a step with 0 or 1 calls keeps the same height.</li>
+    <li>Control row: <b>one</b> file button (handler <code>{}</code> for code steps, <code>📄</code> for agent steps) + <b>Details</b>. No separate eye icon — Details is the only detail affordance.</li>
+    <li>Equal height via a fixed row height again; the reserved slots do the aligning rather than <code>&amp;nbsp;</code> pads.</li>
+    <li>Path → basename only, on its own monospace line (<code>load-ticket.ts</code>) — no truncation ellipsis mid-word.</li>
+    <li>Cost: at 124px the grid is ~40% taller than A, so fewer agents stay above the fold in a short pane.</li>
+  </ul>
+  <div class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="ttl">rackinspect:defect-analysis &nbsp;not started</span>
+        <span class="clk"><span class="btn auto">AUTO</span><span class="btn run">Run</span><span class="btn">✕ Close</span></span>
+      </div>
+      <div class="panel-body">
+        <div class="graph">
+          <span class="node"><span class="g">‹›</span>load-ticket</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>transcribe</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">◍</span>fill-form</span>
+          <span class="node"><span class="g">⋔</span>check-form</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>assemble</span>
+        </div>
+        <div class="bwrap"><div class="grid-b" id="gridB"></div></div>
+      </div>
+    </div>
+  </div>
+  <h3>Same cards mid-run (live tool calls)</h3>
+  <div class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="ttl">rackinspect:defect-analysis &nbsp;running · 2/5</span>
+        <span class="clk"><span class="btn auto">AUTO</span><span class="btn">■ Abort</span></span>
+      </div>
+      <div class="panel-body"><div class="bwrap"><div class="grid-b" id="gridBRun"></div></div></div>
+    </div>
+  </div>
+  <h3>Phone (390px) &ndash; same component, collapses to A's compact tile</h3>
+  <p>Below 480px of pane width the grid becomes a single vertical column of A-style compact tiles (76px each), so
+    names never truncate. The basename and tool-call lines drop out. Status line, kind, the one file button and Details stay. Tool calls remain one tap away in Details.</p>
+  <div class="stage narrow">
+    <div class="bwrap"><div class="grid-b" id="gridBPhone"></div></div>
+  </div>
+  <p class="measure" data-m>desktop: 124px rows, 4–5 per row at 1060px · phone (&lt;480px pane): 1 column, 76px rows · targets 24×24</p>
+</section>
+
+<!-- ══════════════ C ══════════════ -->
+<section id="c">
+  <h2>C · Dense list rows <span class="tag">28px / row</span></h2>
+  <p>
+    The most consolidated direction: one row per step, one line each. Five steps cost ~170px instead of ~154px per row of
+    five tiles, and the columns make scanning comparable values trivial — which is what a reader does with a DAG's steps.
+  </p>
+  <ul>
+    <li>Best ratio of information to pixels; stays fully readable in a 243px pane with the graph above it.</li>
+    <li>Alignment is structural (one grid template), so raggedness is impossible — Gestalt common region + proximity.</li>
+    <li>Loses the tile/stage look and the per-card "recent tool calls" body; detail moves to the existing Details dialog.</li>
+    <li>Row height 30px keeps every icon target ≥24px (WCAG 2.5.8), which the current 15px icon cannot.</li>
+    <li>Mobile cost: below 480px the fixed columns would crush <code>waiting on</code> to ~1px, so the kind column is
+      dropped there (kind is still carried by the action icons and the graph glyph). Tiles (A/B) need no such rule.</li>
+  </ul>
+  <div class="stage">
+    <div class="panel">
+      <div class="panel-head">
+        <span class="ttl">rackinspect:defect-analysis &nbsp;not started</span>
+        <span class="clk"><span class="btn auto">AUTO</span><span class="btn run">Run</span><span class="btn">✕ Close</span></span>
+      </div>
+      <div class="panel-body">
+        <div class="graph">
+          <span class="node"><span class="g">‹›</span>load-ticket</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>transcribe</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">◍</span>fill-form</span>
+          <span class="node"><span class="g">⋔</span>check-form</span><span class="edge">⇢</span>
+          <span class="node"><span class="g">‹›</span>assemble</span>
+        </div>
+        <div class="list-c" id="listC"></div>
+      </div>
+    </div>
+  </div>
+  <p class="measure" data-m>row height 30px · 5 rows = 150px + head 22px · button targets 26×26</p>
+</section>
+
+<!-- ══════════════ COMPARISON ══════════════ -->
+<section id="cmp">
+  <h2>Comparison</h2>
+  <div class="tw">
+  <table class="metrics">
+    <thead><tr>
+      <th>Direction</th><th>Cards equal height</th><th>Block height, 5 agents</th><th>Min target</th>
+      <th>Info line vs AA</th><th>Keeps tool preview</th><th>Fits 243px pane</th><th>Density (info / px)</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><b>0 · Baseline</b></td><td class="fail">no (137–154)</td><td>154px</td><td class="fail">15×21px</td><td class="fail">2.47 / 2.13 ✗</td><td>yes</td><td class="fail">no (clipped)</td><td>low</td></tr>
+      <tr><td><b>A · Compact tiles</b></td><td class="pass">yes</td><td class="pass">88px</td><td class="pass">24×24px</td><td class="pass">5.58 / 5.51 ✓</td><td>no</td><td class="pass">yes</td><td>high</td></tr>
+      <tr><td><b>B · Uniform tiles</b></td><td class="pass">yes</td><td>124px</td><td class="pass">24×24px</td><td class="pass">5.58 / 5.51 ✓</td><td>yes</td><td>yes</td><td>medium</td></tr>
+      <tr><td><b>C · Dense rows</b></td><td class="pass">yes</td><td class="pass">≈172px total</td><td class="pass">26×26px</td><td class="pass">5.58 / 5.51 ✓</td><td>no</td><td class="pass">yes</td><td class="pass">highest</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--accent)"></span>recommended</span>
+    <span><span class="swatch" style="background:var(--accent-purple)"></span>grid slot (baseline)</span>
+    <span>Row heights are enforced with <code>grid-auto-rows</code> + <code>h-full</code>, never with padding rows.</span>
+  </div>
+  <div class="note warn" style="margin-top:12px">
+    <b style="color:var(--text-primary)">Related, and independent of the choice above.</b>
+    Every direction here also needs the
+    <em>reachability</em> fix found in the same session: while the editor pane is open the chat pane is 243px with
+    <code>overflow:hidden</code>, so an oversized flow panel gets clipped and its buttons stop receiving clicks
+    (“element is covered by … at its click point”). A or C largely close that gap by construction; B and the baseline
+    need the panel to stop growing unbounded as well.
+  </div>
+</section>
+
+<script>
+/* ── real flow data: rackinspect:defect-analysis (idle) ── */
+const FLOW = [
+  { id:"load-ticket", kind:"code",          state:"pending", waiting:null,
+    handler:"load-ticket.ts",  agent:null,
+    meta:"waiting: nothing — ready", model:"claude-opus-4-6" },
+  { id:"transcribe",  kind:"code",          state:"pending", waiting:"load-ticket",
+    handler:"transcribe.ts",   agent:null,
+    meta:"waiting: load-ticket", model:"claude-opus-4-6" },
+  { id:"fill-form",   kind:"agent",         state:"pending", waiting:"transcribe",
+    handler:null,              agent:"defect-form-filler.md",
+    meta:"waiting: transcribe", model:"claude-opus-4-6" },
+  { id:"check-form",  kind:"decision",      state:"pending", waiting:"fill-form",
+    handler:"check-form.ts",   agent:null,
+    meta:"waiting: fill-form", model:"claude-opus-4-6" },
+  { id:"assemble",    kind:"code",          state:"pending", waiting:"check-form",
+    handler:"assemble.ts",     agent:null,
+    meta:"waiting: check-form", model:"claude-opus-4-6" },
+];
+
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const STATUS = '<span style="width:12px;height:12px;border-radius:50%;border:1.5px solid var(--text-muted);display:inline-block;flex:0 0 auto"></span>';
+const KINDLABEL = { code:"code", decision:"decision", agent:"agent" };
+
+/* tiny inline icon set (mirrors the shipped @mdi glyphs in spirit) */
+const I = {
+  braces: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H6a3 3 0 0 0-3 3v3a3 3 0 0 1-2 3 3 3 0 0 1 2 3v3a3 3 0 0 0 3 3h2M16 3h2a3 3 0 0 1 3 3v3a3 3 0 0 0 2 3 3 3 0 0 0-2 3v3a3 3 0 0 1-3 3h-2"/></svg>',
+  doc:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  eye:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.5"/></svg>',
+  kebab:  '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>',
+};
+
+/* ── baseline ── */
+document.getElementById("gridCurrent").innerHTML = FLOW.map(a => {
+  const kindCls = a.kind === "code" ? "cyan" : a.kind === "decision" ? "cyan" : "amber";
+  const kindTxt = a.kind === "decision" ? "decision" : a.kind === "agent" ? "agent" : "code";
+  const short = (p) => "/Users/bmiller/Projects/Rack" + (a.state ? "…" : "");
+  const icons = [];
+  if (a.handler) icons.push(`<span class="iconbtn-cur tiny" title="Open handler in editor">${I.braces}</span>`);
+  if (a.agent)   icons.push(`<span class="iconbtn-cur tiny" title="Open source in editor">${I.doc}</span>`);
+  const pad = `<div class="pad"></div>`;
+  const path = a.handler
+    ? `<div class="path">‹› ${esc(short(a.handler))}</div>`
+    : a.agent ? "" : "";
+  /* reproduce the real raggedness: cards with both the waiting line AND a path reach 154px */
+  const tall = a.waiting && a.handler;
+  return `<div class="slot">
+    <div class="card-cur" style="height:${tall ? 154 : a.handler ? 137 : 135}px">
+      <div class="hd">${STATUS}<span class="nm">${esc(a.id)}</span>
+        <span class="chip-cur ${kindCls}">${kindTxt}</span></div>
+      <div class="wait">${a.waiting ? "waiting: " + esc(a.waiting) : ""}</div>
+      <div class="stats"></div>
+      ${pad}
+      ${path}
+      <div class="ft">${icons.join("")}<span class="details-cur">${I.eye}<span>Details</span></span></div>
+    </div>
+  </div>`;
+}).join("");
+
+const kindTxt = k => (k === "code" ? "code" : k === "decision" ? "decision" : "agent");
+
+/* A — the icon cluster renders in a FIXED 3-slot row. An inapplicable affordance keeps
+   its 24×24 box (visibility:hidden) instead of collapsing, so no button ever moves. */
+function iconSlots(a, cls = "ibtn") {
+  return [
+    a.handler ? `<span class="${cls}" title="Open handler in editor">${I.braces}</span>`
+              : `<span class="${cls} slot-empty" aria-hidden="true">${I.braces}</span>`,
+    a.agent ? `<span class="${cls}" title="Open source in editor">${I.doc}</span>`
+            : `<span class="${cls} slot-empty" aria-hidden="true">${I.doc}</span>`,
+    `<span class="${cls}" title="Details">${I.eye}</span>`,
+  ].join("");
+}
+function cardA(a) {
+  const info = a.waiting ? `waiting: <b>${esc(a.waiting)}</b>` : `<b>ready</b> · ${esc(a.model)}`;
+  return `<div class="card-a">
+    <div class="hd">${STATUS}<span class="nm">${esc(a.id)}</span>
+      <span class="kind ${a.kind}">${kindTxt(a.kind)}</span></div>
+    <div class="info">${info}</div>
+    <div class="ft">${iconSlots(a)}</div>
+  </div>`;
+}
+document.getElementById("gridA").innerHTML  = FLOW.map(cardA).join("");
+document.getElementById("gridA2").innerHTML = FLOW.map(cardA).join("");
+
+/* B — same geometry guarantee; body = last 2 tool calls; ONE file button + Details. */
+const ST_ICON = {
+  pending: STATUS,
+  running: '<span style="width:12px;height:12px;border-radius:50%;border:2px solid var(--accent-yellow);border-top-color:transparent;display:inline-block;flex:0 0 auto"></span>',
+  complete: '<span style="color:var(--accent-green);font-size:12px;line-height:12px;flex:0 0 auto">✓</span>',
+};
+function fileBtn(a) {
+  return a.handler
+    ? `<span class="ibtn" title="Open handler in editor">${I.braces}</span>`
+    : `<span class="ibtn" title="Open source in editor">${I.doc}</span>`;
+}
+function cardB(a) {
+  const base = a.handler ? a.handler : a.agent;
+  const last2 = (a.tools || []).slice(-2).reverse();   // newest first
+  const lines = [0, 1].map(i => last2[i]
+    ? `<div class="${i ? "muted" : ""}">${i ? "·" : "▸"} ${esc(last2[i])}</div>`
+    : `<div class="muted">${i === 0 ? "· no tool calls yet" : "&nbsp;"}</div>`).join("");
+  const status = a.stats ? a.stats : a.waiting ? "waiting: " + esc(a.waiting) : "ready";
+  return `<div class="card-b">
+    <div class="hd">${ST_ICON[a.state] || STATUS}<span class="nm">${esc(a.id)}</span>
+      <span class="kind ${a.kind}">${kindTxt(a.kind)}</span></div>
+    <div class="mono">${esc(base)}</div>
+    <div class="line">${status}</div>
+    <div class="body">${lines}</div>
+    <div class="ft">${fileBtn(a)}<span class="details-cur">${I.eye}<span>Details</span></span></div>
+  </div>`;
+}
+document.getElementById("gridB").innerHTML = FLOW.map(cardB).join("");
+const RUN = [
+  { ...FLOW[0], state:"complete", waiting:null, stats:"↑2.1k ↓640 · 3.4s",
+    tools:["aiservice.getTicket T-8812", "aiservice.listRackElements", "write .rackinspect/defect-form.json"] },
+  { ...FLOW[1], state:"complete", waiting:null, stats:"↑0 ↓0 · 41.2s",
+    tools:["soniox.upload voice-01.m4a", "soniox.transcribe hu"] },
+  { ...FLOW[2], state:"running", waiting:null, stats:"claude-opus-4-6 · 12s",
+    tools:["read defect-form.json", "set_element rack=R-14 beam", "set_fault code=DMG-03 conf=0.82"] },
+  { ...FLOW[3] },
+  { ...FLOW[4] },
+];
+document.getElementById("gridBRun").innerHTML = RUN.map(cardB).join("");
+document.getElementById("gridBPhone").innerHTML = RUN.map(cardB).join("");
+
+
+/* ── C ── */
+document.getElementById("listC").innerHTML =
+  `<div class="lhead"><span></span><span>step</span><span>kind</span><span>waiting on</span><span>actions</span></div>` +
+  FLOW.map(a => {
+    const kindCls = a.kind === "code" ? "code" : a.kind === "decision" ? "decision" : "agent";
+    const icons = [];
+    if (a.handler) icons.push(`<span class="ibtn" title="Open handler in editor">${I.braces}</span>`);
+    if (a.agent)   icons.push(`<span class="ibtn" title="Open source in editor">${I.doc}</span>`);
+    icons.push(`<span class="ibtn" title="Details">${I.eye}</span>`);
+    return `<div class="lrow">
+      ${STATUS}
+      <span class="nm">${esc(a.id)}</span>
+      <span><span class="kind ${kindCls}">${a.kind === "code" ? "code" : a.kind === "decision" ? "decision" : "agent"}</span></span>
+      <span class="mid">${a.waiting ? "waiting: " + esc(a.waiting) : "ready"}</span>
+      <span class="ka">${icons.join("")}</span>
+    </div>`;
+  }).join("");
+
+/* ── toggles ── */
+const root = document.documentElement;
+const themeBtn = document.getElementById("themeBtn");
+themeBtn.addEventListener("click", () => {
+  const light = root.getAttribute("data-theme") === "light";
+  root.setAttribute("data-theme", light ? "studio" : "light");
+  themeBtn.setAttribute("aria-pressed", String(!light));
+  themeBtn.textContent = light ? "Light theme" : "Dark theme";
+});
+const measureBtn = document.getElementById("measureBtn");
+measureBtn.addEventListener("click", () => {
+  const on = measureBtn.getAttribute("aria-pressed") === "true";
+  measureBtn.setAttribute("aria-pressed", String(!on));
+  document.querySelectorAll("[data-m]").forEach(e => { e.style.display = on ? "none" : ""; });
+});
+</script>
+</body>
+</html>

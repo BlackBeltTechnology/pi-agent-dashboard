@@ -25,9 +25,12 @@ flowchart LR
 Pure decision logic lives in this skill's own `scripts/` directory and is
 unit-tested (`.pi/skills/ship-it` is a vitest project):
 `scripts/manifest.ts` (`parseManifest`, `deferDecision`, `filesystemRealityCheck`),
-`scripts/no-weakening.ts` (`assertNoWeakening`), and
-`scripts/review-gate.ts` (`reviewRoundDecision`, `resolveReviewer`,
-`classifyFindings`, `REVIEW_TIMEOUT_MS`).
+`scripts/no-weakening.ts` (`assertNoWeakening`),
+`scripts/review-gate.ts` (`reviewRoundDecision`, `parseReviewReply`,
+`resolveReviewer`, `classifyFindings`, `REVIEW_TIMEOUT_MS`),
+`scripts/fix-ledger.ts` (`validateFixLedger`), `scripts/review-state.ts`
+(`deriveReviewState`), and `scripts/review-prompt.ts` (`buildReviewPrompt` + the
+step-4.5 CLI).
 
 ## Preconditions
 
@@ -40,6 +43,21 @@ unit-tested (`.pi/skills/ship-it` is a vitest project):
 ## Procedure
 
 ### 1. Orient with `openspec status`, but gate on filesystem reality (idempotent)
+
+**Entry gate — a previous hand-back.** If
+`openspec/changes/<change>/SHIP_IT_BLOCKED.md` already exists, a previous
+invocation handed the change to a human. A run is **interactive** exactly when
+the `ask_user` tool is available; otherwise it is headless.
+
+- **Headless** → exit non-zero naming `SHIP_IT_BLOCKED.md`. No fix loop, no
+  review round, no `ship-change` step.
+- **Interactive** → show its cause and `ask_user` **resume / abort**. On
+  *abort*, stop without changes. On *resume*, create this invocation's run dir
+  (step 4.5), copy `SHIP_IT_BLOCKED.md` into it (evidence kept), then remove
+  the file from the change dir.
+
+Removing the file, or answering *resume*, is the human decision that starts a
+new review budget — re-invoking `ship-it` alone never does.
 
 Read `openspec status --change <change> --json` for orientation only. **Do not
 trust the `tasks.md` checkbox** as proof an automated scenario is done — a
@@ -180,7 +198,18 @@ has no automated caller; the ship gate is here.
 ### 4.5. Local review checkpoint — the semantic half
 
 Runs on **every** invocation. There is no triviality escape: no diff-size, path,
-or changed-file-count condition skips it.
+or changed-file-count condition skips it. A run is **interactive** exactly when
+the `ask_user` tool is available in the session; otherwise it is headless.
+
+`CLI` below is `npx tsx .pi/skills/ship-it/scripts/review-prompt.ts`. Records
+live in this invocation's run dir, created once with
+`RUN=$(CLI --new-run --change <change>)` →
+`$(git rev-parse --git-dir)/ship-it/<change>/<run-id>/` (per worktree, never
+committed, `<run-id>` = invocation start timestamp):
+`review-r<N>.md` (well-formed reply of round N), `review-r<N>.attempt-<k>.md`
+(malformed attempt), `fix-ledger-r<N>.json` (answers `review-r<N>.md`),
+`ledger-failures.log` (written by the CLI), `approvals.log` (one line per human
+"one more round" answer — written only right after an `ask_user` answer).
 
 1. **Resolve the reviewer** with `resolveReviewer` from `scripts/review-gate.ts`.
    `@review` is REQUIRED. Unconfigured → hard fail naming `update_roles` / the
@@ -188,34 +217,90 @@ or changed-file-count condition skips it.
    default model**: that model is the author, so falling back turns the gate into
    self-review. Interactive runs may offer the bootstrap prompt; a headless run
    fails.
-2. **Spawn it as an isolated subagent** — an `Agent` call with `model: "@review"`
-   carrying `review-code`'s rubric. Never an in-context self-review, never the
+2. **Derive state, then decide.** Run `CLI --state "$RUN"` → `round`,
+   `approvedExtraRounds`, `malformedRetries`, `ledgerFailures`. Feed exactly
+   those values (plus `interactive` and the last round's blocking ids) to
+   `reviewRoundDecision`. Never supply a counter from memory; never relabel a
+   round as round 1 of a new budget.
+3. **Commit the worktree before each round** (squash-merge collapses these), so
+   every reviewed tree has a sha. Check `git status --short`, then stage the
+   change's own paths explicitly and commit exactly that list with
+   `git commit -- <paths>` (a bare `git commit` takes everything in the index),
+   so files already staged before this step stay out; unrelated local edits
+   (e.g. a worktree-local `.pi/settings.json`) stay unstaged and never enter
+   the change. Record the commit as the round's sha.
+4. **Generate the prompt — never hand-write it.** Round 1:
+   `CLI --change <change> --round 1`. Round N ≥ 2 (a verification round):
+   `CLI --change <change> --round N --prior "$RUN/review-r<N-1>.md" --ledger "$RUN/fix-ledger-r<N-1>.json" --since <round N-1 sha>`.
+   Pass its stdout to the reviewer **verbatim** — no added framing, summary, or
+   claim about the fixes; keep its header line. The generated prompt carries the
+   `review-code` rubric, the diff range `git diff origin/develop...HEAD`
+   (three-dot, so the step-2.5 merge is not attributed to this change), every
+   intent artifact present (`proposal.md`, `tasks.md`, `design.md`, delta specs,
+   `test-plan.md`), and the defect-class sweep. Known limitation: a verification
+   round carries each prior `B` finding up to its first *unindented* paragraph
+   (indented continuations are kept) — the price of keeping the prior reply
+   bounded (#E24); the prompt asks the reviewer to indent continuations.
+5. **Spawn it as an isolated subagent** — an `Agent` call with `model: "@review"`
+   and `subagent_type: "CodeReviewer"` (the definition in
+   `.pi/agents/CodeReviewer.md` disables context inheritance; no other agent
+   type may be used here). Never an in-context self-review, never the
    CodeRabbit CLI (that is `ship-change`'s remote gate, later and different).
-3. **Feed it diff + intent**: `git diff origin/develop...HEAD` (three-dot, so the
-   step-2.5 merge is not attributed to this change) plus uncommitted worktree
-   edits, plus `proposal.md` and the task text.
-4. **Bound the call** by `REVIEW_TIMEOUT_MS` (300s). A timeout is neither a pass
+6. **Bound the call** by `REVIEW_TIMEOUT_MS` (300s). A timeout is neither a pass
    nor a blocking finding — it is a checkpoint failure.
-5. **Route findings** with `classifyFindings`: only `issue(blocking)` re-enters
-   the fix loop. Everything else is reported and shipped.
-6. **Bound the loop** with `reviewRoundDecision`: review, fix, re-review —
-   **never a third round**. This is a hard numeric cap, NOT step 4's no-progress
-   rule, because a reviewer can emit a fresh finding every round and each fix
-   changes the worktree, so a no-progress bound would never fire.
-7. `assertNoWeakening` still governs every test edit a review fix makes. A
-   finding that can only be satisfied by weakening a test is **unsatisfiable** →
-   escape hatch (step 5), naming both the finding and the guardrail. The
-   guardrail is never relaxed to reach green.
+7. **Parse the reply** with `parseReviewReply`. Well-formed → save it as
+   `$RUN/review-r<N>.md`. Malformed (empty, no or duplicate
+   `BLOCKING_COUNT`/`VERDICT` line, or self-contradictory) → save it as
+   `$RUN/review-r<N>.attempt-<k>.md`; it is never a pass and never a round.
+   **Retry once**: re-invoke the same round; a second malformed reply halts like
+   a timeout. A missing sweep table is noted in the round record and the step
+   report, not a failure.
+8. **Route findings**: only `issue(blocking)` (`B<n>` ids) re-enters the fix
+   loop. Everything else is reported and shipped.
+9. **Fix protocol, per `B` id** (the `review-code` fix protocol): reproducing
+   test first (or a ≥20-char reason no automated test can observe it) →
+   smallest fix → sibling sweep of the same pattern across the change → re-read
+   the fix hunk against the finding's defect class. After each review fix,
+   **re-run the harness (step 3) and the step-4.4 enforcers** before anything
+   else; a failure re-enters the fix loop first.
+10. **Write and validate the ledger** before a verification round:
+    `$RUN/fix-ledger-r<N>.json`, one entry per `B` id — `{ id, test: {path} |
+    {untestable}, siblings: {searched, sites}, fixedIn }`, no status field, no
+    verdict language. Then
+    `CLI --validate-ledger --prior "$RUN/review-r<N>.md" --ledger "$RUN/fix-ledger-r<N>.json"`.
+    Non-zero → complete the listed entries (each failure is recorded; the third
+    for a round routes as unsatisfiable). An entry the fix loop cannot complete
+    → unsatisfiable. No verification round while validation fails.
+11. **Bound the loop** with `reviewRoundDecision`. The base cap is two rounds —
+    review, fix, re-review. This is a hard numeric cap, NOT step 4's
+    no-progress rule, because a reviewer can emit a fresh finding every round
+    and each fix changes the worktree, so a no-progress bound would never fire.
+    - `review` → next round (step 3).
+    - `proceed` → step 6.
+    - `ask` (interactive, cap reached) → one `ask_user` select naming the
+      remaining `B` ids: **one more verification round** / **hand back to
+      planning**. *One more* → append one line to `$RUN/approvals.log` and record
+      the answer in the round file, then run exactly one verification round.
+      *Hand back* → escape hatch. If the `ask_user` call fails, treat the run as
+      headless and take the escape hatch.
+    - `escape` → the boundary-reverse (step-5) escape hatch.
+12. `assertNoWeakening` still governs every test edit a review fix makes. A
+    finding that can only be satisfied by weakening a test is **unsatisfiable** →
+    escape hatch (step 5), naming both the finding and the guardrail. The
+    guardrail is never relaxed to reach green.
 
-Every `escape` decision carries a `reason`; write it into `SHIP_IT_BLOCKED.md`.
+Every `escape` decision carries a `reason`; write it into `SHIP_IT_BLOCKED.md`
+together with the run dir path.
 
 ### 5. Boundary-reverse escape hatch
 
-The worktree boundary is **not one-way**. Trigger the reverse path when EITHER:
+The worktree boundary is **not one-way**. Trigger the reverse path when ANY of:
 
 - `apply` reports a design issue (NL prose — implementation reveals the design is
   wrong), OR
-- the step-4 fix bound is exhausted (a no-progress cycle).
+- the step-4 fix bound is exhausted (a no-progress cycle), OR
+- the step-4.5 review checkpoint decides `escape` (including a human choosing
+  *hand back* at the cap).
 
 Then, **do NOT headlessly rewrite `proposal.md`/`design.md`**:
 
@@ -264,8 +349,17 @@ CI → CodeRabbit → (archive+sync gate) → squash-merge → remove worktree.
   mechanically-failing tree.
 - **The review is unconditional** — no triviality escape, and `@review` is
   required; never fall back to the session default model (that is self-review).
-- **Two review rounds, hard cap** — review, fix, re-review, then escape. Not a
-  no-progress bound: a model always makes "progress".
+- **Two review rounds, hard cap** — review, fix, re-review. Not a no-progress
+  bound: a model always makes "progress". Only a human approval at the cap
+  (interactive `ask_user`, recorded in `approvals.log`) adds a round — exactly
+  **+1 round per human approval**. The orchestrator **never renews its own
+  budget**: no self-reset, no "fresh two-round budget", no relabelled round.
+  Headless runs and hand-backs take the boundary-reverse (step-5) escape hatch.
+- **The reviewer prompt is generated** — `review-prompt.ts` output, passed
+  verbatim to `subagent_type: "CodeReviewer"`; never hand-written, never
+  carrying the author's conclusions.
+- **A `SHIP_IT_BLOCKED.md` at entry stops the run** — headless exits non-zero;
+  interactive asks resume/abort.
 - **Merge `develop` before the harness (step 2.5)** — the strong gate validates
   the integrated tree `T1`; merge `origin/develop` (remote ref), never rebase.
   Conflict → abort + STOP, never enter the harness on a half-merged tree.

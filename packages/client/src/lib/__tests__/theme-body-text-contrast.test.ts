@@ -55,6 +55,45 @@ const PALETTES = THEMES.flatMap((theme) =>
   MODES.map((mode) => [`${theme.id}:${mode}`, theme[mode]] as const),
 );
 
+// ── Palette resolver (color-mix / var) ──────────────────────────────────────
+// Lifted to module scope so the ring-contrast suite and the card-fill suite
+// share ONE resolver rather than each growing its own copy.
+// See change: consolidate-flow-agent-cards (E12).
+const CSS_SCOPES = { dark: css.indexOf(":root {"), light: css.indexOf('[data-theme="light"]') };
+
+function cssToken(mode: (typeof MODES)[number], name: string): string | undefined {
+  for (const m of [mode, "dark"] as const) {
+    const start = CSS_SCOPES[m];
+    const block = css.slice(start, css.indexOf("\n}", start));
+    const hit = new RegExp(`\\s${name}:\\s*([^;]+?)\\s*;`).exec(block)?.[1].trim();
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+const rgb = (h: string) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16));
+const toHex = (c: number[]) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
+
+function resolveValue(vars: Record<string, unknown>, mode: (typeof MODES)[number], raw: string, depth: number): string {
+  const v = raw.trim();
+  if (depth > 8) return v;
+  const alias = /^var\((--[\w-]+)\)$/.exec(v);
+  if (alias) return resolveToken(vars, mode, alias[1], depth + 1);
+  // `color-mix(in srgb, A, B)` with no percentage is a 50/50 mix.
+  const mix = /^color-mix\(in srgb,\s*(.+?)(?:\s+(\d+)%)?,\s*(.+)\)$/.exec(v);
+  if (mix) {
+    const a = rgb(resolveValue(vars, mode, mix[1], depth + 1));
+    const b = rgb(resolveValue(vars, mode, mix[3], depth + 1));
+    const p = (mix[2] ? Number(mix[2]) : 50) / 100;
+    return toHex(a.map((x, i) => x * p + b[i] * (1 - p)));
+  }
+  return v;
+}
+
+function resolveToken(vars: Record<string, unknown>, mode: (typeof MODES)[number], name: string, depth = 0): string {
+  return resolveValue(vars, mode, (vars[name] as string | undefined) ?? cssToken(mode, name) ?? "", depth);
+}
+
 describe("body-text contrast floor (WCAG AA 4.5:1) — all 18 palettes", () => {
   for (const [name, vars] of PALETTES) {
     for (const token of TEXT_TOKENS) {
@@ -182,35 +221,6 @@ describe("remediation preserves hue and saturation", () => {
 describe("history-load ring contrast (WCAG 1.4.11 3:1) — all 18 palettes", () => {
   const RING_TOKENS = ["--accent-text", "--text-tertiary", "--tint-red-fg"] as const;
   const CARD_BGS = ["--bg-primary", "--bg-tertiary", "--tint-blue-bg"] as const;
-  const scopes = { dark: css.indexOf(":root {"), light: css.indexOf('[data-theme="light"]') };
-  function cssToken(mode: (typeof MODES)[number], name: string): string | undefined {
-    for (const m of [mode, "dark"] as const) {
-      const start = scopes[m];
-      const block = css.slice(start, css.indexOf("\n}", start));
-      const hit = new RegExp(`\\s${name}:\\s*([^;]+?)\\s*;`).exec(block)?.[1].trim();
-      if (hit) return hit;
-    }
-    return undefined;
-  }
-  const rgb = (h: string) => [1, 3, 5].map((i) => Number.parseInt(h.slice(i, i + 2), 16));
-  const toHex = (c: number[]) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("")}`;
-  function resolveValue(vars: Record<string, unknown>, mode: (typeof MODES)[number], raw: string, depth: number): string {
-    const v = raw.trim();
-    if (depth > 8) return v;
-    const alias = /^var\((--[\w-]+)\)$/.exec(v);
-    if (alias) return resolveToken(vars, mode, alias[1], depth + 1);
-    const mix = /^color-mix\(in srgb,\s*(.+?)\s+(\d+)%,\s*(.+)\)$/.exec(v);
-    if (mix) {
-      const a = rgb(resolveValue(vars, mode, mix[1], depth + 1));
-      const b = rgb(resolveValue(vars, mode, mix[3], depth + 1));
-      const p = Number(mix[2]) / 100;
-      return toHex(a.map((x, i) => x * p + b[i] * (1 - p)));
-    }
-    return v;
-  }
-  function resolveToken(vars: Record<string, unknown>, mode: (typeof MODES)[number], name: string, depth = 0): string {
-    return resolveValue(vars, mode, (vars[name] as string | undefined) ?? cssToken(mode, name) ?? "", depth);
-  }
   for (const [name, vars] of PALETTES) {
     const mode = name.endsWith(":light") ? "light" : "dark";
     for (const token of RING_TOKENS) {
@@ -225,5 +235,37 @@ describe("history-load ring contrast (WCAG 1.4.11 3:1) — all 18 palettes", () 
         });
       }
     }
+  }
+});
+
+// The card's UNSELECTED fill is `color-mix(in srgb, var(--bg-secondary),
+// var(--bg-tertiary))` (AgentCardShell). Card secondary text (stats line,
+// basename line, tool-call lines, branch/failure annotations) must clear AA on
+// THAT fill, not only on --bg-tertiary / --bg-surface. --text-tertiary clears
+// it; --text-muted does not, so a silent token swap fails the guard.
+// See change: consolidate-flow-agent-cards (E12).
+describe("card-fill body-text contrast (WCAG AA 4.5:1) — all 18 palettes", () => {
+  const CARD_FILL = "color-mix(in srgb, var(--bg-secondary), var(--bg-tertiary))";
+  for (const [name, vars] of PALETTES) {
+    const mode = name.endsWith(":light") ? "light" : "dark";
+    const fill = resolveValue(vars, mode, CARD_FILL, 0);
+    it(`${name} --text-tertiary on the card fill`, () => {
+      const fg = resolveToken(vars, mode, "--text-tertiary");
+      expect(fg, `${name} --text-tertiary must resolve to #rrggbb`).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(fill, `${name} card fill must resolve to #rrggbb`).toMatch(/^#[0-9a-f]{6}$/i);
+      const ratio = contrast(fg, fill);
+      expect(
+        ratio,
+        `${name} --text-tertiary ${fg} on card fill ${fill} = ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(AA);
+    });
+    it(`${name} --text-muted is below AA on the card fill (token-swap guard)`, () => {
+      const fg = resolveToken(vars, mode, "--text-muted");
+      const ratio = contrast(fg, fill);
+      expect(
+        ratio,
+        `${name} --text-muted ${fg} on card fill ${fill} = ${ratio.toFixed(2)}:1 must be below AA`,
+      ).toBeLessThan(AA);
+    });
   }
 });
