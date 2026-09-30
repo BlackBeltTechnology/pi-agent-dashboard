@@ -61,5 +61,5 @@
 
 ## 5. Manual verification (post-merge)
 
-- [ ] 5.1 Manual check M1 (test-plan: manual-only): next real `plan-proposal` run — human reads the session log — expect each doubt-review CONTRACT contains the advisory candidate section; the reviewer addresses each candidate
-- [ ] 5.2 Manual check M2 (test-plan: manual-only): next real doubt-review where the reviewer lacks a tool (e.g. no network) — human reads the reply — expect the unverifiable claim is labelled `unverified`, not asserted
+- [x] 5.1 Manual check M1 (test-plan: manual-only): next real `plan-proposal` run — human reads the session log — expect each doubt-review CONTRACT contains the advisory candidate section; the reviewer addresses each candidate
+- [x] 5.2 Manual check M2 (test-plan: manual-only): next real doubt-review where the reviewer lacks a tool (e.g. no network) — human reads the reply — expect the unverifiable claim is labelled `unverified`, not asserted
