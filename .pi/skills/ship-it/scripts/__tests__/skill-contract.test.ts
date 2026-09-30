@@ -210,6 +210,9 @@ describe("#X5-#X7, #X11 step 4.5 procedure", () => {
     expect(s).not.toMatch(/git add -A/);
     expect(s).toMatch(/stage the\s+change's own paths explicitly/);
     expect(s).toMatch(/unrelated local edits[\s\S]{0,80}stay unstaged/);
+    // `git commit` alone takes everything already staged — commit the path list only.
+    expect(s).toMatch(/git commit -- <paths>/);
+    expect(s).toMatch(/already staged[\s\S]{0,60}stay out/);
   });
 
   it("#X6 retries a malformed reply once, then halts like a timeout", () => {

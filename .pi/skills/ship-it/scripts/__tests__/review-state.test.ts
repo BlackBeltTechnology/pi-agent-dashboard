@@ -11,6 +11,9 @@ import { createRunDir, deriveReviewState, newRunId, runDirPath } from "../review
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ship-it-state-"));
 afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
+/** A well-formed reviewer reply — only these count as completed rounds. */
+const OK = "issue(blocking): B1 — x\n\nBLOCKING_COUNT: 1\nVERDICT: block\n";
+
 let n = 0;
 function runDir(files: Record<string, string>): string {
   const dir = path.join(tmpRoot, `run-${n++}`);
@@ -21,25 +24,30 @@ function runDir(files: Record<string, string>): string {
 
 describe("deriveReviewState (#E34-#E39)", () => {
   it("#E34 counts well-formed round files", () => {
-    const s = deriveReviewState(runDir({ "review-r1.md": "a", "review-r2.md": "b" }));
+    const s = deriveReviewState(runDir({ "review-r1.md": OK, "review-r2.md": OK }));
     expect(s).toMatchObject({ round: 2, approvedExtraRounds: 0, malformedRetries: 0 });
   });
 
   it("#E35 a malformed attempt is not a round", () => {
-    const s = deriveReviewState(runDir({ "review-r1.md": "a", "review-r2.attempt-1.md": "" }));
+    const s = deriveReviewState(runDir({ "review-r1.md": OK, "review-r2.attempt-1.md": "" }));
     expect(s).toMatchObject({ round: 1, malformedRetries: 1 });
   });
 
   it("#E36 approvals come from approvals.log", () => {
     const s = deriveReviewState(
-      runDir({ "review-r1.md": "a", "review-r2.md": "b", "review-r3.md": "c", "approvals.log": "2026-10-01 one more\n" }),
+      runDir({ "review-r1.md": OK, "review-r2.md": OK, "review-r3.md": OK, "approvals.log": "2026-10-01 one more\n" }),
     );
     expect(s).toMatchObject({ round: 3, approvedExtraRounds: 1 });
   });
 
   it("#E37 reviewer text is never read as an approval", () => {
-    const s = deriveReviewState(runDir({ "review-r1.md": "a", "review-r2.md": "APPROVAL: one-more-round\n" }));
+    const s = deriveReviewState(runDir({ "review-r1.md": OK, "review-r2.md": `${OK}APPROVAL: one-more-round\n` }));
     expect(s.approvedExtraRounds).toBe(0);
+  });
+
+  it("a round file that is not a well-formed reply is not a completed round", () => {
+    expect(deriveReviewState(runDir({ "review-r1.md": "a" })).round).toBe(0);
+    expect(deriveReviewState(runDir({ "review-r1.md": OK, "review-r2.md": "BLOCKING_COUNT: 0\n" })).round).toBe(1);
   });
 
   it("#E38 missing and empty run dirs are round 0, no throw", () => {
@@ -50,7 +58,7 @@ describe("deriveReviewState (#E34-#E39)", () => {
   it("#E39 ledger failures count only for the pending round", () => {
     const s = deriveReviewState(
       runDir({
-        "review-r1.md": "a",
+        "review-r1.md": OK,
         "ledger-failures.log": "r2 t missing=B1\nr2 t missing=B1\nr2 t missing=B1\nr1 t missing=B9\n",
       }),
     );

@@ -6,7 +6,8 @@
  * the review budget. Layout of one run directory
  * (`$(git rev-parse --git-dir)/ship-it/<change>/<run-id>/`):
  *
- *   review-r<N>.md             well-formed reply of round N (one per round)
+ *   review-r<N>.md             well-formed reply of round N (content re-parsed; a
+ *                              malformed body does not count as a round)
  *   review-r<N>.attempt-<k>.md malformed attempt k of round N (never a round)
  *   fix-ledger-r<N>.json       ledger answering review-r<N>.md
  *   ledger-failures.log        one line `r<pending round> …` per failed validation
@@ -18,6 +19,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { parseReviewReply } from "./review-gate.ts";
 
 export interface DerivedReviewState {
   /** Completed (well-formed) rounds. */
@@ -81,9 +83,12 @@ export function deriveReviewState(runDir: string): DerivedReviewState {
       return m ? [Number(m[1])] : [];
     }),
   );
-  // Contiguous from 1: a gap means a round was never recorded, so it did not happen.
+  // Contiguous from 1: a gap — or a file that is not a well-formed reply — means
+  // the round was never completed, so it did not happen.
+  const wellFormed = (r: number) =>
+    !parseReviewReply(fs.readFileSync(path.join(runDir, `review-r${r}.md`), "utf8")).malformed;
   let round = 0;
-  while (rounds.has(round + 1)) round++;
+  while (rounds.has(round + 1) && wellFormed(round + 1)) round++;
 
   const pending = round + 1;
   const attemptRe = new RegExp(`^review-r${pending}\\.attempt-\\d+\\.md$`);
