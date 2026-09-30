@@ -123,4 +123,36 @@ describe("SplitRouteSync — applies a route target once", () => {
     rerender(<SplitRouteSync active file="a.ts" />);
     expect(openInSplit).toHaveBeenCalledTimes(2);
   });
+
+  // A deliberate re-open (design D8): closing the editor leaves the URL naming
+  // the target, so the same card button navigates to an identical URL. The
+  // fresh per-open nonce is what makes that a NEW intent — and it must not
+  // weaken the guard above (same nonce + recreated openers stays a no-op).
+  it("a fresh nonce re-applies an unchanged target; the same nonce does not", () => {
+    const { rerender } = render(<SplitRouteSync active file="a.ts" line={7} nonce="1" />);
+    expect(openInSplit).toHaveBeenCalledTimes(1);
+
+    // Closing the pane recreates the openers; the URL (and its nonce) is
+    // unchanged, so the split the user just closed must stay closed.
+    ctx.fresh();
+    rerender(<SplitRouteSync active file="a.ts" line={7} nonce="1" />);
+    expect(openInSplit).toHaveBeenCalledTimes(1);
+
+    // The user clicks the same control again: a fresh intent re-applies.
+    rerender(<SplitRouteSync active file="a.ts" line={7} nonce="2" />);
+    expect(openInSplit.mock.calls).toEqual([
+      ["a.ts", 7],
+      ["a.ts", 7],
+    ]);
+  });
+
+  it("the nonce also re-applies the ?url= and param-less forms", () => {
+    const u = render(<SplitRouteSync active url="https://x.com" nonce="n1" />);
+    u.rerender(<SplitRouteSync active url="https://x.com" nonce="n2" />);
+    expect(openUrlTarget).toHaveBeenCalledTimes(2);
+    u.unmount();
+    const r = render(<SplitRouteSync active nonce="n3" />);
+    r.rerender(<SplitRouteSync active nonce="n4" />);
+    expect(ensureRevealed).toHaveBeenCalledTimes(2);
+  });
 });

@@ -90,6 +90,19 @@ Cost stays in the shell's `stats` prop (`FlowAgentCard.tsx:89-95`), as the mocku
 
 - *Alternative — a dedicated cost row*: rejected. It costs a line in a 124px tile and contradicts the review decision.
 
+### D8 — Deliberate re-opens carry a history-state nonce into `SplitRouteSync`'s key
+
+`SplitRouteSync` applies a route target once, keyed `sessionId\0file\0line\0url`, so an opener-identity change after a close (which recreates the openers, because `split.mode` changed) cannot re-open the split the user just closed. That guard is correct, but the URL does not change when the user closes the editor, so clicking the same flow-card file button again navigates to an identical URL: the key is unchanged and the open is swallowed. Closing the file's tab (pane stays open) has the same shape. The fix distinguishes *intents*, not URLs:
+
+- `useOpenFileInEditor` stamps a fresh per-call `openNonce` into the history entry's state: `navigate(url, { state: { openNonce } })` (wouter 3 `navigate` accepts `{ state }` and passes it through `aroundNav` unchanged).
+- `App.tsx` reads the current history state with `useHistoryState` (from `wouter/use-browser-location`; the app mounts the default `<Router>` in `main.tsx`, so this is the browser hook) and extracts `openNonce` only while `editorMatch` is active. The default hook subscribes to the patched `pushState`/`replaceState` events, so a same-URL push still re-renders.
+- `SplitRouteSync` takes an optional `nonce` prop and appends `nonce ?? ""` to its key. A fresh nonce re-applies — it re-reveals the split under the existing "only when closed" rule and activates the tab via `openInSplit` — while a re-render at the same nonce stays a no-op.
+
+The nonce stays out of the URL: a copied deep link is unchanged and shareable, and back/forward re-application via the existing route-inactive key reset is unchanged. Back/forward re-applying a target is an acceptable consequence.
+
+- *Alternative — navigate away from the editor route on close (`mode: closed` → push `/session/:id`)*: rejected. It covers only the pane-close path, not the closed-tab case (the pane stays open), and it couples every close path (the pane close control, `LayoutModeSwitch`'s "Chat", any future close affordance) to a route mutation, so a plugin- or keyboard-driven close would silently miss it.
+- *Alternative — put the nonce in the URL query (`?file=…&open=<n>`)*: rejected. The route is a shareable copied URL by design; a per-call nonce would either pollute copied URLs or have to be stripped on read, and a stripped param makes the URL and the applied intent disagree.
+
 ## Risks / Trade-offs
 
 - [The shell fills the row only because of a child-selector class (`[&>*]:h-full`), which is invisible coupling to the shell's DOM shape] → keep the class at D2's single helper, where the reason is commented, and note it in the plugin's `AGENTS.md` row.

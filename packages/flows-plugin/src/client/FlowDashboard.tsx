@@ -24,6 +24,7 @@ import { type FlowsSessionState, useFlowsSessionState } from "./FlowsSessionStat
 import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { clearAttachment, resolveBaseline, useFlowAttachment } from "./flow-attach-store.js";
+import { FLOW_CARD_GRID_CLASS, FLOW_CARD_GRID_CONTAINER_CLASS } from "./flow-card-grid.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
 import { fetchFlowFile, type FlowNodeFiles, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
@@ -384,21 +385,21 @@ export function FlowDashboard({
             </Dialog>
           )}
 
-          {/* Agent card grid — detailed per-agent info */}
-          <div
-            className="grid gap-2 mt-2"
-            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))` }}
-          >
-            {agents.map(agent => (
-              <FlowAgentCard
-                key={agent.stepId || agent.agentName}
-                agent={agent}
-                session={session}
-                sessionId={sessionId}
-                selected={selectedStepId === (agent.stepId || agent.agentName)}
-                onSelect={handleSelectStep}
-              />
-            ))}
+          {/* Agent card grid — detailed per-agent info. Geometry comes from the
+              shared helper; the wrapper is the query container (design D1/D5). */}
+          <div className={`${FLOW_CARD_GRID_CONTAINER_CLASS} mt-2`}>
+            <div className={FLOW_CARD_GRID_CLASS}>
+              {agents.map(agent => (
+                <FlowAgentCard
+                  key={agent.stepId || agent.agentName}
+                  agent={agent}
+                  session={session}
+                  sessionId={sessionId}
+                  selected={selectedStepId === (agent.stepId || agent.agentName)}
+                  onSelect={handleSelectStep}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </div>

@@ -21,7 +21,7 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { DashboardEvent, DashboardSession, FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -728,5 +728,30 @@ describe("loader unmount safety (X7)", () => {
     });
     expect(errors).not.toHaveBeenCalled();
     expect(getAttachment(sid)).toEqual(a);
+  });
+});
+
+// ── L1 E14: preserved card interactions ────────────────────────────
+// (change: consolidate-flow-agent-cards) The `data-step` wrapper still carries
+// the step id and still selects; Details opens the dialog without changing it.
+describe("preserved card interactions (#E14)", () => {
+  it("data-step selection and the Details dialog still work on the live grid", () => {
+    const sid = nextSid();
+    publishSessionEvent(sid, started("L", 10));
+    renderClaim(sid);
+
+    const wraps = Array.from(document.querySelectorAll("[data-step]")) as HTMLElement[];
+    expect(wraps).toHaveLength(2);
+    expect(wraps[1].getAttribute("data-step")).toBe("beta");
+
+    selectBeta();
+    expect(cards()[1].getAttribute("data-selected")).toBe("true");
+    expect(cards()[0].getAttribute("data-selected")).toBe("false");
+
+    fireEvent.click(within(wraps[1]).getAllByText("Details")[0]);
+    const dialog = screen.getByTestId("dialog");
+    expect(dialog.textContent).toContain("e2e-beta");
+    expect(cards()[1].getAttribute("data-selected")).toBe("true");
+    expect(cards()[0].getAttribute("data-selected")).toBe("false");
   });
 });

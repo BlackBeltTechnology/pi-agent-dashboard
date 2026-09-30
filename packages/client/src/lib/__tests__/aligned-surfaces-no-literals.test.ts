@@ -159,3 +159,33 @@ const d = <span className="text-[var(--text-muted)]">t</span>;`;
     expect(found.map((l) => l.ariaHidden)).toEqual([true, true, false]);
   });
 });
+
+// E11 — retired tokens and shapes in the flow agent card
+// (change: consolidate-flow-agent-cards). The card's secondary text uses
+// `--text-tertiary`; the `&nbsp;` pad rows and the `‹› <absolute path>` line
+// are gone, and the path is reduced to a basename. A raw source scan is
+// deliberate here: the `&nbsp;` shape lives in JSX text, which the AST-literal
+// walker above cannot see.
+describe("flow agent card — retired token and shape gate (E11)", () => {
+  const CARD = join(PACKAGES, "flows-plugin", "src", "client", "FlowAgentCard.tsx");
+  const src = readFileSync(CARD, "utf8");
+
+  it("scans a non-empty source (anti-vacuity)", () => {
+    expect(src.length).toBeGreaterThan(1000);
+    expect(src).toContain("FlowAgentCard");
+  });
+
+  it("no --text-muted / text-muted token", () => {
+    expect(src).not.toContain("--text-muted");
+    expect(src).not.toContain("text-muted");
+  });
+
+  it("no non-breaking-space placeholder literal", () => {
+    expect(src).not.toContain("&nbsp;");
+    expect(src).not.toContain("\u00a0");
+  });
+
+  it("no chevron-pair path literal", () => {
+    expect(src).not.toContain("‹›");
+  });
+});

@@ -16,6 +16,7 @@ Requirement refs used in the `requirement` column:
 | FS-code | `flow-card-status` § Code and code-decision step cards |
 | FA-handler | `flow-agent-card` § Code nodes expose a handler-source open affordance |
 | SE-pane | `split-editor-workspace` § Chat pane SHALL budget its height so no row is clipped |
+| SE-reopen | `split-editor-workspace` § A deliberate re-open of the same editor target re-applies it |
 | NG-details | `proposal.md` Non-goals — `data-step` selection and the `FlowAgentDetail` Details dialog are unchanged |
 
 Level routing: L1 = vitest `packages/*/**/__tests__/*.test.ts(x)` · L2 = `qa/tests/*.sh` ·
@@ -78,6 +79,7 @@ structure, classes, attributes and source shape; every box measurement is an L3 
 | E14 | NG-details | state-transition (select, open, close) | L1 | automated | live grid with two cards | click card A's wrapper, then its Details button, then close it | the wrapper still carries `data-step` equal to A's step id; A is marked selected and B is not; the Details dialog opens with A's content; the Details click does not change the selection |
 | E15 | SE-pane | BVA far below the floor sum | L3 | automated | split mode with a flow attached, pane height below the sum of every shrinkable row's bound plus the fixed rows' content heights | render the pane | the header row renders at 0px (its bound), the transcript is >= 16px, the composer is >= 72px, and no row is below its own bound at the moment the pane's bottom edge starts clipping |
 | E16 | FG-contrast | measurement, BVA on the 24px floor | L3 | automated | code card with both file targets, wide pane | measure the control row's boxes | each file control's clickable box is >= 24x24 CSS px with the icon glyph size unchanged, and the Details button box height is >= 24px |
+| E17 | SE-reopen | state-transition over repeated clicks (open intent uniqueness) | L1 | automated | a code card with a handler target and a session id, mounted under a recording wouter router | click the same `Open handler in editor` control twice in one session | the recorded history holds two navigations to the SAME editor URL; `history.state.openNonce` after the second click is defined and differs from the value after the first |
 
 ### Frontend-quirk
 
@@ -85,9 +87,9 @@ structure, classes, attributes and source shape; every box measurement is an L3 
 |----|-------------|-----------|-------|-------------|-------|---------|--------------------------------|
 | F1 | FG-grid, FG-live-status | geometry measurement (state: live grid) | L3 | automated | live flow, row 1 = a 0-tool-call card plus a 2-tool-call card, row 2 = a single card, grid wrapper >= 480px | render the live panel and measure | `abs(h1 - h2) <= 1px`; each card's control row bottom edge equals the card's own bottom edge within 1px; no card is shorter than its row; the single-card row is >= 124px tall |
 | F2 | FG-grid | geometry measurement (state: frozen summary grid) | L3 | automated | completed flow, two summary cards with differing content lengths | render the summary and measure inside `flow-summary-scrollbox` | both cards share one height within 1px and each control row is bottom-aligned to its own card bottom (same invariant as F1) |
-| F3 | FS-code, FG-grid | geometry measurement with a content-grown card | L3 | automated | one row: an agent card with a 2-line body plus a code card with 6 log lines | render the live panel | the code card is > 124px, both cards in the row are equal within 1px, the code preview shows the last 2 lines and offers copy and expand |
-| F4 | FG-grid | geometry measurement with extras | L3 | automated | one row: a card with 2 typed-output chips and a soft-failure banner plus a plain card | render the live panel | both cards are equal within 1px, the row is > 124px, and the chips and the banner are both rendered |
-| F5 | FG-grid | container-query threshold, below (pane-keyed) | L3 | automated | 1440px viewport, split divider dragged so the grid wrapper's own `clientWidth` reads ~243px, live flow with 5 cards | render the panel | the grid renders exactly 1 column (each card's width equals the grid content width within 1px); the basename line and the body slot are absent from the rendered tree; the card count is still 5 |
+| F3 | FS-code, FG-grid | geometry measurement with a content-grown card | L3 | manual-only | one row: an agent card with a 2-line body plus a code card with 6 log lines | render the live panel | the code card is > 124px, both cards in the row are equal within 1px, the code preview shows the last 2 lines and offers copy and expand. Manual-only because the docker harness cannot produce a live code step with program logs, so the L3 geometry check is a manual review on a real running flow; the structural half is covered at L1 by E4 (`LogBlock` `previewLines` 2) and the existing outputs/outcome tests |
+| F4 | FG-grid | geometry measurement with extras | L3 | manual-only | one row: a card with 2 typed-output chips and a soft-failure banner plus a plain card | render the live panel | both cards are equal within 1px, the row is > 124px, and the chips and the banner are both rendered. Manual-only because the docker harness cannot produce a live code step with typed outputs and a soft failure (idle attach only renders pending cards), so the L3 geometry check is a manual review on a real running flow; the structural half is covered at L1 by E4 (`LogBlock` `previewLines` 2) and the existing outputs/outcome tests |
+| F5 | FG-grid | container-query threshold, below (pane-keyed) | L3 | automated | 1440px viewport, split divider dragged so the grid wrapper's own `clientWidth` reads ~243px, live flow with 6 cards | render the panel | the grid renders exactly 1 column (each card's width equals the grid content width within 1px); the basename line and the body slot are absent from the rendered tree; the card count is still 6 |
 | F6 | FG-grid | container-query threshold, above, and viewport-independence | L3 | automated | a 700px viewport (below the mobile breakpoint) with a >= 480px wrapper; and a desktop viewport with a 481px wrapper | render the panel in each configuration | full cards in both: the basename line and the body slot are present and the compact treatment is not applied, proving the query keys off pane width, not the viewport |
 | F7 | SE-pane | geometry + scrollport measurement (split editor open) | L3 | automated | split editor open, chat pane ~243px, live flow panel ~476px tall in the sticky header row | render the pane | the header row is < 476px and >= 0; the header's `scrollHeight > clientHeight` (it owns a scrollport); the transcript is >= 16px and the composer >= 72px; every pane child's rect lies inside the pane's rect within 1px (nothing painted outside its box) |
 | F8 | SE-pane | geometry above the base-height sum | L3 | automated | pane taller than the sum of all rows' base heights with the flow panel rendered | render the pane | the header row equals its content height within 1px and its `scrollHeight == clientHeight` (no scrollbar) |
@@ -95,6 +97,8 @@ structure, classes, attributes and source shape; every box measurement is an L3 
 | F10 | FA-handler, SE-pane | real hit-tested pointer injection, state-transition A -> B | L3 | automated | split editor open (pane ~243px), two code-kind cards A and B with distinct handler files | open A's handler from its control, then scroll the header row's own scrollbar to card B's `Open handler in editor` and click it with a real pointer at the control's centre (never `element.click()`) | the click is not reported as covered/intercepted; the route becomes `/session/<id>/editor?file=<B>`; card A's editor tab stays open and the active editor tab becomes B's basename; both files render |
 | F11 | SE-pane (regression guard) | regression invariant | L3 | automated | the existing flow-less scenarios of `tests/e2e/chat-pane-below-floor-allocation.spec.ts` at their existing pane heights | run the spec against the built client | rows #E3 and #E4 (at/above the floor sum, clip 0), #E5-#E8 (deficit shared, transcript 16..64px, composer >= 72px, context strip > 20px), #E9 and #F4 pass with zero expectation edits; a failure is treated as a reclassification bug, not a stale expectation |
 | F12 | FG-grid | geometry + content-presence in the compact tile | L3 | automated | pane < 480px with a code card that has neither `codeTarget` nor `sourcePath` (no basename line) and no logs (no body) | render the panel | the tile still renders the status icon, the name, the stats line and the control row; the tile is >= 76px tall; no zero-height card and no collapsed empty box |
+| F13 | SE-reopen | state-transition on the apply-once key (nonce) | L1 | automated | the route bridge with the same session/file/line/url, rendering in three steps: mount, opener-identity change (same nonce), fresh nonce | re-render at each step and observe the opener calls | a fresh nonce re-applies the target (`openInSplit` called with the same file/line again), while the same nonce with recreated openers is a no-op; the closed pane is never re-opened by the identity change alone |
+| F14 | SE-reopen | real hit-tested pointer injection, state-transition close -> re-open | L3 | automated | split editor open from a card's `Open handler in editor` control (pane ~243px), the editor route left in the URL after the close | press the pane's close control, then click the SAME card's control again with a real pointer at its centre (never `element.click()`) | the split is visible again and the editor tab for that file is present and active (`aria-selected` true); no second route string is needed to bring it back |
 
 ### Error-handling
 
@@ -113,10 +117,10 @@ structure, classes, attributes and source shape; every box measurement is an L3 
 
 ## Coverage summary
 
-- Requirements covered: 6/6 (FG-live-status, FG-grid, FG-contrast, FS-code, FA-handler, SE-pane) plus the NG-details non-goal guard (E14).
-- Scenarios by class: edge 16 · frontend 12 · error 2 · manual 3 · performance 0.
-- Scenarios by level: L1 15 · L2 0 · L3 15 · electron 0 · ci 0.
-- Scenarios by disposition: automated 30 · manual-only 3.
+- Requirements covered: 7/7 (FG-live-status, FG-grid, FG-contrast, FS-code, FA-handler, SE-pane, SE-reopen) plus the NG-details non-goal guard (E14).
+- Scenarios by class: edge 17 · frontend 14 · error 2 · manual 3 · performance 0.
+- Scenarios by level: L1 17 · L2 0 · L3 16 · electron 0 · ci 0.
+- Scenarios by disposition: automated 31 · manual-only 5.
 
 ## New infra needed
 

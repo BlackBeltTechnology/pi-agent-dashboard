@@ -48,20 +48,33 @@ interface SplitRouteSyncProps {
    * open-view-command-in-editor-pane (D1/D6).
    */
   url?: string | null;
+  /**
+   * Per-open intent read from the history entry's state (`useHistoryState` →
+   * `openNonce`). A FRESH nonce re-applies an otherwise-identical target, so a
+   * target the user closed — with the pane's close control or by closing only
+   * its file tab, both of which leave the URL naming the target — can be
+   * re-opened by the same control. Re-renders at the SAME nonce stay no-ops.
+   * See change: consolidate-flow-agent-cards (D8).
+   */
+  nonce?: string;
 }
 
 /**
  * Opens the split from the deep-link route. Rendered under the provider so it
  * can reach the openers. No-op when the route is inactive or carries no target.
  */
-export function SplitRouteSync({ active, file, line, url }: SplitRouteSyncProps) {
+export function SplitRouteSync({ active, file, line, url, nonce }: SplitRouteSyncProps) {
   const { sessionId, openInSplit, ensureRevealed, openUrlTarget, openLiveTarget } = useSplitWorkspace();
-  // Apply each route target ONCE. The openers change identity with the split
-  // `mode` (closing the editor recreates them) while the URL still names the
-  // target; re-running on that would re-open the split the user just closed.
+  // Apply each route target ONCE per open INTENT. The nonce makes a deliberate
+  // re-open of an unchanged URL a new intent (D8); without it, the openers'
+  // identity change caused by closing the editor would re-open the split the
+  // user just closed, while a genuine re-open of the same URL would be lost.
   // Keyed like CanvasDriver's `lastKeyRef`; reset when the route goes inactive
-  // so back/forward re-applies. See change: attach-flow-before-run.
-  const key = active ? `${sessionId}\u0000${file ?? ""}\u0000${line ?? ""}\u0000${url ?? ""}` : null;
+  // so back/forward re-applies. See change: attach-flow-before-run,
+  // consolidate-flow-agent-cards (D8).
+  const key = active
+    ? `${sessionId}\u0000${file ?? ""}\u0000${line ?? ""}\u0000${url ?? ""}\u0000${nonce ?? ""}`
+    : null;
   const lastKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (key == null) {

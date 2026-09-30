@@ -1,3 +1,42 @@
+## ADDED Requirements
+
+### Requirement: A deliberate re-open of the same editor target re-applies it
+
+The editor route bridge SHALL apply a route target once per **open intent**, not
+once per URL. An open intent is the target (session id, `file`, `line`, `url`)
+plus a nonce the opener mints fresh for that open. A route open carrying a fresh
+nonce SHALL re-apply even when the target is unchanged, so a target the user has
+closed — with the pane's close control, or by closing only its file tab — can be
+re-opened by the same control that opened it. A re-render that changes only the
+openers' identity while the nonce is unchanged SHALL NOT re-apply; that is what
+lets the user close the split while the URL still names the target. The intent
+SHALL be carried outside the URL: the route string SHALL remain the shareable
+deep link a copied URL produces, and no per-open value SHALL be required in it.
+
+#### Scenario: The pane close control does not block a re-open
+
+- **GIVEN** a flow card's file control opened a file in the split editor
+- **AND** the user closed the editor with its close control, leaving the route at
+  the editor route for that file
+- **WHEN** the user activates the same card's file control again
+- **THEN** the split SHALL re-open with that file as the active editor tab
+
+#### Scenario: Closing a file's tab does not block a re-open
+
+- **GIVEN** the split editor is open and a file opened from a card's file control
+  is one of its tabs
+- **WHEN** the user closes that file's tab, leaving the pane open
+- **AND** the user activates the same card's file control again
+- **THEN** the file's tab SHALL re-open and SHALL become the active tab
+
+#### Scenario: Closing the pane does not re-open it by itself
+
+- **GIVEN** the split editor is open from a route target
+- **WHEN** the user closes the editor with its close control and the mode change
+  recreates the openers
+- **THEN** no re-render of the route bridge SHALL re-open the split
+- **AND** the split SHALL stay closed until a fresh open intent arrives
+
 ## MODIFIED Requirements
 
 ### Requirement: Chat pane SHALL budget its height so no row is clipped
