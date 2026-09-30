@@ -22,7 +22,7 @@ import { parse as parseYaml } from "yaml";
 import { FLOW_FILES_REPORT, FLOW_FILES_REQUEST_EVENT, type FlowFilesReport, type ReportedFile } from "../flow-files-contract.js";
 
 interface SessionFiles {
-  allowed: Set<string>;
+  allowed: Map<string, string>;
   /** agent name → absolute agent file. */
   agents: Record<string, string>;
   /** flow name → step id → absolute handler file. */
@@ -104,18 +104,24 @@ export class FlowFileRegistry {
   report(sessionId: string, report: FlowFilesReport | null | undefined, cwd?: string): void {
     const flows = sanitize(report?.flows, YAML);
     const agents = sanitize(report?.agents, MARKDOWN);
-    const allowed = new Set<string>();
+    // lookup key (as reported / resolved, and its realpath) → canonical file.
+    const allowed = new Map<string, string>();
+    const allow = (file: string) => {
+      const real = canonical(file);
+      allowed.set(path.resolve(file), real);
+      allowed.set(real, real);
+    };
     const agentMap: Record<string, string> = Object.create(null);
     const handlers: Record<string, Record<string, string>> = Object.create(null);
     for (const f of flows) {
-      allowed.add(canonical(f.source));
+      allow(f.source);
       const h = codeHandlerPaths(f.source, cwd);
       handlers[f.name] = h;
-      for (const file of Object.values(h)) allowed.add(canonical(file));
+      for (const file of Object.values(h)) allow(file);
     }
     for (const a of agents) {
       agentMap[a.name] = a.source;
-      allowed.add(canonical(a.source));
+      allow(a.source);
     }
     this.bySession.set(sessionId, { allowed, agents: agentMap, handlers });
   }
@@ -128,10 +134,19 @@ export class FlowFileRegistry {
     this.bySession.delete(sessionId);
   }
 
+  /**
+   * The stored canonical path when `filePath` is exactly one of the session's
+   * reported files, else null. Pure string lookup — the request path never
+   * touches the filesystem; callers read only the returned stored path.
+   */
+  resolveAllowed(sessionId: string, filePath: string): string | null {
+    if (!path.isAbsolute(filePath)) return null;
+    return this.bySession.get(sessionId)?.allowed.get(path.resolve(filePath)) ?? null;
+  }
+
   /** True when `filePath` is exactly one of the session's reported files. */
   isAllowed(sessionId: string, filePath: string): boolean {
-    if (!path.isAbsolute(filePath)) return false;
-    return this.bySession.get(sessionId)?.allowed.has(canonical(filePath)) ?? false;
+    return this.resolveAllowed(sessionId, filePath) !== null;
   }
 
   /** Agent sources + per-flow code handler paths for one session. */
@@ -235,10 +250,10 @@ export function registerFlowFileRoutes(deps: RouteDeps): void {
       requestReport(sessionId);
       return reply.code(409).send({ success: false, error: "not reported yet", retry: true });
     }
-    if (!registry.isAllowed(sessionId, filePath)) {
+    const target = registry.resolveAllowed(sessionId, filePath);
+    if (!target) {
       return reply.code(403).send({ success: false, error: "not a flow file of this session" });
     }
-    const target = canonical(filePath);
     if (!isSmallFile(target)) return reply.code(404).send({ success: false, error: "not found" });
     try {
       const content = await fs.promises.readFile(target, "utf8");

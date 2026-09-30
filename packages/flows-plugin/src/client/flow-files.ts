@@ -65,7 +65,7 @@ export function useFlowNodeFiles(sessionId: string | undefined, enabled = true):
     setFiles(null);
     if (!sessionId || !enabled) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       for (let attempt = 0; attempt < 4 && !cancelled; attempt++) {
         try {
           const r = await fetch(`/api/plugins/flows/files?sessionId=${encodeURIComponent(sessionId)}`);
