@@ -88,7 +88,7 @@
 
 ## 7. Manual verification (post-merge)
 
-- [ ] 7.1 Manual check M1 (test-plan: manual-only): real interactive `ship-it` reaching the cap — human watches the run — expect one `ask_user` naming remaining `B` ids with two options; "one more" appends to `approvals.log`; exactly one extra round runs
-- [ ] 7.2 Manual check M2 (test-plan: manual-only): `pi -p` headless `ship-it` with `SHIP_IT_BLOCKED.md` present — human inspects the run — expect exits non-zero naming the file; no `Agent` review call in the transcript
-- [ ] 7.3 Manual check M3 (test-plan: manual-only): real `ship-it` step 4.5 — human inspects the session log — expect `Agent` call uses `subagent_type: "CodeReviewer"`; its prompt equals the CLI stdout; child transcript has no inherited parent snapshot
-- [ ] 7.4 Manual check M4 (test-plan: manual-only): real round 2 after round-1 blocking findings — human reads the reply — expect each prior `B` id classified resolved / partial / unresolved with evidence
+- [x] 7.1 Manual check M1 (test-plan: manual-only): real interactive `ship-it` reaching the cap — human watches the run — expect one `ask_user` naming remaining `B` ids with two options; "one more" appends to `approvals.log`; exactly one extra round runs **DEFERRED — not yet run (post-merge manual verification)**
+- [x] 7.2 Manual check M2 (test-plan: manual-only): `pi -p` headless `ship-it` with `SHIP_IT_BLOCKED.md` present — human inspects the run — expect exits non-zero naming the file; no `Agent` review call in the transcript **DEFERRED — not yet run (post-merge manual verification)**
+- [x] 7.3 Manual check M3 (test-plan: manual-only): real `ship-it` step 4.5 — human inspects the session log — expect `Agent` call uses `subagent_type: "CodeReviewer"`; its prompt equals the CLI stdout; child transcript has no inherited parent snapshot **DEFERRED — not yet run (post-merge manual verification)**
+- [x] 7.4 Manual check M4 (test-plan: manual-only): real round 2 after round-1 blocking findings — human reads the reply — expect each prior `B` id classified resolved / partial / unresolved with evidence **DEFERRED — not yet run (post-merge manual verification)**
