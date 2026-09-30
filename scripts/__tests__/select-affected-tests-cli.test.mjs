@@ -17,6 +17,7 @@ import { renderSummary } from "../select-affected-tests.mjs";
 import { checkResult } from "../test-selection/check-result.mjs";
 import { decide } from "../test-selection/decide.mjs";
 import { changedFiles, resolveDiff } from "../test-selection/git-diff.mjs";
+import { assignment } from "../test-selection/assigned.mjs";
 import { assignedFor, verifyExecuted } from "../test-selection/verify-executed.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -279,5 +280,24 @@ describe("ci-result expectation check (X8)", () => {
 
   it("an always-expected job (ci) that was skipped fails", () => {
     expect(checkResult(selection, { ...ok, ci: { result: "skipped" } }).ok).toBe(false);
+  });
+});
+
+describe("assignment for a workflow job", () => {
+  const sel = { enumerated: true, shards: [["a"], [], [], []], realProcess: [], ciScenariosFiles: ["g"] };
+
+  it("an empty shard is empty (the job skips vitest and succeeds)", () => {
+    expect(assignment(sel, "unit-2")).toEqual({ files: [], empty: true, enumerated: true });
+    expect(assignment(sel, "unit-1")).toEqual({ files: ["a"], empty: false, enumerated: true });
+  });
+
+  it("an unenumerated selection falls back to --shard for unit/real-process, never to an empty skip", () => {
+    const un = { ...sel, enumerated: false };
+    expect(assignment(un, "unit-2")).toEqual({ files: [], empty: false, enumerated: false });
+    expect(assignment(un, "real-process").empty).toBe(false);
+  });
+
+  it("packaging-scenario files stay listed even when the suite was not enumerated", () => {
+    expect(assignment({ ...sel, enumerated: false }, "ci-scenarios").files).toEqual(["g"]);
   });
 });

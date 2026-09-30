@@ -44,7 +44,7 @@ export function verifyExecuted(assigned, report, root) {
 
 function main([selectionPath, jobKey, reportPath]) {
   const selection = JSON.parse(fs.readFileSync(selectionPath, "utf8"));
-  if (selection.enumerated === false) {
+  if (selection.enumerated === false && jobKey !== "ci-scenarios") {
     console.log("[verify-executed] selection did not enumerate tests (fallback sharding); nothing to compare");
     return 0;
   }

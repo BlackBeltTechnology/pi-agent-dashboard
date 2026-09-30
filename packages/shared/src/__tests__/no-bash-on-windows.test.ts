@@ -47,6 +47,8 @@ const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const WORKFLOW_FILES: readonly string[] = [
   ".github/workflows/publish.yml",
   ".github/workflows/ci.yml",
+  // Full-suite nightly (change: speed-up-ci-affected-tests).
+  ".github/workflows/nightly-tests.yml",
   // The standalone-install-smoke-windows job moved out of ci.yml into the
   // reusable `_smoke.yml` in change gate-publish-on-smoke-and-tests. Keep
   // the lint pointing at where the Windows runner actually lives.

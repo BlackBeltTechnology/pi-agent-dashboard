@@ -1,0 +1,199 @@
+name: Nightly tests
+
+# The full vitest suite, every night, sharded — the safety net under
+# affected-only selection on PRs and develop pushes (change:
+# speed-up-ci-affected-tests, D6). Runs everything the selector may skip,
+# including the slow tier. On a red SCHEDULED run the `report` job opens or
+# updates the single open `nightly-tests` issue naming the failing files, any
+# job with no report, and the develop range since the last green scheduled run
+# (the bisect range). A dispatch run reports in its summary only and never
+# anchors a range. Independent of the land-dark nightly.yml.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+concurrency:
+  group: nightly-tests
+  cancel-in-progress: false
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      has_real_process: ${{ steps.select.outputs.has_real_process }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Select the full suite
+        id: select
+        run: node scripts/select-affected-tests.mjs --full --reason "nightly ${{ github.event_name }}" --out selection.json
+      - name: Upload test selection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-selection
+          path: selection.json
+          retention-days: 14
+          if-no-files-found: error
+
+  unit:
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read shard assignment
+        id: shard
+        run: node scripts/test-selection/assigned.mjs selection.json "unit-${{ matrix.shard }}" assigned.txt
+      - if: steps.shard.outputs.empty != 'true'
+        uses: pnpm/action-setup@v4
+      - if: steps.shard.outputs.empty != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # Scripts ON: packages/client's `prepare` builds dist/, which the bundle
+      # budget tests need (they return early without it — see the assertion).
+      - if: steps.shard.outputs.empty != 'true'
+        run: pnpm install --frozen-lockfile
+      # deck3d browser rows self-skip without chromium.
+      - name: Install chromium
+        if: steps.shard.outputs.empty != 'true'
+        run: npx playwright install chromium --with-deps
+      - name: Assert the built client exists (bundle-budget tests need it)
+        if: steps.shard.outputs.empty != 'true'
+        run: test -f packages/client/dist/index.html || { echo "::error::packages/client/dist/index.html missing — bundle-budget tests would pass vacuously"; exit 1; }
+      - name: vitest (assigned files)
+        if: steps.shard.outputs.empty != 'true'
+        run: |
+          if [ "${{ steps.shard.outputs.enumerated }}" = "true" ]; then
+            mapfile -t FILES < assigned.txt
+            pnpm run test:parallel "${FILES[@]}"
+          else
+            pnpm run test:parallel --shard=${{ matrix.shard }}/4
+          fi
+      - name: Verify every assigned file executed
+        if: steps.shard.outputs.empty != 'true'
+        run: node scripts/test-selection/verify-executed.mjs selection.json "unit-${{ matrix.shard }}" test-results/vitest.json
+      - name: Upload vitest JSON report
+        if: always() && steps.shard.outputs.empty != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-unit-${{ matrix.shard }}
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  real-process:
+    needs: select
+    if: needs.select.outputs.has_real_process == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - name: Read assignment
+        id: files
+        run: node scripts/test-selection/assigned.mjs selection.json real-process assigned.txt
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: vitest real-process phase (maxWorkers 2, CI retry 1)
+        run: |
+          mapfile -t FILES < assigned.txt
+          pnpm run test:real-process "${FILES[@]}"
+      - name: Verify every assigned file executed
+        run: node scripts/test-selection/verify-executed.mjs selection.json real-process test-results/vitest-real-process.json
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-real-process
+          path: test-results/vitest-real-process.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Held out of the unit shards: npm pack / publish --dry-run across every
+  # workspace starve unrelated 5s-timeout tests when run in parallel with them.
+  ci-scenarios:
+    needs: select
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-selection
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: CI-level publish scenarios (whole scripts project, RUN_CI_SCENARIOS=1)
+        run: pnpm run test:ci-scenarios
+      - name: Verify every assigned file executed
+        run: node scripts/test-selection/verify-executed.mjs selection.json ci-scenarios test-results/vitest.json
+      - name: Upload vitest JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-ci-scenarios
+          path: test-results/vitest.json
+          retention-days: 14
+          if-no-files-found: warn
+
+  report:
+    needs: [select, unit, real-process, ci-scenarios]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Full history: the anchor must be an ancestor of this commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vitest-report-*
+          path: reports
+      - name: Report (issue on a red scheduled run, close on green)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/test-selection/nightly-report.mjs --reports reports --expected unit-1,unit-2,unit-3,unit-4,real-process,ci-scenarios
+      - name: Upload refreshed timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings
+          path: reports/timings.json
+          retention-days: 30
+          if-no-files-found: warn

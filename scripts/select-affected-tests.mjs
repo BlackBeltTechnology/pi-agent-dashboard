@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { decide, SHARD_COUNT } from "./test-selection/decide.mjs";
+import { decide, isGatedSource, SHARD_COUNT } from "./test-selection/decide.mjs";
 import { resolveDiff } from "./test-selection/git-diff.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -56,8 +56,22 @@ function loadData() {
   };
 }
 
+/** Packaging-scenario files by plain source scan of the `scripts` project (no vitest needed). */
+function scanGatedFiles(root) {
+  const dir = path.join(root, "scripts", "__tests__");
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".test.mjs") && isGatedSource(fs.readFileSync(path.join(dir, f), "utf8")))
+      .map((f) => `scripts/__tests__/${f}`)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
 /** Selection for when nothing could be enumerated: the workflow shards everything itself. */
-export function unenumeratedFull(reason) {
+export function unenumeratedFull(reason, root = process.cwd()) {
   return {
     mode: "full",
     reason,
@@ -68,7 +82,7 @@ export function unenumeratedFull(reason) {
     shardLoads: Array(SHARD_COUNT).fill(0),
     realProcess: [],
     ciScenarios: true,
-    ciScenariosFiles: [],
+    ciScenariosFiles: scanGatedFiles(root),
     counts: {},
     unmapped: [],
     leafErrors: [],
@@ -158,7 +172,7 @@ export async function main(argv = process.argv.slice(2)) {
       selection.base = diff.base ?? null;
       selection.graphMs = index.ms;
     } catch (e) {
-      selection = unenumeratedFull(`selector error: ${String(e?.message ?? e).split("\n")[0]}`);
+      selection = unenumeratedFull(`selector error: ${String(e?.message ?? e).split("\n")[0]}`, args.cwd);
     }
   }
   fs.writeFileSync(path.resolve(args.cwd, args.out), `${JSON.stringify(selection, null, 1)}\n`);
