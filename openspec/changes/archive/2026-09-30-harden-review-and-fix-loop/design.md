@@ -244,6 +244,11 @@ prompt — the inner loop, which runs more often, would not get them.
   `approvals.log` lines written right after an `ask_user` answer (auditable
   against the transcript), reviewer output is never parsed for approvals, the
   contract test pins the rule, and headless runs cannot reach `ask` at all.
+- [A prior finding's unindented follow-on paragraph is not carried into the
+  verification prompt] → accepted (human adjudication during ship-it): it is
+  syntactically indistinguishable from the unlabelled non-blocking prose the
+  bounded-prior rule (#E24) must exclude. Indented continuations are carried,
+  and the generated reply format asks the reviewer to indent continuations.
 - [Ledger evidence is validated by presence, not substance] → accepted by
   design (D3); the verification round owns substance.
 - [`ask_user` in a session with no human watching blocks the run] → accepted:

@@ -66,6 +66,21 @@ Review **every changed line**, in context, highest-value dimension first. Most d
 
 Also, deliberately look for something **done well** and say so — a sincere `praise:` per review is part of the discipline, not decoration.
 
+## Defect Classes — sweep populations, not samples
+
+The dimensions say *what* to judge; these classes say *where blocking defects cluster*. For each class, find **every** instance of its pattern in the change (grep for it), not the first one you happen to read. Report, per class, what you checked — including "no instances".
+
+| Class | How to sweep |
+|---|---|
+| **Spec and task conformance** | Walk each requirement/scenario and task the change claims; find the code and test that satisfy it. Flag anything claimed but absent, or present but contradicting the stated intent. |
+| **Canonicalize before check** | Find every guard/allowlist/lookup on a path, URL, id, or name; confirm the value is normalised (resolve, decode, case-fold, trim) *before* the check, the same way the consumer will interpret it. |
+| **Degenerate and boundary input** | For every new input: empty, whitespace-only, zero, one, max, duplicate, missing file/dir, malformed data. Does each take a defined path? |
+| **Stale state and reconciliation** | Find every cache, map, derived copy or persisted record the change writes; confirm it is updated or invalidated on each mutation path (rename, delete, restart, reconnect). |
+| **Error-path cleanup** | For every resource acquired (temp dir, lock, listener, timer, child process, open handle), follow each throw/early-return path and confirm release. |
+| **Shared-helper blast radius** | For every shared function/type/constant the change modifies, list its callers (grep) and check each still holds under the new behaviour. |
+| **Concurrency and interleaving** | For every async step, check-then-act, or shared mutable state: can two callers interleave between the check and the act? Is ordering assumed but unenforced? |
+| **Test fidelity** | For every new test: does it drive the production wiring (real entry point, real config), and would it fail if the code were wrong? Mocks that bypass the path under test do not count. |
+
 ## Severity Taxonomy — parseable, prioritized
 
 Every finding carries a label so the author (or the loop) knows what is mandatory versus optional. Without labels, everything reads as blocking and the change stalls. Based on Conventional Comments; the `blocking` / `non-blocking` decoration is what the loop keys on.
@@ -98,14 +113,24 @@ Rules for writing findings (from Google's "How to write comments"):
 Coherence-preserving: the reviewer and the fixer share the same context, so the fix understands the change's intent.
 
 ```text
-1. Review every changed line across the dimensions → emit labelled findings.
+1. Review every changed line across the dimensions and sweep every defect
+   class → emit labelled findings.
 2. Triage: collect all issue(blocking) + issue(non-blocking) you intend to fix.
-3. Fix them SURGICALLY — smallest safe change per finding. Every changed line
-   traces to a finding. Do NOT refactor adjacent code "while you're here".
+3. Fix each one under the fix protocol below. Every changed line traces to a
+   finding. Do NOT refactor adjacent code "while you're here".
 4. Re-review the new diff (fixes can introduce defects).
 5. Repeat 1–4 until only non-blocking / suggestion / nitpick / praise remain.
 6. PASS. Leave remaining suggestions labelled for the author to take or defer.
 ```
+
+**Fix protocol — per blocking finding, in order:**
+
+1. **Reproducing test first.** Write a test that fails because of the defect, and see it fail. If no automated test can observe it, write down why (one concrete sentence), not "hard to test".
+2. **Smallest fix.** The minimal change that turns that test green.
+3. **Sibling sweep.** Search the change for the same pattern (same helper, same check shape, same resource) and fix every other instance. Record the search you ran, even when it finds nothing.
+4. **Re-read the fix against the finding's class.** Read the fix hunk itself through that defect class — a cleanup fix can leak on its own error path; a canonicalisation fix can miss a caller.
+
+Most defects found in a second review round are introduced or left behind by the first round's fixes; steps 1 and 3 are what prevent them.
 
 The stop condition is the governing principle made mechanical: **zero `issue(blocking)` remaining ⇒ pass.** Do not loop on suggestions.
 
@@ -129,6 +154,8 @@ The stop condition is the governing principle made mechanical: **zero `issue(blo
 ## Verification
 
 - [ ] Every changed line was reviewed, in context, across the dimensions in value order
+- [ ] A per-class sweep summary states, for each defect class, what was checked and what was found (including "no instances")
+- [ ] Each blocking fix followed the fix protocol: reproducing test (or stated reason), smallest fix, sibling sweep, re-read against its class
 - [ ] Findings carry honest labels; blocking vs non-blocking is explicit
 - [ ] All `issue(blocking)` findings were fixed surgically and the diff re-reviewed
 - [ ] The loop stopped at zero blocking findings (not at "perfect")
