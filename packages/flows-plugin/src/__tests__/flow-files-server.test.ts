@@ -100,7 +100,7 @@ describe("flow file routes", () => {
     live = [{ id: "S1", cwd: path.join(tmp, "cwd") }];
     emitEventToSession.mockClear();
     fastify = Fastify();
-    registerFlowFileRoutes({
+    await registerFlowFileRoutes({
       fastify: fastify as never,
       networkGuard: async () => {},
       registerPiRequestHandler: (type, h) => {

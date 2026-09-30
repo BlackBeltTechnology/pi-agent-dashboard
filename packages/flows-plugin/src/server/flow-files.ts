@@ -16,6 +16,8 @@
  * No sibling, parent dir, or helper file becomes readable.
  * See change: attach-flow-before-run.
  */
+import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import rateLimit from "@fastify/rate-limit";
 import fs from "node:fs";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -164,19 +166,9 @@ export class FlowFileRegistry {
 
 const flowFileRegistry = new FlowFileRegistry();
 
-interface RouteReply {
-  code(n: number): RouteReply;
-  send(body: unknown): unknown;
-}
 interface RouteDeps {
-  fastify: {
-    get(
-      url: string,
-      opts: { preHandler: unknown },
-      handler: (req: { query?: unknown }, reply: RouteReply) => unknown,
-    ): unknown;
-  };
-  networkGuard: unknown;
+  fastify: ServerPluginContext["fastify"];
+  networkGuard: ServerPluginContext["networkGuard"];
   registerPiRequestHandler?: (type: string, h: (payload: unknown, meta: { sessionId: string }) => unknown) => void;
   sessionManager: { listActive(): unknown[]; getSession(id: string): unknown };
   emitEventToSession: (sessionId: string, eventType: string, data: Record<string, unknown>) => boolean;
@@ -199,7 +191,7 @@ function liveIds(sm: RouteDeps["sessionManager"]): Set<string> {
  * A lookup for a live session with no report yet asks its bridge to report
  * and answers `reported: false` (the client retries).
  */
-export function registerFlowFileRoutes(deps: RouteDeps): void {
+export async function registerFlowFileRoutes(deps: RouteDeps): Promise<void> {
   const registry = deps.registry ?? flowFileRegistry;
   const lastAsk = new Map<string, number>();
   const requestReport = (sessionId: string) => {
@@ -228,7 +220,13 @@ export function registerFlowFileRoutes(deps: RouteDeps): void {
     return { ok: true };
   });
 
-  deps.fastify.get("/api/plugins/flows/files", { preHandler: deps.networkGuard }, async (req, reply) => {
+  // Routes live in an encapsulated scope carrying a request rate limit
+  // (recognized by CodeQL js/missing-rate-limiting; same pattern as
+  // system-one / gmail). Loopback is allow-listed.
+  await deps.fastify.register(async (scope) => {
+  await scope.register(rateLimit, { global: true, max: 600, timeWindow: "1 minute", allowList: ["127.0.0.1", "::1"] });
+
+  scope.get("/api/plugins/flows/files", { preHandler: deps.networkGuard }, async (req, reply) => {
     const sessionId = liveSession(req.query);
     if (!sessionId) return reply.code(404).send({ success: false, error: "session not found" });
     const files = registry.files(sessionId);
@@ -239,7 +237,7 @@ export function registerFlowFileRoutes(deps: RouteDeps): void {
     return { success: true, data: { reported: true, ...files } };
   });
 
-  deps.fastify.get("/api/plugins/flows/file", { preHandler: deps.networkGuard }, async (req, reply) => {
+  scope.get("/api/plugins/flows/file", { preHandler: deps.networkGuard }, async (req, reply) => {
     const sessionId = liveSession(req.query);
     const filePath = (req.query as { path?: unknown } | null)?.path;
     if (!sessionId) return reply.code(404).send({ success: false, error: "session not found" });
@@ -261,5 +259,6 @@ export function registerFlowFileRoutes(deps: RouteDeps): void {
     } catch {
       return reply.code(404).send({ success: false, error: "not found" });
     }
+  });
   });
 }
