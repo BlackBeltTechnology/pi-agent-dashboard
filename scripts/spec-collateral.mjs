@@ -30,7 +30,8 @@ const OPENSPEC_STOP = new Set([
   "e.g",
   "i.e",
 ]);
-const INTENT = /\b(remov|replac|renam|drop|retir|hid|narrow|forbid)/i;
+const INTENT =
+  /\b(remov(e|es|ed|ing|al)|replac(e|es|ed|ing|ement)|renam(e|es|ed|ing)|drop(s|ped|ping)?|retir(e|es|ed|ing|ement)|hid(e|es|den|ing)|narrow(s|ed|ing)?|forbid(s|den|ding)?)\b/i;
 const LEAD_PUNCT = /^[[\](){}<>"'“”‘’,;!?*~]+/;
 const TRAIL_PUNCT = /[[\](){}<>"'“”‘’,;:!?.*~]+$/;
 const CITATION = /:\d+(?:-\d+)?$/;
@@ -89,7 +90,7 @@ export function extractIdentifiers(text) {
   const ids = new Map();
   for (const sentence of sentences(text)) {
     const mult = INTENT.test(sentence) ? 3 : 1;
-    for (const raw of sentence.replace(/`/g, " ").split(/\s+/)) {
+    for (const raw of sentence.replace(/`/g, " ").split(/[\s|,;]+/)) {
       for (const id of identifiersOf(raw)) ids.set(id, Math.max(ids.get(id) ?? 0, mult));
     }
   }

@@ -63,6 +63,18 @@ describe("extractIdentifiers", () => {
     expect(ids.get("fooBarBeta")).toBe(1);
   });
 
+  it("tokens adjacent to table pipes, commas and semicolons are still extracted", () => {
+    const k = keys("|fooBarAlpha|fooBarBeta| and fooBarGamma,fooBarDelta;fooBarEps");
+    for (const w of ["fooBarAlpha", "fooBarBeta", "fooBarGamma", "fooBarDelta", "fooBarEps"]) expect(k).toContain(w);
+  });
+
+  it("intent needs a real verb form: a word merely starting with a verb stem is neutral", () => {
+    expect(extractIdentifiers("The dropdown uses fooBarAlpha.").get("fooBarAlpha")).toBe(1);
+    expect(extractIdentifiers("Retirement party for fooBarBeta, a hidden gem.").get("fooBarBeta")).toBe(3);
+    for (const s of ["removes", "replaced", "renaming", "dropped", "retires", "hides", "narrowed", "forbidden"])
+      expect(extractIdentifiers(`This ${s} fooBarGamma.`).get("fooBarGamma")).toBe(3);
+  });
+
   it("E9 multiplier is the max over occurrences; bullets are separate sentences", () => {
     const ids = extractIdentifiers("- neutral mention of `fooBarAlpha`\n- drop `fooBarAlpha`\n- keeps `fooBarGamma`");
     expect(ids.get("fooBarAlpha")).toBe(3);
