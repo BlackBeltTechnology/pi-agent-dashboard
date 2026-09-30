@@ -154,6 +154,11 @@ export function reviewRoundDecision(state: ReviewState): ReviewDecision {
     return { action: "review", reason: "previous reply was malformed — one re-invocation of the same round" };
   }
 
+  // No round has run yet: "no findings" means "not reviewed", never "clean".
+  if (state.round <= 0) {
+    return { action: "review", reason: "round 1 \u2014 no review has run yet" };
+  }
+
   if (state.blockingFindings.length === 0) {
     return { action: "proceed", reason: "no blocking findings" };
   }

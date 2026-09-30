@@ -42,6 +42,26 @@ export function newRunId(now: Date = new Date()): string {
   return now.toISOString().replace(/\.\d+Z$/, "Z").replace(/:/g, "-");
 }
 
+/**
+ * Allocate this invocation's run directory ATOMICALLY: the leaf `mkdir` is
+ * non-recursive, so an existing directory (another invocation started in the
+ * same second) fails with EEXIST and we take the next `-<k>` suffix instead of
+ * sharing its round files and approvals.
+ */
+export function createRunDir(gitDir: string, change: string, now: Date = new Date()): string {
+  const base = runDirPath(gitDir, change, newRunId(now));
+  fs.mkdirSync(path.dirname(base), { recursive: true });
+  for (let k = 1; ; k++) {
+    const dir = k === 1 ? base : `${base}-${k}`;
+    try {
+      fs.mkdirSync(dir);
+      return dir;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  }
+}
+
 const nonEmptyLines = (file: string) =>
   fs.existsSync(file)
     ? fs.readFileSync(file, "utf8").split("\n").filter((l) => l.trim() !== "")

@@ -27,10 +27,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type FixLedgerEntry, type LedgerValidation, validateFixLedger } from "./fix-ledger.ts";
 import { DEFECT_CLASSES, parseReviewReply } from "./review-gate.ts";
 import {
+  createRunDir,
   deriveReviewState,
   LEDGER_FAILURES_FILE,
-  newRunId,
-  runDirPath,
 } from "./review-state.ts";
 
 export const PROMPT_HEADER =
@@ -307,8 +306,7 @@ function resolveChange(argv: string[]): ResolvedChange {
 function newRunCli({ change }: ResolvedChange): void {
   const gitDir = git(["rev-parse", "--absolute-git-dir"]);
   if (!gitDir) fail("not inside a git repository");
-  const dir = runDirPath(gitDir, change, newRunId());
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = createRunDir(gitDir, change);
   process.stdout.write(`${dir}\n`);
 }
 

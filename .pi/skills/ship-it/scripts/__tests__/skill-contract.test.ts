@@ -205,6 +205,13 @@ describe("#X5-#X7, #X11 step 4.5 procedure", () => {
     expect(s).toMatch(/re-run the harness \(step 3\) and the step-4\.4 enforcers/i);
   });
 
+  it("commits only the change's own paths before a round — never unrelated local edits", () => {
+    const s = step45();
+    expect(s).not.toMatch(/git add -A/);
+    expect(s).toMatch(/stage the\s+change's own paths explicitly/);
+    expect(s).toMatch(/unrelated local edits[\s\S]{0,80}stay unstaged/);
+  });
+
   it("#X6 retries a malformed reply once, then halts like a timeout", () => {
     const s = step45();
     expect(s).toMatch(/Retry once/);

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { deriveReviewState, newRunId, runDirPath } from "../review-state.ts";
+import { createRunDir, deriveReviewState, newRunId, runDirPath } from "../review-state.ts";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ship-it-state-"));
 afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
@@ -68,5 +68,18 @@ describe("run directory (#E40)", () => {
 
   it("run ids are filesystem-safe timestamps", () => {
     expect(newRunId(new Date("2026-10-01T10:00:00.123Z"))).toBe("2026-10-01T10-00-00Z");
+  });
+});
+
+describe("createRunDir — one directory per invocation", () => {
+  it("two invocations started in the same second get distinct, fresh directories", () => {
+    const gitDir = path.join(tmpRoot, "git-dir");
+    const now = new Date("2026-10-01T10:00:00.000Z");
+    const a = createRunDir(gitDir, "c", now);
+    const b = createRunDir(gitDir, "c", now);
+    expect(a).not.toBe(b);
+    expect(a.startsWith(runDirPath(gitDir, "c", "2026-10-01T10-00-00Z"))).toBe(true);
+    expect(fs.readdirSync(a)).toEqual([]);
+    expect(fs.readdirSync(b)).toEqual([]);
   });
 });

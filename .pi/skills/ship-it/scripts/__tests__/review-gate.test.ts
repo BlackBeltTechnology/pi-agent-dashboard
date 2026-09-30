@@ -156,6 +156,12 @@ describe("#X4 reviewer deadline", () => {
 const B = (...ids: string[]) => ids.map(blocking);
 
 describe("reviewRoundDecision — human continuation at the cap (harden #E1-#E10)", () => {
+  it("round 0 always runs the first review, even with no findings recorded yet", () => {
+    for (const interactive of [true, false]) {
+      expect(reviewRoundDecision({ round: 0, blockingFindings: [], interactive }).action).toBe("review");
+    }
+  });
+
   it("#E1 headless round 1 with a blocking finding runs the verification round", () => {
     const d = reviewRoundDecision({ round: 1, blockingFindings: B("B1"), interactive: false, approvedExtraRounds: 0 });
     expect(d.action).toBe("review");

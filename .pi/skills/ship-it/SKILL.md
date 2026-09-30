@@ -222,9 +222,11 @@ committed, `<run-id>` = invocation start timestamp):
    those values (plus `interactive` and the last round's blocking ids) to
    `reviewRoundDecision`. Never supply a counter from memory; never relabel a
    round as round 1 of a new budget.
-3. **Commit the worktree before each round** (`git add -A && git commit`;
-   squash-merge collapses these), so every reviewed tree has a sha. Record it
-   as the round's sha.
+3. **Commit the worktree before each round** (squash-merge collapses these), so
+   every reviewed tree has a sha. Check `git status --short`, then stage the
+   change's own paths explicitly and commit; unrelated local edits (e.g. a
+   worktree-local `.pi/settings.json`) stay unstaged and never enter the
+   change. Record the commit as the round's sha.
 4. **Generate the prompt — never hand-write it.** Round 1:
    `CLI --change <change> --round 1`. Round N ≥ 2 (a verification round):
    `CLI --change <change> --round N --prior "$RUN/review-r<N-1>.md" --ledger "$RUN/fix-ledger-r<N-1>.json" --since <round N-1 sha>`.
