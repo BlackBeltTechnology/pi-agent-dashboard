@@ -11,7 +11,7 @@
  */
 
 import { isLoopbackUrl } from "@blackbelt-technology/pi-dashboard-shared/live-server.js";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useCanvasTier } from "../../hooks/useCanvasTier.js";
 import { EditorPane } from "../editor-pane/EditorPane.js";
 import { SplitWorkspace } from "./SplitWorkspace.js";
@@ -55,9 +55,21 @@ interface SplitRouteSyncProps {
  * can reach the openers. No-op when the route is inactive or carries no target.
  */
 export function SplitRouteSync({ active, file, line, url }: SplitRouteSyncProps) {
-  const { openInSplit, ensureRevealed, openUrlTarget, openLiveTarget } = useSplitWorkspace();
+  const { sessionId, openInSplit, ensureRevealed, openUrlTarget, openLiveTarget } = useSplitWorkspace();
+  // Apply each route target ONCE. The openers change identity with the split
+  // `mode` (closing the editor recreates them) while the URL still names the
+  // target; re-running on that would re-open the split the user just closed.
+  // Keyed like CanvasDriver's `lastKeyRef`; reset when the route goes inactive
+  // so back/forward re-applies. See change: attach-flow-before-run.
+  const key = active ? `${sessionId}\u0000${file ?? ""}\u0000${line ?? ""}\u0000${url ?? ""}` : null;
+  const lastKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!active) return;
+    if (key == null) {
+      lastKeyRef.current = null;
+      return;
+    }
+    if (key === lastKeyRef.current) return;
+    lastKeyRef.current = key;
     // A param-less `/session/:id/editor` deep-link is a 6th mode-changer outside
     // the openers; route it through the same reveal guard so a deep-link opened
     // from `full` does not yank to `split`. See change: non-disruptive-file-open.
@@ -72,6 +84,6 @@ export function SplitRouteSync({ active, file, line, url }: SplitRouteSyncProps)
     } else {
       ensureRevealed();
     }
-  }, [active, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed]);
+  }, [key, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed]);
   return null;
 }

@@ -84,13 +84,15 @@
   },
   "peerDependencies": {
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "wouter": ">=3.0.0"
   },
   "//deps-rationale": "client-utils retained for hooks (useMobile, useZoomPan) and Phase-2 extension-ui slot consumers (AgentMetricSlot, BreadcrumbSlot, GateSlot, aggregateGateState helper). All UI primitive components (AgentCardShell, MarkdownContent, ConfirmDialog, DialogPortal, SearchableSelectDialog, ZoomControls, format-tokens, format-duration) flow through the UI primitive registry per add-plugin-ui-primitive-registry.",
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "dagre-d3-es": "^7.0.14",
@@ -100,6 +102,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "wouter": "^3.9.0"
   }
 }

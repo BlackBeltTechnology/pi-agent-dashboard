@@ -7,7 +7,9 @@ Flow rendering for the pi-dashboard, packaged as a dedicated workspace plugin (`
 `SessionState.flowState` remains a typed field on the central `SessionState` (declared in `packages/shared/src/types.ts`) so both the plugin and the core client can reference it without an import cycle. The core `event-reducer.ts` continues to dispatch `flow_*` events, but the per-event reducer logic and the rendered UI are owned by this capability.
 
 The motivating design lives in `openspec/changes/extract-flows-as-plugin/design.md`.
+
 ## Requirements
+
 ### Requirement: Flow rendering is packaged as a workspace plugin
 The dashboard SHALL ship flow rendering as a dedicated workspace package at `packages/flows-plugin/`. The package SHALL declare a `pi-dashboard-plugin` manifest field claiming the slots that mount its UI components, and SHALL expose its reducer logic via an `exports` map so that `packages/client/src/lib/event-reducer.ts` can import it as a workspace dependency.
 
@@ -67,11 +69,21 @@ The plugin's reducer SHALL update the target agent's `loopIteration` and `loopMa
 - **THEN** the `developer` agent SHALL have `loopIteration: 2` and `loopMax: 3`
 
 ### Requirement: flow_complete event handling owned by flows-plugin
-The plugin's reducer SHALL update `flowState.status` to the result status and store the `FlowResult` data for the summary view when `flow_complete` is processed.
+The plugin's reducer SHALL update `flowState.status` to the result status and store the `FlowResult` data for the summary view when `flow_complete` is processed. A `flow_complete` whose status is `"rejected"` (a start the flow engine refused, emitted without any `flow_started`) SHALL NOT alter the current `flowState`: its status, agents, and result SHALL stay unchanged, and a running flow SHALL remain running.
 
 #### Scenario: Flow completes
 - **WHEN** a `flow_complete` event with `{ status: "success", flowName: "research", results: {...} }` is processed
 - **THEN** `flowState.status` SHALL be `"success"` and `flowState.flowResult` SHALL contain the results
+
+#### Scenario: Rejected start leaves a running flow running
+- **GIVEN** flow `research` is running
+- **WHEN** a `flow_complete` event with `{ status: "rejected", flowName: "research", reason: "A flow is already running" }` is processed
+- **THEN** `flowState.status` SHALL still be `"running"` and no agent card status SHALL change
+
+#### Scenario: Rejected start with no current flow
+- **GIVEN** no flow state exists for the session
+- **WHEN** a `flow_complete` event with `{ status: "rejected" }` is processed
+- **THEN** no flow state SHALL be created
 
 ### Requirement: flow_agent_error event handling owned by flows-plugin
 The plugin's reducer SHALL handle `flow_agent_error` by appending an `{ kind: "error", text }` entry to the targeted agent's `detailHistory` array, locating the agent by `agentName`/`stepId`. The `error` variant of `FlowDetailEntry` already exists; this requirement adds its producer case. The reducer SHALL NOT change the agent's status (status is owned by `flow_agent_complete`). Events with empty `text` SHALL be ignored.
@@ -158,4 +170,3 @@ The flows plugin SHALL NOT register `flows.resume` or `flows.cancel` — pi-flow
 
 - **WHEN** the flows plugin registers its actions
 - **THEN** neither `flows.resume` nor `flows.cancel` SHALL be present in the registry.
-
