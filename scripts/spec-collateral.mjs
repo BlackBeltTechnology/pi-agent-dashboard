@@ -129,7 +129,7 @@ export function deltaTouchedRequirements(deltaText) {
       const m = /^###\s+Requirement:\s*(.+?)\s*$/.exec(line);
       if (m) names.add(m[1]);
     } else if (section === "RENAMED") {
-      const m = /FROM:\s*`?\s*(?:###\s*Requirement:\s*)?([^`]+?)\s*`?\s*$/.exec(line);
+      const m = /FROM:\s*`?\s*(?:###\s*Requirement:\s*)?(.+?)\s*`?\s*$/.exec(line);
       if (m) names.add(m[1]);
     }
   }

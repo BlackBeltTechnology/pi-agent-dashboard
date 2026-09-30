@@ -191,6 +191,17 @@ describe("scanCollateral", () => {
     expect(r.t2.entries.map((e) => [e.capability, e.requirement])).toEqual([["cap-c", "Kept"]]);
   });
 
+  it("RENAMED FROM names with embedded backticks are excluded from T2", () => {
+    const r = scanCollateral({
+      identifiers: extractIdentifiers("`touchedId`"),
+      mainSpecs: [{ capability: "cap-c", text: spec(["In-process `@fast` title generation", "touchedId"], ["Kept", "touchedId"]) }, ...filler(30)],
+      deltaTexts: {
+        "cap-c": "## RENAMED Requirements\n- FROM: `### Requirement: In-process `@fast` title generation`\n- TO: `### Requirement: New`\n",
+      },
+    });
+    expect(r.t2.entries.map((e) => e.requirement)).toEqual(["Kept"]);
+  });
+
   it("E18 delta capabilities are not in T1", () => {
     const r = scanCollateral({
       identifiers: extractIdentifiers("Remove `strongId`."),
