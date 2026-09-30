@@ -237,6 +237,18 @@ describe("scanCollateral", () => {
     expect(renderMarkdown(r)).toContain("4 omitted");
   });
 
+  it("markdown cells escape backslashes before pipes, so a cell cannot break the table", () => {
+    const md = renderMarkdown({
+      t1: { entries: [{ capability: "cap-x", requirement: "ends with \\|and pipe", score: 1, identifiers: ["someIdent"] }], omitted: 0 },
+      t2: { entries: [], omitted: 0 },
+      identifiers: [],
+    });
+    const row = md.split("\n").find((l) => l.startsWith("| 1 |"));
+    expect(row).toContain("ends with \\\\\\|and pipe");
+    // exactly 6 unescaped pipes = 5 columns; an escape bug would add a column
+    expect(row.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
+  });
+
   it("E21 deterministic tie-break: capability then requirement name ascending", () => {
     const r = scanCollateral({
       identifiers: extractIdentifiers("`tieIdOne` `tieIdTwo`"),

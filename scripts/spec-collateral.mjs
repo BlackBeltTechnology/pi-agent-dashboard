@@ -208,7 +208,8 @@ export function scanCollateral({ identifiers, mainSpecs, deltaCaps, deltaTexts =
   return { t1: limit(t1), t2: limit(t2), identifiers: ids };
 }
 
-const cell = (s) => String(s).replace(/\|/g, "\\|");
+/** Escape a markdown table cell: backslashes first, so a trailing `\` cannot un-escape the `\|` that follows. */
+const cell = (s) => String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 
 export function renderMarkdown(result, change = "") {
   const lines = [`## Spec-collateral scan${change ? ` — \`${change}\`` : ""}`, ""];
