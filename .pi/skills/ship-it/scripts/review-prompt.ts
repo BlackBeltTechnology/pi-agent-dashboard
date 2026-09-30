@@ -75,6 +75,35 @@ const FINDING_START_RE = /^[\s>*\-_`]*(issue|suggestion|nitpick|nit|question|pra
 const BLOCKING_ID_RE = /issue\(blocking\)[*_`]*\s*:?\s*[*_`]*(B\d+)\b/;
 
 /** Extract each `issue(blocking): B<n>` block of a reply, by id, first occurrence, bounded. */
+/** A line that ends a finding block: the next finding, a heading, a table row, or the trailer. */
+const endsBlock = (l: string) =>
+  FINDING_START_RE.test(l) || /^\s*(#|\|)/.test(l) || /^[\s*`]*(BLOCKING_COUNT|VERDICT)\b/.test(l);
+
+/**
+ * The finding line plus its continuation. A blank line continues the block only
+ * when the next non-blank line is an indented continuation (the finding format
+ * indents detail), so multi-paragraph findings survive while unlabelled prose
+ * after them does not.
+ */
+function collectBlock(lines: string[], start: number): string[] {
+  const block = [lines[start]];
+  for (let j = start + 1; j < lines.length; j++) {
+    const l = lines[j];
+    if (l.trim() !== "") {
+      if (endsBlock(l)) break;
+      block.push(l);
+      continue;
+    }
+    let k = j + 1;
+    while (k < lines.length && lines[k].trim() === "") k++;
+    const next = lines[k];
+    if (next === undefined || !/^\s+\S/.test(next) || endsBlock(next)) break;
+    block.push(...lines.slice(j, k));
+    j = k - 1;
+  }
+  return block;
+}
+
 export function extractBlockingBlocks(reply: string): Array<{ id: string; text: string }> {
   const lines = reply.split("\n");
   const out: Array<{ id: string; text: string }> = [];
@@ -83,14 +112,7 @@ export function extractBlockingBlocks(reply: string): Array<{ id: string; text: 
     const id = BLOCKING_ID_RE.exec(lines[i])?.[1];
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    const block = [lines[i]];
-    for (let j = i + 1; j < lines.length; j++) {
-      const l = lines[j];
-      if (l.trim() === "" || FINDING_START_RE.test(l) || /^\s*(#|\|)/.test(l)) break;
-      if (/^[\s*`]*(BLOCKING_COUNT|VERDICT)\b/.test(l)) break;
-      block.push(l);
-    }
-    let text = block.join("\n");
+    let text = collectBlock(lines, i).join("\n");
     if (text.length > PRIOR_BLOCK_MAX_CHARS) text = `${text.slice(0, PRIOR_BLOCK_MAX_CHARS)} […truncated]`;
     out.push({ id, text });
   }

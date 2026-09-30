@@ -119,6 +119,26 @@ describe("buildReviewPrompt — verification round (#E23, #E24)", () => {
     expect(body).toContain(reason);
   });
 
+  it("carries every paragraph of a multi-paragraph prior finding, as written", () => {
+    const prior = [
+      "issue(blocking): B1 — stale cache after rename",
+      "  a.ts:10 — the map keeps the old key.",
+      "",
+      "  Second paragraph: the delete path has the same shape at a.ts:40.",
+      "",
+      "Unindented closing prose ZZ_OUTSIDE_SENTINEL.",
+      "",
+      "issue(blocking): B2 — temp dir leaks on error",
+      "",
+      "BLOCKING_COUNT: 2",
+      "VERDICT: block",
+    ].join("\n");
+    const p = buildReviewPrompt({ ...full, round: 2, prior, since: "a1b2c3d" }, RUBRIC);
+    expect(p).toContain("Second paragraph: the delete path has the same shape at a.ts:40.");
+    expect(p).toContain("issue(blocking): B2 — temp dir leaks on error");
+    expect(p).not.toContain("ZZ_OUTSIDE_SENTINEL");
+  });
+
   it("#E24 carries only the prior blocking blocks, bounded, plus the fix delta", () => {
     const filler = "Non-blocking prose ZZ_NONBLOCKING_SENTINEL about naming.\n".repeat(800); // ≈45 KB
     const prior = [
