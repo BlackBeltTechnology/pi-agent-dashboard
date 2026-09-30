@@ -116,12 +116,35 @@ export function withNodeFiles(state: FlowState, files: FlowNodeFiles | null): Fl
  * Open a file in the host's built-in editor (Monaco, Split view) via its
  * `/session/:id/editor?file=<path>` deep link — the same in-app route the
  * host's own file links use. `null` without a session (no editor to target).
+ *
+ * Every call stamps a fresh `openNonce` into the history entry's state. The URL
+ * is byte-identical for the same file, so after the user closes the editor
+ * (pane close control, or just the file's tab) a second click would otherwise
+ * be indistinguishable from the re-render that follows the close — the host's
+ * apply-once key would not change and the split would never come back. The host
+ * folds the nonce into that key, so a deliberate open re-applies while a
+ * re-render at the same nonce stays a no-op. The nonce stays out of the URL, so
+ * a copied deep link is unchanged. See change: consolidate-flow-agent-cards (D8).
+ *
+ * The nonce must be unique across page loads: `history.state` survives a
+ * reload, but this module's counter restarts, so a bare counter would re-mint a
+ * value that already sits in the surviving entry (open file → nonce 1 → reload
+ * → close → click = nonce 1 again) and the swallowed open would recur. Hence a
+ * timestamp prefix plus the counter, as a string (the host accepts
+ * number|string).
  */
+let openNonceSeq = 0;
+
+const nextOpenNonce = (): string => `${Date.now().toString(36)}-${(++openNonceSeq).toString(36)}`;
+
 export function useOpenFileInEditor(sessionId: string | undefined): ((filePath: string) => void) | null {
   const [, navigate] = useLocation();
   const open = useCallback(
     (filePath: string) => {
-      if (sessionId) navigate(`/session/${encodeURIComponent(sessionId)}/editor?file=${encodeURIComponent(filePath)}`);
+      if (sessionId)
+        navigate(`/session/${encodeURIComponent(sessionId)}/editor?file=${encodeURIComponent(filePath)}`, {
+          state: { openNonce: nextOpenNonce() },
+        });
     },
     [navigate, sessionId],
   );

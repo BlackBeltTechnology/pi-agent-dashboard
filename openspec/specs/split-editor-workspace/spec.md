@@ -341,6 +341,21 @@ Every row of the pane SHALL be classified, explicitly and in one place, as eithe
   NOT be shrunk, because a row that neither clips nor scrolls would paint its
   content over its neighbour rather than hide it.
 
+The `content-header-sticky` row SHALL be classified **shrinkable**, because it
+owns a scrollport: a height deficit hides its lower content behind its own
+scrollbar instead of painting that content outside the row's box and over the
+neighbouring editor pane. It SHALL declare a floor, a bound strictly below that
+floor, and a weight, and it SHALL take its share of a pane deficit together with
+the other shrinkable rows rather than being counted as a fixed row. Its bound
+SHALL be 0: the wrapper is rendered for every selected session while its
+contribution may be empty (no flow attached, or a collapsed flow panel), so a
+non-zero bound would pad an empty slot into a dead band, and the row's own
+`overflow-y-auto` already makes its automatic minimum 0, so the row can be given
+all the way down to nothing. When the pane gives the row at least its content
+height it SHALL render at that height with no scrollbar; when the pane gives it
+less, the row SHALL render at its allocated height and scroll internally, keeping
+every control inside it reachable.
+
 Rows that render conditionally (session banner, queue panel, plugin slot
 contributions, the transcript's error-boundary fallback) are classified the same
 way and are part of the pane's budget whenever they are present, so the floor sum
@@ -353,8 +368,13 @@ emergent one. Each shrinkable row's declared floor SHALL be greater than its low
 bound, so that the row has height to give; a row whose floor equals its bound
 cannot participate in the allocation at all.
 
-At and above the floor sum every row SHALL render at full height, and no fixed row
-SHALL be selected to absorb a height deficit.
+Every row SHALL render at its own content height exactly when the pane covers the
+sum of all rows' base heights — the content heights of the fixed rows currently
+rendered, plus the base heights of the shrinkable rows currently rendered. Below
+that sum the pane SHALL share the deficit across the shrinkable rows by applying
+each row's declared weight to its own base height, so a shrinkable row whose base
+height is 0 receives no share and the pane's geometry is unchanged by its
+presence. No fixed row SHALL be selected to absorb a height deficit.
 
 Below the floor sum the pane SHALL distribute the deficit across the shrinkable
 rows by applying each row's declared weight to its own base height, and SHALL NOT
@@ -385,7 +405,10 @@ fixed pixel height, and SHALL scroll its own content when it reaches that bound.
 - **GIVEN** a pane shorter than the floor sum but taller than the sum of the
   shrinkable rows' lower bounds and the fixed rows' content heights
 - **WHEN** the chat pane is rendered
-- **THEN** every shrinkable row SHALL be shorter than its base height
+- **THEN** every shrinkable row with a non-zero base height SHALL be shorter than
+  its base height
+- **AND** a shrinkable row whose base height is 0 (an empty `content-header-sticky`
+  slot) SHALL render at 0px, having no share of the deficit to give
 - **AND** no shrinkable row SHALL absorb the entire deficit while another is still
   above its lower bound
 - **AND** every fixed row SHALL still render at its content height
@@ -456,3 +479,72 @@ fixed pixel height, and SHALL scroll its own content when it reaches that bound.
 - **AND** when the user drags the split divider to its minimum ratio, which on a
   small phone puts the pane below the floor sum, the shortfall SHALL be taken from
   the shrinkable rows rather than clipped off the bottom-most row
+
+#### Scenario: Sticky header row is capped to the pane and scrolls internally
+
+- **GIVEN** a chat pane 243px tall whose `content-header-sticky` contribution (the flow card panel) is 476px tall
+- **WHEN** the pane is rendered
+- **THEN** the header row SHALL render at its allocated height — its share of the pane's deficit, derived from its declared weight and its own 476px base height — and no taller
+- **AND** the pane's other rows SHALL each take their own share of the deficit rather than being clipped on the header's behalf
+- **AND** the row's overflowing content SHALL be reachable through the row's own vertical scrollbar
+- **AND** no part of the row SHALL paint outside its own box
+
+#### Scenario: Flow card buttons receive clicks while the split editor is open
+
+- **GIVEN** the split editor is open and the chat pane is 243px tall while the flow card panel in the sticky header row is 476px tall
+- **WHEN** the user scrolls the header row to a card's "Open handler in editor" control and clicks it
+- **THEN** that control SHALL receive the click
+- **AND** it SHALL NOT be reported as covered by the editor pane
+- **AND** opening a file from one card SHALL NOT make another card's control unclickable
+
+#### Scenario: A tall pane renders the header row at its content height
+
+- **GIVEN** a chat pane at least as tall as the sum of all rows' base heights, with the flow panel rendered
+- **WHEN** the header row's content fits in the pane
+- **THEN** the row SHALL render at its content height
+- **AND** the row SHALL expose no scrollbar
+
+#### Scenario: An empty header slot does not consume pane height
+
+- **GIVEN** a selected session whose `content-header-sticky` slot has no contribution (no flow attached, so the slot renders nothing), or a collapsed flow panel
+- **WHEN** the chat pane is rendered at any height
+- **THEN** the header row SHALL render at 0px
+- **AND** the header row SHALL NOT hold a pixel floor
+- **AND** the pane's other rows SHALL receive the same heights they receive with no header row rendered at all
+
+### Requirement: A deliberate re-open of the same editor target re-applies it
+
+The editor route bridge SHALL apply a route target once per **open intent**, not
+once per URL. An open intent is the target (session id, `file`, `line`, `url`)
+plus a nonce the opener mints fresh for that open. A route open carrying a fresh
+nonce SHALL re-apply even when the target is unchanged, so a target the user has
+closed — with the pane's close control, or by closing only its file tab — can be
+re-opened by the same control that opened it. A re-render that changes only the
+openers' identity while the nonce is unchanged SHALL NOT re-apply; that is what
+lets the user close the split while the URL still names the target. The intent
+SHALL be carried outside the URL: the route string SHALL remain the shareable
+deep link a copied URL produces, and no per-open value SHALL be required in it.
+
+#### Scenario: The pane close control does not block a re-open
+
+- **GIVEN** a flow card's file control opened a file in the split editor
+- **AND** the user closed the editor with its close control, leaving the route at
+  the editor route for that file
+- **WHEN** the user activates the same card's file control again
+- **THEN** the split SHALL re-open with that file as the active editor tab
+
+#### Scenario: Closing a file's tab does not block a re-open
+
+- **GIVEN** the split editor is open and a file opened from a card's file control
+  is one of its tabs
+- **WHEN** the user closes that file's tab, leaving the pane open
+- **AND** the user activates the same card's file control again
+- **THEN** the file's tab SHALL re-open and SHALL become the active tab
+
+#### Scenario: Closing the pane does not re-open it by itself
+
+- **GIVEN** the split editor is open from a route target
+- **WHEN** the user closes the editor with its close control and the mode change
+  recreates the openers
+- **THEN** no re-render of the route bridge SHALL re-open the split
+- **AND** the split SHALL stay closed until a fresh open intent arrives

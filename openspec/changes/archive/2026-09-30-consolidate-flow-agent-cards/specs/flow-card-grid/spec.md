@@ -1,20 +1,4 @@
-# flow-card-grid Specification
-
-## Purpose
-Client-side rendering of the in-session flow dashboard: sticky card grid showing per-agent status, controls, and responsive layout while a flow is active.
-
-## Requirements
-
-### Requirement: Flow dashboard component with responsive card grid
-The React client SHALL render a `FlowDashboard` component at the top of the session content area when a flow is active. The component SHALL use `position: sticky; top: 0` to remain visible while the chat scrolls.
-
-#### Scenario: Flow dashboard appears when flow starts
-- **WHEN** the event reducer processes a `flow_started` event
-- **THEN** the `FlowDashboard` component SHALL render above the `ChatView` showing agent cards
-
-#### Scenario: Flow dashboard disappears after dismissal
-- **WHEN** the flow is complete and the user dismisses the summary
-- **THEN** the `FlowDashboard` component SHALL be removed from the layout
+## MODIFIED Requirements
 
 ### Requirement: Agent cards display live status
 Each agent card SHALL display: agent name (or card label), status icon (pending ○, running spinner, complete ✓, error ✗, blocked ⚠), a stats line, one monospace basename line, the LAST 2 recent tool calls (newest first, with tool name and input preview), and a loop iteration badge when applicable.
@@ -102,27 +86,7 @@ Below 480px of PANE width — measured with a container query on the grid wrappe
 - **THEN** the grid SHALL render full cards
 - **AND** the compact tile layout SHALL NOT be applied
 
-### Requirement: Mobile collapsed mode
-On mobile viewports, the flow dashboard SHALL collapse to a thin status bar showing the flow name and agent progress count. Tapping the bar SHALL expand to show the full card grid.
-
-#### Scenario: Mobile shows collapsed bar
-- **WHEN** the viewport is mobile-width and a flow is active
-- **THEN** the flow dashboard SHALL render as a single-line bar (e.g., "π research-and-build · 2/4 agents") instead of the card grid
-
-#### Scenario: Tap to expand on mobile
-- **WHEN** the user taps the collapsed bar on mobile
-- **THEN** the full card grid SHALL be displayed
-
-#### Scenario: Desktop shows full grid
-- **WHEN** the viewport is desktop-width
-- **THEN** the flow dashboard SHALL always render the full card grid
-
-### Requirement: Flow dashboard header
-The flow dashboard SHALL include a header line showing the flow name and agent progress (e.g., "π research-and-build · 2/4 agents").
-
-#### Scenario: Header updates as agents complete
-- **WHEN** an agent completes
-- **THEN** the header SHALL update the completed/total count
+## ADDED Requirements
 
 ### Requirement: Card secondary text and file controls meet the contrast and target-size floors
 
