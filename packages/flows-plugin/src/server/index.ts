@@ -10,6 +10,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { provideFlowsActions } from "./automation-actions.js";
 import { readFlowInputs } from "./flow-inputs.js";
+import rateLimit from "@fastify/rate-limit";
 import { registerFlowFileRoutes } from "./flow-files.js";
 import { renderSessionFlowActions } from "./render-actions.js";
 import { stateStore } from "./state-store.js";
@@ -70,13 +71,19 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   // Flow YAML / agent / code-handler files reported by this plugin's bridge,
   // so the UI can open files in runtime-registered flow dirs. Plugin-owned
-  // (no host allow-list change). See change: attach-flow-before-run.
-  registerFlowFileRoutes({
-    fastify: ctx.fastify as never,
-    networkGuard: ctx.networkGuard,
-    registerPiRequestHandler: ctx.registerPiRequestHandler,
-    sessionManager: ctx.sessionManager,
-    emitEventToSession,
+  // (no host allow-list change). Mounted in an encapsulated scope carrying a
+  // request rate limit (recognized by CodeQL js/missing-rate-limiting; same
+  // pattern as system-one / gmail). Loopback is allow-listed.
+  // See change: attach-flow-before-run.
+  await ctx.fastify.register(async (scope) => {
+    await scope.register(rateLimit, { global: true, max: 600, timeWindow: "1 minute", allowList: ["127.0.0.1", "::1"] });
+    registerFlowFileRoutes({
+      fastify: scope as never,
+      networkGuard: ctx.networkGuard,
+      registerPiRequestHandler: ctx.registerPiRequestHandler,
+      sessionManager: ctx.sessionManager,
+      emitEventToSession,
+    });
   });
 
   /**

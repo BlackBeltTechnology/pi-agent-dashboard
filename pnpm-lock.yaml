@@ -792,6 +792,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
       '@mdi/js':
         specifier: ^7.4.47
         version: 7.4.47

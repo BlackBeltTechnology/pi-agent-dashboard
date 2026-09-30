@@ -92,6 +92,7 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@fastify/rate-limit": "^11.2.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "dagre-d3-es": "^7.0.14",
