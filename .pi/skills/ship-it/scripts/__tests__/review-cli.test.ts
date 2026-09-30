@@ -55,6 +55,18 @@ describe("review-prompt CLI", () => {
     expect(fs.readFileSync(path.join(dir, "ledger-failures.log"), "utf8")).toMatch(/^r2 /);
   });
 
+  it("an unreadable or malformed ledger is an error, never an empty ledger", () => {
+    const dir = path.join(tmpRoot, "bad-ledger");
+    const prior = write(dir, "review-r1.md", "BLOCKING_COUNT: 0\nVERDICT: pass\n");
+    const ledger = write(dir, "fix-ledger-r1.json", "{ not json");
+    const r = run(["--validate-ledger", "--prior", prior, "--ledger", ledger], dir);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("fix-ledger-r1.json");
+
+    const p = run(["--validate-ledger", "--prior", prior, "--ledger", path.join(dir, "missing.json")], dir);
+    expect(p.status).not.toBe(0);
+  });
+
   it("#E33 a round's ledger never inherits an older round's entry", () => {
     const dir = path.join(tmpRoot, "e33");
     write(dir, "fix-ledger-r1.json", JSON.stringify([entry("B1")]));

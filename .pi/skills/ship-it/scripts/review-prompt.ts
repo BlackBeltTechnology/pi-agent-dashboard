@@ -241,11 +241,12 @@ function git(args: string[]): string | null {
   }
 }
 
+/** An unreadable or malformed ledger is an error — never silently an empty ledger. */
 function readLedger(file: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return [];
+  } catch (err) {
+    return fail(`cannot read ledger ${file}: ${(err as Error).message}`);
   }
 }
 

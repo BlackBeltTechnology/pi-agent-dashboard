@@ -440,7 +440,7 @@ be treated as unsatisfiable.
 
 The `review-code` rubric SHALL name defect classes the reviewer sweeps across
 the whole change, each with guidance on how to find its instances: spec and task
-conformance; validation before canonicalization; degenerate and boundary inputs;
+conformance; canonicalize before check; degenerate and boundary inputs;
 stale state and reconciliation; error-path cleanup; shared-helper blast radius;
 concurrency and interleaving; test fidelity to production wiring. The rubric
 SHALL also state the fix protocol (reproducing test first, smallest fix, sibling
