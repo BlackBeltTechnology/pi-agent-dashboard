@@ -10,7 +10,7 @@
  *   - depth 0 → no-op.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { goBack } from "../nav/history-back.js";
+import { goBack, returnTo } from "../nav/history-back.js";
 import type { NavEntry } from "../nav/nav-tracker.js";
 
 function makeTracker(pred: NavEntry | undefined) {
@@ -119,5 +119,49 @@ describe("goBack", () => {
     expect(back).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/");
     expect(tracker.popNav).not.toHaveBeenCalled();
+  });
+});
+
+// Overlay dismissal must not grow browser history: a push per dismiss left an
+// alternating trail that browser Back walked forever.
+// See change: fix-overlay-dismiss-flip-loop.
+describe("returnTo", () => {
+  let originalBack: typeof window.history.back;
+  beforeEach(() => {
+    originalBack = window.history.back;
+  });
+  afterEach(() => {
+    window.history.back = originalBack;
+  });
+
+  it("pops history when the tracked predecessor IS the target", () => {
+    const back = vi.fn();
+    window.history.back = back;
+    const navigate = vi.fn();
+    const tracker = makeTracker({ url: "/settings/gateway", depth: 1 });
+
+    returnTo(navigate, "/settings/gateway", tracker);
+
+    expect(back).toHaveBeenCalledOnce();
+    expect(tracker.popNav).toHaveBeenCalledOnce();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("replaces (never pushes) when the predecessor is something else", () => {
+    const back = vi.fn();
+    window.history.back = back;
+    const navigate = vi.fn();
+    const tracker = makeTracker({ url: "/settings/general", depth: 1 });
+
+    returnTo(navigate, "/session/abc", tracker);
+
+    expect(back).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith("/session/abc", { replace: true });
+  });
+
+  it("replaces on a cold load (no predecessor)", () => {
+    const navigate = vi.fn();
+    returnTo(navigate, "/", makeTracker(undefined));
+    expect(navigate).toHaveBeenCalledWith("/", { replace: true });
   });
 });
