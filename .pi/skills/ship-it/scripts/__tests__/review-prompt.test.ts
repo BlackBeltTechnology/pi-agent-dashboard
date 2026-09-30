@@ -143,6 +143,12 @@ describe("buildReviewPrompt — verification round (#E23, #E24)", () => {
     expect(p).not.toContain("ZZ_OUTSIDE_SENTINEL");
   });
 
+  it("does not carry a blocking id that is only quoted in a table row", () => {
+    const prior = ["| Test fidelity | quoted issue(blocking): B9 ZZ_QUOTED_SENTINEL | ok |", "BLOCKING_COUNT: 0", "VERDICT: pass"].join("\n");
+    const p = buildReviewPrompt({ ...full, round: 2, prior, since: "a1b2c3d" }, RUBRIC);
+    expect(p).not.toContain("ZZ_QUOTED_SENTINEL");
+  });
+
   it("#E24 carries only the prior blocking blocks, bounded, plus the fix delta", () => {
     const filler = "Non-blocking prose ZZ_NONBLOCKING_SENTINEL about naming.\n".repeat(800); // ≈45 KB
     const prior = [

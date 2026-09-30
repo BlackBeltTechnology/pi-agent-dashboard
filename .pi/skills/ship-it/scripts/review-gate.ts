@@ -230,7 +230,16 @@ export interface ParsedReviewReply {
 
 // Tolerate list bullets, emphasis and code ticks the reviewer may wrap lines in.
 const LINE_LEAD = String.raw`^[\s>*\-_\`]*`;
-const BLOCKING_RE = /issue\(blocking\)[*_`]*\s*:?\s*[*_`]*(B\d+)\b/g;
+/**
+ * A blocking finding line: the marker at the START of a line (after list/quote/
+ * emphasis prefixes or a `1.` number) — never an id quoted mid-line in a sweep
+ * table or prose. Shared with the round-≥2 carry-forward extractor.
+ */
+export const BLOCKING_FINDING_LINE_RE = new RegExp(
+  `${LINE_LEAD}(?:\\d+[.)]\\s*)?issue\\(blocking\\)[*_\`]*\\s*:?\\s*[*_\`]*(B\\d+)\\b`,
+  "i",
+);
+const BLOCKING_RE = new RegExp(BLOCKING_FINDING_LINE_RE.source, "gim");
 const COUNT_LINE_RE = new RegExp(`${LINE_LEAD}BLOCKING_COUNT\\b`, "gim");
 const COUNT_VALUE_RE = new RegExp(`${LINE_LEAD}BLOCKING_COUNT[*_\`]*\\s*:\\s*[*_\`]*(\\d+)`, "im");
 const VERDICT_LINE_RE = new RegExp(`${LINE_LEAD}VERDICT\\b`, "gim");

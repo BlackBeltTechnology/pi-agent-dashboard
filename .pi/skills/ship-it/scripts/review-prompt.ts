@@ -25,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type FixLedgerEntry, type LedgerValidation, validateFixLedger } from "./fix-ledger.ts";
-import { DEFECT_CLASSES, parseReviewReply } from "./review-gate.ts";
+import { BLOCKING_FINDING_LINE_RE, DEFECT_CLASSES, parseReviewReply } from "./review-gate.ts";
 import {
   createRunDir,
   deriveReviewState,
@@ -72,7 +72,6 @@ export function readRubric(file: string = RUBRIC_PATH): string {
 }
 
 const FINDING_START_RE = /^[\s>*\-_`]*(issue|suggestion|nitpick|nit|question|praise)\b/i;
-const BLOCKING_ID_RE = /issue\(blocking\)[*_`]*\s*:?\s*[*_`]*(B\d+)\b/;
 
 /** Extract each `issue(blocking): B<n>` block of a reply, by id, first occurrence, bounded. */
 /** A line that ends a finding block: the next finding, a heading, a table row, or the trailer. */
@@ -109,7 +108,7 @@ export function extractBlockingBlocks(reply: string): Array<{ id: string; text: 
   const out: Array<{ id: string; text: string }> = [];
   const seen = new Set<string>();
   for (let i = 0; i < lines.length; i++) {
-    const id = BLOCKING_ID_RE.exec(lines[i])?.[1];
+    const id = BLOCKING_FINDING_LINE_RE.exec(lines[i])?.[1];
     if (!id || seen.has(id)) continue;
     seen.add(id);
     let text = collectBlock(lines, i).join("\n");

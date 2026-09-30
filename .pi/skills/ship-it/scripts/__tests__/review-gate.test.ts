@@ -290,6 +290,20 @@ describe("parseReviewReply — fail-closed reply parsing (harden #E11-#E18)", ()
     expect(r.blockingIds).toEqual([]);
   });
 
+  it("counts a blocking id only at the start of a finding line, not quoted in a table or prose", () => {
+    const r = parseReviewReply(
+      [
+        "The prior note mentioned issue(blocking): B7 in passing.",
+        "| Test fidelity | checked the `issue(blocking): B1` fixture | ok |",
+        "BLOCKING_COUNT: 0",
+        "VERDICT: pass",
+      ].join("\n"),
+    );
+    expect(r).toMatchObject({ blockingIds: [], malformed: false });
+    const listed = parseReviewReply(["1. issue(blocking): B1 — x", "- issue(blocking): B2 — y", "BLOCKING_COUNT: 2", "VERDICT: block"].join("\n"));
+    expect(listed).toMatchObject({ blockingIds: ["B1", "B2"], malformed: false });
+  });
+
   it("tolerates emphasis around the trailer", () => {
     const r = parseReviewReply(["**issue(blocking): B1** — x", "**BLOCKING_COUNT: 1**", "**VERDICT: block**"].join("\n"));
     expect(r).toMatchObject({ blockingIds: ["B1"], count: 1, verdict: "block", malformed: false });
