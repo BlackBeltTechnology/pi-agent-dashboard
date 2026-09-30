@@ -214,6 +214,8 @@ export function buildReviewPrompt(input: ReviewPromptInput, rubric: string): str
     "",
     "- Number this round's blocking findings `B1`…`Bn`, one per finding: " +
       "`issue(blocking): B<n> — <subject>`, then indented `path:line — reasoning and suggested fix`.",
+    "- Indent every continuation line and paragraph of a finding; the next round carries a finding " +
+      "forward only up to its first unindented paragraph.",
     "- Every other finding uses the rubric's other labels, without a `B` id.",
     "- End the reply with, in this order:",
     "  1. A sweep table `| Defect class | What you checked | Result |` with one row per class above.",

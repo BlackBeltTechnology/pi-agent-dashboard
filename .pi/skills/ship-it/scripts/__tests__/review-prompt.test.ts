@@ -70,6 +70,10 @@ describe("buildReviewPrompt — round 1 (#E19-#E21)", () => {
     expect(p.startsWith(PROMPT_HEADER)).toBe(true);
   });
 
+  it("asks for indented continuation paragraphs, so they carry into the next round", () => {
+    expect(buildReviewPrompt(full, RUBRIC)).toMatch(/Indent every continuation line and paragraph of a finding/);
+  });
+
   it("#E20 absent artifacts are not referenced", () => {
     const p = buildReviewPrompt(minimal, RUBRIC);
     expect(p).not.toContain("design.md");

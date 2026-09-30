@@ -237,7 +237,10 @@ committed, `<run-id>` = invocation start timestamp):
    `review-code` rubric, the diff range `git diff origin/develop...HEAD`
    (three-dot, so the step-2.5 merge is not attributed to this change), every
    intent artifact present (`proposal.md`, `tasks.md`, `design.md`, delta specs,
-   `test-plan.md`), and the defect-class sweep.
+   `test-plan.md`), and the defect-class sweep. Known limitation: a verification
+   round carries each prior `B` finding up to its first *unindented* paragraph
+   (indented continuations are kept) — the price of keeping the prior reply
+   bounded (#E24); the prompt asks the reviewer to indent continuations.
 5. **Spawn it as an isolated subagent** — an `Agent` call with `model: "@review"`
    and `subagent_type: "CodeReviewer"` (the definition in
    `.pi/agents/CodeReviewer.md` disables context inheritance; no other agent
