@@ -10,6 +10,7 @@
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { provideFlowsActions } from "./automation-actions.js";
 import { readFlowInputs } from "./flow-inputs.js";
+import { registerFlowFileRoutes } from "./flow-files.js";
 import { renderSessionFlowActions } from "./render-actions.js";
 import { stateStore } from "./state-store.js";
 
@@ -65,6 +66,20 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     const cwd = typeof q.cwd === "string" ? q.cwd : process.cwd();
     const flow = typeof q.flow === "string" ? q.flow : "";
     return { inputs: flow ? readFlowInputs(cwd, flow) : [] };
+  });
+
+  // Flow YAML / agent / code-handler files reported by this plugin's bridge,
+  // so the UI can open files in runtime-registered flow dirs. Plugin-owned
+  // (no host allow-list change). Mounted in an encapsulated scope carrying a
+  // request rate limit (recognized by CodeQL js/missing-rate-limiting; same
+  // pattern as system-one / gmail). Loopback is allow-listed.
+  // See change: attach-flow-before-run.
+  await registerFlowFileRoutes({
+    fastify: ctx.fastify,
+    networkGuard: ctx.networkGuard,
+    registerPiRequestHandler: ctx.registerPiRequestHandler,
+    sessionManager: ctx.sessionManager,
+    emitEventToSession,
   });
 
   /**

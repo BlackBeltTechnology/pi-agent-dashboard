@@ -191,3 +191,45 @@ describe("D2: both surfaces render identical cost after extraction", () => {
     expect(detail.container.textContent).toContain(expected);
   });
 });
+
+// L1 — the stats line is the single carrier (waiting moves onto it; cost stays).
+// See change: consolidate-flow-agent-cards (test-plan #E7, #E8).
+
+describe("FlowAgentCard stats line carries waiting (#E7)", () => {
+  afterEach(cleanup);
+
+  it("a pending blocked card shows `waiting: <deps>` there, exactly once", () => {
+    const { getByTestId, container } = renderCard(
+      makeAgent({ status: "pending", blockedBy: ["alpha", "beta"], tokens: undefined }),
+    );
+    expect(getByTestId("stats").textContent).toContain("waiting: alpha, beta");
+    // The value appears on exactly one line of the card — no second secondary
+    // line above the body.
+    expect((container.textContent ?? "").match(/waiting: alpha, beta/g)).toHaveLength(1);
+  });
+});
+
+describe("FlowAgentCard cost carrier boundary (#E8)", () => {
+  afterEach(cleanup);
+
+  it("tokens, cost and duration share one line in that order", () => {
+    const { getByTestId } = renderCard(makeAgent({ cost: 0.0142 }));
+    const text = getByTestId("stats").textContent ?? "";
+    const inOrder = ["↑12000", "↓3000", "$0.0142", "4200ms"].map((s) => text.indexOf(s));
+    expect(inOrder, text).toEqual([...inOrder].sort((a, b) => a - b));
+    expect(inOrder).not.toContain(-1);
+  });
+
+  it("cost 0 and cost undefined omit only the $ segment, keeping one line", () => {
+    for (const cost of [0, undefined]) {
+      const { getByTestId, container, unmount } = renderCard(makeAgent({ cost }));
+      const line = getByTestId("stats").textContent ?? "";
+      expect(line).not.toContain("$");
+      expect(line).toContain("↑12000");
+      expect(line).toContain("↓3000");
+      expect(line).toContain("4200ms");
+      expect(container.textContent ?? "").not.toContain("$");
+      unmount();
+    }
+  });
+});

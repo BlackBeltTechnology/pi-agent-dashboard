@@ -5,6 +5,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
+import { useHistoryState } from "wouter/use-browser-location";
 import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -87,6 +88,7 @@ import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
+import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
 import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
@@ -534,6 +536,18 @@ export default function App() {
   const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
   const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
   const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
+  // Deliberate-open intent (design D8): the flows plugin stamps a fresh
+  // `openNonce` into the history entry on every file-button open, so a target
+  // re-opened after the user closed the pane (or only its tab) — an identical
+  // URL — is still a NEW intent for `SplitRouteSync`'s apply-once key. Read only
+  // while the editor route matches; a host navigation without the nonce leaves
+  // the key exactly as it was before this change. The app mounts the default
+  // `<Router>` (main.tsx), so this is wouter's browser hook.
+  const editorHistoryNonce = (useHistoryState() as { openNonce?: unknown } | null)?.openNonce;
+  const editorOpenNonce =
+    editorMatch && (typeof editorHistoryNonce === "number" || typeof editorHistoryNonce === "string")
+      ? String(editorHistoryNonce)
+      : "";
   // Subagent popout decoded params + parent-session label.
   // See change: add-subagent-inspector §7.
   // Plugin overlay routes are tracked by the slot consumer hook.
@@ -2340,7 +2354,15 @@ export default function App() {
               shell renders zero flow-specific content. See change:
               pluginize-flows-via-registry. */}
           {selectedSession && (
-            <div className="sticky top-0 z-10">
+            // Shrinkable row (D6): its own `overflow-y-auto` makes the flex
+            // automatic minimum 0, so it takes a share of a pane deficit and
+            // scrolls internally instead of clipping the card grid. Weight +
+            // bound come from the row table; no pixel floor (an empty slot
+            // renders 0px). See change: consolidate-flow-agent-cards.
+            <div
+              className="sticky top-0 z-10 overflow-y-auto"
+              style={{ flexShrink: CHAT_HEADER_WEIGHT, minHeight: CHAT_HEADER_BOUND }}
+            >
               <ContentHeaderStickySlot session={selectedSession} />
             </div>
           )}
@@ -2865,7 +2887,7 @@ export default function App() {
               });
             }}
           >
-            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} />
+            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} />
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}

@@ -6,26 +6,16 @@ import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/das
 import type { DashboardSession, FlowAgentState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCallSplit, mdiCodeBraces, mdiCodeTags, mdiEyeOffOutline, mdiEyeOutline, mdiFileDocumentOutline, mdiRefresh, mdiSourceBranch } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { FlowAgentDetail } from "./FlowAgentDetail.js";
+import { useOpenFileInEditor } from "./flow-files.js";
 import { formatCost } from "./format-cost.js";
 
-/**
- * State of the agent-source fetch for the document-icon popover.
- *
- * Self-contained inside FlowAgentCard: when the user clicks the doc icon,
- * we open a popover anchored to that button and fetch the agent's .md
- * via `GET /api/pi-resource-file?path=<sourcePath>`. The bytes are then
- * rendered with the `ui:markdown-content` primitive.
- *
- * See change: add-ui-popover-primitive.
- */
-
-type AgentSourceState =
-  | { kind: "idle" }
-  | { kind: "loading" }
-  | { kind: "loaded"; content: string }
-  | { kind: "error"; error: string };
+/** Last path segment — the card's basename line. Mirrors the editor-pane copies. */
+function basenameOf(p: string): string {
+  const parts = p.split("/");
+  return parts[parts.length - 1] || p;
+}
 
 export function FlowAgentCard({
   agent,
@@ -47,95 +37,19 @@ export function FlowAgentCard({
   const t = useT();
   const AgentCardShell = useUiPrimitive(UI_PRIMITIVE_KEYS.agentCard);
   // Soft lookup: production registers `logBlock` (main.tsx); when absent the
-  // code-node preview falls back to the padded placeholder below.
+  // code-node preview falls back to the reserved two-line body slot.
   const LogBlock = useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.logBlock);
   const formatTokens = useUiPrimitive(UI_PRIMITIVE_KEYS.formatTokens);
   const formatDuration = useUiPrimitive(UI_PRIMITIVE_KEYS.formatDuration);
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
-  const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
-
-  const [sourceOpen, setSourceOpen] = useState(false);
-  const [sourceState, setSourceState] = useState<AgentSourceState>({ kind: "idle" });
-
-  // Code-handler source popover state. Mirrors the agent-source pair above but
-  // keyed on `codeTarget` (the resolved .ts handler path for code /
-  // code-decision nodes). The fetched .ts is rendered as a fenced ```ts block
-  // so the markdown primitive syntax-highlights it instead of mangling it.
-  // See change: open-code-handler-from-flow-card.
-  const [codeSourceOpen, setCodeSourceOpen] = useState(false);
-  const [codeSourceState, setCodeSourceState] = useState<AgentSourceState>({ kind: "idle" });
+  // File buttons open the file in the host editor (Split view).
+  // See change: attach-flow-before-run.
+  const openInEditor = useOpenFileInEditor(sessionId);
 
   // Eye-button detail state: opens the FlowAgentDetail run-history view in a
   // ui:dialog (replaces the prior anchored popover). See change:
   // improve-flow-graph-dialog-and-card-interaction.
   const [detailOpen, setDetailOpen] = useState(false);
-
-  // Fetch the agent's .md when the popover opens. Mirrors the pattern of
-  // `usePiResourceFileFetch` in the dashboard client: deps include only
-  // open + path. Including state in deps causes the cleanup to fire on
-  // the idle→loading transition and self-cancel the fetch.
-  // See change: add-ui-popover-primitive.
-  useEffect(() => {
-    if (!sourceOpen) return;
-    if (!agent.sourcePath) {
-      setSourceState({ kind: "error", error: "No source path recorded for this agent." });
-      return;
-    }
-    let cancelled = false;
-    setSourceState({ kind: "loading" });
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(agent.sourcePath)}`)
-      .then(async (r) => {
-        const json = await r.json();
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setSourceState({ kind: "loaded", content: json.data.content });
-        } else {
-          setSourceState({
-            kind: "error",
-            error: typeof json?.error === "string" ? json.error : "Failed to read source",
-          });
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setSourceState({ kind: "error", error: String(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sourceOpen, agent.sourcePath]);
-
-  // Fetch the code node's handler .ts when its popover opens. `codeTarget` is
-  // emitted absolute by the upstream flow runtime, so it is passed verbatim to
-  // the resource-file endpoint (allow-list accepts `<cwd>/.pi/...`).
-  // See change: open-code-handler-from-flow-card.
-  useEffect(() => {
-    if (!codeSourceOpen) return;
-    if (!agent.codeTarget) {
-      setCodeSourceState({ kind: "error", error: "No handler target recorded for this node." });
-      return;
-    }
-    let cancelled = false;
-    setCodeSourceState({ kind: "loading" });
-    fetch(`/api/pi-resource-file?path=${encodeURIComponent(agent.codeTarget)}`)
-      .then(async (r) => {
-        const json = await r.json();
-        if (cancelled) return;
-        if (json?.success && typeof json?.data?.content === "string") {
-          setCodeSourceState({ kind: "loaded", content: json.data.content });
-        } else {
-          setCodeSourceState({
-            kind: "error",
-            error: typeof json?.error === "string" ? json.error : "Failed to read handler",
-          });
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setCodeSourceState({ kind: "error", error: String(err) });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [codeSourceOpen, agent.codeTarget]);
 
   const displayName = agent.label || agent.stepId || agent.agentName;
   const displayRole = agent.cardRole || agent.model || "";
@@ -178,7 +92,16 @@ export function FlowAgentCard({
     </span>
   ) : kindBadge;
 
-  const stats = isComplete && agent.tokens ? (
+  // The stats line is the single carrier for secondary values (D7): a pending
+  // blocked card shows `waiting: <deps>` there, else the complete/model/role
+  // chain with cost preserved between tokens and duration.
+  const waiting =
+    agent.status === "pending" && agent.blockedBy.length > 0
+      ? `waiting: ${agent.blockedBy.join(", ")}`
+      : null;
+  const stats = waiting ? (
+    <span>{waiting}</span>
+  ) : isComplete && agent.tokens ? (
     <span>↑{formatTokens(agent.tokens.input)} ↓{formatTokens(agent.tokens.output)}{agent.cost != null && agent.cost > 0 ? ` · ${formatCost(agent.cost)}` : ""} · {formatDuration(agent.duration ?? 0)}</span>
   ) : displayModel ? (
     <span>{displayModel}</span>
@@ -186,8 +109,22 @@ export function FlowAgentCard({
     <span>{displayRole}</span>
   ) : null;
 
+  // One monospace basename line: handler target → agent .md source → @alias.
+  // The full path/alias is the line's tooltip (D4).
+  const basenameLine =
+    isCodeKind && agent.codeTarget
+      ? { text: basenameOf(agent.codeTarget), title: agent.codeTarget }
+      : agent.sourcePath
+        ? { text: basenameOf(agent.sourcePath), title: agent.sourcePath }
+        : hasAlias
+          ? { text: rawModel, title: rawModel }
+          : null;
+
+  // Display-only truncation to the LAST 2 tool calls, newest first (D3).
+  const recentTools = agent.recentTools.slice(-2).reverse();
+
   return (
-    <div data-step={stepId}>
+    <div data-step={stepId} className="h-full [&>*]:h-full">
     <AgentCardShell
       name={displayName}
       status={agent.status}
@@ -197,50 +134,48 @@ export function FlowAgentCard({
       onClick={onSelect ? () => onSelect(stepId) : undefined}
     >
       <div className="flex flex-col flex-1">
-        {/* Model alias line (when model uses @role alias) */}
-        {hasAlias && (
-          <div className="text-[10px] text-[var(--text-tertiary)] truncate">{rawModel}</div>
+        {/* One monospace basename line; the full path/alias is the tooltip. */}
+        {basenameLine && (
+          <div
+            data-testid="flow-card-basename"
+            className="text-[10px] leading-[15px] text-[var(--text-tertiary)] font-mono truncate @max-[480px]:hidden"
+            title={basenameLine.title}
+          >
+            {basenameLine.text}
+          </div>
         )}
-
-        {/* Metric / waiting line */}
-        <div className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
-          {agent.status === "pending" && agent.blockedBy.length > 0 ? (
-            <span>waiting: {agent.blockedBy.join(", ")}</span>
-          ) : null}
-        </div>
 
         {/* Phase-2 agent-metric decorator slot. See change: add-extension-ui-decorations. */}
         <AgentMetricSlot session={session} agentId={agent.agentName} />
 
-        {/* Body: code nodes show a Log preview (program logs); agent nodes
-            show their recent tool calls. */}
+        {/* Body: code nodes with logs show the LogBlock preview (it defines the
+            height and the row grows with it); agent nodes and logless code
+            nodes reserve two lines via an explicit line box, never pad rows. */}
         {isCodeKind ? (
           logLines.length > 0 && LogBlock ? (
-            <div className="mt-1">
+            <div data-testid="flow-card-body" className="mt-1 @max-[480px]:hidden">
               <LogBlock
                 label={t("programLog", undefined, "Program log")}
                 text={logLines.join("\n")}
                 preview
-                previewLines={3}
+                previewLines={2}
               />
             </div>
           ) : (
-            <div className="mt-1 space-y-0">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={`pad-${i}`} className="text-[10px]">&nbsp;</div>
-              ))}
-            </div>
+            <div
+              data-testid="flow-card-body"
+              className="mt-1 text-[10px] leading-[15px] min-h-[30px] text-[var(--text-tertiary)] @max-[480px]:hidden"
+            />
           )
         ) : (
-          <div className="mt-1 space-y-0">
-            {agent.recentTools.map((tool, i) => (
-              <div key={i} className="text-[10px] text-[var(--text-tertiary)] truncate">
-                {i === agent.recentTools.length - 1 ? "▸" : "·"} {tool.toolName} {tool.inputPreview}
+          <div
+            data-testid="flow-card-body"
+            className="mt-1 text-[10px] leading-[15px] min-h-[30px] text-[var(--text-tertiary)] @max-[480px]:hidden"
+          >
+            {recentTools.map((tool, i) => (
+              <div key={i} className="truncate">
+                {i === 0 ? "▸" : "·"} {tool.toolName} {tool.inputPreview}
               </div>
-            ))}
-            {/* Pad to 3 lines for consistent height */}
-            {Array.from({ length: Math.max(0, 3 - agent.recentTools.length) }).map((_, i) => (
-              <div key={`pad-${i}`} className="text-[10px]">&nbsp;</div>
             ))}
           </div>
         )}
@@ -248,7 +183,7 @@ export function FlowAgentCard({
         {/* Chosen branch (code-decision / agent-decision) */}
         {agent.branch && (
           <div className="mt-1 text-[10px] font-mono">
-            <span className="text-[var(--text-muted)]">branch </span>
+            <span className="text-[var(--text-tertiary)]">branch </span>
             <span className="text-cyan-400 font-semibold">{agent.branch}</span>
           </div>
         )}
@@ -272,91 +207,29 @@ export function FlowAgentCard({
           <div className="mt-1 text-[10px] text-red-400">✕ hard-failed — halted flow</div>
         )}
 
-        {/* Resolved handler target for code nodes */}
-        {isCodeKind && agent.codeTarget && (
-          <div className="mt-1 text-[10px] text-[var(--text-muted)] font-mono truncate" title={agent.codeTarget}>‹› {agent.codeTarget}</div>
-        )}
-
         {/* View source / detail icons — bottom-right of card */}
         <div className="flex justify-end mt-auto pt-1 gap-1">
-            {isCodeKind && agent.codeTarget && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setCodeSourceOpen((prev) => !prev); }}
-                  className={`transition-colors p-0.5 rounded inline-flex items-center ${
-                    codeSourceOpen
-                      ? "text-cyan-400 bg-cyan-400/10"
-                      : "text-[var(--text-tertiary)] hover:text-cyan-400 hover:bg-[var(--bg-surface)]"
-                  }`}
-                  title={codeSourceOpen ? "Close handler source" : "View handler source"}
-                >
-                  <Icon path={mdiCodeBraces} size={0.45} />
-                </button>
-                <Dialog
-                  open={codeSourceOpen}
-                  onClose={() => setCodeSourceOpen(false)}
-                  title={agent.codeTarget.split("/").pop() || "Handler"}
-                  size="lg"
-                >
-                  <div className="text-[11px] text-[var(--text-tertiary)] font-mono break-all" title={agent.codeTarget}>
-                    {agent.codeTarget}
-                  </div>
-                  <div className="h-[60vh] overflow-y-auto">
-                    {codeSourceState.kind === "loading" && (
-                      <div className="text-xs text-[var(--text-muted)]">Loading…</div>
-                    )}
-                    {codeSourceState.kind === "error" && (
-                      <div className="text-xs text-red-400">⚠ {codeSourceState.error}</div>
-                    )}
-                    {codeSourceState.kind === "loaded" && (
-                      <MarkdownContent content={"```ts\n" + codeSourceState.content + "\n```"} />
-                    )}
-                  </div>
-                </Dialog>
-              </>
+            {openInEditor && isCodeKind && agent.codeTarget && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openInEditor(agent.codeTarget as string); }}
+                className="transition-colors h-6 w-6 rounded inline-flex items-center justify-center text-[var(--text-tertiary)] hover:text-cyan-400 hover:bg-[var(--bg-surface)]"
+                title={t("openHandlerInEditor", undefined, "Open handler in editor")}
+              >
+                <Icon path={mdiCodeBraces} size={0.45} />
+              </button>
             )}
-            {agent.sourcePath && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setSourceOpen((prev) => !prev); }}
-                  className={`transition-colors p-0.5 rounded inline-flex items-center ${
-                    sourceOpen
-                      ? "text-blue-400 bg-blue-400/10"
-                      : "text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-[var(--bg-surface)]"
-                  }`}
-                  title={sourceOpen ? `Close ${displayName} source` : `View ${displayName} source`}
-                >
-                  <Icon path={mdiFileDocumentOutline} size={0.45} />
-                </button>
-                <Dialog
-                  open={sourceOpen}
-                  onClose={() => setSourceOpen(false)}
-                  title={agent.sourcePath.split("/").pop() || "Source"}
-                  size="lg"
-                >
-                  {/* Pinned path header; body scrolls inside a fixed-height
-                      region so the dialog stays a fixed size. See change:
-                      improve-flow-graph-dialog-and-card-interaction. */}
-                  <div className="text-[11px] text-[var(--text-tertiary)] font-mono break-all" title={agent.sourcePath}>
-                    {agent.sourcePath}
-                  </div>
-                  <div className="h-[60vh] overflow-y-auto">
-                    {sourceState.kind === "loading" && (
-                      <div className="text-xs text-[var(--text-muted)]">Loading…</div>
-                    )}
-                    {sourceState.kind === "error" && (
-                      <div className="text-xs text-red-400">⚠ {sourceState.error}</div>
-                    )}
-                    {sourceState.kind === "loaded" && (
-                      <MarkdownContent content={sourceState.content} />
-                    )}
-                  </div>
-                </Dialog>
-              </>
+            {openInEditor && agent.sourcePath && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openInEditor(agent.sourcePath as string); }}
+                className="transition-colors h-6 w-6 rounded inline-flex items-center justify-center text-[var(--text-tertiary)] hover:text-blue-400 hover:bg-[var(--bg-surface)]"
+                title={t("openSourceInEditor", { name: displayName }, `Open ${displayName} source in editor`)}
+              >
+                <Icon path={mdiFileDocumentOutline} size={0.45} />
+              </button>
             )}
           <button
             onClick={(e) => { e.stopPropagation(); setDetailOpen((prev) => !prev); }}
-            className={`transition-colors px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
+            className={`transition-colors min-h-6 px-1.5 py-0.5 rounded text-[11px] inline-flex items-center gap-1 border ${
               detailOpen
                 ? "text-blue-400 bg-blue-400/10 border-blue-400/40"
                 : "border-[var(--border-subtle)] text-[var(--text-tertiary)] hover:text-blue-400 hover:border-blue-400/40 hover:bg-blue-400/10"

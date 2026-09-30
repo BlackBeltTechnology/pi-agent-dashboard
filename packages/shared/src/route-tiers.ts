@@ -149,6 +149,9 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/plugins/blackhole/config", tier: "operate" },
   { method: "GET", path: "/api/plugins/blackhole/session/:id", tier: "observe" },
   { method: "GET", path: "/api/plugins/blackhole/status", tier: "observe" },
+  // attach-flow-before-run: read-only flow file access (exact reported files).
+  { method: "GET", path: "/api/plugins/flows/file", tier: "observe" },
+  { method: "GET", path: "/api/plugins/flows/files", tier: "observe" },
   { method: "GET", path: "/api/plugins/flows/flow-inputs", tier: "observe" },
   { method: "GET", path: "/api/plugins/gmail/state", tier: "operate" },
   { method: "GET", path: "/api/plugins/hermes-memory/config", tier: "operate" },
