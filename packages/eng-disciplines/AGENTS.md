@@ -5,7 +5,7 @@ Cross-cutting engineering-discipline skills for pi sessions. NL-triggered, ortho
 | File | Purpose |
 |------|---------|
 | `.pi/skills/code-simplification/SKILL.md` | Active simplify pass. Triggers "simplify this", "reduce complexity". Adapted from Addy-Osmani agent-skills (MIT). |
-| `.pi/skills/doubt-driven-review/SKILL.md` | In-flight adversarial check before a decision stands. Triggers "stress-test this", "are we sure". Adapted from Addy-Osmani (MIT). |
+| `.pi/skills/doubt-driven-review/SKILL.md` | In-flight adversarial check before a decision stands. Triggers "stress-test this", "are we sure". Adapted from Addy-Osmani (MIT). Adversarial template: verify claims against the repo, write `unverified` when unchecked, check every CONTRACT candidate (SKILL.agent.md mirrors). See change: add-spec-collateral-scan. |
 | `.pi/skills/interview-me/SKILL.md` | Pre-spec intent extraction, one question at a time. Triggers "interview me", "grill me". Adapted from Addy-Osmani (MIT). |
 | `.pi/skills/node-inspect-debugger/SKILL.md` | Runtime state a console.log can't reach: real breakpoints + scope-chain dump. Carries spike-verified jiti launch recipe (register hook via createRequire; line-preserving `.ts` URLs; pending-breakpoint nuance). Triggers "set a breakpoint", "console.log isn't enough". Ported from NousResearch/hermes-agent (MIT). See change: add-debugging-skills. |
 | `.pi/skills/node-inspect-debugger/scripts/cdp-inspect.ts` | Dependency-free CDP scope dumper (Node 24 global WebSocket, no chrome-remote-interface). `npx tsx cdp-inspect.ts <port> <ts-url> <line>` → attaches, sets `.ts` breakpoint, resumes past entry halt, prints `PAUSED at <file>:<line> fn=<name>` + one line per local/closure var. See change: add-debugging-skills. |

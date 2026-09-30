@@ -99,6 +99,12 @@ Assume the author is overconfident. Look for:
 Do NOT validate. Do NOT summarize. Find issues, or state
 explicitly that you cannot find any after thorough examination.
 
+Verify each claim against the repository before relying on it.
+If you cannot check a claim (no access, no tool, no network),
+write `unverified` next to it instead of asserting it true or false.
+If the CONTRACT lists candidate requirements, check every
+candidate and report each one the artifact contradicts.
+
 ARTIFACT: <paste artifact>
 CONTRACT: <paste contract>
 ```

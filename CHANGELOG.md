@@ -12,6 +12,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Spec-collateral scan for planning.** `scripts/spec-collateral.mjs` lists
+  main-spec requirements an OpenSpec change may contradict after archive
+  (advisory, never gates); `plan-proposal` feeds it into every doubt-review
+  CONTRACT. The `doubt-driven-review` adversarial template
+  (`@blackbelt-technology/pi-dashboard-eng-disciplines`) now asks the reviewer
+  to verify claims against the repository, label unverifiable ones
+  `unverified`, and check every listed candidate requirement.
+
 - **Session list Group by.** Each folder's actions menu gains a "Group sessions
   by" choice: `None` (today's list), `Status` (lanes Needs you · Failed · Working
   · To review · Idle) or `Location` (Main checkout · Worktrees), plus `Use
