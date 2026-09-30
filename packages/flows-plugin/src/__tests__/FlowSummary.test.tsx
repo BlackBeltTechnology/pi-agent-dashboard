@@ -329,3 +329,33 @@ describe("FlowSummary expandable rows", () => {
     expect(mds[0].textContent).toContain("Summary one.");
   });
 });
+
+// L1 — the card's preserved interactions (change: consolidate-flow-agent-cards,
+// test-plan #E14): the `data-step` wrapper still carries the step id and still
+// selects, and the Details dialog still opens without changing the selection.
+describe("FlowAgentCard preserved interactions (#E14)", () => {
+  it("data-step selection and the Details dialog still work", () => {
+    const state = makeState([
+      agent({ stepId: "one", label: "step-one", status: "complete", summary: "S1" }),
+      agent({ stepId: "two", label: "step-two", status: "complete", summary: "S2" }),
+    ]);
+    const { container, queryByTestId } = renderSummary(state);
+
+    const wrapA = container.querySelector("[data-step='one']") as HTMLElement;
+    expect(wrapA).toBeTruthy();
+    const cardA = wrapA.querySelector("[data-testid='agent-card']") as HTMLElement;
+    const cardB = container.querySelector("[data-step='two'] [data-testid='agent-card']") as HTMLElement;
+
+    fireEvent.click(cardA);
+    expect(cardA.getAttribute("data-selected")).toBe("true");
+    expect(cardB.getAttribute("data-selected")).toBe("false");
+
+    fireEvent.click(within(wrapA).getAllByText("Details")[0]);
+    const dialog = queryByTestId("dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog?.textContent).toContain("step-one");
+    // The Details click must not change the selection.
+    expect(cardA.getAttribute("data-selected")).toBe("true");
+    expect(cardB.getAttribute("data-selected")).toBe("false");
+  });
+});

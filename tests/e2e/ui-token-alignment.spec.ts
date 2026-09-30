@@ -12,6 +12,7 @@ import {
   sizeFailures,
 } from "./helpers/computed-contrast.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { openIdleGrid } from "./helpers/flow-card-grid.js";
 import { unpinViaBus } from "./helpers/folder-collapse.js";
 import { BOARD_FIXTURE, openBoard } from "./helpers/openspec-board.js";
 
@@ -541,5 +542,42 @@ test.describe("secondary surfaces (F11)", () => {
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();
     }
+  });
+});
+
+// ── Flow card control-row targets (consolidate-flow-agent-cards, #E16) ───────
+// WCAG 2.2 SC 2.5.8: the handler and agent-source file controls present a
+// ≥24×24 hit target with the icon glyph size unchanged; the Details button is
+// ≥24px tall. Scoped to a code card carrying BOTH file targets.
+test.describe("flow card control targets (#E16)", () => {
+  test("file controls and Details clear the 24px floor with the glyph unchanged", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const { panel } = await openIdleGrid(page);
+
+    // `load-ticket` is a code step with a routed handler; it also carries the
+    // agent doc? No — a code card's doc button renders only with `sourcePath`,
+    // so `fill-form` (agent) supplies the doc control; assert both kinds.
+    const code = panel.locator("[data-step='load-ticket']");
+    await expect(code).toBeVisible();
+
+    const handler = code.getByTitle("Open handler in editor");
+    await expect(handler).toBeVisible();
+    const hb = await handler.boundingBox();
+    expect(hb!.width, "handler control width").toBeGreaterThanOrEqual(24);
+    expect(hb!.height, "handler control height").toBeGreaterThanOrEqual(24);
+
+    // Glyph unchanged: the mdi icon renders at 0.45 * 24 = 10.8px.
+    const glyph = await handler.locator("svg").boundingBox();
+    expect(glyph!.width).toBeGreaterThanOrEqual(10);
+    expect(glyph!.width).toBeLessThanOrEqual(12);
+
+    // The Details button is ≥24px tall.
+    const details = code.getByRole("button", { name: /details/i });
+    const db = await details.boundingBox();
+    expect(db!.height, "Details button height").toBeGreaterThanOrEqual(24);
+
+    // Every button in the card's control row clears 24×24.
+    const undersized = (await buttonBoxes(code)).filter((b) => b.w < 24 || b.h < 24);
+    expect(undersized, "controls below 24×24").toEqual([]);
   });
 });
