@@ -10,8 +10,70 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop]
+  # Always a FULL run (the selector's `--full`). Dispatch on a PR branch for an
+  # immediate full run; the `ci:full` label takes effect on the next push.
+  workflow_dispatch:
 
 jobs:
+  # ── affected-test selection ────────────────────────────────────────────────
+  # Change: speed-up-ci-affected-tests (D5). Computes which vitest files the
+  # diff can affect (vitest's own import graph + path literals + package
+  # fallback + checked-in data under scripts/test-selection/) and records the
+  # decision as the `test-selection` artifact and the job summary — the only
+  # evidence of what a run skipped. Any selector error, all-zero or
+  # non-ancestor base yields `mode: full`.
+  select:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      has_real_process: ${{ steps.select.outputs.has_real_process }}
+      ci_scenarios: ${{ steps.select.outputs.ci_scenarios }}
+    steps:
+      # Full history for BOTH event kinds: a shallow clone has no merge-base
+      # (PR) and no `before` commit (push), which would force every run full.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Select affected tests
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            node scripts/select-affected-tests.mjs --full --reason "workflow_dispatch" --out selection.json
+          elif [ "$FULL_LABEL" = "true" ]; then
+            node scripts/select-affected-tests.mjs --full --reason "ci:full label on the pull request" --out selection.json
+          elif [ "$EVENT" = "pull_request" ]; then
+            node scripts/select-affected-tests.mjs --base "origin/$BASE_REF" --merge-base --out selection.json
+          else
+            node scripts/select-affected-tests.mjs --base "$BEFORE" --out selection.json
+          fi
+
+      - name: Upload test selection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-selection
+          path: selection.json
+          retention-days: 14
+          if-no-files-found: error
+
   ci:
     runs-on: ubuntu-latest
     steps:

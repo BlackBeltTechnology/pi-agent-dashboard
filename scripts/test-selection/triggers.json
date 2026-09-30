@@ -1,0 +1,15 @@
+{
+ "biome.json": [
+  "scripts/__tests__/async-semantics-guards.test.mjs",
+  "scripts/__tests__/biome-undeclared-dependencies.test.mjs",
+  "scripts/__tests__/knip-config.test.mjs",
+  "scripts/__tests__/knip-scan.test.mjs",
+  "scripts/__tests__/lint-harness-scoping.test.mjs",
+  "scripts/__tests__/lint-ledger.test.mjs",
+  "scripts/__tests__/vitest-workers.test.mjs",
+  "packages/kb/src/__tests__/kb.test.ts"
+ ],
+ "knip-baseline.json": ["scripts/__tests__/knip-*.test.mjs"],
+ "knip.json": ["scripts/__tests__/knip-*.test.mjs"],
+ "scripts/**": ["scripts/__tests__/**/*.test.mjs"]
+}

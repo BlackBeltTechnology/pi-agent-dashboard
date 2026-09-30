@@ -93,6 +93,13 @@ export default defineConfig({
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
+      // Test-bearing packages no project collected, so no CI job ever ran
+      // them. Guarded by shared/src/__tests__/test-collection-completeness.
+      // See change: speed-up-ci-affected-tests.
+      "packages/apple-tools",
+      "packages/dashboard-plugin-skill",
+      "packages/hermes-memory-plugin",
+      "packages/quota-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
       // project's include glob is scoped to `e2e/helpers/__tests__/`. Added
