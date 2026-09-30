@@ -108,6 +108,11 @@ function flows(...names: string[]): FlowInfo[] {
 
 function okFetch() {
   return vi.fn(async (url: string) => {
+    // The reported-file poll (bridge → plugin server) resolves immediately in
+    // tests, so no test pays the 1.2 s retry cadence.
+    if (String(url).startsWith("/api/plugins/flows/files")) {
+      return { status: 200, json: async () => ({ success: true, data: { reported: true, agents: {}, handlers: {} } }) };
+    }
     const path = decodeURIComponent(String(url).split("path=")[1] ?? "");
     const name = path.split("/")[2] ?? "x";
     return { status: 200, json: async () => ({ success: true, data: { content: yamlFor(name) } }) };
@@ -529,6 +534,65 @@ describe("definition cannot be loaded (X1–X4)", () => {
     expectErrorHeader(/path not in allowed/);
   });
 
+  it("D11: retries once the bridge reports its files (no permanent error)", async () => {
+    vi.useFakeTimers();
+    let filesCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.startsWith("/api/plugins/flows/files")) {
+          filesCalls += 1;
+          // First ask: the bridge has not reported yet; after that it has.
+          return { status: 200, json: async () => ({ success: true, data: { reported: filesCalls > 1, agents: {}, handlers: {} } }) };
+        }
+        if (u.startsWith("/api/plugins/flows/file") && filesCalls > 1) {
+          return { status: 200, json: async () => ({ success: true, data: { content: yamlFor("A") } }) };
+        }
+        return { status: 403, json: async () => ({ success: false, error: "path not in allowed resource location" }) };
+      }),
+    );
+    const sid = nextSid();
+    attach(sid, "A");
+    renderClaim(sid);
+
+    // Before the report: the host fallback refuses it (permanent until now).
+    // (No `findBy*`: its waitFor cadence does not follow fake timers.)
+    await act(async () => {});
+    expect(screen.getByText(/path not in allowed resource location/)).toBeTruthy();
+
+    // The report arrives → the attached flow resolves without user action.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_300);
+    });
+    await act(async () => {});
+    expect(root()?.getAttribute("data-flow-mode")).toBe("idle");
+    expect(screen.queryByText(/path not in allowed resource location/)).toBeNull();
+    expect(cards()).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  it("D11: keeps the error when the report never arrives (bounded)", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).startsWith("/api/plugins/flows/files")
+          ? { status: 403, json: async () => ({ success: false, error: "refused" }) }
+          : { status: 403, json: async () => ({ success: false, error: "path not in allowed resource location" }) },
+      ),
+    );
+    const sid = nextSid();
+    attach(sid, "A");
+    renderClaim(sid);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByText(/path not in allowed resource location/)).toBeTruthy();
+    expect(root()).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("X1: 404 without JSON body", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ status: 404, json: async () => { throw new Error("no json"); } })));
     const sid = nextSid();
@@ -563,7 +627,7 @@ describe("definition cannot be loaded (X1–X4)", () => {
     expectErrorHeader(/Failed to fetch/);
   });
 
-  it("X4: no source → error, fetch not called", () => {
+  it("X4: no source → error, no file fetch", () => {
     const f = vi.fn();
     vi.stubGlobal("fetch", f);
     for (const source of ["", undefined]) {
@@ -573,7 +637,8 @@ describe("definition cannot be loaded (X1–X4)", () => {
       expectErrorHeader(/unavailable/);
       cleanup();
     }
-    expect(f).not.toHaveBeenCalled();
+    // No FILE request — only the reported-file poll (D11) may run.
+    expect(f.mock.calls.filter((c) => !String(c[0]).startsWith("/api/plugins/flows/files"))).toEqual([]);
   });
 });
 

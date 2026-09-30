@@ -25,7 +25,7 @@ import { type FlowTab, FlowTabBar } from "./FlowTabBar.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
 import { clearAttachment, resolveBaseline, useFlowAttachment } from "./flow-attach-store.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
-import { fetchFlowFile, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
+import { fetchFlowFile, type FlowNodeFiles, useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { buildIdleFlowState, type FlowAttachment, type FlowSlot, type IdleLoad, resolveFlowSlot } from "./flow-idle-state.js";
 import { makeSafeSend } from "./send-safe.js";
 
@@ -114,6 +114,7 @@ export function FlowDashboard({
   session,
   sessionId,
   idle,
+  nodeFiles,
 }: {
   flowState: FlowState;
   /** All flow states (one per distinct flow run this session) for tab navigation */
@@ -130,6 +131,8 @@ export function FlowDashboard({
   /** Set → render the not-started (attached) panel; never forwards to the
    *  summary, no Abort, no tabs. See change: attach-flow-before-run (D2). */
   idle?: FlowDashboardIdle;
+  /** Reported agent / handler file paths, from the claim's poll. */
+  nodeFiles?: FlowNodeFiles | null;
 }) {
   const isMobile = useMobile();
   const t = useT();
@@ -175,8 +178,7 @@ export function FlowDashboard({
 
   // Agent / handler file paths so every card (idle, pending, running) can open
   // its file. See change: attach-flow-before-run.
-  const nodeFiles = useFlowNodeFiles(sessionId);
-  const agents = Array.from(withNodeFiles(displayState, nodeFiles).agents.values());
+  const agents = Array.from(withNodeFiles(displayState, nodeFiles ?? null).agents.values());
   const allAgents = Array.from(flowState.agents.values());
 
   const handleSelectStep = useCallback((stepId: string) => {
@@ -528,9 +530,13 @@ const LOADING: IdleLoad = Object.freeze({ kind: "loading" }) as IdleLoad;
  * Fetch + build the attached flow's idle state once per attach (id + source),
  * cancel-safe on unmount (FlowAgentCard fetch pattern). The built state is kept
  * in React state, so its `agents` / `dagSteps` references are stable.
- * See change: attach-flow-before-run (D6).
+ *
+ * Retries once when the bridge's report arrives (`reportReady` false → true):
+ * a runtime-registered flow dir 403s on the host fallback until then, and that
+ * failure must not outlive the report. Bounded — the report flips at most once
+ * per session. See change: attach-flow-before-run (D6, D11).
  */
-function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: string): IdleLoad {
+function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: string, reportReady: boolean): IdleLoad {
   const t = useT();
   const name = attachment?.name ?? "";
   const source = attachment?.source;
@@ -552,7 +558,7 @@ function useAttachedFlowState(attachment: FlowAttachment | null, sessionId: stri
     return () => {
       cancelled = true;
     };
-  }, [key, name, source, sessionId]);
+  }, [key, name, source, sessionId, reportReady]);
 
   if (!attachment) return LOADING;
   if (!source) {
@@ -685,7 +691,12 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
   const events = useSessionEvents(sessionId);
   const flowsList = useSessionData<FlowInfo[]>(sessionId, "flowsList") ?? EMPTY_FLOWS;
   const attachment = useFlowAttachment(sessionId);
-  const idleLoad = useAttachedFlowState(attachment, sessionId);
+  // Reported agent / handler file paths. Polling lives here (not in the panel)
+  // because the panel does not render while the attached flow is loading or has
+  // failed; a late report must still be able to resolve that failure.
+  // See change: attach-flow-before-run (D11).
+  const nodeFiles = useFlowNodeFiles(sessionId);
+  const idleLoad = useAttachedFlowState(attachment, sessionId, nodeFiles !== null);
   const send = usePluginSend();
   const t = useT();
 
@@ -766,6 +777,7 @@ export function FlowDashboardClaim({ session }: { session: DashboardSession }) {
         flowStates={isIdle ? undefined : (flowStates as Map<string, FlowState>)}
         session={session}
         sessionId={sessionId}
+        nodeFiles={nodeFiles}
         idle={
           isIdle
             ? {

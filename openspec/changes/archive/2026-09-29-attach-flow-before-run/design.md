@@ -47,7 +47,7 @@ See proposal.md for motivation. Current wiring (pi-flows **0.5.0**, the installe
 **Non-Goals:**
 - Graph edge changes of any kind.
 - Agent frontmatter enrichment of idle cards.
-- Server, bridge, protocol or shared-type changes.
+- Host-core flow code, host protocol or shared-type changes. (D11's plugin-owned bridge reporter, plugin server routes and the `ROUTE_TIERS` rows for them ARE in scope.)
 - The dead `FlowYamlPreviewClaim`.
 - Exposing the shell's hydration state to plugins.
 
@@ -198,7 +198,7 @@ Runtime-registered flow dirs (`flow:register-flows-dir` / `flow:register-agents-
 - **[Trade-off]** During `session_state_reset` → replay, an already-consumed attachment whose deletion effect hasn't run yet can flash idle for a moment. → The D4 deletion effect removes it on the first render where it's consumed. The window is a single render.
 - **[Trade-off]** Replay windowing on the server can leave out the `flow_started` that should consume an attachment (catch-up only). → The idle panel stays until the user closes it or a newer flow starts. Benign.
 - **[Trade-off]** The idle AUTO value can be stale after a server restart (D8). → It corrects on the next toggle or run.
-- **[Trade-off]** Flows from extra registered dirs whose source is outside the `/api/pi-resource-file` allow-list show the error state. → The spec's error scenario covers this. Widening the allow-list is out of scope.
+- **[Trade-off]** Flows from extra registered dirs are readable only once the session's bridge has reported them (D11). Before that report — or with no live session — the host allow-list applies and the error state can show; a late report retries the load once. Widening the host allow-list is out of scope.
 - **[Trade-off]** A file edited after discovery can differ from what pi-flows would run. → The builder mirrors every 0.5.0 parser throw (D1), so a bad edit shows the error state instead of a wrong panel.
 - **[Trade-off, pre-existing]** On the **live** panel, `FlowQuestionsSection` still shows the full per-`flowId` transcript, including earlier runs of the same flow. Unchanged by this change.
 - **[Trade-off]** Idle cards carry only what the YAML declares (id, kind badge, `waiting: <blockedBy>`). Model and label arrive at `flow_agent_started`. Intended ("stale and empty").
@@ -206,4 +206,4 @@ Runtime-registered flow dirs (`flow:register-flows-dir` / `flow:register-agents-
 
 ## Migration Plan
 
-Additive and client-only. Ships with the next client build (`npm run build` + `/api/restart`). Rollback: revert. Older builds ignore leftover `dashboard:flow-attached:*` keys.
+Additive, but **not client-only**: it spans the plugin's client, its bridge (reporter) and its server (file routes + lane handler), plus the two `ROUTE_TIERS` `observe` rows for the new routes. Ships with the next client build (`npm run build`) and a server restart (`/api/restart`); the bridge changes reach sessions on their next reload. Rollback: revert the whole commit — an older server or bridge simply stops serving the plugin file routes and the client falls back to `/api/pi-resource-file`. Older builds ignore leftover `dashboard:flow-attached:*` keys. No host flow-code, protocol or shared-type change, so InvoiceBot's `flow_*` forwarding is untouched.
