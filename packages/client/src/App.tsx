@@ -88,7 +88,7 @@ import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
-import { goBack as goBackAction } from "./lib/nav/history-back.js";
+import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
   initNavTracker,
   popNav,
@@ -99,9 +99,11 @@ import {
 import {
   captureBackground,
   clearBackground,
+  isOverlayRoute,
   recordLauncher,
   resolveBackground,
   resolveDismissTarget,
+  splitLocation,
 } from "./lib/nav/overlay-background.js";
 import {
   buildFolderEditorUrl,
@@ -2141,10 +2143,13 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
   const dismissOverlay = useCallback(() => {
     const target = resolveDismissTarget(fullLocation);
-    // Drop the capture first: the navigation below lands on a non-overlay route,
-    // which immediately re-captures it as the next overlay's background.
-    clearBackground();
-    navigate(target);
+    // Leaving to a base route: drop the capture; landing re-captures it as the
+    // next overlay's background. Returning INTO a launching overlay: keep it, so
+    // the underlay stays put; the arrival pops the launcher stack.
+    if (!isOverlayRoute(splitLocation(target).path)) clearBackground();
+    // Pop/replace, never push: a pushed dismiss grows an overlay/launcher trail
+    // that browser Back walks forever. See change: fix-overlay-dismiss-flip-loop.
+    returnTo(navigate, target, NAV_TRACKER);
   }, [fullLocation, navigate]);
 
   // Live-selection aliases, captured BEFORE the shadowing block below.
