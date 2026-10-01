@@ -238,3 +238,21 @@ One breaking mutation per risk class, each on a throwaway branch `tmp-recall/<cl
 - The trigger map's scope widened beyond "outside `packages/`, unreached" (spec: classification of those files is unchanged; the extra matches only add tests). Recorded here rather than rewriting the spec delta.
 - Flakes, not misses: `SessionCard.card-sections.test.tsx` (its graph never reaches `flows-plugin`; it compares two renders that embed `Date.now()`-relative time) and `ProviderAddDialog.test.tsx` (known load-sensitive countdown). On the unmodified tree the pair failed 1 of 7 local runs.
 - The replay table above reflects the final selector (widened trigger map included): largest affected shard ≤ 4.7 min.
+
+### Post-change wall times (task 7.1 / test-plan P2, P3)
+
+Real runs of the switched `ci.yml` (throwaway PRs into `tmp-route-base`, a copy of this branch whose triggers also fire there) and of `nightly-tests.yml` (push-triggered copy on `tmp-nightly-check`; a scheduled run needs the default branch). Baseline: 44–50 min.
+
+| Kind | Runs (wall, min) | Max |
+|---|---|---|
+| PR affected, client-only | 36815009822 (7.5), 36815939500 (7.3), 36822880285 (7.6) | 7.6 |
+| PR affected, server keeper | 36815014153 (8.3) | 8.3 |
+| PR OpenSpec-only | 36815007342 (7.7), 36815951480 (7.3), 36815956387 (7.4) | 7.7 |
+| `develop`-push (push event, `before` base) | 36815034432 (7.4), 36815958681 (7.4), 36815968795 (7.5) | 7.5 |
+| `ci.yml` full mode (lockfile, `ci:full`, all-zero base, this PR) | 36815016676 (13.7), 36815100561 (13.6), 36814967706 (11.8), 36795285794 (12.7) | 13.7 |
+| `nightly-tests.yml` full | 36792542376 (15.0), 36815141994 (15.3), 36822081259 (14.7) | 15.3 |
+
+- PR affected wall time is well under the 15 min target (P2). Every nightly finishes far inside 60 min (P3).
+- An affected run's critical path is now `docker-plugin-load` (≈7.2 min), not the tests: on 36815009822 the unit shards took 2.1–3.0 min, `ci` 4.2, `ci-scenarios` 4.2.
+- Full mode's critical path is the unit shard (≈10 min); `ci-scenarios` (whole `scripts` project in the nightly) ≈13 min is the nightly's.
+- Red runs among the samples were pre-existing flakes (`SessionCard.card-sections` clock race — fixed on `develop` meanwhile; goal-plugin `plugin-action-handler` E22/E24), never selection errors.
