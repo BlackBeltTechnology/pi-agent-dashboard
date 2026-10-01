@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { renderSummary } from "../select-affected-tests.mjs";
+import { loadData, renderSummary } from "../select-affected-tests.mjs";
 import { checkResult } from "../test-selection/check-result.mjs";
 import { decide } from "../test-selection/decide.mjs";
 import { changedFiles, resolveDiff } from "../test-selection/git-diff.mjs";
@@ -153,6 +153,35 @@ describe("internal errors fall back to full (X2)", () => {
   });
 });
 
+describe("selection data must load, or the run is full (review B1)", () => {
+  function dataDir(files) {
+    const d = tmpDir("sel-data-");
+    for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(d, name), body);
+    return d;
+  }
+  const good = { "triggers.json": "{}", "covered-elsewhere.json": "[]", "slow-tier.json": "[]" };
+
+  it("loads valid data, and a missing timings file is tolerated (it only balances shards)", () => {
+    expect(loadData(dataDir(good))).toEqual({ triggers: {}, coveredElsewhere: [], slowTier: [] });
+  });
+
+  it("throws naming a missing or malformed rule file", () => {
+    expect(() => loadData(dataDir({ ...good, "triggers.json": "{not json" }))).toThrow(/triggers\.json/);
+    const { "slow-tier.json": _gone, ...noSlow } = good;
+    expect(() => loadData(dataDir(noSlow))).toThrow(/slow-tier\.json/);
+    expect(() => loadData(dataDir({ ...good, "covered-elsewhere.json": "{}" }))).toThrow(/covered-elsewhere\.json/);
+  });
+
+  it("the CLI turns a malformed rule file into mode full naming it, still enumerated", () => {
+    const d = fixtureRepo();
+    const base = git(d, "rev-parse", "HEAD");
+    const bad = dataDir({ ...good, "triggers.json": "{not json" });
+    const { selection } = runCli(d, ["--base", base], { SELECT_AFFECTED_DATA_DIR: bad });
+    expect(selection.mode).toBe("full");
+    expect(selection.reason).toContain("triggers.json");
+  });
+});
+
 describe("every selection is auditable (E32)", () => {
   it("E32: the summary carries mode, reason, every layer count and each listed file; the JSON carries layers and shards", () => {
     const tests = {
@@ -206,6 +235,19 @@ describe("shard self-verification (X6, X7)", () => {
 
   it("a missing report with assigned files fails", () => {
     expect(verifyExecuted(["a.test.ts"], null, root).ok).toBe(false);
+  });
+
+  it("review B4: an unenumerated (fallback) shard still requires a non-empty report", () => {
+    const d = tmpDir("sel-verify-un-");
+    const selPath = path.join(d, "selection.json");
+    fs.writeFileSync(selPath, JSON.stringify({ enumerated: false, shards: [[], [], [], []], realProcess: [], ciScenariosFiles: [] }));
+    const verify = path.join(repoRoot, "scripts/test-selection/verify-executed.mjs");
+    const rep = path.join(d, "report.json");
+    expect(() => execFileSync(process.execPath, [verify, selPath, "unit-1", rep], { cwd: d, stdio: "pipe" })).toThrow();
+    fs.writeFileSync(rep, JSON.stringify({ testResults: [] }));
+    expect(() => execFileSync(process.execPath, [verify, selPath, "unit-1", rep], { cwd: d, stdio: "pipe" })).toThrow();
+    fs.writeFileSync(rep, JSON.stringify({ testResults: [{ name: path.join(d, "a.test.ts") }] }));
+    expect(() => execFileSync(process.execPath, [verify, selPath, "unit-1", rep], { cwd: d, stdio: "pipe" })).not.toThrow();
   });
 
   it("X7: an empty assignment passes without any report", () => {

@@ -93,6 +93,28 @@ describe("report summary (X10)", () => {
     expect(buildIssueBody({ summary: s, range: "r", runUrl: "u", sha: B })).toMatch(/is red at/);
   });
 
+  it("review B2: a job that failed after writing an all-passing report is red", () => {
+    const s = summarizeReports({
+      expected: ["unit-1"],
+      reports: { "unit-1": rep([["b.test.ts", "passed"]]) },
+      root: ROOT,
+      needs: { select: { result: "success" }, unit: { result: "failure" }, "real-process": { result: "success" } },
+    });
+    expect(s.red).toBe(true);
+    expect(s.failedJobs).toEqual(["unit: failure"]);
+    expect(buildIssueBody({ summary: s, range: "r", runUrl: "u", sha: B })).toContain("unit: failure");
+  });
+
+  it("all jobs successful and reports clean is green", () => {
+    const s = summarizeReports({
+      expected: ["unit-1"],
+      reports: { "unit-1": rep([["b.test.ts", "passed"]]) },
+      root: ROOT,
+      needs: { select: { result: "success" }, unit: { result: "success" } },
+    });
+    expect(s.red).toBe(false);
+  });
+
   it("emits refreshed timings from every report", () => {
     const t = timingsFrom({ "unit-1": rep([["a.test.ts", "passed"]]), "unit-2": null }, ROOT);
     expect(t).toEqual({ "a.test.ts": 1.5 });

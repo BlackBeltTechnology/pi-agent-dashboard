@@ -78,8 +78,13 @@ describe("nightly-tests.yml", () => {
     }
   });
 
-  it("the report job always runs, after every test job", () => {
+  it("the report job always runs, after every test job, even with no report artifacts", () => {
     expect(wf.jobs.report.if).toMatch(/always\(\)/);
+    const download = wf.jobs.report.steps?.find((s) => s.uses?.startsWith("actions/download-artifact@")) as
+      | (Step & { "continue-on-error"?: boolean })
+      | undefined;
+    expect(download?.["continue-on-error"], "an all-jobs-died night must still reach the reporter").toBe(true);
+    expect(text).toMatch(/NEEDS_JSON:\s*\$\{\{\s*toJSON\(needs\)\s*\}\}/);
     expect(needsOf("report").sort()).toEqual(["ci-scenarios", "real-process", "select", "unit"]);
     expect(runs("report")).toMatch(/nightly-report\.mjs/);
   });

@@ -13,7 +13,8 @@
  * let through. Also writes the refreshed `timings.json` (not committed
  * automatically) next to the reports.
  *
- * Env: GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_SHA,
+ * Env: NEEDS_JSON (`toJSON(needs)` — a job that failed after writing a clean
+ * report still makes the night red), GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_EVENT_NAME, GITHUB_SHA,
  * GITHUB_RUN_ID, GITHUB_SERVER_URL, GITHUB_STEP_SUMMARY.
  */
 import { execFileSync } from "node:child_process";
@@ -49,11 +50,16 @@ export function rangeText(anchor) {
 }
 
 /**
- * @param {{ expected: string[], reports: Record<string, object|null>, root: string }} opts
+ * @param {{ expected: string[], reports: Record<string, object|null>, root: string, needs?: Record<string, {result: string}> }} opts
  */
-export function summarizeReports({ expected, reports, root }) {
+export function summarizeReports({ expected, reports, root, needs = {} }) {
   const failing = [];
   const noReport = [];
+  // A job can fail AFTER writing an all-passing report (e.g. verify-executed),
+  // so the job results count too (review B2).
+  const failedJobs = Object.entries(needs)
+    .filter(([, v]) => v?.result !== "success")
+    .map(([job, v]) => `${job}: ${v?.result ?? "unknown"}`);
   for (const job of expected) {
     const rep = reports[job];
     if (!rep) {
@@ -62,7 +68,7 @@ export function summarizeReports({ expected, reports, root }) {
     }
     for (const r of rep.testResults ?? []) if (r.status === "failed") failing.push({ job, file: relTo(root, r.name) });
   }
-  return { failing, noReport, red: failing.length > 0 || noReport.length > 0 };
+  return { failing, noReport, failedJobs, red: failing.length > 0 || noReport.length > 0 || failedJobs.length > 0 };
 }
 
 export function timingsFrom(reports, root) {
@@ -77,6 +83,8 @@ export function buildIssueBody({ summary, range, runUrl, sha }) {
   const headline = summary.red ? `Nightly full suite is red at \`${sha}\`.` : `Nightly full suite is green at \`${sha}\`.`;
   const lines = [`${headline} Run: ${runUrl}`, "", range, "", "### Failing test files"];
   lines.push(...(summary.failing.length ? summary.failing.map((f) => `- \`${f.file}\` (${f.job})`) : ["_none_"]));
+  lines.push("", "### Jobs that did not succeed");
+  lines.push(...(summary.failedJobs?.length ? summary.failedJobs.map((j) => `- ${j}`) : ["_none_"]));
   lines.push("", "### Jobs with no report");
   lines.push(...(summary.noReport.length ? summary.noReport.map((j) => `- ${j}: no report (cancelled or infra)`) : ["_none_"]));
   return lines.join("\n");
@@ -140,7 +148,9 @@ async function main(argv) {
   const env = process.env;
   const sha = env.GITHUB_SHA;
   const reports = readReports(dir, expected);
-  const summary = summarizeReports({ expected, reports, root });
+  const needs = JSON.parse(env.NEEDS_JSON || "{}");
+  const summary = summarizeReports({ expected, reports, root, needs });
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "timings.json"), `${JSON.stringify(timingsFrom(reports, root), null, 1)}\n`);
 
   const api = githubApi({ token: env.GITHUB_TOKEN, repo: env.GITHUB_REPOSITORY });

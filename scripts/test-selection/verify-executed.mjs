@@ -9,7 +9,8 @@
  * from the vitest JSON report's `testResults[].name` — a path-form mismatch or
  * a filter that silently matched nothing must never read as a green shard.
  * An empty assignment passes without a report. A selection that could not
- * enumerate tests (`enumerated: false`) has nothing to compare and passes.
+ * enumerate tests (`enumerated: false`) has nothing to compare, but its report
+ * must still exist and list at least one file.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -44,13 +45,18 @@ export function verifyExecuted(assigned, report, root) {
 
 function main([selectionPath, jobKey, reportPath]) {
   const selection = JSON.parse(fs.readFileSync(selectionPath, "utf8"));
-  if (selection.enumerated === false && jobKey !== "ci-scenarios") {
-    console.log("[verify-executed] selection did not enumerate tests (fallback sharding); nothing to compare");
-    return 0;
-  }
   let report = null;
   if (reportPath && fs.existsSync(reportPath)) report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
-  const r = verifyExecuted(assignedFor(selection, jobKey), report, process.cwd());
+  const assigned = assignedFor(selection, jobKey);
+  if (selection.enumerated === false && assigned.length === 0) {
+    // Fallback sharding: no assignment to compare, but the job must still
+    // prove vitest ran something and reported it (review B4).
+    const n = report?.testResults?.length ?? 0;
+    console.log(`[verify-executed] ${jobKey}: fallback sharding (selection not enumerated); report lists ${n} file(s)`);
+    if (n === 0) console.log(`::error::${jobKey}: fallback run produced no vitest report entries`);
+    return n > 0 ? 0 : 1;
+  }
+  const r = verifyExecuted(assigned, report, process.cwd());
   console.log(`[verify-executed] ${jobKey}: ${r.message}`);
   if (!r.ok) console.log(`::error::${jobKey}: ${r.missing.length} assigned test file(s) did not execute: ${r.missing.slice(0, 10).join(", ")}`);
   return r.ok ? 0 : 1;

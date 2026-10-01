@@ -12,7 +12,8 @@
  * because it broke. If even test enumeration fails, `enumerated: false` tells
  * the workflow to fall back to `vitest --shard` over everything.
  *
- * Test hook: SELECT_AFFECTED_TEST_THROW=1 throws before enumeration (test-plan X2).
+ * Test hooks: SELECT_AFFECTED_TEST_THROW=1 throws before enumeration (test-plan X2);
+ * SELECT_AFFECTED_DATA_DIR points the rule files at another directory.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -48,11 +49,28 @@ function readJson(file, fallback) {
   }
 }
 
-function loadData() {
+/**
+ * The rule files that DECIDE selection. A missing or malformed one throws:
+ * silently substituting an empty rule would narrow the run (review B1).
+ * Only `timings.json` may be absent — it balances shards, never selects.
+ */
+export function loadData(dir = DATA_DIR) {
+  const strict = (name, shape) => {
+    const file = path.join(dir, name);
+    let value;
+    try {
+      value = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (e) {
+      throw new Error(`selection data ${name} unreadable: ${String(e?.message ?? e).split("\n")[0]}`);
+    }
+    const ok = shape === "array" ? Array.isArray(value) : value !== null && typeof value === "object" && !Array.isArray(value);
+    if (!ok) throw new Error(`selection data ${name} must be a JSON ${shape}`);
+    return value;
+  };
   return {
-    triggers: readJson(path.join(DATA_DIR, "triggers.json"), {}),
-    coveredElsewhere: readJson(path.join(DATA_DIR, "covered-elsewhere.json"), []),
-    slowTier: readJson(path.join(DATA_DIR, "slow-tier.json"), []),
+    triggers: strict("triggers.json", "object"),
+    coveredElsewhere: strict("covered-elsewhere.json", "array"),
+    slowTier: strict("slow-tier.json", "array"),
   };
 }
 
@@ -161,12 +179,20 @@ export async function main(argv = process.argv.slice(2)) {
         graphError = `selector error: graph build failed: ${String(e?.message ?? e).split("\n")[0]}`;
         index = await buildTestIndex({ root: args.cwd, withGraph: false });
       }
+      const dataDir = process.env.SELECT_AFFECTED_DATA_DIR || DATA_DIR;
+      let data = { triggers: {}, coveredElsewhere: [], slowTier: [] };
+      let dataError = null;
+      try {
+        data = loadData(dataDir);
+      } catch (e) {
+        dataError = `selector error: ${e.message}`;
+      }
       selection = decide({
         changed: diff.changed ?? [],
-        forceFull: graphError ?? diff.full ?? null,
+        forceFull: graphError ?? dataError ?? diff.full ?? null,
         index,
-        data: loadData(),
-        timings: readJson(path.join(DATA_DIR, "timings.json"), {}),
+        data,
+        timings: readJson(path.join(dataDir, "timings.json"), {}),
       });
       selection.enumerated = true;
       selection.base = diff.base ?? null;

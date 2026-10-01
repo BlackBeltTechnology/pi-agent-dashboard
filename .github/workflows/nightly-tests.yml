@@ -181,13 +181,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # A night where every job died before uploading has NO report artifact;
+      # the reporter must still run and name each job as "no report".
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: vitest-report-*
           path: reports
       - name: Report (issue on a red scheduled run, close on green)
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: node scripts/test-selection/nightly-report.mjs --reports reports --expected unit-1,unit-2,unit-3,unit-4,real-process,ci-scenarios
       - name: Upload refreshed timings
         if: always()
