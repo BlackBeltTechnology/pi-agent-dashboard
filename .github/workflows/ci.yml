@@ -13,9 +13,9 @@ name: CI
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, tmp-route-base, 'tmp-route-fail/**']
   pull_request:
-    branches: [develop]
+    branches: [develop, tmp-route-base]
   # Always a FULL run (the selector's `--full`). Dispatch on a PR branch for an
   # immediate full run; the `ci:full` label takes effect on the next push.
   workflow_dispatch:
