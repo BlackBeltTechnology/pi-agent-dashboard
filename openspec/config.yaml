@@ -58,3 +58,5 @@ rules:
       "Run plan-proposal now?" (doubt-review + scenario-design + test fold
       before the worktree). On yes, load the plan-proposal skill for this
       change; on no, stop and report the change as drafted.
+
+# route-check 2
