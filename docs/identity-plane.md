@@ -104,3 +104,5 @@ Lockout floor: loopback operator always admitted (`isGenuinelyLocal`). Broken re
 - RFC 9700 — OAuth 2.0 security best current practice.
 - RFC 7636 — PKCE. Public browser client auth-code flow.
 - RFC 9449 — DPoP. Sender-constrained tokens. Conditional in browser client plane.
+
+See also `docs/identity-auth-plugin-guide.md` — build a login/authz plugin.

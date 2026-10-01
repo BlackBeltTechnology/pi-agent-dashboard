@@ -28,6 +28,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `grammar-checker.md` | User + dev feature doc. LLM grammar + spelling + style check for composer + OpenSpec Explore/New Change… → see `grammar-checker.md.AGENTS.md` |
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. → see `grammar-model-guidance.md.AGENTS.md` |
 | `gmail-plugin.md` | Map Gmail setup, sign-in, leases, levels, tools, routes, storage, tests, security. See change: add-gmail-plugin. |
+| `identity-auth-plugin-guide.md` | Build a dashboard auth plugin. Three-way split (core seam / keycloak-resolver / your plugin); login separate-view kind + descriptor/tokenUrl/handoff; optional custom resolver; host access policy (default-deny, actions, timeout); product authz; break-glass; testing. → see `identity-auth-plugin-guide.md.AGENTS.md` |
 | `identity-plane.md` | Multi-user identity ref. Gate on `request.principal`/`ws.principal`; owner-equality every session road… → see `identity-plane.md.AGENTS.md` |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
