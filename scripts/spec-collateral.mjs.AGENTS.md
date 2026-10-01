@@ -1,0 +1,3 @@
+# spec-collateral.mjs — index
+
+Advisory scan: main-spec requirements an OpenSpec change may contradict after archive. CLI `--change <name> [--specs <dir>] [--top <n>] [--json]`, paths from cwd. Exports pure `extractIdentifiers` (code-shaped ids, ×3 in remove/replace/rename sentences), `parseRequirements`, `deltaTouchedRequirements`, `scanCollateral` (df cap `max(2,⌊0.04N⌋)`, `ln(N/df)`, T1 = outside-delta best requirement, T2 = unmodified delta requirements, top-N + omitted; each spec read once), `renderMarkdown`. Exit 0 on completion, 2 on any failure, never 1 — not a gate. Called by `plan-proposal` steps 2+3. See change: add-spec-collateral-scan.

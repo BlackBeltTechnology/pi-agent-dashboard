@@ -25,6 +25,7 @@ Pull-only condensed map. Source: packages/eng-disciplines/.pi/skills/doubt-drive
 
 ### Step 3: DOUBT
 - Adversarial prompt verbatim — "Find what is wrong… Assume the author is overconfident… Do NOT validate. Do NOT summarize." Overrides persona's default response shape.
+- Prompt also: verify claims against the repository; write `unverified` when a claim cannot be checked (never assert it); check every candidate requirement the CONTRACT lists and report each one the artifact contradicts.
 - Pass ARTIFACT + CONTRACT only. Never pass CLAIM — biases agreement.
 
 ### Cross-model escalation
