@@ -481,3 +481,5 @@ main().catch((e) => {
   log(`FATAL main: ${e && e.stack ? e.stack : e}`);
   shutdown(2, "main-rejected");
 });
+
+// route-check
