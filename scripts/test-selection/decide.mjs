@@ -190,24 +190,35 @@ export function decide({ changed, forceFull = null, index, data, timings = {}, s
       const locs = tests[t].locations ?? [];
       if (locs.some((loc) => changed.some((f) => within(f, loc)))) add(t, "path-literal");
     }
-    // Unreached, non-test changes: package fallback inside packages/, data files outside.
-    const covered = data.coveredElsewhere ?? [];
-    const triggers = Object.entries(data.triggers ?? {}).map(([g, testGlobs]) => [globToRegExp(g), testGlobs.map(globToRegExp)]);
+    // Unreached, non-test changes inside packages/ fall back to their package.
     for (const f of changed) {
-      if (reached.has(f) || f in tests || f === TIMINGS_FILE) continue;
+      if (reached.has(f) || f in tests) continue;
       const parts = f.split("/");
-      if (parts[0] === "packages" && parts.length > 2) {
-        const pkg = `packages/${parts[1]}`;
-        for (const t of allTests) {
-          if (within(t, pkg) || tests[t].deps.some((d) => within(d, pkg))) add(t, "package-fallback");
-        }
-        continue;
+      if (parts[0] !== "packages" || parts.length <= 2) continue;
+      const pkg = `packages/${parts[1]}`;
+      for (const t of allTests) {
+        if (within(t, pkg) || tests[t].deps.some((d) => within(d, pkg))) add(t, "package-fallback");
       }
-      const hits = triggers.filter(([re]) => re.test(f));
-      if (hits.length) {
-        for (const [, testRes] of hits) for (const t of allTests) if (testRes.some((re) => re.test(t))) add(t, "trigger-map");
-        continue;
+    }
+    // Trigger map: a matching changed file — reached or not, any location —
+    // selects the mapped tests (readers that build their paths, e.g. repo-wide
+    // scanners). It only ever adds.
+    const triggers = Object.entries(data.triggers ?? {}).map(([g, testGlobs]) => [globToRegExp(g), testGlobs.map(globToRegExp)]);
+    const triggered = new Set();
+    for (const f of changed) {
+      for (const [re, testRes] of triggers) {
+        if (!re.test(f)) continue;
+        triggered.add(f);
+        for (const t of allTests) if (testRes.some((tr) => tr.test(t))) add(t, "trigger-map");
       }
+    }
+    // Unreached, non-test changes outside packages/: trigger map, else
+    // covered-elsewhere, else unknown → full.
+    const covered = data.coveredElsewhere ?? [];
+    for (const f of changed) {
+      if (reached.has(f) || f in tests || f === TIMINGS_FILE || triggered.has(f)) continue;
+      const parts = f.split("/");
+      if (parts[0] === "packages" && parts.length > 2) continue;
       if (covered.includes(parts[0])) continue;
       unmapped.push(f);
     }

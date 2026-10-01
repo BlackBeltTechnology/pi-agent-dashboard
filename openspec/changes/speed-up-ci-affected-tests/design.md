@@ -180,3 +180,61 @@ That change's task 3.2 extends `pnpm-migration-contract` X5 to pin lint→test�
 4. Switch `ci.yml` to the D5 graph and strip `pnpm test` / `test:ci-scenarios` / chromium out of the `ci` job.
 
 Rollback: the switch is **one commit** holding the `ci.yml` restructure and the contract-test rewrites together (tasks 5.2 + 5.3). Reverting that commit restores both, and `pnpm test` stays green. The selector and nightly are additive.
+
+## Measurements
+
+### Baseline (task 1.1)
+
+Sampled `ci.yml` runs on `develop` (both resolve with `gh run view`):
+
+| Run | Head | Wall | `test:ci-scenarios` | `pnpm test` |
+|---|---|---|---|---|
+| [36753089286](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/36753089286) | `184ebd645` | 50.0 min | 11.6 min | 32.8 min |
+| [36474511507](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/runs/36474511507) | `559f0ed85` | 48.8 min | — | — |
+
+20 green `develop` runs 2026-09-27…30: 37.4–50.0 min wall. Full suite from the 36753089286 report: 2,184 files, 32.3 file-min (`scripts/test-selection/timings.json` seed).
+
+### Spike-commit replay (task 2.11)
+
+Finished selector, current-tree index (2,217 test files incl. the 4 newly collected packages), each commit's own diff (`git diff c^ c`). "masked" = its global inputs removed from the diff to expose the affected-mode result. Max shard = largest LPT shard load over `timings.json` (4 shards); full mode = 8.4 min.
+
+| Commit | Files | Mode (raw) | Mode (masked) | Selected | File-min | Max shard | `mdi-chunk-size` |
+|---|---|---|---|---|---|---|---|
+| `7ab920061` | 4 | affected | affected | 835 | 7.9 | 1.6 min | selected |
+| `c287d3408` | 31 | affected | affected | 887 | 9.0 | 1.9 min | selected |
+| `0138e9d26` | 14 | affected | affected | 892 | 9.1 | 1.9 min | selected |
+| `ba50d70e6` | 1 | affected | affected | 278 | 5.4 | 1.0 min | selected |
+| `d3b8f4927` | 61 | affected | affected | 1845 | 21.8 | 4.7 min | selected |
+| `9f10c3196` | 61 | affected | affected | 1774 | 21.7 | 4.6 min | selected |
+| `b6ef839ad` | 67 | affected | affected | 1787 | 21.7 | 4.6 min | selected |
+| `559f0ed85` | 77 | full (`pnpm-lock.yaml`) | affected | 1774 | 21.7 | 4.6 min | selected |
+| `4aa093982` | 252 | affected | affected | 705 | 15.4 | 3.3 min | selected |
+| `8d19223ed` | 88 | full (gmail tsconfig/vitest config, lockfile) | affected | 1659 | 21.0 | 4.5 min | selected |
+| `6beb1fc46` | 49 | full (`pnpm-lock.yaml`) | affected | 1156 | 17.0 | 3.7 min | selected |
+
+- `mdi-chunk-size.test.ts` is selected on every commit (always-run layer).
+- **Deviation from task 2.11's expectation:** `ProviderAddDialog.test.tsx` IS selected for masked `6beb1fc46`. Cause: the commit also edits `packages/client/src/components/split/SessionSplitView.tsx.AGENTS.md`, an unreached file under `packages/client/`, so the package-fallback layer selects every client test — exactly what the "Markdown inside a package" requirement (E12) demands. The spike ignored all `*.md`. The spec wins; the cost is shard time, not correctness (max shard 3.7 min). DOX sidecars ride along with most source edits, so package fallback fires on most PRs that touch a package; a narrower rule for `*.AGENTS.md` would need a spec change.
+- Selection is larger than the spike's 2.6–12 file-min for the same reason (package fallback on `.md`, path-literal readers of `packages`/`.pi`, open edges in `packages/shared`). Every affected replay still keeps the largest shard under 5 min.
+- Replay run on the current tree's graph rather than a per-commit graph; import structure changed little across these commits.
+- `scripts/**` unreached files (e.g. `scripts/i18n-lint.mjs` in `8d19223ed`) forced `full` until the trigger map gained `scripts/** → scripts/__tests__/**/*.test.mjs` (≈2.8 file-min).
+
+### Seeded-mutation recall (task 3.2 / test-plan X14)
+
+One breaking mutation per risk class, each on a throwaway branch `tmp-recall/<class>` cut from `os/speed-up-ci-affected-tests` @ `c83169bed` plus a dispatch-free `zz-recall.yml` that runs the FULL suite (`test:parallel`, `test:real-process`, `test:ci-scenarios`, each `continue-on-error`) and uploads all three vitest reports. Ground truth = failing files minus the unmutated `tmp-recall/baseline` run's failures (`scripts/__tests__/vitest-workers.test.mjs`, fixed in-branch). Selection = `decide()` over the mutation's diff.
+
+| Class | Mutation | Ground-truth failing files | Selected (first run → after fix) | Missed |
+|---|---|---|---|---|
+| server module | `packages/server/src/lib/md-candidates.ts` `.pi/agent` → `.pi/agents` | `md-candidates.test.ts` | 390 → 415 | 0 |
+| `shared` runtime, cross-package | `packages/shared/src/route-tiers.ts` default tier `operate` → `read` | `server/…/route-tier-gate.test.ts` | 498 → 529 | 0 |
+| client component | `primitives/ActionButton.tsx` drops `bind.disabled` | `ActionButton.test.tsx` | 261 → 286 | 0 |
+| `index.css` | `:root.fx-idle .fx-progress` selector typo | `fx-idle-css.test.ts` | 803 → 828 (package fallback) | 0 |
+| package JSON fixture | `server/src/__fixtures__/measured-session.json` `live: {}` | `memory-session-manager.test.ts` | 803 → 828 (package fallback) | 0 |
+| jiti-loaded flows bridge | `flows-plugin/src/bridge/flow-files-reporter.ts` returns empty | `flow-files-bridge.test.ts` (+ `SessionCard.card-sections.test.tsx`, flake) | 244 → 274 | 0 real |
+| `openspec/` read by conventions | `openspec/config.yaml` rule text | none (no test pins that text) | 285 | 0 |
+| cross-package literal read | `shared/src/browser-protocol.ts` `plugin_config_write` renamed | `bus-client/…/codegen-denylist.test.ts`, `server/…/mcp-manifest-completeness.test.ts` | 1318 → 1349 | 0 |
+| root `AGENTS.md` | +40 KB padding (over `AGENTS_BYTE_CAP` 30000) | `scripts/__tests__/repo-hygiene.test.mjs` (+ `ProviderAddDialog.test.tsx`, flake) | 208 → 210 | **1 → 0** |
+
+- **Miss found and fixed:** `repo-hygiene.test.mjs` walks `git ls-files "*AGENTS.md"` — a pathspec, not a location literal, and it reaches no `AGENTS.md` through imports. Fix: the trigger map now matches EVERY changed file (reached or not, inside or outside `packages/`, still add-only), with `**/*.md` → `dox-byte-gate`, `repo-hygiene`, `skill-frontmatter`, and `packages/**` → every `scripts/__tests__` test (the repo-wide scanners — async-semantics-guards, lint-ledger, knip, repo-hygiene — judge every package; ≈2.8 file-min). Re-checked: all nine classes select every ground-truth file.
+- The trigger map's scope widened beyond "outside `packages/`, unreached" (spec: classification of those files is unchanged; the extra matches only add tests). Recorded here rather than rewriting the spec delta.
+- Flakes, not misses: `SessionCard.card-sections.test.tsx` (its graph never reaches `flows-plugin`; it compares two renders that embed `Date.now()`-relative time) and `ProviderAddDialog.test.tsx` (known load-sensitive countdown). On the unmodified tree the pair failed 1 of 7 local runs.
+- The replay table above reflects the final selector (widened trigger map included): largest affected shard ≤ 4.7 min.

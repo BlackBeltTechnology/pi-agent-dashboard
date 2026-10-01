@@ -91,7 +91,7 @@ Full mode selects every test. Triggers:
 - `always` — zero local deps → runs on every diff. ~183 files.
 - `path-literal` — test source holds string literal naming a top-level entry or `packages/<p>`. Leading `./` / `../` stripped. Template literal counts up to first `${`. Heuristic only ever adds.
 - `package-fallback` — unreached changed file under `packages/<p>/` → selects tests under `packages/<p>/` + tests whose graph enters it. `packages/<p>/package.json` change scoped same — package fallback, not full.
-- `trigger-map` — `scripts/test-selection/triggers.json`. Glob → test globs. Covers inputs read via dynamic path.
+- `trigger-map` — `scripts/test-selection/triggers.json`. Glob → test globs. Matches EVERY changed file — reached or not, inside or outside `packages/`. Only adds. Covers readers graph + literal layers miss: repo-wide scanners (`packages/**`, `scripts/**` → all `scripts/__tests__`), `**/*.md` → dox-byte-gate, repo-hygiene (AGENTS.md byte cap), skill-frontmatter; `biome.json`, `knip*.json`. Unreached outside-`packages/` file with a trigger hit → not unmapped.
 - `slow-tier` — `scripts/test-selection/slow-tier.json`. Currently only `scripts/__tests__/async-semantics-mutation.test.mjs`. Applied LAST, over every layer. Re-included when edited. Deselection logged.
 
 ### covered-elsewhere

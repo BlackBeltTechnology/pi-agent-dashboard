@@ -64,7 +64,7 @@ describe("nightly-tests.yml", () => {
     expect(unit).toMatch(/packages\/client\/dist\/index\.html/);
     expect(unit).toMatch(/pnpm run test:parallel/);
     expect(unit).toMatch(/verify-executed\.mjs selection\.json "?unit-/);
-    expect((wf.jobs.unit.strategy?.matrix?.shard as number[]).length).toBe(4);
+    expect(wf.jobs.unit.strategy?.matrix?.shard as number[] | undefined).toHaveLength(4);
   });
 
   it("every vitest job verifies execution and uploads a per-job report", () => {

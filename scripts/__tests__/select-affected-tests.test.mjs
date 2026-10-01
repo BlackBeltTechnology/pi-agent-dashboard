@@ -288,6 +288,29 @@ describe("outside packages: trigger map, covered-elsewhere, unknown (E14–E16)"
     expect(sel.selected).toEqual({ [Z]: "always", [docsReader]: "path-literal" });
   });
 
+  it("the trigger map also widens for files inside packages/ and reached files (repo-wide scanners)", () => {
+    const scanner = "scripts/__tests__/repo-hygiene.test.mjs";
+    const sel = run({
+      changed: ["packages/p/src/p.ts", "packages/p/src/p.AGENTS.md"],
+      tests: { ...tests, [scanner]: t(["scripts/lib/x.mjs"]) },
+      data: { triggers: { "**/*AGENTS.md": [scanner] } },
+    });
+    expect(sel.mode).toBe("affected");
+    expect(sel.selected[plain]).toBe("graph");
+    expect(sel.selected[scanner]).toBe("trigger-map");
+  });
+
+  it("a covered root file matched by a trigger selects the reader (recall fix: root AGENTS.md byte cap)", () => {
+    const scanner = "scripts/__tests__/repo-hygiene.test.mjs";
+    const sel = run({
+      changed: ["AGENTS.md"],
+      tests: { ...tests, [scanner]: t(["scripts/lib/x.mjs"]) },
+      data: { triggers: { "**/*AGENTS.md": [scanner] } },
+    });
+    expect(sel.mode).toBe("affected");
+    expect(sel.selected[scanner]).toBe("trigger-map");
+  });
+
   it("an unreached file under a top-level location that holds tests is not auto-covered", () => {
     const sel = run({ changed: ["scripts/build.sh"], tests });
     expect(sel.mode).toBe("full");

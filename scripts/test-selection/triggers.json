@@ -1,4 +1,9 @@
 {
+ "**/*.md": [
+  "scripts/__tests__/dox-byte-gate.test.mjs",
+  "scripts/__tests__/repo-hygiene.test.mjs",
+  "scripts/__tests__/skill-frontmatter.test.mjs"
+ ],
  "biome.json": [
   "scripts/__tests__/async-semantics-guards.test.mjs",
   "scripts/__tests__/biome-undeclared-dependencies.test.mjs",
@@ -11,5 +16,6 @@
  ],
  "knip-baseline.json": ["scripts/__tests__/knip-*.test.mjs"],
  "knip.json": ["scripts/__tests__/knip-*.test.mjs"],
+ "packages/**": ["scripts/__tests__/**/*.test.mjs"],
  "scripts/**": ["scripts/__tests__/**/*.test.mjs"]
 }

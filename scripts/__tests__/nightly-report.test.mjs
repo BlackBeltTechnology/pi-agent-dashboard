@@ -89,6 +89,8 @@ describe("report summary (X10)", () => {
     expect(s.red).toBe(true);
     const green = summarizeReports({ expected: ["unit-1"], reports: { "unit-1": rep([["b.test.ts", "passed"]]) }, root: ROOT });
     expect(green.red).toBe(false);
+    expect(buildIssueBody({ summary: green, range: "r", runUrl: "u", sha: B })).toMatch(/is green at/);
+    expect(buildIssueBody({ summary: s, range: "r", runUrl: "u", sha: B })).toMatch(/is red at/);
   });
 
   it("emits refreshed timings from every report", () => {

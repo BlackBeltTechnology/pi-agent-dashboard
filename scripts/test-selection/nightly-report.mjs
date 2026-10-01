@@ -74,7 +74,8 @@ export function timingsFrom(reports, root) {
 }
 
 export function buildIssueBody({ summary, range, runUrl, sha }) {
-  const lines = [`Nightly full suite is red at \`${sha}\`. Run: ${runUrl}`, "", range, "", "### Failing test files"];
+  const headline = summary.red ? `Nightly full suite is red at \`${sha}\`.` : `Nightly full suite is green at \`${sha}\`.`;
+  const lines = [`${headline} Run: ${runUrl}`, "", range, "", "### Failing test files"];
   lines.push(...(summary.failing.length ? summary.failing.map((f) => `- \`${f.file}\` (${f.job})`) : ["_none_"]));
   lines.push("", "### Jobs with no report");
   lines.push(...(summary.noReport.length ? summary.noReport.map((j) => `- ${j}: no report (cancelled or infra)`) : ["_none_"]));
