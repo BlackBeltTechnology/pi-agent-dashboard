@@ -455,16 +455,16 @@ export function CreateAutomationDialog({
         <div className="flex items-start justify-between gap-2">
           <div className="flex flex-col">
             <h2 className="text-base font-semibold">{editing ? t("editAutomation", undefined, "Edit Automation") : t("createAutomationTitle", undefined, "Create Automation")}</h2>
-            <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-subtitle">
+            <p className="text-[12px] text-[var(--text-secondary)] font-mono" data-testid="editor-subtitle">
               {scope === "global" ? "global · ~/.pi/automation" : `folder · ${cwd ?? t("thisRepo", undefined, "(this repo)")}`}
             </p>
           </div>
           {!submitDisabled && (
             <span
               data-testid="armed-chip"
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-[rgba(52,211,153,0.14)] text-[#6ee7b7]"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--tint-green-border)] px-2 py-0.5 text-[12px] font-semibold bg-[var(--tint-green-bg)] text-[var(--tint-green-fg)]"
             >
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
+              <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--tint-green-fg)] animate-pulse motion-reduce:animate-none" />
               {t("armedOnSave", undefined, "armed on save")}
             </span>
           )}
@@ -484,7 +484,7 @@ export function CreateAutomationDialog({
             />
           </Field>
           {editing && (
-            <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-name-locked">
+            <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-name-locked">
               {t("nameLocked", undefined, "Name is locked while editing to avoid orphaning the automation.")}
             </p>
           )}
@@ -515,7 +515,7 @@ export function CreateAutomationDialog({
                   data-testid={`trigger-cat-${c.category}`}
                   disabled={planned}
                   onClick={() => setCategory(c.category)}
-                  className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${
+                  className={`focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] rounded-full border ${
                     selected
                       ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -524,14 +524,14 @@ export function CreateAutomationDialog({
                 >
                   <Icon path={CATEGORY_ICON[c.category] ?? mdiFlashOutline} size={0.55} />
                   {c.label}
-                  {planned && <span className="ml-1 text-[9px]">{t("soon", undefined, "soon")}</span>}
+                  {planned && <span className="ml-1 text-[11px]">{t("soon", undefined, "soon")}</span>}
                 </button>
               );
             })}
           </div>
 
           {categoryPlanned ? (
-            <p className="text-xs text-[var(--text-muted)]" data-testid="trigger-planned-note">
+            <p className="text-xs text-[var(--text-secondary)]" data-testid="trigger-planned-note">
               {t("categoryComingSoonNote", undefined, "This trigger category is coming soon and cannot be saved yet.")}
             </p>
           ) : isScheduled ? (
@@ -598,14 +598,14 @@ export function CreateAutomationDialog({
                   if (!rawCronMode) setCron(buildCron(freq, time, dow));
                   setRawCronMode((v) => !v);
                 }}
-                className="text-[10px] text-[var(--text-secondary)] underline"
+                className="focus-ring inline-flex items-center tap-target text-[12px] text-[var(--text-secondary)] underline"
               >
                 {rawCronMode ? t("useScheduleHelper", undefined, "use schedule helper") : t("editRawCron", undefined, "edit raw cron")}
               </button>
-              <p className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" data-testid="create-next-run">
+              <p className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]" data-testid="create-next-run">
                 {nextRun ? (
                   <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse motion-reduce:animate-none" />
+                    <span aria-hidden="true" className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--severity-success-fg)] animate-pulse motion-reduce:animate-none" />
                     {t("nextRunLabel", undefined, "Next run:")} {nextRun}
                   </>
                 ) : (
@@ -625,17 +625,17 @@ export function CreateAutomationDialog({
                     data-testid="create-file-path"
                     className="input font-mono"
                   />
-                  <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-file-path-help">
+                  <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-file-path-help">
                     {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
                   </p>
                   {filePathMissing && (
-                    <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
+                    <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
                       {t("filePathRequired", undefined, "Folder to watch is required.")}
                     </p>
                   )}
                 </Field>
               )}
-              <p className="text-[10px] text-[var(--text-muted)]">{t("selectEventTypes", undefined, "Select one or more event types:")}</p>
+              <p className="text-[12px] text-[var(--text-secondary)]">{t("selectEventTypes", undefined, "Select one or more event types:")}</p>
               <div className="grid grid-cols-2 gap-1">
               {activeCategory?.events.map((ev) => {
                 const planned = ev.status === "planned";
@@ -652,14 +652,14 @@ export function CreateAutomationDialog({
                       onChange={() => toggleEvent(ev.event)}
                     />
                     <span className="font-mono">{ev.event}</span>
-                    <span className="text-[var(--text-muted)]">{ev.label}</span>
-                    {planned && <span className="text-[9px]">{t("soon", undefined, "soon")}</span>}
+                    <span className="text-[var(--text-secondary)]">{ev.label}</span>
+                    {planned && <span className="text-[11px]">{t("soon", undefined, "soon")}</span>}
                   </label>
                 );
               })}
               </div>
               {eventsMissing && (
-                <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="events-missing">
+                <p className="text-[12px] text-[var(--severity-error-fg)]" data-testid="events-missing">
                   {t("eventsMissing", undefined, "Select at least one event type.")}
                 </p>
               )}
@@ -731,7 +731,7 @@ export function CreateAutomationDialog({
               />
             </>
           )}
-          <Field label={t("fieldCount", undefined, "Spawn count")}>
+          <Field label={t("fieldCount", undefined, "Sessions per run")}>
             <input
               type="number"
               min={1}
@@ -747,14 +747,14 @@ export function CreateAutomationDialog({
             {extraEntries.map((entry, i) => (
               <div key={i} data-testid={`extra-action-${i}`} className="rounded border border-[var(--border-secondary)] p-2 space-y-1">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
                     {t("actionEntry", { n: i + 2 }, `Action ${i + 2}`)}
                   </span>
                   <button
                     type="button"
                     data-testid={`remove-action-entry-${i}`}
                     onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-[10px] text-[var(--severity-error-fg)]"
+                    className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border tint-action-red"
                   >
                     {t("remove", undefined, "Remove")}
                   </button>
@@ -790,7 +790,7 @@ export function CreateAutomationDialog({
                     />
                   </Field>
                 )}
-                <Field label={t("fieldCount", undefined, "Spawn count")}>
+                <Field label={t("fieldCount", undefined, "Sessions per run")}>
                   <input
                     type="number"
                     min={1}
@@ -811,7 +811,7 @@ export function CreateAutomationDialog({
               onClick={() =>
                 setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
               }
-              className="text-[11px] px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+              className="focus-ring inline-flex items-center gap-1 px-2.5 tap-target text-[12px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             >
               {t("addAction", undefined, "+ Add action")}
             </button>
@@ -823,7 +823,7 @@ export function CreateAutomationDialog({
                 type="button"
                 data-testid="create-model-mode-role"
                 onClick={() => setModelMode("role")}
-                className={`px-2 py-0.5 text-[10px] rounded border ${
+                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
                   modelMode === "role"
                     ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -835,7 +835,7 @@ export function CreateAutomationDialog({
                 type="button"
                 data-testid="create-model-mode-model"
                 onClick={() => setModelMode("model")}
-                className={`px-2 py-0.5 text-[10px] rounded border ${
+                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
                   modelMode === "model"
                     ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
@@ -864,7 +864,7 @@ export function CreateAutomationDialog({
                     See change: add-default-thinking-level (design D9). */}
                 <p
                   data-testid="create-model-role-level-hint"
-                  className="text-[10px] text-[var(--text-secondary)] mt-1"
+                  className="text-[12px] text-[var(--text-secondary)] mt-1"
                 >
                   {t("roleLevelHint", { role: roleValue }, `Thinking level comes from ${roleValue} — set it in Settings → Roles.`)}
                 </p>
@@ -876,7 +876,7 @@ export function CreateAutomationDialog({
               <div data-testid="create-model-selector">
                 <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                    <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
                       {t("modelLabel", undefined, "Model")}
                     </span>
                     <ModelSelector
@@ -893,7 +893,7 @@ export function CreateAutomationDialog({
                     />
                   </div>
                   <div className="flex flex-col gap-0.5 shrink-0">
-                    <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                    <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
                       {t("thinkingLabel", undefined, "Thinking")}
                     </span>
                     <ThinkingLevelSelector
@@ -907,7 +907,7 @@ export function CreateAutomationDialog({
                   </div>
                 </div>
                 {modelValue && (
-                  <p className="text-[10px] text-[var(--text-secondary)] font-mono mt-1">
+                  <p className="text-[11px] text-[var(--text-secondary)] font-mono mt-1">
                     {joinModelLevel(modelValue, modelLevel)}
                   </p>
                 )}
@@ -922,9 +922,10 @@ export function CreateAutomationDialog({
             type="button"
             data-testid="create-advanced-toggle"
             onClick={() => setAdvancedOpen((v) => !v)}
-            className="text-xs font-medium text-[var(--text-secondary)]"
+            aria-expanded={advancedOpen}
+            className="focus-ring inline-flex items-center gap-1 tap-target text-[12px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
-            {advancedOpen ? "▾" : "▸"} {t("advanced", undefined, "Advanced")}
+            <span aria-hidden="true">{advancedOpen ? "▾" : "▸"}</span> {t("advanced", undefined, "Advanced")}
           </button>
           {advancedOpen && (
             <div className="space-y-2 pt-2" data-testid="create-advanced">
@@ -942,7 +943,7 @@ export function CreateAutomationDialog({
                     </option>
                   </select>
                   {!worktreeAvailable && (
-                    <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-worktree-hint">
+                    <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-worktree-hint">
                       {t("worktreeHint", undefined, "Worktree requires a git repository — falling back to local.")}
                     </p>
                   )}
@@ -971,7 +972,7 @@ export function CreateAutomationDialog({
                   <option value="workspace-write">workspace-write</option>
                   <option value="full-access">full-access</option>
                 </select>
-                <p className="text-[10px] text-[var(--text-muted)]" data-testid="create-sandbox-help">
+                <p className="text-[12px] text-[var(--text-secondary)]" data-testid="create-sandbox-help">
                   {SANDBOX_HELP[sandbox]}
                 </p>
               </Field>
@@ -997,13 +998,13 @@ export function CreateAutomationDialog({
           </p>
         )}
 
-        <p className="text-[10px] text-[var(--text-muted)] font-mono" data-testid="editor-footer-caption">
+        <p className="text-[11px] text-[var(--text-secondary)] font-mono" data-testid="editor-footer-caption">
           {t("writes", undefined, "Writes")} .pi/automation/{name.trim() || "<name>"}/automation.yaml
           {actionId === "core.prompt" ? " + prompt.md" : ""}
         </p>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="px-3 py-1 text-xs rounded border border-[var(--border-secondary)]">
+          <button type="button" onClick={onClose} className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md border border-[var(--border-secondary)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
             {t("cancel", undefined, "Cancel")}
           </button>
           <button
@@ -1011,7 +1012,7 @@ export function CreateAutomationDialog({
             onClick={submit}
             disabled={submitDisabled}
             data-testid="create-submit"
-            className="px-3 py-1 text-xs rounded bg-[var(--accent-solid)] text-white disabled:opacity-50"
+            className="focus-ring inline-flex items-center px-3 min-h-[44px] sm:min-h-[36px] text-[13px] font-semibold rounded-md bg-[var(--accent-solid)] text-white hover:brightness-110 disabled:bg-[var(--bg-tertiary)] disabled:text-[var(--text-secondary)] disabled:hover:brightness-100 disabled:cursor-not-allowed"
           >
             {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
           </button>
@@ -1056,7 +1057,7 @@ function Group({ title, label, children }: { title: string; label?: string; chil
       data-testid={`group-${title.toLowerCase()}`}
       className="space-y-2 rounded-lg border border-[var(--border-secondary)] p-3"
     >
-      <h3 className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">{label ?? title}</h3>
+      <h3 className="text-[12px] font-semibold text-[var(--text-secondary)]">{label ?? title}</h3>
       {children}
     </section>
   );
@@ -1087,7 +1088,7 @@ function Segmented<T extends string>({
             data-testid={`${testid}-${o.value}`}
             disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={`px-2 py-0.5 text-[11px] rounded ${
+            className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded ${
               selected
                 ? "bg-[var(--accent-solid)] text-white"
                 : "text-[var(--text-secondary)]"
@@ -1160,7 +1161,7 @@ function ActionPicker({
         className="input mb-2"
       />
       {matched.length === 0 ? (
-        <p className="text-[11px] text-[var(--text-muted)] px-1 py-2" data-testid="create-action-zero">
+        <p className="text-[12px] text-[var(--text-secondary)] px-1 py-2" data-testid="create-action-zero">
           {t("noActionsMatch", { query: search }, `No actions match “${search}”. Try a plugin (`)}<code>flows</code>{t("noActionsOrVerb", undefined, ") or verb (")}<code>run</code>).
         </p>
       ) : (
@@ -1176,11 +1177,11 @@ function ActionPicker({
                   onClick={() => onToggleSource(src)}
                   aria-expanded={open}
                   data-testid={`action-group-${src}`}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] font-semibold"
+                  className="focus-ring flex w-full items-center gap-2 px-2 py-1.5 tap-target text-left text-[12px] font-semibold"
                 >
-                  <span className="text-[var(--text-muted)]">{open ? "▾" : "▸"}</span>
+                  <span aria-hidden="true" className="text-[var(--text-muted)]">{open ? "▾" : "▸"}</span>
                   <span className="capitalize">{src}</span>
-                  <span className="ml-auto text-[10px] font-normal text-[var(--text-muted)]">
+                  <span className="ml-auto text-[12px] font-normal text-[var(--text-secondary)]">
                     {sourceAvailable ? `${items.length} action${items.length !== 1 ? "s" : ""}` : t("notAvailableHere", undefined, "⚠ not available here")}
                   </span>
                 </button>
@@ -1197,18 +1198,18 @@ function ActionPicker({
                           onClick={() => onSelect(a)}
                           aria-pressed={selected}
                           data-testid={`create-action-${a.id}`}
-                          className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] ${
+                          className={`focus-ring flex items-center gap-2 rounded border px-2 py-1.5 tap-target text-left text-[12px] ${
                             selected
                               ? "border-[var(--accent)] bg-[var(--accent)]/10"
                               : "border-[var(--border-secondary)]"
                           } ${a.available ? "" : "opacity-50 cursor-not-allowed"}`}
                         >
                           <span className="font-mono">
-                            <span className="text-[var(--text-muted)]">{a.source}.</span>
+                            <span className="text-[var(--text-secondary)]">{a.source}.</span>
                             {a.id.slice(a.source.length + 1)}
                           </span>
                           {a.description && (
-                            <span className="ml-auto text-[9.5px] text-[var(--text-muted)] truncate">{a.description}</span>
+                            <span className="ml-auto text-[12px] text-[var(--text-secondary)] truncate">{a.description}</span>
                           )}
                         </button>
                       );
@@ -1237,7 +1238,7 @@ function ActionPayloadForm({
   const t = useT();
   if (schema.length === 0) {
     return (
-      <p className="text-[11px] text-[var(--text-muted)] mt-2" data-testid="action-payload-empty">
+      <p className="text-[12px] text-[var(--text-secondary)] mt-2" data-testid="action-payload-empty">
         {t("payloadEmpty", undefined, "This action takes no payload. It runs with the automation’s folder scope.")}
       </p>
     );
@@ -1278,7 +1279,7 @@ function ActionPayloadForm({
               className="input"
             />
           )}
-          {f.help && <span className="block mt-0.5 text-[9.5px] text-[var(--text-muted)]">{f.help}</span>}
+          {f.help && <span className="block mt-0.5 text-[12px] text-[var(--text-secondary)]">{f.help}</span>}
         </Field>
       ))}
     </div>

@@ -1128,6 +1128,51 @@ export function truncateOutputForDisplay(
  * See change: fix-interactive-ui-reorder.
  */
 /**
+ * Insert `row` chronologically: scan `messages` from the end in ARRAY order,
+ * skipping `historyGap` dividers (client-clock, never an anchor), and insert
+ * right after the first row with `timestamp <= ts` (equal → existing row
+ * first). None found → before the first non-gap row (after a leading divider,
+ * or index 0); no non-gap row at all → append. Pure.
+ * See change: collapse-and-order-notify-rows (D2).
+ */
+function insertByTs(messages: ChatMessage[], row: ChatMessage, ts: number): ChatMessage[] {
+  let firstNonGap = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "historyGap") continue;
+    if (m.timestamp <= ts) return [...messages.slice(0, i + 1), row, ...messages.slice(i + 1)];
+    firstNonGap = i;
+  }
+  if (firstNonGap === -1) return [...messages, row];
+  return [...messages.slice(0, firstNonGap), row, ...messages.slice(firstNonGap)];
+}
+
+/**
+ * Re-place every ts-placed notify row (`args.params.ts` is a number) by
+ * `insertByTs`, ascending `ts`. Run after a history-backfill splice so a
+ * backfilled row older than the notify ends above it. Returns the input
+ * reference when nothing is ts-placed. See change: collapse-and-order-notify-rows (D5).
+ */
+export function reseatTimedNotifies(messages: ChatMessage[]): ChatMessage[] {
+  const timed: Array<{ row: ChatMessage; ts: number }> = [];
+  const rest: ChatMessage[] = [];
+  for (const m of messages) {
+    const ts = isNotifyRow(m) ? (m.args as any)?.params?.ts : undefined;
+    if (typeof ts === "number" && Number.isFinite(ts)) timed.push({ row: m, ts });
+    else rest.push(m);
+  }
+  if (timed.length === 0) return messages;
+  timed.sort((a, b) => a.ts - b.ts);
+  let out = rest;
+  for (const { row, ts } of timed) out = insertByTs(out, row, ts);
+  return out;
+}
+
+function isNotifyRow(m: ChatMessage): boolean {
+  return m.role === "interactiveUi" && m.content === "notify" && (m.args as any)?.method === "notify";
+}
+
+/**
  * Append a notification as a chat row — and ONLY a chat row.
  *
  * A notify is not an unanswered ask, so it deliberately does NOT go through
@@ -1145,26 +1190,34 @@ export function addNotify(
   notifyId: string,
   message: string,
   level?: string,
+  ts?: number,
 ): SessionState {
   const id = `ui-${notifyId}`;
   if (state.messages.some((m) => m.id === id)) return state;
+  // Non-finite ts (NaN/±Infinity) cannot be ordered — treat as absent.
+  const timed = typeof ts === "number" && Number.isFinite(ts);
+  const row: ChatMessage = {
+    id,
+    role: "interactiveUi",
+    content: "notify",
+    timestamp: timed ? ts : Date.now(),
+    args: {
+      requestId: notifyId,
+      method: "notify",
+      params: {
+        message,
+        ...(level === undefined ? {} : { level }),
+        ...(timed ? { ts } : {}),
+      },
+      status: "pending",
+    } as any,
+  };
+  // ts present → chronological placement (replay keeps its original spot);
+  // absent (pre-change log entry / older server) → today's tail append.
+  // See change: collapse-and-order-notify-rows.
   return {
     ...state,
-    messages: [
-      ...state.messages,
-      {
-        id,
-        role: "interactiveUi",
-        content: "notify",
-        timestamp: Date.now(),
-        args: {
-          requestId: notifyId,
-          method: "notify",
-          params: { message, ...(level === undefined ? {} : { level }) },
-          status: "pending",
-        } as any,
-      },
-    ],
+    messages: timed ? insertByTs(state.messages, row, ts) : [...state.messages, row],
   };
 }
 

@@ -1,0 +1,3 @@
+# identity-plane.md — index
+
+Multi-user identity plane ref. OpenSpec change: add-multi-user-identity-plane. Consumer rule: gate on `request.principal`/`ws.principal`, never `isAuthenticated`. Activation = resolver enabled+configured (no mode flag); inert = today's behavior, active = owner-equality every session road (exact `(iss,sub)`, deny=404). Bundled `keycloak-resolver` plugin; core imports nothing Keycloak-specific; issuer pinned. Optional host policy governs non-session roads only, fail-closed, `identity.trustedPolicyPlugin`+`policyTimeoutMs`; product authz in product plugin. Non-human in-process spawns ownerless. Cites RFC 9068/9700/7636/9449.

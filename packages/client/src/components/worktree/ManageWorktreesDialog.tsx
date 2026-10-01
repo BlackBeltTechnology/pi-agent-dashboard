@@ -19,7 +19,7 @@
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchWorktrees,
   pruneWorktrees,
@@ -28,7 +28,7 @@ import {
   type WorktreeEntry,
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { CloseWorktreeDialog } from "./CloseWorktreeDialog.js";
+import { LazyCloseWorktreeDialog } from "./lazy-worktree-dialogs.js";
 import { WorktreeList } from "./WorktreeList.js";
 
 interface Props {
@@ -207,13 +207,15 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
       </Dialog>
 
       {closing && (
-        <CloseWorktreeDialog
-          cwd={closing.path}
-          allSessions={allSessions}
-          onShutdownSession={onShutdownSession}
-          onClose={() => setClosing(null)}
-          onRemoved={() => { void refresh(); }}
-        />
+        <Suspense fallback={null}>
+          <LazyCloseWorktreeDialog
+            cwd={closing.path}
+            allSessions={allSessions}
+            onShutdownSession={onShutdownSession}
+            onClose={() => setClosing(null)}
+            onRemoved={() => { void refresh(); }}
+          />
+        </Suspense>
       )}
     </>
   );

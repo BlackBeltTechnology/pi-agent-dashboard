@@ -154,7 +154,13 @@ export class GrantCoordinator {
     const plane = this.deps.planes.get(ctx.plane);
     if (!plane) return immediate("unknown-plane");
     const subject = plane.subjectOf(ctx.rawSubject);
-    if (subject === null) return immediate("not-promptable");
+    if (subject === null) {
+      // Deliberately outside the registry's `refused:<reason>` namespace: the
+      // coordinator cannot see WHY the plane declined (an ungrantable path, a
+      // malformed origin). Subject JSON-quoted: it derives from caller input.
+      console.error(`[access-grant] not-promptable plane=${plane.id} subject=${JSON.stringify(ctx.rawSubject)}`);
+      return immediate("not-promptable");
+    }
 
     // YOLO answers at the exact point a dialog would be raised, with exactly the
     // proof the dialog would have required (it checks plane, mode, capability
@@ -190,7 +196,9 @@ export class GrantCoordinator {
     if (out.kind === "refused") return immediate(out.reason);
 
     const entry = out.entry;
-    if (!this.origins.has(entry.promptId)) this.origins.set(entry.promptId, ctx.origin);
+    // The audit origin is the session whose request the operator is answering:
+    // a joiner that promotes the entry re-points it (design D5).
+    if (out.kind === "prompt" || !this.origins.has(entry.promptId)) this.origins.set(entry.promptId, ctx.origin);
     this.armExpiry(entry);
     // A prompt that cannot be delivered degrades like any other rung: the
     // denial stands and stays answerable on the Access surface; it is never
@@ -211,8 +219,15 @@ export class GrantCoordinator {
     // Suspend only a held plane whose precondition passed AND whose entry is
     // actually in front of the operator: holding a request on an unprompted
     // (flooded / degraded) entry would pin a connection nobody is asked about.
+    //
+    // The reason is THIS request's, first match: its own precondition, then why
+    // its join could not promote, then `not-held`. Never the entry's
+    // `suppressedBy`: that was written for the first requester (design D5).
     if (!holdable || !holdsRequest(plane, precondition) || !entry.prompted) {
-      return immediate(out.kind === "recorded" ? out.reason : "not-held");
+      if (!precondition.promptable) return immediate(precondition.reason);
+      if (out.kind === "recorded") return immediate(out.reason);
+      if (out.kind === "joined" && out.reason) return immediate(out.reason);
+      return immediate("not-held");
     }
     return this.wait(entry.promptId);
   }

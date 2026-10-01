@@ -15,9 +15,15 @@
   "params": {
     "offset": {
       "type": "number",
-      "default": 0.001,
+      "default": 0.003,
       "minimum": 0,
-      "maximum": 0.01
+      "maximum": 0.02
+    },
+    "angle": {
+      "type": "number",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 6.2832
     }
   },
   "conflicts": [],

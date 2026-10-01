@@ -11,3 +11,17 @@ Adds `SessionHistoryWindowMessage` (`history_window`) + `HistoryBackfillResultMe
 Access-grant prompt protocol. Adds `AccessPlaneId` = `"filesystem" | "cwd" | "network" | "cors"` — CLOSED union, so a typo'd plane is a type error not a silently-unmatched string; `cwd` = unknown-working-directory plane. Server→browser gains `GrantChannelMessage` (`grant_channel` `{capability}`), `GrantRequestMessage` (`grant_request` `{promptId, plane, subject, expiresAt, copy}`), `GrantDismissMessage` (`grant_dismiss` `{promptId, plane, subject, reason: "settled" | "expired"}`). Browser→server gains `GrantResponseBrowserMessage` (`grant_response` `{promptId, plane, subject, verdict}`). `grant_channel` carries NO plane/subject BY DESIGN — it is the per-connection socket-bound nonce, not a subject prompt. `GrantPromptCopy` = `HeldGrantPromptCopy | DeferredGrantPromptCopy`, discriminated on `mode` (held = request suspended; deferred = verdict applies to a later retry). `GrantVerdict` = `allow-once | allow-always | deny`; `DeferredGrantVerdict` DELIBERATELY omits `allow-once` — unrepresentable at the type level, not hidden by the UI (spec: `access-grant-dialog`). All additive: an older client ignores every new frame. Tests: `__tests__/access-grant-protocol.test.ts` (union membership per frame + the deferred-`allow-once` negative, `@ts-expect-error`). See change: add-access-grant-dialog (tasks 2.1, 2.2).
 
 `GrantRequestMessage` gains optional `ttlMs` (ms remaining when sent; clients re-base `expiresAt` on their own clock, skew-safe; additive, back-compatible). See change: add-access-grant-dialog (review 9.5).
+
+## session-list-group-by
+
+- Browser→server: `SetFolderGroupByMessage` (`set_folder_group_by {path, mode: GroupByMode|null}`, null = use default), `SetDefaultGroupByMessage` (`set_default_group_by {mode}`), `SetLaneCollapsedMessage` (`set_lane_collapsed {path, lane, collapsed}`). Explicit target state, never toggles.
+- Server→browser: `GroupByPrefsUpdatedMessage` (`group_by_prefs_updated {defaultGroupBy, folderGroupBy, collapsedLanes}`) — aggregate snapshot, connect burst + every real mutation.
+- Types imported from `session-group-by.ts`. bus-client `generated/verbs.ts` regenerated; mcp `tools.denylist.ts` marks the three verbs UI-only. See change: session-list-group-by.
+Card sections: `SetCardSectionVisibilityMessage` (`set_card_section_visibility {path?, section, visible: boolean|null}` — path absent = global, null = inherit), `ResetFolderCardSectionsMessage` (`reset_folder_card_sections {path}`), `CardSectionsUpdatedMessage` (`card_sections_updated {cardSections}` full snapshot). See change: configurable-session-card-sections.
+Server→browser: `PairPendingChangedMessage` (`pair_pending_changed`, NO fields) — content-free pending-pairing hint; operator browsers refetch `GET /api/pair/pending`. See change: add-pairing-approval-dialog.
+
+`BrowserNotifyMessage` gains optional `ts` (emit time, epoch ms). See change: collapse-and-order-notify-rows.
+
+## electron-runtime-overlay-updates
+
+`RuntimeUpdateMessage` = `runtime_update_progress` (version, phase fetch/install/verify/materialize/done/error, message) \| `runtime_update_staged` \| `runtime_update_failed`. See change: electron-runtime-overlay-updates.

@@ -12,7 +12,10 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { pathToFileURL } from "node:url";
+import { chromium } from "playwright";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { clearHudState } from "../index.js";
 
 const hasChromium = await chromiumAvailable();
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
@@ -57,4 +60,92 @@ describe.skipIf(!hasChromium)("deck3d check on a clean deck (E42)", () => {
     expect(check.status, check.stderr).toBe(0);
     expect(check.stdout).toContain("check: clean");
   }, 180_000);
+});
+
+/**
+ * test-plan #X9 — the configurator persists per-deck state, so `check` must
+ * measure the deck a fresh viewer sees. Verified on the real mechanism
+ * (`clearHudState`), since each `runCheck` already gets a new browser context.
+ */
+describe.skipIf(!hasChromium)("X9 check ignores persisted configurator state", () => {
+  it("clears the deck3d: key and measures the fresh-profile result", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-x9-"));
+    const { build } = buildAndCheck(dir, MINIMAL_DECK);
+    expect(build.status, build.stderr).toBe(0);
+    const url = pathToFileURL(join(dir, "deck.html")).href;
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      const page = await context.newPage();
+
+      // A fresh profile is the reference.
+      await page.goto(url);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      const hash = await page.evaluate(() => (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "x");
+      await page.evaluate(() => {
+        window.__deck3d?.gotoSlide(1);
+        window.__deck3d?.setTime(0);
+      });
+      const fresh = JSON.stringify(await page.evaluate(() => window.__deck3d?.measure() ?? []));
+
+      // Seed HUD state, then let `check`'s own clearing run on reload.
+      await page.evaluate((k) => localStorage.setItem(`deck3d:${k}`, JSON.stringify({ quality: "low" })), hash);
+      expect(await page.evaluate((k) => localStorage.getItem(`deck3d:${k}`), hash)).not.toBeNull();
+
+      await clearHudState(page);
+      await page.reload();
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      await page.evaluate(() => {
+        window.__deck3d?.gotoSlide(1);
+        window.__deck3d?.setTime(0);
+      });
+      expect(JSON.stringify(await page.evaluate(() => window.__deck3d?.measure() ?? []))).toBe(fresh);
+      expect(await page.evaluate((k) => localStorage.getItem(`deck3d:${k}`), hash)).toBeNull();
+    } finally {
+      await browser.close();
+    }
+  }, 240_000);
+
+  /**
+   * The panel also persists which BLOCKS are open. An open block is real DOM
+   * over the deck, so if `check` ever measured a viewer's stored panel state,
+   * an open block could occlude a slide and manufacture a finding. The report
+   * must equal the fresh-profile report, and no finding may name the panel.
+   */
+  it("ignores persisted OPEN blocks and never reports a panel element", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-x9-open-"));
+    const { build, report: freshReport } = buildAndCheck(dir, MINIMAL_DECK);
+    expect(build.status, build.stderr).toBe(0);
+    const url = pathToFileURL(join(dir, "deck.html")).href;
+
+    const browser = await chromium.launch({ channel: "chromium" });
+    try {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+      const page = await context.newPage();
+      await page.goto(url);
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      const hash = await page.evaluate(() => (window.__DECK as unknown as { derivedHash?: string }).derivedHash ?? "x");
+
+      // Seed the panel OPEN, with blocks expanded — the state a real viewer leaves behind.
+      await page.evaluate(
+        (k) => localStorage.setItem(`deck3d:${k}`, JSON.stringify({ open: ["LIGHTING", "MOTION"], shown: true })),
+        hash,
+      );
+      await clearHudState(page);
+      await page.reload();
+      await page.waitForFunction(() => window.__deck3d !== undefined, undefined, { timeout: 30_000 });
+      expect(await page.evaluate((k) => localStorage.getItem(`deck3d:${k}`), hash)).toBeNull();
+      // The panel is not visible to a measured frame.
+      expect(await page.evaluate(() => document.querySelector("#deck3d-hud")?.classList.contains("open") ?? false)).toBe(false);
+    } finally {
+      await browser.close();
+    }
+
+    // And a second `check` run over the same deck still reports clean, naming no panel element.
+    const { check, report } = buildAndCheck(dir, MINIMAL_DECK);
+    expect(check.status, check.stderr).toBe(0);
+    expect(report.viewports.flatMap((v) => v.findings)).toEqual(freshReport.viewports.flatMap((v) => v.findings));
+    expect(JSON.stringify(report)).not.toMatch(/deck3d-hud/);
+  }, 240_000);
 });

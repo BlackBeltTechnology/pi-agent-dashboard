@@ -1,8 +1,8 @@
 # deck3d effect catalogue
 
-GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `4aa9220db4aee8283ef2adbcb3f5069b730365dfb0c697fbdce190dc23029515`.
+GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards hash: `10333189e0e3cacccfc104435657d03531cc69d24a1d06769ee8923db896194d`.
 
-47 effects.
+81 effects.
 
 ## accent-cycle
 
@@ -18,6 +18,37 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
 
+## agent-depth
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, uneven] content=[agents, depth]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/agent-depth.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| wave | number | 0..1.5 | 0.55 |
+| waveSpeed | number | 0..3 | 0.9 |
+
+## ascii
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[retro, playful] content=[stylised, terminal]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/ascii.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| size | number | 4..24 | 9 |
+| invert | boolean | — | false |
+
 ## aurora
 
 - kind: `background`
@@ -31,6 +62,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## billboards
+
+- kind: `background`
+- cost: 1
+- modes: `both`
+- tags: mood=[soft, dense] content=[bokeh, lights, particles]
+- source: https://threejs.org/examples/#webgl_buffergeometry_instancing_billboards
+- licence: MIT
+- preview: `fx/previews/billboards.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
 
 ## bloom
 
@@ -60,6 +106,20 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## capital-flows
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[kinetic, commercial] content=[investment, scrutiny]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/capital-flows.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+
 ## chromatic-aberration
 
 - kind: `post`
@@ -72,7 +132,57 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| offset | number | 0..0.01 | 0.001 |
+| offset | number | 0..0.02 | 0.003 |
+| angle | number | 0..6.2832 | 0 |
+
+## city-grid
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[urban, structured] content=[infrastructure, growth]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/city-grid.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
+## clipped-solids
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, sculptural] content=[cut, section, reveal]
+- source: https://threejs.org/examples/#webgl_clipping_stencil
+- licence: MIT
+- preview: `fx/previews/clipped-solids.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| mode | string | — | caps |
+| size | number | 0.4..2.5 | 1 |
+| x | number | -12..12 | 5 |
+| speed | number | 0..3 | 1 |
+
+## cohort-grid
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[human, ordered] content=[cohort, split]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/cohort-grid.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| cycleSpeed | number | 0..1 | 0.12 |
+| cycleDepth | number | 0..1 | 0.6 |
+| share | number | 0..1 | 0.5 |
 
 ## constellation
 
@@ -80,13 +190,32 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 - cost: 2
 - modes: `both`
 - tags: mood=[calm, network] content=[network, agents]
-- source: https://github.com/pmndrs/drei
+- source: https://threejs.org/examples/#webgl_buffergeometry_drawrange
 - licence: MIT
 - preview: `fx/previews/constellation.png`
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| density | number | 0..1 | 0.5 |
+| density | number | 0.1..1.5 | 0.5 |
+| speed | number | 0..3 | 1 |
+| linkDistance | number | 1..8 | 3.2 |
+| nodeShape | string | — | point |
+
+## curve-flow
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[kinetic, elegant] content=[flow, orbit, stream]
+- source: https://threejs.org/examples/#webgl_modifier_curve_instanced
+- licence: MIT
+- preview: `fx/previews/curve-flow.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| lanes | number | 1..6 | 3 |
+| speed | number | 0..3 | 1 |
 
 ## dashed-flow
 
@@ -128,7 +257,9 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| focus | number | 0..1 | 0.5 |
+| focus | number | 0..60 | 0 |
+| aperture | number | 0..4 | 1 |
+| blur | number | 0..3 | 1 |
 
 ## dolly
 
@@ -144,6 +275,37 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## dot-screen
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[retro, print] content=[stylised, halftone]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/dot-screen.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| scale | number | 0.2..4 | 1.2 |
+| angle | number | 0..3.1416 | 1.57 |
+
+## dynamic-instances
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, kinetic] content=[grid, cubes, matrix]
+- source: https://threejs.org/examples/#webgl_instancing_dynamic
+- licence: MIT
+- preview: `fx/previews/dynamic-instances.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| spin | number | 0..3 | 1 |
+| gap | number | 0.6..2.5 | 1.3 |
+
 ## emissive
 
 - kind: `material`
@@ -157,6 +319,41 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## extruded-shapes
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[playful, bold] content=[shapes, brand, icons]
+- source: https://threejs.org/examples/#webgl_geometry_extrude_shapes
+- licence: MIT
+- preview: `fx/previews/extruded-shapes.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| shape | string | — | star |
+| lobes | number | 3..12 | 5 |
+| svgPath | string | — |  |
+| depth | number | 0.05..1.5 | 0.35 |
+| spin | number | 0..3 | 1 |
+
+## fab-wafer
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, precise] content=[supply-chain, silicon]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/fab-wafer.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| wave | number | 0..2 | 1 |
+| waveSpeed | number | 0..3 | 1.1 |
 
 ## fade
 
@@ -184,7 +381,7 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| intensity | number | 0..2 | 1 |
+| intensity | number | 0..1 | 0.5 |
 
 ## float
 
@@ -228,6 +425,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## geo-fragments
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[unsettled, wide] content=[geography, fragmentation]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/geo-fragments.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| activity | number | 0..3 | 1 |
+| spin | number | 0..2 | 0.35 |
+| breathe | number | 0..1 | 0.18 |
+
 ## glass
 
 - kind: `material`
@@ -241,6 +455,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## globe-arcs
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[expansive, calm] content=[network, geography]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/globe-arcs.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## glow-tube
 
@@ -283,6 +512,8 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..3 | 1 |
+| density | number | 0.1..1.5 | 0.6 |
+| threshold | number | 0..1 | 0.55 |
 
 ## grid-horizon
 
@@ -326,6 +557,21 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | power | number | 0.5..6 | 2 |
 
+## horizon-gates
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[forward, calm] content=[timeline, forecast]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/horizon-gates.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
 ## iridescent
 
 - kind: `material`
@@ -367,6 +613,24 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## market-tape
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[energetic, commercial] content=[metrics, finance]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/market-tape.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 0.4 |
+| barWidth | number | 0.02..0.4 | 0.06 |
+| volatility | number | 0..1 | 0.45 |
+| trace | boolean | — | true |
 
 ## matcap
 
@@ -410,19 +674,23 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
-## n8ao
+## neural-mesh
 
-- kind: `post`
-- cost: 2
+- kind: `background`
+- cost: 3
 - modes: `both`
-- tags: mood=[premium, technical] content=[staging]
-- source: https://github.com/N8python/n8ao
-- licence: CC0-1.0
-- preview: `fx/previews/n8ao.png`
+- tags: mood=[technical, intelligent] content=[network, model]
+- source: https://threejs.org/examples/#webgl_lines_dashed
+- licence: MIT
+- preview: `fx/previews/neural-mesh.png`
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| radius | number | 0..4 | 1 |
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+| drift | number | 0..2 | 0.5 |
+| metalness | number | 0..1 | 0.9 |
+| glow | number | 0..3 | 0.8 |
 
 ## orbit
 
@@ -437,6 +705,52 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | speed | number | 0..2 | 0.5 |
+
+## orbit-agents
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[dynamic, technical] content=[agents, network]
+- source: https://threejs.org/examples/#webgl_instancing_dynamic
+- licence: MIT
+- preview: `fx/previews/orbit-agents.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
+## outline
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, bold] content=[diagram, emphasis]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/outline.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| strength | number | 0..3 | 1 |
+| thickness | number | 0.5..4 | 1.5 |
+| parts | string | — | diagram |
+
+## paper-stack
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[calm, procedural] content=[process, documents]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/paper-stack.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
 
 ## particle-stream
 
@@ -466,6 +780,53 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## pixelate
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[playful, retro] content=[stylised]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/pixelate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| size | number | 1..32 | 6 |
+
+## points-on-geometry
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[technical, glow] content=[wireframe, points, hologram]
+- source: https://threejs.org/examples/#webgl_custom_attributes_points2
+- licence: MIT
+- preview: `fx/previews/points-on-geometry.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| geometry | string | — | sphere |
+| size | number | 0.3..3 | 1 |
+| pulse | number | 0..3 | 1 |
+| x | number | -12..12 | 4 |
+| spin | number | 0..3 | 1 |
+
+## proof-gate
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[decisive, commercial] content=[pipeline, proof]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/proof-gate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+
 ## rings
 
 - kind: `background`
@@ -494,6 +855,38 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## sao
+
+- kind: `post`
+- cost: 2
+- modes: `both`
+- tags: mood=[premium, technical] content=[staging]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/sao.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| intensity | number | 0..4 | 1 |
+| radius | number | 0.2..3 | 1 |
+
+## scatter
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[organic, dense] content=[growth, surface, field]
+- source: https://threejs.org/examples/#webgl_instancing_scatter
+- licence: MIT
+- preview: `fx/previews/scatter.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| surface | string | — | knot |
+| size | number | 0.3..3 | 1 |
+| spin | number | 0..3 | 1 |
+
 ## selective-bloom
 
 - kind: `post`
@@ -507,6 +900,39 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+| parts | string | — | diagram |
+
+## server-racks
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[technical, dense] content=[infrastructure, compute]
+- source: https://threejs.org/examples/#webgl_instancing_performance
+- licence: MIT
+- preview: `fx/previews/server-racks.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
+## shader-particles
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[glow, dense] content=[particles, stars, dust]
+- source: https://threejs.org/examples/#webgl_buffergeometry_custom_attributes_particles
+- licence: MIT
+- preview: `fx/previews/shader-particles.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
+| radius | number | 4..30 | 12 |
+| spin | number | 0..3 | 1 |
 
 ## signal-pulse
 
@@ -532,9 +958,19 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 - licence: Zlib
 - preview: `fx/previews/smaa.png`
 
-| Param | Type | Range | Default |
-|---|---|---|---|
-| intensity | number | 0..2 | 1 |
+No parameters.
+
+## sobel
+
+- kind: `post`
+- cost: 1
+- modes: `both`
+- tags: mood=[technical, stark] content=[stylised, blueprint]
+- source: https://github.com/mrdoob/three.js
+- licence: MIT
+- preview: `fx/previews/sobel.png`
+
+No parameters.
 
 ## soft-shadows
 
@@ -549,6 +985,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 | Param | Type | Range | Default |
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
+
+## sprites
+
+- kind: `background`
+- cost: 1
+- modes: `both`
+- tags: mood=[soft, calm] content=[snow, dust, drift]
+- source: https://threejs.org/examples/#webgl_points_sprites
+- licence: MIT
+- preview: `fx/previews/sprites.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| size | number | 0.3..3 | 1 |
+| fall | number | 0..3 | 1 |
 
 ## stagger-reveal
 
@@ -593,6 +1045,22 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | intensity | number | 0..2 | 1 |
 
+## tessellate
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[bold, kinetic] content=[fracture, facets]
+- source: https://threejs.org/examples/#webgl_modifier_tessellation
+- licence: MIT
+- preview: `fx/previews/tessellate.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| amplitude | number | 0..3 | 1 |
+| detail | number | 1..4 | 2 |
+
 ## tokens
 
 - kind: `background`
@@ -621,6 +1089,54 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 |---|---|---|---|
 | length | number | 0..1 | 0.5 |
 
+## trust-ledger
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[formal, secure] content=[governance, evidence]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/trust-ledger.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+
+## vault-glyphs
+
+- kind: `background`
+- cost: 2
+- modes: `both`
+- tags: mood=[secure, formal] content=[security, compliance]
+- source: https://threejs.org/examples/#webgl_geometry_shapes
+- licence: MIT
+- preview: `fx/previews/vault-glyphs.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| density | number | 0.2..3 | 1 |
+| speed | number | 0..3 | 1 |
+
+## video-screen
+
+- kind: `background`
+- cost: 3
+- modes: `both`
+- tags: mood=[product, demo] content=[screen, recording, video]
+- source: https://github.com/BlackBeltTechnology/pi-agent-dashboard
+- licence: MIT
+- preview: `fx/previews/video-screen.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| src | string | — |  |
+| width | number | 1..20 | 7 |
+| x | number | -20..20 | 4.6 |
+| y | number | -10..10 | 0.8 |
+| z | number | -20..10 | -1.5 |
+| tilt | number | -1.5..1.5 | -0.12 |
+
 ## vignette
 
 - kind: `post`
@@ -633,7 +1149,44 @@ GENERATED from the effect cards (`fx/<id>.meta.json`). Never hand-edit. Cards ha
 
 | Param | Type | Range | Default |
 |---|---|---|---|
-| darkness | number | 0..1 | 0.5 |
+| darkness | number | 0..2 | 1 |
+| offset | number | 0..2 | 1 |
+
+## volume-cloud
+
+- kind: `background`
+- cost: 4
+- modes: `both`
+- tags: mood=[atmospheric, soft] content=[cloud, fog, nebula]
+- source: https://threejs.org/examples/#webgl_volume_cloud
+- licence: MIT
+- preview: `fx/previews/volume-cloud.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| threshold | number | 0..1 | 0.25 |
+| opacity | number | 0.02..1 | 0.12 |
+| range | number | 0.01..0.5 | 0.1 |
+| scale | number | 4..30 | 14 |
+| drift | number | 0..3 | 1 |
+| x | number | -12..12 | -4 |
+
+## volume-perlin
+
+- kind: `background`
+- cost: 4
+- modes: `both`
+- tags: mood=[sculptural, atmospheric] content=[rock, asteroid, noise]
+- source: https://threejs.org/examples/#webgl_volume_perlin
+- licence: MIT
+- preview: `fx/previews/volume-perlin.png`
+
+| Param | Type | Range | Default |
+|---|---|---|---|
+| threshold | number | 0.2..0.9 | 0.45 |
+| scale | number | 3..20 | 9 |
+| x | number | -12..12 | 5 |
+| spin | number | 0..3 | 1 |
 
 ## volumetric-spot
 

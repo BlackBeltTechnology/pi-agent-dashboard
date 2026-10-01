@@ -34,6 +34,7 @@
   "files": [
     "scripts/maybe-patch-package.cjs",
     "scripts/fix-pty-permissions.cjs",
+    "tsconfig.base.json",
     "packages/server/src/",
     "packages/server/scripts/",
     "packages/server/package.json",
@@ -46,9 +47,16 @@
     "packages/extension/tsconfig.json",
     "packages/dist/",
     "docs/architecture.md",
-    "AGENTS.md",
+    "/AGENTS.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!packages/**/__tests__",
+    "!packages/**/__fixtures__",
+    "!packages/**/__mocks__",
+    "!packages/**/*.test.*",
+    "!packages/**/*.spec.*",
+    "!packages/**/AGENTS.md",
+    "!packages/**/*.AGENTS.md"
   ],
   "scripts": {
     "postinstall": "node scripts/maybe-patch-package.cjs && node scripts/fix-pty-permissions.cjs",
@@ -113,6 +121,7 @@
     "appdmg": "^0.6.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.10.0",
     "@biomejs/biome": "2.5.11",
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",

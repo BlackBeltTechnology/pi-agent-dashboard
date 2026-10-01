@@ -36,7 +36,7 @@ import {
   statusShapeIcon,
 } from "../../lib/session/session-status-visuals.js";
 
-function WidgetBarProbe({
+export function WidgetBarProbe({
   sessionId,
   onResult,
 }: {

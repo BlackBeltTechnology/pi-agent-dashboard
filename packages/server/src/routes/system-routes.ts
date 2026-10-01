@@ -2,6 +2,7 @@
  * System REST API routes: config, health, shutdown, tunnel.
  */
 
+import { fixturePluginsEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,7 +20,6 @@ import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/p
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import type { AccessGrantHealth } from "../access/access-health.js";
@@ -29,7 +29,8 @@ import {
   safeComputeBindReachability,
   sameReachability,
 } from "../auth/bind-reachability-service.js";
-import { isGenuinelyLocal, localhostGuard } from "../auth/localhost-guard.js";
+import { ELECTRON_RESTART_EXIT_CODE, restartsViaElectron } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
+import { canDiscloseAccessPosture, localhostGuard, loopbackCoveringEntries } from "../auth/localhost-guard.js";
 import { getRegistryError } from "../auth/provider-auth-registry.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
@@ -68,14 +69,22 @@ import { heapFallbackStatus } from "../spawn-process/heap-args.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
+import { connectGateway, connectedProviderIds, createTunnel, gatewayProviderStatus, getZrokLastError, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { acceptTargetFor, blockEvents } from "../tunnel/tunnel-block-events.js";
-import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
+import { collectEndpoints, liveReadinessEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
+import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
+import {
+  deriveLocalIdentity,
+  ensureRuntimeRequest,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 
 /**
  * `/api/health` → `piRuntime`.
@@ -178,6 +187,14 @@ export function registerSystemRoutes(
     // `accessGrants`, failure-isolated like every other telemetry read.
     // See change: add-access-grant-dialog (task 9.3).
     readAccessGrants?: () => AccessGrantHealth;
+    // Live trusted-network list (top-level ∪ auth.bypassHosts) for the additive
+    // `trustPosture` health field. Falls back to the boot list when unwired.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    readTrustedNetworks?: () => string[];
+    // Push config / transport-init errors. Wired only while push is enabled;
+    // served as `push.errors` behind `canDiscloseAccessPosture`.
+    // See change: add-server-push-notifications.
+    readPushErrors?: () => readonly string[];
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
     // DERIVED from the store's exported TrimStats, never restated inline: an
@@ -210,7 +227,7 @@ export function registerSystemRoutes(
     clientBuild?: ClientBuildSnapshot;
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats, clientDir, readAccessGrants, readTrustedNetworks, readPushErrors } = deps;
 
   // Served-artifact coherence snapshot (design D4): a startup snapshot, never a
   // per-request filesystem read (P1).
@@ -227,7 +244,10 @@ export function registerSystemRoutes(
   // The plugin set is process-stable (`discoverPlugins` is cached and only the
   // build-side vite-plugin clears it), so a registration-time snapshot is both
   // cheaper and equivalent. See change: add-served-build-coherence-and-hash-parity.
-  const bundleHash = runtimePluginRegistryHash(!config.dev);
+  // Fixture clients are part of a production build only under the opt-in
+  // PI_DASHBOARD_FIXTURE_PLUGINS gate (docker test harness) — the same rule
+  // the vite plugin applied. See change: expose-plugin-credential-and-oauth-seams (D8).
+  const bundleHash = runtimePluginRegistryHash(!config.dev && !fixturePluginsEnabled());
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -362,9 +382,17 @@ export function registerSystemRoutes(
     { preHandler: networkGuard },
     async () => {
       const url = getTunnelUrl();
-      const providerEndpoints = url
+      const providerEndpoints: Parameters<typeof collectEndpoints>[0]["providerEndpoints"] & {} = url
         ? [{ kind: "public" as const, url, tls: url.startsWith("https://") }]
         : [];
+      // Every connected provider's domain URLs (tailscale MagicDNS, extra zrok/
+      // ngrok, ...), not just the primary's - the QR selector reads this list.
+      // Readiness is time-bounded per provider; a failure only loses extras.
+      try {
+        providerEndpoints.push(...liveReadinessEndpoints(await getProviderReadiness()));
+      } catch {
+        /* primary + manual + LAN still listed */
+      }
       const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
       const cfg = configModule.loadConfig();
       const endpoints = collectEndpoints({
@@ -672,10 +700,18 @@ export function registerSystemRoutes(
   // Deliberately UNGATED, as before this change — the client reads it to render
   // the tunnel indicator before any auth exists.
   fastify.get("/api/tunnel-status", async () => {
-    const status = getTunnelStatus({
-      reservedName: config.tunnelReservedName,
-      persistent: config.tunnelPersistent,
-    });
+    // Ungated: the toolbar indicator gets COUNTS only (planned vs connected
+    // providers) - never provider errors or names. In-memory, no shell-out.
+    const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+    const planned = gatewayProviderStatus(configModule.loadConfig().tunnel ?? config.tunnelConfig);
+    const gateway = { connected: planned.filter((p) => p.state === "connected").length, expected: planned.length };
+    const status = {
+      ...getTunnelStatus({
+        reservedName: config.tunnelReservedName,
+        persistent: config.tunnelPersistent,
+      }),
+      gateway,
+    };
     // `degraded.configuredName` is, BY DEFINITION, a reserved name the operator
     // owns that does NOT appear in the served URL — so unlike `url` it is not
     // already public. Emitting it here would disclose it to an unauthenticated
@@ -695,48 +731,56 @@ export function registerSystemRoutes(
     "/api/tunnel-status-detail",
     { preHandler: networkGuard },
     async () => {
-      return getTunnelStatus({
-        reservedName: config.tunnelReservedName,
-        persistent: config.tunnelPersistent,
-      });
+      // `connectedProviders` + per-provider `providers` (state + reason) drive
+      // the Setup Connect/Disconnect toggle. In-memory; safe to poll.
+      const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+      return {
+        ...getTunnelStatus({
+          reservedName: config.tunnelReservedName,
+          persistent: config.tunnelPersistent,
+        }),
+        connectedProviders: connectedProviderIds(),
+        providers: gatewayProviderStatus(configModule.loadConfig().tunnel ?? config.tunnelConfig),
+      };
     },
   );
 
   fastify.post("/api/tunnel-connect", async () => {
-    const status = getTunnelStatus();
+    // Read the tunnel block FRESH: the provider/mode the Setup tab just saved
+    // must apply without a server restart (`config.tunnelConfig` is a boot
+    // snapshot).
+    const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+    const tunnelCfg = configModule.loadConfig().tunnel ?? config.tunnelConfig;
+    const zrokPrimary = !tunnelCfg?.provider || tunnelCfg.provider === "zrok";
+    if (zrokPrimary && getTunnelStatus().status === "unavailable") return { ok: false, error: "zrok not installed" };
 
-    if (status.status === "active") return { ok: true, url: status.url };
-    if (status.status === "unavailable") return { ok: false, error: "zrok not installed" };
-    // v2: resolve the reserved NAME (stored or minted-when-persistent) and
-    // cache it so watchdog recycles reuse the SAME name (stable URL).
-    const reservedName = ensureReservedName({
-      reservedName: config.tunnelReservedName,
-      persistent: config.tunnelPersistent,
-    });
-    config.tunnelReservedName = reservedName;
-
-    // Connect the PRIMARY through the existing zrok path (byte-identical for
-    // every pre-concurrency config), then bring up any `tunnel.<id>.enabled`
-    // extras. A non-primary failure disables that provider alone; it never
-    // fails the connect. See change: add-zrok-custom-reserved-name (D3).
-    const url = await createTunnel(config.port, reservedName);
-    const tunnelCfg = config.tunnelConfig;
-    setPrimaryProvider(tunnelCfg?.provider);
-    if (tunnelCfg) {
-      const extras = resolveTunnelPlan(tunnelCfg).providers.filter((p) => !p.primary);
-      if (extras.length > 0) {
-        const { failures } = await connectResolvedProviders(tunnelCfg, config.port, {
-          zerotierNetworkId: tunnelCfg.zerotier?.networkId,
-          // The primary is already up via `createTunnel` above. Passing the
-          // REAL config with this flag (rather than blanking `provider`) keeps
-          // the primary recorded and stops it being re-connected as an extra.
-          skipPrimary: true,
+    // Primary + every enabled extra, each in its own mode; an already-active
+    // zrok is reused rather than short-circuiting the extras.
+    // See change: add-zrok-custom-reserved-name (D3).
+    const result = await connectGateway(tunnelCfg, config.port, {
+      zerotierNetworkId: tunnelCfg?.zerotier?.networkId,
+      zrokLastError: getZrokLastError,
+      zrokActiveUrl: () => {
+        const s = getTunnelStatus();
+        return s.status === "active" ? s.url : null;
+      },
+      createZrok: async () => {
+        // v2: resolve the reserved NAME (stored or minted-when-persistent) and
+        // cache it so watchdog recycles reuse the SAME name (stable URL).
+        const reservedName = ensureReservedName({
+          reservedName: config.tunnelReservedName,
+          persistent: config.tunnelPersistent,
         });
-        for (const f of failures) {
-          console.warn(`tunnel: provider ${f.provider} did not connect: ${f.error}`);
-        }
-      }
+        config.tunnelReservedName = reservedName;
+        return createTunnel(config.port, reservedName);
+      },
+    });
+    for (const f of result.failures) {
+      console.warn(`tunnel: provider ${f.provider} did not connect: ${f.error}`);
     }
+    const providers = gatewayProviderStatus(tunnelCfg);
+    if (!result.ok) return { ok: false, error: result.error ?? "Failed to create tunnel", providers };
+    const url = result.zrokUrl;
     if (url) {
       const wd = config.tunnelWatchdog;
       if (wd?.enabled !== false) {
@@ -751,9 +795,8 @@ export function registerSystemRoutes(
           wd,
         );
       }
-      return { ok: true, url };
     }
-    return { ok: false, error: "Failed to create tunnel" };
+    return { ok: true, url: result.url ?? undefined, providers };
   });
 
   /**
@@ -906,9 +949,27 @@ export function registerSystemRoutes(
   // it made an unauthenticated, frequently-polled route do file I/O
   // (CodeQL js/missing-rate-limiting).
   const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
+  // Runtime-overlay identity, refreshed off the request path.
+  // See change: electron-runtime-overlay-updates (D10).
+  const runtimeOverlayDir = getRuntimeOverlayDir();
+  if (parseLaunchSource(process.env) === "electron") {
+    try { ensureRuntimeRequest(runtimeOverlayDir); } catch { /* non-fatal: menu pick reports request_unreadable */ }
+  }
+  const runtimeHealth = createRuntimeHealthProvider({
+    env: process.env,
+    serverVersion: version ?? "unknown",
+    readRequest: () => readRuntimeRequest(runtimeOverlayDir),
+    readState: () => readRuntimeState(runtimeOverlayDir),
+    localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+  });
+  fastify.addHook("onClose", async () => runtimeHealth.stop());
 
   // Health endpoint — includes server + agent process metrics
-  fastify.get("/api/health", async (request) => {
+  fastify.get("/api/health", async (request, reply) => {
+    // The payload is caller-dependent (`accessGrants`, `trustPosture`,
+    // `push` are disclosure-gated): never let a cache replay it to another
+    // caller. See change: add-server-push-notifications.
+    reply.header("Cache-Control", "no-store, private");
     const mem = process.memoryUsage();
     // Telemetry reads are failure-isolated so a throwing provider can never
     // turn /api/health into a 500. See change: instrument-session-hydration-timing.
@@ -930,11 +991,25 @@ export function registerSystemRoutes(
     // `/api/health` is unguarded (tunnel-reachable): `accessGrants` names the
     // host-gate mode, YOLO state and whether an operator is online, so it is
     // served only to an authenticated or genuinely-local caller.
-    const mayReadAccess =
-      (request as { isAuthenticated?: boolean }).isAuthenticated === true ||
-      isGenuinelyLocal(request.ip, request.headers as Record<string, unknown>);
-    if (mayReadAccess) {
+    if (canDiscloseAccessPosture(request)) {
       try { accessGrants = readAccessGrants?.() ?? null; } catch { /* keep null */ }
+    }
+    // Inert-entry flag: a loopback entry in trustedNetworks/bypassHosts never
+    // admits tunnel traffic. Same disclosure gate as `accessGrants`.
+    // See change: fix-trusted-network-tunnel-bypass (D3).
+    let trustPosture: { trustedHasLoopback: boolean } | null = null;
+    if (canDiscloseAccessPosture(request)) {
+      try {
+        const trusted = readTrustedNetworks?.() ?? config.resolvedTrustedNetworks ?? [];
+        trustPosture = { trustedHasLoopback: loopbackCoveringEntries(trusted).length > 0 };
+      } catch { /* keep null */ }
+    }
+    // Push errors name local config (file paths, missing keys): same
+    // disclosure gate. Absent key when undisclosable or push is disabled.
+    // See change: add-server-push-notifications.
+    let push: { errors: string[] } | null = null;
+    if (readPushErrors && canDiscloseAccessPosture(request)) {
+      try { push = { errors: [...readPushErrors()] }; } catch { /* keep null */ }
     }
     let providerAuthError: string | null = null;
     try { providerAuthError = getRegistryError(); } catch { /* keep null */ }
@@ -952,6 +1027,10 @@ export function registerSystemRoutes(
       // Access-grant prompting counters (additive; null when unwired or on a
       // throwing read). See change: add-access-grant-dialog (task 9.3).
       accessGrants,
+      // Loopback-trusted-entry posture (additive; null unless disclosable).
+      // See change: fix-trusted-network-tunnel-bypass (D3).
+      trustPosture,
+      ...(push ? { push } : {}),
       // Rendezvous instance id (NOT the Ed25519 `identity`): names which
       // same-HOME instance answered, so a bridge can tell its own dashboard
       // from a foreign listener on a recycled port. An IDENTIFIER, never a
@@ -963,6 +1042,11 @@ export function registerSystemRoutes(
       // node_modules/ is read-only). See change:
       // eliminate-electron-runtime-install task 3.2.
       launchSource: parseLaunchSource(process.env),
+      // Active dashboard runtime (origin/id/version/updatable/source/…); redacted
+      // (no local path / git / failure detail) for unauthenticated remote callers. Drives
+      // ONLY the Settings → Updates section; pi-core gates are unchanged.
+      // See change: electron-runtime-overlay-updates (D10).
+      runtime: canDiscloseAccessPosture(request) ? runtimeHealth.get() : redactRuntimeHealth(runtimeHealth.get()),
       // Boot parent PID (static, captured at module load) + live parent PID
       // (reparenting-aware, read fresh per request) + boot-parent liveness.
       // Powers Electron zombie detection: POSIX compares live `ppid` against
@@ -1273,6 +1357,14 @@ export function registerSystemRoutes(
       // Tear down tunnel before spawning the replacement process so the new
       // server doesn't race an orphan zrok agent on the same port.
       try { await deleteTunnel(config.port); } catch { /* best-effort */ }
+
+      // Electron-owned server: the app respawns it (keeps the Electron starter,
+      // runtime identity and its watchdog). `cli start` would come back Standalone.
+      // See change: electron-runtime-overlay-updates.
+      if (restartsViaElectron(process.env)) {
+        setTimeout(() => process.exit(ELECTRON_RESTART_EXIT_CODE), 200);
+        return { ok: true };
+      }
 
       const cliPath = process.argv[1];
       if (!cliPath) return { ok: false, error: "Cannot determine CLI path" };

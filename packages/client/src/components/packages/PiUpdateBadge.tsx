@@ -3,16 +3,23 @@
  * Hidden when there are no updates or when the status hasn't loaded yet.
  * Clicking navigates to Settings → Packages tab.
  */
-import React from "react";
-import { Icon } from "@mdi/react";
+
 import { mdiArrowUpBold } from "@mdi/js";
+import { Icon } from "@mdi/react";
+import React from "react";
 import { useLocation } from "wouter";
+import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePiCoreVersions } from "../../hooks/usePiCoreVersions.js";
 
 export function PiUpdateBadge() {
 	const { status } = usePiCoreVersions();
 	const [, navigate] = useLocation();
+	// Electron bundles pi core; runtime updates live in Settings → Packages →
+	// Dashboard runtime, never in this badge (E21). Unresolved (null) counts as
+	// "maybe Electron" so the badge never flashes before the source is known.
+	const launchSource = useLaunchSource();
 
+	if (launchSource === null || launchSource === "electron") return null;
 	if (!status || status.updatesAvailable === 0) return null;
 
 	const count = status.updatesAvailable;

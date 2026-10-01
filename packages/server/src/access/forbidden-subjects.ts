@@ -21,7 +21,7 @@ import path from "node:path";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 
 /** Resolve symlinks in the nearest existing ancestor, re-appending the tail. */
-function realpathNearestAncestor(p: string): string {
+export function realpathNearestAncestor(p: string): string {
   try {
     return fs.realpathSync(p);
   } catch {
@@ -31,9 +31,37 @@ function realpathNearestAncestor(p: string): string {
   }
 }
 
+/** Inputs to the forbidden list. Every field defaults to the running process. */
+export interface ForbiddenSubjectsEnv {
+  homedir?: string;
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+}
+
+/** POSIX system roots, refused exactly. */
+const POSIX_SYSTEM_DIRS = ["/etc", "/usr", "/var", "/Library", "/System", "/bin", "/sbin", "/opt"];
+
+/** Windows system roots: the environment variable, else the `C:\` literal. */
+const WINDOWS_SYSTEM_DIRS: ReadonlyArray<readonly [string, string]> = [
+  ["SystemRoot", "C:\\Windows"],
+  ["ProgramFiles", "C:\\Program Files"],
+  ["ProgramFiles(x86)", "C:\\Program Files (x86)"],
+  ["ProgramData", "C:\\ProgramData"],
+];
+
 /**
- * The forbidden set, as real paths. Platform system directories are listed for
- * POSIX and for Windows; entries that do not exist simply drop out.
+ * The forbidden set, as real paths, for ONE platform: the running one unless
+ * `env.platform` says otherwise (design D8). Listing the other platform's
+ * directories is not inert: `path.resolve("C:\\Windows")` on POSIX is
+ * `<cwd>/C:\Windows`, and the both-directions containment rule then refused the
+ * server's cwd and every ancestor of it.
+ *
+ * Windows directories come from `%SystemRoot%`, `%ProgramFiles%`,
+ * `%ProgramFiles(x86)%` and `%ProgramData%`, so a system drive other than C: is
+ * covered; the `C:\` literal is the fallback for an unset variable.
+ *
+ * Not memoised: the list depends on live filesystem state (a `~/.ssh` created
+ * after boot, a home that becomes a symlink).
  *
  * The `whole` list holds subjects that are refused **exactly**: granting them
  * would hand over the entire filesystem (`/`) or the entire user home (`$HOME`),
@@ -47,34 +75,43 @@ function realpathNearestAncestor(p: string): string {
  * hold secrets or the agent's own control plane, so a grant for a directory
  * inside them (`~/.ssh/keys`) is refused as well. This descendant rule is what
  * stops an offered-ancestor ladder from climbing into a secret store.
+ *
+ * See change: surface-denial-remedy-in-previews.
  */
-export function forbiddenGrantSubjects(env?: { homedir?: string }): {
+/**
+ * Path semantics for the selected platform: its `path` flavour, a canonicaliser
+ * (real paths only when the platform shares the host's path family — the
+ * filesystem cannot resolve the other family, which is exactly the test seam)
+ * and its equality. Shared by the list and every predicate, so a simulated
+ * `win32` is Windows end to end (design D8).
+ */
+function pathOps(env?: ForbiddenSubjectsEnv) {
+  const platform = env?.platform ?? process.platform;
+  const windows = platform === "win32";
+  const p = windows ? path.win32 : path.posix;
+  const hostIsWindows = process.platform === "win32"; // platform-branch-ok: same path family as the host? (not host behaviour)
+  const canonical = (x: string): string => {
+    const resolved = p.resolve(x);
+    return windows === hostIsWindows ? realpathNearestAncestor(resolved) : resolved;
+  };
+  const same = (a: string, b: string): boolean => samePath(a, b, platform);
+  return { platform, windows, p, canonical, same };
+}
+
+export function forbiddenGrantSubjects(env?: ForbiddenSubjectsEnv): {
   whole: string[];
   sensitive: string[];
 } {
+  const { windows, p, canonical } = pathOps(env);
+  const vars = env?.env ?? process.env;
   const home = env?.homedir ?? os.homedir();
-  const whole = [
-    path.parse(path.resolve("/")).root, // "/" (or "C:\" on Windows)
-    home,
-    "/etc",
-    "/usr",
-    "/var",
-    "/Library",
-    "/System",
-    "/bin",
-    "/sbin",
-    "/opt",
-    // Windows equivalents
-    "C:\\Windows",
-    "C:\\Program Files",
-    "C:\\Program Files (x86)",
-    "C:\\ProgramData",
-  ];
-  const sensitive = [path.join(home, ".ssh"), path.join(home, ".pi")];
-  return {
-    whole: whole.map((p) => realpathNearestAncestor(path.resolve(p))),
-    sensitive: sensitive.map((p) => realpathNearestAncestor(path.resolve(p))),
-  };
+  const system = windows
+    ? WINDOWS_SYSTEM_DIRS.map(([name, fallback]) => vars[name] || fallback)
+    : POSIX_SYSTEM_DIRS;
+  const root = windows ? p.parse(p.resolve(vars.SystemRoot || "C:\\")).root : "/";
+  const whole = [root, home, ...system];
+  const sensitive = [p.join(home, ".ssh"), p.join(home, ".pi")];
+  return { whole: whole.map(canonical), sensitive: sensitive.map(canonical) };
 }
 
 /**
@@ -86,25 +123,25 @@ export function forbiddenGrantSubjects(env?: { homedir?: string }): {
  * offered-ancestor ladder (task 7b.2), so a ladder can never offer a secret
  * store or climb through one.
  */
-export function isForbiddenGrantSubject(subject: string, env?: { homedir?: string }): boolean {
-  const real = realpathNearestAncestor(path.resolve(subject));
-  const { whole, sensitive } = forbiddenGrantSubjects(env);
+export function isForbiddenGrantSubject(
+  subject: string,
+  env?: ForbiddenSubjectsEnv,
+  /** Precomputed `forbiddenGrantSubjects(env)`, so a caller builds it once. */
+  sets?: ReturnType<typeof forbiddenGrantSubjects>,
+): boolean {
+  const ops = pathOps(env);
+  const real = ops.canonical(subject);
+  const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
 
-  if (whole.some((f) => samePath(real, f))) return true;
-
-  for (const forbidden of sensitive) {
-    if (samePath(real, forbidden)) return true;
-    const rel = path.relative(forbidden, real);
-    if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) return true;
-  }
-  return false;
+  if (whole.some((f) => ops.same(real, f))) return true;
+  return sensitive.some((forbidden) => subsumes(forbidden, real, ops));
 }
 
-/** True when `candidate` equals, or sits under, `other`. */
-function subsumes(candidate: string, other: string): boolean {
-  if (samePath(candidate, other)) return true;
-  const rel = path.relative(candidate, other);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+/** True when `candidate` equals, or is an ancestor of, `other` (selected platform's semantics). */
+function subsumes(candidate: string, other: string, ops: ReturnType<typeof pathOps>): boolean {
+  if (ops.same(candidate, other)) return true;
+  const rel = ops.p.relative(candidate, other);
+  return rel !== "" && !rel.startsWith("..") && !ops.p.isAbsolute(rel);
 }
 
 /**
@@ -122,13 +159,14 @@ function subsumes(candidate: string, other: string): boolean {
  */
 export function subsumesForbiddenGrantSubject(
   candidate: string,
-  env?: { homedir?: string },
+  env?: ForbiddenSubjectsEnv,
   /** Precomputed `forbiddenGrantSubjects(env)`, for a caller testing many rungs. */
   sets?: ReturnType<typeof forbiddenGrantSubjects>,
 ): boolean {
-  const real = realpathNearestAncestor(path.resolve(candidate));
+  const ops = pathOps(env);
+  const real = ops.canonical(candidate);
   const { whole, sensitive } = sets ?? forbiddenGrantSubjects(env);
-  return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden));
+  return [...whole, ...sensitive].some((forbidden) => subsumes(real, forbidden, ops));
 }
 
 /**
@@ -141,6 +179,8 @@ export function subsumesForbiddenGrantSubject(
  * dropped without any test noticing. Callers must pass the subject that will be
  * PERSISTED, not a pre-normalization input (design D15).
  */
-export function isUngrantableSubject(subject: string, env?: { homedir?: string }): boolean {
-  return isForbiddenGrantSubject(subject, env) || subsumesForbiddenGrantSubject(subject, env);
+export function isUngrantableSubject(subject: string, env?: ForbiddenSubjectsEnv): boolean {
+  // Built once per call and shared by both halves (design D7): ~18 realpaths, not ~35.
+  const sets = forbiddenGrantSubjects(env);
+  return isForbiddenGrantSubject(subject, env, sets) || subsumesForbiddenGrantSubject(subject, env, sets);
 }

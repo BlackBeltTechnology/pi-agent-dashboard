@@ -203,6 +203,21 @@ describe("rejection notice", () => {
     expect(log[0].level).toBe("info");
   });
 
+  it("server-created notice carries a receipt-time ts (collapse-and-order-notify-rows #E3)", async () => {
+    stubCache({ [CWD]: ["c-a"] });
+    markResolved("s1");
+    const before = Date.now();
+    sendForeignEvidenceEvent(ws, "s1", "c-b");
+    await settle();
+    const after = Date.now();
+
+    const log = notices("s1");
+    expect(log.length).toBe(1);
+    expect(typeof log[0].ts).toBe("number");
+    expect(log[0].ts!).toBeGreaterThanOrEqual(before);
+    expect(log[0].ts!).toBeLessThanOrEqual(after);
+  });
+
   it("X2 emits one notice per distinct rejected name", async () => {
     stubCache({ [CWD]: ["c-a"] });
     markResolved("s1");

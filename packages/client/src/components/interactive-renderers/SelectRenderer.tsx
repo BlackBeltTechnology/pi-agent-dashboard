@@ -58,7 +58,7 @@ export function SelectRenderer({ params, status, result, onRespond, onCancel }: 
   return (
     <div className="mx-4 my-2 p-3 bg-[var(--bg-hover)] border border-[var(--border-secondary)] rounded-lg">
       <div className="flex items-center gap-2 mb-2">
-        <Icon path={mdiFormatListBulleted} size={0.6} className="text-blue-400 shrink-0" />
+        <Icon path={mdiFormatListBulleted} size={0.6} className="text-[var(--severity-info-fg)] shrink-0" />
         <span className="text-sm font-medium text-[var(--text-primary)]"><InlineMarkdown content={title} /></span>
       </div>
       {message && (
@@ -99,17 +99,18 @@ function OptionRow({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={
         cancel
-          ? "w-full text-left flex items-start gap-2.5 px-3 py-2 rounded-lg border border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-tertiary)] hover:border-red-500 hover:bg-red-500/10 transition-colors"
-          : "w-full text-left flex items-start gap-2.5 px-3 py-2 rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-blue-500 hover:bg-blue-500/10 transition-colors"
+          ? "w-full text-left flex items-start gap-2.5 px-3 py-2 min-h-[44px] sm:min-h-[36px] rounded-lg border transition-colors focus-ring border-dashed border-[var(--border-secondary)] bg-transparent text-[var(--text-secondary)] hover:border-[var(--tint-red-border)] hover:bg-[var(--tint-red-bg)] hover:text-[var(--tint-red-fg)]"
+          : "w-full text-left flex items-start gap-2.5 px-3 py-2 min-h-[44px] sm:min-h-[36px] rounded-lg border transition-colors focus-ring border-[var(--border-secondary)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--tint-blue-border)] hover:bg-[var(--tint-blue-bg)]"
       }
     >
       <span className="min-w-0">
-        <span className="block text-xs font-medium">{title}</span>
+        <span className="block text-[13px] font-medium">{title}</span>
         {description && (
-          <span className="block text-[11px] text-[var(--text-tertiary)] mt-0.5">{description}</span>
+          <span className="block text-[12px] text-[var(--text-secondary)] mt-0.5">{description}</span>
         )}
       </span>
     </button>

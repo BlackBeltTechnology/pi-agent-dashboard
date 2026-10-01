@@ -19,9 +19,9 @@ import {
   BundledServerMissingError,
   PinnedSourceUnavailableError,
   parsePreferOverride,
-  selectLaunchSource,
-  spawnFromSource,
 } from "./launch-source.js";
+import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
+import { takeExitOwnership } from "./runtime-switch-ownership.js";
 import { readModeFile } from "./wizard-state.js";
 
 /**
@@ -96,12 +96,35 @@ export function setSpawnedPid(pid: number): void {
  *
  * See change: harvest-bootstrap-survivor-fixes (cherry-pick 6b).
  */
+// Runtime-switch PID ownership lives in a leaf module; re-exported here for
+// existing importers. See change: electron-runtime-overlay-updates.
+export { claimCandidate, expectExit, releaseRuntimeSwitchOwnership } from "./runtime-switch-ownership.js";
+
 export function makeServerWatchdog(deps: {
   isGraceful: () => boolean;
   log: (msg: string) => void;
   onCrash: (code: number | null, signal: NodeJS.Signals | null) => void;
+  /** Server exited with ELECTRON_RESTART_EXIT_CODE (`/api/restart`): respawn, no recovery page. */
+  onRestartRequested?: () => void;
+  /** PID of the child this watchdog guards; enables PID-scoped ownership. */
+  getPid?: () => number | null | undefined;
 }): (code: number | null, signal: NodeJS.Signals | null) => void {
   return (code, signal) => {
+    const pid = deps.getPid?.();
+    const owner = typeof pid === "number" ? takeExitOwnership(pid) : "watchdog";
+    if (owner === "candidate") {
+      deps.log(`[server-lifecycle] candidate pid=${pid} exited code=${code} — handled by runtime switch`);
+      return;
+    }
+    if (owner === "planned") {
+      deps.log(`[server-lifecycle] server pid=${pid} exited as planned (runtime switch)`);
+      return;
+    }
+    if (code === ELECTRON_RESTART_EXIT_CODE && deps.onRestartRequested) {
+      deps.log(`[server-lifecycle] server pid=${pid ?? "?"} exited for /api/restart — restarting it`);
+      deps.onRestartRequested();
+      return;
+    }
     if (deps.isGraceful()) {
       deps.log(
         `[server-lifecycle] server child exited gracefully code=${code} signal=${signal ?? "null"}`,
@@ -322,6 +345,28 @@ export function loadMinimalConfig(): MinimalConfig {
  * The Electron `main.ts` startup flow does NOT call this — it drives the
  * resolver directly so it can wire the watchdog at spawn time.
  */
+/**
+ * Spawner used by `ensureServer` — main.ts injects the runtime-overlay-aware
+ * resolver (`resolveAndSpawnRuntime`). Injected, not imported, so this module
+ * stays free of an import cycle with runtime-overlay-main.
+ * See change: electron-runtime-overlay-updates.
+ */
+export type LocalServerSpawner = (opts: {
+  isPackaged: boolean;
+  cwd: string;
+  preferOverride: ReturnType<typeof parsePreferOverride>;
+  resourcesPath: string;
+  port: number;
+  piPort: number;
+  logFile: string;
+}) => Promise<{ kind: "attach"; url: string } | { kind: "spawned"; pid: number }>;
+
+let localServerSpawner: LocalServerSpawner | null = null;
+
+export function setLocalServerSpawner(spawner: LocalServerSpawner): void {
+  localServerSpawner = spawner;
+}
+
 export async function ensureServer(): Promise<string> {
   // Remote mode: attach to the configured URL directly. No discovery, no
   // health probe, no spawn — and `serverStartedByUs` stays false so quit
@@ -342,25 +387,22 @@ export async function ensureServer(): Promise<string> {
     );
   }
 
-  const source = await selectLaunchSource({
+  if (!localServerSpawner) throw new Error("No local server spawner configured (main.ts wires it at startup).");
+  const launched = await localServerSpawner({
     isPackaged: process.resourcesPath !== process.execPath,
     cwd: process.cwd(),
     preferOverride: parsePreferOverride(process.env),
     resourcesPath: (process as any).resourcesPath ?? "",
     port: config.port,
+    piPort: config.piPort,
+    logFile: getDashboardServerLogPath(),
   });
 
-  if (source.kind === "attach") {
+  if (launched.kind === "attach") {
     // Race with health check above — accept and return.
-    return source.url;
+    return launched.url;
   }
-
-  const spawned = await spawnFromSource(
-    source as Exclude<typeof source, { kind: "attach" }>,
-    { port: config.port, piPort: config.piPort },
-    { logFile: getDashboardServerLogPath() },
-  );
-  setSpawnedPid(spawned.pid);
+  setSpawnedPid(launched.pid);
   serverStartedByUs = true;
   return `http://localhost:${config.port}`;
 }

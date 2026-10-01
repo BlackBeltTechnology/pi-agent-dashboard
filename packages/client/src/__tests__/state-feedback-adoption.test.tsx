@@ -114,11 +114,9 @@ describe("state-feedback adoption ratchet — covered surfaces", () => {
     expect(board).toContain("statusPresentation");
   });
 
-  it("covered status surface (ArtifactChip) consumes the shared status helper", () => {
-    const composer = readSurface("session/ComposerSessionActions.tsx");
-    expect(composer).toContain("statusPresentation");
-    expect(composer).toContain("statusAriaLabel");
-  });
+  // The composer's ArtifactChip (the former status consumer here) was removed:
+  // the composer now renders the shared lifecycle bar (OpenSpecStepper), which
+  // carries the status presentation. See change: redesign-composer-session-strip (D2).
 
   it("covered focus surfaces adopt the .focus-ring utility", () => {
     // Every focus-target surface refactored by this change must carry the

@@ -19,6 +19,7 @@ import { createCwdPlane, createFilesystemPlane, createNetworkPlane } from "../ac
 import { __resetPromptChannels, GRANT_CHANNEL_HEADER, issuePromptChannel } from "../access/prompt-channel.js";
 import { createNetworkGuardHook, setNetworkDenialObserver } from "../auth/localhost-guard.js";
 import { registerFileRoutes } from "../routes/file-routes.js";
+import { blockEvents } from "../tunnel/tunnel-block-events.js";
 
 let tmp: string;
 let cwd: string;
@@ -343,5 +344,37 @@ describe("6.1 the network guard's one denial path feeds the registry", () => {
     const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: "203.0.113.9" });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ error: "network_not_allowed" });
+  });
+});
+
+// test-plan #E15 — a relayed-loopback denial must not raise a network grant
+// prompt ("trust 127.0.0.1?" names the tunnel agent, and the entry would be
+// inert). Block-event recording is unchanged. See change:
+// fix-trusted-network-tunnel-bypass (D4).
+describe("E15 no network grant prompt for a relayed-loopback denial", () => {
+  async function denyOnce(remoteAddress: string, headers: Record<string, string>) {
+    const app = Fastify({ logger: false });
+    app.get("/api/sessions", async () => ({ ok: true }));
+    app.addHook("onRequest", createNetworkGuardHook({ trustedNetworks: [], logDenial: () => {} }));
+    const observer = vi.fn();
+    setNetworkDenialObserver(observer);
+    const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress, headers });
+    await app.close();
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "network_not_allowed" });
+    return observer;
+  }
+
+  it("(a) relayed loopback: observer not called, block event recorded non-trustable", async () => {
+    blockEvents.clear();
+    const observer = await denyOnce("127.0.0.1", { "x-forwarded-for": "203.0.113.9" });
+    expect(observer).toHaveBeenCalledTimes(0);
+    expect(blockEvents.list().find((e) => e.ip === "127.0.0.1")).toMatchObject({ trustable: false });
+    blockEvents.clear();
+  });
+
+  it("(b) LAN peer without header: observer called once", async () => {
+    const observer = await denyOnce("192.168.16.30", {});
+    expect(observer).toHaveBeenCalledTimes(1);
   });
 });

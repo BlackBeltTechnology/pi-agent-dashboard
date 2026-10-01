@@ -20,3 +20,11 @@ Bridge-side coalescing (change: coalesce-bridge-message-update-snapshots): `init
 
 Auto-session-naming streams through pi's OWN `ctx.modelRegistry.streamSimple` (design D6), not a bare-imported `@earendil-works/pi-ai` module: `ModelRuntime.streamSimple` already performs normalize → prepare → `provider.streamSimple` with credentials pi has resolved, so the extension's path is shorter AND a compat surface is removed rather than added. pi >= 0.85 exports NO global `streamSimple`, so the old bare import silently yielded `undefined` and auto-naming never ran; the import is kept only as a fallback below `piCompatibility.minimum`. `loadStreamSimple()` re-reads the registry each call (the registry is captured lazily, so caching a miss would pin auto-naming off for the whole session). See change: adopt-piai-factory-api-registry.
 
+
+Terminal-hosted `/reload`: `reload` option = `createTerminalReload(...).reload` (self-dispatch `/__dashboard_reload <token>`, pi >= 0.84.2). `__dashboard_reload` handler delegates to `handleReloadCommand`. `session_start` runs `consumePendingReloadOnSessionStart` synchronously at top; sends `reloadCompletedFeedback` once, after `replay_complete`. `session_shutdown{reason:"reload"}` calls `releaseBridgeOwnerOnShutdown` → reloaded instance passes `isBridgeReentry` guard (spike: before, every in-process reload orphaned the dashboard session). `RELOAD_KEY` / captured reload fn removed. See change: fix-terminal-session-dashboard-reload.
+
+Installs the plugin-request symbol on `onOpen`, uninstalls + `failAll("disconnected")` on `onClose`; `plugin_reply` → `pluginRequests.handleReply` (never re-emitted on `pi.events`). See change: expose-plugin-credential-and-oauth-seams.
+
+Plugin lane uses `connection.sendIfOpen`; `pluginLaneUp/Down` follow the CURRENT connection (`primaryConnection` guard) and the `/dashboard-connect` move target (its `onOpen`/`onClose` + `plugin_reply` dispatch; lane re-raised after rebind). See change: expose-plugin-credential-and-oauth-seams.
+
+Creates per-bridge `prStatus` (`createPrStatusScheduler`, probe `git.prStatusAsync`, `alive: isActive`, timers in bridge registry); `git_info_refresh` via `handleGitInfoRefresh`; `/dashboard-where` prints `pr-probe:` invocation count. See change: redesign-composer-session-strip.

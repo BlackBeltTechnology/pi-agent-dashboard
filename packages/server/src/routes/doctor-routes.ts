@@ -204,6 +204,8 @@ function summarize(checks: DoctorCheck[]): DoctorReport["summary"] {
 export interface DoctorRouteDeps {
   /** Override for tests — substitutes a different `runSharedChecks` deps shape (or throws to exercise fault tolerance). */
   buildDeps?: () => SharedChecksDeps;
+  /** Server-only rows appended to the shared checks (e.g. "Dashboard runtime"). */
+  extraChecks?: () => DoctorCheck[];
 }
 
 export function registerDoctorRoutes(fastify: FastifyInstance, deps: DoctorRouteDeps = {}): void {
@@ -211,6 +213,7 @@ export function registerDoctorRoutes(fastify: FastifyInstance, deps: DoctorRoute
     try {
       const sharedDeps = deps.buildDeps ? deps.buildDeps() : buildDefaultDeps();
       const checks = await runSharedChecks(sharedDeps);
+      checks.push(...(deps.extraChecks?.() ?? []));
       stampSectionsAndSuggestions(checks);
       return {
         checks,

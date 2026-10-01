@@ -36,9 +36,9 @@ export function GoalPluginSettings(): React.ReactElement {
           }}
         />
         <span>
-          {t("autoRespawnDefaultLabel", undefined, "Auto-respawn new goals by default")}
+          {t("autoRespawnDefaultLabel", undefined, "Auto-restart new goals by default")}
           <span className="block text-[11px] text-[var(--text-muted)]">
-            {t("autoRespawnHelp", undefined, "When a goal's driver session dies, the dashboard respawns it to keep pursuing — bounded by the turn budget and a crash-loop breaker. Off by default; each goal can override.")}
+            {t("autoRespawnHelp", undefined, "When a goal's driver session dies, the dashboard starts a new one to keep pursuing — bounded by the turn budget and a crash-loop breaker. Off by default; each goal can override.")}
           </span>
         </span>
       </label>

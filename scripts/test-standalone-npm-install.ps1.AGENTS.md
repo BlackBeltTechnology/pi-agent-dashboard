@@ -1,3 +1,3 @@
 # test-standalone-npm-install.ps1 — index
 
-Windows port of standalone-npm-install smoke. Packs workspaces, installs into isolated temp HOME, spawns pi-dashboard.cmd, polls /api/health (60s), asserts web UI reachable. -Port -Keep flags. Locks three Windows spawn bugs (jiti file:/// wrap, npm.cmd shell:true, node.exe prefix).
+Windows port of standalone-npm-install smoke. Packs workspaces, installs into isolated temp HOME, spawns pi-dashboard.cmd, polls /api/health (60s), asserts web UI reachable. -Port -Keep flags. Locks three Windows spawn bugs (jiti file:/// wrap, npm.cmd shell:true, node.exe prefix). After install, asserts installed root `packages\` holds no `__tests__`/`__fixtures__`/`__mocks__`/`*.test.*`/`*.spec.*`/`AGENTS.md`/`*.AGENTS.md` (root tarball exclusions), then boots. See change: check-root-package-imports.

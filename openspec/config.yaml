@@ -18,3 +18,43 @@ schema: spec-driven
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+# Repo rules (see change: adopt-explore-mockups-into-changes). These ask for
+# ACTIONS, not just constraints. They live here so `openspec update` never
+# overwrites them; every generated skill (propose/ff/continue/new/update) gets
+# them via `openspec instructions`.
+rules:
+  proposal:
+    - >-
+      Adopt pending mockups. Act ONLY when you are about to write proposal.md in
+      this same step AND proposal.md does not exist yet (never when revising an
+      existing proposal, never when only showing instructions). Read root
+      mockups/AGENTS.md and collect every table row whose Purpose cell ends with
+      `Pending change: <intent>`; the adoptable entry is the backticked name in
+      the File cell and must resolve to an existing entry directly under mockups/
+      (skip and report any row that does not). Never offer a row that also
+      carries `See change:` (already owned by a change). Drop rows the user already
+      declined in this session. If none remain, do nothing and ask nothing. If
+      ask_user is unavailable (subagent or headless run), move nothing and list
+      the pending rows in your final report. Otherwise ask ONE ask_user
+      multiselect offering every remaining row (label: entry + intent); do not
+      judge similarity yourself. For each chosen entry, in order: mkdir -p
+      <changeDir>/mockups; if <changeDir>/mockups/<entry> already exists, refuse
+      (never move into it) and report; else move it with git mv when tracked, mv
+      when untracked (move, never copy). Only after a successful move: recompute
+      relative links inside the entry that point outside it against the new
+      location (root mockups/<slug>/ to openspec/changes/<name>/mockups/<slug>/
+      adds three ../ levels; verify, do not assume), remove its row from
+      mockups/AGENTS.md, and add a line `Mockup: mockups/<entry> (in this
+      change)` under What Changes when writing proposal.md. A failed move keeps
+      its row. Unchosen rows stay marked and count as declined for this session.
+  tasks:
+    - >-
+      Offer plan-proposal instead of apply. Act ONLY right after tasks.md was
+      newly written in this step (never when revising an existing tasks.md).
+      Skip entirely when the drafting request states that plan-proposal is
+      driving this change, or when ask_user is unavailable. Otherwise do NOT
+      suggest /opsx-apply or /opsx:apply; instead ask via ask_user (confirm)
+      "Run plan-proposal now?" (doubt-review + scenario-design + test fold
+      before the worktree). On yes, load the plan-proposal skill for this
+      change; on no, stop and report the change as drafted.

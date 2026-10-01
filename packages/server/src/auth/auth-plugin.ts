@@ -28,7 +28,7 @@ import {
 } from "./auth.js";
 import { isBypassed } from "./bypass-urls.js";
 import { verifyLocalToken } from "./local-token.js";
-import { isBypassedHost, isGenuinelyLocal } from "./localhost-guard.js";
+import { isGenuinelyLocal, isTrustedSource } from "./localhost-guard.js";
 import type { CoreWsRouteScope, TicketConsumption } from "./ws-ticket.js";
 
 // Re-exported so the existing `auth-plugin.js` import surface is unchanged; the
@@ -318,8 +318,10 @@ export async function registerAuthPlugin(
     // Skip configured bypass URL prefixes
     if (isBypassed(request.url, authState.bypassUrls)) return;
 
-    // Skip configured bypass hosts (trusted source IPs)
-    if (isBypassedHost(request.ip, authState.bypassHosts)) return;
+    // Skip configured bypass hosts (trusted source IPs). A relayed-loopback peer
+    // (tunnel agent) is never a trusted source. See change:
+    // fix-trusted-network-tunnel-bypass (D1).
+    if (isTrustedSource(request.ip, request.headers as Record<string, unknown>, authState.bypassHosts)) return;
 
     // Validate JWT cookie
     const cookieToken = (request.cookies as any)?.[COOKIE_NAME];
@@ -373,7 +375,7 @@ export function validateWsUpgrade(
   // as loopback (with a forwarding header) is NOT trusted here (D10, narrowed).
   if (isGenuinelyLocal(remoteAddress, opts?.headers)) return true;
   if (opts?.localToken && verifyLocalToken(opts.headers, opts.localToken)) return true;
-  if (trustedNetworks.length > 0 && isBypassedHost(remoteAddress, trustedNetworks)) return true;
+  if (isTrustedSource(remoteAddress, opts?.headers, trustedNetworks)) return true;
   // Cross-origin device auth: a valid single-use ticket minted from an
   // authenticated REST call. The upgrade is refused unless it validates, so no
   // authenticated socket exists before auth (no TOCTOU). F6: only the ephemeral
@@ -453,7 +455,10 @@ export function authorizeWsUpgrade(opts: {
   // still binds the socket.
   if (isGenuinelyLocal(remoteAddress, headers)) return { ok: true };
   if (localToken && verifyLocalToken(headers, localToken)) return { ok: true };
-  if (trustedNetworks.length > 0 && isBypassedHost(remoteAddress, trustedNetworks)) return { ok: true };
+  // isTrustedSource (not isBypassedHost): a relayed loopback (tunnel presenting
+  // as 127.0.0.1 with forwarding headers) is never trusted by a trusted-network
+  // entry. See change: fix-trusted-network-tunnel-bypass.
+  if (trustedNetworks.length > 0 && isTrustedSource(remoteAddress, headers, trustedNetworks)) return { ok: true };
   if (consumeTicket && scope && ticket) {
     const consumed = consumeTicket(ticket, scope);
     if (consumed.ok) {

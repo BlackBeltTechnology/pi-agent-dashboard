@@ -9,12 +9,13 @@
  * and `check` reports the overage as a `warn budget` row.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { chromiumAvailable } from "../../__tests__/helpers/chromium.js";
+import { makeLocalDeck, runCli as runDeckCli } from "../../__tests__/helpers/local-fx.js";
 import type { EffectRef } from "../../ir/types.js";
 import { deriveDeckIR } from "../../parse/derive.js";
 import { parseMarkdown } from "../../parse/markdown.js";
@@ -135,4 +136,55 @@ describe.skipIf(!hasChromium)("E21 over-budget effects surface in `check`", () =
       await browser.close();
     }
   }, 180_000);
+});
+
+/**
+ * test-plan #E11 — a local card's `cost` is real: it counts toward the same
+ * quality budget as corpus effects, so a per-deck effect cannot smuggle in
+ * unbounded work.
+ */
+describe("E11 local effect cost counts toward the budget", () => {
+  /** `aurora` (3) + `glass` (2) = 5 corpus cost, plus one local card. */
+  const build = (cost: number) =>
+    makeLocalDeck(
+      { effects: [{ name: "x", card: { cost } }], corpus: ["aurora", "glass"], deck: { quality: "low" } },
+      "deck3d-e11-",
+    );
+
+  it("stays silent at exactly the budget", () => {
+    const { dir } = build(1);
+    const r = runDeckCli(["render", "deck.json", "-o", "deck.html"], dir);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).not.toContain("warn budget");
+  });
+
+  it("warns once over the budget, naming the sum and the limit", () => {
+    const { dir } = build(2);
+    const r = runDeckCli(["render", "deck.json", "-o", "deck.html"], dir);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).toContain("warn budget slide geo 7 > 6");
+  });
+});
+
+/**
+ * test-plan #P3 — the realistic deck must fit its own budget. Six local
+ * effects plus corpus effects across ten slides, and not one slide over the
+ * quality-tier cost cap.
+ */
+describe.skipIf(!hasChromium)("P3 business fixture stays inside the cost budget", () => {
+  it("reports zero budget findings across every slide", () => {
+    const src = new URL("../../../fixtures/business-2031/", import.meta.url).pathname;
+    const dir = mkdtempSync(join(tmpdir(), "deck3d-p3-"));
+    cpSync(src, dir, { recursive: true });
+
+    expect(runDeckCli(["build", "deck.md", "-o", "deck.html"], dir).status).toBe(0);
+    const r = runDeckCli(["check", "deck.html", "-o", "report.json"], dir);
+    expect(r.status, r.stderr).toBe(0);
+
+    const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8")) as {
+      viewports: Array<{ findings: Array<{ rule: string }> }>;
+    };
+    const budget = report.viewports.flatMap((v) => v.findings).filter((f) => f.rule === "budget");
+    expect(budget).toEqual([]);
+  }, 240_000);
 });

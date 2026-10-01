@@ -356,6 +356,10 @@ export function reduceFlowEvent(
 
     case "flow_complete": {
       if (!flowState) return null;
+      // A rejected start (pi-flows refused to run; no flow_started was emitted)
+      // never refers to the run held here — leave it untouched.
+      // See change: attach-flow-before-run (D10).
+      if (data.status === "rejected") return flowState;
       const status = ((data.status as string) || "success") as FlowState["status"];
       // When the flow ends non-successfully (error / aborted / interrupted),
       // downgrade any step left running/pending so its card does not spin

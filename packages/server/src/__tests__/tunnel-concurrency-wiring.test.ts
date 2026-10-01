@@ -213,3 +213,122 @@ describe("skipPrimary composition (the connect route's shape)", () => {
     expect(connectSpy).not.toHaveBeenCalled();
   });
 });
+
+describe("connectGateway — the Connect button's server half", () => {
+  const zrokDeps = (activeUrl: string | null, created: string | null) => ({
+    zrokActiveUrl: () => activeUrl,
+    createZrok: vi.fn(async () => created),
+  });
+
+  it("a non-zrok primary never starts zrok and connects the primary itself", async () => {
+    tunnel._setProviderSingleton("tailscale", fakeProvider("tailscale", "http://box.ts.net:8000"));
+    const deps = zrokDeps(null, "https://x.shares.zrok.io");
+    const r = await tunnel.connectGateway({ provider: "tailscale", mode: "private" }, 8000, deps);
+    expect(deps.createZrok).not.toHaveBeenCalled();
+    expect(connectSpy).toHaveBeenCalledWith("tailscale", 8000, "private");
+    expect(r).toMatchObject({ ok: true, url: "http://box.ts.net:8000", zrokUrl: null });
+  });
+
+  it("zrok primary already active still brings up enabled extras (no early return)", async () => {
+    const deps = zrokDeps("https://live.shares.zrok.io", null);
+    const r = await tunnel.connectGateway(
+      { provider: "zrok", tailscale: { enabled: true, mode: "private" } },
+      8000,
+      deps,
+    );
+    expect(deps.createZrok).not.toHaveBeenCalled();
+    expect(connectSpy).toHaveBeenCalledWith("tailscale", 8000, "private");
+    expect(connectSpy).not.toHaveBeenCalledWith("zrok", expect.anything(), expect.anything());
+    expect(r).toMatchObject({ ok: true, url: "https://live.shares.zrok.io", zrokUrl: "https://live.shares.zrok.io" });
+  });
+
+  it("zrok primary inactive is created through the zrok path; its failure fails the connect", async () => {
+    const deps = zrokDeps(null, null);
+    const r = await tunnel.connectGateway({ provider: "zrok" }, 8000, deps);
+    expect(deps.createZrok).toHaveBeenCalledOnce();
+    expect(r.ok).toBe(false);
+  });
+
+  it("a refused plan reports the resolver's reason", async () => {
+    const r = await tunnel.connectGateway({ provider: "tailscale" }, 8000, zrokDeps(null, null));
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/set tunnel.mode/);
+  });
+
+  it("a failing extra does not fail a healthy primary", async () => {
+    const bad = fakeProvider("tailscale", null);
+    bad.connect = async () => { throw new Error("boom"); };
+    tunnel._setProviderSingleton("tailscale", bad);
+    const r = await tunnel.connectGateway(
+      { provider: "zrok", tailscale: { enabled: true, mode: "private" } },
+      8000,
+      zrokDeps(null, "https://new.shares.zrok.io"),
+    );
+    expect(r).toMatchObject({ ok: true, url: "https://new.shares.zrok.io" });
+    expect(r.failures).toEqual([{ provider: "tailscale", error: "boom" }]);
+  });
+});
+
+describe("connectedProviderIds — what the Connect/Disconnect toggle reflects", () => {
+  it("lists only providers THIS process connected, and empties after disconnect", async () => {
+    tunnel._setProviderSingleton("tailscale", fakeProvider("tailscale", "http://box.ts.net:8000"));
+    expect(tunnel.connectedProviderIds()).toEqual([]);
+    await tunnel.connectGateway({ provider: "tailscale", mode: "private" }, 8000, {
+      zrokActiveUrl: () => null,
+      createZrok: async () => null,
+    });
+    expect(tunnel.connectedProviderIds()).toEqual(["tailscale"]);
+    await tunnel.disconnectResolvedProviders(8000);
+    expect(tunnel.connectedProviderIds()).toEqual([]);
+  });
+});
+
+describe("gatewayProviderStatus — per-provider connection state", () => {
+  const cfg = { provider: "zrok" as const, tailscale: { enabled: true, mode: "private" as const } };
+
+  it("idle for every planned provider before any connect", () => {
+    expect(tunnel.gatewayProviderStatus(cfg)).toEqual([
+      { provider: "zrok", primary: true, state: "idle" },
+      { provider: "tailscale", primary: false, state: "idle" },
+    ]);
+  });
+
+  it("partial connect: zrok failed WITH its reason, tailscale connected", async () => {
+    tunnel._setProviderSingleton("tailscale", fakeProvider("tailscale", "http://box.ts.net:8000"));
+    const r = await tunnel.connectGateway(cfg, 8000, {
+      zrokActiveUrl: () => null,
+      createZrok: async () => null,
+      zrokLastError: () => "POST /share 500 shareInternalServerError",
+    });
+    expect(r.error).toBe("zrok: POST /share 500 shareInternalServerError");
+    expect(tunnel.gatewayProviderStatus(cfg)).toEqual([
+      { provider: "zrok", primary: true, state: "failed", error: "POST /share 500 shareInternalServerError" },
+      { provider: "tailscale", primary: false, state: "connected" },
+    ]);
+  });
+
+  it("an extra that threw is failed with its message", async () => {
+    const bad = fakeProvider("tailscale", null);
+    bad.connect = async () => { throw new Error("serve blocked"); };
+    tunnel._setProviderSingleton("tailscale", bad);
+    await tunnel.connectGateway(cfg, 8000, { zrokActiveUrl: () => null, createZrok: async () => "https://z.shares.zrok.io" });
+    expect(tunnel.gatewayProviderStatus(cfg)[1]).toEqual({ provider: "tailscale", primary: false, state: "failed", error: "serve blocked" });
+  });
+
+  it("a provider that connected and later went away reads dropped, not connected", async () => {
+    const ts = fakeProvider("tailscale", "http://box.ts.net:8000");
+    tunnel._setProviderSingleton("tailscale", ts);
+    await tunnel.connectGateway({ provider: "tailscale", mode: "private" }, 8000, { zrokActiveUrl: () => null, createZrok: async () => null });
+    await ts.disconnect(8000); // dies behind our back
+    expect(tunnel.gatewayProviderStatus({ provider: "tailscale", mode: "private" })).toEqual([
+      { provider: "tailscale", primary: true, state: "dropped" },
+    ]);
+  });
+
+  it("an operator Disconnect resets every provider to idle", async () => {
+    tunnel._setProviderSingleton("tailscale", fakeProvider("tailscale", "http://box.ts.net:8000"));
+    await tunnel.connectGateway({ provider: "tailscale", mode: "private" }, 8000, { zrokActiveUrl: () => null, createZrok: async () => null });
+    await tunnel.disconnectResolvedProviders(8000);
+    expect(tunnel.gatewayProviderStatus({ provider: "tailscale", mode: "private" })[0].state).toBe("idle");
+  });
+});

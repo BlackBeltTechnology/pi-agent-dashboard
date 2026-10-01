@@ -9,7 +9,7 @@
  * each view it fetches, and every mutation calls `refresh()`. Remaining time is
  * derived client-side from `expiresAt` (see `useNow`).
  */
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { fetchAccessPrompts } from "./access-prompts-api.js";
 import type { YoloSessionView, YoloView } from "./access-prompts-types.js";
 
@@ -109,14 +109,5 @@ export function useYoloStatus(store: YoloStatusStore = yoloStatus): YoloView | n
   return useSyncExternalStore(store.subscribe, store.getSnapshot);
 }
 
-/** Epoch ms, re-rendered every second while `active`. */
-export function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
+/** Moved to `lib/time/use-now.ts`; re-exported for existing callers. */
+export { useNow } from "../time/use-now.js";

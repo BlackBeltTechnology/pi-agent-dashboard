@@ -146,7 +146,7 @@ TypeScript type definitions shared across all components:
 - **"Currently viewing" registry**: `viewed-session-tracker.ts` exposes `Map<sessionId, Set<WebSocket>>`. Browsers populate it via two new browser→server messages, `session_view` and `session_unview`, sent by the client hook `useViewDispatcher` (mounted in `App.tsx`). The hook watches the `/session/:id` route and the WebSocket connection status; on every transition INTO `connected` it re-sends `session_view` for the current id so server-side state re-syncs after reconnect. On WS `close`, the gateway calls `tracker.unviewAll(ws)` so disconnected browsers cannot hold sessions in the viewed state. Read state is GLOBAL across browsers (mirrors mail/Slack: opening on phone clears unread on laptop).
 - **State transitions** in `event-wiring.ts`: right after the `extractSessionUpdates` block, the wiring snapshots `{status, currentTool}` before/after the update and calls `isUnreadTrigger`. If true AND `viewedSessionTracker.isViewedByAnyone(sessionId) === false` AND `!replayingSessions.has(sessionId)`, the wiring stamps `session.unread = true` and broadcasts `session_updated`. The browser-gateway's `session_view` arm clears the bit (`unread: false`) and broadcasts. The clear-on-already-read path is a no-op (no spurious broadcast).
 - **Persistence**: the bit lives in `.meta.json` (`SessionMeta.unread`). `server.ts onChange` writes it on every session update; `session-scanner.ts::sessionFromMeta` restores it on cold start. The cold-start "force `status = ended`" override at `server.ts:273-279` is intentionally non-destructive on `unread` — a session that was unread when the server stopped is still unread when it starts back up, even before its bridge reattaches.
-- **Render precedence** (`SessionCard.tsx::getCardPulseClass`): `ask_user` (purple) > `streaming || resuming` (yellow) > `unread` (cyan) > none. Streaming with `unread: true` shows yellow stripes; when streaming ends with the session still unviewed, the trigger fires, the card flips to cyan. The `card-unread-pulse` CSS class reuses the `card-working-stripes-scroll` and `card-working-opacity-pulse` keyframes verbatim — only the stripe and tint colors change to cool cyan (`rgba(34, 211, 238, 0.18)` and `rgba(34, 211, 238, 0.07)`). Cyan was selected to occupy its own corner of the dashboard palette (distant from yellow, purple, green, red). Reduced-motion users see a static cyan-tinted background, matching the working-pulse arm.
+- **Render precedence** (`SessionCard.tsx::getCardPulseClass`): `ask_user` (purple) > `streaming || resuming` (yellow) > `unread` (cyan) > none. Streaming with `unread: true` shows yellow stripes; when streaming ends with the session still unviewed, the trigger fires, the card flips to cyan. The `card-unread-pulse` CSS class reuses the `card-working-stripes-scroll` and `card-working-opacity-pulse` keyframes verbatim — only the stripe and tint colors change to cool cyan (`rgba(34, 211, 238, 0.18)` and `rgba(34, 211, 238, 0.07)`). Cyan was selected to occupy its own corner of the dashboard palette (distant from yellow, purple, green, red). Reduced-motion users see a static cyan-tinted background, matching the working-pulse arm. Cyan now theme token `--status-unread` (dark `#22d3ee`, light `#0891b2`) in `index.css`; `.card-stripes-unread` uses `color-mix` of it (change: session-list-group-by).
 
 **Attention routing & status semantics** (change: improve-dashboard-attention-routing):
 - **Semantic status tokens.** `--status-needs-you` / `--status-working` / `--status-idle` / `--status-error` derive per-theme from accents (`var(--accent-purple/yellow/green/red)`). `themes.ts::statusVars` + `withStatus` merge into every theme dark+light; `index.css` `:root` defines base fallback. Session visuals reference tokens only — no raw palette literals.
@@ -154,7 +154,18 @@ TypeScript type definitions shared across all components:
 - **Non-hue shape channel.** `deriveStatusShape` + `statusShapeIcon` map status to filled/half/ring/cross marker. `SessionCard.tsx::StatusShapeBadge` overlays marker on session-status-icon (`data-status-shape`). Color-blind-safe redundant encoding.
 - **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
-- **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
+- **Urgency sort RETIRED** (change: session-list-group-by). `useFolderUrgencySort` + `floatAskUserFirst` deleted. Folder menu item `urgency-sort` removed. Superseded by Group by ▸ Status "Needs you" lane. One-shot client migration `runUrgencyMigration` (`packages/client/src/lib/session/group-by-migration.ts`) runs after first `group_by_prefs_updated`: each legacy `dashboard:folder-urgency-sort` folder without explicit mode → `set_folder_group_by {mode:"status"}`; explicit modes kept; localStorage key then removed.
+
+**Session list Group by** (change: session-list-group-by):
+- **Modes.** `GroupByMode` = `none` | `status` | `location` (`packages/shared/src/session-group-by.ts`). Per-folder override > `defaultGroupBy` > `none` (`resolveEffectiveGroupBy`, `pathKey` lookup).
+- **Persistence.** `preferences.json` optional `defaultGroupBy`, `folderGroupBy: Record<pathKey, mode>`, `collapsedLanes: string[]` (`<pathKey>::<laneId>`). `preferences-store.ts`: `getGroupByPrefs`, `setFolderGroupBy(path, mode|null)`, `setDefaultGroupBy`, `setLaneCollapsed`. Validate enums. `pathKey`-canonicalize like `collapsedFolders`. Never realpath. Never prune. Return true only on real change.
+- **Protocol.** Browser→server `set_folder_group_by {path, mode|null}` (null = use default), `set_default_group_by {mode}`, `set_lane_collapsed {path, lane, collapsed}`. Server→browser aggregate `group_by_prefs_updated {defaultGroupBy, folderGroupBy, collapsedLanes}`. Handlers `browser-handlers/directory-handler.ts` broadcast only on change. Connect burst: right after `collapsed_folders_updated`, before `pinned_dirs_updated` / `workspaces_updated` / `sessions_snapshot` → lanes on first paint. `frameClassOf` = `state`.
+- **Lanes = client-only view** over unchanged `sessionOrder`. `partitionIntoLanes` stable partition via `sortSessionsByOrder` (`packages/client/src/lib/session/session-lanes.ts`). Status lane order `needs-you, error, working, review, idle`. `classifyStatusLane` wraps `deriveStatusShape`; compacting → working; unread idle / notice → review; ended → ended bucket. Location lanes `main` / `worktrees` (`gitWorktree` set).
+- **Render rules.** `SessionList.tsx` `lanesForGroup` → null (plain list, unchanged DOM) when mode none, search/tag filter active, or ≤1 non-empty lane. One `SortableContext` per lane. `LaneHeader` (`components/session/LaneHeader.tsx`): glyph on rail; label never status-colored; collapsed location lane shows inert status rollup. Ended bucket stays plain below lanes. Per-folder layout cache keyed on mode + order + `laneFingerprint` → token/cost ticks never re-partition.
+- **Drag.** `resolveLaneDrop`: same lane → slot-preserving `mergeLaneOrder` → `onReorderSessions`. Cross-lane → rejected + toast. Ended involved → legacy drag-to-resume path.
+- **Stability.** `useLaneHysteresis` (`hooks/useLaneHysteresis.ts`) holds working→review/idle demotion 3000 ms (`LANE_HOLD_MS`). needs-you / error immediate. Held card shows `.lane-hold-bar` in destination lane color. `useFlipOnLaneChange` FLIP 220 ms; skipped under `prefers-reduced-motion` and during drag. Selected card lane change → polite `lane-live-region` announcement + `scrollIntoView`. Reveal expands collapsed target lane.
+- **UI entry points.** Folder menu `radioGroup` (`FolderActionsMenu`, `role=menuitemradio`: Use default (<Mode>) / None / Status / Location). Header `GroupByChip` on secondary row (`<Mode>` / `<Mode> · default`). Settings ▸ Sessions ▸ Session list `DefaultGroupingField` (instant-apply WS, outside Save-bar draft).
+- **Rollback.** Extra `preferences.json` keys ignored by old loader; dropped on next write.
 
 ### Bridge Streaming Coalescing (change: coalesce-bridge-message-update-snapshots)
 
@@ -623,13 +634,13 @@ Every server→browser frame carries exactly one delivery class. `frameClassOf(m
 
 - **`transcript`** — per-session event stream + session-registry broadcasts (`session_updated`, `session_added`, `session_removed`). Recoverable via history backfill / replay.
 - **`blocking`** — pending-prompt frames only (`ctx.critical === true`). Exempt from shed under pending-prompt-recovery bounds (4 frames/delivery, `MAX_WS_BUFFER + 1 MB` ceiling). Unchanged.
-- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` / `sessions_reordered` (key `cwd`, `sessions_reordered:<cwd>`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier). `sessions_reordered` is already a window-projected FULL per-cwd ordering snapshot at the `broadcast()` choke point, so per-cwd latest-wins is exact; deferred under back-pressure, never shed.
+- **`state`** — idempotent snapshots keyed by `(type, entityKey)`: `sessions_snapshot`, `pinned_dirs_updated`, `workspaces_updated`, `card_sections_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, `openspec_update` / `openspec_get_result` / `git_head_update` / `sessions_page_result` / `sessions_reordered` (key `cwd`, `sessions_reordered:<cwd>`), `terminal_added` / `terminal_updated` / `terminal_removed` (one shared key `terminal:<id>` per terminal, later lifecycle frame supersedes earlier). `sessions_reordered` is already a window-projected FULL per-cwd ordering snapshot at the `broadcast()` choke point, so per-cwd latest-wins is exact; deferred under back-pressure, never shed.
 
 **Shed rule per class.** Socket over threshold (`ws.bufferedAmount > MAX_WS_BUFFER`, 4 MB default): `transcript` frame dropped + counted (pre-change counters `total`/`bySession`); `state` frame NEVER shed — deferred; `blocking` exempt within bounds. Transcript sends first flush the socket's pending map — a flushable state frame is never overtaken by a later transcript frame.
 
 **State deferral.** Per-socket side-table `pendingState: Map<WebSocket, { map: Map<key, serialized>, bytes, timer }>` (distinct from `subscriptions`). `sendState(ws, key, serialized)` sends inline when socket under threshold + map empty, else defers. Latest-wins per type-qualified key — newer frame replaces older, superseded entry counted `coalescedState`. Map total bytes over `MAX_WS_BUFFER` → `ws.terminate()`, counted `stalledSocketsTerminated` (browser reconnect path re-bootstraps; retained bytes released). Flush in key-insertion order (FIFO; superseded key keeps its slot — state never overtakes earlier pending state), triggered BOTH by send-callback re-flush AND `setInterval(flush, STATE_FLUSH_INTERVAL_MS = 250 ms)` while map non-empty (drain without further sends still flushes). `close`/`error` clears map + timer. Every state-class send routes through `sendState` — `fanout`/`broadcast`, connect bootstrap, handler unicasts; `sendTo` dispatches on `frameClassOf`, so a handler cannot route a state frame onto the shedding path.
 
-**Connect bootstrap order.** `sessions_snapshot` last — after `terminal_added` loop and `gateway.onConnect(ws)`. Every other bootstrap frame (`pinned_dirs_updated`, `workspaces_updated`, `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, per-cwd `openspec_update`, per-cwd `git_head_update`, `terminal_added`) precedes it. No session-registry send before `sessions_snapshot`.
+**Connect bootstrap order.** `sessions_snapshot` last — after `terminal_added` loop and `gateway.onConnect(ws)`. Every other bootstrap frame (`pinned_dirs_updated`, `workspaces_updated`, `card_sections_updated` (always, incl. `{}`), `favorite_models_updated`, `display_prefs_updated`, `reachability_updated`, per-cwd `openspec_update`, per-cwd `git_head_update`, `terminal_added`) precedes it. No session-registry send before `sessions_snapshot`.
 
 **Health.** `/api/health#droppedFrames` gains `coalescedState` (superseded pending entries) + `stalledSocketsTerminated` beside transcript/blocking counters. No dropped-state counter — no code path drops one. Coalesce ≠ drop: `total` does not increment. Accepted counter shift: shed reorders move from `droppedFrames.total` to `coalescedState`.
 
@@ -708,7 +719,85 @@ Change: `split-notify-from-prompt-request`. `ctx.ui.notify` used to ship over `p
 
 **Accepted skew:** old client + new server resolves on reload (client ships with the server). Old server + new bridge drops the notification for the skew window — no catch-all forward, no version handshake; accepted, bounded.
 
+**Emit time, ordering, collapse** (change: `collapse-and-order-notify-rows`):
+
+- Bridge `createNotifyProxy` (`packages/extension/src/notify-proxy.ts`) stamps `ts: Date.now()` — bridge clock = transcript-event clock.
+- Server `handleNotify` (`packages/server/src/event-wiring.ts`) keeps bridge `ts` only when finite number > 0 (`isValidNotifyTs`); else stamps receipt `Date.now()`. Covers live `notify`, legacy `fromLegacyPromptRequest`, server-created notices. Every logged `NotifyLogEntry` + browser `notify` carries `ts`.
+- `ts` persists in `.meta.json` notify log; `replayNotifyLog` forwards it; pre-change entries replay without `ts`.
+- Client `addNotify(state, notifyId, message, level?, ts?)`: `ts` → row `timestamp = ts`, placed by pure `insertByTs` — scan `messages` from end in array order, skip `historyGap`, insert after first row with `timestamp <= ts`; none → before first non-gap row; no non-gap row → append. No `ts` → tail append, client `Date.now()`. Dedup by `notifyId` unchanged.
+- History-backfill splice (`useMessageHandler.ts`) → `reseatTimedNotifies` re-places ts-placed notify rows, ascending `ts`.
+- `collapseRepeatedNotifies` (`packages/client/src/lib/chat/collapse-repeated-notifies.ts`) runs last inside ChatView `displayRows` memo, after `notifyMinLevel` gate. ≥2 adjacent notify rows, same normalized level + same non-empty rendered text → one row, first member `id` kept, `args.params.repeat = {count, firstTs, lastTs}`. State untouched.
+- `NotifyRenderer` renders `repeat.count > 1` as `×N` badge + first–last range (`Intl.DateTimeFormat`, UI language, short date across days) + aria-label; keys `common.notifyRepeat.badge` / `.label`. Timestamp outside JS `Date` range (`isDateTs`) → omit first–last range, label key `common.notifyRepeat.labelNoRange` — `Intl` would throw.
+- Trade-off: live mid-turn notify re-tailed by `reorderToolCardsForAssistantMessage`; replay places by `ts` → may shift within own assistant turn, never across turns.
+
 See change: `split-notify-from-prompt-request`.
+
+### Push Notifications (change: add-server-push-notifications)
+
+Opt-in cross-device notifications. `push.enabled` defaults to `false` — while disabled no dispatcher, no VAPID keys, no outbound calls (`packages/shared/src/config.ts` `parsePushConfig`; `packages/server/src/push/push-service.ts`).
+
+```mermaid
+flowchart LR
+  E["live event edge (isUnreadTrigger, no viewer)"] --> S["stampUnreadIfTriggered"]
+  S -->|"unreadEdge"| D["device tokens: web-push, fcm"]
+  S -->|"every trigger"| W["webhook tokens, coalesced"]
+  D --> T["setImmediate + Promise.allSettled"]
+  W --> T
+  T --> O{outcome}
+  O -->|gone| P[prune token]
+  O -->|ok| U[touch]
+  O -->|failure| F[recordFailure]
+```
+
+**Trigger — single hook** (`packages/server/src/event-wiring.ts` `stampUnreadIfTriggered`):
+- Called after the unread block, only for a known session: `pushDispatcher?.fanout(sessionId, {eventType, after, payload, unreadEdge})`.
+- Replay never reaches it (`event_forward` checks `replayingSessions`; the `prompt_request` branch is live-only). Viewed session → suppressed.
+- One `ask_user` edge has two callers (`event_forward` / `prompt_request`); only the first reaches fanout — the second sees `currentTool` already `"ask_user"`, so `isUnreadTrigger` is false.
+- Fire-and-forget: `fanout` returns `void`, memory-only sync work, never throws/rejects.
+
+**Hybrid cadence** (`packages/server/src/push/push-dispatcher.ts`):
+- Device tokens (`web-push`, `fcm`) only when `unreadEdge` — one buzz per unread period, next after a view.
+- Webhook tokens every qualifying trigger, coalesced per `(sessionId, tokenId)` within `push.coalesceWindowMs`.
+- Coalesce entries expire lazily at 2× window; dropped on token remove.
+- One structured log line per delivery: `{tokenId, transport, target (redacted), outcome, ms, status|errorCode}`.
+
+**Payload** (`packages/server/src/push/build-push-payload.ts`): `{type: "session_attention", trigger: turn_end|input|crash|test, sessionId, title, body, url: "/session/<id>"}`.
+- `title` = `<name>: turn finished|waiting for input|crashed`; `<name>` falls back to cwd basename.
+- Crash `body` = error cut to 200 chars + `…`; otherwise the session model id.
+
+**Token registry** (`packages/server/src/push/push-token-registry.ts`):
+- `~/.pi/dashboard/push-tokens.json` + `push-vapid.json`, mode `0600` via `writeJsonFile(path, data, {mode})` — `chmod` on the `.tmp` unconditionally before rename.
+- Max 50 tokens; 51st distinct `deviceToken` → `409`. Idempotent by `deviceToken` (same id, new `lastUsedAt`).
+- `touch` persisted ≤ 1 per 60 s. `consecutiveFailures` in memory, reset on success.
+- Corrupt file → renamed `push-tokens.json.corrupt-<epoch ms>`, registry starts empty, `push.errors` entry.
+
+**Transports** (`packages/server/src/push/push-transports/`):
+- web-push: `web-push` lib, VAPID (`push-vapid.json`, generated once); 404/410 → gone.
+- fcm: HTTP v1 API, RS256 service-account JWT via `crypto.createSign`, access token cached, refresh at 3500 s, one re-sign + retry on 401; `NOT_FOUND`/`UNREGISTERED` → gone; missing/unreadable service-account file → FCM disabled + `push.errors` entry.
+- webhook: `undici.request`, no redirects (3xx = failure), 5 s timeout, `body.dump()`; 2xx → ok, 410 → gone, anything else incl 404 → failure, token kept, no retry.
+- gone → token pruned (`registry.remove`).
+
+**Webhook SSRF** (`push-transports/webhook-url.ts`):
+- http/https only, absolute, no userinfo.
+- Blocked: `169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`, IPv4-mapped forms; dashboard's own listen port on a loopback/local-interface address. Loopback + LAN allowed.
+- Any resolved record blocked → refused. Same check at registration and every delivery.
+- Per-delivery undici `Agent` with `connect.lookup` pinned to the vetted addresses — closes DNS rebinding.
+
+**Redaction**: webhook renders `label (origin)`; web-push `<endpoint host> browser`; fcm `fcm device`. Raw errors never logged. `POST /api/push/test` returns only `{tokenId, ok, gone?}`.
+
+**REST** (`packages/server/src/routes/push-routes.ts`): `GET /api/push/vapid-public-key` (`observe`); `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` (`operate`). Routes always registered; handlers answer 404 while push disabled. Auth chain runs first — unauthenticated remote → 401, not 404. `/api/push/` prefix denylisted from MCP.
+
+**Health**: `/api/health` carries `push.errors` only when `canDiscloseAccessPosture(request)` and push enabled. Missing `push.webPush.contactEmail` → web-push disabled + `push.errors` entry (FCM + webhook keep working).
+
+**Client** (`public/sw.js`, `packages/client/src/hooks/usePushSubscription.ts`, `packages/client/src/components/settings/PushNotificationsSection.tsx`):
+- `sw.js` `push` → `showNotification(title, {body, data: {url, sessionId}})`; `notificationclick` focuses + navigates an existing window, else `openWindow(url)`.
+- Settings ▸ Sessions ▸ Push notifications: device toggle (secure context only, else https notice), iOS install-to-home-screen hint, token list (display, Send test, Remove), Add webhook URL form (works without Web Push).
+
+**FCM setup**: `push.fcm.serviceAccountPath` → Google service-account JSON with `project_id`, `client_email`, `private_key`; never inline in `config.json`.
+
+**nanoMuse recipe**: create a `hook` trigger, copy its URL (`POST /api/hooks/{id}?key=…`), paste into Settings ▸ Sessions ▸ Push notifications ▸ Add webhook URL. nanoMuse answers 429 within 10 s of a previous call — logged, not retried.
+
+See change: `add-server-push-notifications`.
 
 ### Command Flow (browser → pi)
 1. User types prompt or command in browser
@@ -877,7 +966,9 @@ First-party slots (React, possibly also descriptor):
 - `content-view` — full-screen content area (replaces every conditional branch in `App.tsx` for `ArchiveBrowserView`, `SpecsBrowserView`, `OpenSpecPreview`, `FlowAgentDetail`, `FlowArchitectDetail`, `MarkdownPreviewView`, `FileDiffView`, `FlowYamlPreview`). Descriptor variant reuses `management-modal`.
 - `content-header-sticky` — sticky element above content-view (replaces sticky `FlowArchitect`/`FlowDashboard`). Descriptor variant reuses `breadcrumb`.
 - `content-inline-footer` — inline element below content-view (replaces `FlowSummary`). React-only.
-- `composer-context-group` — labelled read-only context groups inside the chat composer's session-action strip (`ComposerSessionActions`), after the Git group, before the Status group. Multiplicity `many`, tier `react-only`, claim `{ component }`, context props `{ session, pluginContext }`. Outside the Status group's streaming `<fieldset disabled>` — stays visible mid-run. Runtime exports `ComposerContextGroupSlot` + primitive `ComposerContextGroup({ label, children, testId? })` (divider + uppercase label + children, one non-shrinking flex unit). First claimant: quota plugin's `QuotaWidget`. See change: move-quota-to-context-strip.
+- `composer-context-group` — labelled read-only context groups inside the chat composer's session-action strip (`ComposerSessionActions`), after the Git group, before the Status group. Multiplicity `many`, tier `react-only`, claim `{ component }`, context props `{ session, pluginContext }`. Outside the Status group's streaming `<fieldset disabled>` — stays visible mid-run. Runtime exports `ComposerContextGroupSlot` + primitive `ComposerContextGroup` (keeps signature, delegates to `ToolbarGroup` variant `info`). First claimant: quota plugin's `QuotaWidget`. See change: move-quota-to-context-strip; redesign-composer-session-strip.
+
+**Composer session-action strip (`ComposerSessionActions`):** host groups (OpenSpec, Git, Status) + plugin `composer-context-group` contributions render through one primitive `ToolbarGroup({ label, variant: "actions"|"info", testId?, labelTestId?, contentAs?: "div"|"fieldset", contentProps?, className? })` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`). Renders `<div data-group role="group" aria-labelledby>` + label `<span id>` (`useId`) + content element carrying `data-group-content`. `actions` variant: solid outline, `--bg-tertiary` fill, label segment on `--bg-surface`, hairlines between direct children, children ≥24 px targets. `info` variant: dashed outline, no fill (read-only readouts). Label test id = `labelTestId ?? (testId ? `${testId}-label` : undefined)` — never `undefined-label`. a11y contract change: every claimant becomes a named `role="group"` region; contributions drop own chip borders (quota plugin did). Host containers `composer-{openspec,git,status}-container`; legacy ids `composer-{openspec,git,status}-group-label`, `composer-git-group`, `composer-status-group` kept (Status content is `<fieldset disabled={working}>`). `packages/client/src/index.css`: `[data-group]:has(> [data-group-content]:empty) { display:none }` hides empty group (e.g. all badge claims render null). See change: redesign-composer-session-strip.
 - `anchored-popover` — popover anchored to a triggering UI element (replaces `TasksPopover`).
 - `command-route` — maps a slash command or URL route to a `content-view` (replaces today's hand-wired routing in `App.tsx`).
 - `settings-section` — a section in the Settings page (replaces today's hardcoded `Background polling (OpenSpec)` section). React for first-party plugins; descriptor (RJSF/UiField) for third-party extensions.
@@ -1139,6 +1230,10 @@ Generic channel. Any plugin routes pi events bridge→server→browser + request
 - `plugin_pi_message` (ExtensionToServer). Server `event-wiring` dispatches to `ServerPluginContext.registerPiHandler(messageType, handler)`.
 - `plugin_event` (ServerToBrowser). Plugin server `broadcastToSubscribers`. Shell `useMessageHandler` routes `event` → `publishSessionEvent` → plugin `useSessionEvents`.
 - New `ServerPluginContext` capabilities. `onEvent(handler)` subscribes all forwarded events. `sendToSession(sessionId, text)` sends prompt/command; `/`-prefixed text routes to extension-command dispatch (Path C keeper headless).
+
+##### Private request/reply lane
+
+Bridge→server request, separate from the fire-and-forget channel above. Bridge entry `requestPluginServer(pluginId,type,payload)` from `@blackbelt-technology/dashboard-plugin-runtime/bridge`; core bridge installs fn at `Symbol.for("pi-dashboard.pluginRequest")`. Server `ctx.registerPiRequestHandler(type,handler)` — single owner per `(pluginId,type)`, duplicate throws. Wire `plugin_request` → host-internal `plugin_reply` on the SAME socket. Never `pi.events`; never the priority-gated `sendExtensionMessage`. Caps 256 KiB each way; timeout 15 s. Codes `no_handler`/`timeout`/`disconnected`/`request_too_large`/`reply_too_large`/`reply_not_serializable`/`unavailable`. `sessionId` from socket key, never payload. Trust: private = unobservable + unforgeable, NOT authenticated; handlers authorize on payload. Same change adds `ctx.credentials` store + `ctx.oauth.startFlow` + `createLoopbackCallback` — see [`plugin-seams.md`](plugin-seams.md). See change: expose-plugin-credential-and-oauth-seams.
 
 #### Goal Session Supervisor (`add-goal-session-supervisor`)
 
@@ -1657,11 +1752,11 @@ flowchart TD
 
 **Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
 
-**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true` on pi < 0.84.2: it does not — pi's RPC `{type:"prompt"}` performed NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. (Pi >= 0.84.2 RPC `prompt()` defaults `expandPromptTemplates` ON; the original measurement predates that. Decision unaffected — `/__dashboard_reload` is STILL never written to the keeper.) Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. The extension-slash `dispatch_extension_command` route used the same keeper `writeRpc` + `{type:"prompt"}` mechanism; it was retired by change `retire-slash-dispatch-via-expand-prompt-templates` (bridge dispatches in-process via `sendUserMessage({expandPromptTemplates: true})`).
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true` on pi < 0.84.2: it does not — pi's RPC `{type:"prompt"}` performed NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. (Pi >= 0.84.2 RPC `prompt()` defaults `expandPromptTemplates` ON; the original measurement predates that. Decision unaffected — `/__dashboard_reload` is STILL never written to the keeper.) Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Scope: SERVER/keeper path only — server never writes `/__dashboard_reload` to the keeper. Terminal-hosted sessions DO reload in-process, on the BRIDGE side (`terminal-reload.ts` self-dispatch via `sendUserMessage`; see Bridge side below). See change: fix-terminal-session-dashboard-reload. The extension-slash `dispatch_extension_command` route used the same keeper `writeRpc` + `{type:"prompt"}` mechanism; it was retired by change `retire-slash-dispatch-via-expand-prompt-templates` (bridge dispatches in-process via `sendUserMessage({expandPromptTemplates: true})`).
 
 **Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
 
-**Ladder step 2 — kill-and-respawn.** `headlessPidRegistry.getPid(sessionId)` defined → `handleHeadlessReload` (SIGTERM + `spawnPiSession` `mode:"continue"`), streaming guard suppressed. Registered PID wins over a live bridge: the bridge path is a no-op for a dashboard-spawned session whose `globalThis[RELOAD_KEY]` was never captured in a TUI.
+**Ladder step 2 — kill-and-respawn.** `headlessPidRegistry.getPid(sessionId)` defined → `handleHeadlessReload` (SIGTERM + `spawnPiSession` `mode:"continue"`), streaming guard suppressed. Registered PID wins over a live bridge: dashboard-spawned session reloads via respawn; in-process bridge reload (`terminal-reload.ts`) applies to terminal-hosted sessions only. See change: fix-terminal-session-dashboard-reload.
 
 **Ladder step 3 — bridge forward.** No PID, `isSessionConnected` true → `piGateway.sendToSession(sid, {type:"send_prompt", text:"/reload"})`. Gated on the RETURN VALUE, not the probe: the socket can close between the two.
 
@@ -1669,7 +1764,17 @@ flowchart TD
 
 **Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
 
-**Bridge side** — `packages/extension/src/command-handler.ts` no longer emits an unconditional `completed`. `BridgeCommandOptions.reload` returns a `ReloadOutcome` (`{ok:true} | {ok:false, reason}`). `bridge.ts` wraps the captured `globalThis[RELOAD_KEY]` call in try/catch, including a SYNCHRONOUS throw: the captured fn is single-use per process because the first `ctx.reload()` invalidates the runner, so a second call throws out of `assertActive()` where a `.catch()` cannot reach it.
+**Bridge side** — terminal-hosted path only; ladder step 2 wins for dashboard-spawned sessions. `BridgeCommandOptions.reload` = `terminalReload.reload` (`createTerminalReload`, `packages/extension/src/terminal-reload.ts`). `ExtensionContext` has no `reload()`; only a command handler's `ExtensionCommandContext` does. So `reload()` self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})` — pi runs `_tryExecuteExtensionCommand`, hands handler FRESH command ctx → `ctx.reload()`. No TUI bootstrap. Nothing callable captured — works every reload (retired captured-fn-on-`globalThis` path was single-use, stale ctx after first reload). Gate: `supportsInProcessCommandDispatch` (`slash-dispatch.ts`), pi >= 0.84.2; below → `{ok:false, reason: NO_RELOAD_PATH_REASON}` (names pi >= 0.84.2). `BridgeCommandOptions.reload` returns `ReloadOutcome` (`{ok:true, handedOff:true}` | `{ok:false, reason}`). See change: fix-terminal-session-dashboard-reload.
+
+**Token handshake** — slot `process.__pi_dashboard_pending_reload__ = {token, sessionId, state, armedAt}`. State `armed → started → delivered | expired`. Transitions compare-and-set — requesting instance `error` and reloaded instance `completed` mutually exclusive. `START_TIMEOUT_MS` = 5000, `FINISH_TIMEOUT_MS` = 60000, both measured from `armedAt`.
+
+**Completion from RELOADED instance** — reload tears down the requesting instance's connection, so the NEW bridge instance reports. `consumePendingReloadOnSessionStart` runs at top of `session_start{reason:"reload"}`; `command_feedback {command:"/reload", status:"completed"}` sent after `replay_complete`. Requesting instance returns `{ok:true, handedOff:true}` → `command-handler.ts` emits nothing. Requesting instance reports every failure: did not run (start timeout, `RELOAD_DID_NOT_RUN_REASON`), pi did not reload (refused/threw, `PI_DID_NOT_RELOAD_REASON`), timeout (`RELOAD_TIMEOUT_REASON`), sync throw, reload already in progress (`RELOAD_IN_PROGRESS_REASON`).
+
+**TUI-typed `/__dashboard_reload` (no args)** — reloads, no dashboard feedback. `ctx.ui.notify` warning if dashboard reload in flight.
+
+**Re-entry guard** — `session_shutdown{reason:"reload"}` → `releaseBridgeOwnerOnShutdown` clears `prev.pi`; reloaded instance (fresh `ExtensionAPI`) passes `isBridgeReentry`. Before: every in-process reload (TUI `/reload` too) left dashboard session `ended`.
+
+**Server watch** — `packages/server/src/rpc-keeper/dispatch-reload.ts` keeps per-session forwarded-reload watch. Second reload while one in flight → `"refused"` + error `"A reload is already in progress for this session."` — not forwarded. Deadline `FORWARDED_RELOAD_DEADLINE_MS` = 75000 → server emits `/reload` error `"Reload did not report completion within 75 s — check the pi terminal."`; later bridge feedback dropped (mark cleared by next arm). Watch survives the reload's own unregister/re-register. `event-wiring.ts` calls `routeReloadFeedback` BEFORE the replay-skip early return: settles watch; inside replay-skip window persists + broadcasts feedback itself.
 
 **Compaction signal** — `DashboardSession.compacting` (new, `packages/shared/src/types.ts`). Derived in `packages/server/src/session/event-status-extraction.ts` from bridge-forwarded `session_before_compact` (true) and `session_compact` (false). Cleared in `memory-session-manager.unregister`; never carried onto a re-registration.
 
@@ -2008,6 +2113,14 @@ See change: add-roles-read-api.
 2. `gatherGitInfo`: emits `git_info_update` only when branch/PR change.
 3. Server forwards update via `session_updated` to subscribed browsers.
 
+### PR status
+PR detection moved OFF the 30 s git tick. `packages/extension/src/pr-status.ts` `createPrStatusScheduler` probes `gh pr view --json number,url,state,isDraft,statusCheckRollup` via `runAsync` (`GH_PR_STATUS`, 20 s timeout) in `packages/shared/src/platform/git.ts`; `classifyPrStatus` → parsed / absent (`no pull requests found`) / failure.
+Cadence: first observe immediate, then ≥120 s, back-off 120→240→480→600 s on failure, one failure log + one recovery log. Generation = sessionId+cwd+branch; branch change → all-null tuple sent at once + probe; session/cwd change → unknown.
+`sendGitInfoIfChanged` (`packages/extension/src/model-tracker.ts`) = one change-detector; always sends full cached tuple `gitPrNumber|Url|State|Draft|Checks|CheckedAt` (unknown omitted).
+Server `event-wiring.ts`: new fields guarded `!== undefined`; cleared to `null` when `gitPrNumber == null`. Not persisted.
+After successful `/api/git/worktree/push` or `/pr` server sends `git_info_refresh { reason }` to active bridges whose realpath'd cwd is inside the worktree (`activeSessionsUnderResolved`); bridge forces probe (≤1 forced start / 30 s, coalesced); `reason:"pr"` retries +5/+15 s while absent. Merge (local) never refreshes.
+`collapseCheckRollup` lives in `packages/shared/src/platform/check-rollup.ts` (shared by server `listPullRequests` + bridge). Client `packages/client/src/lib/git/merge-primary.ts` `isMergePrimary` decides Merge emphasis once per surface (composer strip, session card). See change: redesign-composer-session-strip.
+
 ### Working-tree status + commit from card
 1. Bridge gathers working-tree status on the SAME 30s VCS tick — no new polling loop. `gatherGitStatus(cwd)` runs `git status --porcelain=v2 --branch`, shared `parseGitStatusV2` parses into `GitStatus { dirtyCount, staged, unstaged, untracked, ahead, behind }`.
 2. `sendGitInfoIfChanged` includes `gitStatus` in `git_info_update`; deduped via `lastGitStatusJson`. Inconclusive probe omits `gitStatus`, leaves last value.
@@ -2201,7 +2314,7 @@ See change: redesign-folder-workspace-add-flow.
 
 **Panel.** Testid `folder-actions-menu-panel-<cwd>`, `role="menu"`, `data-menu-form="sheet"|"popover"`. Items carry `role="menuitem"`, testid `folder-menu-item-<id>`. Keyboard: ArrowDown/ArrowUp rove focus over `[role=menuitem]`; Escape closes + returns focus to trigger. Outside `mousedown`/`touchstart` closes.
 
-**Groups.** Host-owned fixed taxonomy, stable order: `workspace` then `directory` (`FOLDER_MENU_GROUPS`). Group heading testid `folder-menu-group-<group>`. Group renders only when it holds >=1 item. Item ids: `add-to-workspace`, `remove-from-workspace`, `pin`, `urgency-sort`, `directory-settings`. Directory-group order: pin, urgency-sort, directory-settings.
+**Groups.** Host-owned fixed taxonomy, stable order: `workspace` then `directory` (`FOLDER_MENU_GROUPS`). Group heading testid `folder-menu-group-<group>`. Group renders only when it holds >=1 item. Item ids: `add-to-workspace`, `remove-from-workspace`, `pin`, `directory-settings`. Directory-group order: pin, directory-settings. Group-by radio set (`radioGroup`, `role=menuitemradio`) renders first, above verb groups (change: session-list-group-by).
 
 **Open state.** `SessionList` owns `folderMenuFor`, keyed by SCOPE `folder:<cwd>` — mirrors `addToWsMenuFor`; a cwd key would co-open a folder row and a same-cwd card.
 
@@ -2899,7 +3012,7 @@ Server ensures persistent Ed25519 keypair at `~/.pi/dashboard/identity.key` (060
 
 #### QR / copy-string pairing
 
-Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~60s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable base64url string. **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
+Two QR kinds (D1). **Pairing QR** = secure payload `{v,id,code,urls[]}` = protocol version, fingerprint, one-time ~300s code, TLS-only reachable URLs. `urls[]` holds https/wss only (D14) — never self-signed LAN; includes MagicDNS with provisioned `tailscale cert`; Gateway provider endpoints plus operator-configured `publicBaseUrls` (legacy `pairing.publicBaseUrls` fallback). Rendered as QR plus copyable deep link (same `https://<endpoint>/pair#pi:pair:v1.<b64>` as the QR). **Link QR** = per no-TLS http mesh/LAN endpoint. Encodes bare URL string only — no pairing payload, no crypto.subtle, no bearer. Link-QR arrival governed by `config.trustedNetworks`. Module `packages/server/src/pairing.ts`.
 
 #### Compare-code approval — D12
 
@@ -2918,6 +3031,58 @@ sequenceDiagram
 ```
 
 Code consumed on approval, not redemption. Premature redemption cannot lock out legit device. Operator types device confirmation code into dashboard — active compare-and-match, not one-click. Approval requires authenticated browser session. Rate-limit plus lockout. At most one pending device per code — bounds memory and prompt flood.
+
+#### App-wide approval dialog, deny, pending feed
+
+Change: `add-pairing-approval-dialog`.
+
+- `PairingManager.redeem(code, meta)` stores bounded untrusted metadata: `userAgent` ≤256 chars, `viaHost` (Host) ≤253, `remoteAddress` (`request.ip`) ≤64, `forwardedFor` (first `X-Forwarded-For` hop) ≤64, `createdAt`.
+- Metadata serves display only; never drives decisions; never enters logs.
+- `wirePendingHint` (`packages/server/src/pairing/pairing.ts`) emits content-free `{type:"pair_pending_changed"}` on pending add / approve / deny / lockout / expire.
+- `packages/server/src/server.ts` wires hint through `browserGateway.broadcastToAll` → ALL browser sockets.
+- `frameClassOf` assigns `state`, key `pair_pending`; coalesces, never sheds.
+
+```mermaid
+sequenceDiagram
+    participant Dev as Device
+    participant Srv as Server
+    participant Op as Operator
+    Dev->>Srv: redeem(code, meta)
+    Srv-->>Op: WS pair_pending_changed
+    Op->>Srv: GET /api/pair/pending
+    Op->>Srv: POST /api/pair/approve-pending or /api/pair/deny
+    Dev->>Srv: poll
+    Srv-->>Dev: approved / rejected
+```
+
+- `packages/server/src/routes/pairing-routes.ts` registers operator-only routes; each uses `preHandler: operatorGuard`, NOT `networkGuard`.
+- `operatorGuard` refuses paired-device bearer + trusted-network-only callers.
+- `GET /api/pair/pending` returns `pendingId`, metadata, `expiresAt`, `attemptsLeft`; never pairing code or confirm code.
+- `POST /api/pair/approve-pending {pendingId, confirmCode, label?}` validates label 1..64 UTF-8 bytes before delegation → 400.
+- Approve-pending errors: `locked_out` → 429; `no_pending` → 404; other errors → 400; mismatch body includes `attemptsLeft`.
+- `POST /api/pair/deny {pendingId}` returns 200 or 404 `no_pending`.
+- `approvePending` delegates to `approve()`; both share ONE `MAX_APPROVE_ATTEMPTS = 5` budget per pending device.
+- Fifth wrong code → `locked_out`; first mismatch → post-increment `attemptsLeft: 4`.
+- `/api/pair/approve` keeps status codes; mismatch body gains additive `attemptsLeft`.
+- Re-redeem creates new pending device + confirm code + fresh budget (D8).
+- Deny marks pending `rejected`; kills pairing code (`redeem` → `invalid_code`); `poll` returns `{status:"rejected"}` for 30s.
+- `packages/client/src/components/connectivity/PairLanding.tsx` shows `pair-landing-rejected` — "The dashboard declined this device"; no retry.
+- Electron shell `PairView` maps rejection via `pollOutcome` (`packages/shell/src/lib/protocol.ts`).
+- Both device clients treat any unknown poll status as terminal.
+- Pushed expiry (D4b): per-entry `setTimeout(...).unref()` at `expiresAt + 50ms` → `sweep()` emits hint + logs `expired`.
+- Approve / deny / lockout / overwrite clear expiry timer; server stop calls `PairingManager.dispose()` to clear all.
+- Logs (D7): `[pairing] pending|approved|denied|mismatch|locked_out|expired id=<first 8 of pendingId>` only.
+- Logs exclude codes, token, metadata; header CR/LF could forge log lines.
+- `PairingApprovalHost` (`packages/client/src/components/pairing-approval/`) mounts beside `GrantPromptHost` in both App returns.
+- Host refetches `GET /api/pair/pending` on every hint + every (re)connect; skips entirely when `getDeviceBearer()` set.
+- Host shows one dialog, oldest first, plus "+N more waiting"; waits while grant dialog open, never dismisses for grant.
+- Close = decide later; `pairingApprovalStore` (`packages/client/src/lib/pairing/pairing-approval-store.ts`) keeps per-tab dismissed set.
+- Settings ▸ Gateway `WaitingDevices` list (`pairing-waiting-list`) exposes Review → reopens request.
+- Request vanishes without local answer → close + toast "Pairing request handled in another window."
+- `PairingApprovalDialog` never shows confirm code; operator types 8 digits.
+- Submit-only validation shows "Enter all 8 digits"; optional device name prefilled from UA via `describeUserAgent` / `deviceNameFromUserAgent` (`packages/client/src/lib/pairing/describe-user-agent.ts`).
+- Dialog states: form / locked / expired / success; success auto-closes after 4s.
+- React renders untrusted metadata as text only; XFF shows "(reported by proxy)".
 
 #### Bearer device auth — D5/D7
 
@@ -2945,7 +3110,7 @@ Payload plus handshake carry `v`. Server keeps backward-compatible pairing route
 
 Operator-side pairing view = `packages/client/src/components/Gateway/GatewayPairQR.tsx`. Gateway settings page + toolbar Gateway dialog. ONE surface; Settings → Security renders a link (`security-pair-link` testid → `/settings/gateway`, scrolls `#connect-a-device`). `PairingView.tsx` deleted (duplicate; drifted non-compliant). `QrCodeDialog.tsx` deleted (orphan; no importer). `noSecureRoad` flag keys the no-secure-road block on the `no_reachable_endpoint` response; endpoint-count empty rendering remains separate. No server route changed. `/api/pair/payload` + `/api/pair/approve` already shipped by `add-server-keypair-pairing`. Change: `wire-nonzrok-pairing-view`, `collapse-pairing-into-gateway`.
 
-On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus base64url copy-string. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~60s, `CODE_TTL_MS`), advertised `urls[]`.
+On open calls `GET /api/pair/payload` → `{v,id,code,urls[]}`. Renders QR (`qrcode` dep, `QRCode.toCanvas` idiom) plus copy box holding the SAME deep link as the QR (`qrText`) — remote browser opens it directly; Electron shell `decodePayloadString` accepts the https form. Device accepts raw JSON or base64url via `decodePayloadString`. Shows fingerprint `id`, one-time code TTL countdown (~300s; server `CODE_TTL_MS`, client mirror `PAIRING_CODE_TTL_MS` in `GatewayPairQR.tsx`), advertised `urls[]`.
 
 Approval: operator types numeric confirm code shown on device → `POST /api/pair/approve` (D12 typed compare-and-match). Client lib `packages/client/src/lib/pairing-api.ts` `approvePairing(code, confirmCode, label?)`. Success → device joins paired list.
 
@@ -3508,6 +3673,7 @@ flowchart LR
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |
+| Session-card sections | `~/.pi/dashboard/preferences.json` (`cardSections`) | Sparse `{global?, folders?}` section id → boolean. Resolution: folder override → global → visible. Folder key `cardSectionFolderKey` (`pathKey` fold, never realpath). Worktree sessions key on `gitWorktree.mainPath`. Ids `/^[a-z0-9-]{1,64}$/`. Absolute paths only. Caps 1000 folders / 64 keys per map. Over-cap write rejected. WS `set_card_section_visibility {path?, section, visible: boolean\|null}` (path absent = global, null = inherit) + `reset_folder_card_sections {path}` → `card_sections_updated` full snapshot. Broadcast only on mutation. Sent on connect before `sessions_snapshot` always (incl. `{}`; reconnect drops stale client state). Resolver `packages/shared/src/card-sections.ts`. See change: configurable-session-card-sections. |
 | Server PID | `~/.pi/dashboard/server.pid` | Tracks running server process for daemon management. |
 | Headless PIDs | `~/.pi/dashboard/headless-pids.json` | Maps spawned headless processes to sessions. Unix: `tail -f /dev/null \| pi --mode rpc` (uses tail instead of sleep to avoid stdin pipeline bug). Windows: `pi.cmd --mode rpc` with `shell: true` and quoted paths for spaces in usernames. |
 | Custom event groups | `~/.pi/dashboard/custom-event-groups.json` | Group definitions: `customType` regex → named toggleable chat groups. Shipped defaults written on first boot. User-editable; restart-to-apply. See change: add-custom-event-group-filters. |
@@ -4234,7 +4400,7 @@ Order matters: register with target BEFORE closing origin. Session never orphane
 
 Primitives exist, no parallel path:
 - `ConnectionManager.updateUrl()` (`connection.ts:334`) — re-target
-- `pi.registerCommand("__dashboard_reload", …)` (`bridge.ts:1367`) — command template
+- `pi.registerCommand("__dashboard_reload", …)` — reload command handler; fresh command ctx per dispatch → `ctx.reload()` (`terminal-reload.ts`)
 
 ```mermaid
 sequenceDiagram
@@ -5157,6 +5323,42 @@ sequenceDiagram
     P-->>D: SSE stream
     D-->>C: SSE stream (OpenAI or Anthropic shape)
 ```
+
+### Completion request pipeline
+
+Both POST routes (`/v1/chat/completions`, `/v1/messages`) run ONE pipeline `handleCompletion(format, deps, request, reply)` (`packages/server/src/routes/model-proxy-routes.ts`). Format differences live only in a `CompletionFormat` adapter: `OPENAI_FORMAT`, `ANTHROPIC_FORMAT`. Adapter fields: `invalid` (400 message or null), `newMessageId`, `toUpstream` (message/tool conversion → `{system, messages, tools, maxTokens}`), `sseEncoder` (fresh per response; owns its `ToolCallIndexTracker` / `AnthropicBlockTracker`), `toResponse`.
+
+```mermaid
+flowchart TD
+    A["POST /v1/chat/completions or /v1/messages"] --> B["validate body → 400 invalid"]
+    B --> C["registry ready? → 503 MODEL_PROXY_RUNTIME_MISSING"]
+    C --> D["resolveRequestedModel → 400 / 404"]
+    D --> E["acquireSlot → 503 SERVER_FULL, 429 KEY_FULL / PROVIDER_FULL + Retry-After"]
+    E --> F["runCompletion → toUpstream → upstream stream"]
+    F --> G{"stream?"}
+    G -->|streamEvents| H["SSE via format sseEncoder"]
+    G -->|collectEvents| I["JSON via format toResponse"]
+    F -.throw.-> J[failCompletion]
+    H -.throw mid-stream.-> J
+    I -.throw.-> J
+    J -->|AbortError| X["return — client gone"]
+    J -->|headers sent| K["format SSE error event + reply.raw.end()"]
+    J -->|headers not sent| M["500 JSON api_error"]
+    H --> L["logOutcome → optional ~/.pi/dashboard/model-proxy.jsonl"]
+    I --> L
+    K --> L
+    M --> L
+```
+
+- Stages in order: validate body (400) → registry (`503 MODEL_PROXY_RUNTIME_MISSING`) → `resolveRequestedModel` (400/404) → `acquireSlot` (`503 SERVER_FULL`, `429 KEY_FULL` / `PROVIDER_FULL` + `Retry-After`) → `runCompletion` → `streamEvents` (SSE) or `collectEvents` (JSON) → `failCompletion` on throw. `logOutcome` writes optional request log (`~/.pi/dashboard/model-proxy.jsonl` when `modelProxy.logRequests`).
+- Types exported: `ProxyModel`, `ProxyStreamEvent`, `ProxyStreamOpts`, `StreamSimpleFn`. Zero `any`.
+- Stateless per request — no conversation state kept between requests. Concurrent-conversation isolation covered by `packages/server/src/__tests__/model-proxy-parallel-isolation.test.ts` (real listener, start barrier proves overlap, OpenAI + Anthropic, multi-turn, abort, mid-stream failure, per-key caps).
+- Disconnect detection: `reply.raw` `"close"` while `!reply.raw.writableFinished` → `AbortController.abort()` → upstream `AbortSignal`. NOT `request.raw` `"close"` — on Node 24 it fires once the request body is consumed, before the listener attaches, so abort never fired (bug fixed).
+- Mid-stream failure: throw after headers sent → format's SSE `error` event (OpenAI: stop chunk + `data: [DONE]`; Anthropic: `event: error`) + `reply.raw.end()`. Never `reply.code(500)` (was `ERR_HTTP_HEADERS_SENT` + hung client).
+- System prompt: route passes `system`; `callPiAiStreamSimple(fn, opts)` (`packages/server/src/model-proxy/streamer.ts`) maps it to pi-ai `Context.systemPrompt` via private `toPiAiContext`. Both `/v1` wirings in `server.ts` (main listener + optional second port) use it. Former `{ system }` context key was silently dropped by pi-ai (bug fixed).
+- Concurrency caps: `ConcurrencyTracker`. Server-wide default 16 (`modelProxy.maxConcurrentStreams`), per key default 4 (`perKeyConcurrentStreams`), per provider default 4 (`perProviderCaps[provider]`). Released exactly once on success/error/abort.
+
+See change: fix-model-proxy-stream-lifecycle.
 
 ### API-key auth data flow
 

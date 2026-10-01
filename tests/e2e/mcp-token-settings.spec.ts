@@ -171,7 +171,9 @@ test.describe("MCP client token — Settings flow", () => {
     const token = (await snippet.textContent())?.match(/Bearer ([A-Za-z0-9_-]+)/)?.[1] ?? "";
     expect(token.length).toBeGreaterThanOrEqual(32);
 
-    await page.getByRole("button", { name: DISMISS }).click();
+    // Scoped: folder rows carry "Dismiss the OpenSpec offer…" buttons that a
+    // page-global name match also hits once other specs have pinned folders.
+    await page.getByTestId("mcp-token-result").getByRole("button", { name: DISMISS, exact: true }).click();
 
     // The token is unrecoverable from the DOM.
     await expect(page.getByText(CREATE_BUTTON)).toBeVisible({ timeout: 10_000 });
@@ -205,7 +207,9 @@ test.describe("MCP client token — Settings flow", () => {
     const snippet = page.locator("code", { hasText: "claude mcp add" }).first();
     await expect(snippet).toBeVisible({ timeout: 20_000 });
     const token = (await snippet.textContent())?.match(/Bearer ([A-Za-z0-9_-]+)/)?.[1] ?? "";
-    await page.getByRole("button", { name: DISMISS }).click();
+    // Scoped: folder rows carry "Dismiss the OpenSpec offer…" buttons that a
+    // page-global name match also hits once other specs have pinned folders.
+    await page.getByTestId("mcp-token-result").getByRole("button", { name: DISMISS, exact: true }).click();
 
     // Identify the row THIS test minted by diffing the registry against the
     // pre-mint snapshot — a pre-existing `claude-code` device must survive.

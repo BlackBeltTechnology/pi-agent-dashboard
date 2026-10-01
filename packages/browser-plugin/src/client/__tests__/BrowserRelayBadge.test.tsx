@@ -5,11 +5,11 @@
  */
 
 import type { BrowserRelayStatusMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { act, cleanup, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserRelayBadge } from "../BrowserRelayBadge.js";
 import { isLiveViewActive } from "../live-view-gate.js";
-import { __resetRelayStoreForTests, getRelayStatus } from "../relay-store.js";
+import { __resetRelayStoreForTests, dismissLiveView, getRelayStatus } from "../relay-store.js";
 import { renderWithPlugin, SESSION } from "./test-utils.js";
 
 function status(tabCount: number): BrowserRelayStatusMessage {
@@ -69,5 +69,39 @@ describe("BrowserRelayBadge", () => {
 		act(() => ws.emit(status(0)));
 		await waitFor(() => expect(queryByTestId("browser-relay-badge")).toBeNull());
 		expect(isLiveViewActive(SESSION)).toBe(false);
+	});
+
+	it("clicking the badge re-opens a dismissed live view and lets the click bubble", async () => {
+		const onCardClick = vi.fn();
+		const { getByTestId, ws } = renderWithPlugin(
+			// biome-ignore lint/a11y/useKeyWithClickEvents: test stand-in for the session card
+			<div onClick={onCardClick}>
+				<BrowserRelayBadge session={SESSION} />
+			</div>,
+		);
+		act(() => ws.emit(status(1)));
+		await waitFor(() => expect(getByTestId("browser-relay-badge")).toBeTruthy());
+		const badge = getByTestId("browser-relay-badge");
+		expect(badge.tagName).toBe("BUTTON");
+		expect(badge.getAttribute("type")).toBe("button");
+		expect(badge.getAttribute("aria-label")).toBe("1 browser tabs — Show live browser view");
+
+		act(() => dismissLiveView());
+		expect(isLiveViewActive(SESSION)).toBe(false);
+		fireEvent.click(badge);
+		expect(isLiveViewActive(SESSION)).toBe(true);
+		expect(onCardClick).toHaveBeenCalledTimes(1);
+	});
+
+	it("the badge is a focusable native button (Enter / Space activate it natively)", async () => {
+		const { getByTestId, ws } = renderWithPlugin(<BrowserRelayBadge session={SESSION} />);
+		act(() => ws.emit(status(1)));
+		await waitFor(() => expect(getByTestId("browser-relay-badge")).toBeTruthy());
+		const badge = getByTestId("browser-relay-badge") as HTMLButtonElement;
+		// jsdom does not synthesize click from Enter/Space; a real <button> does.
+		expect(badge).toBeInstanceOf(HTMLButtonElement);
+		expect(badge.disabled).toBe(false);
+		badge.focus();
+		expect(document.activeElement).toBe(badge);
 	});
 });

@@ -1,6 +1,7 @@
 /**
  * Server ↔ Browser WebSocket protocol messages.
  */
+import type { CardSectionPrefs } from "./card-sections.js";
 import type {
   PluginActionMessage,
   PluginEventBroadcast,
@@ -8,6 +9,7 @@ import type {
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
 import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
+import type { GroupByMode, LaneId } from "./session-group-by.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -708,6 +710,31 @@ export interface CollapsedFoldersUpdatedMessage {
   collapsedFolders: string[];
 }
 
+/**
+ * Server → browser: full session-card section visibility snapshot. Sent on
+ * every mutation and on every connect (incl. `{}`, so a reconnect replaces
+ * stale client state).
+ * See change: configurable-session-card-sections.
+ */
+export interface CardSectionsUpdatedMessage {
+  type: "card_sections_updated";
+  cardSections: CardSectionPrefs;
+}
+
+/**
+ * Server → browser: aggregate session-list grouping prefs snapshot (sent on
+ * connect right after `collapsed_folders_updated`, before any folder-group
+ * materializing message, and on every real mutation). Keys of `folderGroupBy`
+ * and the folder half of `collapsedLanes` (`<pathKey>::<laneId>`) are
+ * canonical `pathKey` folder keys. See change: session-list-group-by.
+ */
+export interface GroupByPrefsUpdatedMessage {
+  type: "group_by_prefs_updated";
+  defaultGroupBy: GroupByMode;
+  folderGroupBy: Record<string, GroupByMode>;
+  collapsedLanes: string[];
+}
+
 export interface TerminalAddedMessage {
   type: "terminal_added";
   terminal: TerminalSession;
@@ -771,6 +798,8 @@ export interface BrowserNotifyMessage {
   notifyId: string;
   message: string;
   level?: NotifyLevel;
+  /** Emit time, epoch ms. Stamped by the bridge; the server backfills its receipt time when absent/invalid. See change: collapse-and-order-notify-rows. */
+  ts?: number;
 }
 
 export interface BrowserPromptDismissMessage {
@@ -822,6 +851,21 @@ export interface PiCoreUpdateCompleteMessage {
   results: Array<{ name: string; success: boolean; error?: string }>;
   sessionsReloaded: number;
 }
+
+/**
+ * Runtime-overlay staging events (Settings → Updates). `progress` streams the
+ * stager phases; `staged` / `failed` end a staging job.
+ * See change: electron-runtime-overlay-updates.
+ */
+export type RuntimeUpdateMessage =
+  | {
+      type: "runtime_update_progress";
+      version: string;
+      phase: "fetch" | "install" | "verify" | "materialize" | "done" | "error";
+      message?: string;
+    }
+  | { type: "runtime_update_staged"; version: string }
+  | { type: "runtime_update_failed"; version: string; message: string };
 
 /**
  * Bootstrap state snapshot. Mirrors `BootstrapState` in
@@ -1180,6 +1224,8 @@ export type ServerToBrowserMessage =
   | FavoriteModelsUpdatedMessage
   | WorkspacesUpdatedMessage
   | CollapsedFoldersUpdatedMessage
+  | GroupByPrefsUpdatedMessage
+  | CardSectionsUpdatedMessage
   | TerminalAddedMessage
   | TerminalRemovedMessage
   | TerminalUpdatedMessage
@@ -1188,6 +1234,7 @@ export type ServerToBrowserMessage =
   | PackageOperationCompleteMessage
   | PiCoreUpdateProgressMessage
   | PiCoreUpdateCompleteMessage
+  | RuntimeUpdateMessage
   | ForceKillResultMessage
   | BrowserRolesListMessage
   | ProcessListUpdateMessage
@@ -1221,7 +1268,8 @@ export type ServerToBrowserMessage =
   | BrowserRelayStatusMessage
   | GrantChannelMessage
   | GrantRequestMessage
-  | GrantDismissMessage;
+  | GrantDismissMessage
+  | PairPendingChangedMessage;
 
 /**
  * Server push: drive the per-session auto-canvas surface (change: auto-canvas).
@@ -1760,6 +1808,53 @@ export interface SetFolderCollapsedMessage {
   collapsed: boolean;
 }
 
+/**
+ * Browser → server: set one session-card section's visibility. `path` absent
+ * = global default; `visible: null` = inherit (deletes the key). The server
+ * validates the section id + path and canonicalizes the folder key.
+ * See change: configurable-session-card-sections.
+ */
+export interface SetCardSectionVisibilityMessage {
+  type: "set_card_section_visibility";
+  path?: string;
+  section: string;
+  visible: boolean | null;
+}
+
+/** Browser → server: drop every section override for one folder. See change: configurable-session-card-sections. */
+export interface ResetFolderCardSectionsMessage {
+  type: "reset_folder_card_sections";
+  path: string;
+}
+
+/**
+ * Browser → server: set one folder's explicit group-by mode; `null` removes
+ * the override (folder follows `defaultGroupBy`). Server validates the enum
+ * and canonicalizes `path`. See change: session-list-group-by.
+ */
+export interface SetFolderGroupByMessage {
+  type: "set_folder_group_by";
+  path: string;
+  mode: GroupByMode | null;
+}
+
+/** Browser → server: set the global default group-by mode. See change: session-list-group-by. */
+export interface SetDefaultGroupByMessage {
+  type: "set_default_group_by";
+  mode: GroupByMode;
+}
+
+/**
+ * Browser → server: set one lane's collapsed state inside a folder (explicit
+ * target state, never a toggle). See change: session-list-group-by.
+ */
+export interface SetLaneCollapsedMessage {
+  type: "set_lane_collapsed";
+  path: string;
+  lane: LaneId;
+  collapsed: boolean;
+}
+
 export interface AddFolderToWorkspaceMessage {
   type: "add_folder_to_workspace";
   id: string;
@@ -2021,6 +2116,11 @@ export type BrowserToServerMessage =
   | DeleteWorkspaceMessage
   | SetWorkspaceCollapsedMessage
   | SetFolderCollapsedMessage
+  | SetFolderGroupByMessage
+  | SetDefaultGroupByMessage
+  | SetLaneCollapsedMessage
+  | SetCardSectionVisibilityMessage
+  | ResetFolderCardSectionsMessage
   | AddFolderToWorkspaceMessage
   | RemoveFolderFromWorkspaceMessage
   | ReorderWorkspaceFoldersMessage
@@ -2254,7 +2354,10 @@ export interface BrowserRelayFrameMessage {
  * Tab state as the tile renders it. `no-frames` means "no repaint for 2 s" —
  * which a hidden tab AND a visible idle tab both produce, hence the neutral
  * tile wording; `detached` + `reason: "devtools"` means the user opened
- * DevTools and input must stop; `client-screencast-active` is the refusal
+ * DevTools and input must stop; `detached` + `reason: "no-session"` means the
+ * agent has no debugger session on the tab yet (extension pages never get one)
+ * — see change: fix-browser-live-view-subscribe-and-reopen;
+ * `client-screencast-active` is the refusal
  * state when the agent already screenshots that tab.
  */
 export type BrowserRelayTabState =
@@ -2269,7 +2372,7 @@ export interface BrowserRelayTabStatus {
   url: string;
   state: BrowserRelayTabState;
   /** Set when `state === "detached"`. */
-  reason?: "devtools";
+  reason?: "devtools" | "no-session";
 }
 
 export interface BrowserRelayInstanceStatus {
@@ -2414,4 +2517,14 @@ export interface GrantDismissMessage {
   plane: AccessPlaneId;
   subject: string;
   reason: "settled" | "expired";
+}
+
+/**
+ * Server → browser: the set of pending pairing devices changed (add / approve /
+ * deny / lockout / expire). Deliberately content-free — an operator browser
+ * refetches `GET /api/pair/pending` (operator-guarded); a paired-device browser
+ * learns nothing but "something changed". See change: add-pairing-approval-dialog (D1).
+ */
+export interface PairPendingChangedMessage {
+  type: "pair_pending_changed";
 }

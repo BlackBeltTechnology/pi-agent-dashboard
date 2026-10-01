@@ -16,7 +16,13 @@
  * carries no `version`, `description`, `source`, or `icon`, so none are
  * rendered (design D1).
  *
- * See change: plugin-settings-pages.
+ * A PROMOTED page (see `resolveSettingsPromotions`) gets a COMPACT host chrome
+ * instead: `nav.label` title, `nav.description` lede, a "Provided by the <X>
+ * plugin" provenance line carrying the toggle, a header pill ONLY when not
+ * healthy, and id / dependsOn / dependents / slots behind a `<details>`
+ * disclosure. Still host-owned — the plugin cannot opt out (design D5).
+ *
+ * See change: plugin-settings-pages, promote-model-roles-settings.
  */
 
 import {
@@ -28,6 +34,7 @@ import Icon from "@mdi/react";
 import type { PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
+import type { SettingsPromotion } from "../../lib/settings-promotions.js";
 import {
   CopyableErrorBlock,
   MissingRequirementsBlock,
@@ -54,6 +61,33 @@ export function PluginNotFoundNotice({ pluginId }: { pluginId: string }) {
   );
 }
 
+/** Unicode control (Cc) + format (Cf) characters: stripped from displayName at render. */
+const CONTROL_OR_FORMAT = /[\p{Cc}\p{Cf}]/gu;
+
+/**
+ * Compact-chrome pill: rendered only when the plugin is NOT healthy. Explicit
+ * health check — `StatusPill` alone reads green "enabled" despite unmet
+ * requirements. See change: promote-model-roles-settings (design D5).
+ */
+function CompactHealthPill({ row }: { row: PluginRow }) {
+  const st = row.status;
+  const missing = st?.missingRequirements ?? [];
+  const healthy = !!st && st.enabled && st.loaded && !st.error && missing.length === 0;
+  if (healthy) return null;
+  const requirementsOnly = !!st && st.enabled && st.loaded && !st.error;
+  return (
+    <span data-testid="plugin-page-pill">
+      {requirementsOnly ? (
+        <span className={`px-1.5 py-0.5 text-[10px] rounded ${WARN_BG} ${WARN_FG} border ${WARN_BORDER}`}>
+          {i18nT("packages.requirementsPill", undefined, "requirements")}
+        </span>
+      ) : (
+        <StatusPill row={row} />
+      )}
+    </span>
+  );
+}
+
 function Chip({ label, value, testId }: { label: string; value: string; testId: string }) {
   return (
     <span className="inline-flex items-center gap-1 text-[10px]" data-testid={testId}>
@@ -70,6 +104,7 @@ export function PluginSettingsPage({
   toggle,
   onLeaveGuard,
   onNavigate,
+  promotion,
 }: {
   row: PluginRow;
   toggle: PluginToggle;
@@ -85,6 +120,11 @@ export function PluginSettingsPage({
    * discards unsaved edits silently (design D5a).
    */
   onNavigate: (to: string) => void;
+  /**
+   * Honoured nav promotion for this plugin, when any. Selects the compact
+   * host chrome variant. See change: promote-model-roles-settings.
+   */
+  promotion?: SettingsPromotion;
 }) {
   const isEnabled = row.status?.enabled !== false;
   const statusError = row.status?.error;
@@ -108,6 +148,78 @@ export function PluginSettingsPage({
         className="border border-[var(--border-secondary)] rounded bg-[var(--bg-secondary)]"
         data-testid="plugin-page-chrome"
       >
+        {promotion ? (
+          <div className="px-3 py-2.5 space-y-1.5" data-testid="plugin-page-compact-header">
+            <div className="flex items-center gap-2">
+              <h2
+                className="flex-1 min-w-0 text-base font-semibold text-[var(--text-primary)] truncate"
+                data-testid="plugin-page-title"
+              >
+                {promotion.label}
+              </h2>
+              <CompactHealthPill row={row} />
+            </div>
+            {promotion.description && (
+              <p className="text-xs text-[var(--text-secondary)]" data-testid="plugin-page-lede">
+                {promotion.description}
+              </p>
+            )}
+            <div
+              className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]"
+              data-testid="plugin-page-provenance"
+            >
+              <Icon path={mdiPackageVariantClosed} size={0.55} />
+              <span className="flex-1 min-w-0 truncate">
+                {i18nT(
+                  "packages.providedByPlugin",
+                  { name: row.displayName.replace(CONTROL_OR_FORMAT, "") },
+                  "Provided by the {name} plugin",
+                )}
+              </span>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  disabled={toggle.isToggling(row.id)}
+                  onChange={(e) => requestToggle(e.target.checked)}
+                  data-testid={`plugin-page-toggle-${row.id}`}
+                  className="accent-blue-500"
+                />
+                <span className="text-[10px] text-[var(--text-secondary)]">enable</span>
+              </label>
+            </div>
+            <details data-testid="plugin-page-details" className="text-[10px]">
+              <summary className="cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+                {i18nT("packages.pluginDetails", undefined, "Plugin details")}
+              </summary>
+              <div className="pt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <Chip label={i18nT("packages.pluginIdLabel", undefined, "id:")} value={row.id} testId="plugin-page-id" />
+                {(row.dependsOn?.length ?? 0) > 0 && (
+                  <Chip
+                    label={i18nT("common.dependsOn", undefined, "depends on:")}
+                    value={row.dependsOn!.join(", ")}
+                    testId="plugin-page-depends-on"
+                  />
+                )}
+                {(row.dependents?.length ?? 0) > 0 && (
+                  <Chip
+                    label={i18nT("common.requiredBy", undefined, "required by:")}
+                    value={row.dependents!.join(", ")}
+                    testId="plugin-page-dependents"
+                  />
+                )}
+                {slotIds.length > 0 && (
+                  <Chip
+                    label={i18nT("packages.claimsSlots", undefined, "claims:")}
+                    value={slotIds.join(", ")}
+                    testId="plugin-page-slots"
+                  />
+                )}
+              </div>
+            </details>
+          </div>
+        ) : (
+        <>
         <div className="flex items-center gap-2 px-3 py-2.5">
           <Icon path={mdiPackageVariantClosed} size={0.8} className="text-[var(--text-muted)]" />
           <div className="flex-1 min-w-0">
@@ -149,6 +261,8 @@ export function PluginSettingsPage({
             />
           )}
         </div>
+        </>
+        )}
 
         {toggleError && (
           <div className="px-3 pb-2.5">
@@ -196,9 +310,11 @@ export function PluginSettingsPage({
 
       {/* ── Plugin body, or the disabled notice that replaces it ── */}
       {isEnabled ? (
-        <PluginSettingsPageProvider pluginId={row.id}>
-          <SettingsSectionByPluginSlot pluginId={row.id} />
-        </PluginSettingsPageProvider>
+        <div data-testid={`plugin-page-body-${row.id}`}>
+          <PluginSettingsPageProvider pluginId={row.id}>
+            <SettingsSectionByPluginSlot pluginId={row.id} />
+          </PluginSettingsPageProvider>
+        </div>
       ) : (
         <div
           className={`flex items-center gap-2 px-3 py-2 rounded ${WARN_BG} border ${WARN_BORDER} ${WARN_FG} text-sm`}

@@ -1,3 +1,3 @@
 # openspec-poller.ts — index
 
-Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge), `pollOpenSpecAsync(cwd)` async (server, parallel status via `runAsync`). `buildOpenSpecData(list, status, designProbe?, specsProbe?)` applies design/specs promote-only overrides + re-derives `isComplete`. `deriveArtifactStatus(changeDir, listEntry, probes)` replaces per-change spawn. `runOpenSpecList`/`runOpenSpecStatus`, `createFsProbeFactory`/`createFsSpecsProbeFactory`.
+Aggregates `openspec list`+`status` into `OpenSpecData`. `pollOpenSpec(cwd)` sync (bridge),… → see `openspec-poller.ts.AGENTS.md` `deriveArtifactStatus` reports `tasks: ready` (not `blocked`) when no tasks are authored but proposal+design+specs are all done — CLI parity. See change: fix-optimistic-prompt-stuck-sending.

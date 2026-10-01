@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -109,6 +109,16 @@ export interface BridgeDiagnosticMessage {
 
 // ── Extension → Server ──────────────────────────────────────────────
 
+/**
+ * The bridge's own extension package: realpath'd package dir + version.
+ * Compared by the server with the active runtime's extension (D8).
+ * See change: electron-runtime-overlay-updates.
+ */
+export interface BridgeExtensionIdentity {
+  dir: string;
+  version?: string;
+}
+
 export interface SessionRegisterMessage {
   type: "session_register";
   /**
@@ -124,6 +134,8 @@ export interface SessionRegisterMessage {
   cwd: string;
   name?: string;
   source: SessionSource;
+  /** Bridge extension identity (D8). Absent on pre-overlay bridges. */
+  extensionIdentity?: BridgeExtensionIdentity;
   model?: string;
   thinkingLevel?: string;
   sessionFile?: string;
@@ -382,8 +394,21 @@ export interface GitInfoUpdateMessage {
   sessionId: string;
   gitBranch: string;
   gitBranchUrl?: string;
-  gitPrNumber?: number;
-  gitPrUrl?: string;
+  /**
+   * PR tuple for the session's branch. `undefined` (absent) = unknown / old
+   * bridge (server leaves stored value untouched for the new fields);
+   * `null` = known-absent (server clears). See change:
+   * redesign-composer-session-strip (D5).
+   */
+  gitPrNumber?: number | null;
+  gitPrUrl?: string | null;
+  /** Lowercased PR state. Absent on older bridges. */
+  gitPrState?: GitPrState | null;
+  gitPrDraft?: boolean | null;
+  /** Collapsed `statusCheckRollup`. Absent on older bridges. */
+  gitPrChecks?: GitPrChecks | null;
+  /** Epoch ms of the last successful PR detection. */
+  gitPrCheckedAt?: number | null;
   /**
    * Set when the session's cwd is a git worktree. `null` clears any
    * previously-stored worktree state on the server — UNLESS parentage was
@@ -677,6 +702,8 @@ export interface NotifyMessage {
   notifyId: string;
   message: string;
   level?: NotifyLevel;
+  /** Emit time, epoch ms. Stamped by the bridge; the server backfills its receipt time when absent/invalid. See change: collapse-and-order-notify-rows. */
+  ts?: number;
 }
 
 export interface PromptDismissMessage {
@@ -830,6 +857,22 @@ export interface PluginPiMessage {
   payload: unknown;
 }
 
+/**
+ * Private request from a plugin bridge entry to its plugin server entry's
+ * `registerPiRequestHandler(messageType, …)` handler. Answered by exactly one
+ * {@link PluginReplyMessage} on the same socket. Never rides `pi.events`.
+ * See change: expose-plugin-credential-and-oauth-seams (D7).
+ */
+export interface PluginRequestMessage {
+  type: "plugin_request";
+  /** Bridge-generated correlation id (uuid). */
+  requestId: string;
+  /** Manifest id of the target plugin (claimed by the caller, not authenticated). */
+  pluginId: string;
+  messageType: string;
+  payload: unknown;
+}
+
 export type ExtensionToServerMessage =
   | SessionMovedMessage
   | SessionMoveCommitMessage
@@ -865,6 +908,7 @@ export type ExtensionToServerMessage =
   | CwdMissingMessage
   | PiVersionUpdateMessage
   | PluginPiMessage
+  | PluginRequestMessage
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
@@ -1085,6 +1129,19 @@ export interface ShutdownExtensionMessage {
  * down cleanly at the next turn_end. See change:
  * adopt-pi-071-072-073-features.
  */
+/**
+ * Server → bridge: force a PR-status probe after a successful worktree Push
+ * or Open PR. No session id — the server only sends it to bridges whose
+ * session cwd is the worktree root or inside it; every receiving bridge acts.
+ * `reason: "pr"` additionally retries at +5 s / +15 s on an absent result
+ * (GitHub lag). Older bridges ignore it. See change:
+ * redesign-composer-session-strip (D5).
+ */
+export interface GitInfoRefreshExtensionMessage {
+  type: "git_info_refresh";
+  reason: "push" | "pr";
+}
+
 export interface StopAfterTurnExtensionMessage {
   type: "stop_after_turn";
   sessionId: string;
@@ -1371,6 +1428,20 @@ export type AutoNamerStopState = Pick<
   | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
 >;
 
+/**
+ * Host answer to a {@link PluginRequestMessage}. Sent host-internally on the
+ * requesting session's socket regardless of plugin priority. `error` is a
+ * handler message or one of `no_handler` / `reply_too_large` /
+ * `reply_not_serializable`. See change: expose-plugin-credential-and-oauth-seams (D7).
+ */
+export interface PluginReplyMessage {
+  type: "plugin_reply";
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+}
+
 export type ServerToExtensionMessage =
   | ProvisionalAcceptedMessage
   | SessionMoveCommittedMessage
@@ -1392,12 +1463,14 @@ export type ServerToExtensionMessage =
   | SetModelMessage
   | ShutdownExtensionMessage
   | StopAfterTurnExtensionMessage
+  | GitInfoRefreshExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage
+  | PluginReplyMessage
   | FlowManagementExtensionMessage
   | ArchitectPromptResponseExtensionMessage
   | PromptResponseServerMessage

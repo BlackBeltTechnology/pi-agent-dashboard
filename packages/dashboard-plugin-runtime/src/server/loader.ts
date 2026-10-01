@@ -19,6 +19,7 @@ import {
   transitiveDependents,
 } from "../dependency-graph.js";
 import { validateManifest } from "../manifest-validator.js";
+import { fixtureEntryAllowed } from "./fixture-gate.js";
 import { createPluginStatusStore, type PluginStatusStore } from "./plugin-status-store.js";
 import {
   missingFromReport,
@@ -268,6 +269,9 @@ export function deterministicSerializePlugins(
           // fix-flows-plugin-polish (path-as-first-class-claim-field).
           path: c.path ?? null,
           sessionParam: c.sessionParam ?? null,
+          // settings-section nav promotion hint: a nav-only manifest edit must
+          // invalidate the registry hash. See change: promote-model-roles-settings.
+          nav: c.nav ?? null,
           // Generic config escape hatch — included so any plugin using it
           // for slot-specific extras participates in staleness detection.
           config: c.config ?? null,
@@ -436,7 +440,10 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
       continue;
     }
 
-    if (!plugin.serverEntryPath) {
+    // A fixture plugin's server entry loads only under the opt-in gate; without
+    // it the plugin behaves as client-only. See change:
+    // expose-plugin-credential-and-oauth-seams (D8).
+    if (!plugin.serverEntryPath || !fixtureEntryAllowed(manifest)) {
       // No server entry — still mark as loaded (client-only plugin)
       store.setStatus({
         id: manifest.id,

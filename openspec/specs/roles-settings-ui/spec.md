@@ -2,14 +2,21 @@
 
 ## Purpose
 Provide a dashboard settings-panel section for editing the global role→model bindings that pi-flows consumes. Users assign models to built-in and custom roles, manage named presets, and defer persistence through the host Settings panel's unified Save/Reload contract.
+
 ## Requirements
+
 ### Requirement: Settings-section registration
-The roles plugin SHALL register its editing UI as a `settings-section` contribution under the General settings tab so the dashboard host renders it inside the global settings panel.
+The roles plugin SHALL register its editing UI as a `settings-section` contribution so the dashboard host renders it inside the global settings panel, and SHALL request promotion into the Models nav group under the user-facing name "Model roles" ("Roles" alone reads as access control next to Security/Access).
 
 #### Scenario: Plugin claims the settings-section slot
 - **WHEN** the dashboard loads plugin manifests
-- **THEN** the `roles` plugin manifest declares a claim with `slot: "settings-section"`, `component: "BuiltInRolesSettings"`, and `tab: "general"`
+- **THEN** the `roles` plugin manifest declares a claim with `slot: "settings-section"`, `component: "BuiltInRolesSettings"`, `tab: "general"`, and `nav: { group: "models", label: "Model roles", description: "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere." }`
 - **AND** the barrel entry exports `BuiltInRolesSettings` under a name matching the manifest `component` field
+
+#### Scenario: Roles appears as Model roles at the top of Settings
+- **WHEN** the roles plugin is installed and enabled and the user opens `/settings`
+- **THEN** the first nav group `Models` SHALL list `Model roles`
+- **AND** selecting it SHALL open `/settings/plugins/roles` with the role editor under the compact chrome
 
 ### Requirement: Global role→model assignment
 The section SHALL list every role from the plugin config and let the user assign a model to each role via the shared model-selector primitive.
@@ -38,7 +45,8 @@ The section SHALL stage role picks locally and flush or discard them only throug
 
 #### Scenario: Registering with the host draft source
 - **WHEN** the section mounts
-- **THEN** it registers a settings draft source identified as `plugin:roles` on the `general` page exposing its dirty state, a commit handler, and a reset handler
+- **THEN** it registers a settings draft source identified as `plugin:roles` exposing its dirty state, a commit handler, and a reset handler
+- **AND** the host SHALL file that source under the plugin page key `plugins/roles` (whatever page the section declares), so the dirty dot and Save Bar label follow the page's rail entry — `Models › Model roles` while promoted
 
 #### Scenario: Committing pending role picks
 - **WHEN** the host Save is invoked and pending role changes exist
@@ -240,4 +248,3 @@ unassigned state, rather than rendering a slot the Roles panel does not list.
 - **GIVEN** `roles.naming` is assigned a model
 - **WHEN** the operator loads a preset whose roles map has no `naming` entry
 - **THEN** the `naming` row SHALL show as unassigned with the `fast` fallback indication
-

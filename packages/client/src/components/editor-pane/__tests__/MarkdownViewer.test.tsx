@@ -50,6 +50,8 @@ function mockFetch(content = "# hi", mtime = 123) {
       });
     }
     return Promise.resolve({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve({ success: true, data: { type: "file", content, mtime } }),
     });
   }) as unknown as typeof fetch;

@@ -13,7 +13,11 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createCommandHandler } from "../command-handler.js";
-import { tryDispatchExtensionCommand, _resetDispatchWarnings } from "../slash-dispatch.js";
+import {
+  tryDispatchExtensionCommand,
+  _resetDispatchWarnings,
+  supportsInProcessCommandDispatch,
+} from "../slash-dispatch.js";
 import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 interface StubOpts {
@@ -628,5 +632,41 @@ describe("bridge slash routing: delivery field → sendUserMessage deliverAs", (
     const stub = makeStubPi({ getCommandsThrows: true });
     await drive("/ctx-stats", stub, "steer");
     expect(lastDeliverAs(stub.sendUserMessage)).toBe("steer");
+  });
+});
+
+/**
+ * The exported version predicate the bridge's in-process reload reuses. Same
+ * semantics as the dispatch gate above: a pre-release of the floor is below it,
+ * a missing / unparseable version warns once and is assumed new.
+ * See change: fix-terminal-session-dashboard-reload (test-plan #E1).
+ */
+describe("supportsInProcessCommandDispatch (shared version gate)", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    _resetDispatchWarnings();
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => warnSpy.mockRestore());
+
+  it("E1: BVA across the 0.84.2 floor", () => {
+    expect(supportsInProcessCommandDispatch(() => "0.84.1")).toBe(false);
+    expect(supportsInProcessCommandDispatch(() => "0.84.2-beta.1")).toBe(false);
+    expect(supportsInProcessCommandDispatch(() => "0.84.2")).toBe(true);
+    expect(supportsInProcessCommandDispatch(() => "0.87.1")).toBe(true);
+    expect(supportsInProcessCommandDispatch(() => "garbage")).toBe(true);
+    expect(supportsInProcessCommandDispatch(() => "garbage")).toBe(true);
+    expect(supportsInProcessCommandDispatch(() => undefined)).toBe(true);
+
+    const garbageWarns = warnSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes('"garbage"'));
+    expect(garbageWarns).toHaveLength(1);
+  });
+
+  it("E1: a throwing reader is treated as unknown → assumed new", () => {
+    expect(
+      supportsInProcessCommandDispatch(() => {
+        throw new Error("no manifest");
+      }),
+    ).toBe(true);
   });
 });

@@ -3,6 +3,58 @@
  * with its module factory (design D9).
  */
 
+import { create as agent_depth } from "./agent-depth.js";
+import agent_depthCard from "./agent-depth.meta.json";
+import { create as capital_flows } from "./capital-flows.js";
+import capital_flowsCard from "./capital-flows.meta.json";
+import { create as cohort_grid } from "./cohort-grid.js";
+import cohort_gridCard from "./cohort-grid.meta.json";
+import { create as fab_wafer } from "./fab-wafer.js";
+import fab_waferCard from "./fab-wafer.meta.json";
+import { create as geo_fragments } from "./geo-fragments.js";
+import geo_fragmentsCard from "./geo-fragments.meta.json";
+import { create as horizon_gates } from "./horizon-gates.js";
+import horizon_gatesCard from "./horizon-gates.meta.json";
+import { create as proof_gate } from "./proof-gate.js";
+import proof_gateCard from "./proof-gate.meta.json";
+import { create as trust_ledger } from "./trust-ledger.js";
+import trust_ledgerCard from "./trust-ledger.meta.json";
+import { create as ascii } from "./ascii.js";
+import asciiCard from "./ascii.meta.json";
+import { create as dot_screen } from "./dot-screen.js";
+import dot_screenCard from "./dot-screen.meta.json";
+import { create as outline } from "./outline.js";
+import outlineCard from "./outline.meta.json";
+import { create as pixelate } from "./pixelate.js";
+import pixelateCard from "./pixelate.meta.json";
+import { create as sao } from "./sao.js";
+import saoCard from "./sao.meta.json";
+import { create as sobel } from "./sobel.js";
+import sobelCard from "./sobel.meta.json";
+import { create as billboards } from "./billboards.js";
+import billboardsCard from "./billboards.meta.json";
+import { create as clipped_solids } from "./clipped-solids.js";
+import clipped_solidsCard from "./clipped-solids.meta.json";
+import { create as curve_flow } from "./curve-flow.js";
+import curve_flowCard from "./curve-flow.meta.json";
+import { create as dynamic_instances } from "./dynamic-instances.js";
+import dynamic_instancesCard from "./dynamic-instances.meta.json";
+import { create as extruded_shapes } from "./extruded-shapes.js";
+import extruded_shapesCard from "./extruded-shapes.meta.json";
+import { create as points_on_geometry } from "./points-on-geometry.js";
+import points_on_geometryCard from "./points-on-geometry.meta.json";
+import { create as scatter } from "./scatter.js";
+import scatterCard from "./scatter.meta.json";
+import { create as shader_particles } from "./shader-particles.js";
+import shader_particlesCard from "./shader-particles.meta.json";
+import { create as sprites } from "./sprites.js";
+import spritesCard from "./sprites.meta.json";
+import { create as tessellate } from "./tessellate.js";
+import tessellateCard from "./tessellate.meta.json";
+import { create as volume_cloud } from "./volume-cloud.js";
+import volume_cloudCard from "./volume-cloud.meta.json";
+import { create as volume_perlin } from "./volume-perlin.js";
+import volume_perlinCard from "./volume-perlin.meta.json";
 import { create as accent_cycle } from "./accent-cycle.js";
 import accent_cycleCard from "./accent-cycle.meta.json";
 import { create as aurora } from "./aurora.js";
@@ -13,6 +65,22 @@ import { create as camera_drift } from "./camera-drift.js";
 import camera_driftCard from "./camera-drift.meta.json";
 import { create as chromatic_aberration } from "./chromatic-aberration.js";
 import chromatic_aberrationCard from "./chromatic-aberration.meta.json";
+import { create as city_grid } from "./city-grid.js";
+import city_gridCard from "./city-grid.meta.json";
+import { create as globe_arcs } from "./globe-arcs.js";
+import globe_arcsCard from "./globe-arcs.meta.json";
+import { create as market_tape } from "./market-tape.js";
+import market_tapeCard from "./market-tape.meta.json";
+import { create as neural_mesh } from "./neural-mesh.js";
+import neural_meshCard from "./neural-mesh.meta.json";
+import { create as orbit_agents } from "./orbit-agents.js";
+import orbit_agentsCard from "./orbit-agents.meta.json";
+import { create as paper_stack } from "./paper-stack.js";
+import paper_stackCard from "./paper-stack.meta.json";
+import { create as server_racks } from "./server-racks.js";
+import server_racksCard from "./server-racks.meta.json";
+import { create as vault_glyphs } from "./vault-glyphs.js";
+import vault_glyphsCard from "./vault-glyphs.meta.json";
 import { create as constellation } from "./constellation.js";
 import constellationCard from "./constellation.meta.json";
 import { create as dashed_flow } from "./dashed-flow.js";
@@ -34,6 +102,8 @@ import floatCard from "./float.meta.json";
 import { create as flythrough } from "./flythrough.js";
 import flythroughCard from "./flythrough.meta.json";
 import { create as fog } from "./fog.js";
+import { create as videoScreen } from "./video-screen.js";
+import videoScreenCard from "./video-screen.meta.json";
 import fogCard from "./fog.meta.json";
 import { create as glass } from "./glass.js";
 import glassCard from "./glass.meta.json";
@@ -61,8 +131,6 @@ import { create as metal } from "./metal.js";
 import metalCard from "./metal.meta.json";
 import { create as mirror_floor } from "./mirror-floor.js";
 import mirror_floorCard from "./mirror-floor.meta.json";
-import { create as n8ao } from "./n8ao.js";
-import n8aoCard from "./n8ao.meta.json";
 import { create as orbit } from "./orbit.js";
 import orbitCard from "./orbit.meta.json";
 import { create as particle_stream } from "./particle-stream.js";
@@ -111,6 +179,7 @@ export const REGISTRY: Record<string, FxEntry> = {
   "emissive": { card: emissiveCard as FxCard, create: emissive },
   "mirror-floor": { card: mirror_floorCard as FxCard, create: mirror_floor },
   "fog": { card: fogCard as FxCard, create: fog },
+  "video-screen": { card: videoScreenCard as FxCard, create: videoScreen },
   "soft-shadows": { card: soft_shadowsCard as FxCard, create: soft_shadows },
   "room-ibl": { card: room_iblCard as FxCard, create: room_ibl },
   "signal-pulse": { card: signal_pulseCard as FxCard, create: signal_pulse },
@@ -126,7 +195,6 @@ export const REGISTRY: Record<string, FxEntry> = {
   "chromatic-aberration": { card: chromatic_aberrationCard as FxCard, create: chromatic_aberration },
   "depth-of-field": { card: depth_of_fieldCard as FxCard, create: depth_of_field },
   "god-rays": { card: god_raysCard as FxCard, create: god_rays },
-  "n8ao": { card: n8aoCard as FxCard, create: n8ao },
   "selective-bloom": { card: selective_bloomCard as FxCard, create: selective_bloom },
   "smaa": { card: smaaCard as FxCard, create: smaa },
   "holo-fresnel": { card: holo_fresnelCard as FxCard, create: holo_fresnel },
@@ -147,6 +215,40 @@ export const REGISTRY: Record<string, FxEntry> = {
   "fade": { card: fadeCard as FxCard, create: fade },
   "iris": { card: irisCard as FxCard, create: iris },
   "flythrough": { card: flythroughCard as FxCard, create: flythrough },
+  "city-grid": { card: city_gridCard as FxCard, create: city_grid },
+  "globe-arcs": { card: globe_arcsCard as FxCard, create: globe_arcs },
+  "market-tape": { card: market_tapeCard as FxCard, create: market_tape },
+  "neural-mesh": { card: neural_meshCard as FxCard, create: neural_mesh },
+  "orbit-agents": { card: orbit_agentsCard as FxCard, create: orbit_agents },
+  "paper-stack": { card: paper_stackCard as FxCard, create: paper_stack },
+  "server-racks": { card: server_racksCard as FxCard, create: server_racks },
+  "vault-glyphs": { card: vault_glyphsCard as FxCard, create: vault_glyphs },
+  "billboards": { card: billboardsCard as FxCard, create: billboards },
+  "clipped-solids": { card: clipped_solidsCard as FxCard, create: clipped_solids },
+  "curve-flow": { card: curve_flowCard as FxCard, create: curve_flow },
+  "dynamic-instances": { card: dynamic_instancesCard as FxCard, create: dynamic_instances },
+  "extruded-shapes": { card: extruded_shapesCard as FxCard, create: extruded_shapes },
+  "points-on-geometry": { card: points_on_geometryCard as FxCard, create: points_on_geometry },
+  "scatter": { card: scatterCard as FxCard, create: scatter },
+  "shader-particles": { card: shader_particlesCard as FxCard, create: shader_particles },
+  "sprites": { card: spritesCard as FxCard, create: sprites },
+  "tessellate": { card: tessellateCard as FxCard, create: tessellate },
+  "volume-cloud": { card: volume_cloudCard as FxCard, create: volume_cloud },
+  "volume-perlin": { card: volume_perlinCard as FxCard, create: volume_perlin },
+  "ascii": { card: asciiCard as FxCard, create: ascii },
+  "dot-screen": { card: dot_screenCard as FxCard, create: dot_screen },
+  "outline": { card: outlineCard as FxCard, create: outline },
+  "pixelate": { card: pixelateCard as FxCard, create: pixelate },
+  "sao": { card: saoCard as FxCard, create: sao },
+  "sobel": { card: sobelCard as FxCard, create: sobel },
+  "agent-depth": { card: agent_depthCard as FxCard, create: agent_depth },
+  "capital-flows": { card: capital_flowsCard as FxCard, create: capital_flows },
+  "cohort-grid": { card: cohort_gridCard as FxCard, create: cohort_grid },
+  "fab-wafer": { card: fab_waferCard as FxCard, create: fab_wafer },
+  "geo-fragments": { card: geo_fragmentsCard as FxCard, create: geo_fragments },
+  "horizon-gates": { card: horizon_gatesCard as FxCard, create: horizon_gates },
+  "proof-gate": { card: proof_gateCard as FxCard, create: proof_gate },
+  "trust-ledger": { card: trust_ledgerCard as FxCard, create: trust_ledger },
 };
 
 export const FX_IDS: string[] = Object.keys(REGISTRY);

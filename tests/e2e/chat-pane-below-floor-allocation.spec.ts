@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures.js";
+import { dragChatPaneTo, openIdleGrid } from "./helpers/flow-card-grid.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 /**
@@ -13,8 +14,7 @@ import { spawnFreshGitSession } from "./helpers/index.js";
  * Test-Plan rows covered: E3, E4, E5, E6, E7, E8, E9, F4.
  */
 
-test.describe("chat-pane below-floor allocation", () => {
-  async function openSplitSession(page: import("@playwright/test").Page) {
+async function openSplitSession(page: import("@playwright/test").Page) {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
@@ -30,8 +30,9 @@ test.describe("chat-pane below-floor allocation", () => {
     const chatPane = page.getByTestId("split-chat-pane");
     await expect(chatPane).toBeVisible({ timeout: 15_000 });
     return chatPane;
-  }
+}
 
+test.describe("chat-pane below-floor allocation", () => {
   test("3.1 & 3.2 At and just above the floor sum, rows are full and nothing clips (#E3, #E4)", async ({ page }) => {
     // Comfortably tall viewport so pane is well above the floor sum
     const chatPane = await openSplitSession(page);
@@ -125,5 +126,113 @@ test.describe("chat-pane below-floor allocation", () => {
 
     // Bottom of composer does not overflow pane
     expect(compBox!.y + compBox!.height).toBeLessThanOrEqual(paneBox!.y + paneBox!.height + 2);
+  });
+});
+
+// ── Sticky header row reclassification (consolidate-flow-agent-cards) ────────
+// `content-header-sticky` moved from FIXED to SHRINKABLE: it owns a scrollport,
+// takes a share of a pane deficit, and its bound is 0 so an empty slot takes no
+// pane height (test-plan #E15, #F7, #F8, #F9).
+
+test.describe("chat-pane below-floor allocation — sticky header row", () => {
+  /** The sticky header wrapper is the pane's first element child. */
+  const headerOf = (pane: import("@playwright/test").Locator) => pane.locator(":scope > div").first();
+
+  test("#F9: an empty sticky slot takes exactly 0px and does not shift the pane", async ({ page }) => {
+    // Flow-less session (this spec's existing scenario): the slot renders null.
+    const chatPane = await openSplitSession(page);
+    const header = headerOf(chatPane);
+    const box = await header.boundingBox();
+    expect(box?.height ?? 0).toBeLessThanOrEqual(1);
+
+    const chat = chatPane.locator('[data-testid="chat-scroll-container"]');
+    const beforeChat = await chat.boundingBox();
+    const beforeComposer = await page.getByTestId("composer-root").boundingBox();
+    expect(beforeChat!.height).toBeGreaterThanOrEqual(16);
+    expect(beforeComposer!.height).toBeGreaterThanOrEqual(72);
+
+    // Removing the wrapper changes neither measured height (no dead band).
+    await header.evaluate((el) => el.remove());
+    const afterChat = await chat.boundingBox();
+    const afterComposer = await page.getByTestId("composer-root").boundingBox();
+    expect(Math.abs(afterChat!.height - beforeChat!.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(afterComposer!.height - beforeComposer!.height)).toBeLessThanOrEqual(1);
+  });
+
+  test("#F7: the header shrinks into a short pane's deficit and scrolls internally", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const { panel } = await openIdleGrid(page);
+    const chatPane = await dragChatPaneTo(page, 243);
+    const header = headerOf(chatPane);
+
+    const paneBox = await chatPane.boundingBox();
+    const headerBox = await header.boundingBox();
+    const contentHeight = await header.evaluate((el) => el.getBoundingClientRect().height);
+    expect(headerBox!.height).toBeLessThanOrEqual(paneBox!.height + 1);
+    expect(headerBox!.height).toBeGreaterThanOrEqual(0);
+    expect(contentHeight).toBeGreaterThan(0);
+
+    // It owns a scrollport: its content overflows behind its own scrollbar.
+    expect(await header.evaluate((el) => el.scrollHeight > el.clientHeight + 1)).toBe(true);
+    await expect(panel).toBeVisible();
+
+    // The other rows keep their declared bounds.
+    const chat = await chatPane.locator('[data-testid="chat-scroll-container"]').boundingBox();
+    const composer = await page.getByTestId("composer-root").boundingBox();
+    expect(chat!.height).toBeGreaterThanOrEqual(16);
+    expect(composer!.height).toBeGreaterThanOrEqual(72);
+
+    // Nothing is painted outside its own row's box.
+    const inside = await chatPane.evaluate((pane) => {
+      const pr = pane.getBoundingClientRect();
+      return [...pane.children].every((c) => {
+        const r = c.getBoundingClientRect();
+        return r.top >= pr.top - 1 && r.bottom <= pr.bottom + 1;
+      });
+    });
+    expect(inside, "every pane child stays inside the pane").toBe(true);
+  });
+
+  test("#F8: a tall pane renders the header at its content height with no scrollbar", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    const { panel } = await openIdleGrid(page);
+    const chatPane = await dragChatPaneTo(page, 700);
+    const header = headerOf(chatPane);
+    await expect(panel).toBeVisible();
+
+    const metrics = await header.evaluate((el) => ({
+      clientHeight: el.clientHeight,
+      scrollHeight: el.scrollHeight,
+    }));
+    expect(Math.abs(metrics.scrollHeight - metrics.clientHeight)).toBeLessThanOrEqual(1);
+  });
+
+  test("#E15: far below the floor sum the header sits at its bound; other rows hold theirs", async ({ page }) => {
+    // Spawn from the desktop shell (the session list is desktop-only), then
+    // drop to the 375x360 viewport the row bounds are measured at.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const { panel } = await openIdleGrid(page);
+    await page.setViewportSize({ width: 375, height: 360 });
+    await page.getByTestId("layout-mode-split").click();
+    const chatPane = page.getByTestId("split-chat-pane");
+    await expect(chatPane).toBeVisible({ timeout: 15_000 });
+    // Below the md breakpoint the shell collapses the flow slot to its mobile
+    // bar, so the slot holds a bar rather than the panel; tap it open (the
+    // user's own gesture) so the row under measurement carries the real panel.
+    await page.getByText("tap to expand").click();
+    await expect(panel).toBeVisible();
+
+    const headerBox = await headerOf(chatPane).boundingBox();
+    expect(headerBox!.height).toBeGreaterThanOrEqual(0);
+    // Shrunk below its content: the deficit was taken from the header's row,
+    // not clipped off a lower row.
+    expect(
+      await headerOf(chatPane).evaluate((el) => el.getBoundingClientRect().height < el.scrollHeight + 1),
+    ).toBe(true);
+
+    const chat = await chatPane.locator('[data-testid="chat-scroll-container"]').boundingBox();
+    const composer = await page.getByTestId("composer-root").boundingBox();
+    expect(chat!.height).toBeGreaterThanOrEqual(16);
+    expect(composer!.height).toBeGreaterThanOrEqual(72);
   });
 });

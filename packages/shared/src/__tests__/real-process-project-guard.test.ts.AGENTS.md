@@ -1,0 +1,3 @@
+# __tests__/real-process-project-guard.test.ts — index
+
+Repo-lint for the real-process vitest phase. (a) every `REAL_PROCESS_TESTS` path exists; (b) `packages/server/vitest.config.ts` imports the list and `exclude`s it (no hand-copied second list) and every listed file is inside the main include glob, so the exclude is load-bearing; (c) tree-scans `packages/server/src/**/__tests__/**/*.test.ts` — a value-import of `spawn`/`spawnSync`/`fork` from `node:child_process`, or `spawnKeeper(`/`bootRealServer(`, must be listed or carry `// real-process-exempt: <reason>`; (d) no vitest config other than `vitest.real-process.config.ts` sets `retry:`. See change: isolate-real-process-tests.

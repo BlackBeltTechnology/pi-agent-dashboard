@@ -15,7 +15,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,13 +25,18 @@ import {
   analyzeRepository,
   analyzeWorkspace,
   extractSpecifiers,
+  formatSummary,
   isBuiltin,
   listWorkspaces,
   packageNameOf,
+  packEntryFiles,
   packWorkspace,
   parsePackOutput,
   REPO_ROOT,
   RUNTIME_FIELDS,
+  reachableWorkspaces,
+  rootPackage,
+  tsconfigExtendsFindings,
   validateAllowlist,
   verifyDeclaredRanges,
 } from '../verify-published-imports.mjs';
@@ -229,6 +234,344 @@ describe('relative specifiers (E10)', () => {
 /* ------------------------------------------------------------------ *
  * Workspace selection + allowlist
  * ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ *
+ * tsconfig `extends` — see change: fix-ship-tsconfig-base
+ * (0.8.0 shipped packages/server/tsconfig.json extending an unshipped
+ * ../../tsconfig.base.json; jiti crashed `pi-dashboard start`.)
+ * ------------------------------------------------------------------ */
+
+describe('tsconfig extends must resolve inside the tarball', () => {
+  const tsc = (ext) => JSON.stringify({ extends: ext, compilerOptions: {} });
+
+  it('a dangling relative extends is an error naming file and target', () => {
+    const ws = fixture({}, { 'packages/server/tsconfig.json': tsc('../../tsconfig.base.json') });
+    const findings = tsconfigExtendsFindings(ws, ['packages/server/tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].severity).toBe('error');
+    expect(findings[0].file).toBe('packages/server/tsconfig.json');
+    expect(findings[0].specifier).toBe('../../tsconfig.base.json');
+  });
+
+  it('passes when the extends target is packed', () => {
+    const ws = fixture({}, { 'packages/server/tsconfig.json': tsc('../../tsconfig.base.json'), 'tsconfig.base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['packages/server/tsconfig.json', 'tsconfig.base.json'])).toEqual([]);
+  });
+
+  it('checks array-form extends per entry', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc(['./a.json', './b.json']), 'a.json': '{}' });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json', 'a.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].specifier).toBe('./b.json');
+  });
+
+  it('resolves an extension-less extends via .json', () => {
+    const ws = fixture({}, { 'sub/tsconfig.json': tsc('../base'), 'base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
+  });
+
+  it('does not append .json to a target that already ends in .json (TS does not)', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('./base.json'), 'base.json.json': '{}' });
+    expect(rulesOf(tsconfigExtendsFindings(ws, ['tsconfig.json', 'base.json.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+
+  it('treats a backslash-relative extends as relative, reporting the original value', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('.\\missing.json') });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].specifier).toBe('.\\missing.json');
+  });
+
+  it('resolves a backslash-relative extends that is packed', () => {
+    const ws = fixture({}, { 'sub/tsconfig.json': tsc('..\\base.json'), 'base.json': '{}' });
+    expect(tsconfigExtendsFindings(ws, ['sub/tsconfig.json', 'base.json'])).toEqual([]);
+  });
+
+  it('follows the extends chain through a packed non-tsconfig base', () => {
+    const ws = fixture({}, {
+      'tsconfig.json': tsc('./base.json'),
+      'base.json': tsc('./shared.json'),
+    });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json', 'base.json']);
+
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends']);
+    expect(findings[0].file).toBe('base.json');
+    expect(findings[0].specifier).toBe('./shared.json');
+  });
+
+  it('terminates on a cyclic extends chain', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('./a.json'), 'a.json': tsc('./tsconfig.json') });
+    expect(tsconfigExtendsFindings(ws, ['tsconfig.json', 'a.json'])).toEqual([]);
+  });
+
+  it('ignores a package-name extends', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('@tsconfig/node20/tsconfig.json') });
+    expect(tsconfigExtendsFindings(ws, ['tsconfig.json'])).toEqual([]);
+  });
+
+  it('parses JSONC (comments + trailing commas) and still evaluates extends', () => {
+    const body = '{\n  // base config\n  "extends": "./missing.json", /* block */\n  "compilerOptions": { "strict": true, },\n}\n';
+    const ws = fixture({}, { 'tsconfig.build.json': body });
+    expect(rulesOf(tsconfigExtendsFindings(ws, ['tsconfig.build.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+
+  it('an unparseable shipped tsconfig is a warning, not a crash', () => {
+    const ws = fixture({}, { 'tsconfig.json': '{ "extends": ' });
+    const findings = tsconfigExtendsFindings(ws, ['tsconfig.json']);
+
+    expect(rulesOf(findings)).toEqual(['unparseable-tsconfig']);
+    expect(findings[0].severity).toBe('warning');
+  });
+
+  it('only tsconfig*.json files are inspected', () => {
+    const ws = fixture({}, { 'other.json': tsc('./missing.json') });
+    expect(tsconfigExtendsFindings(ws, ['other.json'])).toEqual([]);
+  });
+
+  it('analyzeWorkspace applies the rule to packages/* workspaces', () => {
+    const ws = fixture({}, { 'tsconfig.json': tsc('../../tsconfig.base.json') });
+    expect(rulesOf(run(ws, ['tsconfig.json']))).toEqual(['dangling-tsconfig-extends']);
+  });
+});
+
+describe('pack payload shapes — never a vacuous empty file set', () => {
+  const files = [{ path: 'a.js' }];
+
+  it.each([
+    ['array', [{ files }]],
+    ['single object', { files }],
+    ['object keyed by package name (npm at a workspace root)', { '@scope/root': { name: '@scope/root', files } }],
+  ])('reads the %s form', (_label, payload) => {
+    expect(packEntryFiles(payload)).toEqual(['a.js']);
+  });
+
+  it('selects the entry naming the requested package, not the first one', () => {
+    const payload = { '@scope/ws': { name: '@scope/ws', files: [{ path: 'ws.js' }] }, '@scope/root': { name: '@scope/root', files } };
+    expect(packEntryFiles(payload, '@scope/root')).toEqual(['a.js']);
+    expect(packEntryFiles([{ name: '@scope/ws', files: [{ path: 'ws.js' }] }, { name: '@scope/root', files }], '@scope/root')).toEqual(['a.js']);
+  });
+
+  it('matches the requested package by its object key when the entry has no name', () => {
+    expect(packEntryFiles({ '@scope/root': { files } }, '@scope/root')).toEqual(['a.js']);
+    expect(packEntryFiles({ '@scope/ws': { files: [{ path: 'ws.js' }] } }, '@scope/root')).toBeNull();
+  });
+
+  it('returns null when no entry names the requested package (loud pack-failed, not a wrong-package pass)', () => {
+    expect(packEntryFiles({ '@scope/ws': { name: '@scope/ws', files } }, '@scope/root')).toBeNull();
+  });
+
+  it.each([
+    ['empty array', []],
+    ['object without files', { '@scope/root': { name: 'x' } }],
+    ['null', null],
+  ])('returns null for %s, so the caller reports pack-failed', (_label, payload) => {
+    expect(packEntryFiles(payload)).toBeNull();
+  });
+});
+
+describe('root package discovery', () => {
+  it('a non-private root is returned with rel "."', () => {
+    const ws = fixture({ name: '@scope/root' });
+    const root = rootPackage(ws.dir);
+    expect(root?.rel).toBe('.');
+    expect(root?.dir).toBe(ws.dir);
+    expect(root?.name).toBe('@scope/root');
+  });
+
+  it('a private root is skipped', () => {
+    const ws = fixture({ private: true });
+    expect(rootPackage(ws.dir)).toBeNull();
+  });
+
+  it('analyzeRepository applies the FULL rule set to the root (E11)', async () => {
+    // Replaces fix-ship-tsconfig-base's "ONLY the tsconfig rule" test: this change
+    // reverses that contract, so both the dangling extends AND the undeclared
+    // import must surface. See change: check-root-package-imports.
+    const ws = fixture(
+      { name: 'root-fixture', files: ['index.js', 'tsconfig.json'] },
+      { 'index.js': 'import "left-pad";', 'tsconfig.json': JSON.stringify({ extends: './missing.json' }) },
+    );
+    const { workspaces, findings } = await analyzeRepository(ws.dir, { allowlist: [] });
+
+    expect(workspaces.map((w) => w.rel)).toEqual(['.']);
+    expect(rulesOf(findings)).toEqual(['dangling-tsconfig-extends', 'undeclared-import']);
+  }, 60_000);
+
+  it('a private root is not analysed at all, even with an undeclared import (E12)', async () => {
+    const ws = fixture({ private: true, files: ['index.js'] }, { 'index.js': 'import "left-pad";' });
+    const { workspaces, findings } = await analyzeRepository(ws.dir, { allowlist: [] });
+
+    expect(workspaces.map((w) => w.rel)).not.toContain('.');
+    expect(findings.filter((f) => f.workspace === '.')).toEqual([]);
+  }, 60_000);
+
+  it('the real repository root is published, so it is checked', () => {
+    expect(rootPackage(REPO_ROOT)?.name).toBe('@blackbelt-technology/pi-agent-dashboard');
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Meta-package: reachable-workspace credit for the root's copied sources
+ * See change: check-root-package-imports (test-plan E1-E13, E16, X1, X2).
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build a throwaway ROOT meta-package. `workspaces` maps `packages/<dir>` ->
+ * manifest; they are written `private: true` so `analyzeRepository` packs only
+ * the root (fast, and their own findings never mix into the root's). `files`
+ * maps a root-relative path -> contents; every one of them is packed.
+ */
+function rootFixture(rootManifest, workspaces = {}, files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'vpi-root-'));
+  tempDirs.push(dir);
+  const write = (rel, body) => {
+    const abs = join(dir, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, body);
+  };
+  write('package.json', JSON.stringify({ name: 'root-fixture', version: '1.0.0', files: Object.keys(files), ...rootManifest }));
+  for (const [wsDir, manifest] of Object.entries(workspaces)) {
+    write(`${wsDir}/package.json`, typeof manifest === 'string' ? manifest : JSON.stringify({ private: true, version: '1.0.0', ...manifest }));
+  }
+  for (const [rel, body] of Object.entries(files)) write(rel, body);
+  return dir;
+}
+
+// Errors only: the root now also runs `verifyDeclaredRanges`, whose `unverifiable-range`
+// WARNINGS for the uninstalled fixture deps are not what these scenarios assert.
+const rootFindings = async (dir) =>
+  (await analyzeRepository(dir, { allowlist: [] })).findings.filter((f) => f.workspace === '.' && f.severity === 'error');
+const summarise = (f) => f.map((x) => `${x.rule} ${x.file.replace(/:\d+$/, '')} ${x.specifier}`);
+const PACK_TIMEOUT = 60_000;
+
+const SERVER = { name: '@f/server', dependencies: { fastify: '1' } };
+
+describe('reachable-workspace credit for root-shipped sources', () => {
+  it('credits an import declared by a directly-depended workspace (E1)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, { 'packages/server': SERVER }, {
+      'packages/server/src/x.ts': 'import "fastify";',
+    });
+    expect(summarise(await rootFindings(dir))).toEqual([]);
+  }, PACK_TIMEOUT);
+
+  it('credits a transitively reachable workspace the root does not list (E2)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': { ...SERVER, dependencies: { fastify: '1', '@f/shared': '1' } },
+      'packages/shared': { name: '@f/shared', dependencies: { 'bonjour-service': '1' } },
+    }, { 'packages/shared/src/y.ts': 'import "bonjour-service";' });
+    expect(summarise(await rootFindings(dir))).toEqual([]);
+  }, PACK_TIMEOUT);
+
+  it('gives an unreachable workspace no credit (E3)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': SERVER,
+      'packages/other': { name: '@f/other', dependencies: { 'left-pad': '1' } },
+    }, { 'packages/other/src/z.ts': 'import "left-pad";' });
+    expect(summarise(await rootFindings(dir))).toEqual(['undeclared-import packages/other/src/z.ts left-pad']);
+  }, PACK_TIMEOUT);
+
+  it('a package dev-only in the owning workspace is still dev-only-import (E4)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': { ...SERVER, devDependencies: { vitest: '1' } },
+    }, { 'packages/server/src/x.ts': 'import "vitest";' });
+    expect(summarise(await rootFindings(dir))).toEqual(['dev-only-import packages/server/src/x.ts vitest']);
+  }, PACK_TIMEOUT);
+
+  it('a root devDependency does not shadow a workspace runtime credit (E5)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' }, devDependencies: { fastify: '1' } }, {
+      'packages/server': SERVER,
+    }, { 'packages/server/src/x.ts': 'import "fastify";' });
+    expect(summarise(await rootFindings(dir))).toEqual([]);
+  }, PACK_TIMEOUT);
+
+  it('gives no credit to a root file outside packages/ (E6)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, { 'packages/server': SERVER }, {
+      'scripts/a.cjs': 'require("fastify");',
+    });
+    expect(summarise(await rootFindings(dir))).toEqual(['undeclared-import scripts/a.cjs fastify']);
+  }, PACK_TIMEOUT);
+
+  it('gives no credit to bundle output without a workspace manifest (E7)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, { 'packages/server': SERVER }, {
+      'packages/dist/client/assets/a.js': 'import "left-pad";',
+    });
+    expect(summarise(await rootFindings(dir))).toEqual(['undeclared-import packages/dist/client/assets/a.js left-pad']);
+  }, PACK_TIMEOUT);
+
+  it('terminates on a workspace dependency cycle (E8)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/a': '1' } }, {
+      'packages/a': { name: '@f/a', dependencies: { '@f/b': '1' } },
+      'packages/b': { name: '@f/b', dependencies: { '@f/a': '1', ms: '1' } },
+    }, { 'packages/b/src/q.ts': 'import "ms";' });
+    // The closure itself is synchronous: a cycle would hang here, inside the 5 s default.
+    expect([...reachableWorkspaces(dir, { dependencies: { '@f/a': '1' } }).keys()].sort()).toEqual(['packages/a', 'packages/b']);
+    expect(summarise(await rootFindings(dir))).toEqual([]);
+  }, PACK_TIMEOUT);
+
+  it('the exception is root-only: a non-root workspace gets no cross-manifest credit (E9)', () => {
+    const ws = fixture({ name: '@f/w', dependencies: { '@f/v': '1' } }, { 'src/i.ts': 'import "only-in-v";' });
+    expect(rulesOf(run(ws, ['src/i.ts'], { allowlist: [] }))).toEqual(['undeclared-import']);
+  });
+
+  it('attributes by exact directory, not by prefix (E10)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': SERVER,
+      'packages/server-extra': { name: '@f/server-extra' },
+    }, { 'packages/server-extra/src/e.ts': 'import "fastify";' });
+    expect(summarise(await rootFindings(dir))).toEqual(['undeclared-import packages/server-extra/src/e.ts fastify']);
+  }, PACK_TIMEOUT);
+
+  it('reports how many root imports the credit satisfied (E13)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': { ...SERVER, dependencies: { fastify: '1', '@f/shared': '1' } },
+      'packages/shared': { name: '@f/shared', dependencies: { 'bonjour-service': '1' } },
+    }, {
+      'packages/server/src/x.ts': 'import "fastify";',
+      'packages/shared/src/y.ts': 'import "bonjour-service";',
+    });
+    const result = await analyzeRepository(dir, { allowlist: [] });
+    expect(result.credited).toBe(2);
+    expect(formatSummary(result)).toContain('2 root import(s) credited via reachable workspace');
+  }, PACK_TIMEOUT);
+
+  it('does not count an allowlisted deep import as credited', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, { 'packages/server': SERVER }, {
+      'packages/server/src/x.ts': 'import "fastify/deep";',
+    });
+    const allowlist = [{ workspace: '.', specifier: 'fastify', reason: 'test' }];
+    expect((await analyzeRepository(dir, { allowlist })).credited).toBe(0);
+    // Negative control: without the allowlist the same import IS credited.
+    expect((await analyzeRepository(dir, { allowlist: [] })).credited).toBe(1);
+  }, PACK_TIMEOUT);
+
+  it('an over-exclusion surfaces as a dangling relative import (X1)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, { 'packages/server': SERVER }, {
+      'packages/server/src/a.ts': 'import "./__tests__/helper.js";',
+    });
+    expect(summarise(await rootFindings(dir))).toEqual(['dangling-relative-import packages/server/src/a.ts ./__tests__/helper.js']);
+  }, PACK_TIMEOUT);
+
+  it('a malformed workspace manifest neither throws nor breaks reachability (X2)', async () => {
+    const dir = rootFixture({ dependencies: { '@f/server': '1' } }, {
+      'packages/server': SERVER,
+      'packages/broken': '{ not json',
+    }, { 'packages/server/src/x.ts': 'import "fastify";' });
+    expect(summarise(await rootFindings(dir))).toEqual([]);
+  }, PACK_TIMEOUT);
+});
+
+describe('root files list (E16)', () => {
+  it('every negation comes after every include (npm-packlist is order-sensitive)', () => {
+    const files = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).files;
+    const negations = files.flatMap((f, i) => (f.startsWith('!') ? [i] : []));
+    const includes = files.flatMap((f, i) => (f.startsWith('!') ? [] : [i]));
+    expect(negations.length).toBeGreaterThan(0);
+    expect(Math.min(...negations)).toBeGreaterThan(Math.max(...includes));
+  });
+});
 
 describe('private workspaces (E11)', () => {
   it('are skipped by discovery, so their undeclared imports never fail the run', () => {

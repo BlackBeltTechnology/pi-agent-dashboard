@@ -13,3 +13,29 @@ See change: add-lazy-terminal-diff-bootstrap — lazy boundary (D2: `React.lazy`
 See change: fix-long-session-ux-degradation — three independent edits: mobile branch root gains `flex flex-col h-[100dvh] overflow-hidden` (the single viewport owner; the shell flexes below in-flow banners, D4); the `toolContext` memo is keyed on the SELECTED session's `subagents` map instead of the whole `sessionStates` map (D7); mounts `useIdleFx()` beside `useAppHidden()` (§7). Also adds `fx-progress` to `StatusBarRefreshButton`'s inline-spin glyph.
 
 See change: add-access-grant-dialog — `grantPromptHost` (`<GrantPromptHost onMessage send ws />`) mounted beside `firstLaunchModal` in BOTH mobile and desktop returns. Owns the prompt-capability lifecycle (`grant_channel` set, `ws === null` clear) and the one-at-a-time grant dialog (tasks 7.1-7.3).
+
+See change: fix-browser-live-view-subscribe-and-reopen — desktop `renderSession` content-view gate delegates to `<SessionContentGate registry={_pluginRegistry} session renderContentView renderDetail>` (D6); `forSession` import dropped from App.
+
+## session-list-group-by
+
+- State `groupByPrefs` (undefined until `group_by_prefs_updated`); passes `groupByPrefs`/`onSetFolderGroupBy`/`onSetLaneCollapsed` to SessionList and `groupByPrefs`/`onSetDefaultGroupBy` to both SettingsPanel mounts; effect runs `runUrgencyMigration` once prefs known. See change: session-list-group-by.
+`cardSections` state + `CardSectionsProvider` (value memoized on snapshot + `send`; `showToast` routed through a ref so the value stays stable); `VALID_FOLDER_SETTINGS_PAGES` gains `cards`. See change: configurable-session-card-sections.
+
+## show-session-history-load-state
+
+Flags/timers/failed/startedAt moved to `useHistoryLoadState({status, hasContent})` (reconnect reset inside). `hasChatContentFor` (refs). `useLayoutEffect` arms `beginLoadingHistory` (NOT `replayInFlight` — would flash the pill on warm reload) at selection before paint (connected, unsubscribed, no content). `historyPhaseMap` = `buildHistoryPhaseMap(...)` memo (deps incl. `status`) → `SessionList historyPhaseMap` + ChatView `historyPhase`/`historyStartedAt`/`onRetryHistory` (`handleRetryHistory` → `handleRefreshChat`). `markHistoryLoadFailed`/`clearHistoryLoadFailed` passed to `useMessageHandler`. Server switch calls `resetAllHistoryLoad()`. See change: show-session-history-load-state.
+Composer strip gets `onAttach`/`onDetach`/`groups`/`assignments` + `working` = streaming ∨ `retrySessionIds.has(id)`. See change: redesign-composer-session-strip.
+
+## add-pairing-approval-dialog
+
+`pairingApprovalHost` (lazy `PairingApprovalHost` in `<Suspense fallback={null}>` — own chunk, off the entry gzip cap; mount-time fetch covers hints before load) mounted beside `grantPromptHost` in BOTH returns. See change: add-pairing-approval-dialog.
+
+## electron-runtime-overlay-updates
+
+Electron header renders `RuntimeUpdateBadge` (lazy chunk, off the entry gzip cap; `PiUpdateBadge` non-Electron only). See change: electron-runtime-overlay-updates.
+
+## consolidate-flow-agent-cards
+
+`content-header-sticky` wrapper (`sticky top-0 z-10`) reclassified FIXED → SHRINKABLE (design D6): adds `overflow-y-auto` (own scrollport) and inline `style={{ flexShrink: CHAT_HEADER_WEIGHT, minHeight: CHAT_HEADER_BOUND }}` from `lib/layout/chat-pane-row-class.ts`. Bound 0 / no pixel floor: the wrapper renders for every selected session while `ContentHeaderStickySlot` may return null (no flow) or the flow panel may collapse, so a floor would pad an empty slot into a dead band. Below the pane's base-height sum it takes its weight×base share of the deficit and scrolls internally instead of painting a 476px panel over the split editor pane (the "covered by `<h1>`" / dead card-button bug). Constants come from the table; no literal `0`/`1`/shrink factor in App.
+
+Deliberate-open intent (design D8): reads the current history entry with wouter `useHistoryState` (`wouter/use-browser-location`; default `<Router>` in main.tsx = browser hook) and passes `history.state.openNonce` to `<SplitRouteSync>` as the `nonce` prop, only while `editorMatch` is active (number/string → `String()`, else `""`). The flows-plugin file button stamps a fresh nonce per open, so a re-open of an unchanged editor URL re-applies instead of being swallowed by the apply-once key. A host navigation without the nonce leaves the key as before. See change: consolidate-flow-agent-cards. See change: consolidate-flow-agent-cards.

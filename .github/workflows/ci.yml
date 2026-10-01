@@ -157,6 +157,13 @@ jobs:
             echo "::error::@mdi/js dynamic-import warning re-appeared (harden-ios-safari-memory-and-ws-diagnostics)"; fail=1
           fi
           exit $fail
+      # Second publish-imports run, on the BUILT tree. The first run (above) sees
+      # an unbuilt tree, so the root's shipped `packages/dist/` bundle output was
+      # never analysed. It carries no workspace manifest, so it gets no
+      # reachable-workspace credit: any bare import there is a consumer break.
+      # See change: check-root-package-imports.
+      - name: Verify published imports on the built tree
+        run: node scripts/verify-published-imports.mjs
 
   # ── required Docker gate ───────────────────────────────────────────────────
   # Change: fix-browser-plugin-vendor-specifier-resolution (test-plan X12).
@@ -199,3 +206,28 @@ jobs:
           TEST_COPY_MODE: "1"
           PI_BROWSER_RELAY_FAKE: "1"
         run: node scripts/verify-docker-plugin-load.mjs
+
+  # Quick-tier Python behaviour of the music-production skills plus the
+  # video-production footage-redaction script. The deep tier (essentia,
+  # beat_this, demucs, torch) is multi-GB and is NEVER installed here; those
+  # tests self-skip. See change: add-music-production-skills (D10).
+  music-pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Create the quick-tier venv
+        run: |
+          uv venv -p 3.14
+          uv pip install -r packages/music-production/requirements-core.txt pytest
+
+      - name: pytest (music-production + footage-redaction)
+        run: .venv/bin/python -m pytest packages/music-production/tests packages/video-production/tests/redaction

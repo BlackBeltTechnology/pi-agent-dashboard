@@ -5,6 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `adoc-diagram-splitter.ts` | Pure segment splitter over AsciiDoc rendered HTML (design D2): splits into raw HTML and typed diagram segments (`data-lang="mermaid"|"plantuml"`, `class="language-*"`, `@startuml` sentinel). See change: diagram-rendering. |
+| `adoc-math.ts` | Pure `renderAdocMath(html, katex)`: asciidoctor latexmath `\(…\)` inline / `\[…\]` display → KaTeX HTML (`throwOnError:false`, entities decoded). Skips `<pre>`/`<code>` spans. `hasAdocMath(html)` delimiter probe. katex injected → caller lazy-loads. |
 | `extract-urls.ts` | Pure `extractRecentUrls(messages: ChatMessage[]): string[]`. → see `extract-urls.ts.AGENTS.md` |
 | `file-icon.ts` | `fileIcon(pathOrName)` → `{ iconPath, colorClass }`. Extension-keyed `@mdi/js` glyph + accent color for… → see `file-icon.ts.AGENTS.md` |
 | `mdi-icon-lookup.ts` | Extension UI System icon resolver. Exports `resolveMdiIcon(key)` — maps `"mdiCheckCircle"`-style key to… → see `mdi-icon-lookup.ts.AGENTS.md` Now a re-export shim over client-utils `mdi-by-key`: `resolveMdiIcon` = sync `resolveMdiIconSync` (`null` until the lazy set loads), plus `useMdiIconByKey`, `loadMdiIconSet`. Render sites use the hook. See change: harden-ios-safari-memory-and-ws-diagnostics. |

@@ -5,6 +5,7 @@
 > Scope: no OpenSpec change, no code. Design investigation only. Pick up later.
 > Date: 2026-09-18.
 > Source: https://docs.typesafe.ai/introduction (+ `/primitives`, `/confidence`, `/patterns`, `/sdk`, `/cookbooks/skill_suggestion`, `/concepts/use-case-map`).
+> Addendum 2026-09-26: §12–§19 (Jev specs, ecosystem, pi-jev/pi-warden, deployment lessons, dashboard mapping A–L, Von/Laya/Kev comparison, global System-1 selector decision, pi-warden/pi-jev ownership).
 
 ---
 
@@ -229,3 +230,384 @@ Needs extension / plugin:
 Next-step options:
 - Keep as exploration note (this file).
 - Fold "TypeSafe classifier" design decision into `openspec/changes/distill-hermes-memory-into-skills/design.md`.
+
+---
+
+# Addendum 2026-09-26
+
+> Second research pass. Web + ecosystem survey. Resolves §3 unknowns (pricing, rate limits). Adds prior art, open-weight alternatives, decision.
+> §1–§11 unchanged above.
+
+## 12. Jev Facts Now Known
+
+Vendor: TypeSafe AI. Founder Diogo Almeida (ex-OpenAI). Early access 2026-09-15. Training RLCD.
+
+| Fact | Value |
+|---|---|
+| Model id | `jev-1.13.0` |
+| Aliases | `jev-latest`, `jev-preview` move → pin version, log response `model` |
+| Price | $0.042/MTok input. Output free. |
+| Latency | 70–500 ms |
+| Context | 64k/request. 32k = state + longest question. |
+| Rate limit | 1,200 req/min. 250k tok/s. |
+| Modality | Text only. English primary. |
+| `Choice` cap | ≤255 options |
+
+Access paths:
+- Python SDK + TS SDK (MIT).
+- HTTP `POST api.typesafe.ai/v1/systemone`.
+- `langchain-typesafe`: `TypeSafeClassifier`, `ModelRouterMiddleware`, `AutoModeMiddleware`.
+- Vercel AI Gateway `typesafe-ai/jev`.
+- OpenRouter.
+
+Still unknown: data residency, retention. §3 pricing/rate-limit unknowns → RESOLVED.
+
+Jaggedness (Jev weak spots — keep deterministic):
+- counting, math
+- dates
+- negations
+- literal reading
+- multi-hop reasoning
+- large irrelevant state
+- adversarial state content
+- contradictory criteria
+
+Rule: **code computes, Jev judges, LLM writes.**
+TypeSafe docs framing: "AI-powered software, not agents".
+
+## 13. Ecosystem Catalog
+
+Source `jevnotes.com/projects` ≈156 repos. Pattern → repos:
+
+| Pattern | Repos / components |
+|---|---|
+| Tool-call gate | `AutoModeMiddleware`, `jev-guard`, `pi-jev`, `pi-warden` |
+| Model routing | `ModelRouterMiddleware`, `jev-router`, `jev-codex-router`, `agent-router`, `opencode-jev-orchestrator` |
+| Supervision / done-check | Canny, foreman |
+| Wake gate | `wakegate` — skip only p<0.2; always wake on user msg, error, skip-limit |
+| Subagent triage | `pi-warden` |
+| Skill selection | TypeSafe skill cookbook, `skillranker`, `skillbox` |
+| Rule linting | `jev-pref`, `perch`, `pi-warden` rules |
+| CI / git | `jev-git`, `is-malicious`, `leanest` |
+| Log triage | `jevlogs`, Vega |
+| Rerank / SQL | `llama-index-jev`, `hev/reranker`, `jevql`, `pg-jev`, `duckdb-jev` |
+| Browser | `jev-ultrafast` |
+| Voice | `jev-voice-browser`, `HA-Jev` |
+| MCP | `jev-mcp`, `typesafe-mcp` |
+
+Primitive rule: `Choice` is relative — always names a winner. Pair with `Noul("needs any tool?")` to allow "none".
+
+## 14. Pi Prior Art
+
+### pi-jev (`npm:@y0usaf/pi-jev`)
+
+Gate nouls + thresholds:
+
+| Noul | Threshold |
+|---|---|
+| `destructive` | 0.90 |
+| `exfiltration` | 0.70 |
+| `beyond_scope` | 0.85 |
+| score `impact` | 2.50 |
+
+Output judge: `leaks_secret` 0.90 + `failure_class` Choice `{transient, environment, code_bug, permission, user_error, no_failure}` → `CLASS_ADVICE` table.
+Tool `jev_ask`. Shadow mode default. Fail-open. Cache 120 s. Truncation 400 / 2000 chars.
+Config `~/.pi/agent/pi-jev.json`, `.pi/pi-jev.json`, env `TYPESAFE_API_KEY`.
+Calibration notes: user-requested `sed -i` still scored `destructive` up to 0.85. Wording "recoverable from VCS" scored `rm -rf` + force-push 0.77.
+
+### pi-warden (`npm:pi-warden`)
+
+Guards: Action, Rules (`pi-warden.md`), Slop, Stuck, Done-check, Security, Runaway, Subagent triage, Call waste, Conscience (beta).
+Modes: steer / confirm / advise. Offline floor.
+Field data: 9 days, 743 sessions, 193 holds, 1,292 notes. ≈3 holds per 1,000 calls. After untested-done hold, agent ran test 78%. Rule violations 6→0 across 150 paired runs.
+Backends: TypeSafe, OpenRouter.
+
+## 15. Deployment Lessons
+
+Vega (secops bubble sheets):
+- One-sided gate. "not escalated" ≥0.8 closed 15% → 33% of volume at ≈98% right.
+- Escalate side miscalibrated → never auto-act on it.
+- Cheap history lookups beat full evidence gathering.
+- Coverage = property of noise, not of model.
+- Own closes excluded from history (feedback loop).
+
+netalith rollout order:
+1. log 1 week
+2. extract closed questions
+3. pick highest volume
+4. shadow vs labels
+5. per-action thresholds
+6. pin version + LLM fallback
+
+Security:
+- Pass args as named JSON fields, never concatenated prose.
+- Keep an injection test set.
+- Log full probabilities.
+- Enforce decisions in code, not in prompt.
+
+## 16. Dashboard Mapping A–L
+
+Leverage: server sees ALL sessions → fleet-level decisions no single session can make.
+
+| # | Surface | System-1 use |
+|---|---|---|
+| A | `add-server-push-notifications` + unread-attention (`openspec/specs/event-status-extraction`) | noul asked-user / blocked; label = user replied within N min |
+| B | Stuck detector | looping noul + progress score; hard step limit in code; SessionCard badge |
+| C | `automation-plugin` + `goal-plugin` | wake gate + goal-achieved noul |
+| D | `subagents-plugin` | report triage |
+| E | `roles-plugin` / `quota-plugin` | difficulty → role; quota arithmetic in code first |
+| F | bash output | leak mask + failure-class chip (`sanitize-untrusted-rendered-content`, `harden-untrusted-content-ingestion`) |
+| G | Done-check badge | test-ran fact from code, judgment from Jev |
+| H | `external-dashboard-plugins` | pre-install scan, advisory only |
+| I | `chat-gateway` / `add-voice-assistant-dashboard-plugin` | command `Choice` + clarification noul |
+| J | `browser-plugin` | indexed action space |
+| K | `server.log` | FAQ triage |
+| L | session list | group-by workstream `Choice` |
+
+Deterministic stays deterministic: `scripts/check-conventions.mjs`, WCAG math, quota arithmetic, test-ran detection.
+Plan: reuse `pi-warden` / `pi-jev` in-session; build A–E dashboard-side.
+
+```mermaid
+flowchart LR
+  subgraph ext[extension]
+    E1[tool_call hook] --> E2[gate noul]
+    E2 -->|allow/hold| E3[session]
+  end
+  subgraph srv[server]
+    S1[event stream] --> S2[attention / stuck / wake / triage]
+    S2 --> S3[(status store)]
+  end
+  subgraph cli[client]
+    C1[SessionCard badge]
+    C2[failure-class chip]
+    C3[workstream grouping]
+  end
+  E3 -->|WS events| S1
+  S3 -->|WS push| C1
+  S3 --> C2
+  S3 --> C3
+```
+
+## 17. Von / Laya / Other Open Weights
+
+Same wire protocol `/v1/systemone` → base-URL swap, no client rewrite.
+
+| Model | License | Size | Context | Serving |
+|---|---|---|---|---|
+| Von | Apache-2.0 | ModernBERT-Large 395M | 8192 | `von-sdk` drop-in; v1.2 independent option scoring |
+| Laya | Apache-2.0 | 421M | 512 | `laya-serve`, `laya-ts` (ONNX, Node) |
+| laya-multilingual | Apache-2.0 | 322M | 1024 | `laya-serve` |
+| laya-typed-decisions | Apache-2.0 | — | 1024 | `laya-serve` |
+
+Repo spike (`docs/research/unified-context-manager-exploration.md` §17):
+- zero-shot AUC: Von 0.43–0.45, Laya 0.60–0.62, LLM 0.95
+- best System-1 config ≈0.71–0.79
+- no usable pre-filter
+- 1-question latency ≈52 / 59 ms
+- RSS 0.8 GB / 3.0 GB
+
+Independent benchmarks:
+- jabr v2: Jev 0.966, Von 0.704, Laya 0.583
+- Von mode collapse off-domain
+- Laya scale compression; Banking77 0.425 vs 0.870; option budget 192–256 tokens
+- SumGuy file routing: Von 8.8% vs Jev 81.3%
+- LargitData RAG all-4: Jev 61.4% vs Laya-322M 0%
+- Laya base 0.36 < majority baseline 0.46
+
+Fine-tune changes verdict:
+- `laya-typed-decisions` 0.766 vs Jev 0.727
+- STEAV: 12k rows, 46 min, 0.952, ECE 0.033
+- shuffled-evidence control mandatory
+
+Others: Kev (Qwen3.5 LoRA, Apache-2.0, MLX 47–77 ms, 0.822 vs 0.857) = closest zero-shot local. SemIf (MIT). jeff (GLiFormer, JevBench intel 63.9 vs 90.4).
+
+Suitability per §16 surface: A, F good (fine-tune on outcome labels). D, K medium. Gate risky alone. B, C poor. E, I poor zero-shot.
+
+Verdict: local only after fine-tune. Zero-shot never gates. Spike Kev on §17 windows.
+
+## 18. Decision
+
+User-approved direction:
+- New change `add-system-one-registry`.
+- Amend `openspec/changes/unify-context-manager/design.md` D11 → consume shared adapter.
+
+Separate registry, NOT a `@system1` role. Role refs resolve via `model:resolve` in `packages/extension/src/provider-register.ts` to pi-ai chat models. `LlmSystemOne` fallback references a role (`@fast`).
+Reuse: `ui:model-selector` pattern, blackhole `ChainEditor`, roles presets.
+Config `~/.pi/agent/system-one.json` (extension works with dashboard down; cf. `packages/roles-plugin/src/server/roles-routes.ts`) + project `.pi/system-one.json`.
+
+v1 features:
+- global default + fallback chain
+- per-consumer overrides
+- presets local-only / hosted
+- capability filtering (ctx, max options, languages, off-machine)
+- per-consumer Test/eval button
+- managed local server lifecycle (uv/Docker, health, RAM, port ≠ 8000; relates `bundle-python-runtime`; `laya-ts` in worker)
+- global no-data-off-machine switch
+
+Invariants:
+- thresholds keyed `(backend, consumer)` → backend switch resets to shadow
+- failure policy declared per consumer: gate fail-open, attention → deterministic rule, wake → always wake
+- TypeSafe key via credential seam (`expose-plugin-credential-and-oauth-seams`)
+
+Capability table covers Jev / Von / Laya / Laya-td.
+Open: `pi-jev` / `pi-warden` base-URL interop unverified.
+
+```mermaid
+flowchart LR
+  UI[dashboard settings] --> CFG[system-one.json]
+  CFG --> AD[System-One adapter]
+  AD --> H[HTTP /v1/systemone]
+  AD --> L[laya-ts worker]
+  AD --> F[LlmSystemOne fallback @fast]
+  G[gate] --> AD
+  AT[attention] --> AD
+  WK[wake gate] --> AD
+  TR[subagent triage] --> AD
+```
+
+## 19. Decision: pi-warden / pi-jev ownership (2026-09-26)
+
+Facts verified from source clones.
+
+Licences + size:
+
+| Package | Licence | Size | Version | Note |
+|---|---|---|---|---|
+| `@y0usaf/pi-jev` | MIT | ~1.8k LOC, 5 files | v0.2.2 | independent author |
+| `pi-warden` | MIT | ~17.6k LOC | v0.68.0 | fast release cadence |
+| `pi-typesafe` | MIT | ~2k LOC | v0.7.4 | pi-warden Jev client dep (`^0.7.0`) |
+
+All independent authors. Not affiliated with TypeSafe.
+
+`pi-jev` endpoint configurable.
+`endpoint` key lives in `pi-jev.json` (`src/config.ts`).
+Default `DEFAULT_ENDPOINT = https://api.typesafe.ai/v1/systemone` (`src/client.ts`).
+→ pi-jev already targets local Von/Laya `/v1/systemone`.
+
+`pi-typesafe` backends closed enum.
+`TypeSafeBackend = "typesafe" | "openrouter"` (`src/backends.ts`).
+Base URL = `backend.host`. No custom URL.
+Provides key store `~/.pi/agent/pi-typesafe/auth.json` (owner-only).
+Daily caps `PI_TYPESAFE_MAX_REQUESTS_PER_DAY`, `PI_TYPESAFE_MAX_INPUT_TOKENS_PER_DAY`, `PI_TYPESAFE_MAX_USD_PER_DAY`.
+Batch APIs `evaluateAll`, `evaluateMany`.
+Introspection `authState`, `describeAuth`, `getSpend`.
+Command `pi-typesafe/calibrate` = labelled cases → thresholds, AUC, sweep, replay.
+`calibrate` = prototype of registry Test button.
+
+`pi-warden` library accepts injected judge.
+Guards exported as plain functions taking `judge` = any object with `evaluate`.
+Exports `evaluateAction`, `evaluateRules`, `RuleStore`, `ActionGuard`, `RulesGuard`, stuck detector, runaway guard, done-check, `triageReport`, `WakePolicy`, `redact`.
+Judge injection works ONLY at library level.
+
+`pi-warden` packaged extension builds own client.
+`src/extension.ts:526` calls `createTypeSafe(judgeOptions(config))`.
+`typesafeBackend` user-file only, values `"typesafe" | "openrouter"`.
+→ NO judge injection into installed extension.
+
+`pi-warden` config split.
+User file `~/.pi/agent/pi-warden/config.json` owns mode, typesafe consent, `typesafeBackend`, `timeoutMs`, `maxRequests`.
+Project file `.pi/pi-warden.json` read only when project trusted.
+Project file cannot change mode/consent/backend.
+Per-guard switches documented: `rules.enabled`, `slop.enabled`, `security.enabled`, `context.enabled`, `subagent.enabled`, `conscience.enabled`, `prefs.enabled`, `waste.enabled`.
+Action-guard disable key unverified (mode `advise` never holds).
+
+`pi-warden` local state.
+Holds JSONL `~/.pi/agent/pi-warden/holds/`.
+SQLite `~/.pi/agent/pi-warden/holds.db`, override `PI_WARDEN_DB`.
+Trace files via `PI_WARDEN_TRACE_DIR`.
+
+### D19.1 Consumption = upstream npm + wrapper plugin
+
+Keep `pi-warden` + `pi-typesafe` as upstream npm deps.
+Dashboard-manage via wrapper plugin.
+Precedent `packages/goal-plugin` wraps `@ricoyudog/pi-goal-hermes`.
+NOT forked.
+Contrast: `unify-context-manager` forks hermes + blackhole.
+
+### D19.2 Hook ownership = our changes own hooks
+
+One owner per hook (`openspec/changes/unify-context-manager/design.md` D2).
+Overlapping warden guards disabled via config.
+
+| warden guard | our owner |
+|---|---|
+| Action | `add-supervised-tool-approval` |
+| `context` (saver/dedupe) | `unify-context-manager` / blackhole |
+| `security` + output checks | `add-untrusted-content-guard` / `harden-untrusted-content-ingestion` |
+| `conscience` | dossier §4/§6 skill suggestion |
+| `subagent` | dashboard row D (`subagents-plugin`) |
+
+Keep from warden (no planned owner): `rules`, `slop`, `stuck`, done-check, runaway, `waste`, `prefs` (review).
+
+### D19.3 pi-jev = absorb ideas, not install
+
+Not installed alongside warden — overlapping gate + output judge.
+Absorb `failure_class` Choice + `CLASS_ADVICE` table.
+Absorb leak noul.
+Absorb measured thresholds.
+Target: our own guard / dashboard row F.
+
+### Consequences / constraints
+
+"Judge injected" feasible only by one of:
+- (a) upstream PR to `pi-typesafe` adding custom backend (base URL + key env) AND `pi-warden` `typesafeBackend` accepting it.
+- (b) wrapper extension hosts warden library guards with registry adapter as `judge` instead of loading `extensions/index.js`. Loses warden UI panel, commands, learning, `holds.db` unless re-hosted.
+- (c) v1: warden stays on hosted TypeSafe/OpenRouter; dashboard only writes its config.
+
+Recommended path: v1 = (c) + open upstream PR (a).
+Local Von/Laya for warden blocked until (a) lands.
+(b) = fallback only if upstream declines.
+
+Wrapper plugin duties:
+- write `~/.pi/agent/pi-warden/config.json` from System-1 selector (backend, disabled overlapping guards, mode)
+- key via pi-typesafe auth store or credential seam (`expose-plugin-credential-and-oauth-seams`)
+- surface traces (`PI_WARDEN_TRACE_DIR`) + holds (`holds.db`) + rules (`pi-warden.md`) in dashboard UI
+- honor global "no data off-machine" switch by setting `typesafe` consent off (offline floor stays)
+
+Registry (`add-system-one-registry`) keeps own adapter.
+Registry may reuse `pi-typesafe` as npm dep for hosted path + calibrate.
+Registry adds custom/local backends itself.
+
+Risks:
+- warden release cadence (0.68 in ~10 days) → config keys drift. Pin version. Test config writer against pinned schema.
+- user-file-only keys mean dashboard writes user-global file → affects all pi sessions, not per project.
+
+```mermaid
+flowchart LR
+  SEL[System-1 selector / registry] -->|writes| WCFG["~/.pi/agent/pi-warden/config.json"]
+  WCFG --> WEXT[pi-warden extension]
+  WEXT --> PTS[pi-typesafe client]
+  PTS --> TS[api.typesafe.ai]
+  PTS --> OR[openrouter.ai]
+  PTS -.->|"upstream PR: custom backend"| LOC[local Von / Laya /v1/systemone]
+  SEL --> AD[registry adapter]
+  AD --> OG[our guards / consumers]
+  WRAP[wrapper plugin] -->|reads| TRC["PI_WARDEN_TRACE_DIR traces"]
+  WRAP -->|reads| DB["holds.db"]
+  WRAP --> UI[dashboard UI]
+```
+
+## Sources
+
+- https://typesafe.ai/blog/introducing-system-one-models-and-jev
+- https://docs.typesafe.ai/concepts/how-to-build-with-system-one
+- https://docs.typesafe.ai/models
+- https://learnjev.com/tutorials/agent-harness
+- https://langchain.com/blog/building-a-harness-with-jev
+- https://labs.vega.io/blog/bubble-sheets-for-secops
+- https://netalith.com/blogs/ai-automation/jev-agent-architecture
+- https://jevnotes.com/projects
+- https://github.com/y0usaf/pi-jev
+- https://github.com/DevMortimer/pi-warden
+- https://github.com/shitianfang/wakegate
+- https://github.com/wfzyx/von
+- https://github.com/NandhaKishorM/laya
+- https://pinggy.io/blog/best_open_source_jev_alternatives_self_hosted_decision_models
+- https://sumguy.com/jev-vs-von-vs-semif-benchmark
+- https://largitdata.com/en/blog/jev-system-one-model-open-source-benchmark
+- https://steav.io/news/system-one-model-results
+- https://orcarouter.ai/blog/laya-vs-von
+- https://github.com/DevMortimer/pi-typesafe
+- https://github.com/DevMortimer/pi-warden/blob/main/docs/configuration.md
+- https://github.com/DevMortimer/pi-warden/blob/main/docs/extension-authors.md
+- https://github.com/DevMortimer/pi-warden/blob/main/docs/data-handling.md

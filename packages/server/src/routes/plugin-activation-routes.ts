@@ -19,6 +19,7 @@ import {
   discoverPlugins,
   getPluginStatusStore,
   getWsRouteRegistry,
+  isFirstPartyPluginPackage,
   redactPluginConfigForClient,
   resolvePluginEnabled,
   transitiveDependents,
@@ -191,6 +192,10 @@ export function registerPluginActivationRoutes(
           packageDir: p.packageDir,
           displayName: m.displayName,
           priority: m.priority ?? 1000,
+          // npm scope `@blackbelt-technology/` (NOT `priority`). Named
+          // `firstParty`, not `trusted`: spawn/abort hooks use a different,
+          // priority-based gate. See change: promote-model-roles-settings.
+          firstParty: isFirstPartyPluginPackage(p.packageName),
           hasServer: Boolean(p.serverEntryPath),
           hasBridge: Boolean(p.bridgeEntryPath),
           hasClient: Boolean(p.clientEntryPath),
@@ -200,6 +205,10 @@ export function registerPluginActivationRoutes(
             tab: c.tab,
             command: c.command,
             toolName: c.toolName,
+            // Settings nav promotion hint, projected for EVERY plugin; the
+            // client honours it only when `firstParty`. See change:
+            // promote-model-roles-settings.
+            ...(c.nav ? { nav: c.nav } : {}),
           })),
           requires: m.requires ?? null,
           dependsOn: m.dependsOn ?? [],

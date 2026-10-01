@@ -316,6 +316,33 @@ Cadence: `workflow_dispatch` + `pull_request` path-filter on `packages/electron/
 
 See change: run-electron-e2e-native-surface.
 
+## How do I run my checkout inside the Electron app?
+
+App menu **Runtime → Use Local Folder…** (native folder picker). Only way — no HTTP path. `/api/runtime/source` rejects `local` and any `localPath` field; the server never writes `state.json`.
+
+Checkout must be a built pi-agent-dashboard monorepo with:
+- `packages/server/src/cli.ts`
+- `packages/client/dist/index.html` — run `npm run build` if missing. Preflight message names it.
+- `packages/extension/src/bridge.ts`
+- `node_modules` — run `pnpm install` if missing. Preflight message names it.
+
+Local link copies nothing. Runtime runs in place from the checkout. Runs under the shell's bundled Node (never system Node); refused `node_engines <range>` when the checkout root `package.json#engines.node` excludes that Node.
+
+`request.json` must exist to bind the pick. Open Settings → Updates once (or just boot) so the server records a runtime selection. Missing / unreadable → dialog "Local folder not used", error `request_unreadable`, nothing bound.
+
+Edit → restart loop: change server/client code, then `POST /api/restart`. Local link re-spawns the same checkout path, so the new code loads. `/api/restart` never switches runtimes.
+
+Stop: app menu **Runtime → Stop Using Local Folder**, or pick another source in Settings (bumps `sourceSeq`, turns local off).
+
+Settings → Packages → Dashboard runtime shows the local path, git SHA, dirty flag — read-only. Hint "Set from the app menu (Runtime → Use Local Folder…)". No editable path input.
+
+Cross-refs:
+- docs/electron-bootstrap-flow.md (switchRuntime)
+- docs/electron-immutable-bundle.md (Runtime overlay)
+- packages/electron/src/lib/app-menu.ts
+- packages/electron/src/lib/runtime-overlay.ts (`pickLocalFolder`)
+- packages/shared/src/runtime-overlay/compat.ts (`preflightLocal`)
+
 ## How do I configure the dashboard?
 
 Edit `~/.pi/dashboard/config.json` or click gear icon in sidebar header.
@@ -426,6 +453,35 @@ Dropdown now offers `100.64.0.0/10`, marked wide. Whole CGNAT space, shared acro
 Real mitigation: bind to the Tailscale NIC. Settings → Server → Listen Interface → pick the `utun`/tailnet interface. Restart required.
 
 See change: warn-unreachable-trusted-networks.
+
+## Why does my tunnel / tailnet device now need to sign in?
+
+Symptom: device via zrok / ngrok / `tailscale serve` gets 403 `network_not_allowed` (or login redirect, WS 401/403). `trustedNetworks` contains `127.0.0.1` (or `127.0.0.0/8`, `127.*`, `0.0.0.0/0`, `::1`).
+
+Cause: tunnel agent relays from `127.0.0.1` socket. Injects `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host` / `X-Real-IP` / `Forwarded`.
+- Loopback-range peer + any such header = relayed loopback.
+- Relayed loopback never matches a trusted entry. Predicate: `isTrustedSource` in `packages/server/src/auth/localhost-guard.ts`.
+- Before fix: loopback entry let every public tunnel visitor in, no sign-in.
+
+Also affected: same-host reverse proxy (nginx / Caddy / Traefik TLS front) setting `X-Forwarded-*`, admitted only by loopback entry. Indistinguishable from tunnel agent.
+
+Unaffected:
+- Genuine local use (loopback peer, no forwarding header). Trusted without any entry.
+- LAN CIDR entries (e.g. `192.168.16.0/24`).
+
+Loopback entry now inert. Redundant for local, ignored for tunnel.
+- Server logs once: `[trusted-networks] "127.0.0.1" covers loopback — ignored for tunnel-relayed requests; local requests are already trusted`.
+- `/api/health` field `trustPosture.trustedHasLoopback`. Authenticated or genuinely-local caller only; else `null`.
+- Relayed-loopback denial raises no "Trust 127.0.0.1?" prompt (would trust whole tunnel).
+
+Remedy:
+- Pair device (device bearer). See next entry.
+- Or sign in (OAuth). See [How do I set up OAuth authentication for external access?](#how-do-i-set-up-oauth-authentication-for-external-access).
+- Optional: drop loopback entry from `trustedNetworks` / `auth.bypassHosts` (`~/.pi/dashboard/config.json`, Settings → Servers). No migration. Leftover entry harmless.
+
+Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
+
+See change: fix-trusted-network-tunnel-bypass.
 
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
@@ -1152,7 +1208,7 @@ Headless command line:
 
 Detached spawn (`platform/detached-spawn.ts`): `spawnDetached` uses `detached: true` on every OS. Windows emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, skips `AssignProcessToJobObject` → child excluded from parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Pi sessions survive dashboard restart on all platforms (matches Unix PGID behavior). `headlessPidRegistry` reconciles survivors at `~/.pi/dashboard/headless-pids.json` on server boot.
 
-Reload path selection (`shouldInterceptReload`): headless sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → `piGateway.sendToSession` → bridge `__dashboard_reload` command (captures `ctx.reload` from pi's `ExtensionCommandContext` since `ExtensionContext` has no `reload()`).
+Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, gated pi >= 0.84.2; handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
 
 Cross-refs:
 - docs/architecture.md:1147

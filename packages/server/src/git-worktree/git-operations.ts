@@ -18,6 +18,7 @@ import {
   gitStatusV2,
   hasGitPathSegment,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
+import { collapseCheckRollup } from "@blackbelt-technology/pi-dashboard-shared/platform/check-rollup.js";
 import { samePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -1706,49 +1707,6 @@ export interface ListPrFailure {
   ok: false;
   code: ListPrCode;
   stderr?: string;
-}
-
-/**
- * Collapse GitHub's `statusCheckRollup` array into a single summary.
- * Each entry has a `status` and/or `conclusion`; we derive a rollup:
- *   - any failing  → "failing"
- *   - any pending  → "pending"
- *   - all success  → "passing"
- *   - empty / null → "none"
- */
-function collapseCheckRollup(
-  rollup: Array<{ status?: string; conclusion?: string }> | null | undefined,
-): PullRequestInfo["checkRollup"] {
-  if (!rollup || rollup.length === 0) return "none";
-  let hasPending = false;
-  for (const check of rollup) {
-    const conclusion = check.conclusion?.toUpperCase();
-    const status = check.status?.toUpperCase();
-    if (
-      conclusion === "FAILURE" ||
-      conclusion === "TIMED_OUT" ||
-      conclusion === "CANCELLED" ||
-      conclusion === "ACTION_REQUIRED" ||
-      conclusion === "STARTUP_FAILURE" ||
-      status === "FAILURE" ||
-      status === "ERROR"
-    ) {
-      return "failing";
-    }
-    if (
-      status === "PENDING" ||
-      status === "QUEUED" ||
-      status === "IN_PROGRESS" ||
-      status === "WAITING" ||
-      status === "REQUESTED" ||
-      conclusion === "" ||
-      conclusion === undefined ||
-      conclusion === null
-    ) {
-      hasPending = true;
-    }
-  }
-  return hasPending ? "pending" : "passing";
 }
 
 /**

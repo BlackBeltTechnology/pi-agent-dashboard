@@ -250,6 +250,16 @@ export const NOTIFY_LEVEL_MESSAGES = {
 } as const;
 
 /**
+ * Text of the identical warnings the `notify-repeat` / `notify-repeat-slow`
+ * scenarios emit — one `e2e_notify` call with `count`, so the notifies are
+ * adjacent (no tool card between them) and must render collapsed as `×N`.
+ * See change: collapse-and-order-notify-rows.
+ */
+export const NOTIFY_REPEAT_MESSAGE = "e2e notify repeat probe";
+/** Final assistant text of the notify-repeat scenarios. */
+export const NOTIFY_REPEAT_DONE = "notify repeat sent";
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -725,6 +735,46 @@ export const SCENARIOS: Record<string, Scenario> = {
 
   // ── Client tool-renderer matrix (one per registry entry + unknown) ──────
   "tool-read": toolScenario("read", { path: "src/example.ts" }),
+  // demo-plugin `demo_echo` (fixture bridge tool) — round-trips through the
+  // private plugin request lane to the demo server's `demo/echo` handler.
+  // Two-step terminate. See change: expose-plugin-credential-and-oauth-seams (X13).
+  "demo-echo": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("demo_echo", { text: "hi" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("demo echo done")]),
+    ],
+    expect: { toolName: "demo_echo" },
+  },
+  // gmail-plugin tools against the in-container fake Google
+  // (tests/e2e/helpers/fake-google.ts). `gmail-send` raises the tool's own
+  // confirm card; `gmail-search` leases a token (drives the reauth badge).
+  // Two-step terminate. See change: add-gmail-plugin (test-plan F5, F6).
+  "gmail-send": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("gmail_send", {
+            account: "a@fake.test",
+            to: ["x@dest.test", "y@dest.test"],
+            subject: "e2e subject",
+            body: "hello from the e2e",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("gmail send done")]),
+    ],
+    expect: { toolName: "gmail_send" },
+  },
+  "gmail-search": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("gmail_search", { account: "a@fake.test", query: "is:unread" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("gmail search done")]),
+    ],
+    expect: { toolName: "gmail_search" },
+  },
   // Reads a file that REALLY exists in the sample-git fixture, so the
   // OpenFileButton → internal Monaco editor pane opens a path the server can
   // serve. Used by tests/e2e/editor-pane.spec.ts.
@@ -1464,6 +1514,27 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { toolName: "canvas" },
   },
 
+  // ── preview denial remedy (change: surface-denial-remedy-in-previews) ────
+  // An agent auto-open of a file OUTSIDE the session cwd: write detection
+  // accepts an absolute path, so a `write` of a `.png` opens the canvas on it.
+  // One fixed directory per e2e test: the 120 s post-answer backoff is per
+  // subject. The bytes need not decode — only the refusal is under test.
+  ...Object.fromEntries(
+    ["f4", "f6", "f13", "x2"].map((id) => [
+      `denial-write-png-${id}`,
+      {
+        script: [
+          fauxAssistantMessage(
+            [fauxToolCall("write", { path: `/tmp/denial-canvas-${id}/a.png`, content: "not really a png\n" })],
+            { stopReason: "toolUse" },
+          ),
+          fauxAssistantMessage([fauxText("png written")]),
+        ],
+        expect: { toolName: "write" },
+      },
+    ]),
+  ),
+
   // ── Client interactive-renderer matrix (one per ask_user method) ────────
   "ask-confirm": askScenario("confirm", { title: "Proceed?" }),
   "ask-select": askScenario("select", {
@@ -1495,6 +1566,23 @@ export const SCENARIOS: Record<string, Scenario> = {
   // Calls the `e2e_notify` fixture tool (qa/fixtures/e2e-notify.ext.ts), whose
   // execute() calls `ctx.ui.notify` — the only L3 lever on the real notify
   // path. Drives tests/e2e/notify-channel.spec.ts.
+  // ── Untrusted-content guard (add-untrusted-content-guard, test-plan #F1) ──
+  // Reads untrusted HTML through the `stub_fetch` fixture tool
+  // (qa/fixtures/e2e-stub-fetch.ext.ts), then calls `bash`. The guard taints the
+  // run on the untrusted result, so the bash call must raise its confirm card.
+  // The command text never equals its output, so the output proves execution.
+  "guard-confirm": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("stub_fetch", { url: "https://example.test/news" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "echo guard-$((40+2))" })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxText("guard scenario done")]),
+    ],
+    expect: { toolName: "stub_fetch" },
+  },
   "notify-probe": {
     script: [
       fauxAssistantMessage(
@@ -1549,6 +1637,37 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("all notify levels sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  // Five identical warnings in ONE tool call → one collapsed `×5` row.
+  // See change: collapse-and-order-notify-rows (test-plan #F1).
+  "notify-repeat": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("e2e_notify", { message: NOTIFY_REPEAT_MESSAGE, level: "warning", count: 5 })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(NOTIFY_REPEAT_DONE)]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  // Ten identical warnings spaced 800 ms apart → the collapsed row is watched
+  // growing live. See change: collapse-and-order-notify-rows (test-plan #F3).
+  "notify-repeat-slow": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_REPEAT_MESSAGE,
+            level: "warning",
+            count: 10,
+            intervalMs: 800,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(NOTIFY_REPEAT_DONE)]),
     ],
     expect: { toolName: "e2e_notify" },
   },

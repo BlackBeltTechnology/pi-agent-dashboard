@@ -526,6 +526,28 @@ o> host.docker.internal:<port> over
     [ -e "${CUSTOM_EXT_DIR}/node_modules" ] || ln -sfn /app/node_modules "${CUSTOM_EXT_DIR}/node_modules"
   fi
 
+  # --- Untrusted-content guard + its `stub_fetch` source (change:
+  # add-untrusted-content-guard, test-plan #F1). The guard is inert for every
+  # other spec: it only rewrites results of untrusted tools and only gates
+  # sensitive tools after one ran, and no other faux scenario calls one. The
+  # guard is staged as a re-export of the workspace source so /app/node_modules
+  # (htmlparser2) resolves from the package's own location.
+  GUARD_EXT_DIR="${PI_DIR}/agent/extensions/untrusted-content-guard"
+  if [ -f /app/packages/untrusted-content-guard/src/extension.ts ] && [ ! -f "${GUARD_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${GUARD_EXT_DIR}"
+    printf '%s\n' 'export { default } from "/app/packages/untrusted-content-guard/src/extension.ts";' > "${GUARD_EXT_DIR}/index.ts"
+    echo "[test-entrypoint] PI_E2E_SEED: staged untrusted-content guard → ${GUARD_EXT_DIR}"
+  fi
+  STUB_FETCH_EXT_DIR="${PI_DIR}/agent/extensions/e2e-stub-fetch"
+  if [ -f "${FAUX_SRC}/e2e-stub-fetch.ext.ts" ]; then
+    if [ ! -f "${STUB_FETCH_EXT_DIR}/index.ts" ]; then
+      mkdir -p "${STUB_FETCH_EXT_DIR}"
+      cp "${FAUX_SRC}/e2e-stub-fetch.ext.ts" "${STUB_FETCH_EXT_DIR}/index.ts"
+      echo "[test-entrypoint] PI_E2E_SEED: staged stub_fetch fixture → ${STUB_FETCH_EXT_DIR}"
+    fi
+    [ -e "${STUB_FETCH_EXT_DIR}/node_modules" ] || ln -sfn /app/node_modules "${STUB_FETCH_EXT_DIR}/node_modules"
+  fi
+
   # --- Synthetic Agent-tick producer (throttle L3, change: reduce-bridge-tick-
   # bandwidth) --- Registers an `Agent` tool that streams tool_execution_update
   # frames at a deterministic cadence (via a `[[ticks:N@Mms]]` sentinel) for the

@@ -62,6 +62,20 @@ export function parseTailscaleAuthUrl(output: string): string | null {
   return m ? m[0] : null;
 }
 
+/**
+ * Admin-approval link tailscale prints when Serve/Funnel is not enabled on the
+ * tailnet ("Serve is not enabled on your tailnet. To enable, visit: <url>").
+ * The CLI then BLOCKS waiting for approval, so callers bound the run.
+ */
+export function parseServeEnableUrl(output: string): string | null {
+  if (!/not enabled on your tailnet/i.test(output)) return null;
+  const m = output.match(/https:\/\/login\.tailscale\.com\/f\/[^\s"']+/);
+  return m ? m[0] : null;
+}
+
+/** Bound on `serve`/`funnel --bg`: long enough to apply, short enough not to wait on admin approval. */
+const SERVE_TIMEOUT_MS = 8_000;
+
 /** Backend is logged-in + running. */
 export function isBackendRunning(statusJson: any): boolean {
   return statusJson?.BackendState === "Running";
@@ -184,8 +198,20 @@ export class TailscaleProvider implements TunnelProvider {
   private readonly run: CmdRunner;
 
   private readonly runAsync: AsyncCmdRunner;
+  /** Dashboard's own listen port — used by `probeLive()` when neither serve config nor a connect() supplies one. */
+  private readonly fallbackPort?: () => number | undefined;
+  /** Runs `serve`/`funnel --bg` with a KILLED-at-bound timeout (the CLI blocks on an unapproved tailnet). */
+  private readonly runServe: AsyncCmdRunner;
+  /** Last admin-approval link seen from serve/funnel; cleared by a clean run. */
+  private pendingApproval?: string;
 
-  constructor(run?: CmdRunner, runAsync?: AsyncCmdRunner) {
+  constructor(
+    run?: CmdRunner,
+    runAsync?: AsyncCmdRunner,
+    opts?: { fallbackPort?: () => number | undefined; runServe?: AsyncCmdRunner },
+  ) {
+    this.fallbackPort = opts?.fallbackPort;
+    this.runServe = opts?.runServe ?? asyncRunner(() => this.getBinary(), SERVE_TIMEOUT_MS);
     this.run = run ?? defaultRunner(() => this.getBinary());
     // Separate from `run` on purpose: the lifecycle keeps its synchronous
     // runner, readiness gets one whose timeout kills the child.
@@ -240,16 +266,32 @@ export class TailscaleProvider implements TunnelProvider {
         throw new Error(`funnel gates not met: ${failing.map((g) => g.name).join(", ")}`);
       }
       // Idempotent control command — funnel proxies the local port publicly.
-      this.run(["funnel", "--bg", `localhost:${port}`]);
+      await this.applyServe(["funnel", "--bg", `localhost:${port}`]);
     } else {
       // Idempotent control command — serve proxies the local port on the tailnet.
-      this.run(["serve", "--bg", "--set-path=/", `localhost:${port}`]);
+      await this.applyServe(["serve", "--bg", "--set-path=/", `localhost:${port}`]);
     }
     const endpoints = deriveEndpoints(this.statusJson(), this.serveStatusJson(), port, mode);
     this.lastEndpoints = endpoints;
     this.lastPort = port;
     this.lastMode = mode;
     return { endpoints };
+  }
+
+  /**
+   * Run serve/funnel bounded + async. On an unapproved tailnet the CLI prints an
+   * approval link and blocks; the runner kills it at the bound and the link is
+   * kept for the readiness row. Not a connect failure: the MagicDNS/mesh
+   * address on the dashboard's own port still works without serve.
+   */
+  private async applyServe(args: string[]): Promise<void> {
+    const r = await this.runServe(args);
+    this.pendingApproval = parseServeEnableUrl(`${r.stdout}\n${r.stderr}`) ?? undefined;
+  }
+
+  /** Admin-approval link the tailnet requires before serve/funnel can apply, if any. */
+  approvalUrl(): string | undefined {
+    return this.pendingApproval;
   }
 
   async disconnect(_port: number): Promise<void> {
@@ -311,7 +353,9 @@ export class TailscaleProvider implements TunnelProvider {
     // would display and an operator could try to open. So a port is derived
     // from the daemon's own serve config, and when none can be, liveness is
     // reported through an endpoint-free marker rather than a fake address.
-    const port = servedPort(serve) ?? this.lastPort;
+    // Last resort: the dashboard's own port. A tailnet node reaches it directly
+    // on the MagicDNS name / 100.x IP even without `tailscale serve`.
+    const port = servedPort(serve) ?? this.lastPort ?? this.fallbackPort?.();
     if (port === undefined) {
       // Backend is running and serving, but we cannot name the address. Report
       // LIVE with no endpoint rather than inventing one.

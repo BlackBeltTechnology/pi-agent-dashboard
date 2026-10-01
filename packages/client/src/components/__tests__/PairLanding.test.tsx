@@ -83,11 +83,58 @@ describe("PairLanding", () => {
     expect(storeDeviceBearer).not.toHaveBeenCalled();
   });
 
+  // change: add-pairing-approval-dialog — test-plan F11 / X12.
+  function pollReturning(status: string) {
+    setHash(PAYLOAD);
+    challengeIdentity.mockResolvedValue({ fingerprint: "sha256:server-fp", publicKey: "pk", verified: true });
+    postJson.mockImplementation(async (_base: string, path: string) => {
+      if (path === "/api/pair/redeem") return { pendingId: "p1", confirmCode: "12345678" };
+      if (path === "/api/pair/poll") return { status };
+      throw new Error(`unexpected ${path}`);
+    });
+  }
+  const pollCalls = () => postJson.mock.calls.filter((c) => c[1] === "/api/pair/poll").length;
+
+  it("F11 shows the decline on `rejected`, offers no restart, and stops polling", async () => {
+    pollReturning("rejected");
+    render(<PairLanding />);
+    await waitFor(() => expect(screen.getByTestId("pair-landing-rejected")).toBeDefined());
+    expect(screen.getByTestId("pair-landing-rejected").textContent).toContain("The dashboard declined this device");
+    expect(screen.queryByTestId("pair-landing-restart")).toBeNull();
+    const calls = pollCalls();
+    expect(calls).toBe(1);
+    // Past one poll interval (2s): no further poll was issued.
+    // fixed-tick-waits: opt-out — proves ABSENCE of a poll past the 2s interval
+    await new Promise((r) => setTimeout(r, 2100));
+    expect(pollCalls()).toBe(calls);
+  });
+
+  it("X12 an unknown status is terminal: polling stops and an error shows", async () => {
+    pollReturning("weird");
+    render(<PairLanding />);
+    await waitFor(() => expect(screen.getByTestId("pair-landing-error")).toBeDefined());
+    const calls = pollCalls();
+    expect(calls).toBe(1);
+    // fixed-tick-waits: opt-out — proves ABSENCE of a poll past the 2s interval
+    await new Promise((r) => setTimeout(r, 2100));
+    expect(pollCalls()).toBe(calls);
+  });
+
   it("shows an error + restart affordance when the hash is missing", async () => {
     window.location.hash = "";
     render(<PairLanding />);
     await waitFor(() => expect(screen.getByTestId("pair-landing-error")).toBeDefined());
     expect(screen.getByTestId("pair-landing-restart")).toBeDefined();
     expect(challengeIdentity).not.toHaveBeenCalled();
+  });
+
+  it("styles from theme tokens, never a hardcoded dark-only palette (readable in light + dark)", async () => {
+    window.location.hash = "";
+    const { container } = render(<PairLanding />);
+    await waitFor(() => expect(screen.getByTestId("pair-landing-error")).toBeDefined());
+    const classes = Array.from(container.querySelectorAll("[class]")).map((el) => el.getAttribute("class")).join(" ");
+    expect(classes).not.toMatch(/\b(?:text|bg|border)-(?:neutral|red|green|blue)-\d/);
+    expect(screen.getByTestId("pair-landing").className).toContain("text-[var(--text-primary)]");
+    expect(screen.getByTestId("pair-landing-error").innerHTML).toContain("var(--severity-error-fg)");
   });
 });

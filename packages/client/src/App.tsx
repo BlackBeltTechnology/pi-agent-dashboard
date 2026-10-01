@@ -1,10 +1,12 @@
-import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
+import type { OpenSpecArtifact } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, lazy, useMemo, useRef, useState, Suspense } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
+import { useHistoryState } from "wouter/use-browser-location";
+import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
@@ -35,7 +37,6 @@ import { ComposerSessionActions } from "./components/session/ComposerSessionActi
 import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
-import { GrantPromptHost } from "./components/access-grant/GrantPromptHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
@@ -46,6 +47,7 @@ import { LandingPage } from "./components/shell/LandingPage.js";
 import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
 import { MobileShell } from "./components/shell/MobileShell.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
+import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
@@ -86,8 +88,9 @@ import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
 import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
 import { initStore } from "./lib/git/worktree-init-store.js";
+import { CHAT_HEADER_BOUND, CHAT_HEADER_WEIGHT } from "./lib/layout/chat-pane-row-class.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
-import { goBack as goBackAction } from "./lib/nav/history-back.js";
+import { goBack as goBackAction, returnTo } from "./lib/nav/history-back.js";
 import {
   initNavTracker,
   popNav,
@@ -98,9 +101,11 @@ import {
 import {
   captureBackground,
   clearBackground,
+  isOverlayRoute,
   recordLauncher,
   resolveBackground,
   resolveDismissTarget,
+  splitLocation,
 } from "./lib/nav/overlay-background.js";
 import {
   buildFolderEditorUrl,
@@ -114,7 +119,8 @@ import {
 import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
-import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/replay/loading-history.js";
+import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
+import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
@@ -134,13 +140,25 @@ const NAV_TRACKER = { predecessor, popNav };
 // render site gets its OWN `Suspense`; in particular the
 // `shellRenderers.renderDiff` callback below needs a local boundary or its
 // suspension escapes into the shell.
+// Pairing approval host: own chunk, off the cold-landing entry (mdi-chunk-size
+// cap). See change: add-pairing-approval-dialog.
+// Electron-only header badge: its own chunk, off the entry gzip cap.
+// See change: electron-runtime-overlay-updates.
+const RuntimeUpdateBadge = lazy(() =>
+  import("./components/packages/RuntimeUpdateBadge.js").then((m) => ({ default: m.RuntimeUpdateBadge })),
+);
+const PairingApprovalHost = lazy(() =>
+  import("./components/pairing-approval/PairingApprovalHost.js").then((m) => ({ default: m.PairingApprovalHost })),
+);
 const FileDiffView = lazy(() =>
   import("./components/diff/FileDiffView.js").then((m) => ({ default: m.FileDiffView })),
 );
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ArchivedSessionSummary, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { CardSectionPrefs } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { GroupByPrefs } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
@@ -161,11 +179,13 @@ import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
 import { loginRedirectFor } from "./lib/identity/login-session.js";
+import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
-import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
+import { clearLegacyCollapsedGroups, decideCollapsedFoldersMigration, readLegacyCollapsedGroups, writeLegacyCollapsedGroups } from "./lib/session/session-filter-storage.js";
+import { type CardSectionsContextValue, CardSectionsProvider } from "./lib/state/CardSectionsContext.js";
 import { DisplayPrefsProvider, resolveSessionOverride } from "./lib/state/DisplayPrefsContext.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 
@@ -182,7 +202,6 @@ import {
   ContentInlineFooterSlot,
   ContentViewSlot,createSlotRegistry, 
   FolderMenuProvider,
-  forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
   useShellOverlayRouteMatched,
@@ -509,7 +528,7 @@ export default function App() {
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
-  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "skills", "agents", "extensions", "prompts", "themes"] as const;
+  const VALID_FOLDER_SETTINGS_PAGES = ["instructions", "packages", "cards", "skills", "agents", "extensions", "prompts", "themes"] as const;
   const folderSettingsPageRaw = folderSettingsMatch ? folderSettingsParams?.page : undefined;
   const folderSettingsPage: DirectorySettingsPage =
     folderSettingsPageRaw && (VALID_FOLDER_SETTINGS_PAGES as readonly string[]).includes(folderSettingsPageRaw)
@@ -524,6 +543,18 @@ export default function App() {
   const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
   const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
   const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
+  // Deliberate-open intent (design D8): the flows plugin stamps a fresh
+  // `openNonce` into the history entry on every file-button open, so a target
+  // re-opened after the user closed the pane (or only its tab) — an identical
+  // URL — is still a NEW intent for `SplitRouteSync`'s apply-once key. Read only
+  // while the editor route matches; a host navigation without the nonce leaves
+  // the key exactly as it was before this change. The app mounts the default
+  // `<Router>` (main.tsx), so this is wouter's browser hook.
+  const editorHistoryNonce = (useHistoryState() as { openNonce?: unknown } | null)?.openNonce;
+  const editorOpenNonce =
+    editorMatch && (typeof editorHistoryNonce === "number" || typeof editorHistoryNonce === "string")
+      ? String(editorHistoryNonce)
+      : "";
   // Subagent popout decoded params + parent-session label.
   // See change: add-subagent-inspector §7.
   // Plugin overlay routes are tracked by the slot consumer hook.
@@ -726,6 +757,13 @@ export default function App() {
   // connect snapshot too). Server is the single source of truth — no optimistic
   // mirror, matching the `workspaces_updated` convention below.
   const [collapsedFolders, setCollapsedFolders] = useState<string[]>([]);
+  // session-list-group-by: server-owned grouping prefs (`group_by_prefs_updated`,
+  // sent in the connect burst before any folder-materializing frame).
+  // `undefined` until the snapshot lands — also the urgency migration's gate.
+  const [groupByPrefs, setGroupByPrefs] = useState<GroupByPrefs | undefined>(undefined);
+  // configurable-session-card-sections: session-card section visibility
+  // snapshot, synced via `card_sections_updated`. Server-authoritative.
+  const [cardSections, setCardSections] = useState<CardSectionPrefs>({});
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const providersReady = useProvidersReady();
   const [terminals, setTerminals] = useState<Map<string, TerminalSession>>(new Map());
@@ -775,20 +813,30 @@ export default function App() {
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
   // ChatView loading indicator. See change: show-chat-history-loading-indicator.
-  const [loadingHistory, setLoadingHistory] = useState<Map<string, boolean>>(new Map());
-  const loadingHistoryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Per-session "replay in flight" flag: armed with `loadingHistory` on every
   // `subscribe`, but cleared only by the TERMINAL `event_replay` batch (or the
   // failure edge / safety net) rather than by first content. Drives the
   // ChatView in-flight pill. See change: show-replay-in-flight-indicator.
-  const [replayInFlight, setReplayInFlight] = useState<Map<string, boolean>>(new Map());
+  // Both flags, their timers, the failed mark and the elapsed clock live in
+  // `useHistoryLoadState` (reconnect reset included).
+  // See change: show-session-history-load-state (design D2).
+  const hasChatContentFor = useCallback(
+    (id: string) => hasChatContent(sessionStatesRef.current.get(id), sessionsRef.current.get(id)?.pendingQueues?.steering),
+    [],
+  );
+  const {
+    loadingHistory, setLoadingHistory, loadingHistoryTimersRef,
+    replayInFlight, setReplayInFlight, replayInFlightTimersRef,
+    historyLoadFailed, historyLoadStartedAt,
+    beginLoadingHistory, beginReplayInFlight,
+    markHistoryLoadFailed, clearHistoryLoadFailed, resetAllHistoryLoad,
+  } = useHistoryLoadState({ status, hasContent: hasChatContentFor });
   // Per-session windowed-replay gap. Non-empty only for sessions the server
   // bounded via `maxReplayEvents`. See change: lazy-load-session-history.
   const [historyGaps, setHistoryGaps] = useState<Map<string, import("./lib/chat/history-gap.js").HistoryGapState>>(new Map());
   // Bumped once per successful backfill splice; drives ChatView's scroll-anchor
   // restore. See change: lazy-load-session-history.
   const [historySpliceRev, setHistorySpliceRev] = useState(0);
-  const replayInFlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // After overlay-url-routing: shell overlays are URL-driven via the
   // useRoute matches declared above. `previewState`, `specsBrowserCwd`,
   // `archiveBrowserCwd`, `diffViewSessionId`, and the three useContentViews
@@ -851,6 +899,10 @@ export default function App() {
           // See change: lazy-load-session-history.
           setHistoryGaps(new Map());
           setHistorySpliceRev(0);
+          // Flags, timers, failed marks and clocks are one server's too; a
+          // stale timer would mark a false failure against server B.
+          // See change: show-session-history-load-state (design D2).
+          resetAllHistoryLoad();
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
@@ -948,45 +1000,6 @@ export default function App() {
     sessions: Array.from(sessions.values()).map((s) => ({ cwd: s.cwd })),
   };
 
-  // Enter LOADING for a session: set the flag and arm the short
-  // `SUBSCRIBE_ACK_MS` safety-net timer (clearing any prior timer). Called from
-  // every `subscribe` send site so cleared / refreshed chats show the spinner
-  // during replay, not the empty placeholder. On the cold path the server's
-  // hydration start marker re-arms this to the longer `HYDRATE_CEILING_MS`.
-  // See change: show-chat-history-loading-indicator,
-  // fix-history-loading-false-empty-flash.
-  const beginLoadingHistory = useCallback((id: string) => {
-    const existingTimer = loadingHistoryTimersRef.current.get(id);
-    if (existingTimer) clearTimeout(existingTimer);
-    setLoadingHistory((prev) => {
-      const next = new Map(prev);
-      next.set(id, true);
-      return next;
-    });
-    loadingHistoryTimersRef.current.set(
-      id,
-      setTimeout(() => clearLoadingHistory(setLoadingHistory, loadingHistoryTimersRef, id), SUBSCRIBE_ACK_MS),
-    );
-  }, []);
-
-  // Sibling of `beginLoadingHistory` for the in-flight flag. Not a reuse:
-  // `beginLoadingHistory` hard-codes its own setter and timers ref.
-  // Declared BEFORE `handleRefreshChat`, which lists it as a dependency.
-  // See change: show-replay-in-flight-indicator.
-  const beginReplayInFlight = useCallback((id: string) => {
-    const existingTimer = replayInFlightTimersRef.current.get(id);
-    if (existingTimer) clearTimeout(existingTimer);
-    setReplayInFlight((prev) => {
-      const next = new Map(prev);
-      next.set(id, true);
-      return next;
-    });
-    replayInFlightTimersRef.current.set(
-      id,
-      setTimeout(() => clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, id), SUBSCRIBE_ACK_MS),
-    );
-  }, []);
-
   // Single send point for the pending-prompt resync (`prompt_resync_request`,
   // design D9 of fix-pending-prompt-lost-on-replay): the refresh coordinator
   // AND the desync affordance both fire it, so exactly one request goes out per
@@ -1034,7 +1047,9 @@ export default function App() {
         subscribedRef.current.add(id);
       },
       subscribe: (id) => send({ type: "subscribe", sessionId: id, lastSeq: 0 }),
-      beginLoadingHistory: (id) => beginLoadingHistory(id),
+      // Called with `{ restart: true }` (a refresh is a new load).
+      // See change: show-session-history-load-state (design D5).
+      beginLoadingHistory,
       beginReplayInFlight: (id) => beginReplayInFlight(id),
       requestPromptResync,
     }).catch(logRejection("App.handleRefreshChat"));
@@ -1066,8 +1081,8 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
-    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setCollapsedFolders, setCardSections, setGroupByPrefs, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev, setEndedTotalsMap, setArchivedCountMap, setPagedCount, setPageReplyGen, setPageExhausted, setSnapshotGeneration },
+    { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast, sessionsRef, openspecGetInflightRef, endedTotalsMap, markHistoryLoadFailed, clearHistoryLoadFailed },
   );
 
   // D7: rendered cwds the OpenSpec reconciliation may pull for — non-ended
@@ -1241,6 +1256,18 @@ export default function App() {
     if (decision.nextRecord) writeLegacyCollapsedGroups(decision.nextRecord);
   }, [snapshotGeneration, collapsedFolders, send]);
 
+  // session-list-group-by: one-shot retirement of the localStorage urgency
+  // toggle — sends once the grouping snapshot is known; clears the legacy key
+  // only after the echoed snapshot confirms every folder (D8).
+  const urgencyMigrationSentRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    runUrgencyMigration(
+      groupByPrefs,
+      (path, mode) => send({ type: "set_folder_group_by", path, mode }),
+      urgencyMigrationSentRef.current,
+    );
+  }, [groupByPrefs, send]);
+
   // Clear subscriptions on reconnect so sessions get re-subscribed
   const prevStatusRef = useRef(status);
   useEffect(() => {
@@ -1300,6 +1327,47 @@ export default function App() {
   useEffect(() => {
     if (status !== "connected") globalRefreshRequestedRef.current = false;
   }, [status]);
+
+  // Arm LOADING at selection, before paint: the lazy-subscribe effect below may
+  // first await the IndexedDB replay-cache read, and without this the first
+  // painted frame(s) show "No messages yet". Layout effects flush before paint
+  // and before that passive effect; `doSubscribe()` re-arms idempotently
+  // (startedAt kept). Runs after `useHistoryLoadState`'s reconnect-reset layout
+  // effect in the same commit, so a reconnect re-arms rather than being wiped.
+  // See change: show-session-history-load-state (design D3).
+  // Arms `loadingHistory` ONLY: arming `replayInFlight` here would start the
+  // in-flight pill's show-delay before the cache read, so a warm reload whose
+  // cached content lands >300 ms later would flash the pill (replay-in-flight
+  // F10). `doSubscribe()` arms it at the subscribe, as before; the card ring
+  // still covers the gap (`loading = loadingHistory || replayInFlight`).
+  useLayoutEffect(() => {
+    if (!selectedId || status !== "connected") return;
+    if (subscribedRef.current.has(selectedId)) return;
+    if (hasChatContentFor(selectedId)) return;
+    beginLoadingHistory(selectedId);
+  }, [selectedId, status, hasChatContentFor, beginLoadingHistory]);
+
+  // One derived phase per session, read by ChatView (selected entry) and
+  // SessionList (whole map); neither re-derives. `status` alone drives
+  // `waiting`, so it must be a dep. See change: show-session-history-load-state (D1).
+  const historyPhaseMap = useMemo(
+    () =>
+      buildHistoryPhaseMap({
+        loadingHistory,
+        replayInFlight,
+        historyLoadFailed,
+        historyLoadStartedAt,
+        selectedId,
+        connected: status === "connected",
+        hasContent: (id) => hasChatContent(sessionStates.get(id), sessions.get(id)?.pendingQueues?.steering),
+      }),
+    [loadingHistory, replayInFlight, historyLoadFailed, historyLoadStartedAt, sessionStates, sessions, selectedId, status],
+  );
+  const selectedHistoryPhase = selectedId ? historyPhaseMap.get(selectedId) : undefined;
+  const handleRetryHistory = useCallback(() => {
+    const sid = selectedSessionIdRef.current;
+    if (sid) handleRefreshChat(sid);
+  }, [handleRefreshChat]);
 
   // After overlay-url-routing: overlays are URL-driven, so a session switch
   // (which navigates to /session/:id) automatically clears any overlay route
@@ -1945,6 +2013,10 @@ export default function App() {
       // arrive (matches the workspace-collapse convention below).
       collapsedGroups={collapsedFolders}
       onSetFolderCollapsed={(path, collapsed) => send({ type: "set_folder_collapsed", path, collapsed })}
+      // session-list-group-by — server-owned, no optimistic mirror.
+      groupByPrefs={groupByPrefs}
+      onSetFolderGroupBy={(path, mode) => send({ type: "set_folder_group_by", path, mode })}
+      onSetLaneCollapsed={(path, lane, collapsed) => send({ type: "set_lane_collapsed", path, lane, collapsed })}
       // folder-workspaces — optimistic UI is intentionally omitted: server
       // is the single source of truth and broadcasts `workspaces_updated`
       // for every mutation, so we just dispatch and let the broadcast
@@ -1964,6 +2036,7 @@ export default function App() {
       onSetProcessDrawer={(sessionId, collapsed) => send({ type: "set_session_process_drawer", sessionId, collapsed })}
       onRemoveTagGlobally={removeTagGlobally}
       inflightBashMap={inflightBashMap}
+      historyPhaseMap={historyPhaseMap}
       onAbortTool={handleAbortTool}
       gitWorktreeEnabled={gitWorktreeEnabled}
       errorSessionIds={errorSessionIds}
@@ -1976,7 +2049,12 @@ export default function App() {
       onDismissResumeError={(id) => setResumeErrors((prev) => { const next = new Map(prev); next.delete(id); return next; })}
       headerExtra={
         <div className="flex items-center gap-2">
-          {launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource !== null && launchSource !== "electron" && <PiUpdateBadge />}
+          {launchSource === "electron" && (
+            <Suspense fallback={null}>
+              <RuntimeUpdateBadge />
+            </Suspense>
+          )}
           <ServerSelector
             currentHost={currentServerHost}
             currentPort={currentServerPort}
@@ -2078,10 +2156,13 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
   const dismissOverlay = useCallback(() => {
     const target = resolveDismissTarget(fullLocation);
-    // Drop the capture first: the navigation below lands on a non-overlay route,
-    // which immediately re-captures it as the next overlay's background.
-    clearBackground();
-    navigate(target);
+    // Leaving to a base route: drop the capture; landing re-captures it as the
+    // next overlay's background. Returning INTO a launching overlay: keep it, so
+    // the underlay stays put; the arrival pops the launcher stack.
+    if (!isOverlayRoute(splitLocation(target).path)) clearBackground();
+    // Pop/replace, never push: a pushed dismiss grows an overlay/launcher trail
+    // that browser Back walks forever. See change: fix-overlay-dismiss-flip-loop.
+    returnTo(navigate, target, NAV_TRACKER);
   }, [fullLocation, navigate]);
 
   // Live-selection aliases, captured BEFORE the shadowing block below.
@@ -2272,7 +2353,15 @@ export default function App() {
               shell renders zero flow-specific content. See change:
               pluginize-flows-via-registry. */}
           {selectedSession && (
-            <div className="sticky top-0 z-10">
+            // Shrinkable row (D6): its own `overflow-y-auto` makes the flex
+            // automatic minimum 0, so it takes a share of a pane deficit and
+            // scrolls internally instead of clipping the card grid. Weight +
+            // bound come from the row table; no pixel floor (an empty slot
+            // renders 0px). See change: consolidate-flow-agent-cards.
+            <div
+              className="sticky top-0 z-10 overflow-y-auto"
+              style={{ flexShrink: CHAT_HEADER_WEIGHT, minHeight: CHAT_HEADER_BOUND }}
+            >
               <ContentHeaderStickySlot session={selectedSession} />
             </div>
           )}
@@ -2285,7 +2374,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onPromptResync={requestPromptResync} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onRetryPendingPrompt={selectedId ? handleRetryPendingPrompt : undefined} onForkPendingPrompt={selectedId ? handleForkPendingPrompt : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} retainedTranscript={selectedSession?.retainedTranscript} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} historyPhase={selectedHistoryPhase?.phase ?? "idle"} historyStartedAt={selectedHistoryPhase?.startedAt} onRetryHistory={selectedId ? handleRetryHistory : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
@@ -2358,6 +2447,14 @@ export default function App() {
                 allSessions={Array.from(sessions.values())}
                 showGitInfo={true}
                 openspecConfig={openspecConfig}
+                /* Attach / detach from the change chip, same sources as the
+                   session card; working = streaming ∨ retrying (D9).
+                   See change: redesign-composer-session-strip. */
+                onAttach={(changeName) => handleAttachProposal(selectedSession.id, changeName)}
+                onDetach={() => handleDetachProposal(selectedSession.id)}
+                groups={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.groups : undefined}
+                assignments={selectedCwd ? openspecGroupsMap.get(selectedCwd)?.assignments : undefined}
+                working={selectedSession.status === "streaming" || retrySessionIds.has(selectedSession.id)}
               />
             </div>
           )}
@@ -2672,6 +2769,20 @@ export default function App() {
   // fix-session-card-icon-import-and-shell-boundary.
   // Memoize the session-override lookup so consumer `useDisplayPrefs`
   // re-runs only when the relevant session's override actually changes.
+  // `showToast` is re-created every render; route it through a ref so the
+  // card-sections context value (and every memoized SessionCard reading it)
+  // only changes when the snapshot or the socket does.
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+  const stableShowToast = useCallback<NonNullable<CardSectionsContextValue["showToast"]>>(
+    (text, variant, opts) => showToastRef.current(text, variant, opts),
+    [],
+  );
+  const cardSectionsContextValue = useMemo<CardSectionsContextValue>(
+    () => ({ prefs: cardSections, send, connected: ws !== null, showToast: stableShowToast }),
+    [cardSections, send, ws, stableShowToast],
+  );
+
   const displayPrefsContextValue = useMemo(() => ({
     global: displayPrefs,
     getSessionOverride: (sessionId: string | undefined) => resolveSessionOverride(sessions, sessionId),
@@ -2699,10 +2810,18 @@ export default function App() {
   // `firstLaunchModal`. Also owns the prompt capability's lifecycle.
   // See change: add-access-grant-dialog.
   const grantPromptHost = <GrantPromptHost onMessage={onMessage} send={send} ws={ws} />;
+  // Pairing approval dialog: mounted beside the grant host in BOTH returns.
+  // See change: add-pairing-approval-dialog.
+  const pairingApprovalHost = (
+    <Suspense fallback={null}>
+      <PairingApprovalHost onMessage={onMessage} ws={ws} />
+    </Suspense>
+  );
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
+      <CardSectionsProvider value={cardSectionsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
       <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
@@ -2771,7 +2890,7 @@ export default function App() {
               });
             }}
           >
-            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} />
+            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} />
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
@@ -2786,6 +2905,7 @@ export default function App() {
       </PluginContextProvider>
       </ModelConfigProvider>
       </CommitDialogProvider>
+      </CardSectionsProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>
   );
@@ -2832,6 +2952,7 @@ export default function App() {
         <RecoveryOfferHost onReopen={(ids) => { for (const id of ids) handleResumeSession(id, "continue"); }} onDismiss={(ids) => send({ type: "recovery_dismiss", sessionIds: ids })} />
         {firstLaunchModal}
         {grantPromptHost}
+        {pairingApprovalHost}
         <MobileShell
           depth={mobileDepth}
           onBack={() => {
@@ -2847,7 +2968,7 @@ export default function App() {
           }
           detailPanel={
             settingsMatch ? (
-              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />
+              <SettingsPanel onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
             ) : tunnelSetupMatch ? (
               <ZrokInstallGuide onBack={goBack} />
             ) : pluginOverlayMatched ? (
@@ -2878,6 +2999,7 @@ export default function App() {
     <div className="flex h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       {firstLaunchModal}
       {grantPromptHost}
+      {pairingApprovalHost}
       {/* Concurrent worktree-init stack — fixed overlay, mounted in both shells
           (mobile branch above) so desktop also surfaces it. See change:
           friendlier-worktree-init. */}
@@ -2932,12 +3054,18 @@ export default function App() {
                    `<ContentViewSlot>` to return null while still satisfying
                    the `??` operator, masking sessionDetail / LandingPage.
                    See change: pluginize-flows-via-registry (design.md
-                   Decision 3 RECONSIDERED). */
-                const contentView =
-                  selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
-                    ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
-                    : null;
-                return contentView ?? renderSessionDetail(id);
+                   Decision 3 RECONSIDERED).
+                   The gate subscribes to slot-claims invalidation, so a
+                   predicate flip re-renders it on an idle session. See change:
+                   fix-browser-live-view-subscribe-and-reopen (D6). */
+                return (
+                  <SessionContentGate
+                    registry={_pluginRegistry}
+                    session={selectedId ? selectedSession : undefined}
+                    renderContentView={(session) => <ContentViewSlot session={session} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />}
+                    renderDetail={() => renderSessionDetail(id)}
+                  />
+                );
               }}
             />
           )
@@ -3112,7 +3240,7 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} />
+        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} groupByPrefs={groupByPrefs} onSetDefaultGroupBy={(mode) => send({ type: "set_default_group_by", mode })} />
           </RouteBackedOverlay>
         )}
         {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at

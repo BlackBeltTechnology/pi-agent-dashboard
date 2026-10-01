@@ -46,7 +46,10 @@ function useOpenTarget() {
         // Canvas auto-open (no user click) → restrictCsp so document viewers
         // block external subresources (auto-open egress ≤ manual-click, S34).
         // `restrictCsp` (egress) and `background` (focus) are orthogonal.
-        openInSplit(target.path, undefined, true, { background });
+        // `autoOpened` is provenance: the effect (background) is the agent,
+        // the chip tap is the operator — `restrictCsp` is true for both, so it
+        // cannot tell them apart (surface-denial-remedy-in-previews, D4).
+        openInSplit(target.path, undefined, true, { background, autoOpened: background });
       } else if (target.kind === "url" && isLoopbackUrl(target.url)) {
         // Loopback dev-server URL → SSRF-gated live-server viewer.
         openLiveTarget(target.url, { background });
@@ -81,10 +84,13 @@ export function CanvasDriver({ state }: Props) {
       return;
     }
     if (key === lastKeyRef.current) return;
+    // mobile: do not yank — the tap-to-open chip below handles it. The key is
+    // NOT consumed while gated, so the target still opens once the viewport
+    // grows (tier is an effect dep).
+    if (!gateAllowsAutoOpen(tier)) return;
     lastKeyRef.current = key;
     // Agent auto-open → background (add silently while the editor is shown).
-    if (gateAllowsAutoOpen(tier)) openTarget(state, true);
-    // mobile: do not yank — the tap-to-open chip below handles it.
+    openTarget(state, true);
   }, [key, tier, openTarget, state]);
 
   const showMobileChip = tier === "mobile" && state.target != null;

@@ -38,6 +38,8 @@ export interface Shot {
   continuity: string;
   /** This shot flows SEAMLESS into the next. */
   seamlessNext: boolean;
+  /** The markdown declares an aspect ratio (else `aspectRatio` is the 16:9 default). */
+  aspectDeclared?: boolean;
 }
 
 /** Short id, e.g. "03A" for "shot_03A". */
@@ -106,7 +108,10 @@ export function parseShotFile(filePath: string, baseDir: string): Shot {
   if (ms) shot.seed = Number.parseInt(ms[1], 10);
 
   const ma = text.match(/Aspect[:*\s]*[`*]*\s*([0-9]+:[0-9]+)/);
-  if (ma) shot.aspectRatio = ma[1];
+  if (ma) {
+    shot.aspectRatio = ma[1];
+    shot.aspectDeclared = true;
+  }
 
   if (/\b4k\b/i.test(text)) shot.resolution = "4k";
   else if (/\b1080p\b/i.test(text)) shot.resolution = "1080p";

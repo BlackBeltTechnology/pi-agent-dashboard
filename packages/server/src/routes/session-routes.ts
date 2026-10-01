@@ -6,6 +6,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { evaluateContainment } from "../access/containment-gate.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import { readFileVerifiedUtf8, VerifiedReadRefused } from "../access/verified-read.js";
 import { canAccessSession, gateHttpSession, sessionPrincipalOf } from "../identity/session-access.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -453,6 +454,7 @@ export function registerSessionRoutes(
         const sessionDecision = await evaluateContainment(absPath, [session.cwd], {
           site: "session-routes:session-file",
           hold: { request, reply },
+          disclosure: canDiscloseAccessPosture(request),
           session: sessionId,
         });
         if (!sessionDecision.allowed) {

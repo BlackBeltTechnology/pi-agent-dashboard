@@ -38,3 +38,16 @@ The `llmChanged` save task dispatches `PROVIDER_AUTH_EVENT` (imported from `hook
 - Access page renders `<AccessPromptsSection />` then `<AccessSection />` (siblings). Prompt toggle writes `accessGrants.promptEnabled` instant-apply via `PUT /api/config`, NOT through the Save-bar draft (`computeConfigPartial` does not diff `accessGrants`, so no Save clobbers it). See change: add-access-grant-dialog (tasks 8.1-8.3)
 
 Access page passes `selectedCwd` to `AccessPromptsSection` (YOLO default scope). See change: add-access-grant-dialog (tasks 8b.7a).
+
+## session-list-group-by
+
+- Props `groupByPrefs`, `onSetDefaultGroupBy`; renders `DefaultGroupingField` first in Session list section (disabled until prefs known). See change: session-list-group-by.
+Renders `CardSectionsSection` after `DisplayPrefsSection` on General. See change: configurable-session-card-sections.
+
+See change: align-ui-with-theme-tokens. User-facing hints say new/start sessions, never spawn (keys unchanged).
+
+Models nav group FIRST (`navGroups` gains `id`; Providers moved from Extensions). `promotions` = `resolveSettingsPromotions(pluginRows, RESERVED_SETTINGS_LABELS)`. Promoted entry `nav-promoted-<id>` (generic plugin icon, `pluginNavHealth` dot, `off` marker when disabled, active iff `activePluginId === id`). Plugins subtree: enabled promoted → pointer row `nav-plugin-pointer-<id>` (`<Name> ↗ <Group>`, never `aria-current`). Save Bar label `<Group> › <nav.label>`. Passes `promotion` to `PluginSettingsPage`, `promotions` to `PluginsSection`. testids `settings-nav-group-<id>` / `settings-nav-group-label-<id>`. See change: promote-model-roles-settings.
+
+## electron-runtime-overlay-updates
+
+Packages tab renders `ElectronRuntimeUpdates` → lazy `RuntimeUpdatesSection` (own chunk, off the entry gzip cap) when `useLaunchSource()==="electron"`. See change: electron-runtime-overlay-updates.

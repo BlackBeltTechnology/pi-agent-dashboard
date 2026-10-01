@@ -8,8 +8,16 @@
  *                     just attach the BrowserWindow.
  *   2. devMonorepo  — running from the checked-out monorepo
  *                     (ELECTRON_DEV=1 gated; not a packaged-app code path).
- *   3. bundled      — spawn the server from `<resourcesPath>/server/`;
- *                     immutable, no extraction, no install.
+ *   3. localLink    — a user-linked checkout (effective runtime source
+ *                     `local`), run in place.
+ *   4. overlay      — a staged runtime release (effective source `npm` or
+ *                     `github`); pending before current.
+ *   5. bundled      — spawn the server from `<resourcesPath>/server/`;
+ *                     immutable, no extraction, no install. Last fallback.
+ *
+ * `localLink` / `overlay` candidates that fail their gate (compat + preflight)
+ * fall through to the next kind and are reported via `onFallThrough`
+ * (`lastFailure`). See change: electron-runtime-overlay-updates (D4).
  *
  * Pre-R3 source kinds (`piExtension`, `npmGlobal`, `extracted`) are gone:
  * they only existed to defend against runtime-install / mutable-managed-dir
@@ -19,6 +27,7 @@
  * network, or child-process layer.
  */
 
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
@@ -28,6 +37,10 @@ import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import type { EffectiveSource } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import type { RuntimeGateResult } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/compat.js";
+import { getRuntimeOverlayDir } from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
+import { extensionPathFor } from "./runtime-overlay.js";
 
 export type { LaunchSource, SourceKind };
 
@@ -37,6 +50,8 @@ export const VALID_SOURCE_KINDS: ReadonlySet<SourceKind> = new Set<SourceKind>([
   "attach",
   "devMonorepo",
   "bundled",
+  "localLink",
+  "overlay",
 ]);
 
 // ── Server-startup deadlines ─────────────────────────────────────────────────
@@ -54,10 +69,13 @@ export const SERVER_READY_DEADLINE_DEV_MS = 60_000;
 
 /**
  * Returns the readiness deadline for the given launch-source kind.
- * Pure helper. `devMonorepo` → 60s; everything else (`bundled`, `attach`) → 15s.
+ * Pure helper. `devMonorepo` / `localLink` (TS checkout cold boot) → 60s;
+ * everything else (`bundled`, `overlay` — installed-tree shape, `attach`) → 15s.
  */
 export function getServerReadyDeadlineMs(sourceKind: string): number {
-  return sourceKind === "devMonorepo" ? SERVER_READY_DEADLINE_DEV_MS : SERVER_READY_DEADLINE_MS;
+  return sourceKind === "devMonorepo" || sourceKind === "localLink"
+    ? SERVER_READY_DEADLINE_DEV_MS
+    : SERVER_READY_DEADLINE_MS;
 }
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -117,6 +135,29 @@ export interface LaunchSourceProbes {
 
 // ── Options ───────────────────────────────────────────────────────────────────
 
+/** A `localLink` / `overlay` launch candidate, identified by its runtime id. */
+interface RuntimeCandidate {
+  runtimeId: string;
+  /** Checkout root (localLink) or `versions/<X>/` (overlay). */
+  root: string;
+}
+
+/**
+ * Runtime-overlay inputs, computed by the caller from `request.json` +
+ * `state.json` (pending/attempts/bad handling lives there, not here).
+ * Absent → today's `attach → devMonorepo → bundled` behaviour.
+ */
+export interface RuntimeLaunchInputs {
+  effectiveSource: EffectiveSource;
+  local?: RuntimeCandidate;
+  /** Overlay candidates in preference order (pending before current). */
+  overlays?: RuntimeCandidate[];
+  /** Compat gate + preflight (D6). Absent → only the server entry is checked. */
+  gate?: (candidate: RuntimeCandidate & { kind: "localLink" | "overlay" }) => RuntimeGateResult;
+  /** Called for each considered candidate that fails and falls through (`lastFailure`). */
+  onFallThrough?: (failure: { kind: "localLink" | "overlay"; runtimeId: string; reason: string }) => void;
+}
+
 export interface LaunchSourceOpts {
   isPackaged: boolean;
   cwd: string;
@@ -124,6 +165,9 @@ export interface LaunchSourceOpts {
   resourcesPath: string;
   port?: number;
   probes?: Partial<LaunchSourceProbes>;
+  /** Runtime activation: never attach, even if a server still answers health. */
+  skipAttach?: boolean;
+  runtime?: RuntimeLaunchInputs;
 }
 
 // ── Default probe implementations ─────────────────────────────────────────────
@@ -237,27 +281,74 @@ function probeBundled(
   return { kind: "bundled", cliPath, cwd };
 }
 
+/** Server entry of a staged overlay root (`versions/<X>/`). */
+export function getOverlayCliPath(root: string): string {
+  return path.join(root, "node_modules", "@blackbelt-technology", "pi-dashboard-server", "src", "cli.ts");
+}
+
+/** Server entry of a linked monorepo checkout. */
+export function getLocalCliPath(root: string): string {
+  return path.join(root, "packages", "server", "src", "cli.ts");
+}
+
+function tryRuntimeCandidate(
+  kind: "localLink" | "overlay",
+  candidate: RuntimeCandidate,
+  runtime: RuntimeLaunchInputs,
+  probes: LaunchSourceProbes,
+): LaunchSource | null {
+  const cliPath = kind === "localLink" ? getLocalCliPath(candidate.root) : getOverlayCliPath(candidate.root);
+  const gate: RuntimeGateResult = !probes.existsSync(cliPath)
+    ? { ok: false, code: "missing_file", path: cliPath, message: `missing_file ${cliPath}` }
+    : (runtime.gate?.({ ...candidate, kind }) ?? { ok: true });
+  if (!gate.ok) {
+    runtime.onFallThrough?.({ kind, runtimeId: candidate.runtimeId, reason: gate.message });
+    return null;
+  }
+  return { kind, cliPath, cwd: candidate.root, runtimeId: candidate.runtimeId };
+}
+
+function probeLocalLink(opts: LaunchSourceOpts, probes: LaunchSourceProbes): LaunchSource | null {
+  const rt = opts.runtime;
+  if (!rt?.local || rt.effectiveSource !== "local") return null;
+  return tryRuntimeCandidate("localLink", rt.local, rt, probes);
+}
+
+function probeOverlay(opts: LaunchSourceOpts, probes: LaunchSourceProbes): LaunchSource | null {
+  const rt = opts.runtime;
+  if (!rt?.overlays || (rt.effectiveSource !== "npm" && rt.effectiveSource !== "github")) return null;
+  for (const candidate of rt.overlays) {
+    const source = tryRuntimeCandidate("overlay", candidate, rt, probes);
+    if (source) return source;
+  }
+  return null;
+}
+
 // ── Main resolver ─────────────────────────────────────────────────────────────
 
 /**
  * Resolve the best available `LaunchSource` for this Electron session.
  *
- * Returns `{ kind: "attach", ... }` when a running server is detected.
- * Otherwise probes `devMonorepo` (dev-only) then `bundled` (the packaged
- * code path). Throws `BundledServerMissingError` if no source resolves.
+ * Returns `{ kind: "attach", ... }` when a running server is detected
+ * (never with `skipAttach`). Otherwise probes `devMonorepo` (dev-only),
+ * `localLink`, `overlay`, then `bundled` (the packaged code path). Throws
+ * `BundledServerMissingError` if no source resolves.
  */
 export async function selectLaunchSource(opts: LaunchSourceOpts): Promise<LaunchSource> {
   const probes = buildProbes(opts.probes);
   const port = opts.port ?? 8000;
 
-  // 1. Health probe — already running?
-  const health = await probes.healthProbe(port);
-  if (health.running && health.url) {
-    return {
-      kind: "attach",
-      url: health.url,
-      starter: health.starter ?? "Standalone",
-    };
+  // 1. Health probe — already running? Skipped for runtime activation, where
+  //    the old server may still answer and must never be attached/committed.
+  if (!opts.skipAttach) {
+    const health = await probes.healthProbe(port);
+    if (health.running && health.url) {
+      return {
+        kind: "attach",
+        url: health.url,
+        starter: health.starter ?? "Standalone",
+      };
+    }
   }
 
   // 2. Override pin?
@@ -268,7 +359,7 @@ export async function selectLaunchSource(opts: LaunchSourceOpts): Promise<Launch
   }
 
   // 3. Walk the priority chain.
-  const chain: SourceKind[] = ["devMonorepo", "bundled"];
+  const chain: SourceKind[] = ["devMonorepo", "localLink", "overlay", "bundled"];
   for (const kind of chain) {
     const source = trySource(kind, opts, probes);
     if (source) return source;
@@ -287,9 +378,55 @@ function trySource(
       return null; // handled separately
     case "devMonorepo":
       return probeDevMonorepo(opts, probes);
+    case "localLink":
+      return probeLocalLink(opts, probes);
+    case "overlay":
+      return probeOverlay(opts, probes);
     case "bundled":
       return probeBundled(opts, probes);
   }
+}
+
+/**
+ * Per-app-launch owner token, stamped into every server this app spawns
+ * (`PI_DASHBOARD_ELECTRON_INSTANCE`). `/api/restart` re-spawns with the same
+ * env, so ownership survives a server restart even though its PID changes.
+ * See change: electron-runtime-overlay-updates.
+ */
+const ELECTRON_INSTANCE_ID = randomUUID();
+
+export function getElectronInstanceId(): string {
+  return ELECTRON_INSTANCE_ID;
+}
+
+/** Runtime id of a spawnable source: overlay `X`, `local:<realpath>`, `bundled`, `devMonorepo`. */
+function runtimeIdOf(source: Exclude<LaunchSource, { kind: "attach" }>): string {
+  return source.kind === "overlay" || source.kind === "localLink" ? source.runtimeId : source.kind;
+}
+
+/**
+ * Runtime identity env for the spawned server: id/origin (echoed by
+ * /api/health.runtime), the Electron owner token, and — except devMonorepo,
+ * which registers no extension — the extension dir registered for this
+ * runtime (D8: the server reloads bridges reporting a different one).
+ */
+export function runtimeIdentityEnv(
+  source: Exclude<LaunchSource, { kind: "attach" }>,
+  resourcesPath: string,
+  overlayDir: string,
+): Record<string, string> {
+  const id = runtimeIdOf(source);
+  return {
+    PI_DASHBOARD_RUNTIME_ID: id,
+    PI_DASHBOARD_RUNTIME_ORIGIN: runtimeOriginOf(source),
+    PI_DASHBOARD_ELECTRON_INSTANCE: ELECTRON_INSTANCE_ID,
+    ...(source.kind === "devMonorepo" ? {} : { PI_DASHBOARD_EXTENSION_DIR: extensionPathFor(id, overlayDir, resourcesPath) }),
+  };
+}
+
+/** `/api/health.runtime.origin` for a spawnable source. */
+function runtimeOriginOf(source: Exclude<LaunchSource, { kind: "attach" }>): "bundled" | "overlay" | "local" | "devMonorepo" {
+  return source.kind === "localLink" ? "local" : source.kind;
 }
 
 // ── Spawn primitive ───────────────────────────────────────────────────────────
@@ -309,6 +446,8 @@ export async function spawnFromSource(
     logFile?: string;
     /** Forwarded to `launchDashboardServer.onChildExit`. */
     onChildExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
+    /** Forwarded to `launchDashboardServer.onSpawned` (pre-readiness child PID). */
+    onSpawned?: (pid: number) => void;
   },
 ): Promise<SpawnResult> {
   const logFile = opts?.logFile ?? path.join(os.homedir(), ".pi", "dashboard", "server.log");
@@ -342,6 +481,9 @@ export async function spawnFromSource(
   // electron-arm-identity-lost-at-process-boundary).
   env["PI_DASHBOARD_ELECTRON"] = "1";
   env["PI_DASHBOARD_RESOURCES_PATH"] = getResourcesPath();
+  // Runtime identity echoed by /api/health.runtime so a runtime switch only
+  // commits the server it spawned. See change: electron-runtime-overlay-updates.
+  Object.assign(env, runtimeIdentityEnv(source, getResourcesPath(), getRuntimeOverlayDir()));
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";
@@ -370,11 +512,14 @@ export async function spawnFromSource(
       detach: false,
       cwd: source.cwd,
       onChildExit: opts?.onChildExit,
+      onSpawned: opts?.onSpawned,
     });
     return { pid: result.reportedPid ?? result.childPid };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`Failed to spawn server from source "${source.kind}": ${message}`);
+    // Keep the original as `cause` so callers can classify it (PortConflictError
+    // → environmental, not a bad runtime). See change: electron-runtime-overlay-updates.
+    throw new Error(`Failed to start server from source "${source.kind}": ${message}`, { cause: err });
   }
 }
 

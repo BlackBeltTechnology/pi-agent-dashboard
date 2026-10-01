@@ -60,3 +60,24 @@ export function goBack(
   const target = computeBackTarget(currentRoute);
   if (target) navigate(target);
 }
+
+/**
+ * Leave an overlay for `target` WITHOUT growing browser history.
+ *
+ * Tracked predecessor is the target → `history.back()` (true pop). Otherwise
+ * replace the overlay entry. Pushing here left an alternating
+ * overlay⇄launcher trail that browser Back walked forever.
+ * See change: fix-overlay-dismiss-flip-loop.
+ */
+export function returnTo(
+  navigate: (to: string, opts?: { replace?: boolean }) => void,
+  target: string,
+  tracker: BackTracker,
+): void {
+  if (tracker.predecessor()?.url === target) {
+    window.history.back();
+    tracker.popNav();
+    return;
+  }
+  navigate(target, { replace: true });
+}

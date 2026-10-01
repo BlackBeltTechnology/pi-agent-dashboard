@@ -1,6 +1,7 @@
 import type { TunnelEndpoint } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { GatewayConnectToggle } from "../GatewayConnectToggle.js";
 import { GatewayEndpoints } from "../GatewayEndpoints.js";
 import { GatewayProviderSection } from "../GatewayProviderSection.js";
 import { GatewaySetupGuide } from "../GatewaySetupGuide.js";
@@ -155,6 +156,37 @@ describe("GatewayUrlManager", () => {
     });
   });
 
+  it("opening Add gateway defaults to the live tailscale MagicDNS URL + exact mesh host", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string) => {
+      const json = url.toString().endsWith("/api/tunnel-readiness")
+        ? {
+            success: true,
+            data: {
+              providers: [
+                {
+                  provider: "tailscale",
+                  state: "connected",
+                  endpoints: [
+                    { kind: "magicdns", url: "http://box.tail1.ts.net:8000", tls: false },
+                    { kind: "mesh", url: "http://100.97.246.31:8000", tls: false },
+                  ],
+                },
+              ],
+            },
+          }
+        : { success: true, data: {} };
+      return { ok: true, headers: new Headers({ "content-type": "application/json" }), json: async () => json } as Response;
+    }) as typeof fetch);
+    render(<GatewayUrlManager />);
+    fireEvent.click(await screen.findByTestId("gateway-url-add-open"));
+    await waitFor(() => {
+      expect((screen.getByTestId("gateway-url-input") as HTMLInputElement).value).toBe("http://box.tail1.ts.net:8000");
+      expect((screen.getByTestId("gateway-url-mode-trusted-network") as HTMLInputElement).checked).toBe(true);
+      expect((screen.getByTestId("gateway-url-cidr") as HTMLInputElement).value).toBe("100.97.246.31");
+      expect((screen.getByTestId("gateway-url-save") as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
   it("G19: renders the computed status for a drifted gateway and offers Fix", async () => {
     mockConfig({
       publicBaseUrls: ["https://pi.example.com"],
@@ -235,5 +267,110 @@ describe("GatewayUrlManager", () => {
     mockConfig({});
     render(<GatewaySetupGuide provider="zrok" showGatewayUrls={false} />);
     expect(screen.queryByTestId("gateway-url-manager")).toBeNull();
+  });
+});
+
+describe("GatewayConnectToggle", () => {
+  function mockServer(initial: string[]) {
+    let connected = initial;
+    const calls: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string) => {
+      const u = url.toString();
+      let json: unknown = { ok: true };
+      if (u.endsWith("/api/tunnel-connect")) { calls.push("connect"); connected = ["zrok", "tailscale"]; }
+      else if (u.endsWith("/api/tunnel-disconnect")) { calls.push("disconnect"); connected = []; }
+      else if (u.endsWith("/api/tunnel-status-detail")) json = { status: connected.length ? "active" : "inactive", url: "https://x", serverOs: "darwin", connectedProviders: connected };
+      return { ok: true, json: async () => json } as Response;
+    }) as typeof fetch);
+    return calls;
+  }
+
+  it("shows Connect when nothing is connected, and flips to Disconnect after connecting", async () => {
+    const calls = mockServer([]);
+    const onChanged = vi.fn();
+    render(<GatewayConnectToggle onChanged={onChanged} />);
+    fireEvent.click(await screen.findByTestId("gateway-connect"));
+    expect(await screen.findByTestId("gateway-disconnect")).toBeDefined();
+    expect(screen.getByTestId("gateway-connect-state").textContent).toMatch(/zrok, tailscale/);
+    expect(calls).toEqual(["connect"]);
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
+  it("shows Disconnect when connected, and flips back to Connect after disconnecting", async () => {
+    const calls = mockServer(["zrok"]);
+    render(<GatewayConnectToggle />);
+    fireEvent.click(await screen.findByTestId("gateway-disconnect"));
+    expect(await screen.findByTestId("gateway-connect")).toBeDefined();
+    expect(screen.getByTestId("gateway-connect-state").textContent).toMatch(/Not connected/);
+    expect(calls).toEqual(["disconnect"]);
+  });
+
+  it("surfaces the server's connect failure inline", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string) => {
+      const json = url.toString().endsWith("/api/tunnel-connect")
+        ? { ok: false, error: "zrok not installed" }
+        : { status: "inactive", serverOs: "darwin", connectedProviders: [] };
+      return { ok: true, json: async () => json } as Response;
+    }) as typeof fetch);
+    render(<GatewayConnectToggle />);
+    fireEvent.click(await screen.findByTestId("gateway-connect"));
+    expect((await screen.findByTestId("gateway-connect-error")).textContent).toMatch(/zrok not installed/);
+  });
+
+  it("disables Connect with a reason while provider edits are unsaved", async () => {
+    mockServer([]);
+    render(<GatewayConnectToggle dirty />);
+    const btn = (await screen.findByTestId("gateway-connect")) as HTMLButtonElement;
+    await waitFor(() => expect(btn.disabled).toBe(true));
+    expect(btn.title).toMatch(/save/i);
+  });
+});
+
+describe("GatewayConnectToggle — per-provider status + live refresh", () => {
+  const partial = {
+    status: "inactive",
+    serverOs: "darwin",
+    connectedProviders: ["tailscale"],
+    providers: [
+      { provider: "zrok", primary: true, state: "failed", error: "POST /share 500 shareInternalServerError" },
+      { provider: "tailscale", primary: false, state: "connected" },
+    ],
+  };
+
+  it("lists each provider with its state and the real failure reason", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((async () => ({ ok: true, json: async () => partial }) as Response) as typeof fetch);
+    render(<GatewayConnectToggle />);
+    expect((await screen.findByTestId("gateway-provider-row-zrok")).textContent).toMatch(/failed.*500 shareInternalServerError/i);
+    expect(screen.getByTestId("gateway-provider-row-zrok").getAttribute("data-state")).toBe("failed");
+    expect(screen.getByTestId("gateway-provider-row-tailscale").textContent).toMatch(/connected/i);
+    expect(screen.getByTestId("gateway-connect-toggle").getAttribute("data-partial")).toBe("true");
+  });
+
+  it("re-polls every 5s so a drop shows without clicking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let body: unknown = { status: "active", url: "https://x", serverOs: "d", connectedProviders: ["zrok"], providers: [{ provider: "zrok", primary: true, state: "connected" }] };
+      vi.spyOn(globalThis, "fetch").mockImplementation((async () => ({ ok: true, json: async () => body }) as Response) as typeof fetch);
+      render(<GatewayConnectToggle />);
+      await screen.findByTestId("gateway-disconnect");
+      body = { status: "inactive", serverOs: "d", connectedProviders: [], providers: [{ provider: "zrok", primary: true, state: "dropped", error: "tunnel process exited unexpectedly (code 1)" }] };
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(await screen.findByTestId("gateway-connect")).toBeDefined();
+      expect(screen.getByTestId("gateway-provider-row-zrok").textContent).toMatch(/dropped.*exited unexpectedly/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the server's real connect error text", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((async (url: string) => {
+      const json = url.toString().endsWith("/api/tunnel-connect")
+        ? { ok: false, error: "zrok: POST /share 500 shareInternalServerError" }
+        : { status: "inactive", serverOs: "darwin", connectedProviders: [], providers: [] };
+      return { ok: true, json: async () => json } as Response;
+    }) as typeof fetch);
+    render(<GatewayConnectToggle />);
+    fireEvent.click(await screen.findByTestId("gateway-connect"));
+    expect((await screen.findByTestId("gateway-connect-error")).textContent).toBe("zrok: POST /share 500 shareInternalServerError");
   });
 });

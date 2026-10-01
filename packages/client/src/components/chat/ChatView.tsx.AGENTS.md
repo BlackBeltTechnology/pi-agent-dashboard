@@ -67,3 +67,9 @@ Pending-prompt desync affordance (D10 of fix-pending-prompt-lost-on-replay): opt
 See change: add-lazy-terminal-diff-bootstrap — lazy boundary (D2: `React.lazy` + local `Suspense`); see the directory AGENTS.md row for the runtime detail.
 
 See change: fix-long-session-ux-degradation (D5) — programmatic writers tag `lastProgrammaticScrollRef`: `"pin-bottom"` for the FOUR bottom-pin sites (virtualizer `onChange`, follow effect, session-switch near-bottom/first-visit, anchor-row-not-found fallback), `"jump"` for `scrollToBottom`/`scrollToTurn`/`idx>=0` restore/splice corrections. A pin records `pinnedSnapshotRef = {top: achieved scrollTop, height: scrollHeight}`. `handleScroll` consults the tag BEFORE the position rules and holds the follow only when `isPinnedBottomClamp` passes (symmetric ±1px match + `scrollHeight` growth + `height>0`), PRESERVING the sticky state (never forcing true) and persisting that preserved state into `scrollStateMap`. Attribution is single-use (the first tested event consumes the snapshot), cleared by `cancelDescent` (wheel/touch) and reset in the restore effect's unconditional prologue on `sessionId` change; a `"jump"` stamp also clears the snapshot.
+
+## show-session-history-load-state
+
+Props `historyPhase`, `historyStartedAt`, `onRetryHistory`. Empty branch: `waiting` → `EmptyState` (mdiLanDisconnect) in `role="status"` (`chat-history-waiting`); `failed` → `EmptyState` + Retry in `role="alert"` (`chat-history-failed`, `chat-history-retry`); else skeleton / "No messages yet" unchanged, with `<SlowLoadNotice key={historyStartedAt}>` above the skeleton while `loading`. See change: show-session-history-load-state.
+
+`displayRows` memo ends with `collapseRepeatedNotifies(rows)` on BOTH return paths (normal + frozen-tail): adjacent identical notify rows collapse inside the one array the virtualizer, `rowTextChars`, turn map and render lookup all index (CR-5). See change: collapse-and-order-notify-rows.

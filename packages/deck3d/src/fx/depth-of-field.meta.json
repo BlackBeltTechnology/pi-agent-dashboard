@@ -15,9 +15,21 @@
   "params": {
     "focus": {
       "type": "number",
-      "default": 0.5,
+      "default": 0,
       "minimum": 0,
-      "maximum": 1
+      "maximum": 60
+    },
+    "aperture": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 4
+    },
+    "blur": {
+      "type": "number",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 3
     }
   },
   "conflicts": [

@@ -10,8 +10,10 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { glbOfSize, type MockServer, startMockServer } from "../../__tests__/helpers/mock-http.js";
 import { validIR } from "../../ir/__tests__/fixtures.js";
+import { validate } from "../../ir/validate.js";
 import type { PropOverride } from "../../ir/types.js";
 import { fetchProp } from "../fetch.js";
+import { generateProp, type SpawnFn, textToImage } from "../generate.js";
 import type { PropCandidate } from "../search.js";
 
 const BIN = new URL("../../../bin/deck3d", import.meta.url).pathname;
@@ -98,4 +100,41 @@ describe("E33 props fetch writes the entry", () => {
     expect(validate.stdout).toContain("valid");
     expect(validate.stderr).not.toMatch(/^warn /m);
   });
+});
+
+/**
+ * test-plan #X11 — the full `--prompt` path: text → cached PNG → cached GLB →
+ * a pasteable entry that `validate` accepts. The image hop must not change the
+ * provenance contract (`licence: generated`, real sha256).
+ */
+describe("X11 props generate --prompt end to end", () => {
+  let t2i: MockServer;
+  beforeAll(async () => {
+    t2i = await startMockServer();
+  });
+  afterAll(async () => {
+    await t2i.close();
+  });
+
+  it("caches both artefacts and yields an entry that validates", async () => {
+    t2i.set({ status: 200, body: glbOfSize(1024), contentType: "image/png" });
+    const destDir = join(mkdtempSync(join(tmpdir(), "deck3d-x11-")), ".deck3d", "props");
+
+    const image = await textToImage({ prompt: "ship", name: "ship", destDir, url: `${t2i.url}/?p={prompt}` });
+    expect(image).toBe(join(destDir, "generated-ship.png"));
+
+    // The image→GLB hop is the existing Hunyuan path; stub its python step.
+    const glb = join(mkdtempSync(join(tmpdir(), "deck3d-x11-out-")), "out.glb");
+    writeFileSync(glb, glbOfSize(2048));
+    const spawn: SpawnFn = () => ({ status: 0, stdout: `${glb}\n`, stderr: "" });
+
+    const result = await generateProp({ fromImage: image, name: "ship", destDir, spawn });
+    expect(existsSync(join(destDir, "generated-ship.glb"))).toBe(true);
+    expect(result.entry).toMatchObject({ licence: "generated", restyle: "palette", source: "generated" });
+    expect(result.sha256).toMatch(/^[0-9a-f]{64}$/);
+
+    const ir = validIR();
+    ir.overrides.props = [{ ...result.entry, slide: "intro", role: "illustration" }];
+    expect(validate(ir).errors).toEqual([]);
+  }, 60_000);
 });

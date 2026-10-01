@@ -26,9 +26,10 @@ import {
   computeGatewayStatus,
   type GatewayConfigShape,
   type GatewayValidationCode,
+  suggestMeshGatewayDraft,
   validateGatewayDraft,
 } from "../../lib/gateway/gateway-action.js";
-import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { getConfig, getProviderReadiness, putConfig } from "../../lib/gateway/gateway-api.js";
 import { resolvePublicBaseUrls, suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 
@@ -108,6 +109,24 @@ export function GatewayUrlManager() {
       /* incomplete URL — no prefill yet */
     }
   }, [modes, url, cidr]);
+
+  // Opening the editor defaults it from a live mesh daemon (tailscale MagicDNS
+  // URL + exact mesh host). Best-effort: a failed readiness read leaves the
+  // editor blank, and nothing the operator already typed is overwritten.
+  const openEditor = () => {
+    setOpen(true);
+    void getProviderReadiness()
+      .then((readiness) => {
+        const d = suggestMeshGatewayDraft(readiness, config);
+        if (!d) return;
+        setUrl((u) => u || d.url);
+        setModes((m) => (m.length ? m : d.authModes));
+        setCidr((c) => c || d.cidr);
+      })
+      .catch(() => {
+        /* no suggestion; blank editor */
+      });
+  };
 
   const toggleMode = (m: GatewayAuthMode) =>
     setModes((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]));
@@ -220,7 +239,7 @@ export function GatewayUrlManager() {
         <button
           type="button"
           data-testid="gateway-url-add-open"
-          onClick={() => setOpen(true)}
+          onClick={openEditor}
           className="mt-3 flex items-center gap-1 rounded border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
         >
           <Icon path={mdiPlus} size={0.6} /> {t("gateway.url.add", undefined, "Add gateway URL")}

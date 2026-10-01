@@ -1,17 +1,19 @@
 import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { ArchivedSessionSummary } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type { GroupByMode, GroupByPrefs, LaneId, StatusLaneId } from "@blackbelt-technology/pi-dashboard-shared/session-group-by.js";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSortVariant, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { ARCHIVE_PAGE_SIZE, useArchivedSessions } from "../../hooks/useArchivedSessions.js";
-import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
+import { useFlipOnLaneChange } from "../../hooks/useFlipOnLaneChange.js";
 import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
+import { useLaneHysteresis } from "../../hooks/useLaneHysteresis.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
 import { resolveWorktreeAvailability } from "../../lib/git/folder-worktree-availability.js";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
@@ -38,16 +40,28 @@ import {
   resolveSessionGroupPath,
   sortSessionsByOrder,
 } from "../../lib/session/session-grouping.js";
+import {
+  classifyLocationLane,
+  classifyStatusLane,
+  completeStoredOrder,
+  explicitGroupBy,
+  isLaneCollapsed,
+  type Lane,
+  laneFingerprint,
+  partitionIntoLanes,
+  resolveEffectiveGroupBy,
+  resolveLaneDrop,
+  type StatusLaneFlags,
+} from "../../lib/session/session-lanes.js";
 import { selectedCardScrollFingerprint } from "../../lib/session/session-list-scroll.js";
-import { floatAskUserFirst } from "../../lib/session/session-status-visuals.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { YoloPill } from "../access-grant/YoloIndicators.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
 import { FolderActionBanner } from "../folder/FolderActionBanner.js";
-import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
+import { FolderActionsMenu, type FolderMenuItem, type FolderMenuRadioGroup } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
-import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
+import { FolderStatusCapsule, WidgetBarProbe } from "../folder/FolderStatusCapsule.js";
 import { projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
@@ -71,6 +85,8 @@ import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 import { ArchivedSessionRow } from "./ArchivedSessionRow.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
+import { GroupByChip, groupByModeLabel } from "./GroupByChip.js";
+import { LaneHeader, laneMeta, laneRailStyle } from "./LaneHeader.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
 import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
@@ -207,6 +223,13 @@ interface Props {
   collapsedGroups?: string[];
   /** Set one folder group's collapsed state (explicit target, never a toggle). */
   onSetFolderCollapsed?: (path: string, collapsed: boolean) => void;
+  // ── session-list-group-by ───────────────────────────────
+  /** Server-owned grouping prefs (`group_by_prefs_updated`). Absent ⇒ every folder `none`. */
+  groupByPrefs?: GroupByPrefs;
+  /** Set (`mode`) or clear (`null` = use default) a folder's explicit Group-by mode. */
+  onSetFolderGroupBy?: (path: string, mode: GroupByMode | null) => void;
+  /** Set one lane's collapsed state inside a folder (explicit target). */
+  onSetLaneCollapsed?: (path: string, lane: LaneId, collapsed: boolean) => void;
   onAddFolderToWorkspace?: (id: string, path: string) => void;
   onRemoveFolderFromWorkspace?: (id: string, path: string) => void;
   // onKillTerminal/onRenameTerminal are pre-existing unused props (terminals
@@ -233,6 +256,11 @@ interface Props {
    * See change: redesign-process-list-activity-bar.
    */
   inflightBashMap?: Map<string, import("../../hooks/useInflightBashTools.js").InflightBashTool[]>;
+  /**
+   * Non-idle history-load phases from App (`buildHistoryPhaseMap`). Sessions
+   * absent from the map render no ring. See change: show-session-history-load-state.
+   */
+  historyPhaseMap?: ReadonlyMap<string, import("../../lib/replay/history-load-phase.js").HistoryPhaseEntry>;
   /**
    * Stop-button handler for the SessionActivityBar. The toolCallId is
    * accepted for forward-compat; Phase 1 maps to the session-level abort.
@@ -356,7 +384,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onArchiveSession, onUnarchiveSession, archivedCountMap, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, collapsedGroups, onSetFolderCollapsed, groupByPrefs, onSetFolderGroupBy, onSetLaneCollapsed, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, historyPhaseMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp, endedTotalsMap, pagedCount, pageReplyGen, pageExhausted, connected, onSessionsPage }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -466,9 +494,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // bottom toggles. State is keyed by cwd; absent = collapsed (default).
   // The session-search query auto-expands ended in matching folders.
   const [endedExpanded, setEndedExpanded] = useState<Set<string>>(new Set());
-  // Per-folder opt-in urgency sort (default off). See change:
-  // improve-dashboard-attention-routing.
-  const urgencySort = useFolderUrgencySort();
   // Fan-out over the refreshers each folder's slot sections registered; the
   // single MAINTENANCE refresh item calls it. See change: move-slot-actions-to-menu.
   const runFolderRefreshers = useFolderMenuRefreshRunner();
@@ -606,6 +631,113 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       onSetFolderCollapsed?.(pathKey(groupPath, collapsePlatform), collapsed),
     [onSetFolderCollapsed, collapsePlatform],
   );
+
+  // ── session-list-group-by: lanes ────────────────────────────────────────
+  // Widget-bar classification for live `ask_user` sessions (same hidden-probe
+  // mechanism as the folder capsule) so a widget-bar prompt is not a
+  // "Needs you" lane member while its card shows no needs-you shape.
+  const [widgetBarMap, setWidgetBarMap] = useState<Map<string, boolean | undefined>>(() => new Map());
+  const askUserCandidates = useMemo(
+    () => sessions.filter((s) => s.currentTool === "ask_user" && s.status !== "ended"),
+    [sessions],
+  );
+  const onWidgetBarResult = useCallback((sessionId: string, isWidgetBar: boolean | undefined) => {
+    setWidgetBarMap((prev) => {
+      if (prev.get(sessionId) === isWidgetBar) return prev;
+      const next = new Map(prev);
+      next.set(sessionId, isWidgetBar);
+      return next;
+    });
+  }, []);
+  const laneFlagsFor = useCallback(
+    (id: string): StatusLaneFlags => ({
+      hasError: errorSessionIds?.has(id),
+      isRetrying: retrySessionIds?.has(id),
+      hasNotice: noticeSessionIds?.has(id),
+      hasWidgetBarPrompt: widgetBarMap.get(id) === true,
+    }),
+    [errorSessionIds, retrySessionIds, noticeSessionIds, widgetBarMap],
+  );
+  // Raw status lanes memoized on a fingerprint of the lane-relevant fields
+  // only, so token/cost ticks never re-step hysteresis or re-partition.
+  const statusLaneFp = laneFingerprint(sessions, laneFlagsFor);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the lane fingerprint by design.
+  const rawStatusLanes = useMemo(() => {
+    const m = new Map<string, StatusLaneId>();
+    for (const s of sessions) {
+      const lane = classifyStatusLane(s, laneFlagsFor(s.id));
+      if (lane) m.set(s.id, lane);
+    }
+    return m;
+  }, [statusLaneFp]);
+  const laneHysteresis = useLaneHysteresis(rawStatusLanes);
+  const groupByMode = useCallback(
+    (groupPath: string): GroupByMode => resolveEffectiveGroupBy(groupPath, groupByPrefs, collapsePlatform),
+    [groupByPrefs, collapsePlatform],
+  );
+  const isLaneKeyCollapsed = useCallback(
+    (groupPath: string, lane: LaneId) => isLaneCollapsed(groupPath, lane, groupByPrefs, collapsePlatform),
+    [groupByPrefs, collapsePlatform],
+  );
+  const setLaneCollapsed = useCallback(
+    (groupPath: string, lane: LaneId, collapsed: boolean) =>
+      onSetLaneCollapsed?.(pathKey(groupPath, collapsePlatform), lane, collapsed),
+    [onSetLaneCollapsed, collapsePlatform],
+  );
+  /**
+   * Lanes a folder renders, or `null` when it renders the plain list: mode
+   * `none`, a search / tag filter active (lanes flatten), or ≤1 non-empty
+   * lane (no lane chrome — identical DOM to `none`). Status lanes use the
+   * hysteresis-adjusted assignment.
+   */
+  // Per-folder partition cache: the lane-id layout is recomputed only when a
+  // lane-relevant input changes (mode, stored order, lane fields, hysteresis
+  // lanes); a token/cost tick just re-binds the fresh session objects.
+  const laneCacheRef = useRef(new Map<string, { key: string; layout: { laneId: LaneId | null; ids: string[] }[] }>());
+  const lanesForGroup = (group: DirectoryGroup): Lane[] | null => {
+    const mode = groupByMode(group.cwd);
+    if (mode === "none" || sessionSearch.length > 0 || anyTagFilterActive) return null;
+    const alive = group.sessions.filter((s) => s.status !== "ended");
+    const order = sessionOrderMap?.get(group.cwd);
+    const assign =
+      mode === "status"
+        ? (s: DashboardSession) => laneHysteresis.displayed.get(s.id) ?? classifyStatusLane(s, laneFlagsFor(s.id))
+        : classifyLocationLane;
+    // Location lanes depend only on worktree membership — keep status ticks
+    // out of their key so a streaming/unread change never re-partitions them.
+    const laneInputs =
+      mode === "status"
+        ? `${laneFingerprint(alive, laneFlagsFor)}|${alive.map((s) => laneHysteresis.displayed.get(s.id) ?? "").join(",")}`
+        : alive.map((s) => `${s.id}:${s.gitWorktree ? 1 : 0}`).join(",");
+    const key = `${mode}|${order?.join(",") ?? ""}|${laneInputs}`;
+    const cached = laneCacheRef.current.get(group.cwd);
+    let layout = cached?.key === key ? cached.layout : undefined;
+    if (!layout) {
+      layout = partitionIntoLanes(alive, mode, order, assign).map((l) => ({
+        laneId: l.laneId,
+        ids: l.sessions.map((x) => x.id),
+      }));
+      laneCacheRef.current.set(group.cwd, { key, layout });
+    }
+    if (layout.length <= 1) return null;
+    const byId = new Map(alive.map((x) => [x.id, x]));
+    return layout.map((l) => ({
+      laneId: l.laneId,
+      sessions: l.ids.map((id) => byId.get(id)).filter((x): x is DashboardSession => !!x),
+    }));
+  };
+  // Read by the (memoized) drag handlers without re-creating them each render.
+  const lanesForGroupRef = useRef(lanesForGroup);
+  lanesForGroupRef.current = lanesForGroup;
+  const groupByModeRef = useRef(groupByMode);
+  groupByModeRef.current = groupByMode;
+  /** Lane of `sessionId` inside `group` when the group renders lanes, else undefined. */
+  function laneOfIn(group: DirectoryGroup, sessionId: string): LaneId | undefined {
+    const lanes = lanesForGroupRef.current(group);
+    return lanes?.find((l) => l.sessions.some((s) => s.id === sessionId))?.laneId ?? undefined;
+  }
+  // Drag-over deny target (`<groupCwd>::<lane>`) for a cross-lane hover.
+  const [denyLaneKey, setDenyLaneKey] = useState<string | null>(null);
 
   // Per-group page in-flight: at most one `sessions_page` per group at a
   // time. Released when `pagedCount` for the group advances (the reply
@@ -823,6 +955,20 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     }
   }, []);
 
+  /** `{key}` of the lane `overId` sits in when it differs from `activeId`'s lane (both alive). */
+  function crossLaneTarget(activeId: string, overId: string | undefined): { key: string } | null {
+    if (!overId || activeId === overId) return null;
+    for (const group of allGroups) {
+      if (!group.sessions.some((s) => s.id === activeId)) continue;
+      const a = laneOfIn(group, activeId);
+      const o = laneOfIn(group, overId);
+      return a && o && a !== o ? { key: `${group.cwd}::${o}` } : null;
+    }
+    return null;
+  }
+  const crossLaneTargetRef = useRef(crossLaneTarget);
+  crossLaneTargetRef.current = crossLaneTarget;
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveDragType((event.active.data.current?.type as string | undefined) ?? null);
     if (event.active.data.current?.type === "workspace") {
@@ -832,6 +978,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { active, over } = event;
+    // Cross-lane hover → mark the target lane "drop not allowed".
+    // See change: session-list-group-by.
+    if (active.data.current?.type === "session") {
+      setDenyLaneKey(crossLaneTargetRef.current(active.id as string, over?.id as string | undefined)?.key ?? null);
+      return;
+    }
     if (!isFolderLike(active.data.current?.type)) return;
     const overType = over?.data.current?.type;
     const wsId = overType === "workspace-header" ? (over?.data.current?.wsId as string | undefined) : undefined;
@@ -855,6 +1007,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
 
   const handleDragCancel = useCallback(() => {
     clearSpringTimer();
+    setDenyLaneKey(null);
     setActiveDragType(null);
     setForceCollapsed((prev) => (prev.size === 0 ? prev : new Set()));
     setSpringOpen((prev) => (prev.size === 0 ? prev : new Set()));
@@ -866,6 +1019,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     clearSpringTimer();
+    setDenyLaneKey(null);
     setActiveDragType(null);
     setForceCollapsed((prev) => (prev.size === 0 ? prev : new Set()));
     setSpringOpen((prev) => (prev.size === 0 ? prev : new Set()));
@@ -886,6 +1040,38 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         const oldIndex = sessionIds.indexOf(active.id as string);
         const newIndex = sessionIds.indexOf(over.id as string);
         if (oldIndex !== -1 && newIndex !== -1) {
+          // Lanes (session-list-group-by, design D4): a within-lane drop is a
+          // slot-preserving merge back into the folder's stored order; a
+          // cross-lane drop is rejected (card snaps back, order untouched)
+          // with an explanatory toast. Drops involving the ended bucket keep
+          // the flat path below (drag-to-resume).
+          const activeLane = laneOfIn(group, active.id as string);
+          const overLane = laneOfIn(group, over.id as string);
+          // Merge against the COMPLETE stored order (it may hold ids of
+          // paged-out ended sessions `group.sessions` lacks), plus any loaded
+          // ids not yet ordered — so a lane reorder never drops an id.
+          const drop = resolveLaneDrop({
+            storedIds: completeStoredOrder(sessionOrderMap?.get(group.cwd), sessionIds),
+            activeId: active.id as string,
+            overId: over.id as string,
+            activeLane,
+            overLane,
+            laneIds:
+              lanesForGroupRef.current(group)?.find((l) => l.laneId === activeLane)?.sessions.map((s) => s.id) ?? [],
+          });
+          if (drop.kind === "reject") {
+            showToast(
+              groupByModeRef.current(group.cwd) === "location"
+                ? t("sessionList.crossLaneDropLocation", undefined, "Lanes show where a session runs — it can’t be dragged between them.")
+                : t("sessionList.crossLaneDropStatus", undefined, "Lanes follow session status — it moves on its own. Reorder within a lane."),
+              "info",
+            );
+            break;
+          }
+          if (drop.kind === "reorder") {
+            onReorderSessions?.(group.cwd, drop.order);
+            break;
+          }
           const newOrder = arrayMove(sessionIds, oldIndex, newIndex);
           onReorderSessions?.(group.cwd, newOrder);
           // Drag-to-resume: if the user dragged an ENDED session onto
@@ -957,7 +1143,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         onMoveFolderToWorkspace?.(active.id as string, move.toWorkspaceId, move.index);
       }
     }
-  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, onResume, onResumeKeepPosition, clearSpringTimer]);
+  }, [allGroups, pinnedGroups, workspaces, onReorderSessions, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, onResume, onResumeKeepPosition, clearSpringTimer, showToast, t, sessionOrderMap]);
 
   // Tag/phase axes derived flags + the per-session predicate. OR-within each
   // axis; AND-across. Empty axis = inert. See change: add-session-tags.
@@ -977,6 +1163,41 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     },
     [wantTag, wantPhase, selectedTags, selectedPhases],
   );
+
+  // ── session-list-group-by: lane view (FLIP, selected-lane announce) ─────
+  // Lane membership across every expanded laned folder: drives the FLIP
+  // fingerprint and the selected session's current lane.
+  let laneMembershipFp = "";
+  let selectedLaneNow: LaneId | null = null;
+  for (const group of allGroups) {
+    if (isGroupKeyCollapsed(group.cwd)) continue;
+    const lanes = lanesForGroup(group);
+    if (!lanes) continue;
+    for (const l of lanes) {
+      for (const x of l.sessions) {
+        laneMembershipFp += `${x.id}=${l.laneId};`;
+        if (x.id === selectedId) selectedLaneNow = l.laneId;
+      }
+    }
+  }
+  useFlipOnLaneChange(listRef, laneMembershipFp, activeDragType !== null);
+  const [laneAnnouncement, setLaneAnnouncement] = useState("");
+  const prevSelectedLaneRef = useRef<{ id: string; lane: LaneId } | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fires on the selected card's lane changing only.
+  useEffect(() => {
+    const prev = prevSelectedLaneRef.current;
+    const cur = selectedId && selectedLaneNow ? { id: selectedId, lane: selectedLaneNow } : null;
+    prevSelectedLaneRef.current = cur;
+    if (!prev || !cur || prev.id !== cur.id || prev.lane === cur.lane) return;
+    const name = sessions.find((x) => x.id === cur.id)?.name ?? cur.id;
+    const label = laneMeta(cur.lane).label;
+    setLaneAnnouncement(t("sessionList.laneMovedAnnouncement", { name, lane: label }, `${name} moved to ${label}`));
+    // Keep the moved selected card in view (no-op when its lane is collapsed).
+    const el = listRef.current?.querySelector(`[data-session-id="${cssEscapeId(cur.id)}"]`);
+    if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
+      (el as HTMLElement).scrollIntoView({ block: "nearest", behavior: "auto" });
+    }
+  }, [selectedId, selectedLaneNow]);
 
   // Union of tags in use (autocomplete + sidebar filter group) and the phases
   // actually present. Recompute only when the session list changes.
@@ -1170,6 +1391,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       if (ws?.collapsed) onSetWorkspaceCollapsed?.(workspaceId, false);
     }
     if (isGroupKeyCollapsed(groupPath)) setFolderCollapsed(groupPath, false);
+    // A reveal targeting a card inside a collapsed lane expands that lane
+    // (add-only). See change: session-list-group-by.
+    // Canonical match: groups key by `pathKey` but keep a raw display `cwd`.
+    const revealKey = pathKey(groupPath, collapsePlatform);
+    const revealGroup = allGroups.find((g) => pathKey(g.cwd, collapsePlatform) === revealKey);
+    const revealLane = revealGroup ? laneOfIn(revealGroup, target.id) : undefined;
+    if (revealLane && isLaneKeyCollapsed(groupPath, revealLane)) setLaneCollapsed(groupPath, revealLane, false);
     if (isEnded) {
       setEndedExpanded((prev) => (prev.has(groupPath) ? prev : new Set(prev).add(groupPath)));
     }
@@ -1210,12 +1438,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // resolving) are the primary completion signal — re-check presence when
   // either changes. See change: persist-folder-collapse-server-side (folder
   // expansion is now also an async server round-trip).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `workspaces`/`collapsedGroupKeys` are the completion triggers (echoes); pending state read via ref.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `workspaces`/`collapsedGroupKeys`/`groupByPrefs` (lane expand) are the completion triggers (echoes); pending state read via ref.
   useEffect(() => {
     if (!pendingRevealRef.current) return;
     const id = requestAnimationFrame(() => attemptReveal());
     return () => cancelAnimationFrame(id);
-  }, [workspaces, collapsedGroupKeys, attemptReveal]);
+  }, [workspaces, collapsedGroupKeys, groupByPrefs, attemptReveal]);
 
   // Cancel any pending frame/timer on unmount.
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
@@ -1359,7 +1587,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * `renderGroupWithWorkspaceMenu`, i.e. top-level rows gated on
    * `onCreateWorkspace || workspaces.length`), remove-from-workspace only on
    * workspace-owned rows, pin only outside a workspace container.
-   * Directory-group order is pin · urgency sort · directory settings.
+   * Directory-group order is pin · directory settings. The retired urgency
+   * sort toggle is superseded by the Group-by radio group (see
+   * `groupByRadioGroup`). See change: session-list-group-by.
    * See change: add-folder-actions-menu.
    */
   /**
@@ -1392,6 +1622,52 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       });
     }
     return items;
+  }
+
+  /**
+   * The folder menu's "Group sessions by" radio set (session-list-group-by):
+   * `Use default (<Mode>)` · None · Status · Location. Exactly one is checked —
+   * `Use default` when the folder has no explicit mode. Hidden when the host
+   * wired no setter (standalone render).
+   */
+  function groupByRadioGroup(group: DirectoryGroup): FolderMenuRadioGroup | undefined {
+    if (!onSetFolderGroupBy) return undefined;
+    const explicit = groupByPrefs ? explicitGroupBy(group.cwd, groupByPrefs, collapsePlatform) : undefined;
+    const def = groupByPrefs?.defaultGroupBy ?? "none";
+    const path = pathKey(group.cwd, collapsePlatform);
+    return {
+      id: "group-by",
+      label: t("sessionList.groupSessionsBy", undefined, "Group sessions by"),
+      items: [
+        {
+          id: "group-by-default",
+          label: t("sessionList.groupByUseDefault", { mode: groupByModeLabel(def) }, `Use default (${groupByModeLabel(def)})`),
+          checked: explicit === undefined,
+          onSelect: () => onSetFolderGroupBy(path, null),
+        },
+        {
+          id: "group-by-none",
+          label: groupByModeLabel("none"),
+          description: t("sessionList.groupByNoneDesc", undefined, "One list, newest first"),
+          checked: explicit === "none",
+          onSelect: () => onSetFolderGroupBy(path, "none"),
+        },
+        {
+          id: "group-by-status",
+          label: groupByModeLabel("status"),
+          description: t("sessionList.groupByStatusDesc", undefined, "Needs you · Working · Idle"),
+          checked: explicit === "status",
+          onSelect: () => onSetFolderGroupBy(path, "status"),
+        },
+        {
+          id: "group-by-location",
+          label: groupByModeLabel("location"),
+          description: t("sessionList.groupByLocationDesc", undefined, "Main checkout · Worktrees"),
+          checked: explicit === "location",
+          onSelect: () => onSetFolderGroupBy(path, "location"),
+        },
+      ],
+    };
   }
 
   function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus }: {
@@ -1437,14 +1713,6 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         },
       });
     }
-    items.push({
-      id: "urgency-sort",
-      group: "directory",
-      label: t("sessionList.urgencySort", undefined, "Float blocked sessions to top"),
-      icon: mdiSortVariant,
-      pressed: urgencySort.isOn(group.cwd),
-      onSelect: () => urgencySort.toggle(group.cwd),
-    });
     // Manage worktrees: gated on the folder being a git repository, and
     // deliberately INDEPENDENT of live sessions — the surface exists to clean
     // up worktrees that have none. Absent only on positive evidence that the
@@ -1564,6 +1832,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     const endedTotal = endedTotalsMap?.get(group.cwd) ?? 0;
     const heldEnded = heldEndedByCwd.get(group.cwd) ?? 0;
     const isStub = !folderHasSessions && endedTotal > 0;
+    // session-list-group-by: effective mode, header chip, and the lanes this
+    // folder renders (null ⇒ plain list, identical DOM to `none`).
+    const groupMode = groupByMode(group.cwd);
+    const groupModeInherited = !groupByPrefs || explicitGroupBy(group.cwd, groupByPrefs, collapsePlatform) === undefined;
+    const groupLanes = !isCollapsed && !isStub ? lanesForGroup(group) : null;
+    const groupByChip = (
+      <GroupByChip
+        cwd={group.cwd}
+        mode={groupMode}
+        inherited={groupModeInherited}
+        onActivate={() => setFolderMenuFor(`folder:${group.cwd}`)}
+      />
+    );
 
     return (
       <div key={group.cwd} className="space-y-1">
@@ -1708,15 +1989,23 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 open={folderMenuFor === `folder:${group.cwd}`}
                 onOpenChange={(next) => setFolderMenuFor(next ? `folder:${group.cwd}` : null)}
                 items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus })}
+                radioGroup={groupByRadioGroup(group)}
               />
             </span>
           </div>
           {/* Collapsed density (variant B): when collapsed, the heavy slots
               (git · action bar · plugin sections · OpenSpec proposal state ·
               spawn buttons) are hidden — the header keeps only name + status.
+              The Group-by chip stays visible on its own secondary row so a
+              collapsed folder still says how it opens (session-list-group-by).
               A STUB group never renders them at all (D9).
               See change: condense-collapsed-folder-header,
               fix-connect-snapshot-frame-loss. */}
+          {(isCollapsed || isStub) && groupMode !== "none" && (
+            <div className="mt-0.5 flex min-w-0 items-center" data-testid={`folder-group-by-row-${group.cwd}`}>
+              {groupByChip}
+            </div>
+          )}
           {!isCollapsed && !isStub && (<>
           {/* Git info + folder actions share ONE compact row (variant B):
               branch/commit left, Initialize + settings gear right-grouped.
@@ -1730,13 +2019,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           {/* Git row — tier 2, FACTS ONLY (branch/dirty). Its former call-to-
               action controls moved to the tier-0 banner below and the folder
               actions menu. See change: add-folder-action-banner. */}
-          <div className="mt-1 min-w-0">
-            <GroupGitInfo
-              sessions={group.sessions}
-              cwd={group.cwd}
-              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
-              onBranchClick={() => setBranchDialogCwd(group.cwd)}
-            />
+          {/* Secondary row: git facts left, Group-by chip right — never on the
+              name row, where it truncated the folder name (mockup F1).
+              See change: session-list-group-by. */}
+          <div className="mt-1 min-w-0 flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <GroupGitInfo
+                sessions={group.sessions}
+                cwd={group.cwd}
+                folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
+                onBranchClick={() => setBranchDialogCwd(group.cwd)}
+              />
+            </div>
+            {groupByChip}
           </div>
           {/* Tier-0 call-to-action banner — renders only when the folder cannot
               proceed (setup / init needed / re-trust / running / failure). */}
@@ -1854,7 +2149,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             SessionCard `before:`), and the 18px left inset is the band the
             card's hover drag bead parks in. Replaces the per-card status
             gutter. See change: session-card-directory-rail. */}
-        <div className="relative space-y-1 pt-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--rail-directory)]">
+        {/* With lanes (session-list-group-by) the folder-wide rail yields to
+            per-lane rail segments; the container drops its inset so each lane
+            glyph can sit ON its segment at x≈8px (ui-plan §3). */}
+        <div className={groupLanes
+          ? "relative space-y-1 pt-1"
+          : "relative space-y-1 pt-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--rail-directory)]"}>
           {/* Spawn error banner — see change: spawn-failure-diagnostics */}
           {spawnErrors?.get(group.cwd) && (
             <SpawnErrorBanner
@@ -1900,16 +2200,10 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             // backfills by endedAt on first load (migration seed).
             // See change: simplify-session-card-ordering.
             const order = sessionOrderMap?.get(group.cwd);
-            const activeSessionsOrdered = sortSessionsByOrder(
+            const activeSessions = sortSessionsByOrder(
               matched.filter((s) => s.status !== "ended"),
               order,
             );
-            // Opt-in urgency sort floats ask_user sessions to the top of the
-            // active tier (stable within groups). See change:
-            // improve-dashboard-attention-routing.
-            const activeSessions = urgencySort.isOn(group.cwd)
-              ? floatAskUserFirst(activeSessionsOrdered)
-              : activeSessionsOrdered;
             const endedSessions = sortSessionsByOrder(
               matched.filter((s) => s.status === "ended"),
               order,
@@ -1933,6 +2227,175 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 >
                   {t("sessionList.noSessionsMatch", undefined, "No sessions match your search")}
                 </div>
+              );
+            }
+            // One card renderer shared by the plain list and the lanes.
+            // `hold` = status-lane hysteresis hold (session-list-group-by).
+            const renderCard = (session: DashboardSession, hold?: { until: number; dest: LaneId }) => (
+                <SortableSessionCard key={session.id} id={session.id}>
+                  <SessionCard
+                    session={session}
+                    selectedId={selectedId}
+                    onSelect={onSelect}
+                    now={now}
+                    showGitInfo={group.sessions.length === 1}
+                    isHidden={!!session.hidden}
+                    onArchive={handleArchive}
+
+                    contextUsage={contextUsageMap?.get(session.id)}
+                    openspecChanges={openspecMap?.get(session.cwd)?.changes}
+                    openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
+                    openspecPending={openspecMap?.get(session.cwd)?.pending}
+                    openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
+                    openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
+                    onSeekToFolderOpenSpec={seekToFolderOpenSpec}
+                    onOpenOpenSpecSettings={openOpenSpecSettings}
+                    openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
+                    openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
+                    onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
+                    onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
+                    onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
+                    onReplaceProposal={onReplaceProposal ? (accept, changeName) => onReplaceProposal(session.id, accept, changeName) : undefined}
+                    onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
+                    onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
+                    onRename={onRename ? (name) => onRename(session.id, name) : undefined}
+                    onShutdown={onShutdown}
+                    onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
+                    onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
+                    onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
+                      // Reuse existing worktree dialogs: proposal-aware path
+                      // when attached, plain path otherwise. No new state.
+                      if (s.attachedProposal) setWorktreeForChange({ cwd: s.cwd, changeName: s.attachedProposal });
+                      else setWorktreeDialogCwd(s.cwd);
+                    } : undefined}
+                    commands={commandsMap?.get(session.id)}
+                    processes={session.processes}
+                    onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
+                    onSetProcessDrawerCollapsed={onSetProcessDrawer ? (collapsed) => onSetProcessDrawer(session.id, collapsed) : undefined}
+                    inflightBashTools={inflightBashMap?.get(session.id)}
+                    historyPhase={historyPhaseMap?.get(session.id)?.phase}
+                    historyStartedAt={historyPhaseMap?.get(session.id)?.startedAt}
+                    onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
+                    hasError={errorSessionIds?.has(session.id)}
+                    isRetrying={retrySessionIds?.has(session.id)}
+                    retryAttempt={retryAttemptMap?.get(session.id)}
+                    hasNotice={noticeSessionIds?.has(session.id)}
+                  />
+                  {resumeErrors?.get(session.id) && (
+                    <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
+                      <span className="flex-1">{i18nT("session.resumeFailed", undefined, "Resume failed:")} {resumeErrors.get(session.id)}</span>
+                      {onDismissResumeError && (
+                        <button
+                          data-testid="resume-error-dismiss"
+                          onClick={() => onDismissResumeError(session.id)}
+                          className="text-red-400 hover:text-red-300 shrink-0"
+                        >✕</button>
+                      )}
+                    </div>
+                  )}
+                  {hold && (
+                    // Hold countdown in the DESTINATION lane colour; remaining
+                    // time as duration so a remount mid-hold stays correct.
+                    <div
+                      key={hold.until}
+                      aria-hidden="true"
+                      className="lane-hold-bar"
+                      data-testid={`lane-hold-bar-${session.id}`}
+                      style={{
+                        "--lane-dest": laneMeta(hold.dest).color,
+                        "--lane-hold-ms": `${Math.max(0, hold.until - Date.now())}ms`,
+                      } as React.CSSProperties}
+                    />
+                  )}
+                </SortableSessionCard>
+            );
+            // Lanes (session-list-group-by): one SortableContext per lane so
+            // dnd-kit never visually shifts a card across lanes mid-drag
+            // (design D4); ended bucket stays a plain list below all lanes.
+            if (groupLanes) {
+              const showTopHideEnded =
+                showEnded && endedExpanded.has(group.cwd) && workspaceFilter.length === 0;
+              return (
+                <>
+                  {groupLanes.map(({ laneId, sessions: laneSessions }) => {
+                    if (!laneId) return null;
+                    const laneKey = `${group.cwd}::${laneId}`;
+                    const collapsed = isLaneKeyCollapsed(group.cwd, laneId);
+                    const controlsId = `lane-cards-${encodeFolderPath(group.cwd)}-${laneId}`;
+                    const deny = denyLaneKey === laneKey;
+                    const branch =
+                      laneId === "main"
+                        ? (folderGitMap?.get(group.cwd) ?? laneSessions.find((x) => x.gitBranch)?.gitBranch ?? undefined)
+                        : undefined;
+                    return (
+                      <section
+                        key={laneKey}
+                        aria-label={laneMeta(laneId).label}
+                        data-testid={`lane-${laneKey}`}
+                        data-lane={laneId}
+                        className="relative"
+                      >
+                        <LaneHeader
+                          folderKey={group.cwd}
+                          lane={laneId}
+                          count={laneSessions.length}
+                          collapsed={collapsed}
+                          onToggle={() => setLaneCollapsed(group.cwd, laneId, !collapsed)}
+                          controlsId={controlsId}
+                          sub={branch}
+                          containsSelected={!!selectedId && laneSessions.some((x) => x.id === selectedId)}
+                          sessions={laneSessions}
+                          errorSessionIds={errorSessionIds}
+                          retrySessionIds={retrySessionIds}
+                          noticeSessionIds={noticeSessionIds}
+                          widgetBar={(id) => widgetBarMap.get(id)}
+                        />
+                        {collapsed ? (
+                          <div id={controlsId} hidden />
+                        ) : (
+                          <div
+                            id={controlsId}
+                            className={`relative space-y-1 pt-0.5 pb-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--lane-rail)] ${deny ? "rounded-[10px] outline-dashed outline-1 outline-offset-2 outline-[var(--status-error)] cursor-not-allowed" : ""}`}
+                            style={laneRailStyle(laneId)}
+                            data-testid={`lane-cards-${laneKey}`}
+                            data-drop-deny={deny || undefined}
+                          >
+                            <SortableContext items={laneSessions.map((x) => x.id)} strategy={verticalListSortingStrategy}>
+                              {laneSessions.map((x) => (
+                                <React.Fragment key={`l-${x.id}`}>
+                                  {renderCard(x, groupMode === "status" ? laneHysteresis.holds.get(x.id) : undefined)}
+                                </React.Fragment>
+                              ))}
+                            </SortableContext>
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                  {showEnded && (
+                    <div
+                      className={`relative space-y-1 pt-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--rail-directory)]`}
+                      data-testid={`lane-ended-${group.cwd}`}
+                    >
+                      <SortableContext items={endedSessions.map((x) => x.id)} strategy={verticalListSortingStrategy}>
+                        {showTopHideEnded && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleEndedExpanded(group.cwd); }}
+                            className="w-full text-[10px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] py-1 px-2 select-none flex items-center justify-center gap-1 border-t border-[var(--border-subtle)]"
+                            data-testid={`folder-ended-toggle-top-${group.cwd}`}
+                            aria-label={t("sessionList.hideEndedCount", { count: endedSessions.length }, `Hide ${endedSessions.length} ended sessions`)}
+                          >
+                            <Icon path={mdiChevronDown} size={0.4} />
+                            <span>{t("sessionList.hideEnded", undefined, "Hide ended")}</span>
+                          </button>
+                        )}
+                        {endedSessions.map((x) => (
+                          <React.Fragment key={`e-${x.id}`}>{renderCard(x)}</React.Fragment>
+                        ))}
+                      </SortableContext>
+                    </div>
+                  )}
+                </>
               );
             }
             const sessionIds = visibleSessions.map((s) => s.id);
@@ -1982,66 +2445,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                           <span>{t("sessionList.hideEnded", undefined, "Hide ended")}</span>
                         </button>
                       )}
-                    <SortableSessionCard key={id} id={id}>
-                      <SessionCard
-                        session={session}
-                        selectedId={selectedId}
-                        onSelect={onSelect}
-                        now={now}
-                        showGitInfo={group.sessions.length === 1}
-                        isHidden={!!session.hidden}
-                        onArchive={handleArchive}
-
-                        contextUsage={contextUsageMap?.get(session.id)}
-                        openspecChanges={openspecMap?.get(session.cwd)?.changes}
-                        openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
-                        openspecPending={openspecMap?.get(session.cwd)?.pending}
-                        openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
-                        openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
-                        onSeekToFolderOpenSpec={seekToFolderOpenSpec}
-                        onOpenOpenSpecSettings={openOpenSpecSettings}
-                        openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
-                        openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
-                        onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
-                        onAttachProposal={onAttachProposal ? (changeName) => onAttachProposal(session.id, changeName) : undefined}
-                        onDetachProposal={onDetachProposal ? () => onDetachProposal(session.id) : undefined}
-                        onReplaceProposal={onReplaceProposal ? (accept, changeName) => onReplaceProposal(session.id, accept, changeName) : undefined}
-                        onReadArtifact={onReadArtifact ? (changeName, artifactId) => onReadArtifact(session.cwd, changeName, artifactId) : undefined}
-                        onBulkArchive={onBulkArchive ? () => onBulkArchive(session.cwd) : undefined}
-                        onRename={onRename ? (name) => onRename(session.id, name) : undefined}
-                        onShutdown={onShutdown}
-                        onResume={onResume ? (mode) => onResume(session.id, mode) : undefined}
-                        onSpawnSibling={onSpawnSession ? (s) => onSpawnSession(s.cwd, s.attachedProposal || undefined) : undefined}
-                        onSpawnWorktree={onSpawnSession && gitWorktreeEnabled ? (s) => {
-                          // Reuse existing worktree dialogs: proposal-aware path
-                          // when attached, plain path otherwise. No new state.
-                          if (s.attachedProposal) setWorktreeForChange({ cwd: s.cwd, changeName: s.attachedProposal });
-                          else setWorktreeDialogCwd(s.cwd);
-                        } : undefined}
-                        commands={commandsMap?.get(session.id)}
-                        processes={session.processes}
-                        onKillProcess={onKillProcess ? (pgid) => onKillProcess(session.id, pgid) : undefined}
-                        onSetProcessDrawerCollapsed={onSetProcessDrawer ? (collapsed) => onSetProcessDrawer(session.id, collapsed) : undefined}
-                        inflightBashTools={inflightBashMap?.get(session.id)}
-                        onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
-                        hasError={errorSessionIds?.has(session.id)}
-                        isRetrying={retrySessionIds?.has(session.id)}
-                        retryAttempt={retryAttemptMap?.get(session.id)}
-                        hasNotice={noticeSessionIds?.has(session.id)}
-                      />
-                      {resumeErrors?.get(session.id) && (
-                        <div data-testid="resume-error-banner" className="mt-1 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-1.5 flex items-center gap-2 text-xs text-red-300">
-                          <span className="flex-1">{i18nT("session.resumeFailed", undefined, "Resume failed:")} {resumeErrors.get(session.id)}</span>
-                          {onDismissResumeError && (
-                            <button
-                              data-testid="resume-error-dismiss"
-                              onClick={() => onDismissResumeError(session.id)}
-                              className="text-red-400 hover:text-red-300 shrink-0"
-                            >✕</button>
-                          )}
-                        </div>
-                      )}
-                    </SortableSessionCard>
+                    {renderCard(session)}
                     </React.Fragment>
                   );
                 })}
@@ -2383,6 +2787,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         )}
       </div>
       <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
+      {/* session-list-group-by: widget-bar probes feeding the status-lane
+          classifier, and the polite lane-change announcement. */}
+      {askUserCandidates.map((x) => (
+        <WidgetBarProbe key={x.id} sessionId={x.id} onResult={onWidgetBarResult} />
+      ))}
+      <div aria-live="polite" className="sr-only" data-testid="lane-live-region">{laneAnnouncement}</div>
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 && !stubGroupCwds ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
@@ -2392,7 +2802,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         // body would resolve against stale rects.
         // See change: drag-folders-across-workspaces.
         <DndContext sensors={sensors} collisionDetection={compatibleClosestCenter} measuring={{ droppable: { strategy: MeasuringStrategy.Always } }} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
-        <ul className="flex flex-col gap-2 p-2">
+        {/* pr-4 (16px) clears the selected card's outside-only glow halo
+            (`.card-glow-mask-outer`, 14px past the edge), which the
+            overflow-y-auto scroller would otherwise clip on the right.
+            See change: fix-selected-card-light-wash. */}
+        <ul className="flex flex-col gap-2 p-2 pr-4">
           {/* Elevated dashboard-scope add buttons: rendered as the FIRST list
               item, above workspace tiers and pinned folder groups.
               See change: elevate-dashboard-add-buttons. */}

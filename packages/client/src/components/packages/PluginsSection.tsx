@@ -27,6 +27,7 @@ import { useLocation } from "wouter";
 import type { PluginList, PluginToggle } from "../../hooks/usePluginToggle.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import type { PluginRow } from "../../lib/package/plugins-api.js";
+import type { SettingsPromotion } from "../../lib/settings-promotions.js";
 import {
   CopyableErrorBlock,
   MissingRequirementsBlock,
@@ -47,6 +48,7 @@ export function PluginsSection({
   list,
   toggle,
   contributesSettings,
+  promotions,
 }: {
   list: PluginList;
   toggle: PluginToggle;
@@ -57,6 +59,12 @@ export function PluginsSection({
    * plugin" while the nav lists it and its page renders.
    */
   contributesSettings: (row: PluginRow) => boolean;
+  /**
+   * Honoured nav promotions (from SettingsPanel). A disabled PROMOTED plugin
+   * stays in its group, so its row says so instead of "not in Settings nav".
+   * See change: promote-model-roles-settings (design D6).
+   */
+  promotions?: ReadonlyMap<string, SettingsPromotion>;
 }) {
   const [, navigate] = useLocation();
   const { rows, loading, error } = list;
@@ -139,7 +147,9 @@ export function PluginsSection({
                     className="text-[10px] text-[var(--text-tertiary)]"
                     data-testid={`plugin-disabled-note-${row.id}`}
                   >
-                    {i18nT("packages.notInSettingsNav", undefined, "not in Settings nav")}
+                    {promotions?.has(row.id)
+                      ? i18nT("packages.shownInModels", undefined, "shown in Models")
+                      : i18nT("packages.notInSettingsNav", undefined, "not in Settings nav")}
                   </span>
                 )}
                 <label className="flex items-center gap-1.5 cursor-pointer">

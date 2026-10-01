@@ -14,6 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { type DenialRemedy, evaluateContainment } from "../access/containment-gate.js";
 import { type HoldTarget, holdDenial } from "../access/denial-hold.js";
 import { isUngrantableSubject } from "../access/forbidden-subjects.js";
+import { canDiscloseAccessPosture } from "../auth/localhost-guard.js";
 import {
   assertRegularFile,
   openVerifiedRegularFile,
@@ -62,6 +63,8 @@ function denialBody(gate: GateFailure): ApiResponse {
   if (gate.subject !== undefined) body.subject = gate.subject;
   if (gate.denialId !== undefined) body.denialId = gate.denialId;
   if (gate.ancestors !== undefined) body.ancestors = gate.ancestors;
+  // Present only when the gate was told it may disclose (design D5).
+  if (gate.promptOutcome !== undefined) body.promptOutcome = gate.promptOutcome;
   return body as unknown as ApiResponse;
 }
 
@@ -220,7 +223,8 @@ async function gateFilePath(
   cwd: string | undefined,
   relPath: string | undefined,
   sessionManager: SessionManager,
-  opts: { allowGrant?: boolean } = {},
+  /** `disclosure`: the caller may see `promptOutcome` (`canDiscloseAccessPosture`). */
+  opts: { allowGrant?: boolean; disclosure?: boolean } = {},
 ): Promise<{ resolved: string; viaGrant: boolean } | GateFailure> {
   if (!cwd || !relPath) return { code: 400, error: "cwd and path parameters required" };
   if (!sessionManager.listAll().some((s) => s.cwd === cwd)) {
@@ -230,6 +234,7 @@ async function gateFilePath(
   const decision = await evaluateContainment(resolved, [cwd], {
     site: "file-routes:gateFilePath",
     allowGrant: opts.allowGrant,
+    disclosure: opts.disclosure,
   });
   if (!decision.allowed) {
     return { code: 403, error: "path outside working directory", ...decision.remedy };
@@ -279,6 +284,8 @@ export function registerFileRoutes(
     relPath: string | undefined,
     allowedExts: string[],
     sizeCap: number,
+    /** The caller may see `promptOutcome` (`canDiscloseAccessPosture`). */
+    disclosure: boolean,
   ): Promise<
     | { resolved: string; ext: string; stat: import("node:fs").Stats; viaGrant: boolean }
     | GateFailure
@@ -290,7 +297,7 @@ export function registerFileRoutes(
       return { code: 403, error: "unknown session path" };
     }
     const resolved = path.resolve(cwd, relPath);
-    const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateOfficeFile" });
+    const decision = await evaluateContainment(resolved, [cwd], { site: "file-routes:gateOfficeFile", disclosure });
     if (!decision.allowed) {
       return { code: 403, error: "path outside working directory", ...decision.remedy };
     }
@@ -410,6 +417,7 @@ export function registerFileRoutes(
       const readDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
         site: "file-routes:read",
         hold: { request, reply },
+        disclosure: canDiscloseAccessPosture(request),
         session: cwd,
         // Polymorphic: this route serves files AND directories, so the remedy
         // must name whichever the target is (task 4.5 round 2, B1).
@@ -430,7 +438,7 @@ export function registerFileRoutes(
         // Classify by extension + a bounded sniff (first 1024 bytes) so binary
         // files are not slurped whole just to discriminate. Content is returned
         // for text-renderable kinds (monaco / markdown viewers) AND any
-        // `editable` kind (currently `.csv`, so Monaco Edit can load the raw
+        // `editable` kind (`.csv`, `.adoc`, so Monaco Edit can load the raw
         // text); image / pdf / binary / office tabs fetch their own bytes.
         // Binary spreadsheets (`.xlsx`/`.xls`) stay `editable:false` → no
         // `content` (no binary-bytes-in-JSON leak).
@@ -468,8 +476,11 @@ export function registerFileRoutes(
             mimeType: kindResult.mimeType,
             size: stat.size,
             // mtime drives the editor's optimistic-concurrency check on write.
-            // See change: directory-settings-page-and-scoped-md-editing.
-            mtime: Math.round(stat.mtimeMs),
+            // Full precision: `/api/file/write` compares against raw `mtimeMs`,
+            // so a rounded token 409s on every save on sub-ms filesystems.
+            // See change: directory-settings-page-and-scoped-md-editing,
+            // fix-editor-mtime-token-precision.
+            mtime: stat.mtimeMs,
             ...(content !== undefined ? { content } : {}),
           },
         } satisfies ApiResponse;
@@ -526,7 +537,10 @@ export function registerFileRoutes(
     // application or revealing in the file manager. Those are a different
     // capability from reading, so the two spawn routes keep the pre-change
     // `isAllowed`-only decision (task 4.5 review gate, blocking #2).
-    const gate = await gateFilePath(cwd, rawPath, sessionManager, { allowGrant: false });
+    const gate = await gateFilePath(cwd, rawPath, sessionManager, {
+      allowGrant: false,
+      disclosure: canDiscloseAccessPosture(request),
+    });
     if ("code" in gate) {
       reply.code(gate.code);
       return denialBody(gate);
@@ -575,6 +589,7 @@ export function registerFileRoutes(
       const treeDecision = await evaluateContainment(resolved, [cwd], {
         site: "file-routes:tree",
         hold: { request, reply },
+        disclosure: canDiscloseAccessPosture(request),
         session: cwd,
         // Directory-only site: the remedy must name THIS directory, not its
         // parent (task 4.5 review).
@@ -772,6 +787,7 @@ export function registerFileRoutes(
       const existsDecision = await evaluateContainment(resolved, anchors, {
         site: "file-routes:exists",
         hold: { request, reply },
+        disclosure: canDiscloseAccessPosture(request),
         session: cwd,
         // `fs.access` accepts files AND directories — polymorphic, see above.
         subjectKind: "auto",
@@ -871,6 +887,7 @@ export function registerFileRoutes(
           const rawDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
             site: "file-routes:raw",
             hold: { request, reply },
+            disclosure: canDiscloseAccessPosture(request),
             session: cwd,
           });
           if (!rawDecision.allowed) {
@@ -1017,7 +1034,13 @@ export function registerFileRoutes(
       // render (design P1/P4). No in-process fallback — engine absent →
       // {success:false} so the client maps to FallbackPreview (download).
       if (isPptx) {
-        const gate = await gateOfficeFile(cwd, relPath, [".pptx"], officeCaps.pptxSizeCap);
+        const gate = await gateOfficeFile(
+          cwd,
+          relPath,
+          [".pptx"],
+          officeCaps.pptxSizeCap,
+          canDiscloseAccessPosture(request),
+        );
         if ("code" in gate) {
           reply.code(gate.code);
           return denialBody(gate);
@@ -1036,7 +1059,13 @@ export function registerFileRoutes(
 
       // docx: gate (incl. size cap → 413 before read) then two-tier render.
       if (isDocx) {
-        const gate = await gateOfficeFile(cwd, relPath, [".docx"], officeCaps.docxSizeCap);
+        const gate = await gateOfficeFile(
+          cwd,
+          relPath,
+          [".docx"],
+          officeCaps.docxSizeCap,
+          canDiscloseAccessPosture(request),
+        );
         if ("code" in gate) {
           reply.code(gate.code);
           return denialBody(gate);
@@ -1065,6 +1094,7 @@ export function registerFileRoutes(
       const renderDecision = await evaluateContainment(resolved, [cwd, homePiAnchor()], {
         site: "file-routes:render",
         hold: { request, reply },
+        disclosure: canDiscloseAccessPosture(request),
         session: cwd,
       });
       if (!renderDecision.allowed) {
@@ -1097,7 +1127,8 @@ export function registerFileRoutes(
 
       try {
         const adoc = getAsciidoctor();
-        const html = adoc.convert(source, { safe: "secure", standalone: false });
+        // `showtitle`: embedded output otherwise drops the `= Title` doctitle.
+        const html = adoc.convert(source, { safe: "secure", standalone: false, attributes: { showtitle: "" } });
         return { success: true, data: { html: String(html) } } satisfies ApiResponse;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "render failed";
@@ -1125,6 +1156,7 @@ export function registerFileRoutes(
         request.query.path,
         [".docx", ".pptx"],
         pdfSizeCap,
+        canDiscloseAccessPosture(request),
       );
       if ("code" in gate) {
         reply.code(gate.code);
@@ -1166,6 +1198,7 @@ export function registerFileRoutes(
         request.query.path,
         [".xlsx", ".csv"],
         officeCaps.sheetSizeCap,
+        canDiscloseAccessPosture(request),
       );
       if ("code" in gate) {
         reply.code(gate.code);
@@ -1215,7 +1248,9 @@ export function registerFileRoutes(
     "/api/file/eml",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager, {
+        disclosure: canDiscloseAccessPosture(request),
+      });
       if ("code" in gate) {
         reply.code(gate.code);
         return denialBody(gate);
@@ -1272,7 +1307,9 @@ export function registerFileRoutes(
     "/api/file/eml-attachment",
     { preHandler: networkGuard },
     async (request, reply) => {
-      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager);
+      const gate = await gateFilePath(request.query.cwd, request.query.path, sessionManager, {
+        disclosure: canDiscloseAccessPosture(request),
+      });
       if ("code" in gate) {
         reply.code(gate.code);
         return denialBody(gate);

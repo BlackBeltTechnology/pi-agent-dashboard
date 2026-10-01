@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import opentype from "opentype.js";
 import { canonicalJson } from "../ir/hash.js";
+import { localRefs, resolveLocalEffect, toFactorySource } from "../fx/local.js";
 import { applyOverrides } from "../ir/merge.js";
 import type { DeckIR } from "../ir/types.js";
 import { activeProps, creditsSlide } from "../props/embed.js";
@@ -58,6 +59,19 @@ export function subsetFontBase64(text: string, path = FONT_PATH): string {
   return Buffer.from(subsetFont(font, text)).toString("base64");
 }
 
+/** Dotted leaf paths of an override object (`camera.distance`, `mode`). */
+function leafPaths(obj: unknown, prefix = ""): string[] {
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return prefix ? [prefix.slice(0, -1)] : [];
+  return Object.entries(obj).flatMap(([k, v]) => leafPaths(v, `${prefix}${k}.`));
+}
+
+/** Which merged values came from `overrides`, for the configurator's markers. */
+function overriddenKeys(ir: DeckIR): { deck: string[]; slides: Record<string, string[]> } {
+  const slides: Record<string, string[]> = {};
+  for (const [id, entry] of Object.entries(ir.overrides.slides ?? {})) slides[id] = leafPaths(entry);
+  return { deck: leafPaths(ir.overrides.deck ?? {}), slides };
+}
+
 /** JSON safe to inline in a `<script>`: sorted keys, `<`/U+2028/U+2029 escaped. */
 export function jsonForScript(value: unknown): string {
   return canonicalJson(value)
@@ -73,6 +87,24 @@ export interface RenderOptions {
   template?: string;
   /** Base64 GLB bytes keyed `<source>-<id>` (from `loadProps`). */
   props?: Record<string, string>;
+  /** Local effect sources + cards keyed by `<name>` (from `loadLocalEffects`). */
+  localFx?: Record<string, { card: unknown; src: string }>;
+}
+
+/**
+ * Resolve every `local:` reference to `{ card, src }`, re-checking hash, card
+ * and lint. Throws on the first failure: `render` must not write HTML around a
+ * module whose bytes no longer match the pin.
+ */
+export function loadLocalEffects(ir: DeckIR, jsonPath: string): Record<string, { card: unknown; src: string }> {
+  const deckDir = dirname(jsonPath);
+  const out: Record<string, { card: unknown; src: string }> = {};
+  for (const { ref, path } of localRefs(ir.overrides)) {
+    const { effect, issues } = resolveLocalEffect(ref, deckDir);
+    if (!effect) throw new Error(`${path}${issues[0]?.suffix ?? ""}: ${issues[0]?.message ?? "unresolved local effect"}`);
+    out[effect.name] = { card: effect.card, src: toFactorySource(effect.src) };
+  }
+  return out;
 }
 
 /**
@@ -81,12 +113,16 @@ export interface RenderOptions {
  * (e.g. a slide documenting deck3d's own `__FONT__` placeholder).
  */
 function substituteTokens(template: string, values: Record<string, string>): string {
-  return template.replace(/__(?:DECK_PROPS|DECK|FONT|RUNTIME|TITLE)__/g, (token) => values[token] ?? token);
+  return template.replace(/__(?:DECK_LOCAL_FX|DECK_PROPS|DECK|FONT|RUNTIME|TITLE)__/g, (token) => values[token] ?? token);
 }
 
 /** Deck IR → self-contained `deck.html` string. */
 export function renderDeck(ir: DeckIR, opts: RenderOptions = {}): string {
   const merged = applyOverrides(ir);
+  merged.overriddenKeys = overriddenKeys(ir);
+  // The panel keys its stored state per deck; without this every deck would
+  // share one `deck3d:` entry.
+  if (ir.meta.derivedHash) merged.derivedHash = ir.meta.derivedHash;
   // Only placeable props are embedded; a dangling `node:<id>` role is inert.
   const props = activeProps(merged);
   merged.props = props;
@@ -98,10 +134,14 @@ export function renderDeck(ir: DeckIR, opts: RenderOptions = {}): string {
   const title = opts.title ?? merged.slides[0]?.title ?? "deck3d";
   const deckJson = jsonForScript(merged);
   const propsJson = jsonForScript(opts.props ?? {});
+  // `jsonForScript` escapes `<`, so a `</script>` inside a module source cannot
+  // terminate the block it is embedded in.
+  const localFxJson = jsonForScript(opts.localFx ?? {});
 
   return substituteTokens(template, {
     __DECK__: deckJson,
     __DECK_PROPS__: propsJson,
+    __DECK_LOCAL_FX__: localFxJson,
     __FONT__: font,
     __RUNTIME__: runtime.replace(/<\/script/gi, "<\\/script"),
     __TITLE__: title.replace(/</g, "&lt;"),

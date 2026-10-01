@@ -13,10 +13,11 @@ import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-te
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
+import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
 import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
-import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -416,7 +417,12 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "settings-section",
                 "component": "BuiltInRolesSettings",
-                "tab": "general"
+                "tab": "general",
+                "nav": {
+                    "group": "models",
+                    "label": "Model roles",
+                    "description": "Pick which model answers each @role. Agents, flows and skills ask for a role, not a model — changing it here re-routes them everywhere."
+                }
             }
         ],
         "client": "./src/index.tsx",
@@ -523,6 +529,50 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "system-one",
+        "displayName": "Decision models",
+        "priority": 200,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "SystemOneSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "system-one", priority: 200, slot: "settings-section", tab: "general", Component: SystemOneSettings },
+    ],
+    catalog: system_one_catalog,
+  },
+  {
+    manifest: {
+        "id": "gmail",
+        "displayName": "Gmail",
+        "priority": 210,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "GmailSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "gmail", priority: 210, slot: "settings-section", tab: "general", Component: GmailSettings },
+    ],
+    catalog: gmail_catalog,
+  },
+  {
+    manifest: {
         "id": "browser",
         "displayName": "Browser Relay",
         "priority": 500,
@@ -604,31 +654,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: quota_catalog,
   },
-  {
-    manifest: {
-        "id": "demo",
-        "displayName": "Demo Plugin (fixture)",
-        "priority": 1000,
-        "claims": [
-            {
-                "slot": "settings-section",
-                "component": "DemoSettings",
-                "tab": "general"
-            },
-            {
-                "slot": "tool-renderer",
-                "component": "DemoToolRenderer",
-                "toolName": "DashboardDemo"
-            }
-        ],
-        "client": "./src/client.tsx",
-        "fixture": true
-    },
-    claims: [
-      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
-      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
-    ],
-  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "72a3e4a464dfc787fd5419861cea7b4485af4acc096d6c084fc07308d15bce70";
+export const PLUGIN_REGISTRY_HASH = "4fa376910075de0dee568fe70dff24bf2a906d116bceeb790764b73f2cbdd413";

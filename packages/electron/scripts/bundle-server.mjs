@@ -37,6 +37,14 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Relative import on purpose: this script runs under plain Node before any
+// workspace install is guaranteed. Shared with the runtime-overlay stager.
+// See change: electron-runtime-overlay-updates (D1, E22).
+import { writeRuntimeManifest } from "../../shared/src/runtime-overlay/manifest.mjs";
+import {
+  materializeBundledPlugins,
+  readBundledPluginIds,
+} from "../../shared/src/runtime-overlay/materialize-plugins.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ELECTRON_DIR = path.resolve(__dirname, "..");
@@ -119,43 +127,18 @@ for (const pkg of BUNDLED_WORKSPACE_PKGS) {
 // excluded — same rule as the build-time PLUGIN_REGISTRY filter in
 // production builds.
 // See change: add-plugin-activation-ui (deployment gap follow-up).
-const BUNDLED_PLUGINS = [
-  "roles-plugin",
-  "flows-plugin",
-  "flows-anthropic-bridge-plugin",
-  "automation-plugin",
-  "goal-plugin",
-  "subagents-plugin",
-  "kb-plugin",
-  "hermes-memory-plugin",
-  "grammar-plugin",
-  "blackhole-plugin",
-  "mcp-server-plugin",
-  "apple-tools",
-  "mcp-client-plugin",
-  "cost-estimator",
-  "quota-plugin",
-  "browser-plugin",
-  "keycloak-resolver-plugin",
-  "chat-gateway",
-];
-const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
-mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });
-for (const pluginDir of BUNDLED_PLUGINS) {
-  const src = path.join(PROJECT_DIR, "packages", pluginDir);
-  if (!existsSync(path.join(src, "package.json"))) continue;
-  // Read manifest to honour fixture flag.
-  try {
-    const raw = JSON.parse(readFileSync(path.join(src, "package.json"), "utf-8"));
-    if (raw?.["pi-dashboard-plugin"]?.fixture === true) continue;
-  } catch {
-    /* parse error — skip defensively */
-  }
-  const dst = path.join(BUNDLED_PLUGINS_DIR, pluginDir);
-  cpSync(src, dst, { recursive: true, dereference: false, filter: excludeNodeModules });
-}
+//
+// The id list is `packages/server/package.json#piDashboard.bundledPlugins` —
+// the ONE list, shared with the runtime-overlay stager through
+// `materializeBundledPlugins`. See change: electron-runtime-overlay-updates.
+const SERVER_PKG_JSON = path.join(PROJECT_DIR, "packages", "server", "package.json");
+const bundledPluginIds = materializeBundledPlugins({
+  ids: readBundledPluginIds(SERVER_PKG_JSON),
+  resolveSource: (id) => path.join(PROJECT_DIR, "packages", id),
+  destDir: path.join(SERVER_BUNDLE, "resources", "plugins"),
+});
 console.log(
-  `  Bundled ${BUNDLED_PLUGINS.length} first-party plugin(s) into resources/plugins/`,
+  `  Bundled ${bundledPluginIds.length} first-party plugin(s) into resources/plugins/`,
 );
 
 // ── locate built client ──────────────────────────────────────────────────
@@ -292,6 +275,7 @@ if (process.platform === "darwin") {
 }
 
 if (SOURCE_ONLY) {
+  stampRuntimeManifest();
   console.log("  Source-only mode — skipping npm install (run on target platform)");
   const sizeH = humanBytes(dirSizeBytes(SERVER_BUNDLE));
   console.log(`✓ Server source bundled (${sizeH}) at ${SERVER_BUNDLE}`);
@@ -611,6 +595,8 @@ if (process.platform === "darwin") {
   }
 }
 
+stampRuntimeManifest();
+
 // ── final size report ────────────────────────────────────────────────────
 const finalSize = humanBytes(dirSizeBytes(SERVER_BUNDLE));
 console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
@@ -638,6 +624,34 @@ console.log(`✓ Server bundled (${finalSize}) at ${SERVER_BUNDLE}`);
 // ────────────────────────────────────────────────────────────────────────
 // helpers
 // ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Stamp `resources/server/runtime-manifest.json` (origin `bundled`) so the
+ * bundle carries the same identity/compat declaration as a staged overlay.
+ * `minShellVersion` = `piDashboard.minShellVersion`, `nodeEngines` = the
+ * server's `engines.node`, `piVersion` = the installed pi (absent in
+ * source-only mode, before install). See change: electron-runtime-overlay-updates.
+ */
+function stampRuntimeManifest() {
+  const serverPkg = JSON.parse(readFileSync(SERVER_PKG_JSON, "utf8"));
+  let piVersion;
+  try {
+    piVersion = JSON.parse(
+      readFileSync(
+        path.join(SERVER_BUNDLE, "node_modules", "@earendil-works", "pi-coding-agent", "package.json"),
+        "utf8",
+      ),
+    ).version;
+  } catch { /* not installed yet (source-only) */ }
+  writeRuntimeManifest(SERVER_BUNDLE, {
+    version: serverPkg.version,
+    minShellVersion: serverPkg.piDashboard?.minShellVersion,
+    nodeEngines: serverPkg.engines?.node,
+    origin: "bundled",
+    ...(piVersion ? { piVersion } : {}),
+  });
+  console.log(`  Wrote runtime-manifest.json (version ${serverPkg.version})`);
+}
 
 /**
  * Recursively visit every file under `root`, calling `cb(absPath, name)`

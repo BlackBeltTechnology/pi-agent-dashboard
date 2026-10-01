@@ -18,6 +18,7 @@ import { useThemeContext } from "../settings/ThemeProvider.js";
 // Side-effect import: worker wiring + loader.config (shared with MarkdownEditor).
 import "./monaco-setup.js";
 import type { ViewerProps } from "./types.js";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 /** Map a file extension to a Monaco language id (curated allowlist). */
 const LANGUAGE_BY_EXT: Record<string, string> = {
@@ -39,6 +40,9 @@ function languageFor(path: string): string {
 }
 
 export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
+  // Opted out of the access-grant dialog unless a provider declares operator
+  // provenance (surface-denial-remedy-in-previews, D4).
+  const { fetch: previewFetch } = usePreviewFetch();
   const { resolved, themeName } = useThemeContext();
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +58,7 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
     setContent(null);
     setError(null);
     setUnsupported(false);
-    fetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
+    previewFetch(`${getApiBase()}/api/file?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`)
       .then((res) => res.json())
       .then((body) => {
         if (!active) return;
@@ -72,7 +76,7 @@ export default function MonacoBuffer({ cwd, path, line }: ViewerProps) {
     return () => {
       active = false;
     };
-  }, [cwd, path]);
+  }, [cwd, path, previewFetch]);
 
   // Re-scroll to `line` when it changes after the editor is already mounted
   // (reopening the same buffer at a different line).

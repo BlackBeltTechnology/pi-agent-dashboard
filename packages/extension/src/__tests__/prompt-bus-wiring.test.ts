@@ -6,9 +6,9 @@
  * Uses mock agent messages to simulate real prompt flows.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createNotifyProxy } from "../notify-proxy.js";
-import { PromptBus, type PromptAdapter, type PromptRequest, type PromptResponse, type PromptClaim, type PromptComponent } from "../prompt-bus.js";
+import { type PromptAdapter, PromptBus, type PromptClaim, type PromptComponent, type PromptRequest, type PromptResponse } from "../prompt-bus.js";
 import { settlePrompts } from "./helpers/settle-prompts.js";
 
 // ── Mock infrastructure (tasks 9.1) ────────────────────────────────
@@ -831,10 +831,14 @@ describe("notify proxy — dedicated channel, never PromptBus", () => {
   }
 
   it("E1: emits {type:'notify'} with no promptId/placement/component", () => {
+    // The bridge stamps its own emit time (test-plan #E1).
+    // See change: collapse-and-order-notify-rows.
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1758650000000);
     const original = vi.fn();
     const { connection, notify } = setupNotify(original);
 
     notify("hello", "info");
+    nowSpy.mockRestore();
 
     expect(original).toHaveBeenCalledWith("hello", "info");
     expect(connection._messagesOfType("prompt_request")).toHaveLength(0);
@@ -846,6 +850,7 @@ describe("notify proxy — dedicated channel, never PromptBus", () => {
       notifyId: "n1",
       message: "hello",
       level: "info",
+      ts: 1758650000000,
     });
     expect("promptId" in frames[0]).toBe(false);
     expect("placement" in frames[0]).toBe(false);

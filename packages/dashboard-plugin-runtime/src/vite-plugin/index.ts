@@ -20,20 +20,21 @@ import path from "node:path";
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { Plugin, ViteDevServer } from "vite";
 import { validateManifest } from "../manifest-validator.js";
-import {
-  clearDiscoveryCache,
-  discoverPlugins,
-  pluginRegistryHash,
-} from "../server/loader.js";
-import {
-  bundleRootsFor,
-  selectClientRegistryPlugins,
-} from "../server/client-registry-set.js";
 import { computeBuildDeclaration, declarationFromPlugins } from "../server/build-declaration-sdk.js";
 import {
   type BuildDeclaration,
   writeBuildDeclaration,
 } from "../server/build-metadata.js";
+import {
+  bundleRootsFor,
+  selectClientRegistryPlugins,
+} from "../server/client-registry-set.js";
+import { fixturePluginsEnabled } from "../server/fixture-gate.js";
+import {
+  clearDiscoveryCache,
+  discoverPlugins,
+  pluginRegistryHash,
+} from "../server/loader.js";
 
 /** Generated file path (relative to the calling vite.config location). */
 const GENERATED_DIR = "packages/client/src/generated";
@@ -459,8 +460,13 @@ export function viteDashboardPluginsPlugin(repoRoot?: string): Plugin {
     },
 
     buildStart() {
-      const isProd = process.env.NODE_ENV === "production";
-      const { changed } = regenerate(root, isProd);
+      // Fixture clients are dropped from a production build unless the
+      // opt-in gate is set (docker test harness); the declaration then
+      // records `fixturePolicy: "included"`, which the server's coherence
+      // check already understands. See change:
+      // expose-plugin-credential-and-oauth-seams (D8).
+      const dropFixtures = process.env.NODE_ENV === "production" && !fixturePluginsEnabled();
+      const { changed } = regenerate(root, dropFixtures);
       if (changed) {
         console.info("[vite-dashboard-plugins] Generated plugin-registry.tsx");
       }

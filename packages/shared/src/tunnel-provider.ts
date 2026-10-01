@@ -164,6 +164,12 @@ export interface ProviderReadiness {
    */
   stale?: boolean;
   /**
+   * Admin approval the provider needs before it can fully apply (tailscale:
+   * "Serve/Funnel is not enabled on your tailnet" link). Set from the last
+   * connect attempt; absent when nothing is pending.
+   */
+  approvalUrl?: string;
+  /**
    * Which predicate produced this state, so a misclassification is diagnosable
    * rather than requiring a bisect of three shell-outs.
    */

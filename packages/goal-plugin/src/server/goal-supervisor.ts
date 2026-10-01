@@ -341,7 +341,7 @@ export function createGoalSupervisor(deps: GoalSupervisorDeps): GoalSupervisor {
 
     if (!result.success) {
       await store.setInFlightSpawn(cwd, goalId, null);
-      await store.setStatus(cwd, goalId, "paused", "respawn failed");
+      await store.setStatus(cwd, goalId, "paused", "restart failed");
       log("[goal-supervisor] respawn spawn failed → paused", { goalId, message: result.message });
       return;
     }

@@ -13,9 +13,10 @@
 
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, SUBSCRIBE_ACK_MS } from "../../lib/replay/loading-history.js";
+import { contentReplay, setupHistoryLoad } from "../../test-support/history-load-harness.js";
 import { useMessageHandler } from "../useMessageHandler.js";
 
 function makeEvt(toolCallId: string, ts: number): DashboardEvent {
@@ -239,5 +240,103 @@ describe("useMessageHandler two-stage safety net (re-arm)", () => {
     dispatch(contentBatch);
     expect(loadingHistoryRef.current.get(SID)).toBe(false);
     expect(timersRef.current.has(SID)).toBe(false);
+  });
+});
+
+/**
+ * Suite for change: show-session-history-load-state — failed mark + startedAt
+ * clock, driven through the real `useHistoryLoadState` + `useMessageHandler`.
+ */
+describe("history-load failed mark + startedAt (show-session-history-load-state)", () => {
+  const SID = "s-hl";
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("#E5 startedAt rules: not armed → set; armed+present → unchanged; restart → reset; armed+missing → set", () => {
+    const h = setupHistoryLoad();
+    // not armed → set to now
+    h.begin(SID);
+    expect(h.cur().hl.historyLoadStartedAt.get(SID)).toBe(1_000_000);
+    // armed + present → unchanged
+    vi.setSystemTime(1_005_000);
+    h.begin(SID);
+    expect(h.cur().hl.historyLoadStartedAt.get(SID)).toBe(1_000_000);
+    // armed + restart → reset
+    vi.setSystemTime(1_007_000);
+    h.begin(SID, { restart: true });
+    expect(h.cur().hl.historyLoadStartedAt.get(SID)).toBe(1_007_000);
+    // armed + missing → set (other session armed via timers only)
+    const OTHER = "s-other";
+    act(() => h.cur().hl.beginReplayInFlight(OTHER));
+    expect(h.cur().hl.historyLoadStartedAt.has(OTHER)).toBe(false);
+    vi.setSystemTime(1_009_000);
+    act(() => h.cur().hl.beginLoadingHistory(OTHER));
+    expect(h.cur().hl.historyLoadStartedAt.get(OTHER)).toBe(1_009_000);
+  });
+
+  it("#X1 dead-link subscribe fails at the short window", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.advance(SUBSCRIBE_ACK_MS);
+    expect(h.cur().hl.loadingHistory.get(SID)).toBe(false);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(true);
+    expect(h.cur().hl.replayInFlight.get(SID)).toBe(false);
+    expect(h.phase(SID)).toBe("failed");
+  });
+
+  it("#X2 stuck hydration fails at the ceiling; the replayInFlight rearm never invokes onTimeout", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.dispatch({ type: "event_replay", sessionId: SID, events: [], isLast: false } as ServerToBrowserMessage);
+    h.advance(SUBSCRIBE_ACK_MS + 1000);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBeFalsy();
+    h.advance(HYDRATE_CEILING_MS);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(true);
+    // Exactly one failure mark: the loadingHistory rearm site. The replayInFlight
+    // rearm (same batch) carries no onTimeout.
+    expect(h.markSpy).toHaveBeenCalledTimes(1);
+    expect(h.phase(SID)).toBe("failed");
+  });
+
+  it("#X3 timeout after content is not a failure", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.dispatch(contentReplay(SID));
+    h.advance(SUBSCRIBE_ACK_MS + HYDRATE_CEILING_MS + 1000);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBeFalsy();
+    expect(h.cur().sessionStates.get(SID)?.messages.length).toBeGreaterThan(0);
+  });
+
+  it("#X4 dataUnavailable marks failed only when a load is in flight", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.dispatch({ type: "session_updated", sessionId: SID, updates: { dataUnavailable: true } } as ServerToBrowserMessage);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(true);
+    expect(h.phase(SID)).toBe("failed");
+    const NEVER = "s-never";
+    h.dispatch({ type: "session_updated", sessionId: NEVER, updates: { dataUnavailable: true } } as ServerToBrowserMessage);
+    expect(h.cur().hl.historyLoadFailed.get(NEVER)).toBeFalsy();
+    expect(h.phase(NEVER, false)).toBe("idle");
+  });
+
+  it("#X5 late terminal clears the failure → idle (connected, empty → 'No messages yet')", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.advance(SUBSCRIBE_ACK_MS);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(true);
+    h.dispatch({ type: "event_replay", sessionId: SID, events: [], isLast: true } as ServerToBrowserMessage);
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(false);
+    expect(h.phase(SID)).toBe("idle");
+  });
+
+  it("non-empty batch after a failure clears the failed mark", () => {
+    const h = setupHistoryLoad();
+    h.begin(SID);
+    h.advance(SUBSCRIBE_ACK_MS);
+    h.dispatch(contentReplay(SID));
+    expect(h.cur().hl.historyLoadFailed.get(SID)).toBe(false);
   });
 });

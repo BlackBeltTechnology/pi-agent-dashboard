@@ -111,6 +111,19 @@ The manual operator endpoints in that enumeration SHALL be sourced from the top-
 - **WHEN** the config holds only `pairing.publicBaseUrls`
 - **THEN** the enumerated endpoints SHALL be identical to the behaviour before the promotion
 
+#### Scenario: Every connected provider is enumerated, not only the primary
+- **GIVEN** zrok is primary and tailscale is also `connected`
+- **WHEN** `GET /api/tunnel/endpoints` is requested
+- **THEN** the list SHALL include the zrok `public` URL AND the tailscale `magicdns` and `mesh` URLs
+- **AND** url-less liveness markers SHALL NOT appear as endpoints
+- **AND** a readiness failure SHALL degrade the list to primary + manual + LAN/local rather than fail the request
+
+#### Scenario: A daemon brought up outside the dashboard still names its addresses
+- **GIVEN** tailscale is running at OS level with no `tailscale serve` config and this server never connected it
+- **WHEN** its liveness is probed
+- **THEN** the MagicDNS and 100.x mesh endpoints SHALL be derived on the dashboard's own listen port
+- **AND** only when no port can be determined SHALL it report a url-less liveness marker
+
 ### Requirement: Server-side enroll via whitelisted recipe
 Setup steps that require no elevation (auth-token, activate) SHALL run server-side through a fixed recipe keyed by `(provider, step)`, with the token/network-id supplied as a validated parameter — never as a free-form command. The secret SHALL be written to the provider's own config and SHALL NOT be logged. Install steps SHALL remain copy-paste with live detection, never auto-run.
 
@@ -432,4 +445,93 @@ NOT be a one-click toggle.
 - **WHEN** the user activates "Make primary"
 - **THEN** a confirmation SHALL name the redirect-URI change and the sign-in breakage risk
 - **AND** the primary SHALL change only on confirmation
+
+### Requirement: The Connect action brings up the planned providers
+`POST /api/tunnel-connect` SHALL read the tunnel configuration at request time (not a boot
+snapshot), so a provider or mode saved in the Gateway UI applies without a restart. It SHALL
+connect the primary and every enabled extra, each in its own resolved mode. A zrok primary
+SHALL use the child-process path (reserved name, watchdog); any other primary SHALL connect
+through its own provider and SHALL NOT start zrok. The response SHALL carry the per-provider
+state list.
+
+#### Scenario: A non-zrok primary never starts zrok
+- **GIVEN** `tunnel.provider` is `tailscale` with mode `private`
+- **WHEN** the gateway is connected
+- **THEN** tailscale SHALL be connected through its provider
+- **AND** no zrok share SHALL be created
+
+#### Scenario: An already-active zrok primary still connects the extras
+- **GIVEN** zrok is primary and already active, and tailscale is enabled
+- **WHEN** Connect is requested
+- **THEN** the existing zrok tunnel SHALL be reused
+- **AND** tailscale SHALL still be connected
+
+#### Scenario: A failed extra does not fail a healthy primary
+- **WHEN** the primary connects and an enabled extra throws
+- **THEN** the connect SHALL succeed
+- **AND** the extra SHALL be reported `failed` with its error message
+
+#### Scenario: A failed zrok primary reports the real CLI error
+- **WHEN** the zrok share fails with `[POST /share][500] shareInternalServerError ""`
+- **THEN** the connect error SHALL read `zrok: POST /share 500 shareInternalServerError`
+- **AND** SHALL NOT be the generic "Failed to create tunnel" when the CLI printed a reason
+
+### Requirement: Per-provider connection status
+The server SHALL report, for every provider the configuration plans to run, one of
+`connected` (up now), `failed` (last connect failed, with reason), `dropped` (was connected,
+now gone, with reason when known) or `idle` (not attempted). The report SHALL be computed
+in memory without shelling out. An operator Disconnect SHALL reset every provider to `idle`.
+The gated `/api/tunnel-status-detail` SHALL carry the per-provider list and the providers
+this server connected; the ungated `/api/tunnel-status` SHALL carry only the counts
+`gateway: { connected, expected }`, never provider names or errors.
+
+#### Scenario: Partial connection
+- **GIVEN** zrok failed and tailscale connected
+- **WHEN** the status is read
+- **THEN** zrok SHALL be `failed` with its reason and tailscale `connected`
+- **AND** the ungated counts SHALL be `{ connected: 1, expected: 2 }`
+
+#### Scenario: A tunnel that dies behind the dashboard reads dropped
+- **GIVEN** a provider was connected by this server
+- **WHEN** its tunnel goes away without an operator Disconnect
+- **THEN** it SHALL be reported `dropped`, not `connected` and not `idle`
+
+#### Scenario: Toggle and toolbar follow the live state
+- **WHEN** the Gateway dialog or page is open
+- **THEN** the Connect/Disconnect toggle SHALL re-read the status every 5s (skipped while an action is in flight) and list each provider's state and reason
+- **AND** the toggle SHALL offer Disconnect iff this server holds at least one provider, independent of OS-level daemons the readiness board sees
+- **AND** the toolbar indicator SHALL be green when all planned providers are connected, amber when some are, and grey when none
+- **AND** a Gateway with a connected non-zrok provider SHALL NOT be reported "not set up" merely because zrok is absent
+
+### Requirement: Tailnet admin approval is surfaced, never awaited
+When `tailscale serve`/`funnel` reports that Serve/Funnel is not enabled on the tailnet, the
+CLI blocks awaiting admin approval. The provider SHALL run these commands asynchronously with
+a bound that kills the child, SHALL capture the printed approval link, and SHALL NOT fail the
+connect (the MagicDNS/mesh address on the dashboard port still works). The readiness row
+SHALL expose the link; the client SHALL render it as a link only when it is an `https`
+URL on `login.tailscale.com`.
+
+#### Scenario: Serve not enabled
+- **WHEN** `tailscale serve --bg` prints "Serve is not enabled on your tailnet. To enable, visit: <url>"
+- **THEN** the server event loop SHALL NOT block beyond the bound
+- **AND** the tailscale readiness row SHALL carry `approvalUrl` = that link, rendered as "approve in Tailscale admin"
+
+#### Scenario: Approval granted
+- **WHEN** a later serve run succeeds
+- **THEN** the approval link SHALL be cleared
+
+#### Scenario: Untrusted link
+- **WHEN** `approvalUrl` is not an https `login.tailscale.com` URL
+- **THEN** no link SHALL be rendered
+
+### Requirement: Add-gateway editor defaults from a live mesh
+Opening "Add gateway URL" SHALL pre-fill, from the first `connected` provider advertising a
+non-empty `magicdns` URL not already registered, the URL, the `trusted-network` access mode
+and the exact mesh host as the trusted CIDR (never the whole tailnet range). Only empty
+fields SHALL be filled; a readiness failure SHALL leave the editor blank.
+
+#### Scenario: Tailscale connected
+- **GIVEN** tailscale is connected with `http://box.tailnet.ts.net:8000` and mesh `100.97.246.31`
+- **WHEN** the editor opens
+- **THEN** URL, `trusted-network` and CIDR `100.97.246.31` SHALL be pre-filled and the draft SHALL be valid as-is
 

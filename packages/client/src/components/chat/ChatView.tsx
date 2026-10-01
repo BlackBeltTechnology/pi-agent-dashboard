@@ -6,7 +6,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiCommentQuestionOutline, mdiContentCopy, mdiLanDisconnect, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,7 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { attachmentOriginalUrl } from "../../lib/chat/attachment-original-url.js";
 import { buildSelectionClipboardText } from "../../lib/chat/chat-selection-copy.js";
 import { buildTurnToFirstRowIndex, computeRowTextChars, estimateVirtualRowSize, extendRangeWithSelection, isBurst, isGroup, rangeToRowIndexSpan, type SelectionRowSpan, virtualRowKey } from "../../lib/chat/chat-virtual-rows.js";
+import { collapseRepeatedNotifies } from "../../lib/chat/collapse-repeated-notifies.js";
 import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../../lib/chat/collapse-retried-errors.js";
 // RetryBanner + ErrorBanner replaced by the unified SessionBanner mounted
 // in App.tsx (sticky above the command input). See change:
@@ -40,6 +41,7 @@ import {
   CHAT_TRANSCRIPT_FLOOR,
   CHAT_TRANSCRIPT_WEIGHT,
 } from "../../lib/layout/chat-pane-row-class.js";
+import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
 import { promptDesyncGatesFromState, usePromptDesync } from "../../lib/session/prompt-desync.js";
 import { formatMessageTime } from "../../lib/util/format.js";
@@ -51,9 +53,10 @@ import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewCont
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { CopyButton } from "../primitives/CopyButton.js";
-import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { RetriedErrorBadge } from "../session/RetriedErrorBadge.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
+
 // D2/D3b (change: add-lazy-terminal-diff-bootstrap): the inline terminal card is
 // a lazy boundary so a chat transcript without terminal history does not fetch
 // xterm. A session whose history DOES contain a terminal card legitimately pays
@@ -61,6 +64,7 @@ import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 const InlineTerminalCard = lazy(() =>
   import("../terminal/InlineTerminalCard.js").then((m) => ({ default: m.InlineTerminalCard })),
 );
+
 import type { ToolContext } from "../tool-renderers/index.js";
 import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
@@ -72,6 +76,7 @@ import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { MultiAskPanel } from "./MultiAskPanel.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
+import { SlowLoadNotice } from "./SlowLoadNotice.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
 import { ToolCallStep } from "./ToolCallStep.js";
@@ -170,6 +175,17 @@ interface Props {
    * See change: reasoning-auto-collapse-timer.
    */
   onCollapseStreamingThinking?: () => void;
+  /**
+   * Selected session's derived history-load phase (App `historyPhaseMap`).
+   * `waiting` / `failed` take precedence over the skeleton / "No messages yet"
+   * branches; `idle` / `loading` leave them unchanged.
+   * See change: show-session-history-load-state (design D8).
+   */
+  historyPhase?: HistoryLoadPhase;
+  /** When the current load began; feeds the slow-load notice. */
+  historyStartedAt?: number;
+  /** Retry = full re-request (`handleRefreshChat`). */
+  onRetryHistory?: () => void;
   // onCancelSteering / onCancelPending omitted: pi exposes no queue-mutation
   // API. Steering bubbles render display-only; cancellation requires upstream
   // pi support (tracked separately). See change: honest-mid-turn-queue-surface.
@@ -418,7 +434,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onPromptResync, onAbort, onForceKill, onForkFromMessage, onRetryPendingPrompt, onForkPendingPrompt, onCloseInlineTerminal, pendingSteering, loadingHistory, retainedTranscript, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking, historyPhase, historyStartedAt, onRetryHistory }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -1089,11 +1105,14 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       if (!isBurst(last) && !isGroup(last)) {
         const lastMsg = last as import("../../lib/chat/event-reducer.js").ChatMessage;
         if (lastMsg.role === "assistant" && lastMsg.content.startsWith(frozenTailText)) {
-          return rows.slice(0, -1);
+          return collapseRepeatedNotifies(rows.slice(0, -1));
         }
       }
     }
-    return rows;
+    // Final step: adjacent identical notifies render as one row with a count,
+    // INSIDE this memo so every index-keyed consumer reads one array (CR-5).
+    // See change: collapse-and-order-notify-rows (D3).
+    return collapseRepeatedNotifies(rows);
   }, [groupedMessages, isRowVisible, frozenTailText, state.streamingText]);
   // Precompute each row's aggregate rendered text length ONCE per displayRows
   // rebuild (task 2.1), so `estimateSize` stays O(1) per scroll pass and never
@@ -1820,7 +1839,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         // head churn cannot bleed one burst's state into another (finding 3).
         if ((item as ToolBurstGroupData).type === "burst") {
           const burst = item as ToolBurstGroupData;
-          return <ToolBurstGroup key={burst.id} burst={burst} toolContext={toolContext} />;
+          return <ToolBurstGroup key={burst.id} burst={burst} toolContext={toolContext} onAbort={onAbort} onForceKill={onForceKill} />;
         }
         // Bare semantic ×N group (sub-threshold burst that still folded a poll).
         if ((item as ToolCallGroup).type === "group") {
@@ -2301,16 +2320,40 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         genuinely-empty session, else nothing (bubbles render above).
       */}
       {state.messages.length === 0 && !state.streamingText && !state.pendingPrompt && !(pendingSteering && pendingSteering.length > 0) && (
-        loadingHistory ? (
-          <div
-            className="flex flex-col gap-3 px-4 py-3"
-            aria-busy="true"
-            role="status"
-            aria-label={i18nT("status.loadingConversation", undefined, "Loading conversation…")}
-            data-testid="chat-history-skeleton"
-          >
-            <Skeleton variant="bubble" count={3} />
+        // waiting / failed first (see change: show-session-history-load-state);
+        // otherwise the existing skeleton / placeholder logic, unchanged.
+        historyPhase === "waiting" ? (
+          <div className="flex items-center justify-center h-full" role="status" data-testid="chat-history-waiting">
+            <EmptyState
+              icon={<Icon path={mdiLanDisconnect} size={1.2} />}
+              title={i18nT("status.historyWaiting", undefined, "Waiting for connection")}
+              body={i18nT("status.historyWaitingBody", undefined, "History will load when the dashboard reconnects.")}
+            />
           </div>
+        ) : historyPhase === "failed" ? (
+          <div className="flex items-center justify-center h-full" role="alert" data-testid="chat-history-failed">
+            <EmptyState
+              icon={<Icon path={mdiAlertCircleOutline} size={1.2} />}
+              title={i18nT("status.historyFailed", undefined, "Couldn't load history")}
+              body={i18nT("status.historyFailedBody", undefined, "The session's history didn't arrive. Try loading it again.")}
+              action={onRetryHistory ? { label: i18nT("common.retry", undefined, "Retry"), onClick: onRetryHistory, testId: "chat-history-retry" } : undefined}
+            />
+          </div>
+        ) : loadingHistory ? (
+          <>
+            {historyPhase === "loading" && historyStartedAt !== undefined ? (
+              <SlowLoadNotice key={historyStartedAt} startedAt={historyStartedAt} onRetry={onRetryHistory} />
+            ) : null}
+            <div
+              className="flex flex-col gap-3 px-4 py-3"
+              aria-busy="true"
+              role="status"
+              aria-label={i18nT("status.loadingConversation", undefined, "Loading conversation…")}
+              data-testid="chat-history-skeleton"
+            >
+              <Skeleton variant="bubble" count={3} />
+            </div>
+          </>
         ) : (
           <div className="flex items-center justify-center h-full">
             <EmptyState

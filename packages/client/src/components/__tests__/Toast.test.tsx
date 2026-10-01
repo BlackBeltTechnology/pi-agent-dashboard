@@ -192,7 +192,10 @@ describe("severity token definitions (E10, E11)", () => {
   });
 
   it("--severity-info is its own declaration, separate from --status-notice (E11)", () => {
-    expect(INDEX_CSS).toMatch(/--severity-info-bg:\s*color-mix\(in srgb, var\(--accent-blue\)/);
+    // --severity-info-* aliases the blue identity tint, which derives from
+    // --accent-blue. See change: align-ui-with-theme-tokens (design D1).
+    expect(INDEX_CSS).toMatch(/--severity-info-bg:\s*var\(--tint-blue-bg\)/);
+    expect(INDEX_CSS).toMatch(/--tint-blue-bg:\s*color-mix\(in srgb, var\(--accent-blue\)/);
     expect(INDEX_CSS).toMatch(/--status-notice:\s*var\(--accent-blue\)/);
     // They are distinct property names (may share the base accent).
     expect(INDEX_CSS).not.toMatch(/--severity-info[a-z-]*:\s*var\(--status-notice\)/);

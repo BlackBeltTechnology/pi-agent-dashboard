@@ -359,3 +359,111 @@ describe("validateManifest — custom-entry-renderer (add-custom-entry-renderer-
     expect(m.claims).toHaveLength(2);
   });
 });
+
+// See change: promote-model-roles-settings (test-plan #E1–#E8).
+describe("validateManifest — settings-section nav hint", () => {
+  const withNav = (nav: unknown, slot = "settings-section") => ({
+    id: "demo",
+    displayName: "Demo",
+    claims: [
+      { slot, component: "DemoSettings", nav },
+      { slot: "session-card-badge", component: "DemoBadge" },
+    ],
+  });
+  const run = (nav: unknown, slot?: string) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const m = validateManifest(withNav(nav, slot));
+      return { m, warnings: warn.mock.calls.map((c) => String(c[0])) };
+    } finally {
+      warn.mockRestore();
+    }
+  };
+
+  it("E1: accepts and normalises a valid hint", () => {
+    const { m, warnings } = run({ group: " models ", label: "  Model roles ", description: " Pick… ", order: 5 });
+    expect(warnings).toEqual([]);
+    // NFKC folds U+2026 HORIZONTAL ELLIPSIS to "..." (spec: stored NFKC-normalised).
+    expect(m.claims[0].nav).toEqual({ group: "models", label: "Model roles", description: "Pick...", order: 5 });
+  });
+
+  it("E2: label length boundary 40 / 41", () => {
+    for (const label of ["a", "b".repeat(40), `  ${"c".repeat(40)}  `]) {
+      const { m, warnings } = run({ group: "models", label });
+      expect(warnings).toEqual([]);
+      expect(m.claims[0].nav?.label).toBe(label.trim());
+    }
+    const { m, warnings } = run({ group: "models", label: "d".repeat(41) });
+    expect(m.claims).toHaveLength(2);
+    expect(m.claims[0].nav).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/demo/);
+    expect(warnings[0]).toMatch(/claims\[0\]/);
+    expect(warnings[0]).toMatch(/label/);
+  });
+
+  it("E3: description length boundary 200 / 201", () => {
+    const ok = run({ group: "models", label: "X", description: "e".repeat(200) });
+    expect(ok.warnings).toEqual([]);
+    expect(ok.m.claims[0].nav?.description).toHaveLength(200);
+    const bad = run({ group: "models", label: "X", description: "e".repeat(201) });
+    expect(bad.m.claims[0].nav).toBeUndefined();
+    expect(bad.warnings).toHaveLength(1);
+    expect(bad.warnings[0]).toMatch(/description/);
+  });
+
+  it("E4: invalid shapes are dropped with a warning, never fatal", () => {
+    const cases: Array<[unknown, string]> = [
+      [null, "nav"],
+      [[], "nav"],
+      ["models", "nav"],
+      [{ group: "models" }, "label"],
+      [{ group: "", label: "X" }, "group"],
+      [{ group: "models", label: "   " }, "label"],
+      [{ group: "models", label: "X", description: 5 }, "description"],
+      [{ group: "models", label: "X", order: Number.NaN }, "order"],
+      [{ group: "models", label: "X", order: Number.POSITIVE_INFINITY }, "order"],
+      [{ group: "models", label: "X", order: "1" }, "order"],
+    ];
+    for (const [nav, field] of cases) {
+      const { m, warnings } = run(nav);
+      expect(m.claims).toHaveLength(2);
+      expect(m.claims[0].nav).toBeUndefined();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/demo/);
+      expect(warnings[0]).toMatch(/claims\[0\]/);
+      expect(warnings[0]).toContain(field);
+    }
+  });
+
+  it("E5: Unicode Cc/Cf characters invalidate the hint", () => {
+    // Boundary controls count too: trimming must not launder a leading/trailing
+    // newline, tab or BOM into a valid label.
+    for (const label of ["a\u202Eb", "a\u200Eb", "a\u200Bb", "a\uFEFFb", "a\nb", "\nModel roles", "Model roles\t", "\uFEFFModel roles"]) {
+      const { m, warnings } = run({ group: "models", label });
+      expect(m.claims[0].nav).toBeUndefined();
+      expect(warnings).toHaveLength(1);
+    }
+    const { m, warnings } = run({ group: "models", label: "X", description: "a\u2066b" });
+    expect(m.claims[0].nav).toBeUndefined();
+    expect(warnings).toHaveLength(1);
+  });
+
+  it("E6: blank description is dropped alone", () => {
+    const { m, warnings } = run({ group: "models", label: "Model roles", description: "  " });
+    expect(warnings).toEqual([]);
+    expect(m.claims[0].nav).toEqual({ group: "models", label: "Model roles" });
+  });
+
+  it("E7: nav on a non-settings-section slot is dropped silently", () => {
+    const { m, warnings } = run({ group: "models", label: "X" }, "session-card-badge");
+    expect(m.claims[0].nav).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
+  it("E8: unknown group is accepted", () => {
+    const { m, warnings } = run({ group: "future-group", label: "X" });
+    expect(warnings).toEqual([]);
+    expect(m.claims[0].nav?.group).toBe("future-group");
+  });
+});

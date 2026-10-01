@@ -39,9 +39,11 @@ const CENSUS: Record<string, string[]> = {
   "components/__tests__/WorktreeActionsMenu.test.tsx": [
     "renders all four action buttons for a worktree session when gh is available",
     "hides the PR button when gh is NOT resolvable (no existing PR)",
-    "still shows 'View PR' button when gh missing but gitPrNumber is set",
+    // "View PR" button replaced by the PR status segment — renamed / replaced
+    // by change: redesign-composer-session-strip (D6).
+    "shows the PR segment (no 'View PR' button) when gh missing but gitPrNumber is set",
     "does not render for a session without gitWorktree",
-    "Open PR toggles to 'View PR #N' label when gitPrNumber is set",
+    "an existing PR suppresses Open PR even when gh is available",
     "clicking 'Merge' opens the merge confirm dialog",
     "clicking 'Close' opens the close-worktree dialog",
     "Push action shows a success toast on ok response",
@@ -49,12 +51,21 @@ const CENSUS: Record<string, string[]> = {
     "flips the mobile sheet to left-0 when the pane's right anchor cannot fit",
     "keeps the sheet right-0 (default) when the pane has ample room to the left",
     "renders a ⋯ trigger instead of inline buttons",
-    "opens an action sheet on click revealing the four actions",
+    "opens an action sheet on click revealing the actions and the PR segment",
     "mobile sheet hides until the trigger is clicked",
     // Added by change: migrate-workspace-menus-to-portal-layer (mobile sheet
     // portaled to the layer root at z-popover).
     "sheet panel has fixed and z-popover, not absolute or z-50 (overlay-layering)",
     "outside click closes the mobile sheet",
+    // Added by change: redesign-composer-session-strip (test-plan #E5, D6).
+    "merged → ⑂ #747 merged, no checks marker",
+    "closed → ⊘ #747 closed, no checks marker",
+    "legacy (number only) → #747 only",
+    "URL absent → plain text, no <a>",
+    "mergeIsPrimary fills Merge; otherwise outlined",
+    "disabled (working): Merge is never filled; actions are aria-disabled and focusable with a reason",
+    "each segment draws its own hairline (the root is display:contents)",
+    "mobile trigger meets the 24 px target",
   ],
   "components/__tests__/PluginStalenessBanner.test.tsx": [
     "renders nothing when /api/health.bundleHash matches the embedded hash",

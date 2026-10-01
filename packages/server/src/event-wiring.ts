@@ -7,7 +7,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
-import type { ExtensionToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -29,6 +29,7 @@ import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
+import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
   customEventTypeOfEvent,
   isGroupableCustomEvent,
@@ -184,6 +185,13 @@ export interface EventWiringDeps {
    */
   viewedSessionTracker?: ViewedSessionTracker;
   /**
+   * Optional push fan-out. Called from `stampUnreadIfTriggered` on every
+   * qualifying live trigger (fire-and-forget, never awaited). Push requires
+   * `viewedSessionTracker` too: the helper returns early without it.
+   * See change: add-server-push-notifications.
+   */
+  pushDispatcher?: import("./push/push-dispatcher.js").PushDispatcher;
+  /**
    * Optional client-correlation registry. When provided, the wiring
    * consumes the requestId for the resolved spawnToken after a successful
    * three-tier link and surfaces it on `session_added` as `spawnRequestId`,
@@ -206,6 +214,8 @@ export interface EventWiringDeps {
    * See change: add-goal-continuation-plugin.
    */
   dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
+  /** Private plugin request lane. See change: expose-plugin-credential-and-oauth-seams (D7). */
+  dispatchPluginRequest?: (sessionId: string, msg: PluginRequestMessage) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -251,12 +261,26 @@ export interface EventWiringDeps {
   sessionArchive?: import("./session/session-archive.js").SessionArchive;
   /** One-shot idle-alive archive intents. See change: archive-sessions-lazy-load. */
   pendingArchiveIntents?: import("./pending/pending-archive-intent-registry.js").PendingArchiveIntentRegistry;
+  /**
+   * Every bridge (re-)register with its reported extension identity — the D8
+   * convergent-reload guard. See change: electron-runtime-overlay-updates.
+   */
+  onBridgeRegister?: (
+    sessionId: string,
+    identity: import("@blackbelt-technology/pi-dashboard-shared/protocol.js").BridgeExtensionIdentity | undefined,
+  ) => void;
+}
+
+/** A bridge-supplied notify `ts` is kept only when finite and > 0. See change: collapse-and-order-notify-rows. */
+function isValidNotifyTs(ts: unknown): ts is number {
+  return typeof ts === "number" && Number.isFinite(ts) && ts > 0;
 }
 
 /**
  * Wire up all event forwarding from pi gateway to browser gateway.
  * Sets piGateway.onEvent and sessionManager.onUnregister.
  */
+
 export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
@@ -281,9 +305,11 @@ export function wireEvents(deps: EventWiringDeps): void {
     pendingPrincipalOwnerRegistry,
     dispatchPluginSessionResolved,
     viewedSessionTracker,
+    pushDispatcher,
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
+    dispatchPluginRequest,
     dispatchPluginRawEvent,
     metaPersistence,
     liveEpoch,
@@ -676,10 +702,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (!isUnreadTrigger(eventType, before, after, payload)) return;
     if (viewedSessionTracker.isViewedByAnyone(sessionId)) return;
     const session = sessionManager.get(sessionId);
-    if (session && !session.unread) {
+    const unreadEdge = !!session && !session.unread;
+    if (unreadEdge) {
       sessionManager.update(sessionId, { unread: true });
       browserGateway.broadcastSessionUpdated(sessionId, { unread: true });
     }
+    // Single push hook: fire-and-forget, the dispatcher applies the hybrid
+    // cadence. See change: add-server-push-notifications (Decision 10).
+    if (session) pushDispatcher?.fanout(sessionId, { eventType, after, payload, unreadEdge });
   }
 
   /**
@@ -689,7 +719,20 @@ export function wireEvents(deps: EventWiringDeps): void {
    * stamp, no reorder, no `session_updated` broadcast.
    * See change: split-notify-from-prompt-request.
    */
-  function handleNotify(sessionId: string, entry: NotifyLogEntry): void {
+  function handleNotify(
+    sessionId: string,
+    incoming: Omit<NotifyLogEntry, "ts"> & { ts?: unknown },
+  ): void {
+    // Keep a valid bridge `ts` (bridge clock = transcript clock); otherwise
+    // stamp receipt time, so every logged entry carries one.
+    // See change: collapse-and-order-notify-rows (D1).
+    const ts = isValidNotifyTs(incoming.ts) ? incoming.ts : Date.now();
+    const entry: NotifyLogEntry = {
+      notifyId: incoming.notifyId,
+      message: incoming.message,
+      ...(incoming.level === undefined ? {} : { level: incoming.level }),
+      ts,
+    };
     browserGateway.appendNotify(sessionId, entry);
     browserGateway.sendToSubscribers(sessionId, {
       type: "notify",
@@ -697,6 +740,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       notifyId: entry.notifyId,
       message: entry.message,
       ...(entry.level === undefined ? {} : { level: entry.level }),
+      ts,
     } satisfies BrowserNotifyMessage);
   }
 
@@ -816,6 +860,13 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // Private request/reply lane: answered with `plugin_reply` on this socket.
+    // See change: expose-plugin-credential-and-oauth-seams (D7).
+    if (msg.type === "plugin_request") {
+      dispatchPluginRequest?.(sessionId, msg);
+      return;
+    }
+
     if (msg.type === "event_forward") {
       // Raw-event fan-out to plugin onEvent subscribers (live + replay).
       // Fired before the core handling so plugins see every forwarded event.
@@ -824,6 +875,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       // Legacy queue_state event no longer emitted (bridge removed PromptQueue).
       // See change: add-followup-edit-and-steer-cancel.
       if (msg.event.eventType === "queue_state") return;
+      // Forwarded-reload settle, BEFORE the replay-skip early return so a
+      // terminal `/reload` feedback inside a replay window still settles and
+      // still reaches the client. Late feedback after the server's own
+      // deadline error is dropped. See change: fix-terminal-session-dashboard-reload (D5).
+      const reloadRoute = routeReloadFeedback(sessionId, msg.event, {
+        inReplaySkipWindow: replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId),
+        persistAndBroadcast: () => {
+          const seq = eventStore.insertEvent(sessionId, msg.event);
+          browserGateway.broadcastEvent(sessionId, seq, eventStore.getEvent(sessionId, seq) ?? msg.event);
+        },
+      });
+      if (reloadRoute === "handled") return;
       // When canSkipWipe was true, the event store already has all events —
       // don't insert replayed events again (would cause exponential duplication)
       if (replayingSessions.has(sessionId) && skipReplayInsert.has(sessionId)) {
@@ -1285,6 +1348,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "session_register") {
+      if (!msg.provisional) deps.onBridgeRegister?.(sessionId, msg.extensionIdentity);
       // Reset the once-per-activation liveness guard on every (re)register so
       // a resumed session re-stamps `{ live:true, liveEpoch }` on its next
       // activity event. Without this, a session manually closed (sidecar
@@ -1896,6 +1960,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.gitStatus !== undefined) {
         gitUpdates.gitStatus = msg.gitStatus;
       }
+      // PR status tuple (async bridge probe). Guarded: `null` clears (known
+      // no PR / branch change), absent (older bridge, or unknown after a
+      // fork) leaves the stored value untouched. Number/url above stay
+      // unconditional — the new bridge always sends them when known.
+      // See change: redesign-composer-session-strip (D5).
+      // The tuple is ATOMIC with the number: when no PR number is known
+      // (absent = unknown after a fork/resume, or null = no PR) the status
+      // fields are cleared too, so a stale "open · passing" can never outlive
+      // its PR. Cleared as `null` (not `undefined`) so the broadcast carries
+      // the clear. See change: redesign-composer-session-strip (doubt-review #1).
+      // A known number WITHOUT any status field comes from an older bridge
+      // (the new bridge always sends the whole tuple): drop any stored status
+      // so a stale rich tuple never pairs with a different PR number.
+      // See change: redesign-composer-session-strip (review round 1).
+      const PR_STATUS_KEYS = ["gitPrState", "gitPrDraft", "gitPrChecks", "gitPrCheckedAt"] as const;
+      const prKnown = msg.gitPrNumber != null;
+      const legacyNumberOnly = prKnown && PR_STATUS_KEYS.every((k) => msg[k] === undefined);
+      const stored = sessionManager.get(sessionId);
+      for (const key of PR_STATUS_KEYS) {
+        if (!prKnown) gitUpdates[key] = null;
+        else if (legacyNumberOnly) {
+          if (stored?.[key] != null) gitUpdates[key] = null;
+        } else if (msg[key] !== undefined) gitUpdates[key] = msg[key];
+      }
       // Refresh + persist the tri-state git-repo signal when the bridge
       // includes it (confirmed repo). Register remains the authority.
       // See change: gate-session-worktree-button-on-git.
@@ -2136,6 +2224,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         notifyId,
         message,
         ...(level === undefined ? {} : { level: normalizeNotifyLevel(level) }),
+        ts: (msg as any).ts,
       });
       return;
     }

@@ -176,6 +176,22 @@ export {
   subagentHeapBudget,
 } from "./heap-limits.js";
 
+/**
+ * Server push notifications (Web Push / FCM / webhook). Opt-in: a missing or
+ * partial block parses as disabled. See change: add-server-push-notifications.
+ */
+export interface PushConfig {
+  /** Default false. Only a strict `true` enables push. */
+  enabled: boolean;
+  /** Per-(session, webhook token) coalescing window. Default 30 000, clamped 5 000–300 000. */
+  coalesceWindowMs: number;
+  fcm?: { serviceAccountPath: string };
+  /** VAPID `mailto:` subject. Web Push is disabled without it. */
+  webPush?: { contactEmail: string };
+}
+
+export const DEFAULT_PUSH_COALESCE_WINDOW_MS = 30_000;
+
 export interface OpenSpecPollConfig {
   /**
    * Master gate. When `false`, the dashboard treats OpenSpec as fully disabled
@@ -678,6 +694,8 @@ export interface DashboardConfig {
   embedLifecycle: EmbedLifecycleConfig;
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. */
   keeperLog: KeeperLogConfig;
+  /** Server push notifications. Absent → disabled. See change: add-server-push-notifications. */
+  push?: PushConfig;
   /**
    * Timeout for ask_user prompts in seconds.
    * Default: 300 (5 minutes).
@@ -1372,6 +1390,26 @@ export function validateSessionListConfig(raw: unknown): { ok: boolean; errors: 
   return { ok: errors.length === 0, errors };
 }
 
+/**
+ * Parse the `push` block. Anything but a strict `enabled: true` is disabled;
+ * `coalesceWindowMs` is clamped to 5 000–300 000 (non-numbers → 30 000).
+ * See change: add-server-push-notifications (Decision 6).
+ */
+export function parsePushConfig(raw: any): PushConfig {
+  const block = raw && typeof raw === "object" ? raw : {};
+  const out: PushConfig = {
+    enabled: block.enabled === true,
+    coalesceWindowMs: clampNumber(block.coalesceWindowMs, DEFAULT_PUSH_COALESCE_WINDOW_MS, 5_000, 300_000),
+  };
+  if (block.fcm && typeof block.fcm === "object" && typeof block.fcm.serviceAccountPath === "string") {
+    out.fcm = { serviceAccountPath: block.fcm.serviceAccountPath };
+  }
+  if (block.webPush && typeof block.webPush === "object" && typeof block.webPush.contactEmail === "string") {
+    out.webPush = { contactEmail: block.webPush.contactEmail };
+  }
+  return out;
+}
+
 function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_OPENSPEC_POLL };
   const changeDetection =
@@ -1892,6 +1930,7 @@ export function loadConfig(): DashboardConfig {
       sessionList: parseSessionListConfig(parsed.sessionList),
       embedLifecycle: parseEmbedLifecycleConfig(parsed.embedLifecycle),
       keeperLog: parseKeeperLogConfig(parsed.keeperLog),
+      push: parsePushConfig(parsed.push),
       allowedHosts: Array.isArray(parsed.allowedHosts)
         ? parsed.allowedHosts.filter((h: unknown): h is string => typeof h === "string")
         : defaults.allowedHosts,

@@ -75,6 +75,13 @@ export interface OAuthFlow {
   resolveInput?: (value: string) => void;
   rejectInput?: (error: Error) => void;
   preAnswers: string[];
+  /**
+   * Secret-bearing fragments of every answer submitted to this flow (the
+   * non-empty value and, for a pasted URL, its non-empty query/hash values). Server-only, never serialised;
+   * cleared when the flow ends. Used to withhold an error message that echoes
+   * the input. See change: expose-plugin-credential-and-oauth-seams.
+   */
+  submitted: string[];
   promptCount: number;
   abort: AbortController;
   /** Resolves once `login()` settled AND the terminal status is recorded. */
@@ -301,6 +308,7 @@ function createFlowInteraction(flow: OAuthFlow, hooks: InteractionHooks): LoginI
       const settleResolve = (value: string): void => {
         if (done) return;
         done = true;
+        recordSubmitted(flow, value);
         cleanup();
         resolve(value);
       };
@@ -340,6 +348,48 @@ function createFlowInteraction(flow: OAuthFlow, hooks: InteractionHooks): LoginI
   };
 
   return { signal: flow.abort.signal, notify, prompt };
+}
+
+// ── Input echo guard ─────────────────────────────────────────────────────────
+
+/** Message reported instead of an error that contains submitted input. */
+export const WITHHELD_ERROR_MESSAGE = "Sign-in failed (details withheld: the error echoed submitted input)";
+
+function recordSubmitted(flow: OAuthFlow, value: string): void {
+  const fragments = [value.trim()];
+  try {
+    const url = new URL(value.trim());
+    for (const v of url.searchParams.values()) fragments.push(v);
+    if (url.hash.length > 1) {
+      for (const v of new URLSearchParams(url.hash.slice(1)).values()) fragments.push(v);
+    }
+  } catch { /* not a URL */ }
+  // Every non-empty fragment, however short: over-withholding only hides error
+  // detail, under-withholding leaks a code.
+  for (const f of fragments) if (f.length > 0) flow.submitted.push(f);
+}
+
+/**
+ * A login error may quote what the operator pasted (an authorization code, a
+ * redirect URL carrying one). Status responses must never echo that input, so
+ * such an error is replaced whole — no partial redaction.
+ */
+export function withholdEchoedInput(error: string, submitted: readonly string[]): string {
+  return submitted.some((f) => quotes(error, f)) ? WITHHELD_ERROR_MESSAGE : error;
+}
+
+/** Fragments at least this long match as plain substrings. */
+const SUBSTRING_MATCH_MIN = 4;
+
+/**
+ * Does `error` quote `fragment`? Long fragments match anywhere; a short one
+ * (e.g. a 3-char code) only as a whole token — otherwise a one-letter URL
+ * param such as `state=s` would withhold every message containing an `s`.
+ */
+function quotes(error: string, fragment: string): boolean {
+  if (fragment.length >= SUBSTRING_MATCH_MIN) return error.includes(fragment);
+  const escaped = fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`).test(error);
 }
 
 // ── Flow start ───────────────────────────────────────────────────────────────
@@ -386,6 +436,7 @@ export function startFlow(params: StartFlowParams): StartedFlow {
     expiresAt: createdAt + FLOW_TTL_MS,
     cancelled: false,
     preAnswers: [...params.preAnswers],
+    submitted: [],
     promptCount: 0,
     abort: new AbortController(),
     settled,
@@ -405,7 +456,8 @@ export function startFlow(params: StartFlowParams): StartedFlow {
 
   const finish = (status: OAuthFlowState, error?: string): void => {
     flow.status = status;
-    if (error !== undefined) flow.error = error;
+    if (error !== undefined) flow.error = withholdEchoedInput(error, flow.submitted);
+    flow.submitted = [];
     clearPending(flow);
   };
 

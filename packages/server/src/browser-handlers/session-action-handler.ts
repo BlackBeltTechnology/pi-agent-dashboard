@@ -187,8 +187,9 @@ export function buildDispatchReloadContext(
  * extension in RPC mode:
  *   - `ExtensionContext` (delivered to `session_start`) has no `reload` field
  *   - The RPC protocol has no `{type:"reload"}` command
- *   - The `globalThis[RELOAD_KEY]` bootstrap requires a human to type
- *     `/__dashboard_reload` in pi's TUI, which headless sessions lack.
+ *   - The bridge's in-process self-dispatch of `/__dashboard_reload` serves
+ *     terminal-hosted sessions; respawn also rescues a headless session whose
+ *     bridge has died (see change: fix-terminal-session-dashboard-reload).
  *
  * Instead, the server achieves a reload-equivalent outcome by killing the
  * headless pi process and respawning it with `--session <file>`, which
@@ -231,7 +232,7 @@ export async function handleHeadlessReload(
       ctx,
       msg.sessionId,
       "error",
-      "No session file — cannot respawn on reload",
+      "No session file — cannot restart on reload",
     );
     return;
   }

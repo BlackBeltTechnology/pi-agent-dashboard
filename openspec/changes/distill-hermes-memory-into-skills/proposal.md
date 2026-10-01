@@ -1,5 +1,22 @@
 # Distill accumulated Hermes memories into phase-scoped skill sidecars
 
+> **SUPERSEDED (2026-09-24) by `openspec/changes/unify-context-manager`.**
+> Hermes memories become lesson files (one per lesson, cue-fired) through
+> `/lessons import-hermes`, which runs the miner's triage → card → replay-gate →
+> review pipeline (D4, D10). Skill sidecars are not the destination. The old
+> hermes store is read, never modified, so the "move-out" step is dropped.
+>
+> **Carried over** into `context-manager-lesson-miner` (phase 5, import path):
+> - the HARD shareability gate: `target ≠ user` plus the secret/PII/abs-path
+>   scrub (a scrub failure means no write);
+> - project scoping: `project IS NULL` rows are not promoted into a
+>   project's committed lessons;
+> - cross-dedup against existing lessons and skill sidecars;
+> - a human-confirmed routing table (auto-accept off by default, D10).
+>
+> The maturity signal (`last_referenced` age) becomes a triage feature.
+> Kept for history; do not implement.
+
 ## Scope & Target (read first)
 
 **Split-target, like `memory-retrieval-injection`.** Two halves:

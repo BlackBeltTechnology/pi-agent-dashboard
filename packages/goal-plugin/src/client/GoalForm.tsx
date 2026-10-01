@@ -187,7 +187,7 @@ export function GoalForm({ initial, submitLabel, onSubmit, onCancel, executorMod
           checked={autoRespawn}
           onChange={(e) => setAutoRespawn(e.target.checked)}
         />
-        {t("autoRespawnLabel", undefined, "Auto-respawn on driver death (bounded by budget + crash-loop breaker)")}
+        {t("autoRespawnLabel", undefined, "Auto-restart on driver death (bounded by budget + crash-loop breaker)")}
       </label>
 
       {err && <div className="text-[10px] text-red-400" data-testid="goal-form-error">{err}</div>}

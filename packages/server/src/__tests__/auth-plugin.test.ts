@@ -179,3 +179,72 @@ describe("G25: top-level trustedNetworks survive an auth reload", () => {
     await app.close();
   });
 });
+
+// ── fix-trusted-network-tunnel-bypass ─────────────────────────────────────
+// A relayed-loopback peer (loopback socket + forwarding header) is a tunnel
+// agent; a loopback bypassHosts / trustedNetworks entry must not admit it.
+
+const RELAYED = { "x-forwarded-for": "203.0.113.9" };
+
+describe("E8 OAuth bypass-host skip refuses relayed loopback", () => {
+  async function app(bypass: string[]) {
+    const { default: Fastify } = await import("fastify");
+    const { registerAuthPlugin } = await import("../auth/auth-plugin.js");
+    const a = Fastify();
+    await registerAuthPlugin(a, {
+      authConfig: {
+        secret: "test-secret-32-chars-long-abcdef",
+        providers: { github: { clientId: "cid", clientSecret: "csecret" } },
+      },
+      port: 8000,
+      resolvedTrustedNetworks: bypass,
+    });
+    a.get("/api/sessions", async (req) => ({ isAuthenticated: (req as any).isAuthenticated === true }));
+    await a.ready();
+    return a;
+  }
+
+  it("does not skip auth for a relayed-loopback peer with bypassHosts [127.0.0.1]", async () => {
+    const a = await app(["127.0.0.1"]);
+    const res = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1", headers: RELAYED });
+    await a.close();
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("still skips auth for a LAN peer inside a bypass CIDR (control)", async () => {
+    const a = await app(["192.168.16.0/24"]);
+    const res = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "192.168.16.20" });
+    await a.close();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ isAuthenticated: false });
+  });
+
+  it("still admits a header-less loopback request (genuine local)", async () => {
+    const a = await app(["127.0.0.1"]);
+    const res = await a.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1" });
+    await a.close();
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("E9 validateWsUpgrade refuses relayed loopback", () => {
+  it("(a) relayed loopback, no credential -> false", () => {
+    expect(validateWsUpgrade(undefined, "127.0.0.1", SECRET, ["127.0.0.1"], { headers: RELAYED })).toBe(false);
+  });
+  it("(b) LAN peer in trusted CIDR -> true", () => {
+    expect(validateWsUpgrade(undefined, "192.168.16.20", SECRET, ["192.168.16.0/24"], { headers: {} })).toBe(true);
+  });
+  it("(c) relayed loopback with a valid browser ticket -> true", async () => {
+    const { WsTicketStore } = await import("../auth/ws-ticket.js");
+    const store = new WsTicketStore();
+    const ticket = store.mint("browser");
+    expect(
+      validateWsUpgrade(undefined, "127.0.0.1", SECRET, ["127.0.0.1"], {
+        headers: RELAYED,
+        ticket,
+        scope: "browser",
+        consumeTicket: (t, s) => store.consume(t, s),
+      }),
+    ).toBe(true);
+  });
+});

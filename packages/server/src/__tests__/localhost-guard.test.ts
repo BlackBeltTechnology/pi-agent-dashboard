@@ -1,16 +1,19 @@
 import net from "node:net";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   createNetworkGuard,
   createNetworkGuardHook,
+  createTrustedListNoter,
   GUARD_DENY_REASON,
   type GuardDenialLogEntry,
   guardPathname,
   ipToNum,
   isBypassedHost,
   isGuardJurisdiction,
+  isTrustedSource,
   localhostGuard,
+  loopbackCoveringEntries,
   matchCidr,
   netmaskToCidrBits,
   networkAddress,
@@ -1075,5 +1078,146 @@ describe("universal guard — denial log cannot be forged or bloated", () => {
     });
     await app.close();
     expect(res.statusCode).toBe(403);
+  });
+});
+
+// ── fix-trusted-network-tunnel-bypass ─────────────────────────────────────
+// A loopback-range peer carrying a core forwarding header is a tunnel agent /
+// same-host reverse proxy relaying someone else: a trusted entry covering
+// loopback must never admit it. See change: fix-trusted-network-tunnel-bypass.
+
+const LOOPBACK_PEERS = ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.5", "::ffff:127.0.0.5"];
+
+describe("E1b isTrustedSource — hex-form IPv4-mapped relayed peer", () => {
+  it("refuses ::ffff:7f00:1 with a forwarding header even when that exact address is trusted", () => {
+    expect(isTrustedSource("::ffff:7f00:1", { "x-forwarded-for": "203.0.113.9" }, ["::ffff:7f00:1"])).toBe(false);
+    expect(isTrustedSource("0:0:0:0:0:0:0:1", { "x-forwarded-for": "203.0.113.9" }, ["0:0:0:0:0:0:0:1"])).toBe(false);
+  });
+});
+const FORWARDING_HEADERS: Array<Record<string, string>> = [
+  { "x-forwarded-for": "203.0.113.9" },
+  { "x-forwarded-proto": "https" },
+  { forwarded: "for=203.0.113.9" },
+  { "x-real-ip": "203.0.113.9" },
+  { "x-forwarded-host": "a.shares.zrok.io" },
+];
+const LOOPBACK_COVERING_LISTS = [["127.0.0.1"], ["127.0.0.0/8"], ["127.*"], ["0.0.0.0/0"]];
+
+describe("E1 isTrustedSource — relayed loopback never trusted", () => {
+  it("returns false in all 100 peer x header x trusted cells", () => {
+    let cells = 0;
+    for (const peer of LOOPBACK_PEERS) {
+      for (const headers of FORWARDING_HEADERS) {
+        for (const trusted of LOOPBACK_COVERING_LISTS) {
+          cells++;
+          expect(isTrustedSource(peer, headers, trusted), `${peer} ${JSON.stringify(headers)} ${trusted}`).toBe(false);
+        }
+      }
+    }
+    expect(cells).toBe(100);
+  });
+});
+
+describe("E2 isTrustedSource — genuine traffic keeps the matcher result", () => {
+  it("equals trusted.length > 0 && isBypassedHost(peer, trusted) per cell", () => {
+    const cells: Array<[string, Record<string, string>]> = [
+      ...LOOPBACK_PEERS.map((p) => [p, {}] as [string, Record<string, string>]),
+      ["192.168.16.20", {}],
+      ["192.168.16.20", { "x-forwarded-for": "203.0.113.9" }],
+      ["203.0.113.9", {}],
+      ["203.0.113.9", { "x-forwarded-for": "198.51.100.1" }],
+    ];
+    for (const trusted of [[], ["127.0.0.0/8"], ["192.168.16.0/24"]]) {
+      for (const [peer, headers] of cells) {
+        const expected = trusted.length > 0 && isBypassedHost(peer, trusted);
+        expect(isTrustedSource(peer, headers, trusted), `${peer} ${JSON.stringify(headers)} ${trusted}`).toBe(expected);
+      }
+    }
+    // Spot-check the load-bearing cells explicitly.
+    expect(isTrustedSource("192.168.16.20", { "x-forwarded-for": "x" }, ["192.168.16.0/24"])).toBe(true);
+    expect(isTrustedSource("127.0.0.1", {}, ["127.0.0.0/8"])).toBe(true);
+    expect(isTrustedSource("192.168.16.20", {}, [])).toBe(false);
+  });
+});
+
+describe("E3 isTrustedSource — empty / array forwarding header fails closed", () => {
+  it("treats a present-but-empty or array header as a relay", () => {
+    expect(isTrustedSource("127.0.0.1", { "x-forwarded-for": "" }, ["127.0.0.1"])).toBe(false);
+    expect(isTrustedSource("127.0.0.1", { "x-forwarded-for": ["a", "b"] }, ["127.0.0.1"])).toBe(false);
+  });
+});
+
+describe("E5/E6 network guard — tunnel repro vs genuine local", () => {
+  it("E5: denies a relayed-loopback request even with trusted [127.0.0.1] (auth off)", async () => {
+    const app = await buildGuardApp({ trusted: ["127.0.0.1"], logDenial: () => {} });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/sessions",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": "203.0.113.9" },
+    });
+    await app.close();
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("network_not_allowed");
+  });
+
+  it("E5: the per-route guard refuses the same relayed request", async () => {
+    const guard = createNetworkGuard(["127.0.0.1"]);
+    const app = Fastify();
+    app.decorateRequest("isAuthenticated", false);
+    app.get("/x", { preHandler: guard }, async () => ({ ok: true }));
+    const res = await app.inject({
+      method: "GET",
+      url: "/x",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": "203.0.113.9" },
+    });
+    await app.close();
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("E6: the header-less loopback request is admitted, with or without a prior auth hook", async () => {
+    for (const priorAuthHook of [false, true]) {
+      const app = await buildGuardApp({ trusted: ["127.0.0.1"], priorAuthHook });
+      const res = await app.inject({ method: "GET", url: "/api/sessions", remoteAddress: "127.0.0.1" });
+      await app.close();
+      expect(res.statusCode, `priorAuthHook=${priorAuthHook}`).toBe(200);
+    }
+  });
+});
+
+describe("E12 loopbackCoveringEntries partitions", () => {
+  it.each(["127.0.0.1", "127.0.0.0/8", "127.*", "0.0.0.0/0", "::1", "127.0.0.5", "127.0.0.4/30", "::1/128"])(
+    "flags %j",
+    (entry) => {
+      expect(loopbackCoveringEntries([entry])).toEqual([entry]);
+    },
+  );
+  it.each(["192.168.16.0/24", "10.*", "*", "203.0.113.9"])("does not flag %j", (entry) => {
+    expect(loopbackCoveringEntries([entry])).toEqual([]);
+  });
+});
+
+describe("E13 inert-entry warning dedups by covering-entry signature", () => {
+  it("warns once per distinct signature and re-runs the matcher only on a new array ref", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const covering = vi.fn(loopbackCoveringEntries);
+    const note = createTrustedListNoter(covering);
+    const trustedLines = () => warn.mock.calls.filter((c) => String(c[0]).startsWith("[trusted-networks]")).length;
+    try {
+      const a = ["127.0.0.1", "192.168.16.0/24"];
+      for (let i = 0; i < 1000; i++) note(a);
+      expect(trustedLines()).toBe(1);
+      expect(String(warn.mock.calls[0][0])).toContain('"127.0.0.1"');
+      note([...a]);
+      expect(trustedLines()).toBe(1);
+      note([...a, "127.0.0.2"]);
+      expect(trustedLines()).toBe(2);
+      note(["192.168.16.0/24"]);
+      expect(trustedLines()).toBe(2);
+      expect(covering).toHaveBeenCalledTimes(4);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

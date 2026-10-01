@@ -20,6 +20,31 @@
     "recommended": "0.86.1",
     "maximum": null
   },
+  "piDashboard": {
+    "minShellVersion": "0.8.0",
+    "bundledPlugins": [
+      "roles-plugin",
+      "flows-plugin",
+      "flows-anthropic-bridge-plugin",
+      "automation-plugin",
+      "goal-plugin",
+      "subagents-plugin",
+      "kb-plugin",
+      "hermes-memory-plugin",
+      "grammar-plugin",
+      "blackhole-plugin",
+      "gmail-plugin",
+      "mcp-server-plugin",
+      "apple-tools",
+      "mcp-client-plugin",
+      "cost-estimator",
+      "quota-plugin",
+      "browser-plugin",
+      "keycloak-resolver-plugin",
+      "chat-gateway",
+      "system-one-plugin"
+    ]
+  },
   "main": "src/cli.ts",
   "bin": {
     "pi-dashboard": "bin/pi-dashboard.mjs"
@@ -67,7 +92,10 @@
     "mammoth": "^1.12.0",
     "node-pty": "1.2.0-beta.13",
     "proper-lockfile": "^4.1.2",
+    "semver": "^7.7.1",
     "tsx": "^4.21.0",
+    "undici": "^7.29.0",
+    "web-push": "^3.6.7",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5"
   },
@@ -80,6 +108,8 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/mailparser": "^3.4.6",
     "@types/proper-lockfile": "^4.1.4",
+    "@types/semver": "^7.7.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1"
   }
 }

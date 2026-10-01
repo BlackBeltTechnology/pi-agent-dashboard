@@ -231,6 +231,10 @@ Single rich-output surface; 3 consumers wrap one core (`packages/electron/src/li
 - Credential-kind routing filter — `getAvailable()`/`find()` by cred-kind × model id. `canRouteModel(model,cred)`.
 - Refresh trigger map.
 - auth.json write contract — two writers of `~/.pi/agent/auth.json`; `provider-auth-storage.ts#writeCredential` mkdir lock.
+- Completion request pipeline — ONE `handleCompletion(format, deps, request, reply)` both `/v1` POST routes. `CompletionFormat` adapter differs: `OPENAI_FORMAT`, `ANTHROPIC_FORMAT`. Stages: validate → registry (`MODEL_PROXY_RUNTIME_MISSING`) → `resolveRequestedModel` → `acquireSlot` (`SERVER_FULL`/`KEY_FULL`/`PROVIDER_FULL`) → `runCompletion` → SSE/JSON.
+- Disconnect abort — `reply.raw` `close` && `!writableFinished` → `AbortController.abort()`. NOT `request.raw` `close` (fires early on Node 24).
+- Mid-stream failure — format SSE `error` event + `reply.raw.end()`, never `reply.code(500)`.
+- System prompt — `callPiAiStreamSimple` (`model-proxy/streamer.ts`) maps `system` → pi-ai `Context.systemPrompt`. Stateless per request; caps 16 server / 4 per key / 4 per provider, released once. Test `model-proxy-parallel-isolation.test.ts`. See change: fix-model-proxy-stream-lifecycle.
 
 ## Test execution & isolation
 Vitest 4. Root `vitest.config.ts` `test.projects`. Parallel projects `pool:"forks"` `maxWorkers: PARALLEL_MAX_WORKERS` from repo-root `vitest.workers.ts` (`= "50%"`; was `1`). Serial `maxWorkers: 1`. Per-file HOME isolation via `setup-home-perfile.ts` mkdtemp.

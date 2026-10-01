@@ -240,7 +240,7 @@ describe("AutomationBoard fan-out", () => {
     dir: "/p",
     startedAt: 10,
     findings: 7,
-    warning: "bounded to 4 concurrent spawn(s); 6 child(ren) not spawned",
+    warning: "bounded to 4 concurrent session(s); 6 child(ren) not started",
     children: ["c0", "c1", "c2"],
     childRuns: [
       { runId: "c0", name: "nightly", status: "done", dir: "/p/c0", startedAt: 10, findings: 2, actionLabel: "flows.run:A", parentRunId: "2026-07-01-fan", sessionId: "s0" },

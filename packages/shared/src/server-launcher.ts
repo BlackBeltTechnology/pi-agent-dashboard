@@ -168,6 +168,12 @@ export interface LaunchOpts {
    * See change: harvest-bootstrap-survivor-fixes (cherry-pick 6a).
    */
   onChildExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  /**
+   * Called with the child PID right after spawn, BEFORE the readiness wait —
+   * lets a runtime switch claim/kill the candidate even if readiness fails.
+   * See change: electron-runtime-overlay-updates (D3).
+   */
+  onSpawned?: (pid: number) => void;
 }
 
 export interface LaunchResult {
@@ -301,6 +307,7 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   if (!child.pid) {
     throw classifyChildExit(child.exitCode ?? null, child.signalCode ?? null, opts.port);
   }
+  opts.onSpawned?.(child.pid);
 
   // 5. Readiness loop.
   const deadline = now() + opts.healthTimeoutMs;

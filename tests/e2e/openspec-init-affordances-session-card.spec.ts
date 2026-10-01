@@ -300,6 +300,7 @@ const LIVE_CONTROL_TESTIDS = [
   "new-change-btn",
   "archive-btn",
   "detach-btn",
+  "openspec-overflow-btn",
   "attach-combo",
   "bulk-archive-btn",
 ] as const;
@@ -602,7 +603,7 @@ test.describe("openspec init affordances — session card", () => {
       await expect(skillsCard.getByTestId("session-openspec-disabled")).toBeVisible({ timeout: 30_000 });
       // profileStale is still READY — its card is LIVE (control sanity).
       await expect(profileCard.getByTestId("session-openspec-disabled")).toHaveCount(0);
-      await expect(profileCard.getByTestId("explore-unattached-btn").or(profileCard.getByTestId("explore-btn")).first()).toBeVisible();
+      await expect(profileCard.getByTestId("explore-unattached-btn").or(profileCard.getByTestId("openspec-overflow-btn")).first()).toBeVisible();
 
       const reasonOf = async (card: Locator): Promise<string> => {
         const t = await card.getByTestId("session-openspec-disabled-reason").textContent();

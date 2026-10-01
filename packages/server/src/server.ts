@@ -2,27 +2,40 @@
  * Dashboard HTTP + WebSocket server.
  */
 
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createGatedProviderAuth, createIsPiExtensionInstalled, createServerPluginContext, discoverPlugins, fixtureEntryAllowed, getPluginStatusStore, getWsRouteRegistry, loadServerEntries, pluginSpawnToSessionOptions, redactPluginConfigForClient, refreshRequirementProbesFor, resolvePluginEnabled } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
+import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { createPushService, type PushService } from "./push/push-service.js";
+import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
   reconcilePluginBridgePackages,
+  deregisterPluginBridge,
   registerAllPluginBridges,
 } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RECOVERY_REATTACH_GRACE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
+import {
+  deriveEffectiveSource,
+  deriveLocalIdentity,
+  getRuntimeOverlayDir,
+  readRuntimeRequest,
+  readRuntimeState,
+} from "@blackbelt-technology/pi-dashboard-shared/runtime-overlay/state.js";
 import { isRecoveryCandidate, mergeSessionMeta, type SessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -74,15 +87,19 @@ import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import {
   createNetworkGuard,
   createNetworkGuardHook,
-  isBypassedHost,
   isPluginScopePeerLocal,
+  noteTrustedList,
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
+import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
+import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
+import type { OAuthLoginFlow } from "./auth/pi-oauth-types.js";
+import { createPluginRequestLane } from "./plugin-request-lane.js";
+import type { PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { createRouteTierGate } from "./auth/route-tier-gate.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
-import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
 import {
   type CoreWsRouteScope,
   extractTicket,
@@ -92,6 +109,7 @@ import {
   type WsRouteScope,
   WsTicketStore,
 } from "./auth/ws-ticket.js";
+import { createWsUpgradeRejectLogger } from "./auth/ws-upgrade-reject-log.js";
 import {
   buildDispatchReloadContext,
   forceKillSession,
@@ -139,12 +157,13 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
-import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
+import { type OperationResult, PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
 import { PairedDeviceRegistry } from "./pairing/paired-devices.js";
-import { PairingManager } from "./pairing/pairing.js";
+import { PairingManager, wirePendingHint } from "./pairing/pairing.js";
 import { createPendingArchiveIntentRegistry } from "./pending/pending-archive-intent-registry.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
@@ -201,6 +220,7 @@ import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
 import { registerResourceActivationRoutes } from "./routes/resource-activation-routes.js";
+import { registerRuntimeRoutes } from "./routes/runtime-routes.js";
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
@@ -208,6 +228,12 @@ import {
   dispatchReload as dispatchReloadRaw,
   reloadTargetSessionIds,
 } from "./rpc-keeper/dispatch-reload.js";
+import { activeExtensionFromEnv, createExtensionReloadGuard } from "./runtime-overlay/extension-reload.js";
+import { bundledFallbackIntact, buildRuntimeDoctorCheck } from "./runtime-overlay/runtime-doctor.js";
+import { buildRuntimeHealth, type RuntimeHealth } from "./runtime-overlay/runtime-health.js";
+import { createStagerDeps, runtimeReleaseFeeds } from "./runtime-overlay/runtime-io.js";
+import { stageRuntime } from "./runtime-overlay/runtime-stager.js";
+import { RuntimeUpdateChecker } from "./runtime-overlay/runtime-update-checker.js";
 import { startServerHeapTelemetry } from "./server-heap-telemetry.js";
 import { createArchiveSweeper } from "./session/archive-sweeper.js";
 import { CustomEventGroupMatcher } from "./session/custom-event-group-matcher.js";
@@ -313,6 +339,9 @@ export interface ServerConfig {
   replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
+  /** Push notifications. Absent or `enabled !== true` means disabled (no dispatcher,
+   *  no VAPID keys). See change: add-server-push-notifications. */
+  push?: import("@blackbelt-technology/pi-dashboard-shared/config.js").PushConfig;
   /** Session behavior — hydration worker offload toggle.
    *  See change: offload-session-events-load-to-worker. */
   sessions?: import("@blackbelt-technology/pi-dashboard-shared/config.js").SessionsConfig;
@@ -393,6 +422,32 @@ export interface DashboardServer {
 }
 
 
+/**
+ * pi-coding-agent version as resolved from this server (its `exports` hide
+ * package.json, so walk the resolution paths). Cached. See change:
+ * electron-runtime-overlay-updates.
+ */
+let piVersionCache: string | null | undefined;
+function resolvedPiVersion(): string | undefined {
+  if (piVersionCache === undefined) {
+    piVersionCache = null;
+    for (const dir of createRequire(import.meta.url).resolve.paths("@earendil-works/pi-coding-agent") ?? []) {
+      const file = path.join(dir, "@earendil-works", "pi-coding-agent", "package.json");
+      try {
+        const v = (JSON.parse(readFileSync(file, "utf8")) as { version?: unknown }).version;
+        if (typeof v === "string") {
+          piVersionCache = v;
+          break;
+        }
+      } catch {
+        // not in this node_modules — keep walking
+      }
+    }
+  }
+  return piVersionCache ?? undefined;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -401,7 +456,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // baseDir MUST be <repo>/ so findBundledExtension resolves
   // <repo>/packages/extension. Three levels up, not two.
   const __serverDir = path.dirname(fileURLToPath(import.meta.url));
-  const extPath = findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
+  // Under Electron the active runtime's extension dir is authoritative (D8):
+  // the same path Electron registered before spawning; for an overlay the
+  // sibling search below cannot find `node_modules/@…/pi-dashboard-extension`.
+  // See change: electron-runtime-overlay-updates.
+  const activeExtension = activeExtensionFromEnv();
+  if (process.env.PI_DASHBOARD_EXTENSION_DIR && !activeExtension) {
+    console.warn(`[runtime-overlay] ignoring PI_DASHBOARD_EXTENSION_DIR=${process.env.PI_DASHBOARD_EXTENSION_DIR} (not an Electron-started dashboard extension)`);
+  }
+  const extPath = activeExtension?.dir ?? findBundledExtension(path.resolve(__serverDir, "..", "..", ".."));
   if (extPath) {
     registerBridgeExtension(extPath);
     console.log(`[dashboard] Bridge extension registered: ${extPath}`);
@@ -661,6 +724,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Save per-session .meta.json on any change. The meta payload is an EXPLICIT
   // field enumeration (`sessionToMeta`) written as a FULL overwrite — omitting a
   // field there wipes it on the next unrelated save. See change: add-session-tags.
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
   sessionManager.onChange = (sessionId: string, ctx) => {
     const session = sessionManager.get(sessionId);
     if (!session?.sessionFile) return;
@@ -1075,6 +1139,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const liveServerManager = createLiveServerManager(preferencesStore);
 
   const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents, config.replayWindowMode, sessionArchive, pendingArchiveIntents, remoteTranscriptStore, pendingPrincipalOwnerRegistry, identityEnforced);
+  // App-wide pairing approval dialog: a content-free hint on every pending
+  // change; operator browsers refetch the guarded list (D1).
+  // See change: add-pairing-approval-dialog.
+  wirePendingHint(pairingManager, (msg) => browserGateway.broadcastToAll(msg));
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1299,6 +1367,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       try { h(msg, sessionId); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
     }
   }
+  // Private plugin request/reply lane: one handler per (pluginId, type), reply
+  // sent host-internally on the requesting socket (not the priority-gated
+  // sendExtensionMessage). See change: expose-plugin-credential-and-oauth-seams (D7).
+  const pluginRequestLane = createPluginRequestLane((sessionId, msg) =>
+    piGateway.sendToSession(sessionId, msg),
+  );
+  function dispatchPluginRequest(sessionId: string, msg: PluginRequestMessage): void {
+    pluginRequestLane.handle(sessionId, msg).catch((err) => {
+      console.error("[plugin-request]", err);
+    });
+  }
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
     for (const h of pluginRawEventSubs) {
       try { h(sessionId, event); } catch (err) { console.error("[plugin-onEvent]", err); }
@@ -1327,8 +1406,55 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
 
 
+  // Push fan-out: built ONLY when explicitly enabled (Decision 6), and always
+  // passed together with `viewedSessionTracker` (Decision 7).
+  // See change: add-server-push-notifications.
+  // A push init failure (e.g. unwritable VAPID file) must never take the
+  // dashboard down: log it, leave push disabled, report it in push.errors.
+  let pushService: PushService | null = null;
+  let pushInitError: string | null = null;
+  if (config.push?.enabled === true) {
+    try {
+      pushService = createPushService({
+        config: config.push,
+        dataDir: CONFIG_DIR,
+        getSession: (id) => sessionManager.get(id),
+        selfPort: () => {
+          const addr = fastify.server.address();
+          return addr && typeof addr === "object" ? addr.port : null;
+        },
+      });
+    } catch (err) {
+      const code = (err as { code?: unknown })?.code;
+      pushInitError = `push init failed (${typeof code === "string" ? code : "error"}); push disabled`;
+      console.error(`[push] ${pushInitError}`);
+    }
+  }
+
   // Wire up event forwarding from pi gateway to browser gateway
+  // D8: bridges whose extension differs from the active runtime's get one
+  // `/reload` (through the same ladder as the reload button), once idle.
+  // Electron only: validated PI_DASHBOARD_EXTENSION_DIR set at spawn.
+  const extensionReloadGuard = createExtensionReloadGuard({
+    active: () => activeExtension,
+    isBusy: (sid) => {
+      const s = sessionManager.get(sid);
+      return s?.status === "streaming" || s?.compacting === true;
+    },
+    reload: (sid) => {
+      console.log(`[runtime-overlay] extension identity differs → /reload session=${sid} runtime=${activeExtension?.runtimeId}`);
+      return dispatchReload(sid);
+    },
+    onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
+  });
+
   wireEvents({
+    onBridgeRegister: (sid, identity) => {
+      const outcome = extensionReloadGuard.onRegister(sid, identity);
+      if (outcome !== "skipped") {
+        console.log(`[runtime-overlay] bridge register session=${sid} extension=${identity?.dir ?? "(none)"} outcome=${outcome}`);
+      }
+    },
     sessionManager,
     remoteTranscriptStore,
     eventStore,
@@ -1350,9 +1476,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     dispatchPluginSessionResolved,
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
+    ...(pushService ? { pushDispatcher: pushService.dispatcher } : {}),
     pendingClientCorrelations,
     pendingPromptAcks,
     dispatchPluginPiMessage,
+    dispatchPluginRequest,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
     metaPersistence,
@@ -1960,10 +2088,26 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     console.log("[dashboard] No client build found — running in API-only mode");
   }
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, clientDir, clientBuild, readTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []), readAccessGrants: () => snapshotAccessGrantHealth({ coordinator: grantCoordinator, yolo, refusalCount: () => listRefusals().length, promptEnabled: () => loadConfig().accessGrants?.promptEnabled === true, killSwitch: () => isGrantPromptKilled(), hostGateMode: () => resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode, operatorChannels: () => promptChannelCount() }), keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() }, readPushErrors: pushService ? () => pushService?.errors ?? [] : pushInitError ? () => [pushInitError as string] : undefined });
   registerHostGateRoutes(fastify, { getCtx: getHostGateCtx, state: hostGateState, networkGuard });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
-  registerDoctorRoutes(fastify);
+  // Assigned by the runtime-overlay block below; read lazily per request.
+  let runtimeHealthForDoctor: (() => RuntimeHealth) | null = null;
+  registerDoctorRoutes(fastify, {
+    // See change: electron-runtime-overlay-updates (task 9.2).
+    extraChecks: () =>
+      runtimeHealthForDoctor
+        ? [
+            buildRuntimeDoctorCheck({
+              health: runtimeHealthForDoctor(),
+              piVersion: resolvedPiVersion(),
+              mismatches: extensionReloadGuard.mismatches(),
+              bundledIntact: bundledFallbackIntact(),
+            }),
+          ]
+        : [],
+  });
+  registerPushRoutes(fastify, { getPush: () => pushService });
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -1996,7 +2140,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       operationId,
       ...(moveId ? { moveId } : {}),
       event,
-    } as any);
+    });
   });
 
   // Boot-time `modelProxy.enabled`, captured once inside the Model Proxy block
@@ -2018,10 +2162,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       success: result.success,
       error: result.error,
       diagnostics: result.diagnostics,
-      sessionsReloaded: (result as any).sessionsReloaded,
+      sessionsReloaded: (result as OperationResult & { sessionsReloaded?: number }).sessionsReloaded,
       ...(result.moveId ? { moveId: result.moveId } : {}),
       ...(result.partialSuccess ? { partialSuccess: result.partialSuccess } : {}),
-    } as any);
+    } as PackageOperationCompleteMessage);
     if (result.success) invalidateRecommendedCache();
     // A successful package operation may have changed plugin requirement
     // satisfaction. Refresh probes and broadcast plugin_config_update for
@@ -2105,6 +2249,63 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     });
   });
   registerPiChangelogRoutes(fastify, {});
+
+  // Runtime overlay updates (Electron). Checker is notify-only; staging and
+  // activation are explicit user actions. See change: electron-runtime-overlay-updates.
+  {
+    const runtimeDir = getRuntimeOverlayDir();
+    const runtimeHealthNow = () =>
+      buildRuntimeHealth({
+        env: process.env,
+        serverVersion: pkgVersion,
+        readRequest: () => readRuntimeRequest(runtimeDir),
+        readState: () => readRuntimeState(runtimeDir),
+        localSnapshot: (p) => deriveLocalIdentity(p).snapshot,
+      });
+    runtimeHealthForDoctor = runtimeHealthNow;
+    const runtimeChecker = new RuntimeUpdateChecker({
+      readSelection: () => {
+        const req = readRuntimeRequest(runtimeDir);
+        return {
+          source: deriveEffectiveSource(req, readRuntimeState(runtimeDir)),
+          channel: req?.channel,
+          pin: typeof req?.pin === "string" ? req.pin : undefined,
+        };
+      },
+      activeVersion: () => pkgVersion,
+      feeds: runtimeReleaseFeeds,
+    });
+    const stagerDeps = createStagerDeps();
+    registerRuntimeRoutes(fastify, {
+      dir: runtimeDir,
+      launchSource: () => parseLaunchSource(process.env),
+      networkGuard,
+      checker: runtimeChecker,
+      stage: (version, source, onProgress) => stageRuntime({ dir: runtimeDir, version, source, deps: stagerDeps, onProgress }),
+      exclusive: (fn) => packageManagerWrapper.runExclusive(fn),
+      runtimeHealth: runtimeHealthNow,
+      piVersion: resolvedPiVersion,
+      broadcast: (msg) => browserGateway.broadcastToAll(msg),
+    });
+    // Scheduled notify-only check (Electron only): once shortly after boot,
+    // then daily. Never stages or activates. Timers never hold the process.
+    if (parseLaunchSource(process.env) === "electron") {
+      const runCheck = () => {
+        runtimeChecker
+          .check()
+          .then((st) => console.log(`[runtime-overlay] check state=${st.state}${"target" in st ? ` target=${st.target}` : ""}${"reason" in st ? ` reason=${st.reason}` : ""}`))
+          .catch((err: unknown) => console.warn(`[runtime-overlay] check error: ${String(err)}`));
+      };
+      const first = setTimeout(runCheck, 60_000);
+      const daily = setInterval(runCheck, 24 * 3600_000);
+      first.unref();
+      daily.unref();
+      fastify.addHook("onClose", async () => {
+        clearTimeout(first);
+        clearInterval(daily);
+      });
+    }
+  }
 
   registerPiCoreRoutes(fastify, {
     piCoreChecker,
@@ -2266,10 +2467,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             return null;
           }
         },
-        streamSimple: (opts: any) => {
+        streamSimple: (opts) => {
           const fn = getStreamSimpleFn();
           if (!fn) throw new Error("streamSimple not available");
-          return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+          return callPiAiStreamSimple(fn, opts);
         },
       });
 
@@ -2320,6 +2521,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
   );
+  // Boot-time inert-entry warning (loopback entry in trustedNetworks /
+  // bypassHosts). Memoized; the guard re-notes on each reparse.
+  // See change: fix-trusted-network-tunnel-bypass (D3).
+  noteTrustedList(liveTrustedNetworks(config.resolvedTrustedNetworks ?? []));
 
   // serve static files / SPA fallback.
   // Client-dir resolution — single strategy under change:
@@ -2385,6 +2590,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
     vitePort = await detectVitePort();
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     fastify.setNotFoundHandler(async (request, reply) => {
       // Try Vite proxy first
       if (!vitePort) vitePort = await detectVitePort();
@@ -2470,6 +2676,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       });
     },
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async _startCore() {
       // Clean up orphan headless processes from a previous server instance
       await browserGateway.headlessPidRegistry.cleanupOrphans();
@@ -2644,7 +2851,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
                 }
-                browserGateway.broadcast(msg as any);
+                browserGateway.broadcast(msg as ServerToBrowserMessage);
               },
               subscribeSession: (sessionId, handler) => {
                 // Trusted gate — same priority rule as the other control-plane
@@ -2652,11 +2859,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // plugins receive nothing.
                 // See change: add-chat-gateway.
                 if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
-                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler as any);
+                const unsub = browserGateway.addInProcessSubscriber(sessionId, handler);
                 // Replay any ALREADY-pending PromptBus request so a gateway
                 // that (re)subscribes renders an open ask_user instead of a
                 // dead card.
-                browserGateway.replayPendingPromptsTo(sessionId, handler as any);
+                browserGateway.replayPendingPromptsTo(sessionId, handler);
                 return unsub;
               },
               registerPiHandler: (type, handler) => {
@@ -2687,6 +2894,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Session-spawn hook. Gated to first-party/trusted plugins
               // (priority <= 100 by convention). Untrusted plugins get a
               // hook that always rejects. See change: add-automation-plugin.
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               spawnSession: async (opts) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) {
@@ -2808,6 +3016,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Hard path kills by sessionId, falling back to spawnToken for
               // a run spawned but not yet registered.
               // See change: fix-automation-stop-zombie-runs.
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               abortSpawnedRun: async ({ sessionId, spawnToken, graceful }) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
@@ -2884,6 +3093,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // (warn-only on meta failure, same posture as the goal routes);
               // `persist: false` = memory only (C2e). See change:
               // relocate-goal-product-to-plugin (D1-#5).
+              // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
               assignSessionRef: (sessionId, ref, opts) => {
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
@@ -3014,11 +3224,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 fs.renameSync(tmpFile, CONFIG_FILE);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',
+                  id,
                   // writeOnly fields (e.g. the browser plugin's per-profile SSO
                   // tokens) never cross to a client — spec add-browser-relay
                   // browser-plugin-settings F2 / GAP A.
                   config: redactPluginConfigForClient(id, merged),
-                } as any);
+                });
               },
               // In-process model runtime seam for plugin server entries (e.g. the
               // grammar plugin's llm backend) — mirrors the grammar-route wiring
@@ -3036,16 +3247,29 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // spawn/abort powers. Returns raw OAuth refresh/access tokens, so
               // untrusted plugins get `undefined`.
               // See change: publish-quota-plugin.
-              providerAuth: {
-                getCredential: (provider: string) => {
-                  if (!plugin.packageName.startsWith("@blackbelt-technology/")) return undefined;
-                  try {
-                    return readAuthJson()[provider];
-                  } catch {
-                    return undefined;
-                  }
-                },
+              // Own-namespace plugin credential store, plugin OAuth flows and
+              // the private request lane. Not trust-gated: each is scoped to
+              // the calling plugin's manifest id. See change:
+              // expose-plugin-credential-and-oauth-seams (D2, D3, D7).
+              pluginCredentials: (id) => createPluginCredentialStore(id),
+              startPluginOAuthFlow: async (id, opts) => {
+                const res = await beginFlow({
+                  provider: pluginFlowProvider(id, opts.key),
+                  loginFlow: opts.loginFlow as OAuthLoginFlow,
+                  preAnswers: [],
+                  // The login result reaches `persist` untouched; never auth.json.
+                  writeCredential: async (_provider, credential) => {
+                    await opts.persist(credential);
+                  },
+                  notifyBridges: () => {},
+                });
+                return res.ok ? { ok: true, flowId: res.flow.id } : res;
               },
+              registerPiRequestHandler: (id, type, handler) =>
+                pluginRequestLane.register(id, type, handler),
+              // First-party scope gate shared with the `/api/plugins` `firstParty`
+              // projection. See change: promote-model-roles-settings.
+              providerAuth: createGatedProviderAuth(plugin.packageName, readAuthJson),
               modelRuntime: {
                 getModelRegistry: async () => {
                   try {
@@ -3120,6 +3344,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
       }
 
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
       fastify.server.on("upgrade", (request, socket, head) => {
         // Ephemeral single-use ticket (D11) bound to the requested WS route
         // scope. The one cheap read BEFORE the first gate — the host-admission
@@ -3374,14 +3599,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               getRegistry: async () => {
                 try { return await getModelRegistry(); } catch { return null; }
               },
-              streamSimple: (opts: any) => {
+              streamSimple: (opts) => {
                 const fn = getStreamSimpleFn();
                 if (!fn) throw new Error("streamSimple not available");
-                return fn(opts.model, { messages: opts.messages, system: opts.system, tools: opts.tools }, opts);
+                return callPiAiStreamSimple(fn, opts);
               },
             });
             await sf.listen({ port: proxyCfg.secondPort, host: "127.0.0.1" });
-            secondFastify = sf as any;
+            secondFastify = sf;
             console.log(`Model proxy second port listening at http://127.0.0.1:${proxyCfg.secondPort}`);
           } catch (err) {
             console.warn(`Model proxy second port bind failed (continuing without):`, err);
@@ -3501,8 +3726,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       // Auto-register plugin bridge entries
       const discoveredPlugins = discoverPlugins();
+      // A fixture bridge left in settings.json by an earlier opt-in run must
+      // not survive into a gated run (reconciliation below would keep it).
+      // See change: expose-plugin-credential-and-oauth-seams (D8).
+      for (const p of discoveredPlugins) {
+        if (p.bridgeEntryPath && !fixtureEntryAllowed(p.manifest)) {
+          try { deregisterPluginBridge(p.manifest.id); } catch (err) {
+            console.warn(`[plugin-bridge] could not deregister fixture bridge "${p.manifest.id}":`, err);
+          }
+        }
+      }
       const pluginsWithBridges = discoveredPlugins
         .filter(p => p.bridgeEntryPath)
+        // Fixture bridges (demo-plugin) only under PI_DASHBOARD_FIXTURE_PLUGINS=1,
+        // or they would land in every pi session's tool list.
+        // See change: expose-plugin-credential-and-oauth-seams (D8).
+        .filter(p => fixtureEntryAllowed(p.manifest))
         .map(p => ({ pluginId: p.manifest.id, bridgePath: p.bridgeEntryPath! }));
       if (pluginsWithBridges.length) {
         const results = registerAllPluginBridges(pluginsWithBridges);
@@ -3608,6 +3847,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // breaks message routing. Keeper-alive candidates (Class 1) were
           // already excluded above.
           recoveryGraceTimer = setTimeout(() => {
+            // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
             void (async () => {
               const resumeConfig = loadConfig();
               const survivors = [...liveRecoveryCandidates.values()];
@@ -3624,7 +3864,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   strategy: resumeConfig.spawnStrategy,
                 });
                 // Cold-start recovery resume: no ws, reclaim still required.
-                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy as any, result);
+                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy, result);
                 if (result.process && result.pid) {
                   browserGateway.headlessPidRegistry.register(
                     result.pid,
@@ -3646,10 +3886,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
     async stop(opts: { exitIntent?: ExitIntent } = {}) {
       // A clean stop must also disarm the ephemeral watch so a
       // create/stop cycle in one process leaves no ticking timer.
       ephemeralParentWatch.stop();
+      pushService?.shutdown();
       // Uninstall the module-level access-grant hooks so a create/stop cycle in
       // one process never leaves a stale coordinator answering for a dead server.
       // See change: add-access-grant-dialog.
@@ -3707,6 +3949,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         try { sub(); } catch (err) { console.error("[plugin-onShutdown]", err); }
       }
       pendingForkRegistry.dispose();
+      pairingManager.dispose();
       // Every pending ack holds a timer; a create/stop cycle must not leak them.
       // See change: fix-spawn-correlation-ttl-coupling (D7).
       pendingPromptAcks.dispose();

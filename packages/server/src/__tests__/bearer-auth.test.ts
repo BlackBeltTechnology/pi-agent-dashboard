@@ -4,7 +4,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COOKIE_NAME, signToken } from "../auth/auth.js";
 import { validateWsUpgrade } from "../auth/auth-plugin.js";
-import { parseBearerHeader } from "../auth/bearer-auth.js";
+import Fastify from "fastify";
+import { parseBearerHeader, registerBearerAuth } from "../auth/bearer-auth.js";
+import { createNetworkGuardHook } from "../auth/localhost-guard.js";
+import { createRouteTierGate } from "../auth/route-tier-gate.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { WsTicketStore } from "../auth/ws-ticket.js";
 
@@ -63,5 +66,53 @@ describe("validateWsUpgrade — ticket branch is additive (Task 3.3/3.5)", () =>
     const consumeTicket = (t: string, s: any) => store.consume(t, s);
     // token is a durable bearer, never minted as a ticket.
     expect(validateWsUpgrade(undefined, "1.2.3.4", SECRET, [], { ticket: token, scope: "browser", consumeTicket })).toBe(false);
+  });
+});
+
+// test-plan #E7 — a paired device reaching the dashboard THROUGH a tunnel
+// (relayed loopback) is admitted by its bearer, not by a loopback trusted
+// entry; the device-tier gate is therefore still evaluated.
+// See change: fix-trusted-network-tunnel-bypass.
+describe("E7 paired device over a tunnel", () => {
+  it("admits the relayed-loopback request on the bearer alone, with the tier gate live", async () => {
+    const operate = reg.add("phone", "manual", "operate").token;
+    const observe = reg.add("ro", "manual", "observe").token;
+    const app = Fastify();
+    app.decorateRequest("isAuthenticated", false);
+    registerBearerAuth(app, { registry: reg });
+    app.addHook("onRequest", createRouteTierGate({ getTrustedNetworks: () => ["127.0.0.1"], logRefusal: () => {} }));
+    app.addHook(
+      "onRequest",
+      createNetworkGuardHook({ trustedNetworks: ["127.0.0.1"], logDenial: () => {} }),
+    );
+    app.get("/api/sessions", async (req) => ({ authVia: (req as any).authVia }));
+    app.post("/api/restart", async () => ({ ok: true }));
+    await app.ready();
+    const relayed = { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "203.0.113.9" } };
+    try {
+      const noCred = await app.inject({ method: "GET", url: "/api/sessions", ...relayed });
+      expect(noCred.statusCode).toBe(403);
+
+      const ok = await app.inject({
+        method: "GET",
+        url: "/api/sessions",
+        remoteAddress: relayed.remoteAddress,
+        headers: { ...relayed.headers, authorization: `Bearer ${operate}` },
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ authVia: "device" });
+
+      // Tier gate evaluated: the loopback entry no longer exempts the relay.
+      const aboveTier = await app.inject({
+        method: "POST",
+        url: "/api/restart",
+        remoteAddress: relayed.remoteAddress,
+        headers: { ...relayed.headers, authorization: `Bearer ${observe}` },
+      });
+      expect(aboveTier.statusCode).toBe(403);
+      expect(aboveTier.json()).toMatchObject({ error: "insufficient_scope" });
+    } finally {
+      await app.close();
+    }
   });
 });

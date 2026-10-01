@@ -8,6 +8,8 @@ import { FlowAgentCard } from "./FlowAgentCard.js";
 import { FlowGraph, flowStateToGraphSteps } from "./FlowGraph.js";
 import { useFlowsSessionState } from "./FlowsSessionStateContext.js";
 import { FlowYamlPopoverButton } from "./FlowYamlPopoverButton.js";
+import { FLOW_CARD_GRID_CLASS, FLOW_CARD_GRID_CONTAINER_CLASS } from "./flow-card-grid.js";
+import { useFlowNodeFiles, withNodeFiles } from "./flow-files.js";
 import { useFlowCollapsePersisted } from "./flow-collapse-storage.js";
 
 
@@ -52,7 +54,10 @@ export function FlowSummary({
   // improve-flow-graph-dialog-and-card-interaction.
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const agents = Array.from(flowState.agents.values());
+  // Agent / handler file paths for the frozen cards' file buttons.
+  // See change: attach-flow-before-run.
+  const nodeFiles = useFlowNodeFiles(sessionId ?? session?.id);
+  const agents = Array.from(withNodeFiles(flowState, nodeFiles).agents.values());
   // Only summary-bearing agents are listed in the Summaries subsection (others
   // stay in the frozen cards + graph). See change: fix-flow-ui-graph-zoom-summary.
   const summarised = agents.filter(a => a.summary);
@@ -137,6 +142,7 @@ export function FlowSummary({
           <FlowYamlPopoverButton
             flowSource={flowState.flowSource}
             flowName={flowState.flowName}
+            sessionId={sessionId ?? session?.id}
           />
         </div>
       )}
@@ -145,22 +151,22 @@ export function FlowSummary({
           the whole panel always fits the viewport (no page scroll). The summaries
           section and each agent row stay independently collapsible inside it. */}
       <div className="mt-2 overflow-y-auto" style={{ maxHeight: "48vh" }} data-testid="flow-summary-scrollbox">
-        {/* Frozen agent cards — read-only. */}
+        {/* Frozen agent cards — read-only. Same grid geometry as the live panel
+            (shared helper); the wrapper is the query container (design D1/D5). */}
         {agents.length > 0 && (
-          <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(200px, 1fr))` }}
-          >
-            {agents.map(agent => (
-              <FlowAgentCard
-                key={agent.stepId || agent.agentName}
-                agent={agent}
-                session={session}
-                sessionId={sessionId ?? session?.id}
-                selected={selectedStepId === (agent.stepId || agent.agentName)}
-                onSelect={handleSelectStep}
-              />
-            ))}
+          <div className={FLOW_CARD_GRID_CONTAINER_CLASS}>
+            <div className={FLOW_CARD_GRID_CLASS}>
+              {agents.map(agent => (
+                <FlowAgentCard
+                  key={agent.stepId || agent.agentName}
+                  agent={agent}
+                  session={session}
+                  sessionId={sessionId ?? session?.id}
+                  selected={selectedStepId === (agent.stepId || agent.agentName)}
+                  onSelect={handleSelectStep}
+                />
+              ))}
+            </div>
           </div>
         )}
 

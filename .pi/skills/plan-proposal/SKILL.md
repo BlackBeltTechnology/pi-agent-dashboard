@@ -58,8 +58,38 @@ hand-roll the directory:
 - No change dir yet → `openspec-new-change` (or `-ff` for the fast path).
 - Partial artifacts → `openspec-continue-change`.
 
+State in the drafting request: **"plan-proposal is driving this change"**. The
+`openspec/config.yaml` `rules.tasks` rule sees it and skips its "Run
+plan-proposal now?" confirm (no re-entry). `rules.proposal` may still offer
+pending mockups while `proposal.md` is written — that is expected; Step 1b only
+re-offers rows not declined.
+
 Artifacts live at `openspec/changes/<change>/`: `proposal.md`, `design.md` (when
 the change warrants one), `specs/**/spec.md`, `tasks.md`.
+
+### 1b. Adopt pending mockups (idempotent backstop)
+
+Backstop for direct entry, `-continue` on an existing proposal, re-runs, and
+`SHIP_IT_BLOCKED` hand-backs. Runs after the artifacts exist, **before**
+doubt-review, so reviewers and `scenario-design` see the mockup at its final path.
+
+1. Collect every root `mockups/AGENTS.md` row whose Purpose cell ends with
+   `Pending change: <intent>`, minus rows that also carry `See change:` (owned
+   by a change — never offered), minus rows already declined in this session
+   (including a decline in the `rules.proposal` multiselect during Step 1).
+2. None left → ask nothing, change nothing, go to Step 2.
+3. Otherwise ONE `ask_user` multiselect offering every remaining row; the user
+   matches, you do not judge similarity. Unchosen rows count as declined.
+4. Adopt each chosen entry with the mechanics of the `explore-mockup-adoption`
+   requirement (canonical, same as `rules.proposal`): File cell must resolve to
+   an entry directly under `mockups/` (else skip + report); `mkdir -p
+   <changeDir>/mockups`; refuse if `<changeDir>/mockups/<entry>` already exists;
+   `git mv` (tracked) / `mv` (untracked), never copy; only after a successful
+   move — recompute outward relative links, remove the row, add
+   `Mockup: mockups/<entry> (in this change)` under What Changes in
+   `proposal.md`. A failed move keeps its row.
+
+An edited `proposal.md` is "modified in this session" → Step 2 reviews it.
 
 ### 2. Doubt-review proposal.md + design.md (trigger: drafted or modified)
 
@@ -141,7 +171,10 @@ Never commit without the manifest — a missing `test-plan.md` means Step 3 was
 skipped; go back and run `scenario-design`.
 
 Commit `proposal.md`, `design.md`, `specs/**`, `tasks.md`, and `test-plan.md` to
-`develop`. The worktree is spawned from that commit via the existing worktree
+`develop` — plus the change's `mockups/**` whenever it exists (adopted or
+written there directly), and, when mockups were adopted, the adoption's
+root-side edits (`mockups/AGENTS.md`, the renamed-away sources), so the
+worktree `ship-it` builds in carries the mockup. The worktree is spawned from that commit via the existing worktree
 flow (dashboard "start work" / `git worktree add`).
 
 Then **STOP**. `plan-proposal` does not enter the implementation phase. Report:
@@ -155,6 +188,8 @@ Then **STOP**. `plan-proposal` does not enter the implementation phase. Report:
 ## Guardrails
 
 - **Main session only** — refuse and surface if nested (see Hard constraint).
+- **Adopt pending mockups only via `ask_user`** (Step 1b) — never move a mockup
+  unasked, never re-offer a row declined this session, never copy.
 - **Never pass the CLAIM to the reviewer**; ARTIFACT + CONTRACT only.
 - **Never fold before reconciling** actionable doubt-review findings.
 - **`tasks.md` stays vanilla** — the manifest (`test-plan.md`), not a task tag,

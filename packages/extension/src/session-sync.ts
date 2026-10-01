@@ -3,6 +3,7 @@
  * Extracted from bridge.ts for clarity.
  */
 
+import { bridgeExtensionIdentity } from "./extension-identity.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -155,6 +156,7 @@ export function sendStateSync(
 
   bc.connection.send({
     type: "session_register",
+    extensionIdentity: bridgeExtensionIdentity(),
     sessionId: bc.sessionId,
     cwd: process.cwd(),
     name: bc.pi.getSessionName() ?? undefined,
@@ -243,7 +245,7 @@ export function handleSessionChange(
 
   bc.lastFirstMessage = firstMessage;
   bc.lastGitBranch = undefined;
-  bc.lastGitPrNumber = undefined;
+  bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
   bc.lastSessionName = bc.pi.getSessionName() ?? "";
   bc.lastModel = getCurrentModelString(bc);
@@ -270,6 +272,7 @@ export function handleSessionChange(
   const cwd = safeCwd(ctx);
   bc.connection.send({
     type: "session_register",
+    extensionIdentity: bridgeExtensionIdentity(),
     sessionId: bc.sessionId,
     cwd,
     name: bc.lastSessionName || undefined,
@@ -293,13 +296,20 @@ export function handleSessionChange(
   // Send git info
   const gitInfo = gatherGitInfo(cwd);
   if (gitInfo) {
+    // New sessionId ⇒ new PR generation: tuple resets to unknown and the
+    // scheduler probes immediately (async). The register update carries the
+    // cached tuple (unknown fields omitted).
+    // See change: redesign-composer-session-strip (D5).
+    bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: gitInfo.gitBranch });
+    const pr = bc.prStatus?.tuple() ?? {};
     bc.lastGitBranch = gitInfo.gitBranch;
-    bc.lastGitPrNumber = gitInfo.gitPrNumber;
+    bc.lastGitPrJson = JSON.stringify(pr);
     bc.lastGitWorktreeJson = gitInfo.gitWorktree ? JSON.stringify(gitInfo.gitWorktree) : "null";
     bc.connection.send({
       type: "git_info_update",
       sessionId: bc.sessionId,
       ...gitInfo,
+      ...pr,
       gitWorktree: gitInfo.gitWorktree ?? null,
     });
   }

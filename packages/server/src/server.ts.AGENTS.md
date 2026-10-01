@@ -25,3 +25,20 @@ Constructs a `YoloController` (live host-gate mode, `isRefused` from the refusal
 Passes `readAccessGrants` to `registerSystemRoutes`: `snapshotAccessGrantHealth` over the coordinator, the YOLO controller, the refusal ledger count and the same live inputs the coordinator reads. See change: add-access-grant-dialog (task 9.3).
 
 `registerAccessPromptRoutes` wired after `registerAccessRoutes` with `grantCoordinator`, `grantPlanes`, `yolo`, live prompting status (`accessGrants.promptEnabled`, `isGrantPromptKilled()`, `resolveHostGateMode`), `listRefusals`/`clearRefusal`. See change: add-access-grant-dialog (8.1).
+
+Plugin ctx `updatePluginConfig` broadcast now carries `id` — `PluginConfigUpdateMessage.id` is required and the client keys `applyPluginConfigUpdate` on it; the former `as any` hid its absence (config landed under key `"undefined"`, plugin UI never saw the update). File carries zero `any`: remaining boundary casts target exact types (`PackageOperationCompleteMessage` — wire also carries `diagnostics`, absent from the protocol type; `ServerToBrowserMessage` for the plugin `broadcast` seam). Ten legacy cognitive-complexity sites (`createServer`, `onChange`, not-found handler, `_startCore`, plugin `spawnSession`/`abortSpawnedRun`/`assignSessionRef`, `upgrade`, recovery resume, `stop`) carry justified `biome-ignore` — decompose in a dedicated refactor. `/v1` adapters call `callPiAiStreamSimple(fn, opts)` (opts typed by `StreamSimpleFn`). See change: fix-model-proxy-stream-lifecycle.
+Plugin context wires `pluginCredentials` (`createPluginCredentialStore`), `startPluginOAuthFlow` (`beginFlow` with `plugin:<id>:<key>`, persist callback, no bridge notify) and `registerPiRequestHandler` (`pluginRequestLane`); `dispatchPluginRequest` → `piGateway.sendToSession`. Bridge auto-registration filters `fixtureEntryAllowed`. See change: expose-plugin-credential-and-oauth-seams.
+
+Deregisters gated fixture bridges (`deregisterPluginBridge`) before auto-registration + reconciliation. See change: expose-plugin-credential-and-oauth-seams.
+
+See change: fix-trusted-network-tunnel-bypass — no-auth WS upgrade branch trusts via `isTrustedSource(remoteAddress, wsHeaders, trusted)` (relayed loopback → 403); boot calls `noteTrustedList(liveTrustedNetworks(...))` once; `registerSystemRoutes` gets `readTrustedNetworks` (live list) for `/api/health` `trustPosture`.
+
+providerAuth seam now `createGatedProviderAuth(plugin.packageName, readAuthJson)` (behaviour unchanged). See change: promote-model-roles-settings.
+
+## electron-runtime-overlay-updates
+
+D8: `PI_DASHBOARD_EXTENSION_DIR` (Electron) overrides `findBundledExtension` for boot self-registration; `extensionReloadGuard` wired via `wireEvents({onBridgeRegister})` → `dispatchReload`; logs `[runtime-overlay] bridge register … outcome=`. See change: electron-runtime-overlay-updates.
+
+Doctor: `runtimeHealthForDoctor` holder (set in runtime-overlay block) feeds the `Dashboard runtime` extra check. See change: electron-runtime-overlay-updates.
+
+`ServerConfig.push?`. `createPushService({config.push, dataDir: CONFIG_DIR, getSession, selfPort})` only when `push.enabled === true`, inside try/catch (init failure → logged, push disabled, `push init failed (<code>)` in `push.errors`); dispatcher passed to `wireEvents` beside `viewedSessionTracker`; `registerPushRoutes(fastify, {getPush})` always; `readPushErrors` to system routes; `pushService.shutdown()` in `stop()`. See change: add-server-push-notifications.
