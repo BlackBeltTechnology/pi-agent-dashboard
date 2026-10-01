@@ -209,15 +209,16 @@ export function scanCollateral({ identifiers, mainSpecs, deltaCaps, deltaTexts =
 }
 
 /** Escape a markdown table cell: backslashes first, so a trailing `\` cannot un-escape the `\|` that follows. */
-const cell = (s) => String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+const oneLine = (s) => String(s).replace(/[\r\n]+/g, " ");
+const cell = (s) => oneLine(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
 /**
  * Render an identifier as a code span. GFM does not process escapes inside code
- * spans, so backslashes stay literal (never doubled). `|` and backticks are
- * dropped: extractIdentifiers never yields them (it splits on `|` and blanks
- * backticks), so this is a no-op for real input and keeps the table intact for
- * arbitrary input.
+ * spans, so backslashes stay literal (never doubled). Line breaks fold to a
+ * space; `|` and backticks are dropped: extractIdentifiers never yields any of
+ * them (it splits on whitespace and `|`, and blanks backticks), so this is a
+ * no-op for real input and keeps the table intact for arbitrary input.
  */
-const codeSpan = (s) => `\`${String(s).replace(/[`|]/g, "")}\``;
+const codeSpan = (s) => `\`${oneLine(s).replace(/[`|]/g, "")}\``;
 
 export function renderMarkdown(result, change = "") {
   const lines = [`## Spec-collateral scan${change ? ` — \`${change}\`` : ""}`, ""];

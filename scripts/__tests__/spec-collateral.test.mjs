@@ -265,6 +265,20 @@ describe("scanCollateral", () => {
     expect(md).toContain("`@foo\\bar` (1)");
   });
 
+  it("line breaks in cells and identifiers cannot split a table row", () => {
+    const md = renderMarkdown({
+      t1: { entries: [{ capability: "cap-x", requirement: "two\r\nlines", score: 1, identifiers: ["some\nIdent"] }], omitted: 0 },
+      t2: { entries: [], omitted: 0 },
+      identifiers: [{ id: "some\nIdent", weight: 1 }],
+    });
+    const row = md.split("\n").find((l) => l.startsWith("| 1 |"));
+    expect(row).toContain("two lines");
+    expect(row).toContain("`some Ident`");
+    expect(row.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
+    expect(md).toContain("`some Ident` (1)");
+    expect(md).not.toMatch(/\r/);
+  });
+
   it("E21 deterministic tie-break: capability then requirement name ascending", () => {
     const r = scanCollateral({
       identifiers: extractIdentifiers("`tieIdOne` `tieIdTwo`"),
