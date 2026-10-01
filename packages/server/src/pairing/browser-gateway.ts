@@ -12,7 +12,9 @@ import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/t
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
-import { isSessionOwnedMessage } from "../identity/ws-message-scope.js";
+import type { HostPolicy } from "../identity/host-access.js";
+import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
+import { classifyWsRoad } from "../identity/ws-road-classification.js";
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
@@ -474,7 +476,16 @@ export interface BrowserGateway {
     type: string,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     handler: (msg: any, ws: WebSocket) => void,
+    /** Registering plugin id — namespaces the frame `plugin:<id>:write` for
+     *  the host policy (D24). Absent for core handlers. */
+    ownerPluginId?: string,
   ): void;
+  /**
+   * Install the OPTIONAL host access policy for non-session commands (D9/D14,
+   * task 18.28). Consulted only while the plane is enforced
+   * (`isResolverActive`) AND a policy is registered.
+   */
+  setHostPolicy(policy: HostPolicy): void;
   /**
    * Register a `plugin_action` handler keyed by pluginId, so multiple plugins
    * service `plugin_action` concurrently without one shadowing another. The
@@ -609,6 +620,10 @@ export function createBrowserGateway(
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customHandlers = new Map<string, (msg: any, ws: WebSocket) => void>();
+  /** Custom frame type → registering plugin id (policy namespacing, D24). */
+  const customHandlerOwners = new Map<string, string>();
+  /** Optional host access policy for non-session commands (D9, task 18.28). */
+  let hostPolicy: HostPolicy | undefined;
 
   /**
    * `plugin_action` handlers keyed by pluginId (fan-out registry). Distinct
@@ -1777,6 +1792,30 @@ export function createBrowserGateway(
           }
         }
 
+        // Non-session host-policy gate (D9/D14/D24, task 18.28). Enforced plane
+        // only (18.14: short-circuit before `hasPolicy()`), and only when a
+        // trusted policy is registered — else ungated, exactly as before.
+        // Principal-less socket ⇒ dropped; unclassified frame ⇒ dropped +
+        // `unclassified` audit (empty classification); otherwise the policy
+        // decides (bounded + fail-closed + audited in `PolicyRegistry`).
+        // Silent drop, matching the owner gate above.
+        if (
+          isResolverActive?.() &&
+          hostPolicy?.hasPolicy() &&
+          !isSessionOwnedMessage(msg.type) &&
+          !SESSION_LIST_MESSAGES.has(msg.type)
+        ) {
+          const principal = (ws as { principal?: { iss: string; sub: string } }).principal;
+          if (!principal) return;
+          const road = classifyWsRoad(msg as { type: string }, customHandlerOwners.get(msg.type));
+          const allowed = await hostPolicy.authorize({
+            principal,
+            action: road?.action ?? "",
+            resource: road?.resource ?? { kind: "", ws: msg.type },
+          });
+          if (!allowed) return;
+        }
+
         switch (msg.type) {
           case "subscribe":
             handleSubscribe(msg, subs, ctx);
@@ -2242,8 +2281,14 @@ export function createBrowserGateway(
       broadcast(msg);
     },
 
-    registerHandler(type, handler) {
+    registerHandler(type, handler, ownerPluginId) {
       customHandlers.set(type, handler);
+      if (ownerPluginId) customHandlerOwners.set(type, ownerPluginId);
+      else customHandlerOwners.delete(type);
+    },
+
+    setHostPolicy(policy) {
+      hostPolicy = policy;
     },
 
     registerPluginActionHandler(pluginId, handler) {

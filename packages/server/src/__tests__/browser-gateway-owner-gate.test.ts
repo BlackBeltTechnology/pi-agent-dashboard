@@ -111,3 +111,86 @@ describe("gateway §8.3 owner-equality gate", () => {
     expect(sendToSession).toHaveBeenCalledWith("s1", { type: "retry_session", sessionId: "s1" });
   });
 });
+
+// Non-session commands ride the OPTIONAL host policy (D9/D14/D24, task 18.28).
+describe("gateway non-session host-policy gate", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
+
+  function withPolicy(active: boolean, decide?: (i: { action: string }) => Promise<boolean>) {
+    const g = makeGateway(active);
+    const authorize = vi.fn(decide ?? (async () => true));
+    g.gateway.setHostPolicy({ hasPolicy: () => decide !== undefined, authorize: authorize as never });
+    const handler = vi.fn();
+    g.gateway.registerHandler("grant_response", handler);
+    return { ...g, authorize, handler };
+  }
+
+  it("policy allow ⇒ dispatched, asked with the classified action", async () => {
+    const { gateway, authorize, handler } = withPolicy(true, async () => true);
+    const ws = makeFakeWs(owner);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "grant_response", promptId: "x" });
+    expect(authorize).toHaveBeenCalledWith(
+      expect.objectContaining({ principal: owner, action: "access.write", resource: expect.objectContaining({ ws: "grant_response" }) }),
+    );
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it("policy deny ⇒ dropped before dispatch", async () => {
+    const { gateway, handler } = withPolicy(true, async () => false);
+    const ws = makeFakeWs(owner);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "grant_response", promptId: "x" });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("principal-less socket under a policy ⇒ dropped, policy not consulted", async () => {
+    const { gateway, authorize, handler } = withPolicy(true, async () => true);
+    const ws = makeFakeWs();
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "grant_response", promptId: "x" });
+    expect(handler).not.toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("no policy ⇒ dispatched (D24 default)", async () => {
+    const { gateway, handler } = withPolicy(true);
+    const ws = makeFakeWs(owner);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "grant_response", promptId: "x" });
+    expect(handler).toHaveBeenCalled();
+  });
+
+  it("inert plane ⇒ a loaded policy gates nothing (18.14)", async () => {
+    const { gateway, authorize, handler } = withPolicy(false, async () => false);
+    const ws = makeFakeWs(other);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "grant_response", promptId: "x" });
+    expect(handler).toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("a plugin-registered custom frame is asked as plugin:<owner>:write", async () => {
+    const { gateway, authorize } = withPolicy(true, async () => true);
+    const custom = vi.fn();
+    gateway.registerHandler("acme_sync", custom, "acme");
+    const ws = makeFakeWs(owner);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "acme_sync" });
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "plugin:acme:write" }));
+    expect(custom).toHaveBeenCalled();
+  });
+
+  it("session-owned commands never consult the policy", async () => {
+    const { gateway, authorize, sendToSession } = withPolicy(true, async () => false);
+    const ws = makeFakeWs(owner);
+    gateway.wss.emit("connection", ws, {});
+    await deliver(ws, { type: "retry_session", sessionId: "s1" });
+    expect(sendToSession).toHaveBeenCalled();
+    expect(authorize).not.toHaveBeenCalled();
+  });
+});

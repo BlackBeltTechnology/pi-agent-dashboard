@@ -266,6 +266,10 @@ Enforced on EVERY session road, HTTP + WS: detail/transcript/mutation, bootstrap
 snapshot, list/pagination (per item), subscribe, replay/backfill, inbound commands.
 Ownerless sessions hidden from humans. A principal-less socket refused every owned session.
 
+HTTP session roads decided centrally by the `preHandler` road gate
+(`identity-road-gate.ts`, task 18.28) — includes the `/api/session/:id/*` control
+routes. Lists/archive/`session-diff`/`session-file` gate in the handler.
+
 Ownership assigned ONLY via trusted roads: browser `spawn_session` (stamps
 `ws.principal`), host HTTP spawn (stamps `request.principal`), trusted policy plugin
 owned-spawn API. Untrusted plugins cannot set an owner. `cwd` never an ownership signal.
@@ -278,63 +282,129 @@ A policy plugin cannot widen or narrow session access. Owner equality stands reg
 
 ```ts
 type HostAccessPolicyFn = (input: {
-  principal: Principal;
-  action: HostAction;
-  resource: HostResource;
+  principal: Principal;    // { iss, sub, email? }
+  action: HostAction;      // string
+  resource: HostResource;  // { kind, ... }
 }) => Promise<boolean>;
 ```
 
-One policy per host, registered by the plugin in `identity.trustedPolicyPlugin`.
-Register via `ctx.registerHostAccessPolicy(authorize)` (feature-detect).
+One policy per host. Plugin named in `identity.trustedPolicyPlugin` registers via
+`ctx.registerHostAccessPolicy(authorize)` (feature-detect). Unset ⇒ no policy.
 
-Real action constants (`packages/server/src/identity/host-resources.ts` `HostActions`):
+#### Central gate — LIVE (tasks 18.14 + 18.28)
+
+Every `/api/*` route decided by ONE Fastify `preHandler`, `createIdentityRoadGate`
+(`identity/identity-road-gate.ts`, registered in `server.ts`). Classification
+(`identity/http-road-classification.ts`) maps a Fastify route PATTERN (never a concrete
+URL) to exactly one road:
+
+| Road | Match | Decision |
+|------|-------|----------|
+| `identity` | `/api/health`, `/api/ws-ticket`, `/api/identity/*` (incl. `/api/identity/me`) | NEVER gated |
+| `session` | `:id`/`:sessionId` under `/api/session`, `/api/sessions`, `/api/events`, `/api/session-change` | exact owner equality → 404 |
+| `session-handler` | lists, `/api/session-diff`, `/api/session-file`, archived | gated in handler |
+| `non-session` | everything else classified | policy → 403 |
+| unclassified | `undefined` | 403 + audit reason `unclassified` |
+
+Rules:
+
+- Inert plane (`isEnforced()` false, D21) ⇒ gate no-op — even with a policy loaded.
+- No policy ⇒ ungated (D24 default). Policy loaded ⇒ local operator bypasses;
+  principal-less ⇒ 403 `{success:false,error:"forbidden"}`; else policy decides
+  (bounded + fail-closed + audited in `PolicyRegistry`).
+- Session roads NEVER consult the policy.
+- `POST /api/session/spawn` classifies as `workspace.write` (non-session). Stamps owner
+  itself; see §5(a).
+
+#### Action + resource naming
+
+`<family>.read` for GET/HEAD, `<family>.write` otherwise. Families
+(`identity/host-resources.ts` `HostActions`):
 
 ```text
-workspace.read  workspace.write
-openspec.read   openspec.write
-branch.read     branch.write
-terminal.read   terminal.create  terminal.write
-system.read     system.write
-domain.event
+workspace  openspec  branch  terminal  files  config  providers
+plugins    packages  access  gateway   system
 ```
 
-Resource kinds (`hostResource`): `workspace`, `openspec`, `branch`, `terminal`,
-`system`, `domain`. Bounded plain data, no secrets (no tokens, no file contents).
+Plus `terminal.create` (not `.read|.write`), and `domain.event` (fan-out road).
 
-Bounded, fail-closed: `false` / throw / timeout / non-boolean ⇒ DENY + structured
-audit event (principal, action, resource, reason). Timeout = `identity.policyTimeoutMs`
-(default 500, range 50–2000). No policy registered ⇒ non-session roads ungated (pre-change).
+HTTP resource: `{ kind: <family>, route }` — `route` = Fastify pattern, never a
+concrete URL. Plugin routes: action `plugin:<id>:read|write`, resource
+`{ kind:"plugin", pluginId, route }`.
 
-Policy must be PURE and FAST: no I/O, no secrets, no side effects. The host owns the
-send; the policy only supplies the boolean decision. Also gates bootstrap disclosure of
-non-session state and domain-event fan-out per candidate socket.
+#### Plugin routes (D24)
 
-Default-deny example, adapted from `packages/fixture-policy-plugin/` (`policy.ts`):
+Plugin-owned route namespaces `plugin:<id>:<verb>`. Attribution
+(`identity/route-owner-registry.ts`): routes under `/api/plugins/<id>/…` by path
+(drop-ins too); elsewhere the loader activates plugin server entries SEQUENTIALLY and
+brackets each with `begin(id)`/`end()` plus a Fastify `onRoute` `record` — core never
+names a plugin.
+
+Core plugin management (`/api/plugins`, `/api/plugins/:id/*`,
+`/api/config/plugins/:id`) ⇒ `plugins.read|write`.
+
+#### WS gate — LIVE (D14/D24)
+
+Non-session browser commands gated in `pairing/browser-gateway.ts` via
+`classifyWsRoad` (`identity/ws-road-classification.ts`). Resource
+`{ kind, ws:<type>, cwd?, pluginId? }`. `plugin_action` ⇒ `plugin:<msg.pluginId>:write`;
+plugin custom frames (`registerBrowserHandler`) ⇒ `plugin:<registering id>:write`.
+Principal-less socket DROPPED. Deny = silent drop. Session-owned frames never consult
+the policy.
+
+Bounded, fail-closed: `false` / throw / timeout / non-boolean ⇒ DENY + structured audit
+event (principal, action, resource, reason). Timeout = `identity.policyTimeoutMs`
+(default 500, range 50–2000).
+
+Policy must be PURE and FAST: no I/O, no secrets, no side effects. Called per request
+AND per WS command — keep it `< identity.policyTimeoutMs`.
+
+#### `GET /api/identity/me` — advisory (task 18.28)
+
+```json
+{
+  "enforced": true,
+  "principal": { "iss": "https://idp.example.com", "sub": "abc", "email": "a@b.c" },
+  "localOperator": false,
+  "can": { "workspace.read": true, "system.write": false }
+}
+```
+
+`principal` = `null` when signed out; `email` omitted when absent. `can` = one boolean per
+core action (`domain.event` excluded). Server still enforces every road — `can` only lets
+a UI hide what would 403. Probes currently AUDIT each denial (task 18.37d).
+
+#### Example policy — default-deny
+
+Role table keyed by `(iss, sub)`: admins all, others read-only + own plugin namespace.
 
 ```ts
 import type { HostAccessPolicyFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 
-type Allow = { iss?: string; sub: string; actions?: string[] };
+type Role = "admin" | "user";
+const ROLES: Record<string, Role> = {
+  "https://idp.example.com|admin-sub": "admin",
+};
+const roleOf = (p: { iss: string; sub: string }): Role => ROLES[`${p.iss}|${p.sub}`] ?? "user";
+const ADMIN_ONLY_WRITE = new Set(["system.write", "access.write", "packages.write"]);
 
-export function createPolicy(allow: Allow[]): HostAccessPolicyFn {
-  return async ({ principal, action }) => {
-    for (const e of allow) {
-      if (e.sub !== principal.sub) continue;
-      if (e.iss && e.iss !== principal.iss) continue;
-      if (!e.actions || e.actions.includes("*") || e.actions.includes(action)) return true;
-    }
-    return false; // default-deny
-  };
-}
+export const authorize: HostAccessPolicyFn = async ({ principal, action }) => {
+  if (roleOf(principal) === "admin") return true;
+  if (action.endsWith(".read")) return true;                 // every *.read
+  if (action.startsWith("plugin:myproduct:")) return true;   // own plugin routes
+  if (ADMIN_ONLY_WRITE.has(action)) return false;            // explicit non-admin deny
+  return false;                                              // default-deny
+};
 
 export async function registerPlugin(ctx) {
-  if (typeof ctx.registerHostAccessPolicy !== "function") return;
-  ctx.registerHostAccessPolicy(createPolicy(ctx.getPluginConfig()?.allow ?? []));
+  if (typeof ctx.registerHostAccessPolicy !== "function") return; // feature-detect
+  ctx.registerHostAccessPolicy(authorize);
 }
 ```
 
 See `packages/fixture-policy-plugin/src/server/{index.ts,policy.ts,config.ts}`
-and `src/server/__tests__/policy.test.ts`.
+(`createFixturePolicy` takes `{enabled, allow:[{iss?,sub,actions?}]}`) and
+`src/server/__tests__/policy.test.ts`.
 
 ### (c) Product authorization (roles/RBAC) — YOUR plugin, your routes
 
@@ -357,7 +427,11 @@ ctx.fastify.get("/my-product/report", async (request, reply) => {
 
 NO policy plugin ⇒ `true` for any principal is the D24 default floor. Add your own check.
 
-#### NOT YET IMPLEMENTED — plan around it
+Plugin routes under `/api/plugins/<your-id>/…` get host policy `plugin:<id>:<verb>` FIRST
+(§5(b)), then your handler does fine-grained checks. Read the principal untyped from
+`request.principal`.
+
+#### Follow-ups — plan around these
 
 Open tasks (`openspec/changes/add-multi-user-identity-plane/tasks.md`):
 
@@ -365,15 +439,14 @@ Open tasks (`openspec/changes/add-multi-user-identity-plane/tasks.md`):
   userDataDir}`; `authorize` action namespaced `plugin:<pluginId>:<action>`; per-user
   storage `~/.pi/dashboard/plugins/<id>/users/<sha256(iss,sub)>/`; WS routes receive the
   socket principal. Absent today — `ctx.identity` does not exist.
-- task 18.28 — `GET /api/identity/me` → `{principal, can}`; classify EVERY core
-  non-session road `{action, resource}` through `gateHttpNonSession`.
-- task 18.14 — host-policy road wiring. `identity/host-access.ts` `gateHttpNonSession`
-  and `identity/domain-fanout.ts` `deliverDomainEvent` have NO production call site yet.
-  Session owner-gating IS live. Non-session policy DISPATCH is not.
+- task 18.37 — 18.28 follow-ups: (a) gate WS bootstrap disclosure of non-session state
+  (OpenSpec/branch/terminal/workspace); (b) wire `deliverDomainEvent`
+  (`identity/domain-fanout.ts`) into the plugin domain-event broadcast road; (c) classify
+  `/editor/` + `/live/` roads; (d) non-auditing probe mode for `/api/identity/me` — today
+  probes audit every denial.
 
-Meanwhile: write your own role checks against `request.principal` (above). Do not rely
-on `ctx.identity`, `GET /api/identity/me`, or cross-plugin action namespacing until
-those tasks land.
+Meanwhile: write your own role checks against `request.principal` (above). `ctx.identity`
+and cross-plugin action namespacing are still absent — do not rely on them.
 
 ## 6. Break-glass / lockout (D23)
 
@@ -434,7 +507,9 @@ D25 (core login page, several providers, silent sign-in).
 
 Code anchors: `packages/shared/src/identity.ts`, `packages/shared/src/config.ts`
 (`IdentityConfig`), `packages/server/src/identity/{activation,host-access,host-resources,
-browser-login-config-registry,resolver-hook,session-access,domain-fanout}.ts`,
+http-road-classification,ws-road-classification,identity-road-gate,identity-me,
+route-owner-registry,policy-registry,browser-login-config-registry,resolver-hook,
+session-access,domain-fanout}.ts`,
 `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
 
 Docs: [`identity-plane.md`](identity-plane.md), [`plugin-seams.md`](plugin-seams.md).

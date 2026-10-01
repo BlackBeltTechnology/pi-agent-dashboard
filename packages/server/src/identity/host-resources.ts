@@ -24,6 +24,21 @@ export const HostActions = {
   terminalWrite: "terminal.write",
   systemRead: "system.read",
   systemWrite: "system.write",
+  // D24 families: every core non-session road is classifiable.
+  filesRead: "files.read",
+  filesWrite: "files.write",
+  configRead: "config.read",
+  configWrite: "config.write",
+  providersRead: "providers.read",
+  providersWrite: "providers.write",
+  pluginsRead: "plugins.read",
+  pluginsWrite: "plugins.write",
+  packagesRead: "packages.read",
+  packagesWrite: "packages.write",
+  accessRead: "access.read",
+  accessWrite: "access.write",
+  gatewayRead: "gateway.read",
+  gatewayWrite: "gateway.write",
   /** A plugin-emitted global domain event (fan-out road, §10). */
   domainEvent: "domain.event",
 } as const satisfies Record<string, HostAction>;

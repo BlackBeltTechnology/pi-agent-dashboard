@@ -138,9 +138,12 @@ import { BrowserLoginConfigRegistry, publicLoginConfig, sanitizeBrowserLoginConf
 import { identityFloorAllows } from "./identity/identity-floor.js";
 import { IdentityRegistrationTracker, releaseFailedIdentityRegistrations } from "./identity/identity-registration-tracker.js";
 import { PolicyRegistry } from "./identity/policy-registry.js";
+import { createIdentityRoadGate } from "./identity/identity-road-gate.js";
+import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
+import { identityMe } from "./identity/identity-me.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
-import { markLocalOperator } from "./identity/session-access.js";
+import { markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -1143,6 +1146,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // change; operator browsers refetch the guarded list (D1).
   // See change: add-pairing-approval-dialog.
   wirePendingHint(pairingManager, (msg) => browserGateway.broadcastToAll(msg));
+  // Optional host access policy for non-session WS commands (D9/D14, 18.28).
+  browserGateway.setHostPolicy(policyRegistry);
   // Wire the archive broadcaster now that the gateway exists. `session_archived`
   // carries the folder count for its own transition; restore/delete/re-key use
   // `archived_count_updated`. See change: archive-sessions-lazy-load.
@@ -1835,6 +1840,32 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.list() : []),
   );
 
+  // Route → registering plugin (D24, 18.28): `loadServerEntries` activates
+  // plugins sequentially; `createContext` brackets each activation, so every
+  // route registered meanwhile is attributed to that plugin.
+  const routeOwners = getRouteOwnerRegistry();
+  fastify.addHook("onRoute", (r) => routeOwners.record(r.url));
+
+  // Identity plane: who am I + what the host policy allows (D24, 18.28).
+  // Advisory for the UI; every road is still enforced server-side.
+  fastify.get("/api/identity/me", async (request) =>
+    identityMe({ enforced: identityEnforced(), principal: sessionPrincipalOf(request), policy: policyRegistry }),
+  );
+
+  // Central identity road gate (D10/D11/D14/D24; tasks 18.14 + 18.28):
+  // session-param routes ⇒ exact owner equality (404); non-session routes ⇒
+  // the optional host policy (403). Inert plane ⇒ no-op. `preHandler` so the
+  // route pattern + params are resolved; principal settled by the hooks above.
+  fastify.addHook(
+    "preHandler",
+    createIdentityRoadGate({
+      isEnforced: identityEnforced,
+      policy: policyRegistry,
+      ownerOf: (id) => sessionManager.get(id)?.principalOwner ?? sessionArchive.getById(id)?.principalOwner,
+      routeOwnerOf: (route) => routeOwners.ownerOf(route),
+    }),
+  );
+
   // REST tier gate (change: expand-mcp-tiered-surface, D1b). Registered AFTER
   // both admission hooks above (bearer-auth, then the cookie auth plugin) so
   // `request.authVia`/`principalTier` are already set when it runs, and it
@@ -1861,6 +1892,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     browserGateway,
     pendingForkRegistry,
     pendingDashboardSpawns,
+    isResolverActive: identityEnforced,
+    pendingPrincipalOwnerRegistry,
     pendingResumeIntents,
     pendingAttachRegistry,
     pendingPromptAcks,
@@ -2822,7 +2855,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           // placeholder resolves against. See change: add-apple-tools-imcp-plugin.
           getPluginConfig: (id) =>
             getPluginConfigFromFile(loadConfig(), id) as Record<string, unknown>,
-          createContext: (plugin) => createServerPluginContext(
+          // Bracket this plugin's activation for route-owner attribution (D24): the
+          // next plugin's createContext re-begins; the finally below ends.
+          createContext: (plugin) => (routeOwners.begin(plugin.manifest.id), createServerPluginContext(
             {
               fastify,
               isPiExtensionInstalled,
@@ -3201,8 +3236,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       plugin.manifest.id,
                       (msg, ws) => handler(msg, ws as unknown),
                     )
-                  : browserGateway.registerHandler(type, (msg, ws) =>
-                      handler(msg, ws as unknown),
+                  : browserGateway.registerHandler(
+                      type,
+                      (msg, ws) => handler(msg, ws as unknown),
+                      plugin.manifest.id,
                     ),
               getPluginConfig: (id) => {
                 const cfg = loadConfig();
@@ -3338,10 +3375,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
             },
             plugin.manifest.id,
-          ),
+          )),
         });
       } catch (err) {
         console.error('[plugin-loader] Unexpected error during pre-listen load:', err);
+      } finally {
+        // Close the last activation's attribution bracket (D24 route owners).
+        routeOwners.end();
       }
 
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
