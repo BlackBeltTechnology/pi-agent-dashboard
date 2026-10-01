@@ -10,8 +10,13 @@
  */
 import { describe, expect, it } from "vitest";
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import {
   buildIssueBody,
+  readReports,
   rangeText,
   resolveAnchor,
   summarizeReports,
@@ -113,6 +118,21 @@ describe("report summary (X10)", () => {
       needs: { select: { result: "success" }, unit: { result: "success" } },
     });
     expect(s.red).toBe(false);
+  });
+
+  it("review r2 B1: a truncated report artifact is 'no report' while the other jobs are still read", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nightly-reports-"));
+    fs.mkdirSync(path.join(dir, "vitest-report-unit-1"));
+    fs.writeFileSync(path.join(dir, "vitest-report-unit-1", "vitest.json"), '{"testResults": [');
+    fs.mkdirSync(path.join(dir, "vitest-report-unit-2"));
+    fs.writeFileSync(path.join(dir, "vitest-report-unit-2", "vitest.json"), JSON.stringify(rep([["x.test.ts", "failed"]])));
+    const reports = readReports(dir, ["unit-1", "unit-2"]);
+    expect(reports["unit-1"]).toBeNull();
+    const s = summarizeReports({ expected: ["unit-1", "unit-2"], reports, root: ROOT });
+    expect(s.noReport).toEqual(["unit-1"]);
+    expect(s.failing).toEqual([{ job: "unit-2", file: "x.test.ts" }]);
+    expect(s.red).toBe(true);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("emits refreshed timings from every report", () => {

@@ -129,13 +129,23 @@ function githubApi({ token, repo, server = "https://api.github.com" }) {
   };
 }
 
-/** `<dir>/vitest-report-<job>/*.json` → { job: report|null }. */
-function readReports(dir, expected) {
+/**
+ * `<dir>/vitest-report-<job>/*.json` → { job: report|null }. An absent OR
+ * unreadable (truncated, malformed) report is null — "no report" — so one bad
+ * artifact never stops the issue from being raised for the others.
+ */
+export function readReports(dir, expected) {
   const out = {};
   for (const job of expected) {
     const d = path.join(dir, `vitest-report-${job}`);
     const file = fs.existsSync(d) ? fs.readdirSync(d).find((f) => f.endsWith(".json")) : null;
-    out[job] = file ? JSON.parse(fs.readFileSync(path.join(d, file), "utf8")) : null;
+    out[job] = null;
+    if (!file) continue;
+    try {
+      out[job] = JSON.parse(fs.readFileSync(path.join(d, file), "utf8"));
+    } catch (e) {
+      console.log(`::warning::${job}: unreadable vitest report (${String(e?.message ?? e).split("\n")[0]}) — counted as no report`);
+    }
   }
   return out;
 }
