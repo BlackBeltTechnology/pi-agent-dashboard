@@ -112,10 +112,17 @@ describe("useCardSectionVisible", () => {
 
 describe("SessionCard desktop gating", () => {
   it("no prefs → identical render to no provider", () => {
-    const a = renderCard(undefined).container.innerHTML;
-    cleanup();
-    const b = renderCard({}).container.innerHTML;
-    expect(b).toBe(a);
+    // Pin the clock: makeSession/renderCard read Date.now() per render, so two
+    // renders straddling a second boundary differ in the "Started …" title.
+    const now = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 0, 1, 12, 0, 0));
+    try {
+      const a = renderCard(undefined).container.innerHTML;
+      cleanup();
+      const b = renderCard({}).container.innerHTML;
+      expect(b).toBe(a);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("renders every section with no prefs", () => {
