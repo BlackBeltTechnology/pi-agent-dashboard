@@ -37,3 +37,5 @@ Trade-off acknowledged: four orthogonal slices in one change (user decision). Mi
 - `doubt-driven-review` — before the bridge state-object shape stands (largest, oldest function; the `isActive()` reload guard is the invariant most at risk).
 - `performance-optimization` — measure-first: record wall / `environment` / `import` per project before and after node-env and `isolate` changes; the isolate gate is decided on those numbers.
 - `review-code` — on each landed slice before commit.
+
+<!-- route-check 3 -->
