@@ -11,6 +11,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway.agent.md` | Pull-only condensed map/companion for `chat-gateway.md`. Setup, boundaries, team controls, config keys. → see `chat-gateway.md` |
 | `chat-gateway.md` | Operator setup guide for `@blackbelt-technology/pi-dashboard-chat-gateway-plugin`. → see `chat-gateway.md.AGENTS.md` |
+| `ci.md` | Affected-test CI. ci.yml parallel jobs (`select`, `ci`, `unit` ×4, `real-process`, `ci-scenarios`, `docker-plugin-load`, `music-pytest`, `ci-result`); `decide()` selection layers; fail-safes; nightly full-suite net. See change: speed-up-ci-affected-tests. |
 | `code-quality.md` | Biome ratchet. Rules graduate one-way off→warn→error; cleanup lands first, severity flip second. → see `code-quality.md.AGENTS.md` |
 | `context-mode-roi-report.md` | ROI analysis. context-mode MCP plugin vs kb extension. Verdict: trim not drop. → see `context-mode-roi-report.md.AGENTS.md` |
 | `context-mode-roi-report.pdf` | Rendered PDF of context-mode-roi-report.md. 13 pages. Built via document-converter facade (DOCX) + LibreOffice (DOCX→PDF). |

@@ -1,15 +1,16 @@
 ---
 name: ci-troubleshoot
-description: 'Diagnose failed GitHub Actions runs for pi-agent-dashboard: the 10-file workflow taxonomy, the release pipeline, known failure modes, and how to read `gh run` logs and retrigger jobs. Use when a CI run is red, a release is stuck, a workflow won''t dispatch, or you need to know which workflow does what. See `release-cut` to trigger a release, `release-revoke` to revoke one.'
+description: 'Diagnose failed GitHub Actions runs for pi-agent-dashboard: the 11-file workflow taxonomy, affected-test selection, the release pipeline, known failure modes, and how to read `gh run` logs and retrigger jobs. Use when a CI run is red, a release is stuck, a workflow won''t dispatch, or you need to know which workflow does what. See `release-cut` to trigger a release, `release-revoke` to revoke one.'
 ---
 
 # CI Troubleshoot
 
-Diagnose CI failures for pi-agent-dashboard. The repo has 10 workflow files: 8 entry workflows and 2 reusable workflows.
+Diagnose CI failures for pi-agent-dashboard. The repo has 11 workflow files: 9 entry workflows and 2 reusable workflows.
 
 ```mermaid
 flowchart LR
-  ci[ci.yml] --> checks[tests + lint + build]
+  ci[ci.yml] --> checks[guards + lint + build<br/>+ affected tests]
+  nightlyTests[nightly-tests.yml] --> full[full suite + nightly-tests issue]
   deploy[deploy-site.yml] --> pages[GitHub Pages]
   native[ci-e2e-electron.yml] --> nativeTests[native Electron E2E]
   ciSmoke[ci-smoke.yml] --> smoke[_smoke.yml]
@@ -34,16 +35,48 @@ pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts             
 
 These wrap `gh run list`, `gh run view --log-failed`, and similar. You need `gh auth status` to be authenticated.
 
-**Unit-test failure in `ci.yml` → read the `vitest-report` artifact FIRST, not the log.**
-`ci.yml` uploads it on every run (`if: always()`, 14-day retention): `test-results/vitest.json`
-(parallel phase) + `test-results/vitest-real-process.json` (real-process phase).
+## `ci.yml` job taxonomy — affected-only tests
+
+`ci.yml` runs parallel jobs (change: speed-up-ci-affected-tests):
+
+| Job | Does | Red means |
+|-----|------|-----------|
+| `select` | `scripts/select-affected-tests.mjs` → artifact `test-selection` + job summary | selector could not run at all (it degrades to `mode: full` on its own errors) |
+| `ci` | guards, spec validate, lint, `lint:e2e`, Biome, build, publish-import checks — NO tests | a guard/lint/build failure |
+| `unit` ×4 | the selector's shard `n` via `pnpm run test:parallel <files>` | a test failed, `dist/index.html` missing, or `verify-executed` found an assigned file that never ran |
+| `real-process` | real-process files (runs only when selected) | as today's phase 2; retries once under CI |
+| `ci-scenarios` | the `RUN_CI_SCENARIOS`-gated packaging files only (skipped for OpenSpec-only diffs) | a packaging scenario failed |
+| `ci-result` | aggregate; `check-result.mjs` | `select` failed, a job failed/cancelled, or an EXPECTED job was skipped |
+
+**What did this run skip?** Open the `select` job summary, or:
 
 ```bash
-gh run download <run-id> -n vitest-report -D /tmp/vr
+gh run download <run-id> -n test-selection -D /tmp/sel
+jq '{mode, reason, counts, slowTierDeselected, unmapped}' /tmp/sel/selection.json
+jq -r '.selected | to_entries[] | "\(.value)\t\(.key)"' /tmp/sel/selection.json | sort | head   # file → layer
+jq '.shards | map(length)' /tmp/sel/selection.json
+```
+
+Mode `full` has a reason: a global input (lockfile, root `package.json`, any vitest/tsconfig, setupFiles, the selector or its data), an unmapped file outside `packages/`, a `ci:full` label, `workflow_dispatch`, or a selector error (all-zero/non-ancestor/missing base).
+
+**Force a full run.** `ci:full` label on the PR → takes effect on the NEXT push (there is no `labeled` trigger — on purpose). Immediate: `gh workflow run ci.yml --ref <branch>` (dispatch is always full).
+
+**Slow tier.** `scripts/test-selection/slow-tier.json` (only the 504 s mutation harness) is deselected in affected mode unless the file itself changed; it runs nightly, in full mode, and under `ci:full`. Listed under "Slow-tier deselections" in the summary.
+
+**A test is green on PRs but red nightly.** Not automatically a selection miss — flakes and environment changes do this too. The `nightly-tests` issue names the bisect range (`A..B`, since the last green SCHEDULED run). Bisect in that range to the breaking commit, then open that commit's PR run `test-selection` artifact: if the failing file WAS selected (and executed), debug the test itself; only if it was NOT selected did selection miss it — close the gap with a `scripts/test-selection/triggers.json` entry or a layer fix, never just a re-run.
+
+**`nightly-tests` issue triage.** One open issue, label `nightly-tests`, updated each red scheduled night, closed on the first green one. "no report" = a job was cancelled or died (infra), not a pass. "no new commits" = flake or environment. Refreshed shard timings: artifact `test-timings` → copy to `scripts/test-selection/timings.json` by hand.
+
+**Unit-test failure → read the `vitest-report-*` artifact FIRST, not the log.**
+Each vitest job uploads its own report on every run (`if: always()`, 14-day retention):
+`vitest-report-unit-<n>`, `vitest-report-real-process`, `vitest-report-ci-scenarios`.
+
+```bash
+gh run download <run-id> -p 'vitest-report-*' -D /tmp/vr
 # failures
-jq -r '.testResults[].assertionResults[] | select(.status=="failed") | .fullName' /tmp/vr/vitest*.json
+jq -r '.testResults[].assertionResults[] | select(.status=="failed") | .fullName' /tmp/vr/*/vitest*.json
 # RETRIED PASSES — passed, but a failed attempt's error is still retained
-jq -r '.testResults[].assertionResults[] | select(.status=="passed" and (.failureMessages|length)>0) | .fullName' /tmp/vr/vitest*.json
+jq -r '.testResults[].assertionResults[] | select(.status=="passed" and (.failureMessages|length)>0) | .fullName' /tmp/vr/*/vitest*.json
 ```
 
 There is **no `retryCount` field**. Vitest 4.1.11's JSON reporter emits only
@@ -58,8 +91,8 @@ Retry semantics: ONLY the `server-real-process` project retries, ONLY under `CI`
 pass cleanly — that test flaked. A test failing twice still reds the job. Locally retry is 0.
 The default reporter prints `(retry x1)` only for tests it lists; a retried PASS is invisible
 there, which is why the artifact is the first move.
-`npm test` = `test:parallel` then `test:real-process`; a real-process red is in the SECOND phase,
-so the log tail belongs to `vitest run --config packages/server/vitest.real-process.config.ts`.
+Locally `npm test` = `test:parallel` then `test:real-process`; in CI the real-process phase is its
+own `real-process` job running `vitest run --config packages/server/vitest.real-process.config.ts`.
 
 > Scripts are TypeScript and cross-platform. All invocations use `pnpm exec tsx`, which resolves the declared local dependency and fails if dependencies are absent. `gh` CLI is cross-platform.
 
@@ -116,7 +149,10 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 | `Cannot find module @blackbelt-technology/...` in electron | `electron` | `publish` job didn't run or failed; bundled server can't resolve from npm | Check `publish` job — re-run only if it failed; never bypass |
 | Fastify crashes in bundled server smoke | any using node | Bad Node version pinned in workflow | Bump `node-version:` to ≥ 22.18.0 |
 | Loud-but-harmless `EADDRINUSE` in smoke | smoke job | Concurrent server spawns | Usually self-recovering; check next log lines |
-| Green `pnpm test` but a timing test flaked | `ci.yml` | `server-real-process` retried once | `vitest-report` artifact → `passed` + non-empty `failureMessages`; root-cause it, do not ignore |
+| Green run but a timing test flaked | `ci.yml` `real-process` | `server-real-process` retried once | `vitest-report-real-process` artifact → `passed` + non-empty `failureMessages`; root-cause it, do not ignore |
+| `verify-executed` fails: assigned file did not execute | `ci.yml` `unit`/`real-process`/`ci-scenarios` | vitest filter/path mismatch, or the file is no longer collected | Check the file still matches its project `include`; re-run `select` locally: `node scripts/select-affected-tests.mjs --base origin/develop --merge-base --out /tmp/s.json` |
+| `ci-result` red with every job green | `ci.yml` | a job the selection EXPECTED was skipped, or `select` failed | Read `ci-result` log: it names the job |
+| Nightly red, PR was green | `nightly-tests.yml` | flake, environment, or a selection miss | Bisect the issue's range; check the breaking PR's `test-selection` artifact — selected → debug the test; not selected → trigger/layer fix |
 | `real-process-project-guard.test.ts` fails | repo-lint | New server test spawns a process but runs in the parallel project | Add it to `packages/server/vitest.real-process-files.ts`, or annotate `// real-process-exempt: <reason>` |
 | `electron` + `github-release` SKIPPED despite green `publish` | `electron` | Tag-push path skips `tag-and-push`; a skipped needs-ancestor poisons electron's DEFAULT `if: success()` | Give `electron` explicit `if: ${{ !cancelled() && needs.publish.result == 'success' }}` (mirrors `publish`'s guard). First hit v0.6.1 |
 | `✗ koffi prebuild GO/NO-GO failed at ...koffi\build\koffi\win32_x64\koffi.node` | `electron` (both win32 legs) | koffi@3.x ships the prebuild at `@koromix/koffi-win32-x64/win32_x64/koffi.node`; the 2.x `koffi/build/...` path is never created | Update `bundle-server.mjs` guard to check the 3.x @koromix path first, 2.x fallback. First hit v0.6.1 |
