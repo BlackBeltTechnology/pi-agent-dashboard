@@ -1,7 +1,9 @@
 import type { KnownServer } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { mdiChevronDown, mdiCog, mdiServerNetwork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
 import { logRejection } from "../../lib/report-error.js";
@@ -112,6 +114,13 @@ interface Props {
 export function ServerSelector({ currentHost, currentPort, connected, onSwitch, onManageServers, inFlightSwitchKey }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { flipUp, maxHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(triggerRef, {
+    open,
+    estimatedWidth: 220,
+    minPopoverHeight: 0,
+  });
   const [availability, setAvailability] = useState<Map<string, ProbeState>>(new Map());
   const [knownServers, setKnownServers] = useState<KnownServer[]>([]);
 
@@ -181,7 +190,10 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -194,6 +206,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
   return (
     <div ref={ref} className="relative">
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
         title={i18nT("connection.switchServer", undefined, "Switch server")}
@@ -205,7 +218,27 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1">
+        <LayerPortal>
+        <div
+          ref={panelRef}
+          style={{
+            minWidth: 220,
+            maxHeight,
+            maxWidth,
+            visibility: triggerRect ? "visible" : "hidden",
+            ...(triggerRect
+              ? flipUp
+                ? { bottom: Math.round(window.innerHeight - triggerRect.top + 4) }
+                : { top: Math.round(triggerRect.bottom + 4) }
+              : {}),
+            ...(triggerRect
+              ? anchorRight
+                ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                : { left: Math.round(triggerRect.left) }
+              : {}),
+          }}
+          className="fixed overflow-y-auto z-popover bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+        >
           {onManageServers && (
             <button
               onClick={() => { setOpen(false); onManageServers(); }}
@@ -285,6 +318,7 @@ export function ServerSelector({ currentHost, currentPort, connected, onSwitch, 
             );
           })}
         </div>
+        </LayerPortal>
       )}
     </div>
   );

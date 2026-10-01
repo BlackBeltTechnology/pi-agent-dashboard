@@ -61,6 +61,30 @@ describe("WsTicketStore", () => {
     expect(store.consume(null, "browser")).toBe(false);
     expect(store.consume("never-minted", "browser")).toBe(false);
   });
+
+  it("binds principal + principalExpiresAt at mint and returns them on consume (§9.1)", () => {
+    const now = 1000;
+    const store = new WsTicketStore(() => now);
+    const principal = { iss: "https://kc/realms/app", sub: "user-1", email: "u@x" };
+    const t = store.mint("browser", undefined, { principal, principalExpiresAt: 5000 });
+    const outcome = store.consumeDetailed(t, "browser");
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.principal).toEqual(principal);
+      expect(outcome.principalExpiresAt).toBe(5000);
+    }
+  });
+
+  it("records no principal for a principal-less mint (inert / non-browser)", () => {
+    const store = new WsTicketStore(() => 1000);
+    const t = store.mint("browser");
+    const outcome = store.consumeDetailed(t, "browser");
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.principal).toBeUndefined();
+      expect(outcome.principalExpiresAt).toBeUndefined();
+    }
+  });
 });
 
 /**

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Login Plane — Sign-in failed</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        background: radial-gradient(120% 120% at 50% 0%, #2b1414 0%, #0d0808 60%);
+        color: #f6e9e9;
+      }
+      main { width: min(32rem, 92vw); padding: 2.25rem; border-radius: 1rem;
+        background: #1d1112; border: 1px solid #5a2a2a; box-shadow: 0 24px 60px -24px #000; }
+      .kicker { margin: 0 0 1.25rem; font-size: .72rem; letter-spacing: .14em;
+        text-transform: uppercase; color: #f0a3a3; }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; }
+      p { margin: 0 0 1rem; color: #d9b6b6; }
+      a.cta { display: block; margin: 1.25rem 0 .5rem; padding: .85rem 1rem; text-align: center;
+        border-radius: .6rem; background: #f0a3a3; color: #2b1414; font-weight: 650; text-decoration: none; }
+      .meta { margin: .75rem 0 0; font-size: .8rem; color: #b78989; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">separate view · identity-login-plane</p>
+      <h1>Sign-in failed</h1>
+      <p>{{MESSAGE}}</p>
+      <a class="cta" href="/identity-login/">Try again</a>
+      <p class="meta">served by <code>GET /identity-login/callback</code></p>
+    </main>
+  </body>
+</html>

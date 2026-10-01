@@ -6,6 +6,7 @@
 import { pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+import { projectPluginRefs } from "./plugin-refs.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
 
 /**
@@ -313,6 +314,8 @@ export function createMemorySessionManager(
       const priorStatus = existing?.status;
 
       const session: DashboardSession = {
+        // Plugin-owned refs survive a reattach (projection first: core wins).
+        ...(existing ? { ...projectPluginRefs(existing.pluginRefs), pluginRefs: existing.pluginRefs } : {}),
         // Carry over accumulated data from the existing session (e.g. restored after restart)
         ...(existing ? {
           tokensIn: existing.tokensIn,
@@ -331,6 +334,11 @@ export function createMemorySessionManager(
           // them here would wipe them from disk too.
           // See change: split-notify-from-prompt-request.
           notifyLog: existing.notifyLog,
+          // Preserve the identity-plane owner across a bridge reattach
+          // (dashboard restart). Same full-overwrite hazard as `tags`: dropping
+          // it here wipes it from disk and the session turns ownerless.
+          // A re-register never CHANGES an owner (only the spawn token does).
+          principalOwner: existing.principalOwner,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,

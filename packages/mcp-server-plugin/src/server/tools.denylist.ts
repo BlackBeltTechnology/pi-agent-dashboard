@@ -11,6 +11,7 @@ export interface DenylistEntry {
 
 export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/auth/", reason: "auth internals" },
+  { pattern: "/api/identity/", reason: "identity-plane pre-auth login config; not an MCP tool" },
   { pattern: "/api/model-proxy/", reason: "model-proxy; host-local only" },
   { pattern: "/api/provider-auth/", reason: "provider auth + API-key material" },
   {

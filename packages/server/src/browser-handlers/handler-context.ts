@@ -13,6 +13,7 @@ import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { PendingInitialPromptRegistry } from "../pending/pending-initial-prompt-registry.js";
 import type { PendingResumeIntentRegistry } from "../pending/pending-resume-intent-registry.js";
 import type { PendingResumeRegistry } from "../pending/pending-resume-registry.js";
+import type { PendingPrincipalOwnerRegistry } from "../pending/pending-principal-owner-registry.js";
 import type { PendingWorktreeBaseRegistry } from "../pending/pending-worktree-base-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
@@ -108,6 +109,20 @@ export interface BrowserHandlerContext {
    * See change: add-worktree-spawn-dialog.
    */
   pendingWorktreeBaseRegistry?: PendingWorktreeBaseRegistry;
+  /**
+   * Optional token-keyed pending principal-owner registry (§6.2 / D11).
+   * Populated by the browser `spawn_session` road when the resolver is active
+   * and the socket carries a principal; consumed on `session_register` to
+   * stamp `principalOwner`. Filed against a pre-minted spawn token BEFORE the
+   * spawn await — cwd never confers ownership.
+   */
+  pendingPrincipalOwnerRegistry?: PendingPrincipalOwnerRegistry;
+  /**
+   * Predicate: is a trusted+configured principal resolver active? Gates owner
+   * stamping so the inert era stays ownerless. See change:
+   * add-multi-user-identity-plane.
+   */
+  isResolverActive?: () => boolean;
   /**
    * Optional pending-resume-intent registry. Tagged when the user clicks
    * Resume / drags-to-resume / hits the REST resume endpoint, consumed by

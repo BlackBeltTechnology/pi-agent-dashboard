@@ -13,6 +13,7 @@ import { mergeSessionMeta, metaPath, readSessionMeta, type SessionMeta, writeSes
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { readJsonlMtime } from "./derive-ended-at.js";
+import { projectPluginRefs, sanitizePersistedBags } from "./plugin-refs.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
@@ -147,6 +148,10 @@ export function sessionFromMeta(
   const status = (meta.status as DashboardSession["status"]) ?? "ended";
   const resolvedStartedAt = meta.startedAt ?? startedAt;
   return {
+    // Plugin-owned refs projected FIRST so every core field below wins; the
+    // bag is validated (untrusted sidecar) — see session/plugin-refs.ts.
+    ...projectPluginRefs(meta.pluginRefs),
+    pluginRefs: sanitizePersistedBags(meta.pluginRefs),
     id: sessionId,
     cwd: meta.cwd ?? "",
     name: meta.name,
@@ -223,6 +228,9 @@ export function sessionFromMeta(
     // Restore goal ownership from meta so the session-card goal chip resolves
     // its owning goal after a server restart. See change: add-goals-folder-page.
     goalId: meta.goalId,
+    // Restore the human owner so owner-scoping survives a restart / cold start
+    // without re-reading the sidecar. See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
     // Restore session classification for the client (grouping / board
     // visibility). Recovery no longer reads `kind` — it reads the core-owned
     // `recover` flag below. See change: reopen-sessions-after-shutdown.
@@ -315,6 +323,9 @@ function archivedRowFromMeta(
     // origin host's path on THIS disk (#E15).
     // See change: serve-retained-remote-transcripts.
     originDeviceId: meta.originDeviceId,
+    // Owner restored from the sidecar so a cold-boot archive reseed keeps the
+    // archived session owner-gated (§8.1). See change: add-multi-user-identity-plane.
+    principalOwner: meta.principalOwner,
   };
 }
 

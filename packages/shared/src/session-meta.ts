@@ -187,6 +187,23 @@ export interface SessionMeta {
   goalId?: string;
 
   /**
+   * Human principal that owns this session, as the identity join key
+   * `(iss, sub)` only (never `email`). Stamped ONLY through a trusted spawn
+   * road while the resolver is active (design D11); scheduler/automation and
+   * inert-era sessions stay ownerless. When the resolver is active every
+   * session read/write requires exact owner equality, so an ownerless session
+   * is invisible and immutable to human principals. Persisted to `.meta.json`.
+   * See change: add-multi-user-identity-plane.
+   */
+  principalOwner?: { iss: string; sub: string };
+  /**
+   * Plugin-owned session refs, namespaced by owning plugin id. Written and
+   * restored VERBATIM by core (it never parses the interior); every key is
+   * also projected onto the session top level. See session/plugin-refs.ts.
+   */
+  pluginRefs?: Record<string, Record<string, unknown>>;
+
+  /**
    * Liveness marker — stamped eagerly (atomic, NOT debounced) while a
    * session runs. `live: true` + `liveEpoch` (server boot id) persist on
    * disk before an unclean host shutdown so cold start can tell an

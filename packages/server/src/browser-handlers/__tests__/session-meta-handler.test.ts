@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { SessionsPageResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleListSessions, handleRemoveTagGlobally, handleSessionsPage, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -562,5 +562,141 @@ describe("handleSetSessionDisplayPrefs — clearing broadcast", () => {
 
     expect(mgr.get("s1")!.displayPrefsOverride).toEqual({ tokenStatsBar: false });
     expect(broadcasts[0].updates).toEqual({ displayPrefsOverride: { tokenStatsBar: false } });
+  });
+});
+
+/**
+ * §8.2 owner-equality on the SESSION-LIST roads (`sessions_page`,
+ * `list_sessions`). The §8.3 choke point in the gateway gates the `session`
+ * scope only — it deliberately falls through for `session-list`, whose rows
+ * must be filtered PER ITEM at the handler. Without that filter both roads
+ * disclose every principal's session metadata.
+ * See change: add-multi-user-identity-plane (D11, SM-5).
+ */
+describe("session-list roads — per-item owner filtering (§8.2)", () => {
+  const ANNA = { iss: "https://kc/realms/pi", sub: "anna-sub" };
+  const BELA = { iss: "https://kc/realms/pi", sub: "bela-sub" };
+
+  function seedEndedOwned(mgr: SessionManager, id: string, cwd: string, at: number, owner?: { iss: string; sub: string }): void {
+    mgr.register({ id, cwd, source: "tui", startedAt: at });
+    mgr.unregister(id);
+    mgr.update(id, { endedAt: at + 1_000, ...(owner ? { principalOwner: owner } : {}) } as any);
+  }
+
+  function makeListCtx(mgr: SessionManager, opts: { active: boolean; principal?: { iss: string; sub: string } | null }) {
+    const sent: any[] = [];
+    const ctx = {
+      ws: { principal: opts.principal ?? null },
+      sessionManager: mgr,
+      piGateway: { findSessionByCwd: () => undefined, sendToSession: () => {} },
+      isResolverActive: () => opts.active,
+      sendTo: (_ws: unknown, msg: any) => sent.push(msg),
+    } as unknown as BrowserHandlerContext;
+    return { ctx, sent };
+  }
+
+  /** 120 newer ended sessions elsewhere push the group's ids out of the snapshot window. */
+  function seedFillers(mgr: SessionManager): void {
+    for (let i = 0; i < 120; i++) seedEndedOwned(mgr, `f${String(i).padStart(3, "0")}`, "/fillers", 10_000 + i);
+  }
+
+  function seedMixedGroup(mgr: SessionManager): void {
+    seedEndedOwned(mgr, "anna-1", "/g", 1_000, ANNA);
+    seedEndedOwned(mgr, "bela-1", "/g", 1_100, BELA);
+    seedEndedOwned(mgr, "anna-2", "/g", 1_200, ANNA);
+    seedEndedOwned(mgr, "orphan", "/g", 1_300); // ownerless
+    seedFillers(mgr);
+  }
+
+  describe("sessions_page", () => {
+    it("active + anna → only anna's rows; bela's and the ownerless row are invisible", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: ANNA });
+
+      handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+      expect(sent[0].sessions.map((s: any) => s.id).sort()).toEqual(["anna-1", "anna-2"]);
+      expect(sent[0].order.sort()).toEqual(["anna-1", "anna-2"]);
+    });
+
+    it("active + bela → only bela's row (no cross-owner leak in either direction)", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: BELA });
+
+      handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+      expect(sent[0].sessions.map((s: any) => s.id)).toEqual(["bela-1"]);
+    });
+
+    it("active + principal-less socket → nothing", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: null });
+
+      handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+      expect(sent[0].sessions).toEqual([]);
+      expect(sent[0].hasMore).toBe(false);
+    });
+
+    it("hasMore is computed over the FILTERED pageable — no count oracle for hidden rows", () => {
+      const mgr = createMemorySessionManager();
+      // 60 bela rows (> one 50-row page) + 1 anna row.
+      for (let i = 0; i < 60; i++) seedEndedOwned(mgr, `b${String(i).padStart(3, "0")}`, "/g", 1_000 + i, BELA);
+      seedEndedOwned(mgr, "anna-1", "/g", 2_000, ANNA);
+      seedFillers(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: ANNA });
+
+      handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+      expect(sent[0].sessions.map((s: any) => s.id)).toEqual(["anna-1"]);
+      // Unfiltered pageable is 61 → a leaky impl would say "more pages exist".
+      expect(sent[0].hasMore).toBe(false);
+    });
+
+    it("inert (no active resolver) → unchanged, every row served", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: false, principal: null });
+
+      handleSessionsPage({ type: "sessions_page", cwd: "/g", offset: 0 } as any, ctx);
+
+      expect(sent[0].sessions.map((s: any) => s.id).sort()).toEqual(["anna-1", "anna-2", "bela-1", "orphan"]);
+    });
+  });
+
+  describe("list_sessions (direct branch — no bridge)", () => {
+    it("active + anna → only anna's rows", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: ANNA });
+
+      handleListSessions({ type: "list_sessions", cwd: "/g" } as any, ctx);
+
+      expect(sent[0].type).toBe("sessions_list");
+      expect(sent[0].sessions.map((s: any) => s.id).sort()).toEqual(["anna-1", "anna-2"]);
+    });
+
+    it("active + principal-less socket → nothing", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: true, principal: null });
+
+      handleListSessions({ type: "list_sessions", cwd: "/g" } as any, ctx);
+
+      expect(sent[0].sessions).toEqual([]);
+    });
+
+    it("inert → unchanged, every row served", () => {
+      const mgr = createMemorySessionManager();
+      seedMixedGroup(mgr);
+      const { ctx, sent } = makeListCtx(mgr, { active: false, principal: null });
+
+      handleListSessions({ type: "list_sessions", cwd: "/g" } as any, ctx);
+
+      expect(sent[0].sessions.map((s: any) => s.id).sort()).toEqual(["anna-1", "anna-2", "bela-1", "orphan"]);
+    });
   });
 });

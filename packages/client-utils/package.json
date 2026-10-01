@@ -33,6 +33,26 @@
       "types": "./src/escape-stack.ts",
       "default": "./src/escape-stack.ts"
     },
+    "./identity/pkce": {
+      "types": "./src/identity/pkce.ts",
+      "default": "./src/identity/pkce.ts"
+    },
+    "./identity/token-store": {
+      "types": "./src/identity/token-store.ts",
+      "default": "./src/identity/token-store.ts"
+    },
+    "./identity/oidc-flow": {
+      "types": "./src/identity/oidc-flow.ts",
+      "default": "./src/identity/oidc-flow.ts"
+    },
+    "./identity/login-flow": {
+      "types": "./src/identity/login-flow.ts",
+      "default": "./src/identity/login-flow.ts"
+    },
+    "./identity/dpop": {
+      "types": "./src/identity/dpop.ts",
+      "default": "./src/identity/dpop.ts"
+    },
     "./Popover": {
       "types": "./src/Popover.tsx",
       "default": "./src/Popover.tsx"

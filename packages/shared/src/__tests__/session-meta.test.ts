@@ -37,6 +37,13 @@ describe("session-meta", () => {
       expect(readSessionMeta(sessionFile)).toBeUndefined();
     });
 
+    it("round-trips principalOwner (iss, sub) unchanged", () => {
+      const sessionFile = path.join(tmpDir, "owned-session.jsonl");
+      const principalOwner = { iss: "https://kc.example/realms/app", sub: "user-1" };
+      writeSessionMeta(sessionFile, { source: "dashboard", principalOwner });
+      expect(readSessionMeta(sessionFile)?.principalOwner).toEqual(principalOwner);
+    });
+
     it("should return undefined for invalid JSON", () => {
       const sessionFile = path.join(tmpDir, "bad.jsonl");
       fs.writeFileSync(path.join(tmpDir, "bad.meta.json"), "not json");

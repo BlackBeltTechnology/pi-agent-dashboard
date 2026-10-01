@@ -24,6 +24,7 @@
   },
   "files": [
     "src/",
+    "!**/test-support",
     "bin/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
@@ -36,6 +37,7 @@
     "semver": "^7.7.1"
   },
   "devDependencies": {
+    "jose": "^6.0.0",
     "memfs": "^4.57.2",
     "react": "^19.0.0",
     "@types/semver": "^7.7.0"

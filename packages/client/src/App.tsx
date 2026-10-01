@@ -166,7 +166,7 @@ import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
 import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
-import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
+import { FirstLaunchDisplayModal, shouldShowFirstLaunch } from "./components/settings/FirstLaunchDisplayModal.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
@@ -177,7 +177,8 @@ import { useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
-import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
+import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
+import { loginRedirectFor } from "./lib/identity/login-session.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
@@ -450,6 +451,12 @@ export default function App() {
     return base;
   }, [wsUrl]);
   const [overlayLocation, rawNavigate] = useLocation();
+  // D24: sign-in lost mid-page (expiry, restart…) ⇒ the dashboard is replaced
+  // by the core login page `/login?returnTo=<this page>`; nothing of it stays.
+  useEffect(() => {
+    const to = loginRedirectFor(status, window.location.pathname, window.location.search);
+    if (to) rawNavigate(to, { replace: true });
+  }, [status, overlayLocation, rawNavigate]);
   const overlaySearch = useSearch();
   // Instrument the single navigation path so every navigate records into the
   // in-app depth-tagged nav tracker (change: fix-mobile-back-depth-aware).
@@ -2113,14 +2120,6 @@ export default function App() {
           {t("connection.offline", undefined, "Server offline")}
         </div>
       )}
-      {status === "auth_required" && (
-        <div className="bg-amber-600/20 text-amber-400 text-xs px-3 py-1 text-center">
-          {t("connection.authRequired", undefined, "Session expired")}{" - "}
-          <a href={`${apiBase}/auth/login?return=${encodeURIComponent(window.location.pathname)}`} className="underline hover:text-amber-300">
-            {t("connection.signIn", undefined, "Sign in")}
-          </a>
-        </div>
-      )}
     </>
   );
 
@@ -2796,7 +2795,11 @@ export default function App() {
   // term is what lets `onClose`, a cross-tab broadcast, AND the connect
   // snapshot each close the modal by defining `displayPrefs`.
   // See change: fix-first-launch-display-modal-stuck-on-mobile.
-  const firstLaunchModal = displayPrefsSeedless && displayPrefs === undefined ? (
+  const firstLaunchModal = shouldShowFirstLaunch({
+    seedless: displayPrefsSeedless,
+    prefsDefined: displayPrefs !== undefined,
+    authRequired: status === "auth_required",
+  }) ? (
     <FirstLaunchDisplayModal
       apiBase={apiBase}
       onClose={(prefs) => setDisplayPrefs(prefs)}
@@ -2891,6 +2894,9 @@ export default function App() {
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
+              {/* D22 sign-in dialog: ONE instance for every layout branch (it is
+                  `fixed inset-0`, so it need not sit inside the banner slots,
+                  which a session route renders twice). */}
             </SessionDiffProvider>
           </SplitWorkspaceProvider>
         </ErrorBoundary>

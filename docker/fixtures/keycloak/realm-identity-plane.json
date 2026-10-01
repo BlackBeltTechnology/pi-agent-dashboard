@@ -1,0 +1,55 @@
+{
+  "realm": "pi-identity",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "roles": { "realm": [{ "name": "user" }] },
+  "clients": [
+    {
+      "clientId": "dashboard-web",
+      "name": "Dashboard Web (public PKCE)",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:*", "http://127.0.0.1:*"],
+      "webOrigins": ["+"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "+" },
+      "protocolMappers": [
+        {
+          "name": "pi-dashboard-aud",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "pi-dashboard",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "anna",
+      "email": "anna@example.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Anna",
+      "lastName": "Test",
+      "credentials": [{ "type": "password", "value": "anna-pw", "temporary": false }],
+      "realmRoles": ["user"]
+    },
+    {
+      "username": "bela",
+      "email": "bela@example.test",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Béla",
+      "lastName": "Test",
+      "credentials": [{ "type": "password", "value": "bela-pw", "temporary": false }],
+      "realmRoles": ["user"]
+    }
+  ]
+}

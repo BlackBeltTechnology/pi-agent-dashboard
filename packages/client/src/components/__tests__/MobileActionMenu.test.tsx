@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render as rtlRender, screen, act } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
@@ -140,5 +140,37 @@ describe("MobileActionMenu unattached OpenSpec section", () => {
     expect(onSendPrompt).toHaveBeenCalledWith("/skill:openspec-new-change add-auth\nAdd OAuth");
     // Dialog should close
     expect(screen.queryByTestId("new-change-dialog")).toBeNull();
+  });
+});
+
+describe("MobileActionMenu overlay-layering (portal contract)", () => {
+  it("panel has fixed and z-popover, not absolute or z-50", () => {
+    render(
+      <MobileActionMenu
+        session={makeSession({ status: "idle" })}
+        openspecChanges={[sampleChange]}
+        onSendPrompt={vi.fn()}
+      />
+    );
+    openMenu();
+    const panel = screen.getByTestId("mobile-action-menu");
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
+
+  it("outside click closes the menu", () => {
+    render(
+      <MobileActionMenu
+        session={makeSession({ status: "idle" })}
+        openspecChanges={[sampleChange]}
+        onSendPrompt={vi.fn()}
+      />
+    );
+    openMenu();
+    expect(screen.queryByTestId("mobile-action-menu")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId("mobile-action-menu")).toBeNull();
   });
 });

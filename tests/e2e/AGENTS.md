@@ -5,7 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `composer-session-strip.spec.ts` | L3 (change: redesign-composer-session-strip; F8–F12). Synthetic bridge on `FIXTURE_GIT` (pinned first) pushes… → see `composer-session-strip.spec.ts.AGENTS.md` |
-| `model-roles-promotion.spec.ts` | L3 F11–F13: Models first group, `nav-promoted-roles` → `/settings/plugins/roles` (title `Model roles`, single… → see `model-roles-promotion.spec.ts.AGENTS.md` |
+| `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–F6 (wizard, accounts, levels, revoke, confirm send, reauth badge). → see `gmail-plugin.spec.ts.AGENTS.md` |
 | `helpers/fake-google.ts` | Fake Google (authorize/token/revoke/Gmail) run in-container + `docker exec` control helpers. → see `helpers/fake-google.ts.AGENTS.md` |
 | `notify-collapse.spec.ts` | → see `notify-collapse.spec.ts.AGENTS.md` |
@@ -206,9 +206,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `tool-output-selection.spec.ts` | L3 selectable-tool-output-links (task 3.2). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `ui-token-alignment.spec.ts` | L3 token-recipe gate (test-plan F1–F9, F11, E10, X1). Computed contrast (canvas + composited ancestors — axe… → see `ui-token-alignment.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | E2E uncommitted-indicator + commit-from-card. → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
-| `untrusted-content-guard.spec.ts` | L3 #F1 (change: add-untrusted-content-guard): `[[faux:guard-confirm]]` → `stub_fetch` untrusted HTML → guard… → see `untrusted-content-guard.spec.ts.AGENTS.md` |
+| `untrusted-content-guard.spec.ts` | L3 spec. → see `untrusted-content-guard.spec.ts.AGENTS.md` |
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
 | `mcp-session-token.spec.ts` | L3 (change: wire-mcp-session-token, test-plan #F1, #F5… → see `mcp-session-token.spec.ts.AGENTS.md` |
 | `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
+| `identity-matrix/` | L3 D21 identity setup matrix. → see `identity-matrix.AGENTS.md` |

@@ -93,6 +93,14 @@ export default defineConfig({
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
+      // keycloak-resolver-plugin: the bundled identity resolver. Its server
+      // suites (jwks, resolver, config, fake-issuer) + the D16 browser
+      // login-flow suite gate real auth boundaries; a package absent here
+      // never runs its tests. See change: add-multi-user-identity-plane.
+      "packages/keycloak-resolver-plugin",
+      // fixture-policy-plugin: test-only host-policy fixture (identity
+      // policy seam); its policy suite pins the fail-closed contract.
+      "packages/fixture-policy-plugin",
       // Test-bearing packages no project collected, so no CI job ever ran
       // them. Guarded by shared/src/__tests__/test-collection-completeness.
       // See change: speed-up-ci-affected-tests.
