@@ -2,7 +2,7 @@
   "meta": {
     "engine": "0.1.0",
     "mermaid": "11.17.2",
-    "source": "/Users/robson/Project/pi-agent-dashboard/.worktrees/os-deck3d-cinematic-worlds/presentations/business-next-5-years/deck.md",
+    "source": "deck.md",
     "derivedHash": "ded139557e51ae8e767a1490cc1f9c58db66f7537a891e27320cf019cb47f2dd"
   },
   "defaults": {
