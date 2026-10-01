@@ -53,6 +53,7 @@
     "!packages/**/__tests__",
     "!packages/**/__fixtures__",
     "!packages/**/__mocks__",
+    "!packages/**/test-support",
     "!packages/**/*.test.*",
     "!packages/**/*.spec.*",
     "!packages/**/AGENTS.md",

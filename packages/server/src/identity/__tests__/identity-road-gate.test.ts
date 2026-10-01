@@ -7,6 +7,7 @@
  * Inert plane ⇒ no-op, even with a policy loaded (18.14 regression).
  */
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createIdentityRoadGate } from "../identity-road-gate.js";
@@ -31,6 +32,8 @@ async function build(opts: {
   const registry = new PolicyRegistry({ trustedPolicyPlugin: "p", audit: opts.audit });
   if (opts.policy) registry.register("p", opts.policy as never);
   app = Fastify();
+  // Mirror the real server's global limiter (CodeQL js/missing-rate-limiting).
+  await app.register(rateLimit, { global: true, max: 100_000, timeWindow: "1 minute" });
   // Stand-in for the resolver hook: `x-as: anna|bela|local` sets the principal.
   app.addHook("onRequest", async (req) => {
     const who = req.headers["x-as"];
