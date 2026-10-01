@@ -80,6 +80,8 @@ const ALLOWLIST: readonly string[] = [
 const SCAN_FILES: readonly string[] = [
   ".github/workflows/publish.yml",
   ".github/workflows/ci.yml",
+  // Full-suite nightly (change: speed-up-ci-affected-tests).
+  ".github/workflows/nightly-tests.yml",
   "packages/electron/scripts/Dockerfile.build",
   "scripts/fix-pty-permissions.cjs",
   "packages/server/scripts/fix-pty-permissions.cjs",

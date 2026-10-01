@@ -4,6 +4,11 @@
  * default; save issues a PUT with the full resolved config.
  * See change: add-hermes-memory-settings-plugin.
  */
+import {
+  type RegisteredSource,
+  SettingsDraftProvider,
+  type SettingsDraftRegistry,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULTS, KNOWN_KEYS } from "../../shared/hermes-config.js";
@@ -52,21 +57,31 @@ describe("HermesMemorySettings", () => {
     expect((getByTestId("hermes-input-nudgeInterval") as HTMLInputElement).value).toBe("10");
   });
 
-  it("save issues a PUT with the full resolved config including the edit", async () => {
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
-      jsonOk(init?.method === "PUT" ? allDefaultEffective() : allDefaultEffective()),
-    );
+  it("save (host Save Bar commit) issues a PUT with the full resolved config including the edit", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonOk(allDefaultEffective()));
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
-    const { getByTestId } = render(<HermesMemorySettings />);
+    // The section owns no Save button: it registers with the host's unified
+    // Save Bar (plugin-settings-pages D5). Drive the registered source's
+    // `commit`, exactly as the host does.
+    const sources = new Map<string, RegisteredSource>();
+    const registry: SettingsDraftRegistry = {
+      upsert: (id, src) => sources.set(id, src),
+      remove: (id) => {
+        sources.delete(id);
+      },
+    };
+    const { getByTestId } = render(
+      <SettingsDraftProvider registry={registry}>
+        <HermesMemorySettings />
+      </SettingsDraftProvider>,
+    );
     await waitFor(() => expect(getByTestId("hermes-input-nudgeInterval")).toBeTruthy());
 
     fireEvent.change(getByTestId("hermes-input-nudgeInterval"), { target: { value: "20" } });
-    await waitFor(() => expect((getByTestId("hermes-save") as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(getByTestId("hermes-save"));
+    await waitFor(() => expect(sources.get("plugin:hermes-memory")?.isDirty).toBe(true));
+    await sources.get("plugin:hermes-memory")!.commit();
 
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "PUT")).toBe(true),
-    );
+    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "PUT")).toBe(true);
     const putCall = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === "PUT");
     const sent = JSON.parse((putCall![1] as RequestInit).body as string);
     expect(sent.nudgeInterval).toBe(20);

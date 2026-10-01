@@ -13,6 +13,7 @@ same convention as the pi-dashboard/browser/doctor skills. One source of truth.
 | File | Purpose |
 |------|---------|
 | `Audit.md` | Deep security + performance audit of a specific diff. Model `@research`, inherit_context false. |
+| `CodeReviewer.md` | Isolated read-only reviewer for ship-it step 4.5; the only spawn target there. Follows the generated `review-prompt.ts` prompt verbatim; reply ends sweep table + `BLOCKING_COUNT` + `VERDICT`. Model `@review`, inherit_context false, tools `[read, grep, find, ls, bash]`. See change: harden-review-and-fix-loop. |
 | `DocScribe.md` | Write docs/ prose for a completed change, in caveman style, per the repo's Documentation Update Protocol. Model `@compact`, inherit_context false. |
 | `DocSummarize.md` | Summarize large or multiple documents (PDF/DOCX/PPTX/XLSX/HTML/CSV/TXT/MD). Model `@research`, inherit_context false. |
 | `Explore.md` | Fast read-only codebase & docs exploration. Model `@fast`, inherit_context false. |

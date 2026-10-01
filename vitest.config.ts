@@ -98,6 +98,16 @@ export default defineConfig({
       // login-flow suite gate real auth boundaries; a package absent here
       // never runs its tests. See change: add-multi-user-identity-plane.
       "packages/keycloak-resolver-plugin",
+      // fixture-policy-plugin: test-only host-policy fixture (identity
+      // policy seam); its policy suite pins the fail-closed contract.
+      "packages/fixture-policy-plugin",
+      // Test-bearing packages no project collected, so no CI job ever ran
+      // them. Guarded by shared/src/__tests__/test-collection-completeness.
+      // See change: speed-up-ci-affected-tests.
+      "packages/apple-tools",
+      "packages/dashboard-plugin-skill",
+      "packages/hermes-memory-plugin",
+      "packages/quota-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
       // project's include glob is scoped to `e2e/helpers/__tests__/`. Added

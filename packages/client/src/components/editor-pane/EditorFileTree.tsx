@@ -15,7 +15,9 @@ import type { FileDiffEntry } from "@blackbelt-technology/pi-dashboard-shared/di
 import { fileKind, type ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiContentCopy, mdiFolderOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { useEffect, useRef, useState } from "react";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { fetchWithoutGrantPrompt } from "../../lib/access-grants/grant-channel.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { fileIcon } from "../../lib/preview/file-icon.js";
@@ -87,19 +89,35 @@ const joinRel = (dir: string, name: string): string => (dir ? `${dir}/${name}` :
 const absOf = (cwd: string, rel: string): string => (rel ? `${cwd}/${rel}` : cwd);
 const baseName = (rel: string): string => rel.slice(rel.lastIndexOf("/") + 1);
 
+/** Gap between glyph and portaled popup (replaces the inline `mt-1`/`mb-1`). */
+const POPUP_GAP = 4;
+
 /**
  * Hover-revealed copy affordance on a tree row. The glyph opens an anchored
  * popup offering full/relative/name copy actions. Clipboard writes are guarded
  * (silent no-op when unavailable), matching `CopyButton`.
+ *
+ * The popup is portaled (`LayerPortal`) and `fixed`-positioned from the glyph's
+ * viewport rect via `usePopoverFlip` (both axes), so the rail's `overflow-auto`
+ * and EditorPane's `overflow-hidden` can no longer clip it (#728). It closes on
+ * any scroll instead of tracking the trigger — equivalent anti-detach outcome
+ * for a 3-item menu (overlay-layering spec).
  */
 function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [flip, setFlip] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const glyphRef = useRef<HTMLButtonElement | null>(null);
   const popupRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // No boundaryRef: the portal escapes the rail, so the viewport is the bound.
+  const { flipUp, maxWidth, anchorRight, triggerRect } = usePopoverFlip(glyphRef, {
+    open,
+    estimatedHeight: 110,
+    estimatedWidth: 220,
+    gap: POPUP_GAP,
+    minPopoverHeight: 0,
+  });
 
   const close = () => {
     setOpen(false);
@@ -143,11 +161,6 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
       close();
       return;
     }
-    // Flip above the glyph when a ~100px popup would overflow the rail bottom.
-    const rail = glyphRef.current?.closest("[data-file-rail]");
-    const rect = glyphRef.current?.getBoundingClientRect();
-    const bottom = rail ? rail.getBoundingClientRect().bottom : window.innerHeight;
-    setFlip(!!rect && rect.bottom + 100 > bottom);
     setOpen(true);
   };
 
@@ -188,33 +201,47 @@ function RowCopyAffordance({ cwd, rel }: { cwd: string; rel: string }) {
         <Icon path={mdiContentCopy} size={0.55} />
       </button>
       {open && (
-        <div
-          ref={popupRef}
-          role="menu"
-          className={[
-            "absolute right-1 z-20 min-w-[190px] overflow-hidden rounded border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-lg",
-            flip ? "bottom-full mb-1" : "top-full mt-1",
-          ].join(" ")}
-        >
+        <LayerPortal>
           <div
-            className="truncate border-b border-[var(--border-primary)] px-2 py-1 text-[10px] text-[var(--text-tertiary)]"
-            title={abs}
+            ref={popupRef}
+            role="menu"
+            className="fixed z-popover min-w-[190px] overflow-hidden rounded border border-[var(--border-primary)] bg-[var(--bg-secondary)] shadow-lg"
+            style={{
+              maxWidth,
+              // Hide the pre-measure frame so the panel never flashes at (0,0).
+              visibility: triggerRect ? "visible" : "hidden",
+              ...(triggerRect
+                ? flipUp
+                  ? { bottom: Math.round(window.innerHeight - triggerRect.top + POPUP_GAP) }
+                  : { top: Math.round(triggerRect.bottom + POPUP_GAP) }
+                : {}),
+              ...(triggerRect
+                ? anchorRight
+                  ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+                  : { left: Math.max(0, Math.round(triggerRect.left)) }
+                : {}),
+            }}
           >
-            {abs}
-          </div>
-          {items.map((it) => (
-            <button
-              type="button"
-              key={it.key}
-              role="menuitem"
-              onClick={() => doCopy(it.key, it.payload)}
-              className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            <div
+              className="truncate border-b border-[var(--border-primary)] px-2 py-1 text-[10px] text-[var(--text-tertiary)]"
+              title={abs}
             >
-              <span>{it.label}</span>
-              {copied === it.key && <Icon path={mdiCheck} size={0.55} className="text-green-500" />}
-            </button>
-          ))}
-        </div>
+              {abs}
+            </div>
+            {items.map((it) => (
+              <button
+                type="button"
+                key={it.key}
+                role="menuitem"
+                onClick={() => doCopy(it.key, it.payload)}
+                className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+              >
+                <span>{it.label}</span>
+                {copied === it.key && <Icon path={mdiCheck} size={0.55} className="text-green-500" />}
+              </button>
+            ))}
+          </div>
+        </LayerPortal>
       )}
     </div>
   );

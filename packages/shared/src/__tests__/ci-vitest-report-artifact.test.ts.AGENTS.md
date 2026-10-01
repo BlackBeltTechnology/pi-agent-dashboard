@@ -1,3 +1,3 @@
 # __tests__/ci-vitest-report-artifact.test.ts — index
 
-Repo-lint: `ci.yml` uploads the vitest JSON report on EVERY run. Asserts an `actions/upload-artifact` step follows `- run: pnpm test`, carries `if: always()` (the RED run is the one you need it for), and its `path` covers `test-results/vitest*.json`. Backs the CI-only single retry — an unattributable retry is a silent pass. See change: isolate-real-process-tests.
+Repo-lint: every vitest job in `ci.yml` uploads its JSON report under its OWN name on EVERY run (`if: always()`): `vitest-report-unit-${{ matrix.shard }}` + `test-results/vitest.json`, `vitest-report-real-process` + `test-results/vitest-real-process.json`, `vitest-report-ci-scenarios`. Backs the CI-only single retry — an unattributable retry is a silent pass. See changes: isolate-real-process-tests, speed-up-ci-affected-tests.

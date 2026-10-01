@@ -4,7 +4,6 @@
   "packages/client/src/components/chat/ChatView.tsx|z-10": 2,
   "packages/client/src/components/chat/ChatView.tsx|z-20": 1,
   "packages/client/src/components/chat/ChatViewMenu.tsx|z-30": 1,
-  "packages/client/src/components/editor-pane/EditorFileTree.tsx|z-20": 1,
   "packages/client/src/components/openspec/OpenSpecBoardView.tsx|z-10": 1,
   "packages/client/src/components/openspec/OpenSpecStepper.tsx|z-[2]": 1,
   "packages/client/src/components/packages/PackageRow.tsx|z-10": 1,

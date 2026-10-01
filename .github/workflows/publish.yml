@@ -81,19 +81,21 @@ jobs:
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
   # ── release-gate: ci-checks (lint+test+build) ─────────────────────────────
-  # Mirrors `ci.yml`'s `ci` job, but runs at release time against the
-  # resolved ref. Fans out in parallel with `smoke`. See change:
+  # The FULL unit suite plus lint and build, at release time against the
+  # resolved ref. Unlike ci.yml it applies no affected-test selection (change:
+  # speed-up-ci-affected-tests). Fans out in parallel with `smoke`. See change:
   # gate-publish-on-smoke-and-tests.
   ci-checks:
     needs: [resolve]
     runs-on: ubuntu-latest
-    # Budget must cover install + lint + the FULL suite + build. `ci.yml` runs
-    # the same work with no timeout at all (GitHub default 360) and takes ~27
-    # minutes at 16.7k tests. This job was capped at 15, so once the suite grew
+    # Budget must cover install + lint + the FULL suite + build. The serial
+    # suite took ~27 minutes at 16.7k tests (measured when ci.yml still ran it
+    # in one job). This job was capped at 15, so once the suite grew
     # past that the release gate could not pass: v0.8.0 was killed mid-`pnpm
     # test` at 15m15s and reported as `cancelled` (GitHub marks a timed-out job
     # cancelled, not failed — it does NOT look like a test failure). Keep this
-    # comfortably above ci.yml's real duration; it still bounds a genuine hang.
+    # comfortably above the serial suite's real duration; it still bounds a
+    # genuine hang.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
