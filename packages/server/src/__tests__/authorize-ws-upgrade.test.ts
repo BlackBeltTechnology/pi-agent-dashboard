@@ -102,3 +102,51 @@ describe("authorizeWsUpgrade — legacy allowances unchanged (inert / non-browse
     expect(badRes.ok).toBe(false);
   });
 });
+
+// Merge port of fix-trusted-network-tunnel-bypass (#751): the trusted-network
+// allowance inside authorizeWsUpgrade goes through isTrustedSource, so a tunnel
+// relaying as loopback is never admitted by a trusted-network entry.
+describe("authorizeWsUpgrade — trusted-network tunnel bypass (fix-trusted-network-tunnel-bypass)", () => {
+  const relayed = { "x-forwarded-for": "203.0.113.9" };
+  const covering = ["127.0.0.0/8", "0.0.0.0/0"];
+
+  for (const secret of [SECRET, null]) {
+    const mode = secret ? "cookie realm" : "no-auth";
+
+    it(`${mode}: relayed loopback is refused even when the trusted list covers loopback`, () => {
+      const res = authorizeWsUpgrade({ remoteAddress: "127.0.0.1", secret, trustedNetworks: covering, headers: relayed, scope: "browser" });
+      expect(res.ok).toBe(false);
+    });
+
+    it(`${mode}: relayed IPv4-mapped loopback is refused`, () => {
+      const res = authorizeWsUpgrade({ remoteAddress: "::ffff:127.0.0.1", secret, trustedNetworks: covering, headers: { "x-forwarded-host": "t.example" }, scope: "browser" });
+      expect(res.ok).toBe(false);
+    });
+
+    it(`${mode}: a genuine LAN peer inside a trusted network is still admitted`, () => {
+      const res = authorizeWsUpgrade({ remoteAddress: "192.168.1.20", secret, trustedNetworks: ["192.168.1.0/24"], headers: {}, scope: "browser" });
+      expect(res.ok).toBe(true);
+    });
+
+    it(`${mode}: a peer outside the trusted network is refused`, () => {
+      const res = authorizeWsUpgrade({ remoteAddress: "10.0.0.5", secret, trustedNetworks: ["192.168.1.0/24"], headers: {}, scope: "browser" });
+      expect(res.ok).toBe(false);
+    });
+
+    it(`${mode}: relayed loopback with a valid ticket is still admitted via the ticket`, () => {
+      const res = authorizeWsUpgrade({
+        remoteAddress: "127.0.0.1", secret, trustedNetworks: covering, headers: relayed, scope: "browser",
+        ticket: "good", consumeTicket: consumer("good", { ok: true }),
+      });
+      expect(res.ok).toBe(true);
+    });
+  }
+
+  it("identity mode: a trusted-network peer without an identity ticket is refused", () => {
+    const res = authorizeWsUpgrade({
+      remoteAddress: "192.168.1.20", secret: SECRET, trustedNetworks: ["192.168.1.0/24"], headers: {}, scope: "browser",
+      requireIdentityTicket: true, consumeTicket: consumer("x", { ok: false, reason: "missing" }),
+    });
+    expect(res.ok).toBe(false);
+  });
+});
