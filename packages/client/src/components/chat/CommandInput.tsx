@@ -1266,3 +1266,5 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     </div>
   );
 }
+
+// route-check 2
