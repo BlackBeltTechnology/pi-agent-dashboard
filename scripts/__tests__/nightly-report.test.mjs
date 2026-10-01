@@ -139,6 +139,11 @@ describe("report summary (X10)", () => {
     const t = timingsFrom({ "unit-1": rep([["a.test.ts", "passed"]]), "unit-2": null }, ROOT);
     expect(t).toEqual({ "a.test.ts": 1.5 });
   });
+
+  it("skips a result without finite timestamps (the timing map stays numeric)", () => {
+    const broken = { testResults: [{ name: `${ROOT}/b.test.ts`, status: "passed" }, { name: `${ROOT}/c.test.ts`, status: "passed", startTime: 0, endTime: 2000 }] };
+    expect(timingsFrom({ "unit-1": broken }, ROOT)).toEqual({ "c.test.ts": 2 });
+  });
 });
 
 describe("issue lifecycle (X11)", () => {

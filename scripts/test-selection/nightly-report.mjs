@@ -74,7 +74,10 @@ export function summarizeReports({ expected, reports, root, needs = {} }) {
 export function timingsFrom(reports, root) {
   const out = {};
   for (const rep of Object.values(reports)) {
-    for (const r of rep?.testResults ?? []) out[relTo(root, r.name)] = Math.round(r.endTime - r.startTime) / 1000;
+    for (const r of rep?.testResults ?? []) {
+      const ms = r.endTime - r.startTime;
+      if (Number.isFinite(ms)) out[relTo(root, r.name)] = Math.round(ms) / 1000;
+    }
   }
   return Object.fromEntries(Object.keys(out).sort().map((k) => [k, out[k]]));
 }
