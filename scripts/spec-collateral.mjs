@@ -210,6 +210,14 @@ export function scanCollateral({ identifiers, mainSpecs, deltaCaps, deltaTexts =
 
 /** Escape a markdown table cell: backslashes first, so a trailing `\` cannot un-escape the `\|` that follows. */
 const cell = (s) => String(s).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+/**
+ * Render an identifier as a code span. GFM does not process escapes inside code
+ * spans, so backslashes stay literal (never doubled). `|` and backticks are
+ * dropped: extractIdentifiers never yields them (it splits on `|` and blanks
+ * backticks), so this is a no-op for real input and keeps the table intact for
+ * arbitrary input.
+ */
+const codeSpan = (s) => `\`${String(s).replace(/[`|]/g, "")}\``;
 
 export function renderMarkdown(result, change = "") {
   const lines = [`## Spec-collateral scan${change ? ` — \`${change}\`` : ""}`, ""];
@@ -220,7 +228,7 @@ export function renderMarkdown(result, change = "") {
     else {
       lines.push(`| # | Capability | ${reqHeader} | Score | Identifiers |`, "|---|---|---|---|---|");
       list.entries.forEach((e, i) => {
-        const ids = e.identifiers.map((id) => `\`${cell(id)}\``).join(", ");
+        const ids = e.identifiers.map(codeSpan).join(", ");
         lines.push(`| ${i + 1} | ${cell(e.capability)} | ${cell(e.requirement)} | ${e.score} | ${ids} |`);
       });
     }
@@ -229,7 +237,7 @@ export function renderMarkdown(result, change = "") {
   table("T1 — capabilities outside the delta", result.t1, "Best requirement");
   table("T2 — unmodified requirements in delta capabilities", result.t2, "Requirement");
   lines.push("### Identifiers used", "");
-  lines.push(result.identifiers.length ? result.identifiers.map((i) => `\`${i.id}\` (${i.weight})`).join(", ") : "_none_");
+  lines.push(result.identifiers.length ? result.identifiers.map((i) => `${codeSpan(i.id)} (${i.weight})`).join(", ") : "_none_");
   return `${lines.join("\n")}\n`;
 }
 

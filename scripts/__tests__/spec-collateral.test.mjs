@@ -249,6 +249,22 @@ describe("scanCollateral", () => {
     expect(row.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
   });
 
+  it("identifier code spans keep backslashes literal and cannot break the table", () => {
+    const id = [...extractIdentifiers("`@foo\\bar`").keys()][0];
+    expect(id).toBe("@foo\\bar");
+    const md = renderMarkdown({
+      t1: { entries: [{ capability: "cap-x", requirement: "req", score: 1, identifiers: [id, "evil|id`x"] }], omitted: 0 },
+      t2: { entries: [], omitted: 0 },
+      identifiers: [{ id, weight: 1 }],
+    });
+    const row = md.split("\n").find((l) => l.startsWith("| 1 |"));
+    expect(row).toContain("`@foo\\bar`");
+    expect(row).not.toContain("@foo\\\\bar");
+    expect(row).toContain("`evilidx`");
+    expect(row.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
+    expect(md).toContain("`@foo\\bar` (1)");
+  });
+
   it("E21 deterministic tie-break: capability then requirement name ascending", () => {
     const r = scanCollateral({
       identifiers: extractIdentifiers("`tieIdOne` `tieIdTwo`"),
