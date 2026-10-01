@@ -20,6 +20,9 @@ on:
   # immediate full run; the `ci:full` label takes effect on the next push.
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Superseded PR runs are cancelled; develop pushes (grouped by SHA) never are.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}

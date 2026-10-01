@@ -43,10 +43,13 @@ describe("nightly-tests.yml", () => {
     expect(wf.on).toHaveProperty("workflow_dispatch");
   });
 
-  it("grants issues:write and actions:read, nothing broader for contents", () => {
-    expect(wf.permissions?.issues).toBe("write");
-    expect(wf.permissions?.actions).toBe("read");
-    expect(wf.permissions?.contents).toBe("read");
+  it("is read-only by default; only the report job may write issues", () => {
+    expect(wf.permissions).toEqual({ contents: "read" });
+    const report = (wf.jobs.report as Job & { permissions?: Record<string, string> }).permissions;
+    expect(report).toEqual({ contents: "read", issues: "write", actions: "read" });
+    for (const job of ["select", "unit", "real-process", "ci-scenarios"]) {
+      expect((wf.jobs[job] as Job & { permissions?: Record<string, string> }).permissions?.issues).toBeUndefined();
+    }
   });
 
   it("is independent of nightly.yml", () => {

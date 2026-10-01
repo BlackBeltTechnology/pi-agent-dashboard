@@ -14,10 +14,10 @@ on:
     - cron: "0 3 * * *"
   workflow_dispatch:
 
+# Least privilege: only the report job may touch issues (a compromised test
+# dependency could otherwise use the checkout credential to edit issues).
 permissions:
   contents: read
-  issues: write
-  actions: read
 
 concurrency:
   group: nightly-tests
@@ -172,6 +172,10 @@ jobs:
     needs: [select, unit, real-process, ci-scenarios]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      actions: read
     timeout-minutes: 10
     steps:
       # Full history: the anchor must be an ancestor of this commit.

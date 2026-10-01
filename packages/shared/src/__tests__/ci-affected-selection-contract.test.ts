@@ -22,7 +22,12 @@ const CI_TEXT = fs.readFileSync(path.join(REPO_ROOT, ".github", "workflows", "ci
 
 type Step = { name?: string; uses?: string; run?: string; if?: string; with?: Record<string, unknown>; id?: string };
 type Job = { needs?: string | string[]; if?: string; steps?: Step[]; strategy?: { matrix?: Record<string, unknown> }; outputs?: Record<string, string> };
-const CI = parseYaml(CI_TEXT) as { on: Record<string, unknown>; jobs: Record<string, Job>; concurrency?: Record<string, unknown> };
+const CI = parseYaml(CI_TEXT) as {
+  on: Record<string, unknown>;
+  jobs: Record<string, Job>;
+  concurrency?: Record<string, unknown>;
+  permissions?: Record<string, string>;
+};
 
 const steps = (job: string): Step[] => CI.jobs[job]?.steps ?? [];
 const runs = (job: string): string => steps(job).map((s) => s.run ?? "").join("\n");
@@ -114,6 +119,10 @@ describe("ci.yml — parallel, selector-driven test jobs (E30)", () => {
   it("real-process and ci-scenarios run only when the selection expects them", () => {
     expect(CI.jobs["real-process"].if).toMatch(/needs\.select\.outputs\.has_real_process == 'true'/);
     expect(CI.jobs["ci-scenarios"].if).toMatch(/needs\.select\.outputs\.ci_scenarios == 'true'/);
+  });
+
+  it("the workflow token is read-only by default", () => {
+    expect(CI.permissions).toEqual({ contents: "read" });
   });
 
   it("the guards job no longer installs chromium or runs the suite", () => {
