@@ -37,7 +37,16 @@ export const API_LAZY_TABLE: Readonly<Record<string, LazyApiEntry>> = {
  * `*.lazy.js` factories that are deliberately NOT in the table.
  *
  * `openrouter-images.lazy.js` returns `{ generateImages }` — an images api
- * with no `streamSimple`. A naive "every factory must be mapped" diff would
- * false-fail on it, so the exclusion is explicit and asserted.
+ * with no `streamSimple`. The three 1.0.0 classifier factories
+ * (`cloudflare-workers-ai-system-one`, `llama-cpp-classify`,
+ * `typesafe-system-one`) return `{ classify }` — no `streamSimple` either. A
+ * naive "every factory must be mapped" diff would false-fail on them, so each
+ * exclusion is explicit and asserted.
+ * See change: update-pi-core-1-0-adopt-apis.
  */
-export const NON_TEXT_LAZY_FILES: ReadonlySet<string> = new Set(["openrouter-images.lazy.js"]);
+export const NON_TEXT_LAZY_FILES: ReadonlySet<string> = new Set([
+  "openrouter-images.lazy.js",
+  "cloudflare-workers-ai-system-one.lazy.js",
+  "llama-cpp-classify.lazy.js",
+  "typesafe-system-one.lazy.js",
+]);

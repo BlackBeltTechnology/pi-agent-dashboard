@@ -67,13 +67,17 @@ export interface PiAiOAuthModule {
   ) => Promise<OAuthRefreshCredentials>;
 }
 
-/** Which pi-ai generation the seam detected. */
-export type PiAiGeneration = "legacy" | "factory";
+/**
+ * Which pi-ai generation the seam adapted. Only the factory generation is
+ * supported (pi >= 1.0.0); the legacy one is rejected.
+ * See change: update-pi-core-1-0-adopt-apis.
+ */
+export type PiAiGeneration = "factory";
 
 /** What `adaptPiAi` returns. */
 export interface AdaptedPiAi {
   generation: PiAiGeneration;
-  /** The `PiAiModule` surface. On the legacy branch this is the input identity. */
+  /** The synthesized `PiAiModule` surface over the factory runtime. */
   module: PiAiModule;
   /** OAuth capability facade (design D7). */
   oauth: PiAiOAuthModule;

@@ -1,9 +1,10 @@
 /**
  * The pi-ai compatibility seam (design D1).
  *
- * `adaptPiAi(module, resolvedPath)` normalizes EITHER pi-ai generation into
- * the single `PiAiModule` surface the dashboard consumes, plus an OAuth
- * capability facade.
+ * `adaptPiAi(module, resolvedPath)` normalizes the factory pi-ai generation
+ * (the only one at or above the 1.0.0 floor) into the single `PiAiModule`
+ * surface the dashboard consumes, plus an OAuth capability facade. A legacy
+ * global-registry module is rejected, never passed through.
  *
  * The seam is ASYNC; the surface it returns is SYNCHRONOUS. Materializing the
  * factory collection and the lazy-api factories requires `await import()`
@@ -12,14 +13,14 @@
  * but `InternalRegistry.getAllModels()` consumes `getProviders()`/`getModels()`
  * synchronously. Every async load therefore happens during construction.
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: adopt-piai-factory-api-registry, update-pi-core-1-0-adopt-apis.
  */
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { detectPiAiShape } from "./detect.js";
 import { buildFactorySurface } from "./factory-surface.js";
-import { buildOAuthFacade, unavailableOAuthFacade } from "./oauth-facade.js";
-import type { AdaptDeps, AdaptedPiAi, PiAiModule } from "./types.js";
+import { buildOAuthFacade } from "./oauth-facade.js";
+import type { AdaptDeps, AdaptedPiAi } from "./types.js";
 
 export { detectPiAiShape, FACTORY_MEMBERS, LEGACY_MEMBERS, type Detection } from "./detect.js";
 export { API_LAZY_TABLE, NON_TEXT_LAZY_FILES, type LazyApiEntry } from "./api-table.js";
@@ -44,9 +45,10 @@ const defaultDeps: Required<AdaptDeps> = {
  *
  * @param module the resolved pi-ai root module
  * @param resolvedPath its resolved filesystem entry (`.../dist/index.js`)
- * @throws when the module matches neither generation, or when a factory
- *         runtime is missing a subpath the seam requires. Both are
- *         diagnosable failures, never a silently wrong catalogue.
+ * @throws when the module is not a complete factory module (a legacy module
+ *         is named as unsupported below the floor), when no resolved path is
+ *         given, or when the runtime is missing a subpath the seam requires.
+ *         All are diagnosable failures, never a silently wrong catalogue.
  */
 export async function adaptPiAi(
   module: unknown,
@@ -63,21 +65,14 @@ export async function adaptPiAi(
     throw new Error(`pi-ai compatibility seam: ${detection.reason}`);
   }
 
-  const oauth = resolvedPath
-    ? await buildOAuthFacade(resolvedPath, resolved)
-    : unavailableOAuthFacade("no resolved pi-ai path was provided to the compatibility seam");
-
-  if (detection.kind === "legacy") {
-    // Identity: a legacy runtime IS the surface. No factory subpath is probed.
-    return { generation: "legacy", module: module as PiAiModule, oauth };
-  }
-
   if (!resolvedPath) {
     throw new Error(
       "pi-ai compatibility seam: a factory-API pi-ai requires a resolved module path " +
         "(its built-in providers and api implementations live in sibling subpaths)",
     );
   }
+
+  const oauth = await buildOAuthFacade(resolvedPath, resolved);
 
   const surface = await buildFactorySurface({
     module: module as Record<string, any>,

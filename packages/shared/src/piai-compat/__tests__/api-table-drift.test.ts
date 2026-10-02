@@ -51,6 +51,17 @@ describe("api → lazy-module table drift", async () => {
     expect(NON_TEXT_LAZY_FILES.has("openrouter-images.lazy.js")).toBe(true);
   });
 
+  when("every non-text exclusion really yields no streamSimple", async () => {
+    for (const file of NON_TEXT_LAZY_FILES) {
+      const mod = await importAbs(derivePiAiSubpath(real!.path, `api/${file}`));
+      const factories = Object.values(mod).filter((v) => typeof v === "function") as Array<() => any>;
+      expect(factories.length, `${file} exports a factory`).toBeGreaterThan(0);
+      for (const factory of factories) {
+        expect(typeof factory().streamSimple, `${file}.streamSimple`).toBe("undefined");
+      }
+    }
+  });
+
   when("every table entry resolves to a factory yielding a streamSimple", async () => {
     for (const [api, entry] of Object.entries(API_LAZY_TABLE)) {
       const mod = await importAbs(derivePiAiSubpath(real!.path, entry.module));

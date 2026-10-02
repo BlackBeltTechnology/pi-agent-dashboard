@@ -214,9 +214,9 @@ export type ReloadOutcome =
   | { ok: true; handedOff: true }
   | { ok: false; reason: string };
 
-/** Reason emitted when the running pi cannot dispatch the reload command in-process. */
+/** Reason emitted when the bridge has no reload path for this session. */
 export const NO_RELOAD_PATH_REASON =
-  "Dashboard reload of a terminal-hosted session requires pi ≥ 0.84.2 — upgrade pi, or run /reload in the pi TUI.";
+  "No dashboard reload path for this session — run /reload in the pi TUI.";
 
 /** A dashboard reload for this session is still in flight. */
 export const RELOAD_IN_PROGRESS_REASON = "A reload is already in progress for this session.";
@@ -399,7 +399,7 @@ export function createCommandHandler(
      *
      * Returns whether a reload ACTUALLY ran, so the caller never emits an
      * unconditional `completed`. The bridge self-dispatches its
-     * `/__dashboard_reload <token>` command in-process (pi >= 0.84.2) and
+     * `/__dashboard_reload <token>` command in-process and
      * resolves `{ok:true, handedOff:true}` on success: the RELOADED bridge
      * instance reports `completed` after re-registering, because this
      * instance's connection is torn down by the reload. On `handedOff` the

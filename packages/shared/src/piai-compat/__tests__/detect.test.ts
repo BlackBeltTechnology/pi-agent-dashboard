@@ -1,18 +1,24 @@
 /**
- * Shape detection (design D2) — both generations positively identified.
+ * Shape detection (design D2) — the factory generation is the only supported
+ * one; a complete legacy module is positively identified and REJECTED as an
+ * unsupported legacy pi-ai below the 1.0.0 floor.
  *
  * Covers test-plan #E3 (partial module rejected naming the missing member)
  * and #E4 (unrecognized module rejected with a diagnosable reason).
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: adopt-piai-factory-api-registry, update-pi-core-1-0-adopt-apis (#E9).
  */
 import { describe, expect, it } from "vitest";
 import { detectPiAiShape, FACTORY_MEMBERS, LEGACY_MEMBERS } from "../detect.js";
 import { factoryFake, legacyFake } from "./fakes.js";
 
 describe("detectPiAiShape", () => {
-  it("classifies an all-seven-member module as legacy", () => {
-    expect(detectPiAiShape(legacyFake())).toEqual({ kind: "legacy" });
+  it("rejects an all-seven-member legacy module as unsupported below the floor (E9)", () => {
+    const result = detectPiAiShape(legacyFake());
+    expect(result.kind).toBe("unrecognized");
+    const reason = (result as { reason: string }).reason;
+    expect(reason).toMatch(/unsupported legacy pi-ai/);
+    expect(reason).toContain("1.0.0");
   });
 
   it("classifies a createModels + createProvider module as factory", () => {

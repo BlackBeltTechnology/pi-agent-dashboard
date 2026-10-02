@@ -1798,7 +1798,7 @@ function initBridge(pi: ExtensionAPI) {
     },
     // Terminal-hosted path only. Dashboard-spawned headless sessions are
     // reloaded by the SERVER via kill-and-respawn (`dispatchReload`).
-    // Self-dispatches `/__dashboard_reload <token>` in-process (pi >= 0.84.2);
+    // Self-dispatches `/__dashboard_reload <token>` in-process (no pi version gate);
     // resolves `handedOff` on success, because the RELOADED instance reports
     // `completed` after re-registering. See `terminal-reload.ts`.
     // See change: fix-terminal-session-dashboard-reload (D1/D3/D4).
