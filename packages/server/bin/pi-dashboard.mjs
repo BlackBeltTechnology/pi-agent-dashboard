@@ -145,7 +145,45 @@ const existingNodeOptions = process.env.NODE_OPTIONS ?? "";
 // See change: bound-session-heap-and-gc-telemetry (D4, D8).
 const heapFlag = `--max-old-space-size=${readServerMaxOldSpaceMb()}`;
 const ourPreviousFlag = process.env[HEAP_FLAG_MARKER_ENV];
-const nodeOptionTokens = existingNodeOptions.split(/\s+/).filter(Boolean);
+// Quote-aware option spans `[start, end)`: whitespace separates options only
+// OUTSIDE double quotes; inside, a backslash escapes the next char. Mirrors
+// `optionSpans` in packages/shared/src/heap-flags.ts (this file runs before
+// jiti and cannot import it). See change: guard-server-heap-and-store-coupling
+// (CodeRabbit PR #780).
+function optionSpans(options) {
+  const spans = [];
+  let i = 0;
+  while (i < options.length) {
+    while (i < options.length && /\s/.test(options[i])) i++;
+    if (i >= options.length) break;
+    const start = i;
+    let quoted = false;
+    for (; i < options.length; i++) {
+      const c = options[i];
+      if (quoted && c === "\\") i++;
+      else if (c === '"') quoted = !quoted;
+      else if (!quoted && /\s/.test(c)) break;
+    }
+    spans.push([start, Math.min(i, options.length)]);
+  }
+  return spans;
+}
+// Remove options exactly equal to `token`, every other byte as written.
+// Mirrors `withoutToken` in packages/shared/src/heap-flags.ts.
+function withoutToken(options, token) {
+  if (!token) return options;
+  let out = options;
+  const hits = optionSpans(options).filter(([a, b]) => options.slice(a, b) === token);
+  for (const [a, b] of hits.reverse()) {
+    let start = a;
+    let end = b;
+    while (start > 0 && /\s/.test(options[start - 1])) start--;
+    if (start === a) while (end < options.length && /\s/.test(options[end])) end++;
+    out = out.slice(0, start) + out.slice(end);
+  }
+  return out;
+}
+const nodeOptionTokens = optionSpans(existingNodeOptions).map(([a, b]) => existingNodeOptions.slice(a, b));
 // BOTH spellings: V8 accepts `--max_old_space_size=N` and resolves a repeated
 // flag last-wins, so a hyphen-only detector would append our value after an
 // operator's underscore pin and silently defeat it. Kept in lockstep with
@@ -158,20 +196,23 @@ const operatorPinned = nodeOptionTokens.some(
 // An operator pin wins, and OUR stale marker is dropped with it: a marker that
 // no longer describes a present token would let the spawn-side strip misread
 // their flag as ours.
+// Drop OUR previous token without a split/join round-trip and without
+// matching inside a quoted value, so every other byte survives.
+// See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780).
+const keptNodeOptions = withoutToken(existingNodeOptions, ourPreviousFlag).trimEnd();
 const childEnvBase = operatorPinned
   ? (() => {
       // Their pin wins, but OUR stale token goes with the marker: V8 is
       // last-wins, so leaving it could override the pin we just honoured.
       const e = { ...process.env };
-      const keptForPin = nodeOptionTokens.filter((t) => t !== ourPreviousFlag);
-      if (keptForPin.length === 0) delete e.NODE_OPTIONS;
-      else e.NODE_OPTIONS = keptForPin.join(" ");
+      if (!keptNodeOptions) delete e.NODE_OPTIONS;
+      else e.NODE_OPTIONS = keptNodeOptions;
       delete e[HEAP_FLAG_MARKER_ENV];
       return e;
     })()
   : {
       ...process.env,
-      NODE_OPTIONS: [...nodeOptionTokens.filter((t) => t !== ourPreviousFlag), heapFlag].join(" "),
+      NODE_OPTIONS: keptNodeOptions ? `${keptNodeOptions} ${heapFlag}` : heapFlag,
       [HEAP_FLAG_MARKER_ENV]: heapFlag,
     };
 

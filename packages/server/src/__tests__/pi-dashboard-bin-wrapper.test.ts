@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import url from "node:url";
@@ -80,5 +80,47 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
 
     expect(result.stderr).not.toContain("pi-dashboard: cannot find jiti");
     expect(result.stdout).toMatch(/Dashboard server/i);
+  }, 60_000);
+
+  // The wrapper re-stamps NODE_OPTIONS for the server child. It must leave a
+  // quoted operator value byte-for-byte: a split/join collapses the repeated
+  // spaces below and the child can no longer find the --require'd file.
+  // See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780 sweep).
+  it("preserves a quoted NODE_OPTIONS value with repeated spaces for the server child", () => {
+    if (!existsSync(repoJitiRegister)) return;
+    const tmp = mkdtempSync(path.join(tmpdir(), "wrap-quoted-"));
+    try {
+      // Repeated spaces AND the wrapper's own prior token inside the quoted
+      // path (CodeRabbit PR #780 rounds 1-2).
+      const dir = path.join(tmp, "my  hooks --max-old-space-size=8192 x");
+      mkdirSync(dir, { recursive: true });
+      const out = path.join(tmp, "seen.txt");
+      writeFileSync(
+        path.join(dir, "probe.cjs"),
+        `require("node:fs").appendFileSync(${JSON.stringify(out)}, process.env.NODE_OPTIONS + "\\n");`,
+      );
+      const quoted = `--require "${path.join(dir, "probe.cjs")}"`;
+      const home = path.join(tmp, "home");
+      mkdirSync(home);
+      // No prior stamp, then a prior stamp of ours (marker-matched) to replace.
+      const prior = "--max-old-space-size=8192";
+      for (const [nodeOptions, marker] of [
+        [quoted, ""],
+        [`${quoted} ${prior}`, prior],
+      ]) {
+        rmSync(out, { force: true });
+        const result = spawnSync(process.execPath, [wrapperPath, "status"], {
+          encoding: "utf-8",
+          timeout: 30_000,
+          env: { ...process.env, HOME: home, USERPROFILE: home, NODE_OPTIONS: nodeOptions, PI_DASHBOARD_HEAP_FLAG: marker },
+        });
+        expect(result.stderr).not.toMatch(/Cannot find module/);
+        const lines = readFileSync(out, "utf-8").trim().split("\n");
+        // Line 1: the wrapper itself; last line: the server child it spawned.
+        expect(lines.at(-1)).toBe(`${quoted} --max-old-space-size=1536`);
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   }, 60_000);
 });

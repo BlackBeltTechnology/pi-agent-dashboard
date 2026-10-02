@@ -38,6 +38,10 @@ export default defineConfig({
 			// injected; state files in a temp dir) and PID-scoped watchdog
 			// ownership. test-plan E3 E11-E13 P1 X4-X9.
 			"src/lib/__tests__/runtime-overlay.test.ts",
+			// Electron heap stamp (third launch path). Config read from a temp file;
+			// only `launchDashboardServer` is module-mocked, no Electron runtime.
+			// See change: guard-server-heap-and-store-coupling (E7 E8 E10 X5).
+			"src/lib/__tests__/launch-source-heap.test.ts",
 			"src/lib/__tests__/server-watchdog.test.ts",
 		],
 		environment: "node",

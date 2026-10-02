@@ -81,3 +81,52 @@ for the flag's presence.
 #### Scenario: The provenance marker does not leak into the terminal
 - **WHEN** a dashboard terminal is created while the server runs under a stamped ceiling
 - **THEN** the terminal's environment SHALL NOT carry the provenance marker variable
+
+### Requirement: Heap configuration SHALL apply to newly started processes and on server restart
+
+Changing heap configuration SHALL NOT resize any running process. A new value
+SHALL take effect for processes started after the change.
+
+The boundary SHALL be the next spawn. Reloading a session counts as a spawn: it
+replaces the process and rebuilds the invocation from current configuration.
+
+A change to `serverHeap` SHALL take effect on the next server start, including
+an in-place `/api/restart`, which re-reads the configured ceiling rather than
+inheriting the replaced process's value.
+
+#### Scenario: Running sessions are unaffected by a config change
+- **WHEN** the operator lowers `sessionHeap.maxOldSpaceMb` while sessions are running
+- **THEN** every running session SHALL keep its original ceiling
+
+#### Scenario: A reload after the change adopts the new value
+- **WHEN** the operator lowers the ceiling and then reloads a running session
+- **THEN** the replacement process SHALL run under the new ceiling
+
+#### Scenario: Server ceiling changes on the next restart
+- **WHEN** the operator changes `serverHeap.maxOldSpaceMb` and triggers an in-place restart
+- **THEN** the restarted server SHALL run under the new ceiling
+
+## MODIFIED Requirements
+
+### Requirement: The dashboard server SHALL report its own heap and GC telemetry
+
+The server process is the one being bounded, and the accepted occupancy relies
+on pressure being observable before it becomes an OOM. `/api/health` today
+reports only `rss`, `heapUsed` and `heapTotal` for the server. It SHALL also
+report the server's `heapSizeLimit`, a major-GC count, and the **effective**
+ceiling the running process was started with.
+
+#### Scenario: Server health exposes heap ceiling and GC pressure
+- **WHEN** `/api/health` is requested
+- **THEN** the server block SHALL carry the server process's `heapSizeLimit` and a major-GC count
+- **AND** it SHALL carry the effective old-space ceiling the process was started with
+
+#### Scenario: Effective ceiling reflects the running process, not the config
+- **WHEN** the configured ceiling has been changed but the process has not been restarted
+- **THEN** the reported effective ceiling SHALL remain the value the running process was started with
+
+## REMOVED Requirements
+
+### Requirement: Heap configuration applies to newly started processes only
+**Reason**: Its server clause ("SHALL NOT take effect on an in-place server restart … SHALL take effect on a cold start") no longer holds: `/api/restart` re-reads and re-stamps the configured ceiling (design D5). Replaced by "Heap configuration SHALL apply to newly started processes and on server restart", which keeps the session clauses verbatim.
+**Migration**: None — session behaviour is unchanged; a `serverHeap` edit now applies on restart.

@@ -118,7 +118,8 @@ own workflow restarts the server after every server-side change.
 `restart-helper.ts:102` builds `spawnArgs` from the CLI arguments alone and
 never carries `process.execArgv`, so an argv-borne ceiling is dropped on every
 `/api/restart` — on *all* launch paths, not just Electron. The respawn therefore
-re-applies the configured ceiling to `spawnArgs`.
+re-applies the configured ceiling (as implemented: re-stamped into the respawn
+env's `NODE_OPTIONS` via `stampHeapFlag`, the transport the sibling shipped).
 
 **The respawn re-reads `config.json` rather than echoing its own argv.** Both
 are defensible, and they differ observably when the ceiling was edited since
@@ -132,6 +133,15 @@ This is a deliberate widening past the three launch paths: without it the
 verifiably false the first time anyone restarts, and the spec would ship a claim
 the code contradicts. It also retires the sibling's stated "cold start only"
 limit for `serverHeap`.
+
+**Implementation note (ship-it).** The sibling shipped the server ceiling via
+`NODE_OPTIONS` + provenance marker, not argv, so `/api/restart` (env
+inherited) already *preserved* the booted ceiling; the "dropped on every
+restart" premise above did not hold. What D5 actually adds is the re-read, which
+contradicted the live cold-start-only requirements in `heap-limits`,
+`server-restart` and `settings-panel`. Resolved (user-approved) by REMOVED/ADDED
+deltas retiring cold-start-only, `serverHeap` now reporting `restartRequired`,
+and `coldStartRequired` removed.
 
 ### D4 — The terminal strip reuses the session-spawn strip
 
