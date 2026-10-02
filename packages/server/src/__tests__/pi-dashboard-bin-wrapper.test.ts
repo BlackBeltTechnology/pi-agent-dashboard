@@ -90,7 +90,9 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
     if (!existsSync(repoJitiRegister)) return;
     const tmp = mkdtempSync(path.join(tmpdir(), "wrap-quoted-"));
     try {
-      const dir = path.join(tmp, "my  hooks");
+      // Repeated spaces AND the wrapper's own prior token inside the quoted
+      // path (CodeRabbit PR #780 rounds 1-2).
+      const dir = path.join(tmp, "my  hooks --max-old-space-size=8192 x");
       mkdirSync(dir, { recursive: true });
       const out = path.join(tmp, "seen.txt");
       writeFileSync(

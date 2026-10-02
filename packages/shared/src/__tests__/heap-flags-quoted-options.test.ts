@@ -52,4 +52,33 @@ describe("heap-flag helpers preserve quoted NODE_OPTIONS verbatim", () => {
       `${QUOTED} --max-old-space-size=512`,
     );
   });
+
+  // CodeRabbit PR #780 round 2: boundaries count only OUTSIDE quotes, so a
+  // quoted value that literally contains our token is not edited.
+  describe("a quoted value containing our exact token is untouched", () => {
+    const TRAP = `--require "/tmp/pre ${OURS} load.cjs"`;
+
+    it("stripDashboardHeapFlag", () => {
+      const env = stripDashboardHeapFlag({ NODE_OPTIONS: `${TRAP} ${OURS}`, [HEAP_FLAG_MARKER_ENV]: OURS });
+      expect(env.NODE_OPTIONS).toBe(TRAP);
+    });
+
+    it("stampHeapFlag (re-stamp) — and the quoted text is not mistaken for an operator pin", () => {
+      const env = stampHeapFlag<Record<string, string>>({ NODE_OPTIONS: `${TRAP} ${OURS}`, [HEAP_FLAG_MARKER_ENV]: OURS }, 2048);
+      expect(env.NODE_OPTIONS).toBe(`${TRAP} --max-old-space-size=2048`);
+      expect(env[HEAP_FLAG_MARKER_ENV]).toBe("--max-old-space-size=2048");
+    });
+
+    it("mergeHeapIntoNodeOptions", () => {
+      expect(mergeHeapIntoNodeOptions(`${TRAP} ${OURS}`, "--max-old-space-size=512", OURS)).toBe(
+        `${TRAP} --max-old-space-size=512`,
+      );
+    });
+
+    it("an escaped quote inside a quoted value does not end it", () => {
+      const esc = `--title "a \\" ${OURS} b"`;
+      const env = stripDashboardHeapFlag({ NODE_OPTIONS: `${esc} ${OURS}`, [HEAP_FLAG_MARKER_ENV]: OURS });
+      expect(env.NODE_OPTIONS).toBe(esc);
+    });
+  });
 });
