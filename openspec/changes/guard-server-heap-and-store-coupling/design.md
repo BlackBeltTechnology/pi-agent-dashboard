@@ -118,7 +118,8 @@ own workflow restarts the server after every server-side change.
 `restart-helper.ts:102` builds `spawnArgs` from the CLI arguments alone and
 never carries `process.execArgv`, so an argv-borne ceiling is dropped on every
 `/api/restart` — on *all* launch paths, not just Electron. The respawn therefore
-re-applies the configured ceiling to `spawnArgs`.
+re-applies the configured ceiling (as implemented: re-stamped into the respawn
+env's `NODE_OPTIONS` via `stampHeapFlag`, the transport the sibling shipped).
 
 **The respawn re-reads `config.json` rather than echoing its own argv.** Both
 are defensible, and they differ observably when the ceiling was edited since

@@ -1112,10 +1112,11 @@ export function registerSystemRoutes(
         heapSizeLimit: getHeapStatistics().heap_size_limit,
         // Major-GC pressure on the SERVER, and the ceiling the RUNNING process
         // was started with. Cumulative (a polled GET must be idempotent) and
-        // process-derived (`serverHeap` is cold-start-only, so the configured
-        // value can legitimately differ from this one — which is exactly what
-        // this field makes visible).
-        // See change: bound-session-heap-and-gc-telemetry (D13).
+        // process-derived (`serverHeap` applies on the next start/restart, so
+        // the configured value can legitimately differ from this one until
+        // then — which is exactly what this field makes visible).
+        // See change: bound-session-heap-and-gc-telemetry (D13),
+        //             guard-server-heap-and-store-coupling (D5).
         ...serverHeapTelemetry(),
         activeSessions: activeSessions.length,
         totalSessions: sessionManager.listAll().length,

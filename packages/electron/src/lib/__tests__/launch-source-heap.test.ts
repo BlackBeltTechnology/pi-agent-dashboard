@@ -6,7 +6,7 @@
  * See change: guard-server-heap-and-store-coupling
  * (D3, test-plan #E7 #E8 #E10 #X5).
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_SERVER_HEAP } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
@@ -80,6 +80,22 @@ describe("spawnFromSource carries the ceiling (wiring)", () => {
     // HOME is an ephemeral dir under `npm test`, so the shared default applies.
     expect(env.NODE_OPTIONS).toContain(`--max-old-space-size=${DEFAULT_SERVER_HEAP.maxOldSpaceMb}`);
     expect(env[MARKER]).toBe(`--max-old-space-size=${DEFAULT_SERVER_HEAP.maxOldSpaceMb}`);
+  });
+
+  it("E7: a CONFIGURED ceiling in ~/.pi/dashboard/config.json reaches the server env", async () => {
+    const cfgDir = path.join(os.homedir(), ".pi", "dashboard");
+    mkdirSync(cfgDir, { recursive: true });
+    writeFileSync(path.join(cfgDir, "config.json"), JSON.stringify({ serverHeap: { maxOldSpaceMb: 3072 } }));
+    try {
+      vi.stubEnv("NODE_OPTIONS", "");
+      vi.stubEnv(MARKER, "");
+      await spawnFromSource(source, { port: 8000, piPort: 9999 }, { logFile: path.join(dir, "server.log") });
+      const { env } = (launchDashboardServer.mock.calls.at(-1) as unknown[])[0] as { env: Record<string, string> };
+      expect(env.NODE_OPTIONS).toBe("--max-old-space-size=3072");
+      expect(env[MARKER]).toBe("--max-old-space-size=3072");
+    } finally {
+      rmSync(path.join(cfgDir, "config.json"), { force: true });
+    }
   });
 
   it("X5: an operator pin in the Electron env reaches the server untouched", async () => {
