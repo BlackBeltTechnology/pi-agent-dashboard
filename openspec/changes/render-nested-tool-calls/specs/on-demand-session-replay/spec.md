@@ -4,7 +4,7 @@
 
 Replay SHALL NOT fail when a delivered segment begins or ends on an event whose structural partner was elided. A tool call left unfinished by a backfill segment SHALL resolve to a truthful terminal state rather than remaining indistinguishable from a tool that is still running.
 
-A `tool_execution_start` carrying `parentToolCallId` is a nested call, not a tool row: the elision rules of this requirement apply to top-level starts only, and a nested start without an end in a segment SHALL NOT create or elide any row.
+A `tool_execution_start` carrying `parentToolCallId` is a nested call, not a tool row: the elision rules of this requirement apply to top-level starts only, and a nested start without an end in a segment SHALL NOT create or elide any row. An orphaned `tool_execution_end` carrying `nestedCalls` whose root start was elided SHALL NOT create a row or nested entries.
 
 #### Scenario: Orphaned message_end does not crash the reducer
 
@@ -32,3 +32,8 @@ A `tool_execution_start` carrying `parentToolCallId` is a nested call, not a too
 #### Scenario: Nested start at a window edge is not elided as a row
 - **WHEN** a backfill segment contains a `tool_execution_start` with `parentToolCallId` and no matching end
 - **THEN** no top-level tool row SHALL be created or marked `elided` for it
+
+#### Scenario: Orphaned end carrying nestedCalls creates nothing
+- **WHEN** a delivered segment begins with a `tool_execution_end` for `call_1` carrying `nestedCalls` and the `tool_execution_start` for `call_1` was elided
+- **THEN** the reducer SHALL produce a state without throwing
+- **AND** no tool row and no nested entries SHALL be created for `call_1`

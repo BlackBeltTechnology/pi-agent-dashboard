@@ -42,7 +42,7 @@ Extraction SHALL additionally accept a `hasPendingPrompt` input describing wheth
 
 #### Scenario: Tool execution ends while a prompt is pending
 
-- **WHEN** a `tool_execution_end` event is extracted with `hasPendingPrompt: true`
+- **WHEN** a `tool_execution_end` event without `parentToolCallId` is extracted with `hasPendingPrompt: true`
 - **THEN** the update sets `currentTool` to `"ask_user"` rather than `null`
 
 #### Scenario: Real tool outranks the pending prompt
@@ -59,3 +59,7 @@ Extraction SHALL additionally accept a `hasPendingPrompt` input describing wheth
 
 - **WHEN** a `tool_execution_end` carrying `parentToolCallId` is extracted while `currentTool` is `codemode`
 - **THEN** the update SHALL NOT change `currentTool`
+
+#### Scenario: Nested end with a pending prompt changes nothing
+- **WHEN** a `tool_execution_end` carrying `parentToolCallId` is extracted with `hasPendingPrompt: true`
+- **THEN** the result is `null` and `currentTool` is unchanged

@@ -31,7 +31,7 @@ calls ever executed. A late in-flight reconcile response MAY re-insert a key for
 a row that has since left `running`; such a key SHALL be discarded by the next
 tick, so the bound holds.
 
-Nested calls (tool events carrying `parentToolCallId`) are not tool-result rows and SHALL NOT be reconciled; the tool-result endpoint holds no transcript entry for them.
+Nested calls (tool events carrying `parentToolCallId`) are not tool-result rows the reconcile scans and SHALL NOT be reconciled; their terminal state is guaranteed by the root's terminal transition instead.
 
 #### Scenario: Bookkeeping for completed rows is discarded
 - **GIVEN** a long-lived session in which many tool calls have run and reached a terminal state
