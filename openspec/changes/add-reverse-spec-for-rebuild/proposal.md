@@ -9,8 +9,12 @@ later characterize (golden vectors) and rebuild-check (blind rebuild) tranches.
 
 ## What Changes
 
-- New sibling skill `reverse-spec-for-rebuild` in `packages/openspec-workflow`, reusing
-  `reverse-spec-from-code`'s discovery prompt and `openspec validate` gate by reference.
+- New engineering-discipline skill `reverse-spec-for-rebuild` in `packages/eng-disciplines`
+  (code characterization for rebuild is a cross-cutting discipline, not an OpenSpec lifecycle
+  step). Self-contained and portable: its own discovery prompt (kb tree when present, else
+  manifests/entry points/directories), a built-in structural format check, and `openspec
+  validate` as an extra gate only when the OpenSpec CLI and `openspec/` exist.
+  `reverse-spec-from-code` stays in `openspec-workflow`, unchanged.
 - Emits a **rebuild package** (not kb specs): per-capability behavioral specs plus cross-cutting
   `model.md` (entities), `rules.md` (`BR-NNN`, tagged explicit/implicit), `quirks.md`
   (`QUIRK-NNN`, suspected bugs kept faithful + flagged), `gaps.md` (`GAP-NNN`, registered
@@ -20,9 +24,10 @@ later characterize (golden vectors) and rebuild-check (blind rebuild) tranches.
 - Behavioral specs cover state machines, edge cases, and error handling via fixed checklists.
 - Completeness gate: every discovered entry point (tools/commands, env vars, CLI flags, HTTP
   routes, WS/event message types, config keys, error codes) is mapped to a spec or registered gap.
-- Scratch-first under gitignored `.reverse-spec-scratch/`; promotion to a user-chosen path on
-  confirm; never under `openspec/`.
-- Methodology adapted (rewritten, not copied) from greenfield (MIT); credited in a `NOTICE`.
+- Scratch-first under `.reverse-spec-scratch/` (asks to add it to `.git/info/exclude` when not
+  ignored); promotion to a user-chosen path on confirm; never inside a protected root
+  (default `openspec/`, `docs/`, `packages/`, `.pi/`, overridable).
+- Methodology adapted (rewritten, not copied) from greenfield (MIT); credited in the package `NOTICE`.
 - Seeded evaluation fixture (small module with planted explicit/implicit rules + a quirk) to
   measure rule recall/precision; excluded from the published package.
 - Out of scope (later tranches): executing the original, golden vectors, hidden duals, blind
@@ -36,17 +41,23 @@ later characterize (golden vectors) and rebuild-check (blind rebuild) tranches.
   provenance and confidence from existing code.
 
 ### Modified Capabilities
-<!-- none — reverse-spec-from-code behavior is unchanged; it is only referenced -->
+- `scenario-design-discipline`: the "ships inside the published eng-disciplines package"
+  requirement pins the package's skill count at 9 (already stale at 10); it becomes
+  count-agnostic so adding sibling skills no longer contradicts it.
 
 ## Impact
 
-- New: `packages/openspec-workflow/.pi/skills/reverse-spec-for-rebuild/` (SKILL.md, prompts,
-  references/templates, eval fixture), `packages/openspec-workflow/NOTICE`.
-- Edited: `packages/openspec-workflow/package.json` (`pi.skills[]`, `files` adds `NOTICE` and
-  excludes the eval fixture, description), `README.md`, `AGENTS.md`; root `biome.json` (exclude
-  the eval fixture, which carries a deliberate planted defect).
+- New: `packages/eng-disciplines/.pi/skills/reverse-spec-for-rebuild/` (SKILL.md, prompts,
+  references, `scripts/guard.mjs`, eval fixture); package vitest suite
+  (`packages/eng-disciplines/vitest.config.ts`, `src/__tests__/`).
+- Edited: `packages/eng-disciplines/package.json` (`pi.skills[]`, `files` excludes the eval
+  fixture, `test` script, description), `NOTICE` (greenfield credit), `README.md`, `AGENTS.md`;
+  root `vitest.config.ts` (project entry) and `biome.json` (exclude the eval fixture, which
+  carries a deliberate planted defect).
+- `packages/openspec-workflow/README.md`: one-line pointer from `reverse-spec-from-code` to the
+  new skill for rebuild use-cases (no skill file changes).
 - No runtime code, server, client, or extension changes. No migration; rollback = remove the skill
-  directory and `pi.skills[]` entry. `reverse-spec-from-code` untouched.
+  directory, its `pi.skills[]` entry, the NOTICE paragraph and the vitest entries. `reverse-spec-from-code` untouched.
 
 ## Discipline Skills
 
@@ -54,7 +65,7 @@ later characterize (golden vectors) and rebuild-check (blind rebuild) tranches.
   transitions, boundary values and the planted quirk the extractor must recover.
 - `security-hardening` - target code is untrusted input read by subagents (prompt injection
   via comments/strings); prompts treat code as data, and promotion paths are resolved and
-  confined (no writes under `openspec/`).
+  confined (no writes inside protected roots).
 - `review-code` - inline review of the prompt/skill change before commit.
 - No performance, observability, or irreversible-step triggers: the skill never executes target
   code in this tranche and writes only to gitignored scratch until a confirmed promotion.

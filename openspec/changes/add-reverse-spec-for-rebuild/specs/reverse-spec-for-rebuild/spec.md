@@ -6,33 +6,58 @@ Define the contract of the `reverse-spec-for-rebuild` skill: extracting, from ex
 
 ### Requirement: Skill registration and attribution
 
-The `packages/openspec-workflow` package SHALL register the `reverse-spec-for-rebuild` skill in its `package.json` `pi.skills[]` array alongside the unchanged `reverse-spec-from-code` skill. The package SHALL ship a `NOTICE` file crediting greenfield (MIT) as the source of adapted methodology. The skill's evaluation fixture SHALL be excluded from the published package files.
+The `packages/eng-disciplines` package SHALL register the `reverse-spec-for-rebuild` skill in its `package.json` `pi.skills[]` array alongside its existing skills. The package `NOTICE` SHALL credit greenfield (MIT) as the source of adapted methodology. The skill's evaluation fixture SHALL be excluded from the published package files. The skill SHALL NOT reference files outside its own skill directory, so it works when the package is installed on its own.
 
 #### Scenario: Skill is discoverable
-- **WHEN** pi loads the `openspec-workflow` package
+- **WHEN** pi loads the `eng-disciplines` package
 - **THEN** the `reverse-spec-for-rebuild` skill is available with a description naming rebuild/reimplementation triggers
-- **AND** `reverse-spec-from-code` remains listed in `pi.skills[]` and no file under its skill directory is modified by this change
+- **AND** no file under `packages/openspec-workflow/.pi/skills/reverse-spec-from-code/` is modified by this change
+
+#### Scenario: Self-contained skill
+- **WHEN** an auditor extracts every relative path referenced by the skill's `SKILL.md`, prompts and references
+- **THEN** each resolves to a file inside the skill directory
 
 #### Scenario: Eval fixture not published
 - **WHEN** the package is packed for publishing
-- **THEN** the packed file list contains the skill's SKILL.md, prompts and templates
+- **THEN** the packed file list contains the skill's SKILL.md, prompts, references and scripts
 - **AND** contains no file from the skill's evaluation fixture directory
+
+### Requirement: Portable operation with optional OpenSpec and knowledge-base integration
+
+The skill SHALL run in any git repository. When a knowledge-base tree (`AGENTS.md` rows / `kb` tooling) is present, discovery MAY use it to map capability boundaries; otherwise discovery SHALL use manifests, entry points and directory structure. Every capability spec SHALL pass the skill's built-in structural check; when the OpenSpec CLI and an `openspec/` directory are both present, each spec SHALL additionally pass `openspec validate`.
+
+#### Scenario: Plain repository without OpenSpec or kb
+- **WHEN** the target repository has no `openspec/` directory, no OpenSpec CLI and no `AGENTS.md` tree
+- **THEN** discovery produces a capability manifest from manifests, entry points and directories
+- **AND** specs are gated by the built-in structural check only, and the run completes
+
+#### Scenario: OpenSpec project
+- **WHEN** the OpenSpec CLI and an `openspec/` directory are present
+- **THEN** each capability spec is also validated with `openspec validate` through a transient id
+
+#### Scenario: Structural check rejects a malformed spec
+- **WHEN** a capability spec labels a scenario with bold `**Scenario:**`, numbers a requirement heading, or has a scenario without a `- **WHEN**` and a `- **THEN**` line
+- **THEN** the built-in structural check fails and names the offending line
 
 ### Requirement: Rebuild package layout and promotion
 
-The skill SHALL write all output for a target to a scratch directory under the gitignored `.reverse-spec-scratch/` root, containing per-capability behavioral specs and the cross-cutting files `model.md`, `rules.md`, `quirks.md`, `gaps.md` and `completeness.md`. The skill SHALL move the package to a user-chosen destination only after explicit user confirmation, and SHALL refuse any destination whose resolved real path lies inside a knowledge-base-indexed root of the repository (`openspec/`, `docs/`, `packages/`, `.pi/`). Transient validation ids the skill creates under `openspec/specs/` SHALL use a prefix unique to this skill, SHALL be deleted within the same gate iteration, and leftovers from an interrupted earlier run SHALL be swept at the start and end of every run.
+The skill SHALL write all output for a target to a scratch directory `.reverse-spec-scratch/` at the repository root, containing per-capability behavioral specs and the cross-cutting files `model.md`, `rules.md`, `quirks.md`, `gaps.md` and `completeness.md`. When the scratch directory is not ignored by git, the skill SHALL ask the user before writing, offering to add it to the local exclude file. The skill SHALL move the package to a user-chosen destination only after explicit user confirmation, and SHALL refuse any destination whose resolved real path lies inside a protected root; protected roots default to `openspec/`, `docs/`, `packages/` and `.pi/` and MAY be overridden per run. Transient validation ids the skill creates under `openspec/specs/` SHALL use a prefix unique to this skill, SHALL be deleted within the same gate iteration, and leftovers from an interrupted earlier run SHALL be swept at the start and end of every run.
 
 #### Scenario: Scratch-first output
 - **WHEN** the skill runs against a target directory
 - **THEN** every generated file is written under `.reverse-spec-scratch/<target-slug>/rebuild/`
 - **AND** no file under `openspec/` persists after the run (transient throwaway validation ids used by the format gate are deleted before the run ends)
 
+#### Scenario: Scratch directory not ignored
+- **WHEN** `git check-ignore .reverse-spec-scratch` reports the directory is not ignored
+- **THEN** the skill asks before writing and, on consent, appends it to `.git/info/exclude` (never to a committed ignore file)
+
 #### Scenario: Promotion requires confirmation
 - **WHEN** all gates pass and the user confirms a destination path
 - **THEN** the package is moved (not copied) to that path
 
-#### Scenario: Destination inside an indexed root rejected
-- **WHEN** the user chooses a destination under `openspec/`, `docs/`, `packages/` or `.pi/`, including a relative, `..`-containing or symlinked path that resolves there, or a not-yet-existing path whose nearest existing ancestor resolves there
+#### Scenario: Destination inside a protected root rejected
+- **WHEN** the user chooses a destination under a protected root, including a relative, `..`-containing or symlinked path that resolves there, or a not-yet-existing path whose nearest existing ancestor resolves there
 - **THEN** the skill refuses the promotion and asks for another destination
 
 #### Scenario: Interrupted run leftovers swept
@@ -81,7 +106,7 @@ The package SHALL contain `model.md` describing each business entity and value t
 
 ### Requirement: Behavioral coverage of state, edge cases and errors
 
-Each capability spec SHALL use the OpenSpec full-form requirement/scenario format and SHALL pass `openspec validate` before promotion. Each capability spec SHALL cover, where the code exhibits them: state machines (states, legal transitions with their triggers, rejected transitions, initial state, persistence), edge cases (empty input, maximum size or limits, concurrent access, interruption or partial failure), and error handling (detection, response, user-visible message or code, recovery).
+Each capability spec SHALL use the OpenSpec full-form requirement/scenario format and SHALL pass the format gate (built-in structural check, plus `openspec validate` when available) before promotion. Each capability spec SHALL cover, where the code exhibits them: state machines (states, legal transitions with their triggers, rejected transitions, initial state, persistence), edge cases (empty input, maximum size or limits, concurrent access, interruption or partial failure), and error handling (detection, response, user-visible message or code, recovery).
 
 #### Scenario: State transition captured
 - **WHEN** code allows a transition from state A to state B only on a specific trigger
@@ -89,7 +114,7 @@ Each capability spec SHALL use the OpenSpec full-form requirement/scenario forma
 - **AND** a scenario for the rejected transition when the trigger is absent
 
 #### Scenario: Format gate
-- **WHEN** a capability spec fails `openspec validate`
+- **WHEN** a capability spec fails the format gate
 - **THEN** it is regenerated and is not promotable until it validates
 
 ### Requirement: Quirk annotation
@@ -121,7 +146,7 @@ The skill SHALL inventory the target's entry points — registered tools or comm
 
 ### Requirement: Grounding audit and revise loop
 
-The skill SHALL audit each capability spec and the cross-cutting files against the code, reporting hallucinated claims, missing central behaviors, incorrect citations, misclassified explicit/implicit rules, and incorrect confidence levels as strict JSON with a `pass` or `revise` verdict. Specs with verdict `revise` SHALL be regenerated with the findings and re-audited. Only packages whose capabilities all pass audit, all pass `openspec validate`, and pass the completeness gate SHALL be offered for promotion.
+The skill SHALL audit each capability spec and the cross-cutting files against the code, reporting hallucinated claims, missing central behaviors, incorrect citations, misclassified explicit/implicit rules, and incorrect confidence levels as strict JSON with a `pass` or `revise` verdict. Specs with verdict `revise` SHALL be regenerated with the findings and re-audited. Only packages whose capabilities all pass audit, all pass the format gate, and pass the completeness gate SHALL be offered for promotion.
 
 #### Scenario: Hallucinated rule removed
 - **WHEN** the auditor reports a rule with no basis in the cited code
@@ -134,4 +159,4 @@ The skill SHALL audit each capability spec and the cross-cutting files against t
 
 #### Scenario: Gate summary before promotion
 - **WHEN** the skill offers promotion
-- **THEN** it reports per capability the audit verdict, validate result, and counts of rules (explicit/implicit), quirks and gaps, plus the completeness verdict
+- **THEN** it reports per capability the audit verdict, format-gate result (structural check, plus `openspec validate` when it ran), and counts of rules (explicit/implicit), quirks and gaps, plus the completeness verdict
