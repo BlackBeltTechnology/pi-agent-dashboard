@@ -4,7 +4,7 @@
 - [x] 1.2 Pin the server dependency, `piCompatibility.minimum/recommended`, root devDependency pi-ai, `docker/Dockerfile` (pi-coding-agent), `scripts/verify-release-deps.mjs` `minVersion` + evidence note, and `pnpm-workspace.yaml` overrides for pi-coding-agent, pi-ai and pi-tui (update the override comment); verify `node scripts/verify-release-deps.mjs` passes
 - [x] 1.3 Raise `@earendil-works` pi peers in the root `package.json` and every `packages/*/package.json` to `>=1.0.0` (optional kept, pi-ai cap removed); move broad `@earendil-works` pi devDependencies (e.g. `packages/extension` `pi-tui`) to `^1.0.0`; leave `@mariozechner/*` entries untouched; verify task 1.1 dependency test passes
 - [x] 1.4 Confirm `minimumReleaseAge` is not configured where pnpm reads it (add 1.0.0 to `minimumReleaseAgeExclude` if it is); run `pnpm install`; confirm installed pi `engines.node` (`>=22.19.0`) and TypeBox (`1.3.27`, satisfies `^1.3.7`) need no pin move; verify task 1.1 tests pass
-- [ ] 1.5 Sweep `rg -l '0\.86\.1' packages scripts docker docs openspec/specs pnpm-workspace.yaml package.json --glob '!**/node_modules/**'`; update or justify each hit (historical "as of pi 0.86.1" wording may stay); verify the list is annotated in the PR description
+- [x] 1.5 Sweep `rg -l '0\.86\.1' packages scripts docker docs openspec/specs pnpm-workspace.yaml package.json --glob '!**/node_modules/**'`; update or justify each hit (historical "as of pi 0.86.1" wording may stay); verify the list is annotated in the PR description
 
 ## 2. Dead gates
 
@@ -33,8 +33,8 @@
 
 ## 5. Bump evidence, verification and docs
 
-- [ ] 5.1 Run the in-memory draft-agent path (`commit-draft-agent.ts`) against installed 1.0.0; record the evidence and the restore-API decision in the PR description
-- [ ] 5.2 Record a repo-wide search showing no references to `@earendil-works/pi-codemode`, `@earendil-works/pi-mcp` or `quickjs-wasi`, and unchanged pi import specifiers; verify the evidence is in the PR description
+- [x] 5.1 Run the in-memory draft-agent path (`commit-draft-agent.ts`) against installed 1.0.0; record the evidence and the restore-API decision in the PR description
+- [x] 5.2 Record a repo-wide search showing no references to `@earendil-works/pi-codemode`, `@earendil-works/pi-mcp` or `quickjs-wasi`, and unchanged pi import specifiers; verify the evidence is in the PR description
 - [ ] 5.3 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `resource-activation-toggle.test.ts` against the installed 1.0.0; verify green
 - [ ] 5.4 Full rebuild, restart, and smoke-test a real headless and tmux session: spawn, extension slash command, `/reload` on both kinds, model list (incl. an async-discovered custom provider under an `enabledModels` pattern), thinking selector, a user-launched session on an older global pi showing the below-floor warning; sign in with ChatGPT and with Anthropic (both browser and copy-code methods) from the providers page; verify `/api/health` reports `1.0.0`
 - [ ] 5.5 Verify `openspec validate update-pi-core-1-0-adopt-apis`; delegate `docs/architecture.md` and other `docs/*.md` pin updates to DocScribe; add a `CHANGELOG.md` `## [Unreleased]` **BREAKING** entry (peer floor); update touched `AGENTS.md` rows with `See change: update-pi-core-1-0-adopt-apis`
@@ -53,8 +53,8 @@
 - [x] 6.10 L1 test for the 1.0.0 OAuth registry — see `packages/server/src/__tests__/provider-auth-registry.test.ts`; installed 1.0.0 providers · registry build · exact 8-id set, `openai` `auth_code`, no `radius` (test-plan #E10)
 - [x] 6.11 L1 test for built-in settings round-trip — see `tests/e2e/resource-activation-trust.spec.ts` for the settings shape and the resource-toggle unit tests for harness; `-builtin:mcp` + `defaultTools ["+codemode"]` · toggle `foo` · both entries preserved (test-plan #E11)
 - [x] 6.12 L1 test for 0.87 shape tolerance — see `packages/client/src/__tests__/state-replay.test.ts` and `packages/server/src/__tests__/event-status-extraction.test.ts`; JSONL with `context_edit` null on a user message, an `agent_before_settle` event · replay / extraction · message still rendered, no throw, status not idle (test-plan #E12)
-- [ ] 6.13 L1 test for late-discovered in-scope models — see `packages/extension/src/__tests__/filter-enabled-models.test.ts`; `enabledModels ["myprovider/*"]`, provider registered after start · `onProviderChanged` push · new models included (test-plan #E13)
-- [ ] 6.14 L1 test that thinking `max` stays fail-closed — see the existing `provider-register` thinking-level tests; `thinkingLevelMap.max` set, runtime without `max` · model-list push · no `max` (test-plan #E14)
+- [x] 6.13 L1 test for late-discovered in-scope models — see `packages/extension/src/__tests__/filter-enabled-models.test.ts`; `enabledModels ["myprovider/*"]`, provider registered after start · `onProviderChanged` push · new models included (test-plan #E13)
+- [x] 6.14 L1 test that thinking `max` stays fail-closed — see the existing `provider-register` thinking-level tests; `thinkingLevelMap.max` set, runtime without `max` · model-list push · no `max` (test-plan #E14)
 - [x] 6.15 L1 component test for the below-floor warning — see `packages/client/src/components/session/__tests__/SessionCard-status-shape.test.tsx`; flagged record `0.87.1` vs `1.0.0` · render card + chat · warning names both, absent when unflagged (test-plan #F1)
 - [x] 6.16 L1 test for a not-yet-created session file — see `packages/extension/src/__tests__/` session-sync tests; `getSessionFile()` → non-existent path · register + state sync · succeeds, no error logged (test-plan #X1)
 - [ ] 6.17 Manual: sign in with ChatGPT from the providers page and confirm the credential appears (test-plan: manual-only, #X2)

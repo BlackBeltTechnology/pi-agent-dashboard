@@ -1,0 +1,52 @@
+# Bump evidence — update-pi-core-1-0-adopt-apis
+
+Recorded during implementation against installed pi 1.0.0 (pi-coding-agent, pi-ai, pi-tui, pi-agent-core all 1.0.0). Feeds the PR description.
+
+## 5.1 In-memory draft-agent path (design D6)
+
+- `SessionManager.inMemory(cwd?, options?, entries?)` — signature unchanged from 0.85.1+.
+- Probe: `inMemory(cwd)` → `getSessionFile()` = `undefined`, 0 entries (fresh, fileless).
+- `createAgentSession({ sessionManager, model, tools: [], cwd })` succeeds; `subscribe` / `prompt` / `dispose` present; dispose clean.
+- `commit-draft-agent-session.test.ts` green.
+- Restore-API decision: keep `inMemory(cwd)`. The `entries` restore param stays unused — the draft runner wants a throwaway session with no prior entries.
+
+## 5.2 Added sub-dependencies (design D6)
+
+- pi-coding-agent 1.0.0 adds `@earendil-works/pi-codemode`, `@earendil-works/pi-mcp`, `quickjs-wasi` (+ `@earendil-works/chord` already present); none removed since 0.86.1.
+- `rg "@earendil-works/pi-codemode|@earendil-works/pi-mcp\b|quickjs-wasi" packages scripts docker` → 0 hits (`pi-mcp-adapter` hits are the unrelated third-party package).
+- pi import specifiers unchanged: `@earendil-works/pi-coding-agent` (static 13, dynamic 6), `@earendil-works/pi-ai` (static 1, dynamic 3), `@earendil-works/pi-tui` (static 1). The `pi-ai/utils/transcript` match is a comment forbidding that bare import; the seam derives `dist/utils/transcript.js`, present in 1.0.0.
+- `minimumReleaseAgeExclude` extended to the 1.0.0 set (pnpm 11.15.1 applies it; 1.0.0 published 2026-10-01).
+
+## 1.5 `0.86.1` sweep — annotated hits
+
+Updated: `scripts/verify-release-deps.mjs` (minVersion 1.0.0; evidence history kept), `packages/server/src/auth/locked-json-file.ts` (lock coupling re-verified on 1.0.0: `staleMs = 30_000`, `realpath: false`).
+
+Historical / intentional (kept):
+- `pnpm-workspace.yaml` `minimumReleaseAgeExclude` — version history, 1.0.0 appended.
+- `scripts/verify-release-deps.mjs:68` — evidence text describing why 0.86.1 was once the floor.
+- `scripts/__tests__/verify-release-deps-pi-coherence.test.mjs` — deliberate drift fixtures.
+- `packages/server/src/__tests__/pi-version-skew.test.ts` — below-floor boundary values.
+- `packages/shared/src/__tests__/bundled-node-meets-pi-floor.test.ts` — exact-key Node-floor table (row history; 1.0.0 row added).
+- Lock-contention tests (`provider-auth-lock-*`, `internal-auth-storage-coordination`) — simulate pi's literal lock options, unchanged in 1.0.0.
+- `runtime-doctor`, `runtime-stager`, `runtime-routes`, `health-endpoint`, `RuntimeUpdatesSection` tests — arbitrary version strings in fixtures, not pins.
+- `docs/architecture.md:246` — "measured on a live 0.86.1 session" (historical measurement).
+- `openspec/specs/*` hits — main specs; the bridge-extension / provider-auth-server requirements carrying them are replaced by this change's deltas at archive.
+- `docs/*` floor/gate prose and `*.AGENTS.md` rows — updated by task 5.5 (DocScribe / closeout).
+
+## Implementation-time findings (user decisions)
+
+- pi 1.0.0 `getProviderAuthStatus().label` is set for EVERY environment credential, not only federation → `authenticated` promotion gated on "no `envVar`, not `ambient`" (design D7, spec amended).
+- Sign in with ChatGPT (`openai`) rejects without `login(…, { getDeviceId })` → adapter passes pi's `SettingsManager.getOrCreateDeviceId` (design D7a). Real probe on 1.0.0 reaches `auth_url` → `manual_code`.
+- 1.0.0 ships three classifier lazy apis (`{ classify }`, no `streamSimple`) → added to `NON_TEXT_LAZY_FILES`, asserted.
+
+## No-weakening guard — accepted exceptions (human-approved)
+
+`assertNoWeakening` flagged five test diffs; the user accepted them as spec-mandated retirements:
+
+| File | Flag | Reason |
+|---|---|---|
+| `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts` | deleted assertions | 0.84.2 gate BVA tests retired (task 2.1); replaced by E7 (no version read, dispatch) + E8 (ungated reload). |
+| `packages/extension/src/__tests__/terminal-reload.test.ts` | deleted assertions | "pi < 0.84.2 → error" retired (task 2.2); replaced by E2 "self-dispatches immediately and arms the slot". |
+| `packages/shared/src/piai-compat/__tests__/adapt.test.ts` | deleted assertions | legacy passthrough (#E1) retired (task 2.3); replaced by E9 legacy-rejected + partial-rejected. |
+| `packages/shared/src/piai-compat/__tests__/oauth-facade.test.ts` | deleted assertions | legacy `dist/oauth.js` preference retired (task 2.3); replaced by "usable legacy oauth.js is never consulted" + loaders-preferred. |
+| `packages/server/src/__tests__/pi-version-skew.test.ts` | strong→permissive (heuristic) | file-level heuristic: new E5 tests assert the exact `null` return with `toBeNull()`; X13 moved to the stricter `rangeIsSatisfiable(...).toBe(true)`. |

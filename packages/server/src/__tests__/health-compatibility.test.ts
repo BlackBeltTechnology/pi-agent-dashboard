@@ -4,9 +4,13 @@
  *
  * `readCurrentPiVersion` is spied so we can drive the running-pi version;
  * `readPiCompatibility` + `computeCompatibility` stay real and read the
- * server's own package.json floor (currently minimum 0.78.0).
+ * server's own package.json floor. The "above minimum" fixture is DERIVED from
+ * that floor so a lockstep floor raise cannot silently flip it below the floor
+ * (it did at 1.0.0). See change: update-pi-core-1-0-adopt-apis.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 
 vi.mock("../pi/pi-version-skew.js", async (importActual) => {
@@ -18,6 +22,12 @@ import { registerSystemRoutes } from "../routes/system-routes.js";
 import { readCurrentPiVersion } from "../pi/pi-version-skew.js";
 
 const mockReadCurrent = vi.mocked(readCurrentPiVersion);
+
+const SERVER_MINIMUM: string = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../../package.json"), "utf-8"),
+).piCompatibility.minimum;
+/** A version strictly above the floor: next major. */
+const ABOVE_MINIMUM = `${Number(SERVER_MINIMUM.split(".")[0]) + 1}.0.0`;
 
 function makeHealthDeps() {
   return {
@@ -56,10 +66,10 @@ describe("GET /api/health — compatibility", () => {
   });
 
   it("includes current + range when pi resolves above minimum", async () => {
-    mockReadCurrent.mockReturnValue("0.99.0");
+    mockReadCurrent.mockReturnValue(ABOVE_MINIMUM);
     const compat = await getCompatibility(app);
     expect(compat).not.toBeNull();
-    expect(compat.current).toBe("0.99.0");
+    expect(compat.current).toBe(ABOVE_MINIMUM);
     expect(typeof compat.minimum).toBe("string");
     expect(compat.error).toBeUndefined();
   });
@@ -72,7 +82,7 @@ describe("GET /api/health — compatibility", () => {
   });
 
   it("caches the probe for 30s (readCurrentPiVersion called once)", async () => {
-    mockReadCurrent.mockReturnValue("0.99.0");
+    mockReadCurrent.mockReturnValue(ABOVE_MINIMUM);
     await getCompatibility(app);
     await getCompatibility(app);
     await getCompatibility(app);

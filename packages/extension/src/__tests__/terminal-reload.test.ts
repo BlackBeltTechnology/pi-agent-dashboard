@@ -65,13 +65,16 @@ afterEach(() => {
 });
 
 describe("requesting side (B1)", () => {
-  it("E2: no pi version gate — reload self-dispatches immediately and arms the slot", () => {
+  it("E2: no pi version gate — reload self-dispatches immediately and arms the slot", async () => {
     // pi >= 1.0.0 is the single supported pi; the 0.84.2 gate is retired.
     // See change: update-pi-core-1-0-adopt-apis.
     const { tr, sendUserMessage } = setup();
-    void tr.reload();
+    const p = tr.reload();
     expect(sendUserMessage).toHaveBeenCalledWith("/__dashboard_reload tok-1", { expandPromptTemplates: true });
     expect(readPendingReload()).toMatchObject({ token: "tok-1", sessionId: SID, state: "armed" });
+    // Settle the dispatch (no handler runs) so the promise is observed, not discarded.
+    await vi.advanceTimersByTimeAsync(START_TIMEOUT_MS);
+    await expect(p).resolves.toMatchObject({ ok: false });
   });
 
   it.each([

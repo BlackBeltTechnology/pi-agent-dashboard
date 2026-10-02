@@ -12,6 +12,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **pi 1.0.0 surfaces.** Sign in with ChatGPT (`openai` OAuth) from the
+  providers page; OAuth rows show **Subscription** or **Account**
+  (OpenRouter); an Environment row names pi's mechanism (e.g. "workload
+  identity federation") instead of the generic text; a session running a pi
+  below the supported floor shows a warning naming both versions on its card
+  and in the chat header.
+
 - **Spec-collateral scan for planning.** `scripts/spec-collateral.mjs` lists
   main-spec requirements an OpenSpec change may contradict after archive
   (advisory, never gates); `plan-proposal` feeds it into every doubt-review
@@ -106,6 +113,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   **Ship the server and the plugin together.** Once the server stops stamping `JITI_TSCONFIG_PATHS`, an older plugin copy still on disk (`~/.pi/dashboard/plugins/`, or `resources/plugins/` inside an already-installed Electron bundle) can no longer resolve its specifiers. The patched plugin resolves regardless of the flag, so a reverted server is safe; the unsafe pairing is new server + old plugin. See change: fix-browser-plugin-vendor-specifier-resolution.
 
 ### Changed
+
+- **BREAKING (pi peers): pi 1.0.0 is the single supported pi.** Every
+  `@earendil-works/pi-coding-agent`, `pi-ai` and `pi-tui` peer range in the
+  published packages is now `>=1.0.0` (still optional, no upper bound; the
+  `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
+  install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
+  gate and the legacy (global-registry) pi-ai generation are removed.
 
 - **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
   such as Quota, Status) is now one labelled `role="group"` container, spaced

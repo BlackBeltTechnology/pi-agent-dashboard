@@ -11,6 +11,8 @@ import type { Resolution, ToolRegistry } from "@blackbelt-technology/pi-dashboar
 import { beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- .mjs release gate, no type declarations; exported for fixture-driven tests.
 import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify-release-deps.mjs";
+// @ts-expect-error -- .mjs release gate helper, no type declarations.
+import { rangeIsSatisfiable } from "../../../../scripts/verify-published-imports.mjs";
 import {
   compareVersions,
   computeCompatibility,
@@ -291,12 +293,8 @@ describe("pi pin block \u2014 1.0.0", () => {
     // BELOW stable `0.84.1` and outside `^0.84.1`. Reject it up front.
     expect(resolved, `resolved ${resolved} must not be a prerelease`).not.toMatch(/[-+]/);
 
-    const declaredVersion = declared.replace(/^[\^~]/, "");
-    const [major] = parseVersion(resolved) ?? [];
-    const [dMajor] = parseVersion(declaredVersion) ?? [];
-    // Caret on a >=1.x range pins the major; minor/patch may only move forward.
-    expect(major, `resolved ${resolved} vs declared ${declared}`).toBe(dMajor);
-    expect(compareVersions(resolved, declaredVersion)).toBeGreaterThanOrEqual(0);
+    // Real semver range satisfaction (caret semantics differ below/above 1.0).
+    expect(rangeIsSatisfiable(declared, resolved), `resolved ${resolved} vs declared ${declared}`).toBe(true);
   });
 });
 
