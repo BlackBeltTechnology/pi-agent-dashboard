@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  compareVersions,
   isAbove,
   isBelow,
   parseVersion,
@@ -163,7 +164,13 @@ export function computePiBelowFloor(
   minimum: string,
 ): { minimum: string } | null {
   if (!version || parseVersion(version) === null) return null;
-  return isBelow(version, minimum) ? { minimum } : null;
+  if (isBelow(version, minimum)) return { minimum };
+  // The shared comparator ignores pre-release suffixes; SemVer orders a
+  // pre-release BELOW its release (`1.0.0-beta.1` < `1.0.0`). Build metadata
+  // (`+…`) does not lower precedence. Kept local so the shared helper's other
+  // callers are unaffected. See change: update-pi-core-1-0-adopt-apis (review B1).
+  const isPrerelease = /^[^+]*-/.test(version.trim().replace(/^v/, ""));
+  return isPrerelease && compareVersions(version, minimum) === 0 ? { minimum } : null;
 }
 
 let cachedMinimum: string | undefined;

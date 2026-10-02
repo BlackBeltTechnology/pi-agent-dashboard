@@ -11,6 +11,7 @@ import {
   _resetPiVersionCache,
   readPkgVersionByWalkUp,
   readRunningPiVersion,
+  resetReconnectCaches,
 } from "../model-tracker.js";
 import type { BridgeContext } from "../bridge-context.js";
 
@@ -58,6 +59,26 @@ describe("sendPiVersionIfChanged", () => {
     const { bc, send } = makeBc();
     sendPiVersionIfChanged(bc, () => undefined);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // Review B2: the server does not persist `piVersion` / `piBelowFloor`, so an
+  // unchanged version must be re-sent for a NEW session and after a reconnect.
+  it("re-sends an unchanged version for a different session (session switch)", () => {
+    const send = vi.fn();
+    const bc1 = { sessionId: "sess-1", connection: { send } } as unknown as BridgeContext;
+    const bc2 = { sessionId: "sess-2", connection: { send } } as unknown as BridgeContext;
+    sendPiVersionIfChanged(bc1, () => "0.87.1");
+    sendPiVersionIfChanged(bc2, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ type: "pi_version_update", sessionId: "sess-2", version: "0.87.1" });
+  });
+
+  it("re-sends an unchanged version after resetReconnectCaches (reconnect)", () => {
+    const { bc, send } = makeBc();
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    resetReconnectCaches(bc);
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
   });
 
   // test-plan #E6 — the DEFAULT reader is argv-anchored: the running pi

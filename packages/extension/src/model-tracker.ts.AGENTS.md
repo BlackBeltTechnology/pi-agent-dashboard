@@ -5,3 +5,5 @@ Diff-and-send trackers for model / session name / git info / pi version / cwd-mi
 `sendGitInfoIfChanged` = ONE change-detector: `prStatus.observe(generation)`, diffs + always sends full cached PR tuple (`lastGitPrJson`). `resetReconnectCaches` resets `lastGitPrJson`. See change: redesign-composer-session-strip.
 
 `sendPiVersionIfChanged` default reader → argv-anchored `readRunningPiVersion` (feeds server below-floor flag). `defaultReadPiVersion` (by-name, hoisted-copy hazard) removed. See change: update-pi-core-1-0-adopt-apis.
+
+pi-version dedup key = `sessionId + version` (`lastPiVersionKey`); `resetReconnectCaches` clears it — server keeps `piVersion`/`piBelowFloor` in memory only. See change: update-pi-core-1-0-adopt-apis (review B1/B2).

@@ -320,6 +320,17 @@ describe("computePiBelowFloor — below-floor session flag (E5)", () => {
     expect(computePiBelowFloor(undefined, "1.0.0")).toBeNull();
   });
 
+  // Review B1: a pre-release of the floor is BELOW it (SemVer); build metadata is not.
+  it("flags a pre-release of the floor and of earlier versions", () => {
+    expect(computePiBelowFloor("1.0.0-beta.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+    expect(computePiBelowFloor("0.99.9-rc.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+  });
+
+  it("does not flag build metadata at the floor or a pre-release above it", () => {
+    expect(computePiBelowFloor("1.0.0+build.7", "1.0.0")).toBeNull();
+    expect(computePiBelowFloor("1.0.1-rc.1", "1.0.0")).toBeNull();
+  });
+
   it("does not flag an unparseable version", () => {
     expect(computePiBelowFloor("dev", "1.0.0")).toBeNull();
     expect(computePiBelowFloor("", "1.0.0")).toBeNull();

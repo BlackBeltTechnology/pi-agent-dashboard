@@ -100,7 +100,13 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
  * reconnect and suppresses redundant pushes. See change:
  * restore-pi-version-skew-surface.
  */
-let lastPiVersion: string | undefined;
+/**
+ * Last sent `pi_version_update`, keyed by session — the server keeps
+ * `piVersion` / `piBelowFloor` only in memory, so a new session in the same pi
+ * process (session switch) must receive it, and a reconnect clears it
+ * (`resetReconnectCaches`). See change: update-pi-core-1-0-adopt-apis (review B2).
+ */
+let lastPiVersionKey: string | undefined;
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
 
@@ -231,8 +237,10 @@ export function sendPiVersionIfChanged(
     console.warn("[dashboard] pi version read failed:", e);
     return;
   }
-  if (!version || version === lastPiVersion) return;
-  lastPiVersion = version;
+  if (!version) return;
+  const key = `${bc.sessionId}\u0000${version}`;
+  if (key === lastPiVersionKey) return;
+  lastPiVersionKey = key;
   bc.connection.send({
     type: "pi_version_update",
     sessionId: bc.sessionId,
@@ -242,7 +250,7 @@ export function sendPiVersionIfChanged(
 
 /** Test-only: clear the module-scoped pi-version cache. */
 export function _resetPiVersionCache(): void {
-  lastPiVersion = undefined;
+  lastPiVersionKey = undefined;
 }
 
 /**
@@ -258,6 +266,8 @@ export function resetReconnectCaches(bc: BridgeContext): void {
   bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
   bc.lastGitStatusJson = undefined;
+  // The server does not persist `piVersion`; re-send on the next tick.
+  lastPiVersionKey = undefined;
 }
 
 /**

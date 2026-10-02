@@ -1640,6 +1640,9 @@ function initBridge(pi: ExtensionAPI) {
       _resetReconnectCaches(_bc);
       applyBc(_bc);
       sendStateSync();
+      // The server does not persist `piVersion` / `piBelowFloor`; re-send now
+      // rather than on the next poll tick. See change: update-pi-core-1-0-adopt-apis.
+      sendPiVersionIfChanged();
       // Force-emit git state for the active session’s cwd. The bridge
       // doesn't have direct ctx here, so we walk the active session.
       try {
@@ -3870,6 +3873,10 @@ function initBridge(pi: ExtensionAPI) {
     const bc = syncBc();
     _handleSessionChange(bc, ctx, getFlowsList);
     applyBc(bc);
+    // A new session id needs its own `pi_version_update` (below-floor flag).
+    // After applyBc, so syncBc() carries the NEW session id.
+    // See change: update-pi-core-1-0-adopt-apis.
+    sendPiVersionIfChanged();
 
     // Restart polling timers
     startGitPollTimer(ctx);
