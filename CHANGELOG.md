@@ -120,6 +120,12 @@ see [`docs/release-process.md`](docs/release-process.md).
   `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
   install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
   gate and the legacy (global-registry) pi-ai generation are removed.
+- **pi-mcp-adapter 5.0.0; dashboard MCP entry moves to `mcp-adapter.json`.** pi
+  1.0.0's built-in MCP reads `~/.pi/agent/mcp.json`; the dashboard's entry there
+  (adapter-only auth) made every session warn "pi-dashboard: needs sign-in".
+  With adapter >= 3 the entry is now written to `~/.pi/agent/mcp-adapter.json`
+  and the dashboard's own stale `mcp.json` entry is removed (a user-authored
+  entry under that key is left alone). Adapter 2.x installs are unchanged.
 
 - **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
   such as Quota, Status) is now one labelled `role="group"` container, spaced

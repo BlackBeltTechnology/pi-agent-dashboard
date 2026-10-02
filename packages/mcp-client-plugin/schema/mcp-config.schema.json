@@ -85,7 +85,11 @@
         "pluginDataDir": { "type": "string" },
         "literalEnv": { "type": "boolean" },
         "protocolVersion": { "enum": ["legacy", "auto", "2026-07-28"] },
-        "disabled": { "type": "boolean" }
+        "disabled": { "type": "boolean" },
+        "description": { "type": "string" },
+        "inheritEnv": { "type": "boolean" },
+        "caFile": { "type": "string" },
+        "tasks": { "type": "boolean" }
       }
     },
     "McpSettings": {
@@ -118,7 +122,16 @@
         "outputGuard": { "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/McpOutputGuardSettings" }] },
         "trace": { "$ref": "#/$defs/McpTraceSettings" },
         "authRequiredMessage": { "type": "string" },
-        "oauthDir": { "type": "string" }
+        "oauthDir": { "type": "string" },
+        "projectServers": { "enum": ["ask", "allow"] },
+        "allowInstall": { "type": "boolean" },
+        "ancestorConfigRoots": { "type": "array", "items": { "type": "string" } },
+        "deferWithMissingMetadata": { "type": "boolean" },
+        "namespaceProxyTools": { "type": "boolean" },
+        "scriptSkill": { "enum": ["manual", "model"] },
+        "exposeResources": { "type": "boolean" },
+        "jev": { "oneOf": [{ "const": false }, { "type": "object" }] },
+        "oauthCredentialStore": { "enum": ["encrypted-file"] }
       }
     }
   }

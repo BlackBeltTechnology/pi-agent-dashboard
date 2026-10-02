@@ -68,3 +68,12 @@ This change is net −1 export: its two new findings (`NO_RELOAD_PATH_REASON` or
 `npm test`: 2222 files passed. Failures triaged:
 - fixed (caused by the 1.0.0 floor): `health-compatibility.test.ts` fixture `0.99.0` ("above minimum") now derived from the floor; `async-semantics-guards` E3 — `void tr.reload()` replaced by an awaited promise.
 - pre-existing / environmental, unchanged files: `scripts/__tests__/test-selection-data.test.mjs` (`git ls-files` output 1,048,727 B > Node's 1 MiB `execFileSync` default → `ENOBUFS`), `packages/system-one-plugin/src/server/__tests__/supervisor.test.ts` X12 (sources byte-identical to `origin/develop`; fake-engine shim, no pi import).
+
+## Harness (step 3) — docker, pi 1.0.0
+
+Run via `PI_E2E_SEED=1` + a `docker exec … node` loopback forwarder (host traffic over the Docker bridge is refused ticket minting; known local-harness limitation).
+
+- `/api/health`: `compatibility.current = 1.0.0`, min = rec = `1.0.0`; providerAuth ok.
+- `/api/provider-auth/providers`: 8 ids incl. `openai`; `openrouter` `subscription:false`, others `true`.
+- e2e (`extension-slash-inprocess`, `dashboard-slash`, `headless-reload-dispatch`, `delegate-provider-oauth-flow`, `resource-activation-trust`, `mcp-session-token`, `mcp-client-harness-integration`): all pass; 2 skips = pre-existing `test.fixme` quarantine (#683).
+- First run found design D7b (built-in MCP "pi-dashboard: needs sign-in"); after the fix the bundled adapter is 5.0.0, Pi's `mcp.json` holds no `pi-dashboard` key, #F1 passes.

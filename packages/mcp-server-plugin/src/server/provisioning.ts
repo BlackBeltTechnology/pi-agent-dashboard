@@ -25,10 +25,14 @@
  * See change: extract-mcp-client-plugin (task 6.2).
  */
 
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type AdapterPort,
+  adapterProbePaths,
+  bundledAdapterVersion,
   type ConfigIO,
+  createDefaultAdapterPort,
   createMcpClientConfigService,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 
@@ -112,6 +116,8 @@ export interface ProvisionOptions {
    * real `pi-mcp-adapter/config`, so `PI_CODING_AGENT_DIR` is honoured.
    */
   adapter?: AdapterPort;
+  /** The bundled adapter's version. Injected for tests; defaults to the real one. */
+  bundledAdapterVersion?: () => string | null;
 }
 
 /** An entry is "ours" iff it is an object declaring an HTTP `url`. */
@@ -122,6 +128,73 @@ function isDashboardHttpEntry(v: unknown): boolean {
     !Array.isArray(v) &&
     typeof (v as { url?: unknown }).url === "string"
   );
+}
+
+/** First installed-adapter major at which `mcp-adapter.json` is the adapter's own file. */
+const ADAPTER_FILE_MIN_MAJOR = 3;
+
+/**
+ * The `pi-mcp-adapter` version under the agent dir (user-installed), or
+ * `null`. When present, it is the copy pi loads.
+ */
+function installedAdapterVersion(configIO: ConfigIO, agentDir: string): string | null {
+  for (const p of adapterProbePaths(agentDir)) {
+    const raw = configIO.readFile(p);
+    if (raw === null) continue;
+    try {
+      const v = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof v === "string") return v;
+    } catch {
+      /* malformed here; try the next location */
+    }
+  }
+  return null;
+}
+
+/**
+ * pi 1.0.0's built-in MCP reads `<agentDir>/mcp.json`. `pi-mcp-adapter` >= 3
+ * moved its own config to `<agentDir>/mcp-adapter.json` (and never reads
+ * `mcp.json`, or imports it on 5.x). The dashboard entry uses the adapter-only
+ * `requestHeadersCommand`, so it belongs in the file the INSTALLED adapter
+ * owns: otherwise built-in MCP connects without the token and reports
+ * "pi-dashboard: needs sign-in" in every session. Adapter <= 2.x (or none)
+ * reads `mcp.json` only — unchanged. The version is the INSTALLED adapter's
+ * (`<agentDir>/{npm/,}node_modules`), else the dashboard-bundled one.
+ * See change: update-pi-core-1-0-adopt-apis (design D7b).
+ */
+function adapterOwnedPort(
+  configIO: ConfigIO,
+  base: AdapterPort,
+  bundledVersion: () => string | null,
+): AdapterPort | null {
+  const piPath = base.getPiGlobalConfigPath();
+  // The copy pi loads: a user-installed adapter if present, else the
+  // dashboard-bundled one (e.g. the docker harness).
+  const version = installedAdapterVersion(configIO, dirname(piPath)) ?? bundledVersion();
+  const major = version ? Number.parseInt(version, 10) : Number.NaN;
+  if (!(major >= ADAPTER_FILE_MIN_MAJOR)) return null;
+  const adapterPath = join(dirname(piPath), "mcp-adapter.json");
+  return { ...base, getPiGlobalConfigPath: () => adapterPath };
+}
+
+/**
+ * Remove the dashboard's OWN stale entry (adapter-shaped: `url` +
+ * `requestHeadersCommand`) from pi's `mcp.json`. A user's entry under the same
+ * key without `requestHeadersCommand` is not ours and stays. Best effort: a
+ * failure leaves the stale key (today's behaviour), never a failed provision.
+ */
+function removeStaleEntryFromPiMcp(configIO: ConfigIO, base: AdapterPort): void {
+  try {
+    const service = createMcpClientConfigService({ configIO, knownCwds: () => [], adapter: base });
+    const scope = { kind: "global" } as const;
+    if (!service.checkConfigFiles().mcpJson.ok) return;
+    const stale = service.readServerEntry(DASHBOARD_MCP_KEY, scope) as Record<string, unknown> | undefined;
+    if (stale && isDashboardHttpEntry(stale) && typeof stale.requestHeadersCommand === "object") {
+      service.removeServer(DASHBOARD_MCP_KEY, scope);
+    }
+  } catch {
+    /* leave it */
+  }
 }
 
 /**
@@ -140,10 +213,12 @@ export function provisionDashboardEntry(
   configIO: ConfigIO,
   opts: ProvisionOptions,
 ): ProvisionResult {
+  const base = opts.adapter ?? createDefaultAdapterPort();
+  const owned = adapterOwnedPort(configIO, base, opts.bundledAdapterVersion ?? bundledAdapterVersion);
   const service = createMcpClientConfigService({
     configIO,
     knownCwds: () => [],
-    ...(opts.adapter ? { adapter: opts.adapter } : {}),
+    adapter: owned ?? base,
   });
   const scope = { kind: "global" } as const;
   const path = service.targetPath(scope);
@@ -173,6 +248,7 @@ export function provisionDashboardEntry(
 
   const entry = buildDashboardEntry(opts.url);
   if (existing !== undefined && JSON.stringify(existing) === JSON.stringify(entry)) {
+    if (owned) removeStaleEntryFromPiMcp(configIO, base);
     return { ok: true, action: "unchanged" };
   }
 
@@ -186,5 +262,6 @@ export function provisionDashboardEntry(
       message: write.refusal.message,
     };
   }
+  if (owned) removeStaleEntryFromPiMcp(configIO, base);
   return { ok: true, action: existing === undefined ? "created" : "updated" };
 }

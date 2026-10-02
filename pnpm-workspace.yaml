@@ -112,7 +112,7 @@ minimumReleaseAgeExclude:
   - '@earendil-works/pi-codemode@1.0.0'
   - '@earendil-works/pi-mcp@1.0.0'
   - '@earendil-works/chord@1.0.0'
-  - pi-mcp-adapter@2.19.0
+  - pi-mcp-adapter@2.19.0 || 5.0.0
   - '@earendil-works/pi-client@0.84.1'
   - '@earendil-works/pi-protocol@0.84.1'
   - '@earendil-works/pi-telemetry@0.84.1 || 0.86.1 || 1.0.0'

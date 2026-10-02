@@ -28,6 +28,7 @@
 
 - [x] 4.5 Bridge: copy `getProviderAuthStatus(id).label` into the catalogue entry as `authLabel` (shared catalogue type); server: copy it onto the env-sourced api-key status row and count it as `authenticated`; client: Environment mechanism text uses `authLabel`; verify with tests for test-plan #E16, #E17, #F2
 - [x] 4.1b Pass `{ getDeviceId }` (pi `SettingsManager.getOrCreateDeviceId`) to every OAuth `login()` so Sign in with ChatGPT can start (design D7a); verify with an adapter test and a real 1.0.0 probe reaching `auth_url`
+- [x] 4.1c Provision the dashboard MCP entry into the file the loaded `pi-mcp-adapter` owns (>= 3 → `mcp-adapter.json`, remove own stale key from Pi's `mcp.json`); bump bundled adapter to `^5.0.0` + schema keys (design D7b); verify with provisioning-fs tests and e2e `extension-slash-inprocess` #F1 + MCP specs on the harness
 - [x] 4.6 Registry: carry pi's OAuth `isSubscription` as `subscription` on registry entries and OAuth status rows; client: "Account" badge when `subscription === false`; verify with tests for test-plan #E18, #F3
 - [x] 4.7 Add codemode image regression tests (live `tool_execution_end` + replay) for test-plan #E19; fix the render path only if they fail
 
