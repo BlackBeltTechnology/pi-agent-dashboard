@@ -44,6 +44,64 @@ export const MAX_OLD_SPACE_FLAG_PATTERN = "^--max[-_]old[-_]space[-_]size";
 const MAX_OLD_SPACE_RE = new RegExp(MAX_OLD_SPACE_FLAG_PATTERN);
 
 /**
+ * Option spans of a NODE_OPTIONS string, `[start, end)`. Whitespace separates
+ * options only OUTSIDE double quotes; inside quotes a backslash escapes the
+ * next character. Node accepts quoted values (`--require "/a b.js"`), so a
+ * plain whitespace split mis-cuts them.
+ */
+function optionSpans(options: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  let i = 0;
+  while (i < options.length) {
+    while (i < options.length && /\s/.test(options[i] as string)) i++;
+    if (i >= options.length) break;
+    const start = i;
+    let quoted = false;
+    for (; i < options.length; i++) {
+      const c = options[i] as string;
+      if (quoted && c === "\\") i++;
+      else if (c === '"') quoted = !quoted;
+      else if (!quoted && /\s/.test(c)) break;
+    }
+    spans.push([start, Math.min(i, options.length)]);
+  }
+  return spans;
+}
+
+/** The options themselves, quote-aware. */
+function optionTokens(options: string): string[] {
+  return optionSpans(options).map(([a, b]) => options.slice(a, b));
+}
+
+/**
+ * Remove every option exactly equal to `token` and leave every other byte as
+ * written — no split/join round-trip (that collapses repeated spaces inside a
+ * quoted value), and no match inside a quoted value (a path may literally
+ * contain the token). Each removed option takes its preceding separator, or
+ * its following one when it leads the string.
+ * See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780).
+ */
+function withoutToken(options: string, token: string | undefined): string {
+  if (!token) return options;
+  let out = options;
+  const hits = optionSpans(options).filter(([a, b]) => options.slice(a, b) === token);
+  for (const [a, b] of hits.reverse()) {
+    let start = a;
+    let end = b;
+    while (start > 0 && /\s/.test(options[start - 1] as string)) start--;
+    if (start === a) while (end < options.length && /\s/.test(options[end] as string)) end++;
+    out = out.slice(0, start) + out.slice(end);
+  }
+  return out;
+}
+
+/** Append `flag` to `options`, separated by one space, without touching `options`. */
+function appendToken(options: string, flag: string): string {
+  const head = options.trimEnd();
+  return head ? `${head} ${flag}` : flag;
+}
+
+/**
  * True when `mb` may be placed into a process argv or a shell command string:
  * a finite integer at or above the floor.
  *
@@ -110,20 +168,19 @@ export function stampHeapFlag<T extends Record<string, string>>(
   const flag = maxOldSpaceFlag(maxOldSpaceMb);
   const existing = env["NODE_OPTIONS"] ?? "";
   const ours = env[HEAP_FLAG_MARKER_ENV];
-  const tokens = existing.split(/\s+/).filter(Boolean);
+  const tokens = optionTokens(existing);
   const pinnedByOperator = tokens.some((t) => MAX_OLD_SPACE_RE.test(t) && t !== ours);
+  const kept = withoutToken(existing, ours);
   if (pinnedByOperator) {
     // Leave their value alone — but still drop OUR stale token alongside the
     // marker. V8 is last-wins, so a leftover token of ours sitting after their
     // pin would override the very value this branch chose to respect.
-    const keptForPin = tokens.filter((t) => t !== ours);
-    if (keptForPin.length === 0) delete (env as Record<string, string>)["NODE_OPTIONS"];
-    else (env as Record<string, string>)["NODE_OPTIONS"] = keptForPin.join(" ");
+    if (!kept.trim()) delete (env as Record<string, string>)["NODE_OPTIONS"];
+    else (env as Record<string, string>)["NODE_OPTIONS"] = kept.trimEnd();
     delete (env as Record<string, string>)[HEAP_FLAG_MARKER_ENV];
     return env;
   }
-  const kept = tokens.filter((t) => t !== ours);
-  (env as Record<string, string>)["NODE_OPTIONS"] = [...kept, flag].join(" ");
+  (env as Record<string, string>)["NODE_OPTIONS"] = appendToken(kept, flag);
   (env as Record<string, string>)[HEAP_FLAG_MARKER_ENV] = flag;
   return env;
 }
@@ -148,10 +205,10 @@ export function mergeHeapIntoNodeOptions(
   heapOptions: string,
   ourToken?: string,
 ): string {
-  const kept = (existing ?? "").split(/\s+/).filter((t) => t && t !== ourToken);
-  if (kept.some((t) => MAX_OLD_SPACE_RE.test(t))) return kept.join(" ");
-  if (!heapOptions) return kept.join(" ");
-  return [...kept, heapOptions].join(" ").trim();
+  const kept = withoutToken(existing ?? "", ourToken).trimEnd();
+  if (optionTokens(kept).some((t) => MAX_OLD_SPACE_RE.test(t))) return kept;
+  if (!heapOptions) return kept;
+  return appendToken(kept, heapOptions);
 }
 
 /**
@@ -174,14 +231,14 @@ export function stripDashboardHeapFlag(env: NodeJS.ProcessEnv): NodeJS.ProcessEn
   const marker = env[HEAP_FLAG_MARKER_ENV];
   if (!marker) return env;
   const existing = env["NODE_OPTIONS"];
-  if (typeof existing !== "string" || !existing.includes(marker)) {
+  if (typeof existing !== "string" || !optionTokens(existing).includes(marker)) {
     // Marker without a matching token: it describes a flag that is not here.
     delete env[HEAP_FLAG_MARKER_ENV];
     return env;
   }
-  const kept = existing.split(/\s+/).filter((t) => t && t !== marker);
-  if (kept.length === 0) delete env["NODE_OPTIONS"];
-  else env["NODE_OPTIONS"] = kept.join(" ");
+  const kept = withoutToken(existing, marker).trimEnd();
+  if (!kept) delete env["NODE_OPTIONS"];
+  else env["NODE_OPTIONS"] = kept;
   delete env[HEAP_FLAG_MARKER_ENV];
   return env;
 }

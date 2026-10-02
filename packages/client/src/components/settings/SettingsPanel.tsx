@@ -15,6 +15,7 @@ import {
   DEFAULT_SESSION_HEAP,
   HEAP_WARN_ABOVE_MB,
   MIN_HEAP_MB,
+  serverHeapStoreCoupling,
   subagentHeapBudget,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 // Type-only import — erased at bundle time, so the rule above holds.
@@ -904,7 +905,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     // claim cross-store atomicity; failed sources stay dirty for Retry.
     type Task = {
       label: string;
-      run: () => Promise<{ restartRequired?: boolean; coldStartRequired?: boolean }>;
+      run: () => Promise<{ restartRequired?: boolean }>;
     };
     const tasks: Task[] = [];
 
@@ -921,14 +922,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
           if (!data.success) throw new Error(data.error || "config");
           setOriginal(JSON.parse(JSON.stringify(config)));
           if (configPartial.windowsGitSource !== undefined) void refreshGitSourceReadout();
-          return {
-            restartRequired: !!data.restartRequired,
-            // `serverHeap` only. Distinct from `restartRequired`, whose message
-            // promises an in-place restart is enough — which for this field is
-            // provably false (`/api/restart` inherits the current environment).
-            // See change: bound-session-heap-and-gc-telemetry.
-            coldStartRequired: !!data.coldStartRequired,
-          };
+          return { restartRequired: !!data.restartRequired };
         },
       });
     }
@@ -941,11 +935,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
     const results = await Promise.allSettled(tasks.map((tk) => tk.run()));
     const failed: string[] = [];
     let restartRequired = false;
-    let coldStartRequired = false;
     results.forEach((r, i) => {
       if (r.status === "fulfilled") {
         restartRequired ||= !!r.value.restartRequired;
-        coldStartRequired ||= !!r.value.coldStartRequired;
       }
       else {
         const reason = r.reason instanceof Error ? r.reason.message : "";
@@ -957,17 +949,6 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
       setMessage({
         type: "error",
         text: t("settings.savePartialFail", undefined, "Couldn't save: ") + failed.join(", "),
-      });
-    } else if (coldStartRequired) {
-      // Checked BEFORE `restartRequired`: the cold-start requirement is the
-      // stronger one, and the generic message would understate it.
-      setMessage({
-        type: "warn",
-        text: t(
-          "settings.coldStartRequired",
-          undefined,
-          "Saved. The server heap ceiling takes effect on the next cold start — the in-place restart does not apply it.",
-        ),
       });
     } else if (restartRequired) {
       setMessage({ type: "warn", text: t("settings.restartRequired", undefined, "Saved. Some changes require a server restart to take effect.") });
@@ -1636,7 +1617,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     {t(
                       "settings.serverHeapDescription",
                       undefined,
-                      "Takes effect only on a full cold start of the dashboard server. The in-place restart button inherits the current environment and will NOT apply a new value. Bounds the V8 heap only — the process also holds memory outside it.",
+                      "Takes effect on the next restart of the dashboard server, including the in-place restart button. Bounds the V8 heap only — the process also holds memory outside it.",
                     )}
                   </p>
                   <HeapMbField
@@ -1663,10 +1644,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                         {t(
                           "settings.heap.serverDivergence",
                           { mb: String(effectiveServerHeapMb) },
-                          `The running server was started with ${effectiveServerHeapMb} MB. The configured value takes effect on the next cold start.`,
+                          `The running server was started with ${effectiveServerHeapMb} MB. The configured value takes effect on the next restart.`,
                         )}
                       </p>
                     )}
+                  <StoreHeapCouplingWarning config={config} testId="server-heap-store-heap-warning" />
                 </Section>
                 <Section title={t("settings.memoryLimits", undefined, "Memory Limits")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
@@ -1734,6 +1716,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                       c.memoryLimits.maxTotalEventBytes = v * MIB;
                     })}
                   />
+                  <StoreHeapCouplingWarning config={config} testId="memory-limits-store-heap-warning" />
                   {/* Resident session count — the multiplier on every
                       per-session bound, previously hardcoded at 100 with no
                       operator control. See change: bound-event-store-by-bytes
@@ -3577,6 +3560,39 @@ export function NumberField({ label, value, onChange, disabled, hint, unit }: Fi
         onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
       />
     </FieldShell>
+  );
+}
+
+/**
+ * Server-heap × store-budget coupling warning. Rendered beside BOTH fields
+ * (server heap ceiling, Max Total Event Bytes): they multiply into the heap
+ * the store will occupy, which neither field shows. Non-blocking — the values
+ * stay saveable. One shared guard formula, so the warned figure cannot drift
+ * from the tested one. See change: guard-server-heap-and-store-coupling (D1).
+ */
+function StoreHeapCouplingWarning({ config, testId }: { config: Config; testId: string }) {
+  const { t } = useI18n();
+  const ceilingMb = config.serverHeap?.maxOldSpaceMb ?? DEFAULT_SERVER_HEAP.maxOldSpaceMb;
+  const r = serverHeapStoreCoupling(
+    config.memoryLimits?.maxTotalEventBytes ?? DEFAULT_MEMORY_LIMITS.maxTotalEventBytes,
+    ceilingMb,
+  );
+  if (!r.warn) return null;
+  const vars = { ceiling: String(ceilingMb), heap: String(r.projectedHeapMb), crash: String(r.crashPointMb) };
+  return (
+    <p data-testid={testId} role="status" className="mt-1 text-xs text-amber-400">
+      {r.unbounded
+        ? t(
+            "settings.heap.storeUnbounded",
+            vars,
+            `The event store is unbounded (Max Total Event Bytes = 0) under a ${ceilingMb} MB server heap ceiling, so the server will eventually run out of memory. Set a byte budget, or accept this only for a short diagnostic run.`,
+          )
+        : t(
+            "settings.heap.storeCoupling",
+            vars,
+            `This event budget needs about ${r.projectedHeapMb} MB of heap, above the ~${r.crashPointMb} MB crash point of a ${ceilingMb} MB server heap ceiling. Raise the ceiling or lower Max Total Event Bytes.`,
+          )}
+    </p>
   );
 }
 
