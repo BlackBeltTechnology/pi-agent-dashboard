@@ -50,3 +50,21 @@ Historical / intentional (kept):
 | `packages/shared/src/piai-compat/__tests__/adapt.test.ts` | deleted assertions | legacy passthrough (#E1) retired (task 2.3); replaced by E9 legacy-rejected + partial-rejected. |
 | `packages/shared/src/piai-compat/__tests__/oauth-facade.test.ts` | deleted assertions | legacy `dist/oauth.js` preference retired (task 2.3); replaced by "usable legacy oauth.js is never consulted" + loaders-preferred. |
 | `packages/server/src/__tests__/pi-version-skew.test.ts` | strong→permissive (heuristic) | file-level heuristic: new E5 tests assert the exact `null` return with `toBeNull()`; X13 moved to the stricter `rangeIsSatisfiable(...).toBe(true)`. |
+
+## Step 4.4 enforcers
+
+All green except `knip-ratchet.mjs`, which is red on `origin/develop` itself (user-approved as pre-existing):
+
+| Tree | exports | types | duplicates |
+|---|---|---|---|
+| baseline | 234 | 193 | 12 |
+| `origin/develop` (pristine worktree) | 245 | 195 | 14 |
+| this branch | 244 | 195 | 14 |
+
+This change is net −1 export: its two new findings (`NO_RELOAD_PATH_REASON` orphaned export, `LoginOptions` type) were un-exported. `--check-baseline-diff origin/develop` passes (no baseline raised).
+
+## Full suite (5.3)
+
+`npm test`: 2222 files passed. Failures triaged:
+- fixed (caused by the 1.0.0 floor): `health-compatibility.test.ts` fixture `0.99.0` ("above minimum") now derived from the floor; `async-semantics-guards` E3 — `void tr.reload()` replaced by an awaited promise.
+- pre-existing / environmental, unchanged files: `scripts/__tests__/test-selection-data.test.mjs` (`git ls-files` output 1,048,727 B > Node's 1 MiB `execFileSync` default → `ENOBUFS`), `packages/system-one-plugin/src/server/__tests__/supervisor.test.ts` X12 (sources byte-identical to `origin/develop`; fake-engine shim, no pi import).

@@ -71,7 +71,7 @@ export interface LoginInteraction {
 }
 
 /** pi-ai's `LoginOptions` slice the dashboard supplies. */
-export interface LoginOptions {
+interface LoginOptions {
   getDeviceId?: () => string;
 }
 

@@ -215,7 +215,7 @@ export type ReloadOutcome =
   | { ok: false; reason: string };
 
 /** Reason emitted when the bridge has no reload path for this session. */
-export const NO_RELOAD_PATH_REASON =
+const NO_RELOAD_PATH_REASON =
   "No dashboard reload path for this session — run /reload in the pi TUI.";
 
 /** A dashboard reload for this session is still in flight. */
