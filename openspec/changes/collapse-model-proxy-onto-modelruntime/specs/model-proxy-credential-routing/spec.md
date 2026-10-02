@@ -12,16 +12,22 @@ The dashboard server SHALL hold exactly one pi model runtime. The model proxy, `
 - **WHEN** a custom provider is configured in `providers.json`
 - **THEN** its models SHALL be listed by `/api/models`, routable through the proxy, and visible to plugins through the plugin model runtime
 
+#### Scenario: Removed custom provider disappears
+- **WHEN** a custom provider, or one of its fields such as `apiKey`, is removed from `providers.json`
+- **THEN** the runtime SHALL no longer list the provider, or SHALL no longer use the removed field
+
 ### Requirement: Credential writes through the model runtime SHALL keep the dashboard's auth.json guarantees
 
-Every `auth.json` write the model runtime triggers (OAuth refresh, credential set or removal) SHALL go through the dashboard's credential store, which SHALL:
+Every `auth.json` write the model runtime triggers (OAuth refresh, credential removal) SHALL go through the dashboard's credential store, which SHALL:
 - never hold the `auth.json` lock across a network call;
 - persist with an atomic replace, so a crash never leaves a truncated `auth.json`;
 - refuse to write over unparseable `auth.json` content that has not been quarantined;
-- dedupe concurrent refreshes of one provider within the server process;
+- serialize credential mutations of one provider within the server process;
+- never create `auth.json` when removing a credential;
+- recover a failed refresh from a credential another writer stored meanwhile, exactly as the coordination requirement specifies;
 - keep credential material out of every error message and log line.
 
-The runtime's own default file store SHALL NOT be used by the server.
+The runtime's own default file store SHALL NOT be used by the server. Concurrent requests for one provider SHALL cause at most one call to its refresh endpoint, also when that refresh fails.
 
 #### Scenario: Runtime-triggered refresh does not hold the lock over the network
 - **WHEN** the runtime refreshes an expiring OAuth credential and the provider's token endpoint takes 5 seconds to answer
@@ -30,6 +36,14 @@ The runtime's own default file store SHALL NOT be used by the server.
 #### Scenario: Two concurrent requests refresh once
 - **WHEN** two proxy requests for the same provider arrive while its OAuth credential is expiring
 - **THEN** the provider's refresh endpoint SHALL be called at most once by the server
+
+#### Scenario: Two concurrent requests share one failed refresh
+- **WHEN** two proxy requests for the same provider arrive while its OAuth credential is expiring and the provider rejects the refresh
+- **THEN** the refresh endpoint SHALL be called once and both requests SHALL fail with that refresh error
+
+#### Scenario: Ambient environment keys do not change the listed catalogue
+- **WHEN** `auth.json` holds no credential for a provider but the server's environment exports that provider's API key
+- **THEN** `/api/models` SHALL NOT list that provider's models
 
 #### Scenario: Crash during persist leaves a valid file
 - **WHEN** the server process is killed while persisting a refreshed credential
