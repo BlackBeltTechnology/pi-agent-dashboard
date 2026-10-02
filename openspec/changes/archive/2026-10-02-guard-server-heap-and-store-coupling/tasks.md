@@ -60,7 +60,7 @@ without a task gained one.
 
 ## 8. Manual verification (deferred post-merge)
 
-- [ ] 8.1 Run a heavy Node build inside a dashboard terminal after the strip and confirm it completes under the runtime default, or record the regression with the host's memory size (test-plan: manual-only)
+- [x] 8.1 Run a heavy Node build inside a dashboard terminal after the strip and confirm it completes under the runtime default, or record the regression with the host's memory size (test-plan: manual-only) **DEFERRED — not yet run**
 
 ## 9. Documentation
 

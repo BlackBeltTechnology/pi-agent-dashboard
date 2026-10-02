@@ -1618,23 +1618,6 @@ Each field SHALL state the unit (megabytes) and its effective default.
 - **THEN** the save payload SHALL include the changed key
 - **AND** reloading the settings panel SHALL show the saved value
 
-### Requirement: Heap fields state when they take effect
-
-Each heap field SHALL tell the operator when a change becomes effective, because
-neither field applies to anything already running.
-
-The session fields SHALL indicate that they apply to sessions started after the
-change. The server field SHALL indicate that it requires a cold start and does
-not take effect on an in-place restart.
-
-#### Scenario: Session field states its boundary
-- **WHEN** the operator views the session heap fields
-- **THEN** the panel SHALL state that the value applies to newly started sessions
-
-#### Scenario: Server field states the cold-start requirement
-- **WHEN** the operator views the server heap field
-- **THEN** the panel SHALL state that a cold start is required
-
 ### Requirement: Out-of-range heap input is refused at entry
 
 The panel SHALL refuse a `maxOldSpaceMb` value below the supported floor of
@@ -1670,24 +1653,6 @@ non-blocking warning naming the computed per-child figure.
 #### Scenario: Default pairing is silent
 - **WHEN** the ceiling is `512` and `maxConcurrentSubagents` is the default `2`
 - **THEN** no coupling warning SHALL be shown
-
-### Requirement: The server ceiling SHALL be labelled cold-start-only, not restart-required
-
-`serverHeap.maxOldSpaceMb` does not take effect on the in-place restart the
-panel offers, because that restart inherits the current process environment. The
-generic "some changes require a server restart" banner therefore tells the
-operator that an action they can take is sufficient, when it provably is not.
-The panel SHALL distinguish this field, and the effective ceiling SHALL be
-observable so a divergence between configured and running value is visible.
-
-#### Scenario: Editing the server ceiling states the stronger requirement
-- **WHEN** the operator edits `serverHeap.maxOldSpaceMb`
-- **THEN** the panel SHALL state that a full cold start is required
-- **AND** it SHALL NOT imply the in-place restart applies the new ceiling
-
-#### Scenario: A configured value that is not yet running is visible
-- **WHEN** the configured ceiling differs from the running process's effective ceiling
-- **THEN** the panel SHALL surface that the running value differs
 
 ### Requirement: Models nav group
 
@@ -1756,3 +1721,53 @@ The Save Bar dirty-page label for a promoted page SHALL read `<Group> › <nav.l
 #### Scenario: Save Bar names the promoted page
 - **WHEN** the user edits a role assignment on the promoted page without saving
 - **THEN** the Save Bar SHALL list `Models › Model roles` as dirty and the promoted entry SHALL show a dirty dot
+
+### Requirement: The panel SHALL disclose the server-heap/store-budget coupling
+
+The panel SHALL surface a non-blocking warning when the store budget converted
+to heap leaves insufficient room under the server ceiling, including the
+unlimited case of `maxTotalEventBytes` set to `0`.
+
+Both keys live on the Server page, but they multiply into a third quantity — the
+heap the store will actually occupy — that neither field displays, so a pairing
+that guarantees an OOM looks unremarkable at the point of either edit.
+
+#### Scenario: Unlimited store budget is disclosed
+- **WHEN** the operator sets `maxTotalEventBytes` to `0` against the default `1536` MB ceiling
+- **THEN** the panel SHALL warn that the store is unbounded under a bounded ceiling
+- **AND** the value SHALL remain saveable
+
+#### Scenario: Unlimited budget is described as unbounded, not as a figure
+- **WHEN** `maxTotalEventBytes` is `0`
+- **THEN** the warning SHALL describe the store as unbounded rather than reporting a heap-equivalent number
+
+#### Scenario: Warning names the heap-equivalent for a finite budget
+- **WHEN** the operator raises `maxTotalEventBytes` to `2048` MiB against a `1536` MB ceiling
+- **THEN** the warning SHALL report the budget's heap-equivalent rather than the raw budget
+
+#### Scenario: The warning appears on both fields
+- **WHEN** the pairing is unsafe
+- **THEN** the warning SHALL be surfaced on the server heap field and on the memory-limits budget field
+
+### Requirement: Heap fields SHALL state their effect boundary
+
+Each heap field SHALL tell the operator when a change becomes effective, because
+neither field applies to anything already running.
+
+The session fields SHALL indicate that they apply to sessions started after the
+change. The server field SHALL indicate that it takes effect on the next server
+restart, including the in-place restart the panel offers. When the configured
+server ceiling differs from the running process's effective ceiling, the panel
+SHALL surface that the running value differs.
+
+#### Scenario: Session field states its boundary
+- **WHEN** the operator views the session heap fields
+- **THEN** the panel SHALL state that the value applies to newly started sessions
+
+#### Scenario: Server field states the restart boundary
+- **WHEN** the operator views the server heap field
+- **THEN** the panel SHALL state that the value takes effect on the next restart, including the in-place restart
+
+#### Scenario: A configured value that is not yet running is visible
+- **WHEN** the configured ceiling differs from the running process's effective ceiling
+- **THEN** the panel SHALL surface that the running value differs
