@@ -158,20 +158,32 @@ const operatorPinned = nodeOptionTokens.some(
 // An operator pin wins, and OUR stale marker is dropped with it: a marker that
 // no longer describes a present token would let the spawn-side strip misread
 // their flag as ours.
+// Drop OUR previous token without a split/join round-trip, so every other
+// byte survives — a quoted operator value (`--require "/a  b.js"`) keeps its
+// repeated spaces. Mirrors `withoutToken` in packages/shared/src/heap-flags.ts.
+// See change: guard-server-heap-and-store-coupling (CodeRabbit PR #780).
+const keptNodeOptions = ourPreviousFlag
+  ? existingNodeOptions
+      .replace(
+        new RegExp(`(^|\\s+)${ourPreviousFlag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$)`, "g"),
+        "",
+      )
+      .replace(/^\s+/, "")
+      .trimEnd()
+  : existingNodeOptions.trimEnd();
 const childEnvBase = operatorPinned
   ? (() => {
       // Their pin wins, but OUR stale token goes with the marker: V8 is
       // last-wins, so leaving it could override the pin we just honoured.
       const e = { ...process.env };
-      const keptForPin = nodeOptionTokens.filter((t) => t !== ourPreviousFlag);
-      if (keptForPin.length === 0) delete e.NODE_OPTIONS;
-      else e.NODE_OPTIONS = keptForPin.join(" ");
+      if (!keptNodeOptions) delete e.NODE_OPTIONS;
+      else e.NODE_OPTIONS = keptNodeOptions;
       delete e[HEAP_FLAG_MARKER_ENV];
       return e;
     })()
   : {
       ...process.env,
-      NODE_OPTIONS: [...nodeOptionTokens.filter((t) => t !== ourPreviousFlag), heapFlag].join(" "),
+      NODE_OPTIONS: keptNodeOptions ? `${keptNodeOptions} ${heapFlag}` : heapFlag,
       [HEAP_FLAG_MARKER_ENV]: heapFlag,
     };
 

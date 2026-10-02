@@ -138,6 +138,15 @@ describe("TerminalManager", () => {
         expect(env).not.toHaveProperty("NODE_OPTIONS");
       });
 
+      it("keeps a quoted --require path with repeated spaces byte-for-byte (CodeRabbit #780)", async () => {
+        const quoted = '--require "/opt/my  hooks/pre  load.js"';
+        const env = await spawnEnv({
+          NODE_OPTIONS: `${quoted} --max-old-space-size=1536`,
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env.NODE_OPTIONS).toBe(quoted);
+      });
+
       it("X4: preserves an operator flag distinct from the stamp", async () => {
         const env = await spawnEnv({ NODE_OPTIONS: "--max_old_space_size=4096", [MARKER]: undefined });
         expect(env.NODE_OPTIONS).toBe("--max_old_space_size=4096");
