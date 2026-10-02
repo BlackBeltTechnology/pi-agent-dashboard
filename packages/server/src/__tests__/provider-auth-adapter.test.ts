@@ -51,6 +51,7 @@ function start(loginFlow: FakeOAuthFlow, extra: Partial<StartFlowParams> = {}): 
     writeCredential,
     notifyBridges,
     ...(extra.openInBrowser ? { openInBrowser: extra.openInBrowser } : {}),
+    ...(extra.getDeviceId ? { getDeviceId: extra.getDeviceId } : {}),
   });
   return { started, writeCredential, notifyBridges };
 }
@@ -454,5 +455,60 @@ describe("flow ids (E13 support)", () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
     }
+  });
+});
+
+/**
+ * pi 1.0.0 surface. See change: update-pi-core-1-0-adopt-apis.
+ */
+describe("pi 1.0.0 login surface", () => {
+  // test-plan #E15 — the Anthropic login opens with a method `select`
+  // (browser / copy_code); answering `browser` continues to the auth URL.
+  it("E15: Anthropic method select surfaces as a pending select; answering browser yields the auth URL", async () => {
+    const loginFlow = {
+      name: "Anthropic",
+      async login(interaction: any) {
+        const method = await interaction.prompt({
+          type: "select",
+          message: "Choose a login method",
+          options: [
+            { id: "browser", label: "Browser" },
+            { id: "copy_code", label: "Copy code" },
+          ],
+        });
+        if (method !== "browser") throw new Error(`unexpected method ${method}`);
+        interaction.notify({ type: "auth_url", url: "https://claude.ai/oauth/authorize?x=1" });
+        await interaction.prompt({ type: "manual_code", message: "Paste the code" });
+        return { type: "oauth" as const, refresh: "r", access: "a", expires: 1 };
+      },
+    };
+    const { started } = start(loginFlow as any);
+    await flush();
+
+    const first = toFlowStatus(started.flow);
+    expect(first.pending).toMatchObject({ kind: "select" });
+    expect((first.pending as any).options.map((o: { id: string }) => o.id)).toEqual(["browser", "copy_code"]);
+
+    started.flow.resolveInput?.("browser");
+    await flush();
+    await flush();
+    const next = toFlowStatus(started.flow);
+    expect(next.authUrl).toContain("https://claude.ai/oauth/authorize");
+  });
+
+  // Sign in with ChatGPT (`openai`) requires `login(interaction, { getDeviceId })`
+  // and rejects immediately without it.
+  it("passes getDeviceId to login() so Sign in with ChatGPT can identify the installation", async () => {
+    let seen: unknown;
+    const loginFlow = {
+      name: "OpenAI",
+      async login(_interaction: unknown, options?: { getDeviceId?: () => string }) {
+        seen = options?.getDeviceId?.();
+        return { type: "oauth" as const, refresh: "r", access: "a", expires: 1 };
+      },
+    };
+    const { started } = start(loginFlow as any, { getDeviceId: () => "11111111-2222-4333-8444-555555555555" });
+    await started.settled;
+    expect(seen).toBe("11111111-2222-4333-8444-555555555555");
   });
 });

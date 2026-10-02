@@ -39,6 +39,8 @@ const PI_PACKAGE = "@earendil-works/pi-coding-agent";
  */
 export const FLOW_TYPE_HINT: Readonly<Record<string, "auth_code" | "device_code">> = {
   anthropic: "auth_code",
+  // pi 1.0.0 Sign in with ChatGPT. See change: update-pi-core-1-0-adopt-apis.
+  openai: "auth_code",
   "openai-codex": "auth_code",
   openrouter: "auth_code",
 };
@@ -115,6 +117,9 @@ export function mapProviders(
     id: p.id,
     name: p.auth.oauth.name,
     flowType: FLOW_TYPE_HINT[p.id] ?? "device_code",
+    // pi's OAuth `isSubscription`; absent → false (an account sign-in).
+    // See change: update-pi-core-1-0-adopt-apis (D8).
+    subscription: p.auth.oauth.isSubscription === true,
     auth: p.auth.oauth,
   }));
 }

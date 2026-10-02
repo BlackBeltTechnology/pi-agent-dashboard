@@ -45,12 +45,16 @@ The server SHALL expose `GET /api/provider-auth/handlers` returning `{ ids: stri
 
 ### Requirement: Status rows carry the auth label and the subscription flag
 
-`GET /api/provider-auth/status` SHALL copy the catalogue entry's `authLabel` onto a configured, environment-sourced api-key row, and SHALL report `authenticated: true` for that row when it has `authLabel` and no stored key (an environment credential pi resolves itself, like `ambient`). Each OAuth registry entry and OAuth status row SHALL carry `subscription` (boolean), taken from the pi provider's OAuth `isSubscription` (absent → `false`). On pi 1.0.0 every registry provider except `openrouter` reports `subscription: true`.
+`GET /api/provider-auth/status` SHALL copy the catalogue entry's `authLabel` onto a configured, environment-sourced api-key row, and SHALL report `authenticated: true` for that row when it has `authLabel`, no stored key, no `envVar` and is not `ambient` (an environment credential pi resolves itself, like `ambient`). Because pi labels every environment credential, an env-var row keeps its existing `authenticated` value. Each OAuth registry entry and OAuth status row SHALL carry `subscription` (boolean), taken from the pi provider's OAuth `isSubscription` (absent → `false`). On pi 1.0.0 every registry provider except `openrouter` reports `subscription: true`.
 
 #### Scenario: Federation row
 - **WHEN** the catalogue reports `anthropic` as `{ configured: true, source: "environment", authLabel: "workload identity federation" }` and nothing is stored
 - **THEN** the `anthropic-api` row SHALL report `configured: true`, `authenticated: true`, `source: "environment"`, `authLabel: "workload identity federation"`
 - **AND** the `anthropic` OAuth row SHALL report `configured: false`
+
+#### Scenario: Env-var row is not promoted by its label
+- **WHEN** the catalogue reports `anthropic` as `{ configured: true, source: "environment", envVar: "ANTHROPIC_API_KEY", authLabel: "ANTHROPIC_API_KEY" }`
+- **THEN** the `anthropic-api` row SHALL report `authenticated: false`
 
 #### Scenario: Subscription flag
 - **WHEN** a client requests `GET /api/provider-auth/providers` against pi 1.0.0

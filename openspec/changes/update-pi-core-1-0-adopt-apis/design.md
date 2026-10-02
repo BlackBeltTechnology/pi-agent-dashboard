@@ -52,8 +52,12 @@ Anthropic (1.0.0): the first step is now a method `select`, not the auth URL. No
 
 ### D7 — Auth label for environment auth without a key variable
 - `provider-register.ts` already reads `modelRegistry.getProviderAuthStatus(id)` for `configured`/`source`; it also copies `label` → `authLabel`. pi 1.0.0 `ModelRuntime.getProviderAuthStatus` returns `{ configured: true, source: "environment", label: "workload identity federation" }` for Anthropic federation.
-- `provider-auth-storage.ts` `_buildAuthStatus`: `authenticated` also true for an environment row with `authLabel` and no stored key; `row.authLabel` copied. Client Environment mechanism text = `authLabel ?? ambient text`.
+- `provider-auth-storage.ts` `_buildAuthStatus`: `authenticated` also true for an environment row with `authLabel`, no stored key, no `envVar` and not `ambient`; `row.authLabel` copied. pi 1.0.0 labels EVERY environment credential (env-var rows get the variable name), so the gate keeps env-var rows unchanged (user decision during implementation). Client Environment mechanism text = `envVar ? from <envVar> : authLabel ?? ambient text`.
 - Generic: any future pi env auth with a label is named, not just Anthropic.
+
+### D7a — Sign in with ChatGPT needs a device id (found during implementation)
+- pi 1.0.0 `openai` OAuth `login(interaction, options)` throws "Sign in with ChatGPT requires a device ID (UUID) for this installation" without `options.getDeviceId`. pi's TUI passes `SettingsManager.getOrCreateDeviceId()`.
+- The adapter passes `{ getDeviceId }` to every `login()`; `beginFlow` pre-loads pi's public `SettingsManager.create(cwd).getOrCreateDeviceId` (same id as the pi TUI; pi writes `deviceId` to `~/.pi/agent/settings.json` only when absent). Failure to load leaves it unset; only flows needing it fail, with pi's message.
 
 ### D8 — Subscription flag
 - Registry build reads the pi OAuth provider's `isSubscription` (absent → `false`) into the registry entry and OAuth status rows (`subscription`). Client badge: `subscription === false` → "Account", otherwise "Subscription" (older server keeps today's text).

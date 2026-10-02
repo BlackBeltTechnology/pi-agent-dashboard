@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapEventToProtocol, redactCompactionEntry } from "../event-forwarder.js";
+import { mapEventToProtocol, redactBeforeSettleContext, redactCompactionEntry } from "../event-forwarder.js";
 
 describe("mapEventToProtocol", () => {
   const sessionId = "test-session-1";
@@ -191,5 +191,26 @@ describe("redactCompactionEntry", () => {
       }).not.toThrow();
       expect("compactionEntry" in (redacted as Record<string, unknown>)).toBe(false);
     }
+  });
+});
+
+/**
+ * pi 0.87+ `agent_before_settle` carries a `context` preview with full message
+ * arrays. It is forwarded (no status effect) but without that preview, and the
+ * shared event object is never mutated.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E12).
+ */
+describe("redactBeforeSettleContext", () => {
+  it("drops `context` from a copy and keeps every other field", () => {
+    const event = {
+      type: "agent_before_settle",
+      entries: [],
+      continue: false,
+      outcome: "completed",
+      context: { contextMessages: [{ role: "user" }], llmMessages: [] },
+    };
+    const forwarded = redactBeforeSettleContext(event);
+    expect(forwarded).toEqual({ type: "agent_before_settle", entries: [], continue: false, outcome: "completed" });
+    expect(event.context).toBeDefined();
   });
 });

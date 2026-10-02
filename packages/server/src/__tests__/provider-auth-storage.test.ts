@@ -11,15 +11,17 @@ import {
 
 /**
  * The OAuth rows now come from the pi runtime's provider registry, so the
- * expectations are the RUNTIME's seven bundled OAuth providers (minus the
+ * expectations are the RUNTIME's eight bundled OAuth providers (minus the
  * excluded `radius`) — not a dashboard-maintained list.
- * See change: delegate-provider-oauth-to-pi-ai (D1).
+ * See change: delegate-provider-oauth-to-pi-ai (D1), update-pi-core-1-0-adopt-apis
+ * (pi 1.0.0 adds `openai`).
  */
 const REGISTRY_OAUTH_IDS = [
   "anthropic",
   "github-copilot",
   "kimi-coding",
   "meta",
+  "openai",
   "openai-codex",
   "openrouter",
   "xai",
@@ -29,7 +31,9 @@ const REGISTRY_OAUTH_IDS = [
 // See change: replace-hardcoded-provider-lists.
 const FIXTURE_CATALOGUE: ProviderInfo[] = [
   { id: "anthropic", displayName: "Anthropic", hasOAuth: true, configured: false },
-  { id: "openai", displayName: "OpenAI", hasOAuth: false, configured: false },
+  // pi 1.0.0: `openai` also has an OAuth login (ChatGPT), so its API-key row
+  // is the `openai-api` twin. See change: update-pi-core-1-0-adopt-apis.
+  { id: "openai", displayName: "OpenAI", hasOAuth: true, configured: false },
   { id: "deepseek", displayName: "DeepSeek", hasOAuth: false, configured: false },
   { id: "groq", displayName: "Groq", hasOAuth: false, configured: false },
   { id: "zai", displayName: "Z.ai", hasOAuth: false, configured: false },
@@ -115,7 +119,7 @@ describe("provider-auth-storage", () => {
     await writeCredential("openai", { type: "api_key", key: "sk-abc123xyz789" });
     try {
       const statuses = getAuthStatus();
-      const openai = statuses.find((s) => s.id === "openai");
+      const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.maskedKey).toBe("sk-ab...789");
     } finally {
       await removeCredential("openai");
@@ -127,7 +131,7 @@ describe("provider-auth-storage", () => {
     await writeCredential("openai", { type: "api_key", key: "shortkey" });
     try {
       const statuses = getAuthStatus();
-      const openai = statuses.find((s) => s.id === "openai");
+      const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.maskedKey).toBe("****");
     } finally {
       await removeCredential("openai");
@@ -139,7 +143,7 @@ describe("provider-auth-storage", () => {
     await writeCredential("openai", { type: "api_key", key: "" });
     try {
       const statuses = getAuthStatus();
-      const openai = statuses.find((s) => s.id === "openai");
+      const openai = statuses.find((s) => s.id === "openai-api");
       expect(openai!.authenticated).toBe(false);
       expect(openai!.maskedKey).toBeUndefined();
     } finally {
@@ -162,6 +166,7 @@ describe("provider-auth-storage", () => {
     expect(resolveAuthJsonKey("anthropic-api")).toBe("anthropic");
     expect(resolveAuthJsonKey("anthropic")).toBe("anthropic");
     expect(resolveAuthJsonKey("openai")).toBe("openai");
+    expect(resolveAuthJsonKey("openai-api")).toBe("openai"); // 1.0.0 OAuth twin
     expect(resolveAuthJsonKey("unknown-api")).toBe("unknown-api"); // bare passthrough; "unknown" not in OAuth set
   });
 });

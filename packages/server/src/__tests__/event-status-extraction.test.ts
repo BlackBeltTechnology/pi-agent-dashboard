@@ -300,3 +300,18 @@ describe("E11: a redacted session_compact payload still clears the latch", () =>
     expect(updates).toEqual({ compacting: false });
   });
 });
+
+// pi 0.87+ `agent_before_settle` fires BEFORE settlement — the agent may still
+// continue, so it must not flip the session to idle.
+// See change: update-pi-core-1-0-adopt-apis (test-plan #E12).
+describe("agent_before_settle (E12)", () => {
+  it("has no status effect", () => {
+    const updates = extractSessionUpdates({
+      eventType: "agent_before_settle",
+      timestamp: Date.now(),
+      data: { entries: [], continue: false },
+    } as DashboardEvent);
+    // `null` = "no update" — the strongest form of "no status effect".
+    expect(updates).toBeNull();
+  });
+});

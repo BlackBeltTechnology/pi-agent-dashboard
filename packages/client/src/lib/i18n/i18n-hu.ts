@@ -1848,6 +1848,7 @@ export const huCatalog: Record<string, string> = {
   "providers.badgeCustom": "Egyéni végpont",
   "providers.badgeEnvironment": "Környezet",
   "providers.badgeSubscription": "Előfizetés",
+  "providers.badgeAccount": "Fiók",
   "providers.catalogueUnavailableBody": "Nincs csatlakoztatott pi-munkamenet, ezért az API-kulccsal vagy környezeti változóval konfigurált szolgáltatók hiányozhatnak a listából — a lista elavult lehet. Az előfizetések nem érintettek.",
   "providers.catalogueUnavailableTitle": "Az API-kulcsos szolgáltatók listája nem érhető el.",
   "providers.customBaseUrl": "Base URL",

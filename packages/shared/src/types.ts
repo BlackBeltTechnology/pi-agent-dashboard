@@ -871,6 +871,13 @@ export interface ProviderInfo {
   envVar?: string;
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */
   ambient?: boolean;
+  /**
+   * pi's own label for the credential's source, from
+   * `modelRegistry.getProviderAuthStatus(id).label` (pi >= 0.99.2) — e.g.
+   * `"workload identity federation"`, or an env var name. Absent when pi
+   * reports none. See change: update-pi-core-1-0-adopt-apis (D7).
+   */
+  authLabel?: string;
   /** Expiry timestamp for OAuth credentials. */
   expires?: number;
   /**

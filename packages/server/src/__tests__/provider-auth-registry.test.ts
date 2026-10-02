@@ -21,9 +21,14 @@ import {
   resolveVersionFallback,
 } from "../auth/provider-auth-registry.js";
 
-/** The seven OAuth providers pi 0.86.1 bundles, minus the excluded `radius`. */
+/**
+ * The eight OAuth providers pi 1.0.0 bundles, minus the excluded `radius`.
+ * 1.0.0 adds `openai` (Sign in with ChatGPT).
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E10).
+ */
 const EXPECTED_IDS = [
   "anthropic",
+  "openai",
   "openai-codex",
   "github-copilot",
   "openrouter",
@@ -41,13 +46,24 @@ describe("registry from the real runtime (E1)", () => {
     expect(getRegistryError()).toBeNull();
   });
 
-  it("contains exactly the seven bundled OAuth providers", () => {
+  it("contains exactly the eight bundled OAuth providers (E10)", () => {
     const ids = getOAuthRegistry().map((e) => e.id);
     expect([...ids].sort()).toEqual([...EXPECTED_IDS].sort());
   });
 
   it("excludes `radius`", () => {
     expect(getOAuthRegistry().some((e) => e.id === "radius")).toBe(false);
+  });
+
+  it("E10: `openai` is an auth_code flow", () => {
+    expect(getOAuthRegistry().find((e) => e.id === "openai")?.flowType).toBe("auth_code");
+  });
+
+  // test-plan #E18 — `subscription` from pi's OAuth `isSubscription`.
+  it("E18: openrouter is subscription:false, the other seven subscription:true", () => {
+    for (const entry of getOAuthRegistry()) {
+      expect(entry.subscription, entry.id).toBe(entry.id !== "openrouter");
+    }
   });
 
   it("gives every entry a name and a callable login", () => {
@@ -70,10 +86,11 @@ describe("flowType hints (E2)", () => {
     auth: { oauth: { name: id, login: async () => ({ type: "oauth" as const, refresh: "", access: "", expires: 0 }) } },
   });
 
-  it("maps the three auth-code ids and defaults every other id to device_code", () => {
+  it("maps the four auth-code ids and defaults every other id to device_code", () => {
     const entries = mapProviders(
       [
         "anthropic",
+        "openai",
         "openai-codex",
         "openrouter",
         "github-copilot",
@@ -86,6 +103,7 @@ describe("flowType hints (E2)", () => {
     const byId = new Map(entries.map((e) => [e.id, e.flowType]));
 
     expect(byId.get("anthropic")).toBe("auth_code");
+    expect(byId.get("openai")).toBe("auth_code");
     expect(byId.get("openai-codex")).toBe("auth_code");
     expect(byId.get("openrouter")).toBe("auth_code");
     for (const id of ["github-copilot", "kimi-coding", "meta", "xai", "never-heard-of-it"]) {
@@ -93,12 +111,22 @@ describe("flowType hints (E2)", () => {
     }
   });
 
-  it("hint table names exactly the three auth-code ids", () => {
+  it("hint table names exactly the four auth-code ids", () => {
     expect(Object.keys(FLOW_TYPE_HINT).sort()).toEqual([
       "anthropic",
+      "openai",
       "openai-codex",
       "openrouter",
     ]);
+  });
+
+  it("absent isSubscription maps to subscription:false", () => {
+    const [entry] = mapProviders([provider("anthropic")]);
+    expect(entry.subscription).toBe(false);
+    const [sub] = mapProviders([
+      { id: "x", auth: { oauth: { ...provider("x").auth.oauth, isSubscription: true } } },
+    ]);
+    expect(sub.subscription).toBe(true);
   });
 
   it("drops providers with no OAuth login and the excluded id", () => {
@@ -179,7 +207,8 @@ describe("real-runtime first-interaction drift (design D1 table)", () => {
    * or reconnects.
    */
   const OFFLINE_FIRST_STEPS: Array<[string, string[]]> = [
-    ["anthropic", ["auth_url", "manual_code"]],
+    // 1.0.0: Anthropic opens with a method `select` (browser / copy_code).
+    ["anthropic", ["select"]],
     ["openrouter", ["progress", "auth_url", "manual_code"]],
     ["openai-codex", ["select"]],
     ["github-copilot", ["text"]],

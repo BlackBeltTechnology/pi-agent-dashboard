@@ -59,7 +59,7 @@ import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
-import { mapEventToProtocol, redactCompactionEntry } from "./event-forwarder.js";
+import { mapEventToProtocol, redactBeforeSettleContext, redactCompactionEntry } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -2279,6 +2279,10 @@ function initBridge(pi: ExtensionAPI) {
     // unconditional (no version gate, not merely inert below an old floor).
     "ui_prompt_start",
     "ui_prompt_end",
+    // pi >= 0.87. Fires before final settlement; no status effect (the agent
+    // may still continue). Forwarded without its `context` preview.
+    // See change: update-pi-core-1-0-adopt-apis (D5).
+    "agent_before_settle",
   ] as const;
   // Excluded from subscription (not forwarded):
   // - `context`: carries full message arrays (very large)
@@ -2798,7 +2802,8 @@ function initBridge(pi: ExtensionAPI) {
       if (!sessionReady) return;
       // Same choke point as the enriched loop (D5).
       coalescer.flush();
-      const msg = mapEventToProtocol(sessionId, event);
+      const forwarded = event?.type === "agent_before_settle" ? redactBeforeSettleContext(event) : event;
+      const msg = mapEventToProtocol(sessionId, forwarded);
       connection.send(msg);
     }));
   }

@@ -1883,6 +1883,7 @@ const zhCN: Record<string, string> = {
   "providers.badgeCustom": "自定义端点",
   "providers.badgeEnvironment": "环境变量",
   "providers.badgeSubscription": "订阅",
+  "providers.badgeAccount": "账户",
   "providers.catalogueUnavailableBody": "没有已连接的 pi 会话，因此通过 API 密钥或环境变量配置的提供者可能不在此列表中——列表可能已过期。订阅不受影响。",
   "providers.catalogueUnavailableTitle": "API 密钥提供者列表不可用。",
   "providers.customBaseUrl": "Base URL",

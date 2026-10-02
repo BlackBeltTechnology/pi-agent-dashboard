@@ -414,6 +414,36 @@ export interface StartFlowParams {
   /** Told to reload credentials once one is persisted. */
   notifyBridges: () => void;
   openInBrowser?: (url: string) => void;
+  /**
+   * Stable installation id for `login(interaction, { getDeviceId })`. Defaults
+   * to pi's own `SettingsManager.getOrCreateDeviceId()` (the id the pi TUI
+   * uses), resolved by {@link loadPiDeviceId} before the flow starts.
+   * See change: update-pi-core-1-0-adopt-apis.
+   */
+  getDeviceId?: () => string;
+}
+
+let piDeviceIdReader: (() => string) | undefined;
+
+/**
+ * Pre-load pi's device-id reader (`SettingsManager.create(cwd)
+ * .getOrCreateDeviceId`), so `startFlow` stays synchronous. Best effort: a
+ * failure leaves the reader unset and only flows that need a device id
+ * (Sign in with ChatGPT) fail, with pi-ai's own message.
+ */
+export async function loadPiDeviceId(): Promise<void> {
+  if (piDeviceIdReader) return;
+  try {
+    const mod = (await import("@earendil-works/pi-coding-agent")) as {
+      SettingsManager?: { create(cwd: string): { getOrCreateDeviceId(): string } };
+    };
+    const sm = mod.SettingsManager?.create(process.cwd());
+    if (sm && typeof sm.getOrCreateDeviceId === "function") {
+      piDeviceIdReader = () => sm.getOrCreateDeviceId();
+    }
+  } catch {
+    /* leave unset */
+  }
 }
 
 /**
@@ -464,10 +494,13 @@ export function startFlow(params: StartFlowParams): StartedFlow {
   const loginCall = (() => {
     try {
       return Promise.resolve(
-        params.loginFlow.login(createFlowInteraction(flow, {
-          onFirstStep,
-          openInBrowser: params.openInBrowser,
-        })),
+        params.loginFlow.login(
+          createFlowInteraction(flow, {
+            onFirstStep,
+            openInBrowser: params.openInBrowser,
+          }),
+          { getDeviceId: params.getDeviceId ?? piDeviceIdReader },
+        ),
       );
     } catch (err) {
       return Promise.reject(err);
