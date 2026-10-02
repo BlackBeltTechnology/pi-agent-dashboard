@@ -4,7 +4,6 @@
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
 import { gatherGitInfo, gatherGitStatus } from "./vcs-info.js";
@@ -143,19 +142,6 @@ export function readPkgVersionByWalkUp(
 }
 
 /**
- * Default reader: pi-coding-agent version from inside the bridge's own tree.
- *
- * Uses `import.meta.resolve` (the ESM resolver, `import` condition) rather than
- * `createRequire().resolve` (CJS, `require` condition): pi's `"."` export defines
- * only `import`/`types`, so the CJS resolver would itself throw
- * `ERR_PACKAGE_PATH_NOT_EXPORTED` ("No exports main defined"). `import.meta.resolve`
- * returns a `file://` URL, converted to a path for the walk-up.
- */
-export function defaultReadPiVersion(): string | undefined {
-  return readPkgVersionByWalkUp(PI_PKG, (spec) => fileURLToPath(import.meta.resolve(spec)));
-}
-
-/**
  * Both pi package identities a bridge can be running inside. The dashboard's
  * resolver prefers earendil, but a hoisted/transitive `.bin/pi` (e.g.
  * pi-flows') or a user-launched session can point at the mariozechner build.
@@ -174,30 +160,31 @@ export interface ReadRunningPiVersionFs {
  * Read the version of the pi process this bridge runs INSIDE, anchored on
  * `process.argv[1]` (pi's CLI entry) rather than a by-name resolution.
  *
- * Why argv, not {@link defaultReadPiVersion}: this monorepo hoists a pinned
- * earendil copy at the root, so by-name resolution can read the hoisted NEW
- * version while the session actually runs an OLD host pi (or a `@mariozechner`
- * build) — waving through a `sendUserMessage` that hard-codes
- * `expandPromptTemplates:false` and silently turns the slash into an LLM turn.
+ * Why argv, not a by-name resolution: this monorepo hoists a pinned earendil
+ * copy at the root, so by-name resolution can read the hoisted NEW version
+ * while the session actually runs an OLD host pi (or a `@mariozechner` build)
+ * — reporting a supported pi for a session that is below the floor.
  * `process.argv[1]` is the entry node was started with, so the walk-up always
  * lands on the manifest of the running copy.
  *
  * Whole body in try/catch → `undefined`: a missing argv[1], a bun-compiled
  * binary with no reachable manifest, or an unreadable/invalid manifest. A
- * caller must treat `undefined` as "assume new", never as "too old".
+ * caller must treat `undefined` as "unknown" (no below-floor flag), never as
+ * "too old".
  *
  * `argv[1]` is REALPATH-ed first, and that is load-bearing: a pi installed as a
  * bin shim is a SYMLINK (`node_modules/.bin/pi` → `../@…/dist/cli.js`;
  * `/usr/local/bin/pi` → `../lib/node_modules/…/cli.js`) and Node does NOT
  * resolve it for `argv[1]`. Walking from the symlink's directory finds no pi
- * manifest within the depth bound, so the reader would answer `undefined`,
- * the gate would "assume new", and an OLD pi would receive the raw slash as a
- * model turn — the exact silent regression this reader exists to prevent.
+ * manifest within the depth bound, so the reader would answer `undefined`
+ * and an OLD pi would never be flagged below the floor.
  * A failed realpath (deleted symlink target, virtual path) falls back to the
  * literal entry rather than aborting the read.
  *
  * The `fs` probes are injectable for tests. See change:
- * retire-slash-dispatch-via-expand-prompt-templates (design D3).
+ * retire-slash-dispatch-via-expand-prompt-templates (design D3). Since
+ * update-pi-core-1-0-adopt-apis it feeds `pi_version_update` (the server's
+ * below-floor signal) instead of the retired slash-dispatch gate.
  */
 export function readRunningPiVersion(
   argv1: string | undefined = process.argv[1],
@@ -226,14 +213,16 @@ export function readRunningPiVersion(
 
 /**
  * Send `pi_version_update` when the bridge's pi version differs from the last
- * sent value (including the first read). The bridge runs inside pi's own tree,
- * so `createRequire` resolution always succeeds. A read failure logs a warning
- * and skips the send; the next poll tick retries. `readVersion` is injectable
- * for tests.
+ * sent value (including the first read). The version is the RUNNING pi, read
+ * argv-anchored via {@link readRunningPiVersion} — never a by-name resolution,
+ * which can read a hoisted newer copy. An unknown version (`undefined`) is not
+ * sent. A read failure logs a warning and skips the send; the next poll tick
+ * retries. `readVersion` is injectable for tests.
+ * See change: update-pi-core-1-0-adopt-apis (D2).
  */
 export function sendPiVersionIfChanged(
   bc: BridgeContext,
-  readVersion: () => string | undefined = defaultReadPiVersion,
+  readVersion: () => string | undefined = readRunningPiVersion,
 ): void {
   let version: string | undefined;
   try {

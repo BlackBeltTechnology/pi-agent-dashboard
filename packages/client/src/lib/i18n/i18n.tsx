@@ -1470,6 +1470,7 @@ const zhCN: Record<string, string> = {
   "status.nDone": "{count} 个完成",
   "status.nFailed": "{count} 个失败",
   "status.piVersionRecommended": "已安装 pi {current}；建议使用 {recommended}。",
+  "session.piBelowFloor": "pi {running} 低于所需版本 {required}，请升级 pi",
   "status.starting": "启动中…",
   "status.working": "处理中",
   "tags.addTag": "添加标签",

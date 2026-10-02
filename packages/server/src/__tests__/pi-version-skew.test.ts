@@ -14,6 +14,7 @@ import { checkPiPinCoherence, collectFailures } from "../../../../scripts/verify
 import {
   compareVersions,
   computeCompatibility,
+  computePiBelowFloor,
   isAbove,
   isBelow,
   parseVersion,
@@ -296,6 +297,34 @@ describe("pi pin block \u2014 1.0.0", () => {
     // Caret on a >=1.x range pins the major; minor/patch may only move forward.
     expect(major, `resolved ${resolved} vs declared ${declared}`).toBe(dMajor);
     expect(compareVersions(resolved, declaredVersion)).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * A session running below the floor is flagged; the floor is the lockstep
+ * `piCompatibility.minimum`. Unknown / unparseable versions raise no flag.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E5).
+ */
+describe("computePiBelowFloor — below-floor session flag (E5)", () => {
+  it("flags 0.87.1 against minimum 1.0.0, carrying the required version", () => {
+    expect(computePiBelowFloor("0.87.1", "1.0.0")).toEqual({ minimum: "1.0.0" });
+  });
+
+  it("does not flag a session at the floor", () => {
+    expect(computePiBelowFloor("1.0.0", "1.0.0")).toBeNull();
+  });
+
+  it("does not flag a session above the floor", () => {
+    expect(computePiBelowFloor("1.0.1", "1.0.0")).toBeNull();
+  });
+
+  it("does not flag an unreported version", () => {
+    expect(computePiBelowFloor(undefined, "1.0.0")).toBeNull();
+  });
+
+  it("does not flag an unparseable version", () => {
+    expect(computePiBelowFloor("dev", "1.0.0")).toBeNull();
+    expect(computePiBelowFloor("", "1.0.0")).toBeNull();
   });
 });
 

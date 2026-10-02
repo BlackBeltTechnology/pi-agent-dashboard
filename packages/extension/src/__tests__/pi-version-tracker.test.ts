@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   sendPiVersionIfChanged,
@@ -57,6 +58,32 @@ describe("sendPiVersionIfChanged", () => {
     const { bc, send } = makeBc();
     sendPiVersionIfChanged(bc, () => undefined);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // test-plan #E6 — the DEFAULT reader is argv-anchored: the running pi
+  // (0.87.1, argv[1]) wins over the newer 1.0.0 copy resolvable by name from
+  // the bridge's own location (the repo's hoisted pin).
+  // See change: update-pi-core-1-0-adopt-apis.
+  it("E6: default reader reports the running pi, not a hoisted newer copy", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-running-"));
+    const root = path.join(tmp, "node_modules", "@earendil-works", "pi-coding-agent");
+    fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.87.1" }),
+    );
+    const entry = path.join(root, "dist", "cli.js");
+    fs.writeFileSync(entry, "");
+    const prevArgv1 = process.argv[1];
+    process.argv[1] = entry;
+    try {
+      const { bc, send } = makeBc();
+      sendPiVersionIfChanged(bc);
+      expect(send).toHaveBeenCalledWith({ type: "pi_version_update", sessionId: "sess-1", version: "0.87.1" });
+    } finally {
+      process.argv[1] = prevArgv1;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

@@ -14,9 +14,9 @@
 
 ## 3. Below-floor signal
 
-- [ ] 3.1 Switch `sendPiVersionIfChanged` to `readRunningPiVersion()`; fix the `protocol.ts` `piVersion` comment; verify with a test that a hoisted newer copy does not mask the running version
-- [ ] 3.2 Server: set a below-floor flag on the session record when the reported `piVersion` < `piCompatibility.minimum` (unknown or unparseable → none); verify with unit tests for the below-floor scenarios
-- [ ] 3.3 Client: render the warning (running + required version) on the session card and in the chat view; verify with a component test (react-expert checkpoint)
+- [x] 3.1 Switch `sendPiVersionIfChanged` to `readRunningPiVersion()`; fix the `protocol.ts` `piVersion` comment; verify with a test that a hoisted newer copy does not mask the running version
+- [x] 3.2 Server: set a below-floor flag on the session record when the reported `piVersion` < `piCompatibility.minimum` (unknown or unparseable → none); verify with unit tests for the below-floor scenarios
+- [x] 3.3 Client: render the warning (running + required version) on the session card and in the chat view; verify with a component test (react-expert checkpoint)
 
 ## 4. 0.99–1.0 surface and tolerance
 
@@ -44,8 +44,8 @@
 - [x] 6.2 L1 test for publishable peer ranges — see `scripts/__tests__/dependency-declarations.test.mjs`; root + `packages/*` manifests plus `>=0.80.10` / `<0.87.0` fixtures · dependency check · all `>=1.0.0` optional uncapped, fixtures fail naming the manifest (test-plan #E2)
 - [x] 6.3 L1 test rejecting a broad pi devDependency — see `scripts/__tests__/dependency-declarations.test.mjs`; fixture devDep `pi-tui >=0.80.10` · dependency check · fails naming the manifest (test-plan #E3)
 - [x] 6.4 L1 test for release-deps coherence — see `scripts/__tests__/verify-release-deps-pi-coherence.test.mjs`; all pins `1.0.0`, then single drifts (pi-tui override, peer lower bound, `minimum`) · `verify-release-deps.mjs` · pass, then fail naming each drifted location (test-plan #E4)
-- [ ] 6.5 L1 test for the below-floor flag — see `packages/server/src/__tests__/pi-version-skew.test.ts`; reported `0.87.1`/`1.0.0`/undefined/`"dev"` with min `1.0.0` · `pi_version_update` handling · flag only for `0.87.1` (test-plan #E5)
-- [ ] 6.6 L1 test that the running pi version is reported — see `packages/extension/src/__tests__/pi-version-tracker.test.ts`; argv manifest `0.87.1`, hoisted `1.0.0` · `sendPiVersionIfChanged()` · sends `0.87.1` (test-plan #E6)
+- [x] 6.5 L1 test for the below-floor flag — see `packages/server/src/__tests__/pi-version-skew.test.ts`; reported `0.87.1`/`1.0.0`/undefined/`"dev"` with min `1.0.0` · `pi_version_update` handling · flag only for `0.87.1` (test-plan #E5)
+- [x] 6.6 L1 test that the running pi version is reported — see `packages/extension/src/__tests__/pi-version-tracker.test.ts`; argv manifest `0.87.1`, hoisted `1.0.0` · `sendPiVersionIfChanged()` · sends `0.87.1` (test-plan #E6)
 - [x] 6.7 L1 test for ungated slash dispatch — see `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`; `/ctx-stats`, throwing version reader · `tryDispatchExtensionCommand` · `sendUserMessage` with `expandPromptTemplates:true`, `started`→`completed`, reader never called (test-plan #E7)
 - [x] 6.8 L1 test for ungated reload self-dispatch — see `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`; terminal-hosted bridge, throwing version reader · forwarded `/reload` · `/__dashboard_reload <token>` dispatched, no minimum-version error (test-plan #E8)
 - [x] 6.9 L1 test for factory-only pi-ai adaptation — see `packages/shared/src/piai-compat/__tests__/subpath.test.ts`; factory / legacy-only / partial fakes · `adaptPiAi()` · adapted / legacy error / missing-members error (test-plan #E9)
@@ -54,7 +54,7 @@
 - [ ] 6.12 L1 test for 0.87 shape tolerance — see `packages/client/src/__tests__/state-replay.test.ts` and `packages/server/src/__tests__/event-status-extraction.test.ts`; JSONL with `context_edit` null on a user message, an `agent_before_settle` event · replay / extraction · message still rendered, no throw, status not idle (test-plan #E12)
 - [ ] 6.13 L1 test for late-discovered in-scope models — see `packages/extension/src/__tests__/filter-enabled-models.test.ts`; `enabledModels ["myprovider/*"]`, provider registered after start · `onProviderChanged` push · new models included (test-plan #E13)
 - [ ] 6.14 L1 test that thinking `max` stays fail-closed — see the existing `provider-register` thinking-level tests; `thinkingLevelMap.max` set, runtime without `max` · model-list push · no `max` (test-plan #E14)
-- [ ] 6.15 L1 component test for the below-floor warning — see `packages/client/src/components/session/__tests__/SessionCard-status-shape.test.tsx`; flagged record `0.87.1` vs `1.0.0` · render card + chat · warning names both, absent when unflagged (test-plan #F1)
+- [x] 6.15 L1 component test for the below-floor warning — see `packages/client/src/components/session/__tests__/SessionCard-status-shape.test.tsx`; flagged record `0.87.1` vs `1.0.0` · render card + chat · warning names both, absent when unflagged (test-plan #F1)
 - [ ] 6.16 L1 test for a not-yet-created session file — see `packages/extension/src/__tests__/` session-sync tests; `getSessionFile()` → non-existent path · register + state sync · succeeds, no error logged (test-plan #X1)
 - [ ] 6.17 Manual: sign in with ChatGPT from the providers page and confirm the credential appears (test-plan: manual-only, #X2)
 - [ ] 6.18 Manual: user-launched session on global pi 0.87.x shows a legible below-floor warning on card and chat (test-plan: manual-only, #X3)

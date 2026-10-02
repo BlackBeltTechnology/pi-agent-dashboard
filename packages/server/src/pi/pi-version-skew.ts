@@ -11,9 +11,11 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isAbove,
   isBelow,
+  parseVersion,
   PI_COMPATIBILITY_FALLBACK,
   readPiCompatibilityRange,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
@@ -147,3 +149,33 @@ export function computeCompatibility(
   return out;
 }
 
+/**
+ * Below-floor flag for a session, from its bridge-reported `piVersion` and the
+ * lockstep floor (`piCompatibility.minimum`). Returns `{ minimum }` (the
+ * required version, for the warning) when the version parses AND is below the
+ * floor; `null` otherwise — an unreported or unparseable version raises no
+ * flag. `null` (not `undefined`) so a `session_updated` patch CLEARS a stale
+ * flag under the client's shallow merge. Pure.
+ * See change: update-pi-core-1-0-adopt-apis (D2).
+ */
+export function computePiBelowFloor(
+  version: string | undefined,
+  minimum: string,
+): { minimum: string } | null {
+  if (!version || parseVersion(version) === null) return null;
+  return isBelow(version, minimum) ? { minimum } : null;
+}
+
+let cachedMinimum: string | undefined;
+
+/**
+ * The server's own `piCompatibility.minimum` (`packages/server/package.json`),
+ * read once — the same single source `/api/health` uses. Falls back to the
+ * shared defaults when unreadable.
+ */
+export function serverPiMinimum(): string {
+  cachedMinimum ??= readPiCompatibility(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"),
+  ).minimum;
+  return cachedMinimum;
+}

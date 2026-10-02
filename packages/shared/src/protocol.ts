@@ -548,11 +548,14 @@ export interface AutoNameStateMessage {
 
 /**
  * Bridge -> server: the pi-coding-agent version of the process this bridge
- * runs inside, read via `createRequire` from pi's own tree (ground truth for
- * the session). Sent at register and whenever the polled value changes
- * (e.g. after an out-of-band `pi update --self`). Server stores it as
- * `DashboardSession.piVersion` and re-broadcasts. See change:
- * restore-pi-version-skew-surface.
+ * runs inside, read argv-anchored by walking up from that process's entry
+ * point to the nearest pi manifest (`readRunningPiVersion`) — never by name,
+ * which can read a hoisted newer copy — so it is the ground truth for the
+ * session. Sent at register and whenever the polled value changes (e.g. after
+ * an out-of-band `pi update --self`). Server stores it as
+ * `DashboardSession.piVersion`, derives the below-floor flag from it, and
+ * re-broadcasts. See change: restore-pi-version-skew-surface,
+ * update-pi-core-1-0-adopt-apis.
  */
 export interface PiVersionUpdateMessage {
   type: "pi_version_update";
@@ -785,7 +788,7 @@ export interface CwdMissingMessage {
 // @deprecated Retired by change
 // `retire-slash-dispatch-via-expand-prompt-templates`: the bridge dispatches
 // extension slash commands in-process via
-// `pi.sendUserMessage(text, { expandPromptTemplates: true })` (pi >= 0.84.2), so
+// `pi.sendUserMessage(text, { expandPromptTemplates: true })`, so
 // no current bridge sends this message. The server keeps a one-release
 // tombstone arm that answers with `command_feedback {status:"error",
 // message:"bridge outdated — reload the session"}`. Successor requirement:

@@ -155,6 +155,7 @@ export const huCatalog: Record<string, string> = {
   "status.nDone": "{count} kész",
   "status.nFailed": "{count} sikertelen",
   "status.piVersionRecommended": "pi {current} telepítve; {recommended} ajánlott.",
+  "session.piBelowFloor": "A pi {running} a szükséges {required} alatt van — frissítsd a pi-t",
   "status.starting": "Indítás…",
   "status.working": "Dolgozik",
   "tags.addTag": "Címke hozzáadása",

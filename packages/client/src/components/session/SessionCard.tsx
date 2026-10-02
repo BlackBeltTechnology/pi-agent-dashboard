@@ -63,6 +63,7 @@ import { useCommitDialog } from "../worktree/CommitDialog.js";
 import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
+import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import type { ContextUsageInfo } from "./SessionList.js";
@@ -1083,6 +1084,12 @@ export function SessionCard({
             <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
           </div>
         ) : null}
+        {/* Running pi below the lockstep floor. See change: update-pi-core-1-0-adopt-apis. */}
+        {session.piBelowFloor ? (
+          <div className="mt-1">
+            <PiBelowFloorWarning session={session} />
+          </div>
+        ) : null}
         {/* PROCESS subcard (mobile compact) — activity bar + drawer.
             See change: redesign-process-list-activity-bar. */}
         {showProcess ? (
@@ -1376,6 +1383,13 @@ export function SessionCard({
       {showTags && ((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
         <div className="mt-1 px-1">
           <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+        </div>
+      ) : null}
+
+      {/* Running pi below the lockstep floor. See change: update-pi-core-1-0-adopt-apis. */}
+      {session.piBelowFloor ? (
+        <div className="mt-1 px-1">
+          <PiBelowFloorWarning session={session} />
         </div>
       ) : null}
 
