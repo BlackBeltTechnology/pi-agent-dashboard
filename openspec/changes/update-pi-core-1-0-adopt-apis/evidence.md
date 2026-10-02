@@ -55,11 +55,11 @@ Historical / intentional (kept):
 
 All green except `knip-ratchet.mjs`, which is red on `origin/develop` itself (user-approved as pre-existing):
 
-| Tree | exports | types | duplicates |
-|---|---|---|---|
-| baseline | 234 | 193 | 12 |
-| `origin/develop` (pristine worktree) | 245 | 195 | 14 |
-| this branch | 244 | 195 | 14 |
+| Tree | files | exports | types | duplicates |
+|---|---|---|---|---|
+| baseline | 10 | 234 | 193 | 12 |
+| `origin/develop` (pristine worktree) | over (same 15 unused files; earlier `tail` hid the line) | 245 | 195 | 14 |
+| this branch | 15 — none touched by this change (identity e2e setup #697, deck3d fixtures, client/electron files) | 244 | 195 | 14 |
 
 This change is net −1 export: its two new findings (`NO_RELOAD_PATH_REASON` orphaned export, `LoginOptions` type) were un-exported. `--check-baseline-diff origin/develop` passes (no baseline raised).
 
