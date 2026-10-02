@@ -6,7 +6,7 @@ The `packages/server/package.json` `piCompatibility` block SHALL declare a `reco
 
 **`minimum` SHALL track `recommended` in lockstep.** A single supported pi removes the class of defect in which version-gated fallback branches cannot be exercised in CI. The cost is an explicit one-release hard break for users on a below-floor pi, which SHALL be accepted deliberately, announced in `CHANGELOG.md`, and paired with an in-product upgrade hint naming the required version.
 
-The `recommended` version SHALL be `0.99.1`; the server dependency `@earendil-works/pi-coding-agent` SHALL be pinned to `^0.99.1`; `minimum` SHALL be `0.99.1` and `maximum` SHALL stay `null`.
+The `recommended` version SHALL be `1.0.0`; the server dependency `@earendil-works/pi-coding-agent` SHALL be pinned to `^1.0.0`; `minimum` SHALL be `1.0.0` and `maximum` SHALL stay `null`.
 
 A future pin bump SHALL raise `minimum` to the new pinned version together with `recommended`, in the same change. A change that lifts `recommended` while leaving `minimum` behind SHALL be treated as a spec violation, not as a soft-landing option.
 
@@ -14,19 +14,19 @@ A future pin bump SHALL raise `minimum` to the new pinned version together with 
 
 The source directory `packages/electron/resources/bundled-extensions/` is not packaged, so its manifests are NOT a shipped pin surface and SHALL NOT be treated as floor anchors.
 
-Separately, the extension's devDependency `typebox` in `packages/extension/package.json` is a test-fidelity pin matching pi's bundled runtime TypeBox, not a pi version pin. It SHALL match the TypeBox version declared by the *installed* pi 0.99.1 `package.json`, verified after the bump lands.
+Separately, the extension's devDependency `typebox` in `packages/extension/package.json` is a test-fidelity pin matching pi's bundled runtime TypeBox, not a pi version pin. It SHALL match the TypeBox version declared by the *installed* pi 1.0.0 `package.json`, verified after the bump lands.
 
 #### Scenario: Floor and recommended move together on a pin bump
 
-- **WHEN** the pinned `@earendil-works/pi-coding-agent` runtime is `0.99.1`
-- **THEN** `piCompatibility.recommended` SHALL be `"0.99.1"`
-- **AND** `piCompatibility.minimum` SHALL be `"0.99.1"`
+- **WHEN** the pinned `@earendil-works/pi-coding-agent` runtime is `1.0.0`
+- **THEN** `piCompatibility.recommended` SHALL be `"1.0.0"`
+- **AND** `piCompatibility.minimum` SHALL be `"1.0.0"`
 - **AND** `piCompatibility.maximum` SHALL be `null`
 
 #### Scenario: Publishable peer ranges follow the floor
 
 - **WHEN** the root `package.json` or any `packages/*/package.json` declares a pi peer
-- **THEN** that range SHALL be `>=0.99.1` and optional
+- **THEN** that range SHALL be `>=1.0.0` and optional
 - **AND** no pi peer SHALL carry an upper bound
 
 #### Scenario: Broad pi devDependency is rejected
@@ -36,8 +36,8 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 
 #### Scenario: Below-floor pi raises the blocking advisory, not a soft hint
 
-- **WHEN** the running pi-coding-agent reports a version below `0.99.1`
-- **THEN** `computeCompatibility` SHALL populate `bootstrapState.compatibility.error` with a message naming both the running version and the required `0.99.1`
+- **WHEN** the running pi-coding-agent reports a version below `1.0.0`
+- **THEN** `computeCompatibility` SHALL populate `bootstrapState.compatibility.error` with a message naming both the running version and the required `1.0.0`
 - **AND** the bootstrap banner SHALL render in the red "below minimum" state
 - **AND** the block SHALL be an advisory surfaced through `/api/health` + `PiVersionAdvisory`; no HTTP status change
 
@@ -61,7 +61,7 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 #### Scenario: Upgrade hint names the required version
 
 - **WHEN** the bootstrap status renders the red "below minimum" banner
-- **THEN** the banner SHALL name the exact required version (`0.99.1`)
+- **THEN** the banner SHALL name the exact required version (`1.0.0`)
 - **AND** SHALL state that the pi install must be upgraded before the dashboard will operate
 
 #### Scenario: Maximum is unbounded
@@ -77,11 +77,11 @@ Separately, the extension's devDependency `typebox` in `packages/extension/packa
 The bridge SHALL report the version of the pi process it runs inside, read by walking up from that process's entry point to the nearest pi-coding-agent manifest, never by resolving the package by name (a hoisted newer copy would mask an older running pi). The server SHALL compare each session's reported version with `piCompatibility.minimum`. A session whose version parses as below the minimum SHALL carry a below-floor flag in its session record, and the session card and chat view SHALL show a warning naming the running version and the required version. This single check replaces per-feature pi version gates in the bridge. An unreported or unparseable version SHALL NOT raise the flag.
 
 #### Scenario: User-launched session on old pi
-- **WHEN** a user-launched session reports `piVersion: "0.87.1"` and the minimum is `0.99.1`
-- **THEN** its session card SHALL show a warning naming `0.87.1` and `0.99.1`
+- **WHEN** a user-launched session reports `piVersion: "0.87.1"` and the minimum is `1.0.0`
+- **THEN** its session card SHALL show a warning naming `0.87.1` and `1.0.0`
 
 #### Scenario: Session at the floor
-- **WHEN** a session reports `piVersion: "0.99.1"`
+- **WHEN** a session reports `piVersion: "1.0.0"`
 - **THEN** no below-floor warning SHALL be shown
 
 #### Scenario: Unknown version
@@ -89,7 +89,7 @@ The bridge SHALL report the version of the pi process it runs inside, read by wa
 - **THEN** no below-floor warning SHALL be shown
 
 #### Scenario: Hoisted newer copy does not mask an old running pi
-- **WHEN** the session's running pi is `0.87.1` and a `0.99.1` copy is resolvable by name from the bridge's location
+- **WHEN** the session's running pi is `0.87.1` and a `1.0.0` copy is resolvable by name from the bridge's location
 - **THEN** the session SHALL report `0.87.1` and show the below-floor warning
 
 ## MODIFIED Requirements
@@ -108,7 +108,7 @@ The checker's own `minVersion` constant SHALL equal that same version. The overr
 
 #### Scenario: Coherent pins pass
 
-- **GIVEN** every governed pin references `0.99.1`
+- **GIVEN** every governed pin references `1.0.0`
 - **WHEN** `scripts/verify-release-deps.mjs` runs
 - **THEN** the pi coherence check SHALL pass
 
@@ -120,7 +120,7 @@ The checker's own `minVersion` constant SHALL equal that same version. The overr
 
 #### Scenario: A lagging minimum fails the gate
 
-- **GIVEN** `piCompatibility.recommended` is `0.99.1` and `piCompatibility.minimum` is still `0.86.1`
+- **GIVEN** `piCompatibility.recommended` is `1.0.0` and `piCompatibility.minimum` is still `0.86.1`
 - **WHEN** `scripts/verify-release-deps.mjs` runs
 - **THEN** the checker SHALL fail and name `piCompatibility.minimum` as the drifted location
 
@@ -130,4 +130,4 @@ The checker's own `minVersion` constant SHALL equal that same version. The overr
 
 **Reason**: The prior requirement kept publishable `@earendil-works` peer ranges broad and independent of the floor; that policy is withdrawn.
 
-**Migration**: Replaced by "piCompatibility block and earendil pi ranges track pi-coding-agent in lockstep" with floor 0.99.1; `@earendil-works` peers become `>=0.99.1`. `@mariozechner` handling is unchanged here (see change `drop-mariozechner-pi-fork`).
+**Migration**: Replaced by "piCompatibility block and earendil pi ranges track pi-coding-agent in lockstep" with floor 1.0.0; `@earendil-works` peers become `>=1.0.0`. `@mariozechner` handling is unchanged here (see change `drop-mariozechner-pi-fork`).

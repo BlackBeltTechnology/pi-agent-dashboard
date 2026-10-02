@@ -10,7 +10,7 @@ The bridge SHALL keep filtering the published model list by re-applying the sess
 
 ### Requirement: The dashboard thinking-level derivation SHALL NOT be replaced by pi-ai's
 
-The bridge SHALL keep its single `supportedThinkingLevels` derivation (`model-selector`). pi-ai 0.99.1 `getSupportedThinkingLevels` is not equivalent: it offers `max` whenever the model's `thinkingLevelMap.max` is not `undefined`, with no runtime-capability gate, and returns `["off"]` for models without thinking metadata, where the dashboard omits the field. This non-adoption SHALL be revisited if pi-ai adds a runtime-capability gate.
+The bridge SHALL keep its single `supportedThinkingLevels` derivation (`model-selector`). pi-ai 1.0.0 `getSupportedThinkingLevels` is not equivalent: it offers `max` whenever the model's `thinkingLevelMap.max` is not `undefined`, with no runtime-capability gate, and returns `["off"]` for models without thinking metadata, where the dashboard omits the field. This non-adoption SHALL be revisited if pi-ai adds a runtime-capability gate.
 
 #### Scenario: max stays fail-closed
 - **WHEN** a model declares `thinkingLevelMap.max` and the session runtime does not advertise `max`
@@ -41,18 +41,30 @@ Where the dashboard reads or writes pi's `extensions` setting, it SHALL treat `-
 - **WHEN** the dashboard writes a settings file whose `defaultTools` is `["+codemode"]`
 - **THEN** the written `defaultTools` SHALL still be `["+codemode"]`
 
+### Requirement: Codemode image attachments SHALL render in the tool card
+
+pi ≥ 1.0.0 codemode scripts attach images with `image()` (including `models.generateImages()` output): the model-issued `codemode` call's tool result carries base64 `{ type: "image", data, mimeType }` blocks. Live (`tool_execution_end`) and replayed sessions SHALL show those images on that call's tool card through the shared `image-block` accessors, and an over-ceiling image SHALL render as the existing truncated/unavailable slot, never break the message.
+
+#### Scenario: Live codemode image
+- **WHEN** a `codemode` `tool_execution_end` result contains text plus one PNG image block
+- **THEN** the codemode tool card SHALL show the text and one image
+
+#### Scenario: Replayed codemode image
+- **WHEN** the same session is replayed from its JSONL
+- **THEN** the tool card SHALL show the same image
+
 ### Requirement: A session whose file does not exist yet SHALL register normally
 
-pi ≥ 0.99 creates the session file when the first user message is sent. Session registration, state sync and sidecar metadata SHALL work for a session whose reported session-file path does not exist on disk yet, and SHALL pick up the file once it appears.
+pi ≥ 0.99 (including 1.0.0) creates the session file when the first user message is sent. Session registration, state sync and sidecar metadata SHALL work for a session whose reported session-file path does not exist on disk yet, and SHALL pick up the file once it appears.
 
 #### Scenario: Fresh session before first prompt
 - **WHEN** a session is spawned and registers before any user message
 - **THEN** it SHALL appear in the dashboard with its cwd and model
 - **AND** no error SHALL be logged for the missing session file
 
-### Requirement: pi 0.87–0.99 TUI-only and non-consumed changes SHALL be recorded as documented no-ops
+### Requirement: pi 0.87–1.0 TUI-only and non-consumed changes SHALL be recorded as documented no-ops
 
-The adoption record SHALL list, as having no dashboard surface: the `system` theme and OKHSL/`#rgb` theme colors, `fullscreenWheelScrollLines`, the startup header change, ChatGPT sign-in on the OpenAI provider, the GPT-6.1 Sol Codex default, HTML-export hidden-message toggles, pi's TypeScript 7 build and removal of `tsx`, `provider_stream_event`, llama.cpp and Jev classifier models, per-model image input limits, and the `builtin:<name>` naming of built-in extensions in RPC source info (no dashboard code parses `<inline:` / `<builtin:` names).
+The adoption record SHALL list, as having no dashboard surface: the `system` theme and OKHSL/`#rgb` theme colors, `fullscreenWheelScrollLines`, the startup header change, ChatGPT sign-in on the OpenAI provider, the GPT-6.1 Sol Codex default, HTML-export hidden-message toggles, pi's TypeScript 7 build and removal of `tsx`, `provider_stream_event`, llama.cpp and Jev classifier models, per-model image input limits, and the `builtin:<name>` naming of built-in extensions in RPC source info (no dashboard code parses `<inline:` / `<builtin:` names); and from 0.99.2–1.0.0: the fullscreen-by-default TUI (dashboard tmux sessions keep pi's default, no `tuiMode` override), `quietStartup: "header"`, leaner codemode descriptions and errors, Radius in `/login` (`radius` stays excluded from the registry), MCP OAuth hardening, `/reload` enabling newly added `defaultTools`, and `--provider` without `--model` failing (the dashboard never passes `--provider`).
 
 #### Scenario: No-op list is present
 - **WHEN** the change is archived

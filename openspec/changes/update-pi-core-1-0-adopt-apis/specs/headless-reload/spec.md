@@ -148,12 +148,12 @@ reload itself.
 
 ### Requirement: Server-side reload dispatch
 
-**Reason**: Its pi ≥ 0.84.2 gate is unreachable at the 0.99.1 floor.
+**Reason**: Its pi ≥ 0.84.2 gate is unreachable at the 1.0.0 floor.
 
 **Migration**: See "Server-side reload dispatch without a pi version gate".
 
 ### Requirement: Reload feedback is truthful, singular, and keyed `/reload`
 
-**Reason**: Its below-0.84.2 error path is unreachable at the 0.99.1 floor.
+**Reason**: Its below-0.84.2 error path is unreachable at the 1.0.0 floor.
 
 **Migration**: See "Reload feedback is truthful, singular, and keyed `/reload` without a pi version gate".

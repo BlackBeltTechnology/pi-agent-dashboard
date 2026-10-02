@@ -21,7 +21,7 @@ invocation):
 Handler outcome is NOT observable by the bridge and SHALL NOT be claimed.
 
 The bridge SHALL NOT read the running pi's version to decide dispatch: the
-`0.99.1` floor guarantees `expandPromptTemplates` support, so the former old-pi
+`1.0.0` floor guarantees `expandPromptTemplates` support, so the former old-pi
 gate and its "requires pi 0.84.2+" error are withdrawn.
 
 The bridge SHALL NOT feature-detect `pi.dispatchCommand` and SHALL NOT emit
@@ -101,6 +101,6 @@ Note: pi-flows management commands (`/flows`, `/flows:new`, `/flows:edit`, `/flo
 
 ### Requirement: Extension slash command dispatch via sendUserMessage
 
-**Reason**: The old-pi gate (reading the running pi's version and refusing dispatch below 0.84.2, including the `@mariozechner` case) is unreachable at the 0.99.1 floor.
+**Reason**: The old-pi gate (reading the running pi's version and refusing dispatch below 0.84.2, including the `@mariozechner` case) is unreachable at the 1.0.0 floor.
 
 **Migration**: Replaced by "Extension slash command dispatch via sendUserMessage without a pi version gate": same dispatch and feedback contract, no version read.

@@ -49,6 +49,6 @@ The bridge SHALL report the version of the pi process it runs inside, read by wa
 
 ### Requirement: Slash dispatch helper dispatches in-process
 
-**Reason**: The 0.84.2 version gate is unreachable at the 0.99.1 floor.
+**Reason**: The 0.84.2 version gate is unreachable at the 1.0.0 floor.
 
 **Migration**: See "Slash dispatch helper dispatches in-process without a pi version gate".

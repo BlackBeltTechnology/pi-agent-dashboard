@@ -2,7 +2,7 @@
 
 ### Requirement: The dashboard SHALL run against the factory pi-ai module generation only
 
-The dashboard SHALL run against the factory pi-ai module generation only (`createModels` / `createProvider`), which is the only generation at or above the `0.99.1` floor. It SHALL validate the full set of factory members and SHALL present a single internal module surface to its consumers. The legacy global-registry generation is no longer supported and SHALL NOT be passed through.
+The dashboard SHALL run against the factory pi-ai module generation only (`createModels` / `createProvider`), which is the only generation at or above the `1.0.0` floor. It SHALL validate the full set of factory members and SHALL present a single internal module surface to its consumers. The legacy global-registry generation is no longer supported and SHALL NOT be passed through.
 
 #### Scenario: Factory module is adapted
 
@@ -42,7 +42,7 @@ Where the dashboard loads a pi-ai entry point other than the resolved main modul
 
 ### Requirement: The dashboard SHALL run against either pi-ai module generation
 
-**Reason**: The legacy global-registry pi-ai generation is below the 0.99.1 floor.
+**Reason**: The legacy global-registry pi-ai generation is below the 1.0.0 floor.
 
 **Migration**: Replaced by "The dashboard SHALL run against the factory pi-ai module generation only"; a legacy module is rejected with a diagnosable reason.
 
