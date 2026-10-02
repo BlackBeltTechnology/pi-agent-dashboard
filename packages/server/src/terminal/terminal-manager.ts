@@ -3,6 +3,7 @@
  */
 
 import { randomBytes } from "node:crypto";
+import { stripDashboardHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
 import type { TerminalControlMessage, TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
@@ -265,7 +266,13 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     // Normalize the win32 `Path` key to `PATH` first so a bundled-source
     // PATH write does not leave a `Path`/`PATH` pair. See change:
     // fix-windows-path-env-key-casing.
-    const baseEnv = normalizeEnvPathKey({ ...process.env, ...platformTerminalEnvHints() }) as Record<string, string>;
+    // Drop the dashboard's OWN stamped heap token + its marker (provenance-
+    // gated; an operator's flag survives), so the server ceiling does not cap
+    // every Node tool run in the terminal. See change:
+    // guard-server-heap-and-store-coupling (D4).
+    const baseEnv = normalizeEnvPathKey(
+      stripDashboardHeapFlag({ ...process.env, ...platformTerminalEnvHints() }),
+    ) as Record<string, string>;
     const env = augmentEnvWithGitSource(baseEnv, whichSync) as Record<string, string>;
 
     const p = pty.spawn(shell, [], {

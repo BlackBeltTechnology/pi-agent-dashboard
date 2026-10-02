@@ -19,3 +19,5 @@ See change: fix-trusted-network-tunnel-bypass — `/api/health` additive `trustP
 `/api/restart` on an Electron-owned server (`restartsViaElectron`): exits `ELECTRON_RESTART_EXIT_CODE` (75) instead of the `spawnRestart` orchestrator; the app restarts it. See change: electron-runtime-overlay-updates.
 
 `readPushErrors?` dep. `/api/health` adds `push: {errors}` only when wired (push enabled) AND `canDiscloseAccessPosture(request)`; key absent otherwise. `/api/health` sends `Cache-Control: no-store, private` (caller-dependent disclosure-gated payload). See change: add-server-push-notifications.
+
+`PUT /api/config` no longer forwards `coldStartRequired` (removed; `serverHeap` reports `restartRequired`). See change: guard-server-heap-and-store-coupling.

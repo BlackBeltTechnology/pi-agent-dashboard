@@ -133,6 +133,15 @@ verifiably false the first time anyone restarts, and the spec would ship a claim
 the code contradicts. It also retires the sibling's stated "cold start only"
 limit for `serverHeap`.
 
+**Implementation note (ship-it).** The sibling shipped the server ceiling via
+`NODE_OPTIONS` + provenance marker, not argv, so `/api/restart` (env
+inherited) already *preserved* the booted ceiling; the "dropped on every
+restart" premise above did not hold. What D5 actually adds is the re-read, which
+contradicted the live cold-start-only requirements in `heap-limits`,
+`server-restart` and `settings-panel`. Resolved (user-approved) by REMOVED/ADDED
+deltas retiring cold-start-only, `serverHeap` now reporting `restartRequired`,
+and `coldStartRequired` removed.
+
 ### D4 — The terminal strip reuses the session-spawn strip
 
 `terminal-manager.ts:264` spreads `process.env` wholesale, so a stamped

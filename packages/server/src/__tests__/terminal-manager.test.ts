@@ -104,6 +104,51 @@ describe("TerminalManager", () => {
       }
     });
 
+    // The dashboard's own stamped heap flag must not cap every Node tool run in
+    // a terminal; an operator's flag must survive. Provenance-gated by the
+    // marker, never by sniffing the flag. See change:
+    // guard-server-heap-and-store-coupling (D4, test-plan #X3 #X4 #X7 #X8).
+    describe("heap flag strip", () => {
+      const MARKER = "PI_DASHBOARD_HEAP_FLAG";
+      const spawnEnv = async (vars: Record<string, string | undefined>) => {
+        for (const [k, v] of Object.entries(vars)) vi.stubEnv(k, v);
+        try {
+          const pty = await import("node-pty");
+          manager.spawn("/tmp");
+          return vi.mocked(pty.spawn).mock.calls.at(-1)![2]!.env as Record<string, string>;
+        } finally {
+          vi.unstubAllEnvs();
+        }
+      };
+
+      it("X3: drops the server's own stamped old-space flag", async () => {
+        const env = await spawnEnv({
+          NODE_OPTIONS: "--enable-source-maps --max-old-space-size=1536",
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env.NODE_OPTIONS).toBe("--enable-source-maps");
+      });
+
+      it("X8: drops the provenance marker too", async () => {
+        const env = await spawnEnv({
+          NODE_OPTIONS: "--max-old-space-size=1536",
+          [MARKER]: "--max-old-space-size=1536",
+        });
+        expect(env).not.toHaveProperty(MARKER);
+        expect(env).not.toHaveProperty("NODE_OPTIONS");
+      });
+
+      it("X4: preserves an operator flag distinct from the stamp", async () => {
+        const env = await spawnEnv({ NODE_OPTIONS: "--max_old_space_size=4096", [MARKER]: undefined });
+        expect(env.NODE_OPTIONS).toBe("--max_old_space_size=4096");
+      });
+
+      it("X7: preserves an operator flag identical to the stamp when no marker names it", async () => {
+        const env = await spawnEnv({ NODE_OPTIONS: "--max-old-space-size=1536", [MARKER]: undefined });
+        expect(env.NODE_OPTIONS).toBe("--max-old-space-size=1536");
+      });
+    });
+
     it("creates a terminal with term- prefix ID", () => {
       const session = manager.spawn("/tmp");
       expect(session.id).toMatch(/^term-/);

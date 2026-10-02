@@ -35,8 +35,9 @@ export interface ServerHeapConfig {
    * `--max-old-space-size` request (MB) for the dashboard server. Default 1536,
    * replacing the previously hardcoded 8192.
    *
-   * COLD-START ONLY: `/api/restart` re-spawns with `env: process.env`, so a
-   * changed value needs a full process start.
+   * Applied on every launch path (wrapper, bridge, Electron) and re-read by
+   * `/api/restart`, so a changed value takes effect on the next restart.
+   * See change: guard-server-heap-and-store-coupling (D3, D5).
    */
   maxOldSpaceMb: number;
 }
@@ -103,4 +104,56 @@ export function subagentHeapBudget(
   }
   const perChildMb = Math.floor(maxOldSpaceMb / (maxConcurrentSubagents + 1));
   return { perChildMb, warn: perChildMb < SUBAGENT_HEAP_GUIDANCE_MB };
+}
+
+/**
+ * Heap MB one MiB of `maxTotalEventBytes` budget costs: 768 MiB of serialized
+ * event data ≈ 1 GiB of V8 heap. Per MiB, NOT per byte — the budget is stored
+ * in bytes, so the guard divides by 1024² first.
+ */
+export const HEAP_MB_PER_BUDGET_MIB = 1.33;
+
+/** Non-store live set (MB): 798 MB live − 686 MB strings, one heap snapshot. */
+export const BASELINE_MB = 112;
+
+/** Fraction of the requested ceiling at which the server OOMed (~1000 of 1216 MB). */
+export const CRASH_RATIO = 0.82;
+
+const BYTES_PER_MIB = 1024 * 1024;
+
+/**
+ * Server-heap × store-budget coupling guard. Warns when the store budget,
+ * converted to heap, plus the baseline exceeds the ceiling's crash point:
+ * `budgetMiB × HEAP_MB_PER_BUDGET_MIB + BASELINE_MB > ceilingMb × CRASH_RATIO`.
+ *
+ * Takes the budget in BYTES (as `MemoryLimitsConfig` stores it) and converts
+ * internally, so no caller can feed a byte count into a MiB term. `0` means
+ * unlimited: always warns, as `unbounded`, with no heap figure. Reads the
+ * CONFIGURED budget, not the store's post-clamp effective one (design D1).
+ *
+ * A single-host tripwire, not a proof of fit. Non-blocking by contract.
+ * See change: guard-server-heap-and-store-coupling (D1).
+ */
+export function serverHeapStoreCoupling(
+  maxTotalEventBytes: number,
+  serverMaxOldSpaceMb: number,
+): { warn: boolean; unbounded: boolean; projectedHeapMb: number | null; crashPointMb: number } {
+  const crashPointMb = Math.round(serverMaxOldSpaceMb * CRASH_RATIO);
+  if (
+    !Number.isFinite(maxTotalEventBytes) ||
+    !Number.isFinite(serverMaxOldSpaceMb) ||
+    maxTotalEventBytes < 0
+  ) {
+    return { warn: false, unbounded: false, projectedHeapMb: null, crashPointMb };
+  }
+  if (maxTotalEventBytes === 0) {
+    return { warn: true, unbounded: true, projectedHeapMb: null, crashPointMb };
+  }
+  const projected = (maxTotalEventBytes / BYTES_PER_MIB) * HEAP_MB_PER_BUDGET_MIB + BASELINE_MB;
+  return {
+    warn: projected > serverMaxOldSpaceMb * CRASH_RATIO,
+    unbounded: false,
+    projectedHeapMb: Math.round(projected),
+    crashPointMb,
+  };
 }

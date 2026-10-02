@@ -588,9 +588,6 @@ export function registerSystemRoutes(
       return {
         success: true,
         restartRequired: result.restartRequired,
-        // `serverHeap` only: an in-place restart inherits the environment and
-        // keeps the old ceiling. See change: bound-session-heap-and-gc-telemetry.
-        ...(result.coldStartRequired ? { coldStartRequired: true } : {}),
       };
     },
   );

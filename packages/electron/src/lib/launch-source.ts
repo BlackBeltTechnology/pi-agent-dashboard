@@ -32,6 +32,8 @@ import path from "node:path";
 import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import { isValidHeapMb, stampHeapFlag } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
+import { DEFAULT_SERVER_HEAP } from "@blackbelt-technology/pi-dashboard-shared/heap-limits.js";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
@@ -172,7 +174,7 @@ export interface LaunchSourceOpts {
 
 // ── Default probe implementations ─────────────────────────────────────────────
 
-import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, openSync as fsOpenSync, writeSync as fsWriteSync, closeSync as fsCloseSync } from "node:fs";
+import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync, openSync as fsOpenSync, readFileSync as fsReadFileSync, writeSync as fsWriteSync, closeSync as fsCloseSync } from "node:fs";
 
 function defaultHealthProbe(port: number): Promise<HealthProbeResult> {
   return fetch(`http://localhost:${port}/api/health`, {
@@ -436,6 +438,38 @@ export interface SpawnResult {
 }
 
 /**
+ * The configured server heap ceiling, read from `config.json` with the
+ * standalone wrapper's `JSON.parse`-inside-`try` shape (one reading rule
+ * across launch paths). Any failure - absent, unparseable, invalid or
+ * below-floor value - takes the shared default; a bad config never fails
+ * the launch. See change: guard-server-heap-and-store-coupling (D3).
+ */
+export function readServerMaxOldSpaceMb(
+  configFile: string = path.join(os.homedir(), ".pi", "dashboard", "config.json"),
+): number {
+  try {
+    const raw = JSON.parse(fsReadFileSync(configFile, "utf-8"))?.serverHeap?.maxOldSpaceMb;
+    if (isValidHeapMb(raw)) return raw;
+  } catch {
+    // absent / unreadable / malformed - take the default
+  }
+  return DEFAULT_SERVER_HEAP.maxOldSpaceMb;
+}
+
+/**
+ * Stamp the configured ceiling into the server env via the shared
+ * provenance-aware `stampHeapFlag` (NODE_OPTIONS + marker). An operator pin
+ * already in `NODE_OPTIONS` wins and nothing is added. See change:
+ * guard-server-heap-and-store-coupling (D3).
+ */
+export function stampServerHeap(
+  env: Record<string, string>,
+  configFile?: string,
+): Record<string, string> {
+  return stampHeapFlag(env, readServerMaxOldSpaceMb(configFile));
+}
+
+/**
  * Spawn the dashboard server from the given `source`.
  * Delegates to the shared `launchDashboardServer` primitive.
  */
@@ -484,6 +518,11 @@ export async function spawnFromSource(
   // Runtime identity echoed by /api/health.runtime so a runtime switch only
   // commits the server it spawned. See change: electron-runtime-overlay-updates.
   Object.assign(env, runtimeIdentityEnv(source, getResourcesPath(), getRuntimeOverlayDir()));
+  // Third launch path: without this the Electron-spawned server ran at the
+  // runtime default. Also covers the Electron-owned `/api/restart` respawn,
+  // which comes back through here. See change:
+  // guard-server-heap-and-store-coupling (D3).
+  stampServerHeap(env);
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";
