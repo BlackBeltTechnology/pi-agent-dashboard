@@ -240,6 +240,16 @@ describe("pi pin block \u2014 1.0.0", () => {
     }
   });
 
+  // Review round 2 B2: the /api/health advisory treats a pre-release of the
+  // floor as below it (SemVer), naming both versions; build metadata does not.
+  it("E5b: a pre-release of the floor is hard-blocked by the health advisory", () => {
+    const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
+    const out = computeCompatibility(range, `${PINNED_PI}-beta.1`);
+    expect(out.error).toContain(`${PINNED_PI}-beta.1`);
+    expect(out.error).toContain(PINNED_PI);
+    expect(computeCompatibility(range, `${PINNED_PI}+build.7`).error).toBeUndefined();
+  });
+
   it("E6: the hint band is empty under lockstep while the branch stays reachable", () => {
     const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
     for (let minor = 78; minor <= 87; minor++) {
@@ -334,6 +344,13 @@ describe("computePiBelowFloor — below-floor session flag (E5)", () => {
   it("does not flag an unparseable version", () => {
     expect(computePiBelowFloor("dev", "1.0.0")).toBeNull();
     expect(computePiBelowFloor("", "1.0.0")).toBeNull();
+  });
+
+  // Review round 2 B1: a numeric prefix with trailing junk is NOT a version.
+  it("does not flag a malformed version with a numeric prefix", () => {
+    for (const v of ["0.99.9garbage", "0.87.1.4", "0.87", "v0.87.1x", "0.87.1-", "0.87.1+"]) {
+      expect(computePiBelowFloor(v, "1.0.0"), v).toBeNull();
+    }
   });
 });
 

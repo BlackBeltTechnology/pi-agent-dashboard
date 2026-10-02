@@ -5,3 +5,5 @@ Pi compatibility range reader. `readPiCompatibility` reads `piCompatibility` fro
 Exports `computePiBelowFloor(version, minimum)` → `{minimum}` iff parseable AND below, else `null`; `serverPiMinimum()` — cached `piCompatibility.minimum` from the server package.json. See change: update-pi-core-1-0-adopt-apis.
 
 `computePiBelowFloor` also flags a pre-release of the floor (`1.0.0-beta.1` vs `1.0.0`); build metadata does not lower precedence. Shared `isBelow` unchanged. See change: update-pi-core-1-0-adopt-apis (review B1/B2).
+
+Local `isBelowFloor(version, minimum)` (pre-release-aware) backs BOTH floor checks: `computeCompatibility` error (`/api/health` advisory) and `computePiBelowFloor`. `computePiBelowFloor` also requires a whole-string SemVer (`STRICT_VERSION_RE`) — `0.99.9garbage` raises no flag. See change: update-pi-core-1-0-adopt-apis (review round 2 B1/B2).

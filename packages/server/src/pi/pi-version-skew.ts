@@ -123,6 +123,27 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
 }
 
 /**
+ * A whole-string SemVer: `x.y.z`, optional `v`, optional `-prerelease` and
+ * `+build`. Anchored at both ends — the shared `parseVersion` accepts a
+ * numeric PREFIX (`0.99.9garbage`), which must not count as a version.
+ * See change: update-pi-core-1-0-adopt-apis (review round 2 B1).
+ */
+const STRICT_VERSION_RE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Floor check with SemVer pre-release precedence: below when the triplet is
+ * below, or equal with a `-prerelease` (`1.0.0-beta.1` < `1.0.0`); build
+ * metadata never lowers precedence. Local to this module so the shared
+ * `isBelow` keeps its behaviour for its other callers.
+ * See change: update-pi-core-1-0-adopt-apis (review B1, round 2 B2).
+ */
+function isBelowFloor(version: string, minimum: string): boolean {
+  if (isBelow(version, minimum)) return true;
+  const isPrerelease = /^[^+]*-/.test(version.trim().replace(/^v/, ""));
+  return isPrerelease && compareVersions(version, minimum) === 0;
+}
+
+/**
  * Compute the `compatibility` snapshot from a compatibility range and
  * the current pi version (or undefined when not yet installed). Pure
  * function \u2014 all I/O is done by callers.
@@ -133,7 +154,7 @@ export function computeCompatibility(
 ): BootstrapCompatibility {
   const out: BootstrapCompatibility = { ...range, current };
   if (!current) return out;
-  if (isBelow(current, range.minimum)) {
+  if (isBelowFloor(current, range.minimum)) {
     // Below minimum: hard advisory. Signal via both `upgradeRecommended`
     // (soft flag, kept for back-compat) and a populated `error` string
     // naming both versions, which drives the red advisory state.
@@ -163,14 +184,8 @@ export function computePiBelowFloor(
   version: string | undefined,
   minimum: string,
 ): { minimum: string } | null {
-  if (!version || parseVersion(version) === null) return null;
-  if (isBelow(version, minimum)) return { minimum };
-  // The shared comparator ignores pre-release suffixes; SemVer orders a
-  // pre-release BELOW its release (`1.0.0-beta.1` < `1.0.0`). Build metadata
-  // (`+…`) does not lower precedence. Kept local so the shared helper's other
-  // callers are unaffected. See change: update-pi-core-1-0-adopt-apis (review B1).
-  const isPrerelease = /^[^+]*-/.test(version.trim().replace(/^v/, ""));
-  return isPrerelease && compareVersions(version, minimum) === 0 ? { minimum } : null;
+  if (!version || !STRICT_VERSION_RE.test(version.trim())) return null;
+  return isBelowFloor(version, minimum) ? { minimum } : null;
 }
 
 let cachedMinimum: string | undefined;
