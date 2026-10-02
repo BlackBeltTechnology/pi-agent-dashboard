@@ -2,7 +2,8 @@
 
 See proposal.md (Why) and `docs/research/reverse-engineering-gap-analysis.md` (tranche 1; E9 quirk policy came from its open questions via user choice, D7; gaps
 E3–E9, T1–T3, T5). The existing `reverse-spec-from-code` skill
-(`packages/openspec-workflow/.pi/skills/reverse-spec-from-code/`) provides: a discovery prompt
+(`packages/openspec-workflow/.pi/skills/reverse-spec-from-code/`) is the methodological ancestor
+(this skill adapts its patterns but references none of its files). It provides: a discovery prompt
 (capability clustering via kb tree), a blind generator, a code-grounded auditor emitting strict
 JSON, a step-6.5 `openspec validate` gate using throwaway ids, and a data-backed model routing
 (`@fast` generator + `@research` auditor). It forbids implementation detail and line numbers by
@@ -15,7 +16,8 @@ completeness check, but runs as a Claude Code plugin and never verifies rebuilda
 **Goals:**
 - Rebuild package content complete enough that tranche 2 (characterize) and tranche 3
   (rebuild-check) can consume it without format changes.
-- Reuse, not fork, the existing skill's discovery prompt and validate gate.
+- Self-contained and portable: lives in `packages/eng-disciplines`, works in any git repo; kb and
+  OpenSpec are optional accelerators, never prerequisites.
 - Measurable quality: rule recall/precision and explicit/implicit classification accuracy on a
   seeded fixture.
 
@@ -23,24 +25,30 @@ completeness check, but runs as a Claude Code plugin and never verifies rebuilda
 - Executing the target, golden vectors, hidden duals, blind rebuild (tranches 2–3).
 - Sanitization / contamination review for clean-room use (deferred optional mode).
 - Multi-source evidence beyond code + the target's own tests: no git/docs/runtime mining for
-  claim evidence or citations. Discovery may still consult the kb tree / `AGENTS.md` for
-  capability boundary mapping only (reused `discovery.md` STEP 1).
+  claim evidence or citations. Discovery may still consult a kb tree / `AGENTS.md` (when
+  present) for capability boundary mapping only.
 - Language-agnostic tuning: v1 is tuned and evaluated on TypeScript; other languages are
   best-effort.
 
 ## Decisions
 
-### D1. Sibling skill, prompts reused by reference
-New `reverse-spec-for-rebuild/` with its own SKILL.md and prompts. Only the discovery prompt is
-reused by reference (`../reverse-spec-from-code/prompts/discovery.md`); its JSON manifest output
-is a recorded coupling (package `AGENTS.md` row + SKILL.md pitfall). The validate-gate loop is
-re-implemented with a distinct throwaway prefix `_rsfr-val-` so concurrent runs of the two skills
-never delete each other's dirs. The generator prompt restates STEP 1 and the FORMAT gate in full
-rather than inheriting `generator.md`, whose "no line numbers" rule would forbid citations.
-*Alternative:* `--mode rebuild` flag on the existing skill — rejected (user choice): two
-divergent output contracts in one SKILL.md would bloat it and risk regressing the tuned kb flow.
-*Alternative:* standalone package — rejected: loses co-location with the discovery/validate
-assets and the tuning record.
+### D1. Self-contained skill in eng-disciplines
+New `packages/eng-disciplines/.pi/skills/reverse-spec-for-rebuild/` (user choice: rebuild-grade
+characterization is a cross-cutting discipline, orthogonal to the OpenSpec lifecycle, and pairs
+with `scenario-design` for tranche 2). It references no file outside its own directory, because
+eng-disciplines installs independently of `openspec-workflow`. Patterns from
+`reverse-spec-from-code` (cross-boundary STEP 1, FORMAT gate, strict-JSON auditor, `@fast`
+generator + `@research` auditor) are restated in this skill's own prompts, not linked. Its own
+`prompts/discovery.md` uses a kb tree (`kb agents`, `AGENTS.md`) when present and otherwise
+clusters from manifests (`package.json`, `pyproject.toml`, `pom.xml`, `go.mod`, ...), entry points
+and directory structure. The generator prompt drops the ancestor's "no line numbers" rule, which
+would forbid citations.
+*Alternative:* sibling skill in `openspec-workflow` reusing prompts by reference — rejected
+(user choice): couples a portable discipline to the OpenSpec helper package, and its
+cross-skill relative path breaks if the skills ever install separately.
+*Alternative:* `--mode rebuild` on the existing skill — rejected: two divergent output
+contracts in one SKILL.md. *Alternative:* methodology in eng-disciplines + thin OpenSpec
+adapter in openspec-workflow — rejected: extra package boundary without a consumer.
 
 ### D2. Output = rebuild package, not `openspec/specs`
 Layout:
@@ -55,19 +63,26 @@ Layout:
   capabilities/<cap>/spec.md
   _fragments/<cap>.json  per-generator rule/entity/quirk/gap fragments (merge input)
 ```
-Promotion moves the tree to a user-chosen path, refusing any path inside a kb-indexed root
-(`openspec/`, `docs/`, `packages/`, `.pi/`) because kb would index provenance-heavy duplicates.
+Promotion moves the tree to a user-chosen path, refusing any path inside a protected root —
+default `openspec/`, `docs/`, `packages/`, `.pi/` (this repo's kb-indexed roots, where kb would
+index provenance-heavy duplicates), overridable per run for other repos.
+Scratch: `.reverse-spec-scratch/` at repo root; this repo already ignores it (`.gitignore:50`);
+elsewhere the skill checks `git check-ignore` and, on consent, appends it to `.git/info/exclude`.
 The check resolves the nearest existing ancestor's real path (the destination may not exist
 yet), so relative, `..` and symlinked paths cannot bypass it. *Alternative:* spec.md into `openspec/specs` + sidecars —
 rejected (user choice; kb pollution, and provenance comments conflict with the kb skill's
 no-line-number policy).
 
-### D3. Capability specs stay OpenSpec full-form
+### D3. Capability specs stay OpenSpec full-form; format gate is built-in first
 State machines, edge cases and errors are expressed as Requirements/Scenarios, not extra
-`##` sections, so the existing `openspec validate` gate applies unchanged. Citations are
-inline HTML comments (`<!-- cite: ref=path:L-L, confidence=confirmed -->`) adapted from
-greenfield's format (dropped `agent`/`source` fields: single source type in v1). Task 1.1 spikes
-that `openspec validate` tolerates these comments before the generator prompt depends on it.
+`##` sections. The format gate always runs `guard.mjs lint-spec <file>` (deterministic: title,
+`## Purpose`, `## Requirements`, `### Requirement:` without numbering, `#### Scenario:` headings
+not bold labels, each scenario has `- **WHEN**` and `- **THEN**`, no markdown tables). When the
+OpenSpec CLI and an `openspec/` directory exist, it additionally runs `openspec validate` via a
+transient `_rsfr-val-<cap>` id. Citations are inline HTML comments
+(`<!-- cite: ref=path:L-L, confidence=confirmed -->`) adapted from greenfield's format (dropped
+`agent`/`source` fields: single source type in v1). Task 1.1 spikes that `openspec validate`
+tolerates these comments; `lint-spec` ignores them by construction.
 
 ### D4. Fragments + orchestrator merge for cross-cutting files
 Generators run in parallel, one per capability, and each emits `_fragments/<cap>.json`
@@ -115,22 +130,33 @@ detected). Excluded from published files. Mirrors AgentModernize's explicit/impl
 design at toy scale.
 
 ### D9. Deterministic guards live in a helper script
-`reverse-spec-for-rebuild/scripts/guard.mjs` (Node, no deps) owns the two filesystem guards so they
-are testable instead of being agent prose: `guard.mjs check-dest <path>` exits non-zero when the
-nearest existing ancestor's real path is inside `openspec/`, `docs/`, `packages/` or `.pi/` (exact
-segment match, so `openspec-extra/` is allowed); `guard.mjs sweep` removes only
-`openspec/specs/_rsfr-val-*` directories. SKILL.md calls the script at run start/end and before
-promotion. L1 vitest tests live in `packages/openspec-workflow/src/__tests__/` (not published:
-`files` ships only `.pi/skills/`, `NOTICE`, `README.md`), mirroring `packages/music-production`
-(`vitest.config.ts`, `test` script, root `vitest.config.ts` project entry). The same suite checks
-package wiring and the eval fixture's deterministic consistency (answer-key schema and locations).
-LLM-quality targets stay agent-run (manual-only in `test-plan.md`). (User choice.)
+`reverse-spec-for-rebuild/scripts/guard.mjs` (Node ≥20, no deps) owns the filesystem and format
+guards so they are testable instead of agent prose:
+- `check-dest <path> [--protect <dir>]...` exits non-zero when the nearest existing ancestor's
+  real path is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
+  defaults `openspec docs packages .pi`; `--protect` replaces the default list.
+- `sweep` removes only `openspec/specs/_rsfr-val-*` directories (no-op without `openspec/specs/`).
+- `lint-spec <file>` is the built-in structural check (D3); exit 1 and `file:line: reason` per
+  violation.
+- Bad input → exit 2 + usage.
+SKILL.md calls it at run start/end, in the format gate, and before promotion. L1 vitest tests live
+in `packages/eng-disciplines/src/__tests__/` (unpublished: `files` ships only `.pi/skills/`,
+`README.md`, `NOTICE`), mirroring `packages/music-production` (`vitest.config.ts`, `test` script,
+root `vitest.config.ts` project entry); `knip.json` already declares the `packages/eng-disciplines`
+workspace with `src/**` and `__tests__` entries. The same suite checks package wiring, skill
+self-containment, and the eval fixture's deterministic consistency. LLM-quality targets stay
+agent-run (manual-only in `test-plan.md`). (User choice.)
 
 ## Risks / Trade-offs
 
 - [`openspec validate` rejects HTML cite comments] → Task 1.1 spike first; fallback: keep
   citations in a parallel `capabilities/<cap>/citations.md` keyed by scenario name, and amend
   the spec delta's citation-placement wording (task 1.2) before prompts depend on it.
+- [Discovery without a kb tree clusters worse on large repos] → manifest/entry-point heuristics
+  in the prompt; the completeness gate catches missed entry points; the real-target run (6.2)
+  exercises the kb path, the fixture run exercises the plain path.
+- [eng-disciplines gains its first test suite and executable script] → precedent:
+  `node-inspect-debugger/scripts/`; suite pattern copied from `packages/music-production`.
 - [Throwaway validation ids under `openspec/specs/` left behind by an interrupted run trip
   `check-conventions` / kb indexing] → delete in the same loop iteration (existing pattern);
   SKILL.md pitfall + start/end sweep of `openspec/specs/_rsfr-val-*` only (never `_rsfc-val-*`).
@@ -148,4 +174,6 @@ LLM-quality targets stay agent-run (manual-only in `test-plan.md`). (User choice
 ## Migration Plan
 
 Additive. No data or runtime migration. Rollback: delete
-`.pi/skills/reverse-spec-for-rebuild/`, `NOTICE`, and the `pi.skills[]` entry.
+`packages/eng-disciplines/.pi/skills/reverse-spec-for-rebuild/`, its `pi.skills[]` entry, the
+greenfield paragraph in `NOTICE`, the vitest suite, and the root `vitest.config.ts` / `biome.json`
+entries. The `scenario-design-discipline` delta only relaxes a stale count and needs no rollback.
