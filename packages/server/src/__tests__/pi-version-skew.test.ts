@@ -250,6 +250,15 @@ describe("pi pin block \u2014 1.0.0", () => {
     expect(computeCompatibility(range, `${PINNED_PI}+build.7`).error).toBeUndefined();
   });
 
+  // Review round 3 B2: SemVer pre-release precedence, both orders.
+  it("E5c: pre-release vs pre-release floors follow SemVer precedence", () => {
+    const betaFloor = { minimum: "1.0.0-beta.1", recommended: "1.0.0", maximum: null };
+    expect(computeCompatibility(betaFloor, "1.0.0-rc.1").error).toBeUndefined();
+    expect(computeCompatibility(betaFloor, "1.0.0-alpha.9").error).toContain("1.0.0-alpha.9");
+    expect(computePiBelowFloor("1.0.0-rc.1", "1.0.0-beta.1")).toBeNull();
+    expect(computePiBelowFloor("1.0.0-alpha.9", "1.0.0-beta.1")).toEqual({ minimum: "1.0.0-beta.1" });
+  });
+
   it("E6: the hint band is empty under lockstep while the branch stays reachable", () => {
     const range = { minimum: PINNED_PI, recommended: PINNED_PI, maximum: null };
     for (let minor = 78; minor <= 87; minor++) {
@@ -348,7 +357,9 @@ describe("computePiBelowFloor — below-floor session flag (E5)", () => {
 
   // Review round 2 B1: a numeric prefix with trailing junk is NOT a version.
   it("does not flag a malformed version with a numeric prefix", () => {
-    for (const v of ["0.99.9garbage", "0.87.1.4", "0.87", "v0.87.1x", "0.87.1-", "0.87.1+"]) {
+    // Review round 3 B1: empty identifiers and leading-zero numeric prerelease
+    // identifiers are invalid SemVer too.
+    for (const v of ["0.99.9garbage", "0.87.1.4", "0.87", "v0.87.1x", "0.87.1-", "0.87.1+", "0.99.9-.", "0.99.9-01", "0.99.9+.", "01.0.0"]) {
       expect(computePiBelowFloor(v, "1.0.0"), v).toBeNull();
     }
   });

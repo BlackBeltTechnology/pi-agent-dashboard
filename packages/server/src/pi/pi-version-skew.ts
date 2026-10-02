@@ -13,14 +13,13 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  compareVersions,
   isAbove,
   isBelow,
-  parseVersion,
   PI_COMPATIBILITY_FALLBACK,
   readPiCompatibilityRange,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 import { getDefaultRegistry, type ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import semver from "semver";
 
 // The version comparators moved to `shared/pi-installs/versions.ts` so the
 // shared enumerator + override validator can use them. Re-exported here so
@@ -123,24 +122,19 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
 }
 
 /**
- * A whole-string SemVer: `x.y.z`, optional `v`, optional `-prerelease` and
- * `+build`. Anchored at both ends — the shared `parseVersion` accepts a
- * numeric PREFIX (`0.99.9garbage`), which must not count as a version.
- * See change: update-pi-core-1-0-adopt-apis (review round 2 B1).
- */
-const STRICT_VERSION_RE = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
-
-/**
- * Floor check with SemVer pre-release precedence: below when the triplet is
- * below, or equal with a `-prerelease` (`1.0.0-beta.1` < `1.0.0`); build
- * metadata never lowers precedence. Local to this module so the shared
- * `isBelow` keeps its behaviour for its other callers.
- * See change: update-pi-core-1-0-adopt-apis (review B1, round 2 B2).
+ * Floor check with full SemVer precedence (`semver.lt`): validates every
+ * identifier and orders pre-releases correctly (`1.0.0-beta.1` < `1.0.0`,
+ * `1.0.0-beta.1` < `1.0.0-rc.1`); build metadata never matters. When either
+ * side is not valid SemVer, falls back to the shared prefix-tolerant `isBelow`
+ * (its pre-existing behaviour for odd manifests). The shared helper is left
+ * unchanged for its other callers.
+ * See change: update-pi-core-1-0-adopt-apis (review rounds 1-3).
  */
 function isBelowFloor(version: string, minimum: string): boolean {
-  if (isBelow(version, minimum)) return true;
-  const isPrerelease = /^[^+]*-/.test(version.trim().replace(/^v/, ""));
-  return isPrerelease && compareVersions(version, minimum) === 0;
+  const v = semver.valid(version.trim());
+  const m = semver.valid(minimum.trim());
+  if (v && m) return semver.lt(v, m);
+  return isBelow(version, minimum);
 }
 
 /**
@@ -184,7 +178,9 @@ export function computePiBelowFloor(
   version: string | undefined,
   minimum: string,
 ): { minimum: string } | null {
-  if (!version || !STRICT_VERSION_RE.test(version.trim())) return null;
+  // Unreported or not valid SemVer (incl. `0.99.9garbage`, empty or
+  // leading-zero identifiers) → no flag, per spec.
+  if (!version || !semver.valid(version.trim()) || !semver.valid(minimum.trim())) return null;
   return isBelowFloor(version, minimum) ? { minimum } : null;
 }
 
