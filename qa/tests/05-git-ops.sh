@@ -71,14 +71,16 @@ if [ "$ELAPSED" -ge 14 ]; then
   rm -rf "$TEST_DIR"
   exit 1
 fi
-# The ONLY acceptable outcome is git's own non-interactive auth failure surfaced
-# by the push route: a fast `auth_failed` (mapPushStderr maps "terminal prompts
-# disabled" / "could not read Username" to it). Anything else - empty body, a
-# different code, success - means the push never reached git or env was lost.
-if echo "$PUSH_RESP" | grep -q '"code":"auth_failed"'; then
-  echo "Push failed fast (${ELAPSED}s) on non-interactive auth error"
+# The ONLY acceptable outcome is the push route answering `auth_failed` AND git's
+# own "terminal prompts disabled" marker. `auth_failed` alone is not enough:
+# with GIT_TERMINAL_PROMPT unset, git can also fail fast non-interactively
+# ("could not read Username ... Device not configured") and map to the same
+# code, which would hide a lost env. The marker is only produced when
+# GIT_TERMINAL_PROMPT=0 reached the real spawn.
+if echo "$PUSH_RESP" | grep -q '"code":"auth_failed"' && echo "$PUSH_RESP" | grep -qi 'terminal prompts disabled'; then
+  echo "Push failed fast (${ELAPSED}s) with 'terminal prompts disabled'"
 else
-  echo "FAIL: expected push route to answer auth_failed, got: ${PUSH_RESP:-<empty>}"
+  echo "FAIL: expected auth_failed + 'terminal prompts disabled' (GIT_TERMINAL_PROMPT=0 lost?), got: ${PUSH_RESP:-<empty>}"
   rm -rf "$TEST_DIR"
   exit 1
 fi

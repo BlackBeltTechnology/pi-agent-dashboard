@@ -422,10 +422,30 @@ test.describe.serial("host gate — default enforce does not lock out localhost"
     const health = await request.get(`http://localhost:${DASHBOARD_PORT}/api/health`);
     expect(health.status()).toBe(200);
 
-    const wsPromise = page.waitForEvent("websocket", { predicate: (ws) => ws.url().includes("/ws"), timeout: 30_000 });
+    // Subscribe BEFORE navigating: the snapshot is the first frame after the
+    // socket opens and would be missed by a listener attached after goto.
+    let snapshotSeen: () => void = () => {};
+    const snapshot = new Promise<void>((resolve) => {
+      snapshotSeen = resolve;
+    });
+    let dashboardWs: import("@playwright/test").WebSocket | undefined;
+    page.on("websocket", (ws) => {
+      if (!ws.url().includes("/ws")) return;
+      dashboardWs = ws;
+      ws.on("framereceived", (f) => {
+        // The session list is WebSocket-backed: the socket must deliver the
+        // `sessions_snapshot` frame, not merely open.
+        if (typeof f.payload === "string" && f.payload.includes('"sessions_snapshot"')) snapshotSeen();
+      });
+    });
     await gotoDashboard(page);
-    const ws = await wsPromise;
-    await page.waitForTimeout(1_000);
-    expect(ws.isClosed(), "dashboard WebSocket must stay open under the enforce default").toBe(false);
+    await Promise.race([
+      snapshot,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("no sessions_snapshot frame within 30s")), 30_000),
+      ),
+    ]);
+    expect(dashboardWs, "dashboard opened a /ws WebSocket").toBeDefined();
+    expect(dashboardWs?.isClosed(), "dashboard WebSocket must stay open under the enforce default").toBe(false);
   });
 });

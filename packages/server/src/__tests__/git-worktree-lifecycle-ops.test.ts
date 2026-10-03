@@ -1413,6 +1413,24 @@ describe("argv migration — caller values stay single argv elements", () => {
     } finally { s.restore(); }
   });
 
+  // review r2 B3 — the dedicated code is a property of the BINARY, so every
+  // migrated entry point must report it, not only addWorktree / createPullRequest.
+  it.each([
+    ["pushBranch", () => pushBranch({ cwd: repo }), (r: any) => r.code],
+    ["mergeWorktree", () => mergeWorktree({ cwd: repo }), (r: any) => r.code],
+    ["worktreeDiffStat", () => worktreeDiffStat({ cwd: repo }), (r: any) => r.code],
+    ["addWorktreeFromPr", () => addWorktreeFromPr({ cwd: repo, prNumber: 7 }), (r: any) => r.error],
+  ])("a missing git binary reports git_not_found from %s", (_name, run, pick) => {
+    const s = spyBothExecSurfaces({
+      fileThrow: (file) => (file === "git" ? spawnMissingError("git") : undefined),
+    });
+    try {
+      const r = run() as any;
+      expect(r.ok).toBe(false);
+      expect(pick(r)).toBe("git_not_found");
+    } finally { s.restore(); }
+  });
+
   it("the same dedicated mapping covers ENOTDIR (status null)", () => {
     const s = spyBothExecSurfaces({
       fileThrow: (file, args) =>

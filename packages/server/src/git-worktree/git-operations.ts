@@ -90,6 +90,21 @@ function isBinaryMissing(err: unknown): boolean {
     && e.status == null;
 }
 
+/**
+ * Probe for a missing `git` binary. `tryRun` collapses every failure to
+ * `undefined`, so an entry point whose first probe came back empty calls this
+ * BEFORE returning a generic code: a missing binary is a property of the
+ * environment, not of the repo, and must surface as `git_not_found`.
+ */
+function gitBinaryMissing(cwd: string): boolean {
+  try {
+    run(["git", "--version"], cwd);
+    return false;
+  } catch (err) {
+    return isBinaryMissing(err);
+  }
+}
+
 /** Check if cwd is inside a git work tree. */
 export function isGitRepo(cwd: string): boolean {
   return tryRun(["git", "rev-parse", "--is-inside-work-tree"], cwd) === "true";
@@ -1243,8 +1258,13 @@ export function mergeWorktree(opts: {
   const mainPath = resolveMainPath(cwd);
   // D2: an unresolvable checkout is a REFUSAL (4xx), not a server error —
   // the old `git_failed` mapped to HTTP 500.
-  if (!mainPath) return { ok: false, code: "not_a_worktree" };
+  if (!mainPath) {
+    return gitBinaryMissing(cwd)
+      ? { ok: false, code: "git_not_found" }
+      : { ok: false, code: "not_a_worktree" };
+  }
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
   }
@@ -1325,8 +1345,13 @@ export function worktreeDiffStat(opts: {
 }): LifecycleSuccess<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }> | LifecycleFailure<MergeCode> {
   const { cwd, baseHint } = opts;
   const mainPath = resolveMainPath(cwd);
-  if (!mainPath) return { ok: false, code: "not_a_worktree" };
+  if (!mainPath) {
+    return gitBinaryMissing(cwd)
+      ? { ok: false, code: "git_not_found" }
+      : { ok: false, code: "not_a_worktree" };
+  }
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
   const base = resolveDefaultBase(mainPath, baseHint);
   if (!base) return { ok: false, code: "base_not_found" };
@@ -1360,6 +1385,7 @@ export function pushBranch(opts: {
 }): LifecycleSuccess<{ pushed: true }> | LifecycleFailure<PushCode> {
   const { cwd, setUpstream = true } = opts;
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
@@ -1840,7 +1866,9 @@ export function addWorktreeFromPr(opts: {
   // touches the network.
   const repoRoot = resolveMainPath(cwd);
   if (!repoRoot) {
-    return { ok: false, error: "not_a_repo", message: "not a git repository" };
+    return gitBinaryMissing(cwd)
+      ? { ok: false, error: "git_not_found", message: "git binary not found" }
+      : { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
 
   const localRef = `refs/pr/${prNumber}`;
@@ -1858,6 +1886,9 @@ export function addWorktreeFromPr(opts: {
     });
   } catch (err: any) {
     const stderr = String(err?.stderr ?? err?.message ?? "");
+    if (isBinaryMissing(err)) {
+      return { ok: false, error: "git_not_found", message: "git binary not found", stderr };
+    }
     if (/couldn.t find remote ref|no such ref/i.test(stderr)) {
       return { ok: false, error: "pr_not_found", message: `PR #${prNumber} not found`, stderr };
     }
