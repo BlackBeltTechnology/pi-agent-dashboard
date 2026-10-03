@@ -1,7 +1,6 @@
-import path from "node:path";
+import { createRequire } from "node:module";
 import { expect, type Page, test } from "./fixtures.js";
 import { openAddPicker, openProvidersSettings, providerStatusRow, routeProviderData } from "./helpers/index.js";
-import { REPO_ROOT } from "./lifecycle.js";
 
 /**
  * L3: Radius sign-in renders through the GENERIC select → device-code panes
@@ -158,7 +157,7 @@ test.describe("add-radius-provider-login — Radius generic panes (L3)", () => {
     const decline = offer.getByRole("button", { name: "Not now" });
     await expect(decline).toBeVisible();
 
-    await page.addScriptTag({ path: path.join(REPO_ROOT, "node_modules", "axe-core", "axe.min.js") });
+    await page.addScriptTag({ path: createRequire(import.meta.url).resolve("axe-core/axe.min.js") });
     const violations = await page.evaluate(async () => {
       const axe = (window as unknown as { axe: { run: (c: string, o: unknown) => Promise<unknown> } }).axe;
       const result = (await axe.run('[data-testid="radius-mcp-offer"]', {
