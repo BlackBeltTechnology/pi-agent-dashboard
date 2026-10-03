@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createArchiveSweeper } from "../archive-sweeper.js";
 import type { SessionArchive } from "../session-archive.js";
@@ -203,6 +204,9 @@ describe("archive sweeper zero disables (E19)", () => {
         // Far-future cache stamp → never stale, so only the archive rule could
         // rewrite the sidecar. (The .jsonl mtime is real wall-clock time.)
         cachedAt: 8_640_000_000_000,
+        // Current extractor version, so no version-triggered re-extract either.
+        // See change: count-non-message-usage.
+        statsExtractorVersion: STATS_EXTRACTOR_VERSION,
       });
       files.push(file);
     }
