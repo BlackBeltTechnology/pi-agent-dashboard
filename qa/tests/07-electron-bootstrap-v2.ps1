@@ -144,7 +144,7 @@ if (Test-Path $ManagedDir) {
         $ExitCode = 1
     }
 
-    $PiCodingAgent = Join-Path $ManagedDir "node_modules\@mariozechner\pi-coding-agent\package.json"
+    $PiCodingAgent = Join-Path $ManagedDir "node_modules\@earendil-works\pi-coding-agent\package.json"
     if (Test-Path $PiCodingAgent) {
         Write-Host "  ✓ pi-coding-agent installed in managedDir"
     } else {

@@ -6,7 +6,7 @@
 # and boots the server without a system Node.
 #
 # Rewrite scope: this script previously simulated a wizard runtime-install
-# (npm install tsx + @mariozechner/pi-coding-agent) and a manual server
+# (npm install tsx + pi-coding-agent) and a manual server
 # launch through tsx. Both flows were deleted under change
 # `eliminate-electron-runtime-install` — the DEB now ships pi/openspec/tsx
 # pre-installed in the bundle, and the only launch path is the Electron

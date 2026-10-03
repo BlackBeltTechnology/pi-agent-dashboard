@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Server-side session discovery and event loading. The server imports `SessionManager` from `@mariozechner/pi-coding-agent` to discover historical sessions and load session events directly from disk, without requiring a bridge connection.
+Server-side session discovery and event loading. The server imports `SessionManager` from `@earendil-works/pi-coding-agent` to discover historical sessions and load session events directly from disk, without requiring a bridge connection.
 
 ## Requirements
 

@@ -120,6 +120,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
   install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
   gate and the legacy (global-registry) pi-ai generation are removed.
+- **BREAKING (pi fork): `@mariozechner/pi-coding-agent` is no longer a recognised pi.**
+  The legacy fork (and `@mariozechner/pi-ai` / `pi-tui`) drops out of the
+  Packages UI, version and update checks (`POST /api/pi-core/update` rejects
+  it with 400), module resolution and the published peer ranges. A fork `pi`
+  on PATH may still spawn, but its sessions only get the below-floor warning.
+  Fix: `npm i -g @earendil-works/pi-coding-agent`. The pi.dev latest-version
+  check is removed too; the npm registry is the only latest-version source.
 - **pi-mcp-adapter 5.0.0; dashboard MCP entry moves to `mcp-adapter.json`.** pi
   1.0.0's built-in MCP reads `~/.pi/agent/mcp.json`; the dashboard's entry there
   (adapter-only auth) made every session warn "pi-dashboard: needs sign-in".

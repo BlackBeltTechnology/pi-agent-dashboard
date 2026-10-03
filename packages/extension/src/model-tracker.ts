@@ -4,6 +4,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isPiCodingAgentName } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/candidates.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
 import { gatherGitInfo, gatherGitStatus } from "./vcs-info.js";
@@ -118,25 +119,27 @@ const PI_PKG = "@earendil-works/pi-coding-agent";
  * `ERR_PACKAGE_PATH_NOT_EXPORTED` (pi 0.80.2 is such a package). So we resolve
  * the always-present `"."` entry instead, then walk up to the nearest
  * `package.json` whose `name` matches — the `name` check avoids grabbing an
- * ancestor workspace manifest under hoisted/linked layouts. Returns `undefined`
+ * ancestor workspace manifest under hoisted/linked layouts. `matchName`
+ * defaults to the exact `pkgName`; a caller may pass a broader predicate
+ * (e.g. `isPiCodingAgentName`). Returns `undefined`
  * (not throw) when no matching manifest is found; a truly-uninstalled package
  * still throws from `resolveEntry`, which the caller catches.
  *
  * `resolveEntry`/`readFile`/`fileExists` are injectable for tests.
  */
 export function readPkgVersionByWalkUp(
-  pkgName: string | readonly string[],
+  pkgName: string,
   resolveEntry: (spec: string) => string,
   readFile: (p: string) => string = (p) => readFileSync(p, "utf8"),
   fileExists: (p: string) => boolean = existsSync,
+  matchName: (name: string) => boolean = (name) => name === pkgName,
 ): string | undefined {
-  const names = typeof pkgName === "string" ? [pkgName] : pkgName;
-  let dir = dirname(resolveEntry(names[0]));
+  let dir = dirname(resolveEntry(pkgName));
   for (let i = 0; i < 10; i++) {
     const candidate = join(dir, "package.json");
     if (fileExists(candidate)) {
       const parsed = JSON.parse(readFile(candidate)) as { name?: string; version?: string };
-      if (parsed.name !== undefined && names.includes(parsed.name)) {
+      if (parsed.name !== undefined && matchName(parsed.name)) {
         return typeof parsed.version === "string" ? parsed.version : undefined;
       }
     }
@@ -146,13 +149,6 @@ export function readPkgVersionByWalkUp(
   }
   return undefined;
 }
-
-/**
- * Both pi package identities a bridge can be running inside. The dashboard's
- * resolver prefers earendil, but a hoisted/transitive `.bin/pi` (e.g.
- * pi-flows') or a user-launched session can point at the mariozechner build.
- */
-const PI_PKG_NAMES = [PI_PKG, "@mariozechner/pi-coding-agent"] as const;
 
 /** Injectable filesystem probes for {@link readRunningPiVersion}. */
 export interface ReadRunningPiVersionFs {
@@ -168,8 +164,10 @@ export interface ReadRunningPiVersionFs {
  *
  * Why argv, not a by-name resolution: this monorepo hoists a pinned earendil
  * copy at the root, so by-name resolution can read the hoisted NEW version
- * while the session actually runs an OLD host pi (or a `@mariozechner` build)
- * — reporting a supported pi for a session that is below the floor.
+ * while the session actually runs an OLD host pi (or a pi-coding-agent build
+ * under another scope) — reporting a supported pi for a session that is below
+ * the floor. The manifest match is scope-agnostic (`isPiCodingAgentName`), so
+ * any running pi reports its true version. See change: drop-mariozechner-pi-fork.
  * `process.argv[1]` is the entry node was started with, so the walk-up always
  * lands on the manifest of the running copy.
  *
@@ -207,10 +205,11 @@ export function readRunningPiVersion(
       entry = argv1;
     }
     return readPkgVersionByWalkUp(
-      PI_PKG_NAMES,
+      PI_PKG,
       () => entry,
       fs.readFile ?? ((p) => readFileSync(p, "utf8")),
       fs.fileExists ?? existsSync,
+      isPiCodingAgentName,
     );
   } catch {
     return undefined;

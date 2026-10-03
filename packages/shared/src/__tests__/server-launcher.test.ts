@@ -99,6 +99,17 @@ describe("launchDashboardServer — jiti resolution", () => {
   });
 });
 
+// E14 — the loader error names only the earendil pi package.
+// See change: drop-mariozechner-pi-fork (test-plan #E14).
+describe("JitiNotFoundError default message", () => {
+  it("names @earendil-works/pi-coding-agent only", () => {
+    const msg = new JitiNotFoundError().message;
+    expect(msg).toContain("@earendil-works/pi-coding-agent");
+    expect(msg).not.toContain("@mariozechner/pi-coding-agent");
+    expect(msg).not.toContain("@oh-my-pi");
+  });
+});
+
 describe("launchDashboardServer — readiness termination", () => {
   it("throws PortConflictError when probe reports portConflict", async () => {
     await expect(launchDashboardServer(baseOpts({

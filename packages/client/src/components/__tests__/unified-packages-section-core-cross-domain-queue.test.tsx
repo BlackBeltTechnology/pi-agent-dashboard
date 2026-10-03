@@ -20,7 +20,7 @@ import type {
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 
-const PI = "@mariozechner/pi-coding-agent";
+const PI = "@earendil-works/pi-coding-agent";
 const EXT_SRC = "npm:@blackbelt-technology/pi-dashboard-subagents";
 
 const mockUsePiCoreVersions = vi.fn<() => {

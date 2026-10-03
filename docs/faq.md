@@ -2338,7 +2338,7 @@ Safe to delete manually:
 rm -rf ~/.pi-dashboard
 ```
 
-Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting the dir removes all of it.
+Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting dir removes all of it. Fork no longer recognised by dashboard — not listed, not updated, not resolved. Fix: `npm i -g @earendil-works/pi-coding-agent`.
 
 Cross-refs:
 - docs/electron-immutable-bundle.md
