@@ -17,7 +17,7 @@
 
 ## 4. Verification
 
-- [x] 4.1 Full suite green; update touched `AGENTS.md` rows with `See change: render-nested-tool-calls`; verify `openspec validate render-nested-tool-calls --strict`
+- [x] 4.1 Full suite run — green except 2 pre-existing failures also red on clean `develop` (`no-upstream-model-proxy-refs`, system-one `supervisor` X12); none in this change's surface; update touched `AGENTS.md` rows with `See change: render-nested-tool-calls`; verify `openspec validate render-nested-tool-calls --strict`
 
 ## 5. Scenario tests (from test-plan.md)
 
