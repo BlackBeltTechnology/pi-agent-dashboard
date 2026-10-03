@@ -93,6 +93,8 @@ extension is a no-op.
   threshold.
 - `PI_IMAGE_FIT_QUALITY=<1-100>` — JPEG output quality. Ignored for
   PNG-in → PNG-out path (always lossless).
+- `PI_IMAGE_FIT_QUIET` — truthy (`1`, `true`, `yes`) drops every
+  telemetry and warning line while leaving resizing untouched.
 
 Invalid values fall back to the documented default and log a single
 warning line naming the variable.
@@ -107,6 +109,12 @@ Format-adaptive:
 Cache file extension matches the chosen output format.
 
 ## Telemetry
+
+Diagnostics go through pi's own UI channel (`ctx.ui.notify`) as soon as a
+handler sees a context that offers one. Hosts without a UI — print mode,
+JSON mode, unit tests — keep the previous `console.log` / `console.warn`
+behaviour. Writing to stdio in a TUI session would land the line in the
+user's prompt, where it has to be cleared before typing.
 
 On a successful resize the extension emits exactly one line:
 

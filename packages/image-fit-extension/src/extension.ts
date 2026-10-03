@@ -26,6 +26,7 @@ import {
   hasCached,
   scopeFor,
 } from "./cache.js";
+import * as log from "./log.js";
 import { type ImageFitConfig, readConfigFromEnv } from "./policy.js";
 // Namespace import so tests can `vi.spyOn(resize, "resizeBuffer")` on the
 // `context`-seam path (ESM named imports are read-only live bindings).
@@ -42,7 +43,7 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
   const config: ImageFitConfig = readConfigFromEnv();
 
   if (config.disabled) {
-    console.log("[pi-image-fit] disabled via PI_IMAGE_FIT_DISABLE");
+    log.info("[pi-image-fit] disabled via PI_IMAGE_FIT_DISABLE");
     return;
   }
 
@@ -58,7 +59,8 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
   // sessions) but must stay cheap — the cheap-probe gate + content-hash
   // cache keep the steady state to a header parse / hash + map lookup.
   const contentCache = new ContentCache();
-  pi.on("context", async (event) => {
+  pi.on("context", async (event, ctx) => {
+    log.useUiSink(ctx);
     try {
       // event.messages is pi's deep copy (safe to mutate in place); the same
       // reference is returned when any block changed. The cast bridges pi's
@@ -70,7 +72,7 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
       // logged inside fitContextMessages; reaching here means something
       // above the block loop threw. Fail open: leave messages unmodified.
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[pi-image-fit] WARN context handler error: ${msg}`);
+      log.warn(`[pi-image-fit] WARN context handler error: ${msg}`);
       return undefined;
     }
   });
@@ -91,6 +93,7 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
   }
 
   pi.on("tool_call", async (event, ctx) => {
+    log.useUiSink(ctx);
     // Fast-path gates. None of these touch the filesystem.
     if (event.toolName !== "read") return;
     const srcPath = event.input?.path;
@@ -105,7 +108,7 @@ export default function imageFitExtension(pi: ExtensionAPI): void {
       // fall through; event.input.path is whatever the deepest mutation
       // left it (callee responsibility to restore on partial failure).
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[pi-image-fit] WARN unexpected error for ${srcPath}: ${msg}`);
+      log.warn(`[pi-image-fit] WARN unexpected error for ${srcPath}: ${msg}`);
     }
   });
 
@@ -151,7 +154,7 @@ async function maybeResize(
   if (!dims) {
     // Jimp couldn't decode — likely corrupted or unsupported variant.
     // Fall through to built-in Read which will surface the file as-is.
-    console.warn(`[pi-image-fit] WARN could not decode ${srcPath}; passing through original`);
+    log.warn(`[pi-image-fit] WARN could not decode ${srcPath}; passing through original`);
     return;
   }
 
@@ -184,7 +187,7 @@ async function maybeResize(
     await ensureDir(scope.dir);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[pi-image-fit] WARN could not create cache dir ${scope.dir}: ${msg}; passing through original`);
+    log.warn(`[pi-image-fit] WARN could not create cache dir ${scope.dir}: ${msg}; passing through original`);
     return;
   }
 
@@ -194,7 +197,7 @@ async function maybeResize(
       quality: config.quality,
     });
     event.input.path = dstPath;
-    console.log(
+    log.info(
       `[pi-image-fit] ${srcPath} ${result.srcDims.width}\u00d7${result.srcDims.height} ${formatBytes(bytes)} \u2192 ${result.dstDims.width}\u00d7${result.dstDims.height} ${formatBytes(result.dstBytes)}`,
     );
   } catch (err) {
@@ -206,7 +209,7 @@ async function maybeResize(
     } catch {
       /* ignore */
     }
-    console.warn(`[pi-image-fit] WARN resize failed for ${srcPath}: ${msg}; passing through original`);
+    log.warn(`[pi-image-fit] WARN resize failed for ${srcPath}: ${msg}; passing through original`);
     // event.input.path was not mutated yet — original path stands.
   }
 }
@@ -270,7 +273,7 @@ async function fitContentBlocks(
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[pi-image-fit] WARN could not fit image block (${block.mimeType}): ${msg}`);
+      log.warn(`[pi-image-fit] WARN could not fit image block (${block.mimeType}): ${msg}`);
     }
   }
   return changed;
