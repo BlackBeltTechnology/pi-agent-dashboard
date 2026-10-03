@@ -53,6 +53,9 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     cacheRead: session.cacheRead,
     cacheWrite: session.cacheWrite,
     cost: session.cost,
+    // Full-overwrite save: omitting it would re-trigger extractor-version
+    // re-extraction on every boot. See change: count-non-message-usage.
+    statsExtractorVersion: session.statsExtractorVersion,
     contextTokens: session.contextTokens ?? undefined,
     contextWindow: session.contextWindow,
     firstMessage: session.firstMessage,

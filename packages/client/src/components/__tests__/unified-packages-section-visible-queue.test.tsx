@@ -256,6 +256,43 @@ describe("UnifiedPackagesSection — visible queue (D9)", () => {
 		expect(packageQueue.getQueueDepth()).toBe(1);
 	});
 
+	// F2 — Update All over the two Core rows (earendil pi + dashboard)
+	// serializes: running→queued, then the second runs after the first POST
+	// resolves; each POST carries exactly one name.
+	// See change: drop-mariozechner-pi-fork (test-plan #F2).
+	it("F2: Update All serializes the 2 Core rows FIFO with single-name POSTs", async () => {
+		const resolvers: Array<(r: Response) => void> = [];
+		const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+			url === "/api/packages/check-updates"
+				? jsonResponse({ success: true, data: [] })
+				: new Promise<Response>((resolve) => resolvers.push(resolve)),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const coreCalls = () =>
+			fetchMock.mock.calls.filter(([u]) => u === "/api/pi-core/update");
+
+		render(<UnifiedPackagesSection />);
+		await act(async () => {
+			fireEvent.click(btn("pi-core-update-all"));
+			await flush();
+		});
+
+		expect(packageQueue.getStateForSource(`pi-core:${PI}`)).toBe("running");
+		expect(packageQueue.getStateForSource(`pi-core:${DASH}`)).toBe("queued");
+		expect(coreCalls()).toHaveLength(1);
+
+		await act(async () => {
+			resolvers[0](jsonResponse({ success: true, data: { results: [{ name: PI, success: true }] } }));
+			await flush();
+		});
+		await waitFor(() => expect(packageQueue.getStateForSource(`pi-core:${DASH}`)).toBe("running"));
+		expect(coreCalls()).toHaveLength(2);
+		expect(coreCalls().map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+			{ packages: [PI] },
+			{ packages: [DASH] },
+		]);
+	});
+
 	it("Move and Reset-to-npm are the only controls disabled while busy", async () => {
 		const pending = new Promise<Response>(() => {});
 		vi.stubGlobal(

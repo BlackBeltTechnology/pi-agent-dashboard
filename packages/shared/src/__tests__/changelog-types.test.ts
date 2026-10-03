@@ -52,7 +52,7 @@ describe("changelog-types", () => {
 
   it("ChangelogResponse wraps a release list", () => {
     const resp: ChangelogResponse = {
-      pkg: "@mariozechner/pi-coding-agent",
+      pkg: "@earendil-works/pi-coding-agent",
       from: "0.62.0",
       to: "0.70.0",
       releases: [],

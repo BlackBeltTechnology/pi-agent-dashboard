@@ -140,8 +140,14 @@ otherwise required to be identical — `npm` has no `managedBin` step, and `npm`
 #### Scenario: pi-coding-agent strategy chain
 
 - **WHEN** `registry.resolveModule("pi-coding-agent")` runs
-- **THEN** strategies SHALL be tried in order: `override`, `bare-import` (`import("@mariozechner/pi-coding-agent")`), `managed` (`~/.pi-dashboard/node_modules/@mariozechner/pi-coding-agent/dist/index.js`), `npm-global` (`<npm root -g>/@mariozechner/pi-coding-agent/dist/index.js`)
-- **AND** a sibling strategy SHALL also probe `@oh-my-pi/pi-coding-agent` under both managed and npm-global paths
+- **THEN** strategies SHALL be tried in order: `override`, `bare-import` (`import("@earendil-works/pi-coding-agent")`), `managed` (`~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent/dist/index.js`), `npm-global` (`<npm root -g>/@earendil-works/pi-coding-agent/dist/index.js`)
+- **AND** no strategy SHALL probe `@mariozechner/pi-coding-agent` or `@oh-my-pi/pi-coding-agent`
+
+#### Scenario: pi executor and pi-ai module probe only earendil packages
+
+- **WHEN** `registry.resolveExecutor("pi")` or `registry.resolveModule("pi-ai")` runs
+- **THEN** package-based strategies SHALL probe only `@earendil-works/pi-coding-agent` (executor) or `@earendil-works/pi-ai` (module)
+- **AND** SHALL NOT probe `@mariozechner/pi-coding-agent` or `@mariozechner/pi-ai`
 
 #### Scenario: bash strategy chain
 
@@ -1003,6 +1009,7 @@ required.
   `installHints[hostOs]`
 - **THEN** the Settings→Tools row SHALL render the `[Install ▾]` dropdown,
   identically to a built-in missing tool.
+
 ### Requirement: A rejected override is indicated on unresolved rows
 
 The Settings → Tools status badge SHALL indicate a rejected override on rows where

@@ -11,6 +11,7 @@ export {
 	type EnumerateDeps,
 	enumeratePiCandidates,
 	invalidatePiCandidatesCache,
+	isPiCodingAgentName,
 	PI_MODULE_ENTRY,
 	PI_PKG_ALIASES,
 	PI_SPAWN_ENTRY,

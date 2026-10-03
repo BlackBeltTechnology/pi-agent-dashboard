@@ -113,6 +113,13 @@ describe("synthesizeToolEndEvent", () => {
     const e = synthesizeToolEndEvent("t1", {}, 1);
     expect(e.data.result).toBe("");
   });
+
+  // render-nested-tool-calls review B1 sibling: a live end stores pi's
+  // structured `{ content: [...] }` result; never coerce it to `[object Object]`.
+  it("formats a structured stored result as its text", () => {
+    const e = synthesizeToolEndEvent("t1", { result: { content: [{ type: "text", text: "healed" }] } }, 1);
+    expect(e.data.result).toBe("healed");
+  });
 });
 
 /**
@@ -633,5 +640,58 @@ describe("reconcile selectors reject `elided` (E28)", () => {
       .toHaveLength(1);
     expect(selectSupersededHealTargets(states(withInference(elidedToolState("t1", LONG_AGO))), SUPERSEDE_MIN_404, exhausted))
       .toEqual([]);
+  });
+});
+
+// See change: render-nested-tool-calls — test-plan E17. Nested calls never
+// enter the top-level `toolCalls` map, so the reconcile never probes them.
+describe("useStaleToolReconcile — nested calls (E17)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("issues no request for a nested call running past STALE_TOOL_MS", async () => {
+    vi.setSystemTime(STALE_TOOL_MS + 100);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const ev = (eventType: string, data: Record<string, unknown>, timestamp = 0) =>
+      ({ eventType, timestamp, data }) as Parameters<typeof reduceEvent>[1];
+    let s = createInitialState();
+    s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "call_1", toolName: "codemode" }));
+    s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "call_1/1", toolName: "bash", parentToolCallId: "call_1" }));
+    s = reduceEvent(s, ev("tool_execution_end", { toolCallId: "call_1", result: "done" }, 10));
+    // Late nested start under the now-terminal root: a running-shaped entry
+    // the reconcile must still never see.
+    s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "call_1/2", toolName: "bash", parentToolCallId: "call_1" }));
+
+    renderHook(() => useHarness(new Map([["s1", s]])));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS * 3);
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("issues no request for a nested call still running under a running root", async () => {
+    vi.setSystemTime(STALE_TOOL_MS + 100);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const ev = (eventType: string, data: Record<string, unknown>) =>
+      ({ eventType, timestamp: 0, data }) as Parameters<typeof reduceEvent>[1];
+    let s = createInitialState();
+    s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "call_1", toolName: "codemode" }));
+    s = reduceEvent(s, ev("tool_execution_start", { toolCallId: "call_1/1", toolName: "bash", parentToolCallId: "call_1" }));
+
+    renderHook(() => useHarness(new Map([["s1", s]])));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONCILE_POLL_MS + 1);
+    });
+    // Only the ROOT is probed; never the nested id.
+    for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1/1");
+    for (const call of fetchMock.mock.calls) expect(String(call[0])).not.toContain("call_1%2F1");
+    expect(fetchMock).toHaveBeenCalledWith("/api/sessions/s1/tool-result/call_1");
   });
 });

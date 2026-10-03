@@ -70,7 +70,7 @@ function makeFetchMock() {
     if (url.includes("/api/pi-core/changelog")) {
       return new Response(
         JSON.stringify({
-          pkg: "@mariozechner/pi-coding-agent",
+          pkg: "@earendil-works/pi-coding-agent",
           from: "0.0.0",
           to: "0.0.0",
           releases: [],

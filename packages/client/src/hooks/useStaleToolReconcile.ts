@@ -26,6 +26,7 @@ import {
   reduceEvent,
   type SessionState,
   synthesizeSupersededEnd,
+  toDisplayString,
 } from "../lib/chat/event-reducer.js";
 
 /**
@@ -160,7 +161,9 @@ export function synthesizeToolEndEvent(
     timestamp: now,
     data: {
       toolCallId,
-      result: typeof body.result === "string" ? body.result : String(body.result ?? ""),
+      // Structured `{ content: [...] }` results format as text, never
+      // `[object Object]`. See change: render-nested-tool-calls (review B1).
+      result: toDisplayString(body.result),
       isError: body.isError === true,
     },
   };

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import React from "react";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import type {
@@ -67,10 +67,10 @@ beforeEach(() => {
 		status: {
 			packages: [
 				{
-					name: "@mariozechner/pi-coding-agent",
+					name: "@earendil-works/pi-coding-agent",
 					displayName: "pi (core agent)",
-					currentVersion: "0.70.2",
-					latestVersion: "0.70.2",
+					currentVersion: "1.0.0",
+					latestVersion: "1.0.0",
 					updateAvailable: false,
 					installSource: "global",
 				},
@@ -189,11 +189,11 @@ describe("UnifiedPackagesSection", () => {
 		mockUseInstalledPackages.mockReturnValue({
 			packages: [
 				{
-					source: "npm:@mariozechner/pi-coding-agent",
+					source: "npm:@earendil-works/pi-coding-agent",
 					scope: "user",
 					filtered: false,
-					version: "0.70.2",
-					displayName: "@mariozechner/pi-coding-agent",
+					version: "1.0.0",
+					displayName: "@earendil-works/pi-coding-agent",
 					isRecommended: false,
 					isBundled: false,
 				},
@@ -208,6 +208,63 @@ describe("UnifiedPackagesSection", () => {
 		// The npm: source string must NOT appear anywhere — that string only
 		// surfaces if the row leaks into the Other group. The Core row uses
 		// the bare npm name as its source caption (without `npm:` prefix).
-		expect(screen.queryByText("npm:@mariozechner/pi-coding-agent")).toBeNull();
+		expect(screen.queryByText("npm:@earendil-works/pi-coding-agent")).toBeNull();
+	});
+
+	// F1 — a stale legacy-fork row (e.g. a cached status) is not treated as pi:
+	// no what's-new icon, and the changelog is fetched for earendil only.
+	// See change: drop-mariozechner-pi-fork (test-plan #F1).
+	it("F1: a stale fork row gets no icon and no changelog fetch", async () => {
+		const fetchMock = vi.fn(async (url: string | URL | Request) => {
+			const u = String(url);
+			if (u.includes("/api/pi-core/changelog")) {
+				return new Response(
+					JSON.stringify({
+						pkg: "@earendil-works/pi-coding-agent",
+						from: "1.0.0",
+						to: "1.0.2",
+						releases: [{ version: "1.0.2", date: null, breaking: ["x"], added: [], changed: [], fixed: [] }],
+						hasBreaking: true,
+						changelogUrl: null,
+						parsedAt: new Date().toISOString(),
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const FORK = "@mariozechner/pi-coding-agent";
+		const EARENDIL = "@earendil-works/pi-coding-agent";
+		mockUsePiCoreVersions.mockReturnValue({
+			status: {
+				packages: [
+					{ name: FORK, displayName: FORK, currentVersion: "0.73.1", latestVersion: "0.74.0", updateAvailable: true, installSource: "global" },
+					{ name: EARENDIL, displayName: "pi (core agent)", currentVersion: "1.0.0", latestVersion: "1.0.2", updateAvailable: true, installSource: "global" },
+				],
+				updatesAvailable: 2,
+				lastChecked: new Date().toISOString(),
+			},
+			isLoading: false,
+			error: null,
+			refresh: vi.fn().mockResolvedValue(undefined),
+		});
+		try {
+			render(<UnifiedPackagesSection />);
+			await waitFor(() =>
+				expect(screen.getByTestId(`pi-core-row-${EARENDIL}-whats-new`)).toBeTruthy(),
+			);
+			expect(screen.queryByTestId(`pi-core-row-${FORK}-whats-new`)).toBeNull();
+			const changelogUrls = fetchMock.mock.calls
+				.map(([u]) => String(u))
+				.filter((u) => u.includes("/api/pi-core/changelog"));
+			expect(changelogUrls.length).toBeGreaterThan(0);
+			for (const u of changelogUrls) {
+				expect(u).toContain(`pkg=${encodeURIComponent(EARENDIL)}`);
+				expect(u).not.toContain("mariozechner");
+			}
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

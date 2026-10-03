@@ -16,20 +16,11 @@
       "@earendil-works/pi-coding-agent": [
         "./node_modules/@earendil-works/pi-coding-agent"
       ],
-      "@mariozechner/pi-coding-agent": [
-        "./node_modules/@mariozechner/pi-coding-agent"
-      ],
       "@earendil-works/pi-ai": [
         "./node_modules/@earendil-works/pi-ai"
       ],
       "@earendil-works/pi-tui": [
         "./node_modules/@earendil-works/pi-tui"
-      ],
-      "@mariozechner/pi-ai": [
-        "./node_modules/@mariozechner/pi-ai"
-      ],
-      "@mariozechner/pi-tui": [
-        "./node_modules/@mariozechner/pi-tui"
       ]
     }
   }

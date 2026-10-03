@@ -156,6 +156,41 @@ export const GOVERNED_PI_PACKAGES = [
 ];
 
 /**
+ * Legacy fork pi packages no manifest may declare in any dependency field or in
+ * `peerDependenciesMeta`. See change: drop-mariozechner-pi-fork.
+ */
+export const FORBIDDEN_PI_PACKAGES = [
+  "@mariozechner/pi-coding-agent",
+  "@mariozechner/pi-ai",
+  "@mariozechner/pi-tui",
+];
+
+/**
+ * One failure string per forbidden legacy fork pi package found in
+ * `manifests` (`[{ path, pkg }]`), naming the manifest, field and dep.
+ */
+export function checkForbiddenPiPackages(manifests) {
+  const fields = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+    "peerDependenciesMeta",
+  ];
+  const failures = [];
+  for (const { path: rel, pkg } of manifests ?? []) {
+    for (const field of fields) {
+      for (const dep of FORBIDDEN_PI_PACKAGES) {
+        if (pkg?.[field]?.[dep] !== undefined) {
+          failures.push(`Forbidden: ${rel} ${field}.${dep} — the legacy fork is not a supported pi`);
+        }
+      }
+    }
+  }
+  return failures;
+}
+
+/**
  * The publishable manifests that may declare pi ranges: the root
  * `package.json` (a published pi package) plus every `packages/*` manifest.
  * Returns `[{ path, pkg }]` with repo-relative paths. A missing root manifest
@@ -180,7 +215,7 @@ export function piManifests(repoRoot = REPO_ROOT) {
 /**
  * Every governed pi range declared in `manifests`, as `[label, range]` pairs:
  * peer ranges and devDependency ranges for the three governed packages.
- * `@mariozechner/*` ranges are not governed here.
+ * Legacy fork ranges are rejected separately (`checkForbiddenPiPackages`).
  */
 function piRangeSurfaces(manifests) {
   const surfaces = [];
@@ -413,6 +448,7 @@ try {
     if (piDrift) failures.push(piDrift);
     const floor = serverPkg?.piCompatibility?.minimum;
     if (floor) failures.push(...checkPiRangeShapes(manifests, floor));
+    failures.push(...checkForbiddenPiPackages(manifests));
   } catch (err) {
     failures.push(`Cannot check pi pin coherence: ${err.message}`);
   }

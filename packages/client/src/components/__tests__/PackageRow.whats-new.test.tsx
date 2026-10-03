@@ -21,7 +21,7 @@ beforeAll(() => {
 
 const baseProps = {
   displayName: "pi (core agent)",
-  source: "@mariozechner/pi-coding-agent",
+  source: "@earendil-works/pi-coding-agent",
   sourceType: "global" as const,
   currentVersion: "0.62.0",
   latestVersion: "0.70.0",

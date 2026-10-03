@@ -2,7 +2,9 @@
 
 ## Purpose
 UI affordances in Settings → Pi Ecosystem for displaying installed pi-ecosystem versions, surfacing available updates, and giving users access to release notes / changelog content for the canonical core packages.
+
 ## Requirements
+
 ### Requirement: Settings panel version section
 The Settings panel SHALL include a unified packages section that contains three sub-groups: **Core**, **Recommended Extensions**, and **Other Packages**. Each sub-group SHALL render its rows using the same row component, and each package SHALL appear in exactly one sub-group, classified in priority order Core → Recommended → Other.
 
@@ -99,7 +101,7 @@ The icon SHALL NOT render when the changelog endpoint returned `releases: []` (n
 - **THEN** the row SHALL NOT render any what's-new icon
 
 #### Scenario: Icon hidden for non-pi packages
-- **WHEN** the row's package name is not `@mariozechner/pi-coding-agent` (or its declared successor)
+- **WHEN** the row's package name is not `@earendil-works/pi-coding-agent`
 - **THEN** the row SHALL NOT render any what's-new icon, regardless of changelog response
 - **AND** the changelog endpoint SHALL NOT be requested for that row
 
@@ -121,7 +123,7 @@ The icon SHALL NOT render when the changelog endpoint returned `releases: []` (n
 - **THEN** a tooltip SHALL display "View what's new"
 
 ### Requirement: On-demand changelog fetch
-The Core sub-group SHALL fetch the changelog for `@mariozechner/pi-coding-agent` lazily — only when an update is available — and reuse the cached result for subsequent renders within the same session.
+The Core sub-group SHALL fetch the changelog for `@earendil-works/pi-coding-agent` lazily — only when an update is available — and reuse the cached result for subsequent renders within the same session.
 
 #### Scenario: Fetch triggered when update appears
 - **WHEN** `usePiCoreVersions` reports the pi row transitioning from `updateAvailable: false` to `updateAvailable: true`
@@ -133,7 +135,7 @@ The Core sub-group SHALL fetch the changelog for `@mariozechner/pi-coding-agent`
 - **THEN** the section SHALL NOT issue any changelog request
 
 #### Scenario: Re-fetch after pi update completes
-- **WHEN** a `package_operation_complete` WebSocket message is received for `@mariozechner/pi-coding-agent`
+- **WHEN** a `package_operation_complete` WebSocket message is received for `@earendil-works/pi-coding-agent`
 - **AND** the post-update version comparison again yields `updateAvailable: true` (e.g., another release landed)
 - **THEN** the section SHALL re-issue the changelog request for the new range
 
@@ -180,7 +182,7 @@ This requirement closes a UX bug in which an update started on a core package wo
 
 #### Scenario: Update spinner survives unmount/remount
 
-- **GIVEN** the user clicked Update on the `pi (core agent)` row (display name for `@mariozechner/pi-coding-agent`) in `Settings → Pi Ecosystem`
+- **GIVEN** the user clicked Update on the `pi (core agent)` row (display name for `@earendil-works/pi-coding-agent`) in `Settings → Pi Ecosystem`
 - **AND** the row is rendering its busy state (spinner + progress message)
 - **WHEN** the user navigates to a different sidebar entry, causing `UnifiedPackagesSection` to unmount
 - **AND** later navigates back to Settings, causing `UnifiedPackagesSection` to remount
@@ -189,10 +191,10 @@ This requirement closes a UX bug in which an update started on a core package wo
 
 #### Scenario: Progress events received while component is unmounted are visible on remount
 
-- **GIVEN** the user has started a pi-core update for `@mariozechner/pi-coding-agent` and unmounted the component
+- **GIVEN** the user has started a pi-core update for `@earendil-works/pi-coding-agent` and unmounted the component
 - **WHEN** a `pi_core_update_progress` event arrives via WebSocket while the component is unmounted
 - **THEN** the queue SHALL update its running op's `message` field
-- **AND** when the component remounts, the row SHALL display the most-recent message via `operations.operation.message` (when `runningSource === "pi-core:" + pkg.name`, e.g. `"pi-core:@mariozechner/pi-coding-agent"`)
+- **AND** when the component remounts, the row SHALL display the most-recent message via `operations.operation.message` (when `runningSource === "pi-core:" + pkg.name`, e.g. `"pi-core:@earendil-works/pi-coding-agent"`)
 
 #### Scenario: Completion finalizes state regardless of mount status
 
@@ -210,25 +212,24 @@ The version-list refresh after completion (currently the inline `refresh(true)` 
 
 #### Scenario: Core row Update button calls coreUpdate
 
-- **WHEN** the user clicks Update on the `pi (core agent)` Core row (whose `pkg.name` is `@mariozechner/pi-coding-agent`)
-- **THEN** the component invokes `operations.coreUpdate("@mariozechner/pi-coding-agent")`
-- **AND** the queue subsequently POSTs `/api/pi-core/update` with `{packages: ["@mariozechner/pi-coding-agent"]}`
+- **WHEN** the user clicks Update on the `pi (core agent)` Core row (whose `pkg.name` is `@earendil-works/pi-coding-agent`)
+- **THEN** the component invokes `operations.coreUpdate("@earendil-works/pi-coding-agent")`
+- **AND** the queue subsequently POSTs `/api/pi-core/update` with `{packages: ["@earendil-works/pi-coding-agent"]}`
 
 #### Scenario: Core row reads busy from runningSource
 
-- **WHEN** the queue's `runningSource` is `"pi-core:@mariozechner/pi-coding-agent"`
+- **WHEN** the queue's `runningSource` is `"pi-core:@earendil-works/pi-coding-agent"`
 - **THEN** the `pi (core agent)` row renders `busy = true` and shows the in-flight progress message
 
 #### Scenario: Core row reads error from queue's per-source map
 
-- **WHEN** a pi-core update for `@mariozechner/pi-coding-agent` fails and the queue records `errorBySource.set("pi-core:@mariozechner/pi-coding-agent", { message: "..." })`
+- **WHEN** a pi-core update for `@earendil-works/pi-coding-agent` fails and the queue records `errorBySource.set("pi-core:@earendil-works/pi-coding-agent", { message: "..." })`
 - **THEN** the `pi (core agent)` row renders the error text underneath
 - **AND** the row's Update button is enabled again (the error is sticky until the next enqueue, matching today's behavior)
 
 #### Scenario: Update All produces serialized per-row state
 
-- **GIVEN** the user clicks Update All with 3 updatable Core packages
+- **GIVEN** the user clicks Update All with 2 updatable Core packages
 - **THEN** the first row enters the `running` state
-- **AND** the other two rows enter the `queued` state
+- **AND** the other row enters the `queued` state
 - **WHEN** each row's update completes, the next row transitions from `queued` to `running` automatically
-

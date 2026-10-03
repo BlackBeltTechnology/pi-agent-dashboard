@@ -14,7 +14,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { rangeIsSatisfiable, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
-import { checkPiRangeShapes, piManifests } from '../verify-release-deps.mjs';
+import { checkForbiddenPiPackages, checkPiRangeShapes, collectFailures, FORBIDDEN_PI_PACKAGES, piManifests } from '../verify-release-deps.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
@@ -178,7 +178,7 @@ describe('no wildcard ranges (E22)', () => {
   it('de-wildcarded optional peers use a lower bound, not a caret', () => {
     // A caret would exclude older hosts that the previous "*" admitted, breaking
     // already-published consumers. Concreteness is the requirement; tightening is not.
-    for (const dep of ['@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', '@mariozechner/pi-coding-agent']) {
+    for (const dep of ['@earendil-works/pi-coding-agent', '@earendil-works/pi-tui']) {
       const range = rootManifest.peerDependencies?.[dep];
       if (!range) continue;
       expect(range, `root peerDependencies.${dep}`).toMatch(/^>=/);
@@ -373,4 +373,53 @@ describe.runIf(CI_SCENARIOS)('publish-correctness checker runtime budget (P1)', 
     const elapsed = (Date.now() - started) / 1000;
     expect(elapsed, `checker took ${elapsed.toFixed(1)}s`).toBeLessThan(120);
   }, 180_000);
+});
+
+/* ------------------------------------------------------------------
+ * drop-mariozechner-pi-fork (test-plan #E1, #E2)
+ * ------------------------------------------------------------------ */
+
+describe('no legacy fork pi packages in any manifest (E1)', () => {
+  it('the forbidden set is exactly the three legacy fork pi packages', () => {
+    expect(FORBIDDEN_PI_PACKAGES).toEqual([
+      '@mariozechner/pi-coding-agent',
+      '@mariozechner/pi-ai',
+      '@mariozechner/pi-tui',
+    ]);
+  });
+
+  for (const dep of FORBIDDEN_PI_PACKAGES) {
+    for (const field of ['peerDependencies', 'peerDependenciesMeta', 'devDependencies']) {
+      it(`a fixture with ${dep} in ${field} fails, naming dep and file`, () => {
+        const value = field === 'peerDependenciesMeta' ? { optional: true } : '>=0.73.1';
+        const failures = checkForbiddenPiPackages([
+          { path: 'packages/extension/package.json', pkg: { name: 'x', [field]: { [dep]: value } } },
+        ]);
+        expect(failures).toHaveLength(1);
+        expect(failures[0]).toContain(dep);
+        expect(failures[0]).toContain('packages/extension/package.json');
+        expect(failures[0]).toContain(field);
+      });
+    }
+  }
+
+  it('the clean tree declares no legacy fork pi package', () => {
+    expect(checkForbiddenPiPackages(piManifests(REPO_ROOT))).toEqual([]);
+  });
+
+  it('verify-release-deps collectFailures reports no forbidden fork package', () => {
+    expect(collectFailures({ repoRoot: REPO_ROOT }).filter((f) => f.includes('@mariozechner/pi-'))).toEqual([]);
+  });
+});
+
+describe('tsconfig.base.json paths are earendil-only (E2)', () => {
+  const paths = readJson(join(REPO_ROOT, 'tsconfig.base.json')).compilerOptions.paths;
+  it('no path key names a legacy fork pi package', () => {
+    expect(Object.keys(paths).filter((k) => /^@mariozechner\/pi-/.test(k))).toEqual([]);
+  });
+  it('earendil pi path keys are present', () => {
+    for (const k of ['@earendil-works/pi-coding-agent', '@earendil-works/pi-ai', '@earendil-works/pi-tui']) {
+      expect(Object.keys(paths)).toContain(k);
+    }
+  });
 });

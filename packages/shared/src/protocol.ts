@@ -2,6 +2,7 @@
  * Extension ↔ Server WebSocket protocol messages.
  */
 import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, GitPrChecks, GitPrState, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { UsageTotals } from "./usage-totals.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -216,6 +217,16 @@ export interface SessionRegisterMessage {
    * See change: gate-session-worktree-button-on-git.
    */
   isGitRepo?: boolean;
+  /**
+   * Full usage totals (every kind, cache included) of the bridge's baseline
+   * `getEntries()` snapshot — the same snapshot its usage drain cursor starts
+   * after, so seed and live drain share one cutoff. Sent on the init/reload
+   * register and on a session change (new/fork/resume); never on a reconnect.
+   * The server applies it ONLY for a session id it has no record of.
+   * Optional/back-compatible: absent ⇒ all five totals start at zero.
+   * See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals;
 }
 
 export interface SessionUnregisterMessage {
@@ -381,6 +392,31 @@ export interface ExtensionUiRequestMessage {
 }
 
 // StatsUpdateMessage removed — server extracts stats directly from forwarded turn_end events
+
+/**
+ * Bridge -> server: one model-attributed usage that is not an assistant turn
+ * and not a tool result — a `usage` session entry (`kind: "usage:<kind>"`,
+ * e.g. `usage:cache_warm`) or the `usage` of a compaction / branch-summary
+ * entry (`kind: "compaction" | "branch_summary"`). Drained from
+ * `ctx.sessionManager.getEntries()` past the bridge's entry-id cursor at
+ * `turn_end`, `agent_settled`, `cache_warming_decision` and `session_shutdown`.
+ * The server adds it to the session totals and synthesizes a kind-marked
+ * `stats_update` (no `contextUsage`). A top-level message, not an
+ * `event_forward`: an older server ignores it instead of rendering a card.
+ * See change: count-non-message-usage.
+ */
+export interface UsageRecordedMessage {
+  type: "usage_recorded";
+  sessionId: string;
+  kind: string;
+  /** pi `Usage`: input/output/cacheRead/cacheWrite/totalTokens/cost.total. */
+  usage: Record<string, unknown>;
+  /** Present for `usage` entries only (compaction/branch-summary carry none). */
+  provider?: string;
+  model?: string;
+  /** pi entry id the usage came from (diagnostics). */
+  entryId?: string;
+}
 
 export interface FilesListMessage {
   type: "files_list";
@@ -920,7 +956,8 @@ export type ExtensionToServerMessage =
   | PromptReceivedToServerMessage
   | InboundDropReportMessage
   | BridgeDiagnosticMessage
-  | TranscriptChunkMessage;
+  | TranscriptChunkMessage
+  | UsageRecordedMessage;
 
 
 /**

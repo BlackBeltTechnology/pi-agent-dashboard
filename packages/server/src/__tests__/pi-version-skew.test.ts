@@ -582,6 +582,8 @@ describe("pi-version-skew", () => {
       expect(readCurrentPiVersion(registry)).toBe("0.74.0");
     });
 
+    // E16 — the registry fallback is scope-agnostic: any `*/pi-coding-agent`
+    // manifest behind the `pi` bin is read. See change: drop-mariozechner-pi-fork.
     it("non-symlinked path is a no-op under realpath", () => {
       const pkgDir = path.join(tmpDir, "pkg");
       const distDir = path.join(pkgDir, "dist");
@@ -590,7 +592,7 @@ describe("pi-version-skew", () => {
       fs.writeFileSync(cli, "// stub");
       fs.writeFileSync(
         path.join(pkgDir, "package.json"),
-        JSON.stringify({ name: "@mariozechner/pi-coding-agent", version: "0.69.0" }),
+        JSON.stringify({ name: "@other/pi-coding-agent", version: "0.69.0" }),
       );
       const registry = stubRegistry(cli);
       expect(readCurrentPiVersion(registry)).toBe("0.69.0");
