@@ -14,6 +14,11 @@
 //       print the scratch slug of <target>: `root` for the repository root, else a
 //       kebab-case form of its canonical repo-relative path plus an 8-hex hash of that
 //       path (collision-free, never `.`/`..`); exit 2 when <target> is outside the repo.
+//   node guard.mjs lock <slug> <run-id> / unlock <slug> <run-id>
+//       one run per target: `.reverse-spec-scratch/<slug>.lock` holds the owning run id.
+//       lock: create it, or refresh it when this run owns it; exit 1 when another run
+//       holds it and refreshed it within LOCK_STALE_MS (a staler lock is taken over).
+//       unlock: remove it only when this run owns it (exit 1 otherwise).
 //   node guard.mjs check-manifest <manifest.json>
 //       exit 2 unless `capabilities[].capability` is non-empty, kebab-case and unique.
 //   node guard.mjs new-run
@@ -41,12 +46,14 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -60,6 +67,8 @@ const USAGE = `usage:
   node guard.mjs check-cap <name>
   node guard.mjs check-run <id>
   node guard.mjs slug <target>
+  node guard.mjs lock <slug> <run-id>
+  node guard.mjs unlock <slug> <run-id>
   node guard.mjs check-manifest <manifest.json>
   node guard.mjs new-run
   node guard.mjs seed-ids <ids.json> <dir>...
@@ -161,6 +170,8 @@ function newRun(args) {
   process.stdout.write(`${ts}-${randomBytes(4).toString("hex")}\n`);
 }
 
+const SLUG_READABLE_MAX = 60;
+const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
 const CAP_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const RUN_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
@@ -187,9 +198,56 @@ function slug(args) {
     process.stdout.write("root\n");
     return;
   }
-  const readable = rel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "t";
+  // bounded so the slug stays a valid path component for any depth; the hash keeps it unique
+  const readable =
+    rel
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, SLUG_READABLE_MAX)
+      .replace(/^-+|-+$/g, "") || "t";
   const hash = createHash("sha256").update(rel).digest("hex").slice(0, 8);
   process.stdout.write(`${readable}-${hash}\n`);
+}
+
+function lockArgs(args, cmd) {
+  const [slugArg, run, extra] = args;
+  if (!slugArg || !run || extra !== undefined) usage(`${cmd}: needs <slug> <run-id>`);
+  if (!CAP_RE.test(slugArg) || !RUN_RE.test(run)) usage(`${cmd}: unsafe slug or run id`);
+  return { file: join(repoRoot(), ".reverse-spec-scratch", `${slugArg}.lock`), run };
+}
+
+function lock(args) {
+  const { file, run } = lockArgs(args, "lock");
+  mkdirSync(dirname(file), { recursive: true });
+  try {
+    writeFileSync(file, `${run}\n`, { flag: "wx" });
+    return;
+  } catch (err) {
+    if (err.code !== "EEXIST") throw err;
+  }
+  const owner = readFileSync(file, "utf8").trim();
+  if (owner === run) {
+    const now = new Date();
+    utimesSync(file, now, now);
+    return;
+  }
+  if (Date.now() - statSync(file).mtimeMs <= LOCK_STALE_MS) {
+    process.stderr.write(`locked: target is in use by run ${owner} (${file})\n`);
+    process.exit(1);
+  }
+  process.stderr.write(`taking over stale lock of run ${owner} (${file})\n`);
+  writeFileSync(file, `${run}\n`);
+}
+
+function unlock(args) {
+  const { file, run } = lockArgs(args, "unlock");
+  if (!existsSync(file)) return;
+  const owner = readFileSync(file, "utf8").trim();
+  if (owner !== run) {
+    process.stderr.write(`not unlocking: owned by run ${owner}\n`);
+    process.exit(1);
+  }
+  rmSync(file, { force: true });
 }
 
 function checkManifest(args) {
@@ -478,6 +536,12 @@ switch (cmd) {
     break;
   case "slug":
     slug(rest);
+    break;
+  case "lock":
+    lock(rest);
+    break;
+  case "unlock":
+    unlock(rest);
     break;
   case "check-manifest":
     checkManifest(rest);

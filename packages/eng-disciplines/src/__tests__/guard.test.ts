@@ -235,6 +235,53 @@ describe("slug", () => {
   });
 });
 
+describe("slug length (B1 r7)", () => {
+  it("stays a short, creatable path component for a very deep target", () => {
+    const deep = join("a".repeat(200), "b".repeat(200));
+    mkdirSync(join(repo, deep), { recursive: true });
+    const out = guard(repo, "slug", deep).stdout.trim();
+    expect(out.length).toBeLessThanOrEqual(80);
+    expect(out).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    mkdirSync(join(repo, ".reverse-spec-scratch", out, "rebuild"), { recursive: true });
+  });
+});
+
+describe("lock (B2 r7)", () => {
+  const lockFile = (slug: string) => join(repo, ".reverse-spec-scratch", `${slug}.lock`);
+
+  it("one run per target: a second live run is refused, the owner may re-lock", () => {
+    expect(guard(repo, "lock", "root", "run1").code).toBe(0);
+    expect(guard(repo, "lock", "root", "run1").code).toBe(0);
+    const r = guard(repo, "lock", "root", "run2");
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("run1");
+    expect(guard(repo, "lock", "other", "run2").code).toBe(0);
+  });
+
+  it("unlock removes only the owner's lock", () => {
+    guard(repo, "lock", "root", "run1");
+    expect(guard(repo, "unlock", "root", "run2").code).toBe(1);
+    expect(existsSync(lockFile("root"))).toBe(true);
+    expect(guard(repo, "unlock", "root", "run1").code).toBe(0);
+    expect(existsSync(lockFile("root"))).toBe(false);
+  });
+
+  it("a lock not refreshed for over 2 hours is taken over", () => {
+    guard(repo, "lock", "root", "run1");
+    const t = new Date(Date.now() - 3 * 3600_000);
+    utimesSync(lockFile("root"), t, t);
+    const r = guard(repo, "lock", "root", "run2");
+    expect(r.code).toBe(0);
+    expect(r.stderr).toMatch(/stale/i);
+  });
+
+  it("rejects unsafe slug or run id", () => {
+    expect(guard(repo, "lock", "../x", "run1").code).toBe(2);
+    expect(guard(repo, "lock", "root", "a/b").code).toBe(2);
+    expect(guard(repo, "lock", "root").code).toBe(2);
+  });
+});
+
 describe("check-manifest", () => {
   const write = (caps: string[]) => {
     const p = join(repo, "manifest.json");
