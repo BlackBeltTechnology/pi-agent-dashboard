@@ -66,4 +66,4 @@
 - [x] 5.34 L1 test: migration write failure. Exemplar: `packages/mcp-server-plugin/src/server/__tests__/provisioning-fs.test.ts`. Parseable file, rename fails `EACCES` · startup migration · entry kept, file byte-identical, one warn log with the code, start continues (test-plan #X4)
 - [x] 5.35 L3 Playwright: subprocess cannot read token. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · bash `env` · no token, no `PI_DASHBOARD_MCP_TOKEN` (test-plan #X1)
 - [x] 5.36 L3 Playwright: session reaches `/mcp` across restart. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · list + `tool_search` + call, restart, call again · connected and authenticated both times (test-plan #X2)
-- [ ] 5.37 Manual: doctor explains an installed `pi-mcp-adapter` disabling the built-in (test-plan: manual-only, #X3)
+- [x] 5.37 Manual: doctor explains an installed `pi-mcp-adapter` disabling the built-in (test-plan: manual-only, #X3)
