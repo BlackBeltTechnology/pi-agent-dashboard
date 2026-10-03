@@ -22,7 +22,11 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const DATA = path.join(repoRoot, "scripts/test-selection");
 const read = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), "utf8"));
 
-const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8" }).split("\n").filter(Boolean);
+// `git ls-files` output passed Node's 1 MiB default `maxBuffer` (ENOBUFS once
+// the tree crossed 1,048,576 bytes of paths); size it for growth.
+const tracked = execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  .split("\n")
+  .filter(Boolean);
 const TEST_RE = /\.test\.(?:ts|tsx|mts|js|mjs)$/;
 
 /** Every problem with the selection data, as human-readable strings naming the entry. */
