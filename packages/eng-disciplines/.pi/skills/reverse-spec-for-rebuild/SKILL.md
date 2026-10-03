@@ -70,7 +70,9 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
       including ids the previous package already retired.
 4. **Discover.** One subagent with `prompts/discovery.md` (`KB_AVAILABLE` =
    `kb` tooling or `AGENTS.md` files present). It returns a capability manifest.
-   Check `unassigned_files` is empty; otherwise add them to a capability or ask
+   Run `G check-cap <name>` on every capability name; reject (re-run
+   discovery, or rename by hand) any that exits 2 — names become file paths and
+   validation ids, and target code is untrusted. Check `unassigned_files` is empty; otherwise add them to a capability or ask
    the subagent to re-cluster. For a single-capability target you may write the
    manifest by hand.
 5. **Generate in parallel.** One subagent per capability, all in a SINGLE
@@ -117,11 +119,13 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    is on PATH AND `openspec/` exists, validate each spec through a transient id
    that is deleted in the same iteration. Run this block once per capability
    (it is a subshell, safe to repeat in one shell) with shell variables `PKG`
-   (package dir), `CAP` and `RUN_ID` set; its exit status is the validation
+   (package dir), `CAP`, `RUN_ID` and `G` set; it refuses (exit 2) a `CAP` or
+   `RUN_ID` that is not a single safe path component before touching any path; its exit status is the validation
    result, and it records its own pid in `.owner` so a concurrent sweep leaves
    it alone while it runs:
    ```bash
    (
+     $G check-cap "$CAP" && $G check-run "$RUN_ID" || exit 2
      id="_rsfr-val-$RUN_ID-$CAP"; d="openspec/specs/$id"
      trap 'rm -rf "$d"' EXIT
      mkdir -p "$d" && sh -c 'echo $PPID' > "$d/.owner" &&
@@ -131,9 +135,13 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    A failing spec is regenerated with the failures as `FINDINGS` (back to step
    5 for that capability, then 6-9). It is never promotable while failing.
 10. **Completeness gate.** One subagent with `prompts/completeness.md` writes
-    `PKG/completeness.md`. Any unmapped entry point = FAIL: revise the
-    suggested capability (FINDINGS = the unmapped list) or register a `GAP-`,
-    then loop back through steps 6-10. A package that fails is not promotable.
+    `PKG/completeness.md`. Any unmapped entry point = FAIL: re-run the
+    suggested capability's generator with the unmapped list as FINDINGS — it
+    either specs the entry point or records it as a gap (and an entry point)
+    in its fragment. Never edit `rules.md`/`quirks.md`/`gaps.md` or a rendered
+    spec directly: every merge re-renders them from fragments, so a direct edit
+    is lost. Then loop back through steps 6-10. A package that fails is not
+    promotable.
 11. **Cross-cutting audit.** One subagent with `prompts/auditor-rebuild.md`,
     `MODE=cross-cutting`, `ORIGINS` = the origin map. Route each failing item
     to the capability in its `origin`, regenerate it with the finding, and loop

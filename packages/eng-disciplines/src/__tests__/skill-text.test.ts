@@ -9,6 +9,8 @@ import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { read, SKILL } from "./files";
 
+const GUARD_PATH = join(SKILL, "scripts", "guard.mjs");
+
 const DOCS = [
   "SKILL.md",
   ...readdirSync(join(SKILL, "prompts")).map((f) => `prompts/${f}`),
@@ -65,7 +67,7 @@ describe("format gate snippet (B1)", () => {
       const r = spawnSync("bash", ["-c", block], {
         cwd: repo,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", CAP: "cap-a", RUN_ID: "r1" },
+        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", CAP: "cap-a", RUN_ID: "r1", G: `node ${GUARD_PATH}` },
       });
       return { code: r.status, left: readdirSync(join(repo, "openspec", "specs")) };
     } finally {
@@ -89,6 +91,32 @@ describe("format gate snippet (B1)", () => {
     expect(r.code).toBe(0);
     expect(r.left).toEqual([]);
   });
+  it("refuses a traversal capability name before touching the filesystem (B1 r5)", () => {
+    const repo = mkdtempSync(join(tmpdir(), "rsfr-gate-"));
+    try {
+      mkdirSync(join(repo, "openspec", "specs"), { recursive: true });
+      mkdirSync(join(repo, "victim"));
+      writeFileSync(join(repo, "victim", "keep.txt"), "x");
+      mkdirSync(join(repo, "bin"));
+      writeFileSync(join(repo, "bin", "openspec"), "#!/bin/sh\nexit 0\n");
+      chmodSync(join(repo, "bin", "openspec"), 0o755);
+      // naive ids: CAP escapes to <repo>/victim (the EXIT trap would rm -rf it);
+      // RUN_ID escapes so mkdir/cp/rm act inside <repo>/victim
+      for (const [cap, run] of [["x/../../../victim", "r1"], ["y", "a/../../../victim/z"]]) {
+        const r = spawnSync("bash", ["-c", block], {
+          cwd: repo,
+          encoding: "utf8",
+          env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", CAP: cap, RUN_ID: run, G: `node ${GUARD_PATH}` },
+        });
+        expect(r.status, `${cap} ${run}`).not.toBe(0);
+      }
+      expect(readdirSync(join(repo, "victim"))).toEqual(["keep.txt"]);
+      expect(readdirSync(join(repo, "openspec", "specs"))).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("cleans up each iteration when looped over capabilities in one shell", () => {
     const repo = mkdtempSync(join(tmpdir(), "rsfr-gate-"));
     try {
@@ -105,7 +133,7 @@ describe("format gate snippet (B1)", () => {
       const r = spawnSync("bash", ["-c", script], {
         cwd: repo,
         encoding: "utf8",
-        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", RUN_ID: "r1" },
+        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", RUN_ID: "r1", G: `node ${GUARD_PATH}` },
       });
       expect(r.stdout.trim()).toBe("1 0 0");
       expect(readdirSync(join(repo, "openspec", "specs"))).toEqual([]);

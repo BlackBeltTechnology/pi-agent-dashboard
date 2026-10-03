@@ -5,6 +5,11 @@
 //       exit 0 when <path> may receive a promoted rebuild package;
 //       exit 1 when its resolved real path lies inside a protected root
 //       (default roots: openspec docs packages .pi; --protect replaces them).
+//   node guard.mjs check-cap <name>
+//       exit 0 when <name> is a single kebab-case path component ([a-z0-9]+(-[a-z0-9]+)*),
+//       else exit 2 — capability names become file names and validation ids.
+//   node guard.mjs check-run <id>
+//       exit 0 when <id> is a safe run id ([A-Za-z0-9][A-Za-z0-9-]*), else exit 2.
 //   node guard.mjs new-run
 //       print a collision-resistant run id: <UTC yyyymmddThhmmssZ>-<8 random hex>.
 //   node guard.mjs seed-ids <ids.json> <dir>...
@@ -46,6 +51,8 @@ const STALE_MS = 10 * 60 * 1000;
 
 const USAGE = `usage:
   node guard.mjs check-dest <path> [--protect <dir>]...
+  node guard.mjs check-cap <name>
+  node guard.mjs check-run <id>
   node guard.mjs new-run
   node guard.mjs seed-ids <ids.json> <dir>...
   node guard.mjs next-id <ids.json> <BR|QUIRK|GAP>
@@ -146,6 +153,18 @@ function newRun(args) {
   process.stdout.write(`${ts}-${randomBytes(4).toString("hex")}\n`);
 }
 
+const CAP_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const RUN_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+
+function checkName(args, re, what) {
+  const [value, extra] = args;
+  if (value === undefined || extra !== undefined) usage(`check-${what}: needs exactly one ${what} name`);
+  if (!re.test(value)) {
+    process.stderr.write(`invalid ${what === "cap" ? "capability" : "run"} name: ${JSON.stringify(value)}\n`);
+    process.exit(2);
+  }
+}
+
 const ID_KINDS = ["BR", "QUIRK", "GAP"];
 
 /** High-water marks from an ids file; missing file = all zero; corrupt file = exit 2. */
@@ -229,7 +248,7 @@ function sweep(args) {
   let run;
   if (args[0] === "--run") {
     run = args[1];
-    if (!run || /[\\/]/.test(run)) usage("sweep: --run needs a run id (no path separators)");
+    if (!run || !RUN_RE.test(run)) usage("sweep: --run needs a run id ([A-Za-z0-9-], no path separators)");
     if (args.length > 2) usage(`sweep: unexpected argument ${args[2]}`);
   } else if (args.length) usage(`sweep: unexpected argument ${args[0]}`);
   const specs = join(repoRoot(), "openspec", "specs");
@@ -399,6 +418,12 @@ const [cmd, ...rest] = process.argv.slice(2);
 switch (cmd) {
   case "check-dest":
     checkDest(rest);
+    break;
+  case "check-cap":
+    checkName(rest, CAP_RE, "cap");
+    break;
+  case "check-run":
+    checkName(rest, RUN_RE, "run");
     break;
   case "seed-ids":
     seedIds(rest);

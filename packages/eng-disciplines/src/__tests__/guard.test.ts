@@ -189,6 +189,28 @@ describe("sweep", () => {
   });
 });
 
+describe("check-cap", () => {
+  it.each(["order-pricing", "a", "cap2", "http-api-v2"])("accepts kebab-case %s", (cap) => {
+    expect(guard(repo, "check-cap", cap).code).toBe(0);
+  });
+
+  it.each(["../x", "a/b", "..", ".", "", "Cap", "a_b", "-a", "a-", "a--b", "a b", "a\\b"])("rejects %j", (cap) => {
+    const r = guard(repo, "check-cap", cap);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/capability/i);
+  });
+});
+
+describe("check-run", () => {
+  it.each(["20261003T052255Z-a93a5a57", "r1"])("accepts %s", (id) => {
+    expect(guard(repo, "check-run", id).code).toBe(0);
+  });
+
+  it.each(["", "a/b", "..", "a/../x", "-a", "a b"])("rejects %j", (id) => {
+    expect(guard(repo, "check-run", id).code).toBe(2);
+  });
+});
+
 describe("bad input", () => {
   it("X1: check-dest without a path, or an empty path", () => {
     const before = snapshot(repo);
