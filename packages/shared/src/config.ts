@@ -42,10 +42,16 @@ export interface HostGateConfig {
 const HOST_GATE_MODES: HostGateMode[] = ["report", "enforce"];
 
 /**
- * Validate a raw `hostGate.mode`. Absent / unrecognised → `report` (the
- * non-breaking rollout default; see design D4).
+ * Validate a raw `hostGate.mode`. Absent (`undefined`) → `absentDefault`
+ * (`enforce`); a recognised string → itself; anything else (typo, wrong type)
+ * → `report`, so a mistyped config cannot lock the operator out.
+ * See change: harden-server-request-surfaces.
  */
-export function parseHostGateMode(raw: unknown): HostGateMode {
+export function parseHostGateMode(
+  raw: unknown,
+  absentDefault: HostGateMode = "enforce",
+): HostGateMode {
+  if (raw === undefined) return absentDefault;
   return typeof raw === "string" && (HOST_GATE_MODES as string[]).includes(raw)
     ? (raw as HostGateMode)
     : "report";
@@ -1211,7 +1217,7 @@ const DEFAULTS: DashboardConfig = {
   embedLifecycle: { ...DEFAULT_EMBED_LIFECYCLE },
   keeperLog: { ...DEFAULT_KEEPER_LOG },
   allowedHosts: [],
-  hostGate: { mode: "report" },
+  hostGate: { mode: "enforce" },
   trustedNetworks: [],
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },

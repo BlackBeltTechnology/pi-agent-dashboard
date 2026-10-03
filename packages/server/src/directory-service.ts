@@ -183,6 +183,17 @@ export interface DirectoryService {
   getOpenSpecData(cwd: string): OpenSpecData | undefined;
   /** Force refresh: bypasses the mtime gate. Still honors the semaphore. */
   refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
+  /**
+   * Gated force-refresh for the browser-initiated `openspec_refresh` message
+   * (D1). Applies the same admission chain as `getOrPollOpenSpec`, in its
+   * order: `enabled:false` → opted out → tracked → `<cwd>/openspec/` root,
+   * the fs probe deliberately LAST so an untracked cwd never touches the
+   * filesystem. Any gate failure resolves `null` with NO cache write, NO
+   * spawn and NO fs probe; a pass delegates to `refreshOpenSpec` (whose
+   * un-gated contract its four internal callers depend on stays untouched).
+   * See change: harden-server-request-surfaces (D1).
+   */
+  refreshOpenSpecGated(cwd: string): Promise<OpenSpecData | null>;
   /** Gated poll: respects `changeDetection` config and the semaphore. Returns cached data. */
   pollDirectoryGated(cwd: string): Promise<OpenSpecData>;
   /**
@@ -1111,6 +1122,29 @@ export function createDirectoryService(
   }
 
   /**
+   * Gated sibling of `refreshOpenSpec` for browser-initiated `openspec_refresh`
+   * (D1): applies `getOrPollOpenSpec`'s admission chain in its order —
+   * `enabled:false` → opted out → tracked → `<cwd>/openspec/` root, the fs
+   * probe deliberately LAST so an untracked cwd never touches the filesystem
+   * (same X8 ordering) — and resolves `null` on any gate failure WITHOUT
+   * writing the cache, spawning, or probing the fs. Silence matches
+   * `openspec_get`'s no-broadcast rule for gated answers: the client only
+   * renders folders for tracked cwds, so a gated broadcast has no consumer.
+   * On a pass it delegates to `refreshOpenSpec` — a separate method, NOT a
+   * gate inside `refreshOpenSpec`, because that contract is load-bearing for
+   * its four internal callers (server.ts group re-order,
+   * session/session-bootstrap cold boot, `POST /api/openspec/init`, task
+   * toggle), none of which takes a caller-supplied cwd.
+   * See change: harden-server-request-surfaces (D1).
+   */
+  async function refreshOpenSpecGated(cwd: string): Promise<OpenSpecData | null> {
+    if (cfg.enabled === false) return null;
+    if (isOptedOutCwd(cwd)) return null;
+    if (!isTrackedCwd(cwd) || !hasOpenSpecRoot(cwd)) return null;
+    return refreshOpenSpec(cwd);
+  }
+
+  /**
    * Called from `OpenSpecChangeWatcher` when a relevant artifact under
    * `<cwd>/openspec/changes/` is touched. Runs the gated poll and (when the
    * resulting data differs from the cached snapshot) invokes the broadcast
@@ -1525,6 +1559,7 @@ export function createDirectoryService(
     invalidateOpenSpecSignatureCache,
 
     refreshOpenSpec,
+    refreshOpenSpecGated,
     pollDirectoryGated,
     getOrPollOpenSpec,
 

@@ -44,6 +44,39 @@ else
   fi
 fi
 
+# Argv migration (harden-server-request-surfaces, test-plan #X8): a push that
+# would prompt for credentials must fail fast on git's own non-interactive
+# error. Proves GIT_TERMINAL_PROMPT=0 survived the execSync -> execFileSync
+# move in a REAL spawn. The remote is a 401-everything HTTP server.
+AUTH_PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()')
+python3 - "$AUTH_PORT" <<'PY' &
+import sys, http.server
+class H(http.server.BaseHTTPRequestHandler):
+    def _r(self):
+        self.send_response(401); self.send_header("WWW-Authenticate", 'Basic realm="qa"'); self.send_header("Content-Length", "0"); self.end_headers()
+    do_GET = do_POST = _r
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+PY
+AUTH_PID=$!
+sleep 1
+git remote add origin "http://127.0.0.1:${AUTH_PORT}/x.git"
+START=$(date +%s)
+PUSH_RESP=$(curl -s -m 25 -X POST http://localhost:8000/api/git/worktree/push \
+  -H 'Content-Type: application/json' -d "{\"cwd\":\"$TEST_DIR\"}" 2>/dev/null || echo "")
+ELAPSED=$(( $(date +%s) - START ))
+kill "$AUTH_PID" 2>/dev/null || true
+if [ "$ELAPSED" -ge 14 ]; then
+  echo "FAIL: push to a prompting remote hung ${ELAPSED}s (env/GIT_TERMINAL_PROMPT lost?)"
+  rm -rf "$TEST_DIR"
+  exit 1
+fi
+if echo "$PUSH_RESP" | grep -qi "terminal prompts disabled\|auth_failed\|could not read"; then
+  echo "Push failed fast (${ELAPSED}s) on non-interactive error"
+else
+  echo "NOTE: push response did not match expected markers: $PUSH_RESP"
+fi
+
 # Cleanup
 rm -rf "$TEST_DIR"
 

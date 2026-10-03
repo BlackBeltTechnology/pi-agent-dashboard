@@ -79,6 +79,7 @@ import {
   evaluateHostGate,
   type HostGateContext,
   HostGateState,
+  hostGateBootLine,
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
@@ -126,6 +127,7 @@ import {
   liveHostGateMode,
   livePublicBaseUrls,
   liveTrustedNetworks,
+  rawConfigHasHostGateMode,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -1606,6 +1608,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const wsUpgradeRejectLog = createWsUpgradeRejectLogger();
   const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
   if (hostGateBootWarning) console.error(hostGateBootWarning);
+  console.log(
+    hostGateBootLine(
+      process.env.PI_DASHBOARD_HOST_GATE,
+      rawConfigHasHostGateMode(),
+      resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    ),
+  );
   const getHostGateCtx = (): HostGateContext => ({
     admission: {
       allowedHosts: liveAllowedHosts(),

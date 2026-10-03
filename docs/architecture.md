@@ -2874,7 +2874,7 @@ Issuance itself is gated on browser-shaped provenance (`packages/server/src/acce
 
 Client half: `packages/client/src/lib/access-grants/grant-channel.ts`. `setGrantChannel` on each `grant_channel` frame, `clearGrantChannel` on socket close. One idempotent `window.fetch` wrapper (`installGrantChannelFetch`) echoes the capability on same-origin `/api/*` only, never cross-origin.
 
-**Prompting requires `hostGate.mode === "enforce"`** (D2). D1 alone does not beat DNS rebinding: a rebound `attacker.com` is same-origin-by-Host and gets a capability anyway. Only Host validation stops it, so prompting — not merely suspension — is gated on the live resolved mode. On the shipped `report` default (`shared/src/config.ts`) every plane degrades to **record-only** and the Access surface is the whole product. This change re-decides no default; `harden-server-request-surfaces` owns the flip (D2b).
+**Prompting requires `hostGate.mode === "enforce"`** (D2). D1 alone does not beat DNS rebinding: a rebound `attacker.com` is same-origin-by-Host and gets a capability anyway. Only Host validation stops it, so prompting — not merely suspension — is gated on the live resolved mode. Shipped default is now `enforce` (`shared/src/config.ts`); on an opt-out `report` install every plane degrades to **record-only** and the Access surface is the whole product. See change: harden-server-request-surfaces (D2b).
 
 **Two settlement modes, four planes** (D2a). The proof differs because the question differs: a HELD plane asks “may this request be suspended and resumed?”, which only the request can answer, so the request must carry the capability; a DEFERRED plane asks “may the operator be told?”, whose requester is untrusted by definition, so authority comes from the operator's own live channel.
 
@@ -3060,6 +3060,7 @@ sequenceDiagram
 
 - `packages/server/src/routes/pairing-routes.ts` registers operator-only routes; each uses `preHandler: operatorGuard`, NOT `networkGuard`.
 - `operatorGuard` refuses paired-device bearer + trusted-network-only callers.
+- `DELETE /api/paired-devices/:id` + `POST /api/pair/approve` operator-only (`createOperatorGuard`); paired-device bearer (`authVia === "device"`) refused 401 even over loopback; approve `label` bounded 1..64 UTF-8 bytes.
 - `GET /api/pair/pending` returns `pendingId`, metadata, `expiresAt`, `attemptsLeft`; never pairing code or confirm code.
 - `POST /api/pair/approve-pending {pendingId, confirmCode, label?}` validates label 1..64 UTF-8 bytes before delegation → 400.
 - Approve-pending errors: `locked_out` → 429; `no_pending` → 404; other errors → 400; mismatch body includes `attemptsLeft`.
@@ -3924,7 +3925,7 @@ Issue #637. Origin gates cannot see a rebinding page. It is same-origin with the
 
 Match hostname only: port stripped, IPv6 brackets stripped, trailing dot stripped, case-folded. Missing/malformed `Host` fails closed.
 
-**Mode** — `hostGate.mode` (default `report`) or `PI_DASHBOARD_HOST_GATE` (env wins when recognised; unrecognised ignored + logged once at boot). `report` logs `[host-gate] would-refuse` and proceeds; `enforce` refuses.
+**Mode** — `hostGate.mode` (default `enforce`) or `PI_DASHBOARD_HOST_GATE` (env wins when recognised; unrecognised ignored + logged once at boot). Absent config → `enforce`; unrecognised config value → `report` (a typo cannot lock out). `enforce` refuses unlisted hosts; `report` logs `[host-gate] would-refuse` and proceeds. Boot line `[host-gate] mode=<m> source=env|config|default` names resolved mode.
 
 **Refusal** — `403 {error:"host_not_allowed", reason, hint}`, no CORS headers. `Accept` first media type `text/html` → static HTML page (escaped Host, `localhost:<port>`, the two config keys; no JS, no assets, no admitted-host enumeration). WS upgrade → `HTTP/1.1 403` + destroy, ticket unconsumed.
 

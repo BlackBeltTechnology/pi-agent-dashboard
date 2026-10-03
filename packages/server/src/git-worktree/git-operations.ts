@@ -11,7 +11,7 @@ import { execFile as nodeExecFile } from "node:child_process"; // ban:child_proc
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { type ChildProcess, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, execFileSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import {
   checkoutRoots,
   type GitCheckoutRoots,
@@ -51,9 +51,13 @@ const GIT_TIMEOUT = 15_000;
  */
 const execFilePromise = promisify(nodeExecFile);
 
-/** Run a git command, return trimmed stdout. Throws on failure. */
-function run(command: string, cwd: string): string {
-  return execSync(command, {
+/**
+ * Run a git command given as an ARGV (`["git", …]` — never a shell string),
+ * return trimmed stdout. Throws on failure.
+ * See change: harden-server-request-surfaces.
+ */
+function run(argv: string[], cwd: string): string {
+  return execFileSync(argv[0], argv.slice(1), {
     cwd,
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
@@ -62,24 +66,40 @@ function run(command: string, cwd: string): string {
 }
 
 /** Run a git command, return trimmed stdout or undefined on failure. */
-function tryRun(command: string, cwd: string): string | undefined {
+function tryRun(argv: string[], cwd: string): string | undefined {
   try {
-    return run(command, cwd);
+    return run(argv, cwd);
   } catch {
     return undefined;
   }
 }
 
+/**
+ * True when a spawn failed because the resolved binary itself could not be
+ * executed — `ENOENT` (missing) or `ENOTDIR` (a path component is not a
+ * directory) with NO exit status. A real non-zero exit carries a numeric
+ * `status`, so `status == null` separates the two. Callers map this to the
+ * dedicated `git_not_found` / `gh_not_found` stable codes instead of the
+ * generic empty-stderr `git_failed`.
+ * See change: harden-server-request-surfaces.
+ */
+function isBinaryMissing(err: unknown): boolean {
+  const e = err as { code?: unknown; status?: unknown } | null;
+  return e != null
+    && (e.code === "ENOENT" || e.code === "ENOTDIR")
+    && e.status == null;
+}
+
 /** Check if cwd is inside a git work tree. */
 export function isGitRepo(cwd: string): boolean {
-  return tryRun("git rev-parse --is-inside-work-tree", cwd) === "true";
+  return tryRun(["git", "rev-parse", "--is-inside-work-tree"], cwd) === "true";
 }
 
 /** Get list of dirty files from git status --porcelain. */
 export function getDirtyFiles(cwd: string): string[] {
   let output: string;
   try {
-    output = execSync("git status --porcelain", {
+    output = execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -311,12 +331,12 @@ export interface BranchInfo {
 /** List all local and remote branches sorted by most recent commit. */
 export function listBranches(cwd: string): BranchInfo {
   // Detect current branch / detached HEAD
-  const headRef = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const headRef = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
 
   // Empty repo (no commits yet)
   if (!headRef) {
     // Try to read the default branch name from HEAD
-    const symbolic = tryRun("git symbolic-ref --short HEAD", cwd);
+    const symbolic = tryRun(["git", "symbolic-ref", "--short", "HEAD"], cwd);
     return {
       current: symbolic ?? "main",
       detached: false,
@@ -325,17 +345,17 @@ export function listBranches(cwd: string): BranchInfo {
   }
   const detached = headRef === "HEAD";
   const current = detached
-    ? run("git rev-parse --short HEAD", cwd)
+    ? run(["git", "rev-parse", "--short", "HEAD"], cwd)
     : headRef;
 
   // List all branches with committer date sorting
   const format = "%(refname:short)%(HEAD)";
   const rawLocal = tryRun(
-    `git branch --sort=-committerdate --format="${format}"`,
+    ["git", "branch", "--sort=-committerdate", `--format=${format}`],
     cwd
   ) ?? "";
   const rawRemote = tryRun(
-    `git branch -r --sort=-committerdate --format="${format}"`,
+    ["git", "branch", "-r", "--sort=-committerdate", `--format=${format}`],
     cwd
   ) ?? "";
 
@@ -386,7 +406,7 @@ export function checkoutBranch(
   stash: boolean
 ): CheckoutResult | CheckoutDirty {
   // Already on this branch?
-  const headRef = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const headRef = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (headRef === branch) return { success: true };
 
   const dirtyFiles = getDirtyFiles(cwd);
@@ -397,7 +417,7 @@ export function checkoutBranch(
 
   let stashed = false;
   if (dirtyFiles.length > 0 && stash) {
-    run("git stash push -u -m \"pi-dashboard-auto-stash\"", cwd);
+    run(["git", "stash", "push", "-u", "-m", "pi-dashboard-auto-stash"], cwd);
     stashed = true;
   }
 
@@ -406,17 +426,17 @@ export function checkoutBranch(
   if (isRemote) {
     const localName = branch.replace(/^[^/]+\//, "");
     // Check if local branch exists
-    const localExists = tryRun(`git rev-parse --verify refs/heads/${localName}`, cwd);
+    const localExists = tryRun(["git", "rev-parse", "--verify", `refs/heads/${localName}`], cwd);
     if (!localExists) {
-      run(`git checkout -b ${localName} ${branch}`, cwd);
+      run(["git", "checkout", "-b", localName, branch], cwd);
       return { success: true, stashed };
     }
     // Local branch exists, just checkout
-    run(`git checkout ${localName}`, cwd);
+    run(["git", "checkout", localName], cwd);
     return { success: true, stashed };
   }
 
-  run(`git checkout ${branch}`, cwd);
+  run(["git", "checkout", branch], cwd);
   return { success: true, stashed };
 }
 
@@ -425,7 +445,7 @@ export function gitInit(cwd: string): void {
   if (isGitRepo(cwd)) {
     throw new Error("already a git repository");
   }
-  run("git init", cwd);
+  run(["git", "init"], cwd);
 }
 
 export interface StashPopResult {
@@ -495,12 +515,12 @@ export async function readHeadDisplayAsync(cwd: string): Promise<HeadInfo> {
 /** Read HEAD state of a git repo. */
 export function readHead(cwd: string): HeadInfo {
   // Detect detached HEAD via symbolic-ref --quiet (exits non-zero when detached).
-  const symbolic = tryRun("git symbolic-ref --quiet --short HEAD", cwd);
-  const sha = tryRun("git rev-parse --short HEAD", cwd) ?? null;
+  const symbolic = tryRun(["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd);
+  const sha = tryRun(["git", "rev-parse", "--short", "HEAD"], cwd) ?? null;
   // `.gitmodules` lives at the worktree's top level (or the main
   // checkout's). Use the worktree's own top level so the probe is correct
   // whether the dialog is opened from a sibling worktree or main.
-  const topLevel = tryRun("git rev-parse --show-toplevel", cwd);
+  const topLevel = tryRun(["git", "rev-parse", "--show-toplevel"], cwd);
   const hasSubmodules = topLevel ? fs.existsSync(path.join(topLevel, ".gitmodules")) : false;
   if (symbolic) {
     return { branch: symbolic, detached: false, sha, hasSubmodules };
@@ -523,7 +543,7 @@ export function readHead(cwd: string): HeadInfo {
  * See change: refresh-folder-header-branch.
  */
 export function resolveGitDir(cwd: string): string | null {
-  const out = tryRun("git rev-parse --git-dir", cwd);
+  const out = tryRun(["git", "rev-parse", "--git-dir"], cwd);
   if (!out) return null;
   return path.isAbsolute(out) ? out : path.join(cwd, out);
 }
@@ -542,9 +562,9 @@ export function listWorktrees(cwd: string, opts?: { mainPath?: string | null }):
   // crafted `core.worktree` equal to a git-dir path must never stamp that
   // record main. When no main resolves (bare hub), NO entry is main.
   const mainPath = opts && "mainPath" in opts ? opts.mainPath : resolveMainPath(cwd);
-  const stdout = run("git worktree list --porcelain", cwd);
+  const stdout = run(["git", "worktree", "list", "--porcelain"], cwd);
   // `exists` reports whether the registration still has a directory on disk.
-  // One `statSync` per entry; the cost is noise next to the `execSync` above.
+  // One `statSync` per entry; the cost is noise next to the git spawn above.
   // See change: manage-worktrees-filter-cleanup.
   return parsePorcelainWorktrees(stdout).map((entry) => ({
     ...entry,
@@ -594,7 +614,9 @@ export type AddWorktreeError =
   | "branch_exists"
   | "path_exists"
   | "base_not_found"
-  | "git_failed";
+  | "git_failed"
+  /** The resolved git binary could not be executed (ENOENT/ENOTDIR, no exit status). */
+  | "git_not_found";
 
 export interface AddWorktreeSuccess {
   ok: true;
@@ -667,7 +689,7 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   //    tracking branch, so the bare name is required to get the intended
   //    checkout. See change: worktree-checkout-existing-branch.
   const baseIsLocalBranch =
-    checkoutMode && tryRun(`git show-ref --verify ${shellEscape(`refs/heads/${base}`)}`, cwd) !== undefined;
+    checkoutMode && tryRun(["git", "show-ref", "--verify", `refs/heads/${base}`], cwd) !== undefined;
   const resolvedBranch = checkoutMode
     ? resolveCheckoutLocalName(base, baseIsLocalBranch)
     : newBranch;
@@ -709,20 +731,23 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
 
   // Fork mode:     git worktree add -b <newBranch> <path> <base>
   // Checkout mode: git worktree add <path> <commit-ish>   (no -b)
-  // Args are quoted via single-shell-arg escaping below.
-  const args = ["git", "worktree", "add"];
+  // ARGV form — no shell between the caller's values and git.
+  const args = ["worktree", "add"];
   if (force) args.push("--force");
   if (!checkoutMode) args.push("-b", newBranch);
   args.push(worktreePath, checkoutMode ? checkoutCommitish : base);
-  const cmd = args.map(shellEscape).join(" ");
   try {
-    execSync(cmd, {
+    execFileSync("git", args, {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
       timeout: GIT_TIMEOUT,
     });
   } catch (err: any) {
+    if (isBinaryMissing(err)) {
+      // The resolved git binary could not be executed at all.
+      return { ok: false, error: "git_not_found", message: "git binary not found", stderr: String(err?.message ?? "") };
+    }
     const stderr = String(err?.stderr ?? err?.message ?? "");
     // Map common stderr patterns onto stable error codes. The exact
     // wording varies by git version; we match generously.
@@ -866,15 +891,6 @@ function isRelativePathSource(source: string): boolean {
   return source.includes("/") || source.includes("\\");
 }
 
-/**
- * Single-arg shell-escape helper. Sufficient for the path / branch /
- * base values we pass; we never interpolate user-controlled shell
- * fragments. Wraps in single quotes and escapes embedded single quotes.
- */
-function shellEscape(arg: string): string {
-  return `'${arg.replace(/'/g, "'\\''")}'`;
-}
-
 // ── Worktree lifecycle (remove / merge / push / pr) ─────────────────────────
 // See change: add-worktree-lifecycle-actions.
 
@@ -909,7 +925,7 @@ export interface LifecycleFailure<C extends string = string> {
  * `resolveMainPath`.
  */
 function resolveCommonDirAbs(cwd: string): string | null {
-  const raw = tryRun("git rev-parse --path-format=absolute --git-common-dir", cwd);
+  const raw = tryRun(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd);
   if (!raw) return null;
   return path.isAbsolute(raw) ? raw : path.resolve(cwd, raw);
 }
@@ -1095,9 +1111,8 @@ export function removeWorktree(opts: {
   args.push(cwd);
   try {
     // ARGV form, never a shell string. `cwd` is caller-supplied (and the batch
-    // endpoint accepts up to 50 of them per request); `shellEscape` is POSIX
-    // single-quoting, which cmd.exe treats as literal characters, so a path
-    // containing `&` would become a command separator on Windows.
+    // endpoint accepts up to 50 of them per request) — a path containing `&`
+    // must never be re-parsed by a shell interpreter on any platform.
     execFileSync("git", args, {
       cwd: mainPath,
       encoding: "utf-8",
@@ -1116,9 +1131,8 @@ export function removeWorktree(opts: {
     return { ok: true, data: { removed: true, branchDeleted: false, branchDeleteCode: "no_branch" } };
   }
   try {
-    // ARGV form, never a shell string: `shellEscape` is POSIX single-quoting,
-    // which cmd.exe treats as literal characters — so a valid branch name
-    // containing `&` would become a command separator on Windows.
+    // ARGV form, never a shell string: a valid branch name containing `&`
+    // must never reach a shell interpreter on any platform.
     execFileSync("git", ["branch", "-d", branch], {
       cwd: mainPath,
       encoding: "utf-8",
@@ -1168,12 +1182,12 @@ export function resolveDefaultBase(
   cwd: string,
   hint?: string,
 ): string | null {
-  if (hint && tryRun(`git rev-parse --verify ${shellEscape(hint)}`, cwd)) return hint;
+  if (hint && tryRun(["git", "rev-parse", "--verify", hint], cwd)) return hint;
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(`git rev-parse --verify refs/heads/${name}`, cwd)) return name;
+    if (tryRun(["git", "rev-parse", "--verify", `refs/heads/${name}`], cwd)) return name;
   }
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(`git rev-parse --verify refs/remotes/origin/${name}`, cwd)) {
+    if (tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
       return `origin/${name}`;
     }
   }
@@ -1199,11 +1213,11 @@ export function resolveRemoteBase(
 ): string | null {
   const stripOrigin = (n: string) => n.replace(/^origin\//, "");
   const hintBare = hint ? stripOrigin(hint) : undefined;
-  if (hintBare && tryRun(`git rev-parse --verify refs/remotes/origin/${shellEscape(hintBare)}`, cwd)) {
+  if (hintBare && tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${hintBare}`], cwd)) {
     return hintBare;
   }
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(`git rev-parse --verify refs/remotes/origin/${name}`, cwd)) {
+    if (tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
       return name;
     }
   }
@@ -1230,7 +1244,7 @@ export function mergeWorktree(opts: {
   // D2: an unresolvable checkout is a REFUSAL (4xx), not a server error —
   // the old `git_failed` mapped to HTTP 500.
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
-  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
   }
@@ -1238,14 +1252,14 @@ export function mergeWorktree(opts: {
   if (!base) return { ok: false, code: "base_not_found" };
 
   // 1. Main must be clean.
-  const porcelain = tryRun("git status --porcelain", mainPath);
+  const porcelain = tryRun(["git", "status", "--porcelain"], mainPath);
   if (porcelain && porcelain.length > 0) {
     return { ok: false, code: "dirty_main" as any, stderr: porcelain };
   }
 
   // 2. Checkout base in main.
   try {
-    execSync(`git checkout ${shellEscape(base)}`, {
+    execFileSync("git", ["checkout", base], {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1258,7 +1272,7 @@ export function mergeWorktree(opts: {
 
   // 3. Merge --no-ff.
   try {
-    execSync(`git merge --no-ff ${shellEscape(branch)}`, {
+    execFileSync("git", ["merge", "--no-ff", branch], {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1275,17 +1289,17 @@ export function mergeWorktree(opts: {
     const code = mapMergeStderr(stderrRaw);
     if (code === "merge_conflict") {
       // Best-effort abort to leave main on `base` in a clean state.
-      tryRun("git merge --abort", mainPath);
+      tryRun(["git", "merge", "--abort"], mainPath);
     }
     return { ok: false, code, stderr: stderrRaw };
   }
 
-  const mergeSha = tryRun("git rev-parse --short HEAD", mainPath) ?? "";
+  const mergeSha = tryRun(["git", "rev-parse", "--short", "HEAD"], mainPath) ?? "";
 
   let branchDeleted = false;
   if (deleteBranch) {
     try {
-      execSync(`git branch -d ${shellEscape(branch)}`, {
+      execFileSync("git", ["branch", "-d", branch], {
         cwd: mainPath,
         encoding: "utf-8",
         stdio: ["pipe", "pipe", "pipe"],
@@ -1312,14 +1326,15 @@ export function worktreeDiffStat(opts: {
   const { cwd, baseHint } = opts;
   const mainPath = resolveMainPath(cwd);
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
-  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
   const base = resolveDefaultBase(mainPath, baseHint);
   if (!base) return { ok: false, code: "base_not_found" };
   let stat: string;
   try {
-    stat = execSync(
-      `git diff --stat ${shellEscape(base)}..${shellEscape(branch)}`,
+    stat = execFileSync(
+      "git",
+      ["diff", "--stat", `${base}..${branch}`],
       { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: GIT_TIMEOUT },
     );
   } catch (err: any) {
@@ -1344,18 +1359,18 @@ export function pushBranch(opts: {
   setUpstream?: boolean;
 }): LifecycleSuccess<{ pushed: true }> | LifecycleFailure<PushCode> {
   const { cwd, setUpstream = true } = opts;
-  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
   // Detect missing remote up-front for a clean error.
-  const remoteExists = tryRun("git remote get-url origin", cwd);
+  const remoteExists = tryRun(["git", "remote", "get-url", "origin"], cwd);
   if (!remoteExists) return { ok: false, code: "no_remote" };
-  const args = ["git", "push"];
+  const args = ["push"];
   if (setUpstream) args.push("-u");
   args.push("origin", branch);
   try {
-    execSync(args.map(shellEscape).join(" "), {
+    execFileSync("git", args, {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1380,13 +1395,13 @@ export function createPullRequest(opts: {
   title?: string;
   body?: string;
   baseHint?: string;
-}): LifecycleSuccess<{ url: string; pushed: boolean }> | LifecycleFailure<PrCode | PushCode | "pushed_but_pr_failed"> {
+}): LifecycleSuccess<{ url: string; pushed: boolean }> | LifecycleFailure<PrCode | PushCode | "pushed_but_pr_failed" | "gh_not_found"> {
   const { cwd, ghPath, title, body, baseHint } = opts;
-  const branch = tryRun("git rev-parse --abbrev-ref HEAD", cwd);
+  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
-  const upstream = tryRun(`git rev-parse --abbrev-ref ${shellEscape(branch)}@{upstream}`, cwd);
+  const upstream = tryRun(["git", "rev-parse", "--abbrev-ref", `${branch}@{upstream}`], cwd);
   let pushed = false;
   if (!upstream) {
     const pushResult = pushBranch({ cwd, setUpstream: true });
@@ -1416,7 +1431,9 @@ export function createPullRequest(opts: {
   args.push("--body", body ?? "");
   let stdout: string;
   try {
-    stdout = execSync(args.map(shellEscape).join(" "), {
+    // args[0] is the caller-injected absolute gh path — never the bare "gh",
+    // never a shell string.
+    stdout = execFileSync(args[0], args.slice(1), {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1424,6 +1441,11 @@ export function createPullRequest(opts: {
       env: { ...process.env, GH_PROMPT_DISABLED: "1" },
     });
   } catch (err: any) {
+    if (isBinaryMissing(err)) {
+      // The resolved gh binary could not be executed at all — the dedicated
+      // code beats the stderr mapper (specific cause wins).
+      return { ok: false, code: "gh_not_found", stderr: String(err?.message ?? "") };
+    }
     // gh writes the error to BOTH stdout and stderr in many failure
     // modes (e.g. "could not compute title or body defaults" lands on
     // stdout). Concatenate so the mapper sees all of it.
@@ -1450,7 +1472,7 @@ export function createPullRequest(opts: {
  * Trimmed and truncated to 72 chars (conventional PR title limit).
  */
 function deriveDefaultPrTitle(cwd: string, branch: string): string {
-  const subject = tryRun(`git log -1 --format=%s ${shellEscape(branch)}`, cwd);
+  const subject = tryRun(["git", "log", "-1", "--format=%s", branch], cwd);
   const candidate = (subject && subject.length > 0) ? subject : branch;
   return candidate.slice(0, 72);
 }
@@ -1458,13 +1480,13 @@ function deriveDefaultPrTitle(cwd: string, branch: string): string {
 /** Pop the most recent stash. */
 export function stashPop(cwd: string): StashPopResult {
   // Check if there are stash entries
-  const stashList = tryRun("git stash list", cwd);
+  const stashList = tryRun(["git", "stash", "list"], cwd);
   if (!stashList) {
     throw new Error("no stash entries");
   }
 
   try {
-    run("git stash pop", cwd);
+    run(["git", "stash", "pop"], cwd);
     return { conflicts: false };
   } catch (err: any) {
     // git stash pop exits non-zero on conflicts but still applies
@@ -1726,7 +1748,8 @@ export function listPullRequests(opts: {
   ];
   let stdout: string;
   try {
-    stdout = execSync(args.map(shellEscape).join(" "), {
+    // args[0] is the caller-injected absolute gh path — never a shell string.
+    stdout = execFileSync(args[0], args.slice(1), {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1824,13 +1847,9 @@ export function addWorktreeFromPr(opts: {
   const localBranch = `pr-${prNumber}`;
   const worktreePath = opts.path ?? path.join(repoRoot, ".worktrees", `pr-${prNumber}`);
 
-  // Step 1: Fetch the PR head ref.
-  const fetchCmd = [
-    "git", "fetch", "origin",
-    `refs/pull/${prNumber}/head:${localRef}`,
-  ].map(shellEscape).join(" ");
+  // Step 1: Fetch the PR head ref. ARGV form — no shell; env suppresses prompts.
   try {
-    execSync(fetchCmd, {
+    execFileSync("git", ["fetch", "origin", `refs/pull/${prNumber}/head:${localRef}`], {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -1865,9 +1884,9 @@ export function addWorktreeFromPr(opts: {
   }
 
   // Step 3: Create the worktree.
-  const addArgs = ["git", "worktree", "add", "-b", localBranch, worktreePath, localRef];
+  const addArgs = ["worktree", "add", "-b", localBranch, worktreePath, localRef];
   try {
-    execSync(addArgs.map(shellEscape).join(" "), {
+    execFileSync("git", addArgs, {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],

@@ -10,6 +10,26 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Security
+
+- **BREAKING: the host-admission gate now defaults to `enforce`.** With no
+  `PI_DASHBOARD_HOST_GATE` and no `hostGate.mode`, a request whose `Host` is not
+  loopback, an IP literal, `*.local`, a `publicBaseUrls` / `cors.allowedOrigins` /
+  live-tunnel host, or an `allowedHosts` entry now gets the self-describing `403`
+  page instead of a log line. Opt out with `hostGate.mode: "report"` in
+  `config.json` or `PI_DASHBOARD_HOST_GATE=report`. An unrecognised `mode` still
+  loads as `report`. The boot log names the resolved mode and its source.
+- `openspec_refresh` now applies the same gates as `openspec_get` (enabled,
+  per-folder opt-out, tracked folder, `openspec/` present); an untracked folder
+  no longer spawns the CLI.
+- Revoking a paired device (`DELETE /api/paired-devices/:id`) is operator-only,
+  and the operator guard now refuses a paired-device bearer even over loopback
+  (also tightens `POST /api/paired-devices`). The `POST /api/pair/approve` label
+  is bounded to 1..64 UTF-8 bytes like the mint label.
+- `git-operations` no longer builds shell strings: every git/gh call carrying a
+  branch, ref, path or PR title runs as an argv array with no shell. A missing
+  `git` / `gh` binary reports `git_not_found` / `gh_not_found`.
+
 ### Added
 
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the

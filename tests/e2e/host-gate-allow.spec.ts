@@ -370,3 +370,19 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
     expect(belowFloor, "section text below the repo's 3:1 legibility floor").toEqual([]);
   });
 });
+
+/**
+ * F3 (harden-server-request-surfaces): the gate now defaults to `enforce`, so the
+ * normal `localhost` path must still load end-to-end. The port is the
+ * harness-derived `DASHBOARD_PORT`, never a hardcoded value. Mode-agnostic by
+ * design: sibling specs flip and restore `hostGate.mode`, and the property under
+ * test is "an admitted Host is never locked out", true in either mode.
+ */
+test.describe("host gate — default enforce does not lock out localhost", () => {
+  test("F3: dashboard loads and the health endpoint answers 200 on localhost", async ({ page, request }) => {
+    const health = await request.get(`http://localhost:${DASHBOARD_PORT}/api/health`);
+    expect(health.status()).toBe(200);
+    await gotoDashboard(page);
+    await expect(page.locator("#root")).toBeVisible({ timeout: 30_000 });
+  });
+});

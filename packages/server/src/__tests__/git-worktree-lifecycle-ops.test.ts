@@ -11,13 +11,16 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import {
   addWorktree,
+  addWorktreeFromPr,
+  createPullRequest,
+  listPullRequests,
   mergeWorktree,
   pruneWorktrees,
   pushBranch,
@@ -1007,5 +1010,441 @@ describe("resolver invocation count (D7)", () => {
     expect(dupResults[0].cwd).toBe(fx.normal);
     expect(dupResults[2].cwd).toBe(fx.normal);
     expect(dupResults[0].code).toBe(dupResults[2].code);
+  });
+});
+
+// ── argv migration (harden-server-request-surfaces: #E25–#E31, #P2, #X1–#X4) ──
+// Every caller-supplied git/gh value must reach the binary as ONE argv element
+// through `execFileSync` — never re-parsed by a shell (`execSync`).
+
+type SpawnCall = { file: string; args: string[]; opts: Record<string, unknown> };
+
+/**
+ * Spy BOTH exec surfaces with real delegation. `execSync` (the pre-migration
+ * shell-string surface) and `execFileSync` (the post-migration argv surface)
+ * are both recorded, so the argv assertions below are falsifiable in either
+ * state — a test that only watched `execFileSync` could never tell WHERE a
+ * caller value went before the migration.
+ */
+function spyBothExecSurfaces(hooks: {
+  fileThrow?: (file: string, args: string[]) => unknown;
+  fileFake?: (file: string, args: string[]) => string | undefined;
+  syncThrow?: (cmd: string) => unknown;
+} = {}) {
+  const argvCalls: SpawnCall[] = [];
+  const shellCalls: string[] = [];
+  const realFile = platformExec.execFileSync;
+  const realSync = platformExec.execSync;
+  const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((file: any, args: any, opts: any) => {
+    const f = String(file);
+    const a = ((args ?? []) as unknown[]).map(String);
+    argvCalls.push({ file: f, args: a, opts });
+    const thrown = hooks.fileThrow?.(f, a);
+    if (thrown !== undefined) throw thrown;
+    const fake = hooks.fileFake?.(f, a);
+    if (fake !== undefined) return fake;
+    return realFile(file, args, opts);
+  }) as any);
+  const syncSpy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+    shellCalls.push(String(cmd));
+    const thrown = hooks.syncThrow?.(String(cmd));
+    if (thrown !== undefined) throw thrown;
+    return realSync(cmd, opts);
+  }) as any);
+  return {
+    argvCalls,
+    shellCalls,
+    restore: () => { fileSpy.mockRestore(); syncSpy.mockRestore(); },
+  };
+}
+
+/** Node's spawn-failure error for a missing binary: ENOENT/ENOTDIR, no exit status, no stderr. */
+function spawnMissingError(file: string, code: "ENOENT" | "ENOTDIR" = "ENOENT"): Error {
+  return Object.assign(new Error(`spawn ${file} ${code}`), {
+    code,
+    errno: code === "ENOENT" ? -2 : -20,
+    syscall: "spawn",
+    path: file,
+    status: null,
+    stdout: "",
+    stderr: "",
+  });
+}
+
+describe("argv migration — caller values stay single argv elements", () => {
+  let repo: string;
+  let bare: string;
+  beforeEach(() => {
+    repo = makeRepo();
+    bare = realpathSync(mkdtempSync(join(tmpdir(), "bare-argv-")));
+    git("init --bare", bare);
+    git("config receive.denyDeleteCurrent ignore", bare);
+    git(`remote add origin ${bare}`, repo);
+    git("push origin main", repo);
+  });
+  afterEach(() => {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  });
+
+  /** Worktree whose branch is pushed with tracking, so createPullRequest skips the internal push. */
+  function makeTrackingWorktree(branch: string) {
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: branch });
+    expect(wt.ok, JSON.stringify(wt)).toBe(true);
+    if (!wt.ok) throw new Error("unreachable");
+    git(`push -u origin ${JSON.stringify(branch)}`, wt.path);
+    return wt;
+  }
+
+  // test-plan #E25 — tasks 3.1
+  it("addWorktree passes a command-separator branch name as ONE argv element, never through a shell", () => {
+    const nasty = "feat&calc";
+    const s = spyBothExecSurfaces();
+    try {
+      const add = addWorktree({ cwd: repo, base: "main", newBranch: nasty });
+      expect(add.ok, JSON.stringify(add)).toBe(true);
+    } finally { s.restore(); }
+    const addCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "worktree" && c.args[1] === "add");
+    expect(addCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    // `feat&calc` is exactly one argv element — no shell ever parsed the `&`.
+    expect(addCall!.args).toContain(nasty);
+    expect(addCall!.args.filter((a) => a === nasty)).toHaveLength(1);
+    expect(s.shellCalls).toEqual([]);
+    // The fragment never executed as a second command.
+    expect(existsSync(join(repo, "calc"))).toBe(false);
+  });
+
+  // test-plan #E26 — tasks 3.2. A git ref cannot contain a space, so the
+  // hostile name is injected at the HEAD-probe seam; the merge spawn is
+  // captured (and failed) before git would reject the ref.
+  it("mergeWorktree passes a metacharacter branch name as ONE merge argv element", () => {
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/mock-branch" });
+    if (!wt.ok) return;
+    const nasty = "x; echo pwned";
+    const s = spyBothExecSurfaces({
+      fileFake: (file, args) =>
+        file === "git" && args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "HEAD"
+          ? nasty
+          : undefined,
+      fileThrow: (file, args) =>
+        file === "git" && args[0] === "merge" && args[1] === "--no-ff"
+          ? Object.assign(new Error("Command failed"), { status: 128, stderr: "merge: not something we can merge" })
+          : undefined,
+    });
+    try {
+      const result = mergeWorktree({ cwd: wt.path });
+      expect(result.ok).toBe(false);
+    } finally { s.restore(); }
+    const mergeCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "merge" && c.args[1] === "--no-ff");
+    expect(mergeCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(mergeCall!.args[2]).toBe(nasty);
+    expect(mergeCall!.args).toHaveLength(3);
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  // test-plan #E27 — tasks 3.3. `release 2026` is not a legal ref, so the hint
+  // verify is faked at the spawn seam — the point under test is argv shape.
+  it("worktreeDiffStat passes a spaced base as ONE range argv element", () => {
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/ds" });
+    if (!wt.ok) return;
+    const spacedBase = "release 2026";
+    const s = spyBothExecSurfaces({
+      fileFake: (file, args) =>
+        file === "git" && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === spacedBase
+          ? spacedBase
+          : file === "git" && args[0] === "diff"
+            ? ""
+            : undefined,
+    });
+    try {
+      const result = worktreeDiffStat({ cwd: wt.path, baseHint: spacedBase });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+      if (result.ok) expect(result.data?.base).toBe(spacedBase);
+    } finally { s.restore(); }
+    const diffCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "diff" && c.args[1] === "--stat");
+    expect(diffCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(diffCall!.args).toEqual(["diff", "--stat", `${spacedBase}..feat/ds`]);
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  // test-plan #E28 — tasks 3.4
+  it("createPullRequest passes the title untouched and spawns the injected gh path", () => {
+    const wt = makeTrackingWorktree("feat/pr");
+    const ghPath = "/usr/local/bin/gh"; // fake absolute path — never executed
+    const title = 'Ship "it" $(rm -rf /)';
+    const s = spyBothExecSurfaces({
+      fileFake: (file) => (file === ghPath ? "https://github.com/acme/repo/pull/5\n" : undefined),
+    });
+    try {
+      const result = createPullRequest({ cwd: wt.path, ghPath, title, body: "body" });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    } finally { s.restore(); }
+    const ghCall = s.argvCalls.find((c) => c.file === ghPath);
+    expect(ghCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(ghCall!.args.slice(0, 2)).toEqual(["pr", "create"]);
+    expect(ghCall!.args[ghCall!.args.indexOf("--title") + 1]).toBe(title);
+    // argv[0] is the injected absolute path, never the literal "gh".
+    expect(ghCall!.file).toBe(ghPath);
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  // test-plan #E29 — tasks 3.5: the remaining migrated sites carry argv shape.
+  it("pushBranch passes the branch as ONE argv element", () => {
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/push&co" });
+    expect(wt.ok, JSON.stringify(wt)).toBe(true);
+    if (!wt.ok) return;
+    const s = spyBothExecSurfaces();
+    try {
+      const result = pushBranch({ cwd: wt.path });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    } finally { s.restore(); }
+    const pushCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "push");
+    expect(pushCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(pushCall!.args).toEqual(["push", "-u", "origin", "feat/push&co"]);
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  it("addWorktreeFromPr passes the fetch refspec and the add argv as single elements", () => {
+    const s = spyBothExecSurfaces({
+      // Fake BOTH spawns: the fetch never touches the network and the add
+      // never needs the (nonexistent) refs/pr/7 — the point is the argv.
+      fileFake: (file, args) =>
+        file === "git" && args[0] === "fetch" ? ""
+        : file === "git" && args[0] === "worktree" && args[1] === "add" ? ""
+        : undefined,
+    });
+    try {
+      const result = addWorktreeFromPr({ cwd: repo, prNumber: 7 });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    } finally { s.restore(); }
+    const fetchCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "fetch");
+    expect(fetchCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(fetchCall!.args).toEqual(["fetch", "origin", "refs/pull/7/head:refs/pr/7"]);
+    const addCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "worktree" && c.args[1] === "add");
+    expect(addCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(addCall!.args).toEqual(["worktree", "add", "-b", "pr-7", join(repo, ".worktrees", "pr-7"), "refs/pr/7"]);
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  it("listPullRequests spawns the injected gh path in argv form", () => {
+    const ghPath = "/usr/local/bin/gh";
+    const s = spyBothExecSurfaces({
+      fileFake: (file) => (file === ghPath ? "[]" : undefined),
+    });
+    try {
+      const result = listPullRequests({ cwd: repo, ghPath });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    } finally { s.restore(); }
+    const ghCall = s.argvCalls.find((c) => c.file === ghPath);
+    expect(ghCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(ghCall!.args[0]).toBe("pr");
+    expect(ghCall!.args).toContain("--json");
+    expect(ghCall!.args).toContain("--limit");
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  it("resolveDefaultBase verifies the hint as ONE argv element", () => {
+    const hint = "release 2026";
+    const s = spyBothExecSurfaces({
+      fileFake: (file, args) =>
+        file === "git" && args[0] === "rev-parse" && args[1] === "--verify" && args[2] === hint ? hint : undefined,
+    });
+    try {
+      expect(resolveDefaultBase(repo, hint)).toBe(hint);
+    } finally { s.restore(); }
+    const verifyCall = s.argvCalls.find(
+      (c) => c.file === "git" && c.args[0] === "rev-parse" && c.args[1] === "--verify" && c.args[2] === hint,
+    );
+    expect(verifyCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  // test-plan #E30 — tasks 3.6: no buildSafeArgv regression — with the
+  // platform reported as win32, an interposed cmd.exe would show up as
+  // argv[0] with a /d /s /c sequence.
+  it("no shell is interposed when the platform is win32 (never cmd.exe, no /d /s /c)", () => {
+    const wt = makeTrackingWorktree("feat/win32");
+    const ghPath = "/usr/local/bin/gh";
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+    const s = spyBothExecSurfaces({
+      fileFake: (file, args) =>
+        file === ghPath ? "https://github.com/acme/repo/pull/5\n"
+        : file === "git" && args[0] === "worktree" && args[1] === "add" ? ""
+        : undefined,
+      fileThrow: (file, args) =>
+        file === "git" && args[0] === "merge" && args[1] === "--no-ff"
+          ? Object.assign(new Error("Command failed"), { status: 1, stderr: "not a merge" })
+          : undefined,
+    });
+    try {
+      // Every migrated git/gh op runs once, exactly as on a POSIX host: argv in.
+      addWorktree({ cwd: repo, base: "main", newBranch: "feat/win32b" });
+      mergeWorktree({ cwd: wt.path });
+      worktreeDiffStat({ cwd: wt.path });
+      pushBranch({ cwd: wt.path });
+      createPullRequest({ cwd: wt.path, ghPath, title: 't "$(x)"', body: "b" });
+      listPullRequests({ cwd: repo, ghPath });
+      addWorktreeFromPr({ cwd: repo, prNumber: 8 });
+    } finally {
+      s.restore();
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
+    expect(s.argvCalls.length).toBeGreaterThan(0);
+    for (const c of s.argvCalls) {
+      // argv[0] is the resolved binary (git or the injected gh path) — never cmd.exe.
+      expect(["git", ghPath], `file: ${c.file}`).toContain(c.file);
+      // No cmd.exe /d /s /c interposition anywhere in the argv.
+      const joined = [c.file, ...c.args].join(" ");
+      expect(joined).not.toContain("cmd.exe");
+      expect(joined).not.toMatch(/\/d \/s \/c/);
+    }
+    // And no shell string was built at all.
+    expect(s.shellCalls).toEqual([]);
+  });
+
+  // test-plan #P2 — tasks 3.7: timeouts and env survive the migration.
+  it("timeouts and prompt-suppressing env survive the migration", () => {
+    const wt = makeTrackingWorktree("feat/envprobe");
+    const ghPath = "/usr/local/bin/gh";
+    const s = spyBothExecSurfaces({
+      fileFake: (file, args) =>
+        file === ghPath ? "https://github.com/acme/repo/pull/5\n"
+        : file === "git" && args[0] === "worktree" && args[1] === "add" ? ""
+        : undefined,
+    });
+    try {
+      pushBranch({ cwd: wt.path });
+      createPullRequest({ cwd: wt.path, ghPath, title: "t", body: "b" });
+      listPullRequests({ cwd: repo, ghPath });
+      addWorktreeFromPr({ cwd: repo, prNumber: 9 });
+      addWorktree({ cwd: repo, base: "main", newBranch: "feat/envprobe2" });
+    } finally { s.restore(); }
+
+    const pushCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "push");
+    const fetchCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "fetch");
+    const prCreateCall = s.argvCalls.find((c) => c.file === ghPath && c.args[1] === "create");
+    const prListCall = s.argvCalls.find((c) => c.file === ghPath && c.args[0] === "pr" && c.args[1] === "list");
+    expect(pushCall && fetchCall && prCreateCall && prListCall, "all four spawns observed").toBeTruthy();
+
+    // Every spawn carries the shared git timeout.
+    for (const c of s.argvCalls) {
+      expect(c.opts.timeout, `${c.file} ${c.args.join(" ")}`).toBe(15_000); // = GIT_TIMEOUT
+    }
+    // Remote-touching spawns still suppress credential prompts.
+    const envOf = (c: SpawnCall) => ((c.opts?.env ?? {}) as Record<string, string>);
+    expect(envOf(pushCall!).GIT_TERMINAL_PROMPT).toBe("0");
+    expect(envOf(fetchCall!).GIT_TERMINAL_PROMPT).toBe("0");
+    expect(envOf(prCreateCall!).GH_PROMPT_DISABLED).toBe("1");
+    expect(envOf(prListCall!).GH_PROMPT_DISABLED).toBe("1");
+  });
+
+  // test-plan #X1 — tasks 3.8: behaviour-preserving, so the throw is injected
+  // on BOTH surfaces and the test must be green before AND after the migration.
+  it("exit-code failures still map to the same stable codes (branch_in_use / merge_conflict)", () => {
+    const inUse = Object.assign(new Error("Command failed"), {
+      status: 1,
+      stderr: "fatal: a branch named 'feat/x1' is already used by worktree at '/x'",
+    });
+    const s1 = spyBothExecSurfaces({
+      fileThrow: (file, args) => (file === "git" && args[0] === "worktree" && args[1] === "add" ? inUse : undefined),
+      // Pre-migration the shell string is shellEscape-quoted per element
+      // ('git' 'worktree' 'add' …) — strip the quotes before matching.
+      syncThrow: (cmd) => (cmd.replace(/'/g, "").includes("git worktree add") ? inUse : undefined),
+    });
+    try {
+      const r1 = addWorktree({ cwd: repo, base: "main", newBranch: "feat/x1" });
+      expect(r1.ok).toBe(false);
+      if (!r1.ok) expect(r1.error).toBe("branch_in_use");
+    } finally { s1.restore(); }
+
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/x1m" });
+    if (!wt.ok) return;
+    const conflict = Object.assign(new Error("Command failed"), {
+      status: 1,
+      stderr: "Automatic merge failed; fix conflicts and then commit the result.",
+    });
+    const s2 = spyBothExecSurfaces({
+      fileThrow: (file, args) => (file === "git" && args[0] === "merge" && args[1] === "--no-ff" ? conflict : undefined),
+      syncThrow: (cmd) => (cmd.replace(/'/g, "").includes("git merge --no-ff") ? conflict : undefined),
+    });
+    try {
+      const r2 = mergeWorktree({ cwd: wt.path });
+      expect(r2.ok).toBe(false);
+      if (!r2.ok) expect(r2.code).toBe("merge_conflict");
+    } finally { s2.restore(); }
+  });
+
+  // test-plan #X2 — tasks 3.9: git writes conflict notices to STDOUT too; the
+  // stdout+stderr concatenation must survive on the migrated surface.
+  it("mergeWorktree classifies a conflict notice that arrives on STDOUT only", () => {
+    const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/x2" });
+    if (!wt.ok) return;
+    const stdoutConflict = Object.assign(new Error("Command failed"), {
+      status: 1,
+      stderr: "",
+      stdout: "CONFLICT (content): Merge conflict in README.md\nAutomatic merge failed; fix conflicts and then commit the result.",
+    });
+    const s = spyBothExecSurfaces({
+      fileThrow: (file, args) =>
+        file === "git" && args[0] === "merge" && args[1] === "--no-ff" ? stdoutConflict : undefined,
+    });
+    try {
+      const r = mergeWorktree({ cwd: wt.path });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).toBe("merge_conflict");
+    } finally { s.restore(); }
+  });
+
+  // test-plan #X3 — tasks 3.10
+  it("a missing git binary reports git_not_found, not an empty-stderr generic failure", () => {
+    const s = spyBothExecSurfaces({
+      fileThrow: (file, args) =>
+        file === "git" && args[0] === "worktree" && args[1] === "add" ? spawnMissingError("git") : undefined,
+    });
+    try {
+      const r = addWorktree({ cwd: repo, base: "main", newBranch: "feat/nogit" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toBe("git_not_found");
+        // The message names the missing binary — not a generic failure.
+        expect(r.message).toContain("git");
+      }
+    } finally { s.restore(); }
+  });
+
+  it("the same dedicated mapping covers ENOTDIR (status null)", () => {
+    const s = spyBothExecSurfaces({
+      fileThrow: (file, args) =>
+        file === "git" && args[0] === "worktree" && args[1] === "add"
+          ? spawnMissingError("git", "ENOTDIR")
+          : undefined,
+    });
+    try {
+      const r = addWorktree({ cwd: repo, base: "main", newBranch: "feat/nogit2" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toBe("git_not_found");
+    } finally { s.restore(); }
+  });
+
+  // test-plan #X4 — tasks 3.11
+  it("a missing gh binary reports gh_not_found", () => {
+    const wt = makeTrackingWorktree("feat/nogh");
+    const ghPath = "/usr/local/bin/gh";
+    const s = spyBothExecSurfaces({
+      fileThrow: (file) => (file === ghPath ? spawnMissingError(ghPath) : undefined),
+    });
+    try {
+      const r = createPullRequest({ cwd: wt.path, ghPath, title: "t", body: "b" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.code).toBe("gh_not_found");
+    } finally { s.restore(); }
+  });
+
+  // test-plan #E31 — tasks 3.13: the property cannot silently regress.
+  it("git-operations.ts source contains neither execSync( nor shellEscape (comments included)", () => {
+    const source = readFileSync(new URL("../git-worktree/git-operations.ts", import.meta.url), "utf-8");
+    expect(source).not.toContain("execSync(");
+    expect(source).not.toContain("shellEscape");
   });
 });
