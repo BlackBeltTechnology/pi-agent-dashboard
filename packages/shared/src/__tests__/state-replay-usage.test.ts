@@ -76,3 +76,17 @@ describe("#E20 replay synthesizes non-message stats", () => {
     ).toBe(false);
   });
 });
+
+describe("assistant replay arm normalizes like the JSONL reader", () => {
+  it("negative / non-finite assistant usage replays as the same clamped totals sumEntryUsage derives", () => {
+    const bad = [
+      { type: "message", id: "a1", message: { role: "assistant", content: [], usage: { input: -50, output: 10, cacheRead: Number.NaN, cacheWrite: -1, totalTokens: 900, cost: { total: -0.2 } } } },
+    ];
+    const replay = replayEntriesAsEvents("s1", bad, 1_000_000);
+    const t = totalsFromEvents(replay);
+    expect(t).toEqual(sumEntryUsage(bad));
+    expect(t).toEqual({ tokensIn: 0, tokensOut: 10, cacheRead: 0, cacheWrite: 0, cost: 0 });
+    const ctx = replay.map((m) => (m.event.data as any).contextUsage).filter(Boolean);
+    expect(ctx).toEqual([{ tokens: 900, contextWindow: 1_000_000 }]);
+  });
+});

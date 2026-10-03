@@ -131,17 +131,19 @@ export function replayEntriesAsEvents(
         // Emit stats_update if usage data is present
         const usage = msg.usage as Record<string, unknown> | undefined;
         if (usage) {
-          const cost = usage.cost as Record<string, number> | undefined;
           const totalTokens = usage.totalTokens as number | undefined;
+          // Same normalization as the JSONL reader, so replayed and derived
+          // totals agree. See change: count-non-message-usage.
+          const t = usageToTotals(usage);
           const statsData: Record<string, unknown> = {
-            tokensIn: (usage.input as number) ?? 0,
-            tokensOut: (usage.output as number) ?? 0,
-            cost: cost?.total ?? 0,
+            tokensIn: t.tokensIn,
+            tokensOut: t.tokensOut,
+            cost: t.cost,
             turnUsage: {
-              input: (usage.input as number) ?? 0,
-              output: (usage.output as number) ?? 0,
-              cacheRead: (usage.cacheRead as number) ?? 0,
-              cacheWrite: (usage.cacheWrite as number) ?? 0,
+              input: t.tokensIn,
+              output: t.tokensOut,
+              cacheRead: t.cacheRead,
+              cacheWrite: t.cacheWrite,
             },
           };
           // Include context usage estimate from totalTokens
