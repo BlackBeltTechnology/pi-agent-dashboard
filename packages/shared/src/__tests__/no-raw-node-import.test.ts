@@ -176,8 +176,10 @@ describe("no raw paths passed to node --import / --loader", () => {
     for (const pkg of ["extension", "server", "electron"]) {
       const srcDir = path.join(packagesDir, pkg, "src");
       for await (const file of walk(srcDir)) {
-        if ((await fs.readFile(file, "utf-8")).includes(OPT_OUT_MARKER)) {
-          hits.push(path.relative(repoRoot, file).replace(/\\/g, "/"));
+        const rel = path.relative(repoRoot, file).replace(/\\/g, "/");
+        // One entry per occurrence, so a second marker in the same file also fails.
+        for (const line of (await fs.readFile(file, "utf-8")).split(/\r?\n/)) {
+          if (line.includes(OPT_OUT_MARKER)) hits.push(rel);
         }
       }
     }

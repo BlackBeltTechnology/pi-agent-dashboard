@@ -2,7 +2,7 @@
  * Tests for the cross-platform restart orchestrator.
  * See change: fix-windows-server-parity.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
@@ -351,8 +351,10 @@ describe("spawnRestart re-reads config.json at restart time", () => {
   // See change: cleanup-stale-fork-specs.
   it("E17: the spawn env equals buildRestartEnv(process.env, configured ceiling)", () => {
     const dir = path.join(os.homedir(), ".pi", "dashboard");
+    const configFile = path.join(dir, "config.json");
+    const prior = existsSync(configFile) ? readFileSync(configFile, "utf-8") : null;
     mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, "config.json"), JSON.stringify({ serverHeap: { maxOldSpaceMb: 4096 } }));
+    writeFileSync(configFile, JSON.stringify({ serverHeap: { maxOldSpaceMb: 4096 } }));
     vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=1024");
     vi.stubEnv(MARKER, "--max-old-space-size=1024");
     let expected: Record<string, string | undefined>;
@@ -361,6 +363,8 @@ describe("spawnRestart re-reads config.json at restart time", () => {
       spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" });
     } finally {
       vi.unstubAllEnvs();
+      if (prior === null) rmSync(configFile, { force: true });
+      else writeFileSync(configFile, prior);
     }
     const opts = (execSpawn.mock.calls.at(-1) as unknown[])[2] as { env: Record<string, string> };
     expect(opts.env).toEqual(expected);
