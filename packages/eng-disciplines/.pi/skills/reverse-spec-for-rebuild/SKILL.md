@@ -54,14 +54,20 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    or no owner marker and untouched for 10 minutes); a concurrent run's live
    dirs and other skills' transient dirs are untouched.
 3. **Resolve the target.** Confirm the path exists; record
-   `git rev-parse HEAD` for `PKG/README.md`. If a package already sits at
-   `PKG`, move it aside to `PKG.prev-$RUN_ID` first — whether or not it is the
-   previous package. When a previous package is supplied (that one, or any other
-   path), snapshot it once, before generation, into
-   `.reverse-spec-scratch/<target-slug>/previous-$RUN_ID/` (copy `rules.md`,
-   `quirks.md`, `gaps.md`, `README.md`; then `chmod -R a-w` it). That frozen
-   snapshot is the ONLY "previous package" every merge of this run reads — never
-   `PKG`, which each merge rewrites. Then create an empty `PKG`.
+   `git rev-parse HEAD` for `PKG/README.md`. In this order:
+   1. **Snapshot first.** When a previous package is supplied (possibly `PKG`
+      itself), copy its `rules.md`, `quirks.md`, `gaps.md`, `README.md` and
+      `_ids.json` (when present) into
+      `.reverse-spec-scratch/<target-slug>/previous-$RUN_ID/`, then
+      `chmod -R a-w` it. This frozen snapshot is the ONLY "previous package"
+      every merge of this run reads — never `PKG`, which each merge rewrites.
+   2. **Then move aside.** If a package still sits at `PKG`, move it to
+      `PKG.prev-$RUN_ID`. Create an empty `PKG`.
+   3. **Seed the id high-water marks.** With a previous package:
+      `G seed-ids PKG/_ids.json <snapshot dir>`; without one:
+      `G seed-ids PKG/_ids.json PKG` (creates an all-zero file).
+      `_ids.json` holds the highest `BR`/`QUIRK`/`GAP` number ever allocated,
+      including ids the previous package already retired.
 4. **Discover.** One subagent with `prompts/discovery.md` (`KB_AVAILABLE` =
    `kb` tooling or `AGENTS.md` files present). It returns a capability manifest.
    Check `unassigned_files` is empty; otherwise add them to a capability or ask
@@ -79,8 +85,11 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    2. Walk fragments in manifest order. For each rule/quirk/gap, match it BY
       MEANING against items already merged in this run (dedupe; add the
       capability to the existing item), then against the frozen snapshot
-      (reuse its id). Otherwise assign the next id above the maximum ever used
-      (previous package included). Never reuse a retired id.
+      (reuse its id), then against the catalogs of this run's previous merge
+      (reuse its id). Otherwise allocate with `G next-id PKG/_ids.json <BR|QUIRK|GAP>`
+      — never compute an id by hand. The mark only grows, so an id retired by
+      the previous package or by an earlier revision of this run is never
+      reused. `_ids.json` ships with the package so the next run inherits it.
    3. Render EVERY capability's `PKG/capabilities/<cap>/spec.md` from its
       unmerged `PKG/_fragments/<cap>.spec.md`, replacing each `{r1}`/`{q1}`/`{g1}`
       with its global id — on every merge, for all capabilities, so a re-merge
@@ -162,6 +171,7 @@ format gate. Pass the prompt text with placeholders filled, plus exact paths.
 
 ```
 PKG/README.md  model.md  rules.md  quirks.md  gaps.md  completeness.md
+PKG/_ids.json                      BR/QUIRK/GAP high-water marks (never lowered)
 PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments (rendered by the merge)
 PKG/_fragments/<cap>.spec.md       unmerged spec with local refs (merge input)
 PKG/_fragments/<cap>.json          merge input, kept for re-runs

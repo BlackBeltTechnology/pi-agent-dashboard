@@ -12,9 +12,10 @@ completeness.md        entry point -> spec | GAP map + verdict
 capabilities/<cap>/spec.md   behavioral spec (OpenSpec full form), rendered by the merge
 _fragments/<cap>.spec.md     unmerged spec with local refs (generator output, merge input)
 _fragments/<cap>.json  generator output, merge input (kept for re-runs)
+_ids.json              {"BR":n,"QUIRK":n,"GAP":n} highest number ever allocated (guard.mjs seed-ids / next-id)
 ```
 
-Identifiers are three-digit, zero-padded, global to the package (`BR-001`,
+Identifiers are allocated only by `guard.mjs next-id` against `_ids.json`; they are three-digit, zero-padded, global to the package (`BR-001`,
 `QUIRK-001`, `GAP-001`). Every item and field carries a citation per
 `references/provenance.md`.
 

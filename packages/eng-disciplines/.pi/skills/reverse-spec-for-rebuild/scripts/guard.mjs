@@ -7,6 +7,11 @@
 //       (default roots: openspec docs packages .pi; --protect replaces them).
 //   node guard.mjs new-run
 //       print a collision-resistant run id: <UTC yyyymmddThhmmssZ>-<8 random hex>.
+//   node guard.mjs seed-ids <ids.json> <dir>...
+//       raise each BR/QUIRK/GAP high-water mark in <ids.json> to the max of its current
+//       value, every <dir>/_ids.json, and every id found in <dir>/*.md (never lowers).
+//   node guard.mjs next-id <ids.json> <BR|QUIRK|GAP>
+//       allocate the next id above the mark, persist the mark, print e.g. BR-011.
 //   node guard.mjs sweep [--run <id>]
 //       remove this skill's transient openspec/specs/_rsfr-val-* dirs: with --run, every
 //       _rsfr-val-<id>-* dir of that run; without, only abandoned ones — a dir whose
@@ -22,7 +27,17 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 const DEFAULT_PROTECTED = ["openspec", "docs", "packages", ".pi"];
@@ -32,6 +47,8 @@ const STALE_MS = 10 * 60 * 1000;
 const USAGE = `usage:
   node guard.mjs check-dest <path> [--protect <dir>]...
   node guard.mjs new-run
+  node guard.mjs seed-ids <ids.json> <dir>...
+  node guard.mjs next-id <ids.json> <BR|QUIRK|GAP>
   node guard.mjs sweep [--run <id>]
   node guard.mjs lint-spec <file>`;
 
@@ -113,8 +130,8 @@ function checkDest(args) {
   const root = repoRoot();
   const real = realPathOf(dest);
   for (const dir of protect) {
-    const plain = resolve(root, dir);
-    const candidates = existsSync(plain) ? [plain, realpathSync(plain)] : [plain];
+    // same kernel-order resolution as the destination, relative to the repo root
+    const candidates = [resolve(root, dir), realPathOf(dir, root)];
     if (candidates.some((c) => inside(real, c))) {
       process.stderr.write(`refused: ${dest} resolves to ${real}, inside protected root ${dir}/\n`);
       process.exit(1);
@@ -127,6 +144,66 @@ function newRun(args) {
   if (args.length) usage(`new-run: unexpected argument ${args[0]}`);
   const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
   process.stdout.write(`${ts}-${randomBytes(4).toString("hex")}\n`);
+}
+
+const ID_KINDS = ["BR", "QUIRK", "GAP"];
+
+/** High-water marks from an ids file; missing file = all zero; corrupt file = exit 2. */
+function readMarks(file) {
+  const marks = { BR: 0, QUIRK: 0, GAP: 0 };
+  if (!existsSync(file)) return marks;
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    process.stderr.write(`ids: cannot parse ${file}\n`);
+    process.exit(2);
+  }
+  for (const k of ID_KINDS) {
+    const v = raw?.[k] ?? 0;
+    if (!Number.isInteger(v) || v < 0) {
+      process.stderr.write(`ids: bad ${k} mark in ${file}\n`);
+      process.exit(2);
+    }
+    marks[k] = v;
+  }
+  return marks;
+}
+
+function writeMarks(file, marks) {
+  writeFileSync(file, `${JSON.stringify(marks)}\n`);
+}
+
+/** Raise `marks` to `<dir>/_ids.json` and to every id mentioned in `<dir>/*.md`. */
+function raiseMarks(marks, dir) {
+  const own = readMarks(join(dir, "_ids.json"));
+  for (const k of ID_KINDS) marks[k] = Math.max(marks[k], own[k]);
+  for (const name of readdirSync(dir).filter((n) => n.endsWith(".md"))) {
+    for (const m of readFileSync(join(dir, name), "utf8").matchAll(/\b(BR|QUIRK|GAP)-(\d{3,})\b/g)) {
+      marks[m[1]] = Math.max(marks[m[1]], Number(m[2]));
+    }
+  }
+}
+
+function seedIds(args) {
+  const [file, ...dirs] = args;
+  if (!file || dirs.length === 0) usage("seed-ids: needs <ids.json> and at least one <dir>");
+  const marks = readMarks(file);
+  for (const dir of dirs) {
+    if (!existsSync(dir) || !statSync(dir).isDirectory()) usage(`seed-ids: not a directory: ${dir}`);
+    raiseMarks(marks, dir);
+  }
+  writeMarks(file, marks);
+  process.stdout.write(`${JSON.stringify(marks)}\n`);
+}
+
+function nextId(args) {
+  const [file, kind, extra] = args;
+  if (!file || !ID_KINDS.includes(kind) || extra !== undefined) usage("next-id: needs <ids.json> <BR|QUIRK|GAP>");
+  const marks = readMarks(file);
+  marks[kind] += 1;
+  writeMarks(file, marks);
+  process.stdout.write(`${kind}-${String(marks[kind]).padStart(3, "0")}\n`);
 }
 
 function alive(pid) {
@@ -322,6 +399,12 @@ const [cmd, ...rest] = process.argv.slice(2);
 switch (cmd) {
   case "check-dest":
     checkDest(rest);
+    break;
+  case "seed-ids":
+    seedIds(rest);
+    break;
+  case "next-id":
+    nextId(rest);
     break;
   case "new-run":
     newRun(rest);

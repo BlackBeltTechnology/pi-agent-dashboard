@@ -94,8 +94,8 @@ dedupe rules by meaning, assign stable `BR-/QUIRK-/GAP-` ids in first-seen capab
 rewrite capability specs' local rule refs to global ids, then render the markdown files. A
 revise pass regenerates a spec with local refs again, so every revision re-runs the merge
 before the gates; the auditor checks every `BR-/QUIRK-/GAP-` ref resolves.
-Id carry-over: when a previous package is supplied, the merge first matches new items to the
-previous `rules.md`/`quirks.md`/`gaps.md` by meaning and reuses their ids; new items get ids above
+Id carry-over: when a previous package is supplied, it is snapshotted read-only before generation
+(before `PKG` is moved aside), and the merge first matches new items to the snapshot's `rules.md`/`quirks.md`/`gaps.md` by meaning and reuses their ids; new items get ids above
 the previous maximum; retired ids are never reused (tranche 2 golden vectors key on `BR-NNN`).
 *Alternative:* a dedicated consolidator subagent - deferred; start with the main session and
 promote to a subagent only if merges exceed context. *Alternative:* one generator for everything
@@ -139,6 +139,7 @@ guards so they are testable instead of agent prose:
   component in kernel order (symlinks — even dangling — followed before `..`), is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
 - `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.
+- `seed-ids <ids.json> <dir>...` / `next-id <ids.json> <BR|QUIRK|GAP>` keep a persisted per-kind high-water mark (`_ids.json`, shipped with the package) so retired ids — across runs and across revisions within a run — are never reused.
 - `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only abandoned ones (`.owner` pid dead, or no owner and untouched 10 min) so a concurrent run's live dirs survive (no-op without `openspec/specs/`).
 - `lint-spec <file>` is the built-in structural check (D3); exit 1 and `file:line: reason` per
   violation.

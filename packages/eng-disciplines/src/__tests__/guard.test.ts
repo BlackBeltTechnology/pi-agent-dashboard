@@ -105,6 +105,14 @@ describe("check-dest allows everything else", () => {
     }
   });
 
+  it("B3(r4): a --protect root given through a symlink and `..` is resolved in kernel order", () => {
+    mkdirSync(join(repo, "packages", "sub"));
+    mkdirSync(join(repo, "tmp"));
+    symlinkSync(join(repo, "packages", "sub"), join(repo, "tmp", "link"));
+    // tmp/link/../out walks to packages/out
+    expectRefused(guard(repo, "check-dest", "packages/out/x", "--protect", "tmp/link/../out"), "tmp/link/../out");
+  });
+
   it("E20: --protect replaces the default roots", () => {
     expect(guard(repo, "check-dest", "docs/x", "--protect", "build").code).toBe(0);
     expectRefused(guard(repo, "check-dest", "build/x", "--protect", "build"), "build");
