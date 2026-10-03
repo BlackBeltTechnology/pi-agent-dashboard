@@ -47,8 +47,13 @@ export function emptyUsageTotals(): UsageTotals {
   return { tokensIn: 0, tokensOut: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
 }
 
+/**
+ * Finite, non-negative number or 0. Usage reaches the server from the bridge
+ * socket (a trust boundary), so a negative or non-finite value must never
+ * lower or poison a total; same rule as `normalizeUsageSeed`.
+ */
 function num(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
 }
 
 function asUsage(v: unknown): Record<string, unknown> | undefined {

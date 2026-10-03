@@ -137,6 +137,21 @@ describe("live non-message usage accumulation", () => {
     expect(r.totals("s1").cost).toBeCloseTo(0.12, 10);
   });
 
+  it("untrusted usage_recorded / tool-result usage: negative or non-finite values never lower totals", () => {
+    const r = makeRig();
+    r.register("s1");
+    r.send("s1", { type: "usage_recorded", kind: "compaction", usage: usage({ input: 100, cost: 0.5 }) });
+    r.send("s1", {
+      type: "usage_recorded",
+      kind: "usage:evil",
+      usage: { input: -100, output: -1, cacheRead: -5, cacheWrite: Number.POSITIVE_INFINITY, cost: { total: -0.5 } },
+    });
+    r.event("s1", "message_end", {
+      message: { role: "toolResult", toolCallId: "t", content: [], usage: { input: -7, cost: { total: -1 } } },
+    });
+    expect(r.totals("s1")).toEqual({ tokensIn: 100, tokensOut: 0, cacheRead: 0, cacheWrite: 0, cost: 0.5 });
+  });
+
   it("#E18 register-time replay adds no usage (no tool-result message_end in replay)", () => {
     const r = makeRig();
     const history = [
