@@ -3,24 +3,24 @@ import { mdiClose, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { eligibleFetch, PreviewProvenance, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { detectLanguage } from "../tool-renderers/lang-detect.js";
 import { AsciiDocPreview } from "./AsciiDocPreview.js";
+import { DenialNotice } from "./DenialNotice.js";
 import { DiagramPreview } from "./DiagramPreview.js";
 import { DocxPreview } from "./DocxPreview.js";
+import { classifyResponse, type DenialFailure } from "./denial-fetch.js";
 import { EmlPreview } from "./EmlPreview.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { PptxPreview } from "./PptxPreview.js";
 import { dirname } from "./resolve-local-image-src.js";
 import { SpreadsheetPreview } from "./SpreadsheetPreview.js";
-import { logRejection } from "../../lib/report-error.js";
-import { eligibleFetch, PreviewProvenance, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
-import { classifyResponse, type DenialFailure } from "./denial-fetch.js";
-import { DenialNotice } from "./DenialNotice.js";
 import { isSameOriginApiBase, useBlobImage } from "./use-blob-image.js";
 
 /** DOM id of the scroll target line inside the highlighted code view. */

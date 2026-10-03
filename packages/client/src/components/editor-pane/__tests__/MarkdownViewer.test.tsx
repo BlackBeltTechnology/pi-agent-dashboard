@@ -8,9 +8,10 @@
  *
  * See change: improve-content-editor (tasks §5).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api/api-context.js", () => ({ getApiBase: () => "" }));
 vi.mock("../monaco-setup.js", () => ({}));
@@ -37,8 +38,8 @@ vi.mock("../../preview/MarkdownContent.js", () => ({
   },
 }));
 
-import MarkdownViewer from "../MarkdownViewer.js";
 import { ThemeProvider } from "../../settings/ThemeProvider.js";
+import MarkdownViewer from "../MarkdownViewer.js";
 
 const originalFetch = globalThis.fetch;
 

@@ -1,6 +1,6 @@
-import React from "react";
+import { mdiArrowExpandAll, mdiMagnifyMinusOutline, mdiMagnifyPlusOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiMagnifyPlusOutline, mdiMagnifyMinusOutline, mdiArrowExpandAll } from "@mdi/js";
+import React from "react";
 // Shared zoom controls — used by MermaidBlock and FlowGraph
 
 export function ZoomControls({

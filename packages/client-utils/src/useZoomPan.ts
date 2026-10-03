@@ -83,7 +83,7 @@ export function useZoomPan(options?: UseZoomPanOptions) {
         };
       });
     },
-    [clampScale],
+    [clampScale, setState],
   );
 
   // ── Wheel handler ──────────────────────────────────────────────────
@@ -132,7 +132,7 @@ export function useZoomPan(options?: UseZoomPanOptions) {
       translateX: prev.translateX + dx,
       translateY: prev.translateY + dy,
     }));
-  }, []);
+  }, [setState]);
 
   const onPointerUp = useCallback(() => {
     dragging.current = false;
@@ -174,14 +174,14 @@ export function useZoomPan(options?: UseZoomPanOptions) {
       const newScale = clampScale(prev.scale * zoomStep);
       return { ...prev, scale: newScale };
     });
-  }, [clampScale, zoomStep]);
+  }, [clampScale, zoomStep, setState]);
 
   const zoomOut = useCallback(() => {
     setState((prev) => {
       const newScale = clampScale(prev.scale / zoomStep);
       return { ...prev, scale: newScale };
     });
-  }, [clampScale, zoomStep]);
+  }, [clampScale, zoomStep, setState]);
 
   const reset = resetToInitial;
 

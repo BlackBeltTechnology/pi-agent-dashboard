@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
-import React from "react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../settings/ThemeProvider.js";
 
 // Mock mermaid module
@@ -12,16 +12,16 @@ vi.mock("mermaid", () => ({
   },
 }));
 
-import { VIEWPORT_HEIGHT_CSS } from "../preview/mermaid-fit.js";
 // Import after mock is set up
 import {
-  MermaidBlock,
-  _svgCache,
   _errorCache,
+  _svgCache,
   colorizeDefaultNodes,
   hashId,
+  MermaidBlock,
   rgba,
 } from "../preview/MermaidBlock.js";
+import { VIEWPORT_HEIGHT_CSS } from "../preview/mermaid-fit.js";
 
 const ACCENTS_A = ["#3b82f6", "#22c55e", "#eab308", "#ef4444", "#a855f7", "#f97316"];
 const ACCENTS_B = ["#8be9fd", "#50fa7b", "#f1fa8c", "#ff5555", "#bd93f9", "#ffb86c"];

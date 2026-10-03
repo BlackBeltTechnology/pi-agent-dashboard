@@ -2,8 +2,8 @@ import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "reac
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
-import { ZoomControls } from "./ZoomControls.js";
 import { computeFitScale, VIEWPORT_HEIGHT_CSS } from "./mermaid-fit.js";
+import { ZoomControls } from "./ZoomControls.js";
 
 let mermaidIdCounter = 0;
 
