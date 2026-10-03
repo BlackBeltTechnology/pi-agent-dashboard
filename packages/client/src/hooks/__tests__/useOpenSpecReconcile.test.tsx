@@ -9,9 +9,10 @@
  * Scenarios: test-plan E37, E38, E39, E40, X5.
  */
 
-import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { computeRenderedCwds } from "../../lib/openspec/rendered-cwds.js";
 import { type OpenSpecGetInflight, type UseOpenSpecReconcileArgs, useOpenSpecReconcile } from "../useOpenSpecReconcile.js";
 
 const SETTLED: OpenSpecData = { initialized: true, changes: [] };
@@ -125,5 +126,63 @@ describe("useOpenSpecReconcile", () => {
     // The second attempt's final reply settles the entry — no further pull.
     rerender({ ...props, openspecMap: new Map([["/w", SETTLED]]) });
     expect(props.send).toHaveBeenCalledTimes(2);
+  });
+});
+
+const sess = (o: Partial<DashboardSession> & { id: string; cwd: string }): DashboardSession =>
+  ({ status: "ended", startedAt: 0, ...o }) as DashboardSession;
+
+describe("computeRenderedCwds — attachment folders (resolve-archived-attached-proposal)", () => {
+  it("E19: ended attached session pulls its unpinned folder, once", () => {
+    const cwds = computeRenderedCwds({
+      sessions: [sess({ id: "a", cwd: "/proj", attachedProposal: "add-auth" })],
+      pinnedDirectories: [],
+      routeCwds: [],
+    });
+    expect(cwds).toEqual(["/proj"]);
+    const props = makeProps({ renderedCwds: cwds });
+    renderHook((p: HarnessProps) => useOpenSpecReconcile(p as unknown as UseOpenSpecReconcileArgs), { initialProps: props });
+    expect(sentCwds(props.send)).toEqual(["/proj"]);
+  });
+
+  it("E20: removed-worktree session pulls cwd and mainPath, deduped with a sibling session", () => {
+    const cwds = computeRenderedCwds({
+      sessions: [
+        sess({ id: "a", cwd: "/repo/.worktrees/os-x", attachedProposal: "x", gitWorktree: { mainPath: "/repo" } as never }),
+        sess({ id: "b", cwd: "/repo", status: "idle" }),
+      ],
+      pinnedDirectories: [],
+      routeCwds: [],
+    });
+    expect([...cwds].sort()).toEqual(["/repo", "/repo/.worktrees/os-x"]);
+  });
+
+  it("E21: archive route adds the folder and non-rendered candidate sessions", () => {
+    const cwds = computeRenderedCwds({
+      sessions: [sess({ id: "a", cwd: "/repo/.worktrees/os-x", hidden: true, attachedProposal: "x", gitWorktree: { mainPath: "/repo" } as never })],
+      pinnedDirectories: [],
+      routeCwds: [],
+      archive: { cwd: "/repo", entries: [{ name: "2026-09-30-x", date: "2026-09-30", artifacts: [] }] },
+    });
+    expect([...cwds].sort()).toEqual(["/repo", "/repo/.worktrees/os-x"]);
+  });
+
+  it("a hidden attached session is not pulled outside the archive route", () => {
+    expect(
+      computeRenderedCwds({
+        sessions: [sess({ id: "a", cwd: "/gone", hidden: true, attachedProposal: "x" })],
+        pinnedDirectories: [],
+        routeCwds: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("X2: openspec_get lost reply never settles the attachment; next pass re-sends", () => {
+    vi.useFakeTimers();
+    const props = makeProps({ renderedCwds: ["/proj"] });
+    const { rerender } = renderHook((p: HarnessProps) => useOpenSpecReconcile(p as unknown as UseOpenSpecReconcileArgs), { initialProps: props });
+    act(() => { vi.advanceTimersByTime(15_000); });
+    rerender({ ...props });
+    expect(sentCwds(props.send)).toEqual(["/proj", "/proj"]);
   });
 });

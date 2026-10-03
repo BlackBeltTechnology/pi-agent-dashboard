@@ -21,6 +21,8 @@ import type React from "react";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { isMergePrimary } from "../../lib/git/merge-primary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
+import { AttachmentTrace, isLiveActive } from "../openspec/AttachmentTrace.js";
 import { LazyAttachChangePicker, LazyExploreDialog, LazyNewChangeDialog, LazyProposeDialog, LazyTasksPopover } from "../openspec/lazy-openspec-dialogs.js";
 import { OpenSpecStepper } from "../openspec/OpenSpecStepper.js";
 import { type ActionSpec, deriveOpenSpecActions, type OpenSpecActionKey } from "../openspec/openspec-actions.js";
@@ -326,20 +328,27 @@ export function ComposerSessionActions({
   const [newChangeOpen, setNewChangeOpen] = useState(false);
   const [proposeOpen, setProposeOpen] = useState(false);
   const [attachPickerOpen, setAttachPickerOpen] = useState(false);
+  // active (own cwd) | archived | missing | unresolved. See change: resolve-archived-attached-proposal.
+  const resolution = useAttachmentResolution(session, changes);
 
   if (!session) return null;
 
   const attached = session.attachedProposal ?? null;
-  const change = attached ? changes?.find((c) => c.name === attached) : undefined;
+  const change = resolution?.kind === "active" && isLiveActive(resolution, session.cwd) ? resolution.change : undefined;
+  // Archived / not-found / in-main-checkout attachments stay traceable even when
+  // the cwd's own OpenSpec state would hide the strip (ended, removed worktree).
+  const showTrace =
+    !!attached && !!resolution && resolution.kind !== "unresolved" && !isLiveActive(resolution, session.cwd);
   const changeState = change ? deriveChangeState(change) : undefined;
   const working = workingProp ?? session.status === "streaming";
   const isEnded = session.status === "ended";
 
   const showOpenSpec =
-    !isEnded &&
-    (openspecReadiness
-      ? openspecReadiness.state === "READY" || openspecReadiness.state === "PENDING"
-      : openspecHasDir !== false || openspecPending === true);
+    showTrace ||
+    (!isEnded &&
+      (openspecReadiness
+        ? openspecReadiness.state === "READY" || openspecReadiness.state === "PENDING"
+        : openspecHasDir !== false || openspecPending === true));
   const showStatus = hasBadge;
   const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree;
 
@@ -420,6 +429,7 @@ export function ComposerSessionActions({
         onOpenProposal={onReadArtifact ? () => onReadArtifact(attached, "proposal") : undefined}
         onDetach={onDetach}
       />
+      {showTrace && <AttachmentTrace resolution={resolution} sessionCwd={session.cwd} />}
       {change && (
         <div
           data-testid="composer-lifecycle"

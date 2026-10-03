@@ -59,6 +59,7 @@ import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.j
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
+import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { useIdleFx } from "./hooks/useIdleFx.js";
 import { selectInflightBashTools } from "./hooks/useInflightBashTools.js";
 import { useInstallPrompt } from "./hooks/useInstallPrompt.js";
@@ -116,11 +117,14 @@ import {
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
 } from "./lib/nav/route-builders.js";
+import { useArchiveRoute } from "./lib/nav/useArchiveRoute.js";
 import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
+import { OpenSpecMapContext } from "./lib/openspec/OpenSpecMapContext.js";
 import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
+import { computeRenderedCwds } from "./lib/openspec/rendered-cwds.js";
+import { useArchiveEntries } from "./lib/openspec/useAttachmentResolution.js";
 import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
 import { buildHistoryPhaseMap, hasChatContent } from "./lib/replay/history-load-phase.js";
-import { useHistoryLoadState } from "./hooks/useHistoryLoadState.js";
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
@@ -177,7 +181,7 @@ import { useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
-import { registerPluginCatalog, t as i18nT, useI18n } from "./lib/i18n/i18n.js";
+import { t as i18nT, registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { loginRedirectFor } from "./lib/identity/login-session.js";
 import { runUrgencyMigration } from "./lib/session/group-by-migration.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
@@ -493,9 +497,13 @@ export default function App() {
   const [settingsMatch] = useRoute("/settings/:page?/:sub?");
   const [tunnelSetupMatch] = useRoute("/tunnel-setup");
   // Shell-owned overlay routes (overlay-url-routing).
-  const [openspecPreviewMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
+  const [openspecPreviewRouteMatch, openspecPreviewParams] = useRoute("/folder/:encodedCwd/openspec/:changeName/:artifactId");
+  // `archive` is the CLI's archive dir, never a change name: those URLs belong to
+  // the archive routes. See change: resolve-archived-attached-proposal (D6).
+  const openspecPreviewMatch = openspecPreviewRouteMatch && openspecPreviewParams?.changeName !== "archive";
   const [openspecBoardMatch, openspecBoardParams] = useRoute("/folder/:encodedCwd/openspec");
-  const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
+  const archiveRoute = useArchiveRoute();
+  const archiveMatch = archiveRoute !== null;
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
   // Directory Settings page — depth-1 detail surface that mirrors global
@@ -524,7 +532,7 @@ export default function App() {
   // Decoded overlay cwds (memo-free; cheap base64url decode).
   const openspecPreviewCwd = openspecPreviewMatch && openspecPreviewParams ? decodeFolderPath(openspecPreviewParams.encodedCwd) : null;
   const openspecBoardCwd = openspecBoardMatch && openspecBoardParams ? decodeFolderPath(openspecBoardParams.encodedCwd) : null;
-  const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
+  const archiveCwd = archiveRoute?.cwd ?? null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd = folderSettingsMatch && folderSettingsParams ? decodeFolderPath(folderSettingsParams.encodedCwd) : null;
@@ -1091,21 +1099,22 @@ export default function App() {
   // pull is bounded by the settled-map / in-flight gates, not filter
   // exactness. Ended cards and stub groups never enter the set.
   // See change: fix-connect-snapshot-frame-loss.
-  const renderedCwds = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of sessions.values()) {
-      if (s.status !== "ended") set.add(s.cwd);
-    }
-    for (const p of pinnedDirectories) set.add(p);
-    const selected = selectedId ? sessions.get(selectedId) : undefined;
-    if (selected) set.add(selected.cwd);
-    // Active route surfaces: a direct load of an OpenSpec board/preview for an
-    // unpinned, ended-only folder renders no card, so without these the route
-    // directory would never pull and the view would stay loading.
-    if (openspecPreviewCwd) set.add(openspecPreviewCwd);
-    if (openspecBoardCwd) set.add(openspecBoardCwd);
-    return Array.from(set);
-  }, [sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd]);
+  const archiveSessionList = useMemo(() => [...sessions.values()], [sessions]);
+  const archiveCandidates = useArchiveEntries(archiveCwd, openspecMap);
+  const renderedCwds = useMemo(
+    () =>
+      computeRenderedCwds({
+        sessions: archiveSessionList,
+        pinnedDirectories,
+        selectedSession: selectedId ? sessions.get(selectedId) : undefined,
+        // Active route surfaces: a direct load of an OpenSpec board/preview for an
+        // unpinned, ended-only folder renders no card, so without these the route
+        // directory would never pull and the view would stay loading.
+        routeCwds: [openspecPreviewCwd, openspecBoardCwd],
+        archive: archiveCwd ? { cwd: archiveCwd, entries: archiveCandidates.entries } : null,
+      }),
+    [archiveSessionList, sessions, pinnedDirectories, selectedId, openspecPreviewCwd, openspecBoardCwd, archiveCwd, archiveCandidates.entries],
+  );
 
   useOpenSpecReconcile({
     renderedCwds,
@@ -2305,7 +2314,7 @@ export default function App() {
       {!frozen && openspecBoardMatch && openspecBoardCwd ? (
         renderOpenSpecBoardView(openspecBoardCwd)
       ) : !frozen && archiveMatch && archiveCwd ? (
-        <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
+        <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} sessions={archiveSessionList} deepLink={archiveRoute?.entry ? { entry: archiveRoute.entry, artifact: archiveRoute.artifact } : undefined} />
       ) : !frozen && specsMatch && specsCwd ? (
         <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
       ) : !frozen && piResourceFileMatch && piResourceFilePath ? (
@@ -2704,7 +2713,7 @@ export default function App() {
   // See change: add-route-backed-overlay-dialogs.
   const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
     renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
-    renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
+    renderArchive: (cwd, deepLink) => <ArchiveBrowserView cwd={cwd} onBack={goBack} sessions={archiveSessionList} deepLink={deepLink} />,
     renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
     renderDiff: (sessionId) => (
       <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--text-tertiary)]">{i18nT("status.loadingDiff", undefined, "Loading diff…")}</div>}>
@@ -2820,13 +2829,14 @@ export default function App() {
 
   const apiProvider = (children: React.ReactNode) => (
     <ApiContext.Provider value={apiBase}>
+      <OpenSpecMapContext.Provider value={openspecMap}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
       <CardSectionsProvider value={cardSectionsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
       <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
         registry={_pluginRegistry}
-        sessions={allSessionsList}
+        sessions={archiveSessionList}
         selectedSessionId={selectedId}
         // The live shell socket, so plugin `usePluginMessage` consumers actually
         // receive server→browser frames (the browser relay's status + screencast
@@ -2907,6 +2917,7 @@ export default function App() {
       </CommitDialogProvider>
       </CardSectionsProvider>
       </DisplayPrefsProvider>
+      </OpenSpecMapContext.Provider>
     </ApiContext.Provider>
   );
 

@@ -165,3 +165,30 @@ describe("frozen-underlay derivation (the reason this component exists)", () => 
     expect(screen.queryByText("url:https://example.com")).toBeNull();
   });
 });
+
+describe("ShellContent archive routes (resolve-archived-attached-proposal)", () => {
+  it("E23 /openspec/archive/:entry renders the archive list, never the change preview", () => {
+    at(`/folder/${ENC}/openspec/archive/2026-09-30-x`);
+    expect(screen.getByText(`archive:${CWD}`)).toBeTruthy();
+    expect(screen.queryByText(/^preview:/)).toBeNull();
+  });
+
+  it("archive deep link passes entry + artifact to renderArchive", () => {
+    const { hook, searchHook } = memoryLocation({ path: `/folder/${ENC}/openspec/archive/2026-09-30-x/design` });
+    render(
+      <Router hook={hook} searchHook={searchHook}>
+        <ShellContent
+          variant="desktop"
+          {...renderers()}
+          renderArchive={(cwd, deepLink) => <div>archive:{cwd}:{deepLink?.entry}:{deepLink?.artifact}</div>}
+        />
+      </Router>,
+    );
+    expect(screen.getByText(`archive:${CWD}:2026-09-30-x:design`)).toBeTruthy();
+  });
+
+  it("a change preview still renders for a normal change name", () => {
+    at(`/folder/${ENC}/openspec/my-change/proposal`);
+    expect(screen.getByText(`preview:${CWD}:my-change:proposal`)).toBeTruthy();
+  });
+});

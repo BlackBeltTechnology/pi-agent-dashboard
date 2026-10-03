@@ -4,8 +4,12 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
 import { useSessionActions } from "../../hooks/useSessionActions.js";
 import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
+import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
+import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { branchCache, GroupGitInfo, SessionCard } from "../session/SessionCard.js";
 
 vi.mock("../../hooks/useMobile.js", () => ({
@@ -1967,5 +1971,66 @@ describe("SessionCard — Merge emphasis + working (#E13, #F7)", () => {
     for (const id of ["archive-btn", "worktree-action-push", "worktree-action-merge"]) {
       expect(screen.getByTestId(id).getAttribute("aria-disabled"), id).toBeNull();
     }
+  });
+});
+
+// --- attachment resolution on the card (resolve-archived-attached-proposal) ---
+describe("SessionCard attachment resolution", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const cardProps = { onSendPrompt: () => {}, onAttachProposal: () => {}, onDetachProposal: () => {} };
+
+  it("F4 active elsewhere: ended removed-worktree session is read-only with In main checkout", () => {
+    const session = makeSession({
+      id: "ended-1",
+      status: "ended",
+      cwd: "/repo/.worktrees/os-x",
+      attachedProposal: "x",
+      gitWorktree: { mainPath: "/repo", name: "os-x" } as never,
+    });
+    const mem = memoryLocation({ path: "/", record: true });
+    stubArchiveApi({});
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/repo/.worktrees/os-x": absentData(), "/repo": knownData(makeChange("x", ["proposal", "design"])) },
+          <SessionCard
+            session={session}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={{ state: "ABSENT" }}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    expect(screen.getByTestId("attachment-main-checkout-badge").textContent).toBe("In main checkout");
+    for (const id of ["apply-btn", "continue-btn", "archive-btn", "openspec-stepper"]) expect(screen.queryByTestId(id)).toBeNull();
+    fireEvent.click(screen.getAllByTestId("artifact-letter")[1]); // D
+    expect(mem.history?.at(-1)).toBe(`/folder/${encodeFolderPath("/repo")}/openspec/x/design`);
+  });
+
+  it("F5 archive letter pushes the archive deep link and does not select the card", async () => {
+    stubArchiveApi({ "/home/user/project": [archiveEntry("2026-09-30-add-auth")] });
+    const onSelect = vi.fn();
+    const mem = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/home/user/project": knownData() },
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            onSelect={onSelect}
+            openspecChanges={[]}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    await screen.findByTestId("attachment-archived-badge");
+    const letters = screen.getAllByTestId("artifact-letter");
+    fireEvent.click(letters[1]); // D
+    expect(mem.history?.at(-1)).toBe(`/folder/${encodeFolderPath("/home/user/project")}/openspec/archive/2026-09-30-add-auth/design`);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

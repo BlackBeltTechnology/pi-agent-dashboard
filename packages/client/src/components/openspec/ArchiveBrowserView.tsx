@@ -1,4 +1,4 @@
-import type { OpenSpecArtifact, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, OpenSpecArtifact, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiMagnify } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -6,7 +6,11 @@ import type { ArchiveEntry } from "../../hooks/useArchiveListing.js";
 import { filterEntries, groupByDate, useArchiveListing } from "../../hooks/useArchiveListing.js";
 import { useOpenSpecReader } from "../../hooks/useOpenSpecReader.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useTrackedNavigate } from "../../lib/nav/useTrackedNavigate.js";
 import { fetchGroups } from "../../lib/openspec/openspec-groups-api.js";
+import { useResolvedAttachments } from "../../lib/openspec/useAttachmentResolution.js";
+import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
+import { deriveDotColor } from "../../lib/session/session-status-visuals.js";
 import { MarkdownPreviewView } from "../preview/MarkdownPreviewView.js";
 import { OpenSpecGroupPills } from "./OpenSpecGroupPills.js";
 import { OpenSpecGroupSection } from "./OpenSpecGroupSection.js";
@@ -19,6 +23,38 @@ interface Props {
   groups?: OpenSpecGroup[];
   /** Externally-pushed assignments (from WS broadcast). */
   assignments?: Record<string, string>;
+  /** `/openspec/archive/:entry/:artifact` deep link: open that reader directly,
+   *  and go back through history (not to the list). Unknown entry/artifact → list. */
+  deepLink?: { entry: string; artifact?: string };
+  /** Session store contents, for the per-entry attached-session chips. */
+  sessions?: Iterable<DashboardSession>;
+}
+
+const MAX_SESSION_CHIPS = 3;
+
+/** Attached-session chips of one archive row (max 3 + `+N`). Click → that session. */
+function AttachedSessionChips({ sessions }: { sessions: DashboardSession[] }) {
+  const navigate = useTrackedNavigate();
+  if (sessions.length === 0) return null;
+  const shown = sessions.slice(0, MAX_SESSION_CHIPS);
+  const extra = sessions.length - shown.length;
+  return (
+    <span className="flex items-center gap-1 flex-shrink-0" data-testid="archive-attached-sessions" title={i18nT("openspec.attachedSessions", undefined, "Attached sessions")}>
+      {shown.map((s) => (
+        <button
+          key={s.id}
+          type="button"
+          data-testid="archive-session-chip"
+          className="flex items-center gap-1 max-w-[140px] text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-blue-500/50"
+          onClick={(e) => { e.stopPropagation(); navigate(`/session/${encodeURIComponent(s.id)}`); }}
+        >
+          <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${deriveDotColor(s)}`} />
+          <span className="truncate">{getSessionDisplayName(s)}</span>
+        </button>
+      ))}
+      {extra > 0 && <span className="text-[10px] text-[var(--text-muted)]" data-testid="archive-session-chip-more">+{extra}</span>}
+    </span>
+  );
 }
 
 /** Inner reader for an archived change — wraps useOpenSpecReader with archive flag. */
@@ -55,8 +91,26 @@ function ArchiveArtifactReader({
   );
 }
 
-export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assignments: externalAssignments }: Props) {
+export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assignments: externalAssignments, deepLink, sessions }: Props) {
   const { entries, isLoading, error } = useArchiveListing(cwd);
+  // Reverse link: sessions in this folder (cwd or main checkout) whose
+  // attachment resolves to exactly one entry here. See change: resolve-archived-attached-proposal (D7).
+  const candidates = React.useMemo(
+    () => [...(sessions ?? [])].filter((s) => s.attachedProposal && (s.cwd === cwd || s.gitWorktree?.mainPath === cwd)),
+    [sessions, cwd],
+  );
+  const resolutions = useResolvedAttachments(candidates, { cwd, entries });
+  const sessionsByEntry = React.useMemo(() => {
+    const m = new Map<string, DashboardSession[]>();
+    for (const s of candidates) {
+      const r = resolutions.get(s.id);
+      if (r?.kind !== "archived" || r.cwd !== cwd) continue;
+      const list = m.get(r.entry.name) ?? [];
+      list.push(s);
+      m.set(r.entry.name, list);
+    }
+    return m;
+  }, [candidates, resolutions, cwd]);
   const [search, setSearch] = useState("");
   const [activePill, setActivePill] = useState<string | null>(null);
   const [collapseState, setCollapseState] = useState<Record<string, boolean>>({});
@@ -99,6 +153,21 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
     setReaderState(null);
   }, []);
 
+  // Deep-linked reader: history-back semantics (onBack = the shell's depth-aware
+  // back). Unknown entry / artifact falls through to the list.
+  const deepEntry = deepLink?.artifact ? entries.find((e) => e.name === deepLink.entry) : undefined;
+  if (!readerState && deepLink?.artifact && deepEntry?.artifacts.some((a) => a.id === deepLink.artifact)) {
+    return (
+      <ArchiveArtifactReader
+        cwd={cwd}
+        changeName={deepEntry.name}
+        initialArtifact={deepLink.artifact}
+        artifacts={deepEntry.artifacts as OpenSpecArtifact[]}
+        onBack={onBack}
+      />
+    );
+  }
+
   if (readerState) {
     return (
       <ArchiveArtifactReader
@@ -134,6 +203,7 @@ export function ArchiveBrowserView({ cwd, onBack, groups: externalGroups, assign
       <span className="text-[11px] font-medium text-[var(--text-secondary)] truncate flex-1">
         {entry.name.replace(/^\d{4}-\d{2}-\d{2}-/, "")}
       </span>
+      <AttachedSessionChips sessions={sessionsByEntry.get(entry.name) ?? []} />
       <ArtifactLetters
         artifacts={entry.artifacts}
         changeName={entry.name}
