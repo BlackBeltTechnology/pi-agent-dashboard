@@ -5,10 +5,12 @@
 # self-spawned dashboard server could surface in a session's process list.
 #
 # PRECONDITION (the QA harness provides it): a pi session was started WITHOUT a
-# running dashboard, so its bridge auto-started the server being tested. This
-# script cannot make that happen itself; it FAILS (never passes vacuously) when
-# it cannot establish that a bridge session exists and has actually scanned at
-# least twice. Reads each session's process list from the session surface.
+# running dashboard, so its bridge auto-started the server being tested. The
+# script VERIFIES it: /api/health `launchSource` must be "bridge" (the bridge
+# launcher stamps DASHBOARD_STARTER=Bridge). Never passes vacuously:
+#   - server not bridge-started  -> exit 77 (SKIP; run-all.ps1 counts it as skipped)
+#   - no live session has completed >= 2 process scans -> FAIL
+#   - the scanning session lists the server PID -> FAIL
 
 $ErrorActionPreference = "Stop"
 
@@ -23,6 +25,11 @@ try {
   exit 1
 }
 $serverPid = $health.pid
+
+if ($health.launchSource -ne "bridge") {
+  Write-Host "SKIP: the server on :$port was not auto-started by a bridge (launchSource=$($health.launchSource)); X11 needs a bridge-started server"
+  exit 77
+}
 
 # Wait (bounded) until some session's bridge reports >= 2 completed scans: two
 # fast Windows cycles are 2 x 10 s, plus slack for the first one-shot.
