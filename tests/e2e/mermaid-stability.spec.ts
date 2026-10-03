@@ -99,7 +99,8 @@ test.describe("mermaid diagram stability", () => {
     }
   });
 
-  // Many diagrams + prose with inline code (the docs/architecture.md shape), a
+  // The harness has no docs/architecture.md, so a generated 12-diagram notes.md
+  // reproduces its shape: many diagrams + prose with inline code, a
   // concurrent streaming reply from a SECOND page (no click on this page, so
   // focus is not dropped), then: 0 removal waves, same node instances, focus +
   // controls + zoom + pan intact. Covers P1/P3/F2/F3.
@@ -115,7 +116,11 @@ test.describe("mermaid diagram stability", () => {
       await page.evaluate(() => {
         const w = window as unknown as { __rem: number };
         w.__rem = 0;
+        // Scope to the file viewer's own markdown tree (chat messages legitimately churn);
+        // keep prose nodes (outside diagrams) in an array so survival = still connected.
+        const root = document.querySelector(".mermaid-diagram")?.closest(".markdown-content");
         document.querySelectorAll(".mermaid-diagram").forEach((n) => ((n as unknown as { __s: number }).__s = 1));
+        (window as unknown as { __prose: Element[] }).__prose = [...(root?.querySelectorAll("p, li, code") ?? [])].filter((n) => !n.closest(".mermaid-diagram"));
         new MutationObserver((list) => {
           for (const m of list)
             for (const r of m.removedNodes)
@@ -149,8 +154,18 @@ test.describe("mermaid diagram stability", () => {
       expect(
         await page.evaluate(() => [...document.querySelectorAll(".mermaid-diagram")].every((n) => (n as unknown as { __s?: number }).__s)),
       ).toBe(true);
+      // Markdown prose nodes (p / li / inline code) kept their identity too.
+      expect(
+        await page.evaluate(() => {
+          const prose = (window as unknown as { __prose: Element[] }).__prose;
+          return prose.length > 20 && prose.every((n) => n.isConnected);
+        }),
+      ).toBe(true);
+      // Controls are still operable after the churn: one more zoom step changes the scale.
       await expect(page.getByTitle("Zoom in").first()).toBeVisible();
       expect(await inner.evaluate((e) => (e as HTMLElement).style.transform)).toBe(transform);
+      await page.getByTitle("Zoom in").first().click();
+      expect(await inner.evaluate((e) => (e as HTMLElement).style.transform)).not.toBe(transform);
       await other.close();
     } finally {
       await cleanupCommit(page, FIXTURE_GIT);
@@ -173,7 +188,7 @@ test.describe("mermaid diagram stability", () => {
             if (r instanceof Element && (r.matches(".mermaid-diagram") || r.querySelector(".mermaid-diagram"))) w.__rem++;
       }).observe(document.body, { childList: true, subtree: true });
     });
-    await page.waitForTimeout(15_000);
+    await page.waitForTimeout(30_000);
     expect(await page.evaluate(() => (window as unknown as { __rem: number }).__rem)).toBe(0);
     expect(await page.evaluate(() => !!(document.querySelector(".mermaid-diagram") as unknown as { __s?: number })?.__s)).toBe(true);
   });
