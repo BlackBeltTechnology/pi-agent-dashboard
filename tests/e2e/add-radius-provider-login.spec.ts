@@ -173,4 +173,16 @@ test.describe("add-radius-provider-login — Radius generic panes (L3)", () => {
     await expect(offer).toHaveCount(0);
     expect(radius.posts()).toBe(1);
   });
+
+  test("F6b: Tab reaches Decline; Enter dismisses with no POST", async ({ page }) => {
+    const radius = await radiusSignedIn(page);
+    const offer = page.getByTestId("radius-mcp-offer");
+    await expect(offer).toBeVisible({ timeout: 10_000 });
+    await offer.getByRole("button", { name: "Configure Radius MCP" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(offer.getByRole("button", { name: "Not now" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(offer).toHaveCount(0);
+    expect(radius.posts()).toBe(0);
+  });
 });

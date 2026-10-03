@@ -167,8 +167,9 @@ export type ReloadOutcome = "respawn" | "forwarded" | "refused" | "error" | (str
 
 /**
  * Dispatch `/reload` to every target; count only targets that actually reloaded
- * (`respawn` | `forwarded`). A rejected dispatch is logged by session id (never
- * the error payload's content beyond its message) and not counted.
+ * (`respawn` | `forwarded`). A rejected dispatch is logged by session id with a
+ * FIXED message — the rejection's own text may carry anything, including
+ * credentials or header values — and not counted.
  */
 export async function countReloads(
   targets: readonly string[],
@@ -180,10 +181,8 @@ export async function countReloads(
     try {
       const outcome = await dispatch(sid);
       if (outcome === "respawn" || outcome === "forwarded") count += 1;
-    } catch (err) {
-      logError(
-        `[provider-auth] radius mcp reload failed for session ${sid}: ${err instanceof Error ? err.message : "unknown error"}`,
-      );
+    } catch {
+      logError(`[provider-auth] radius mcp reload dispatch failed for session ${sid}`);
     }
   }
   return count;

@@ -274,6 +274,19 @@ describe("countReloads (E15, X4)", () => {
     expect(log).toHaveBeenCalledTimes(1);
     expect(String(log.mock.calls[0][0])).toContain("bad");
   });
+  it("B2: a rejection message carrying a secret is never logged", async () => {
+    const log = vi.fn();
+    await countReloads(
+      ["bad"],
+      async () => {
+        throw new Error("Authorization: Bearer tok-SECRET-123");
+      },
+      log,
+    );
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(String(log.mock.calls[0][0])).toContain("bad");
+    expect(String(log.mock.calls[0][0])).not.toContain("tok-SECRET-123");
+  });
 });
 
 describe("via the routes (X3, X5, E21)", () => {

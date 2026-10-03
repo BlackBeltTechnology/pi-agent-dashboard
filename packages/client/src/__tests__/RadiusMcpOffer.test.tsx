@@ -131,6 +131,68 @@ describe("Radius MCP offer — suppression (F3)", () => {
   });
 });
 
+describe("Radius MCP offer — stale state (B1)", () => {
+  /** Two providers, both completable; GET /radius/mcp is held until released. */
+  function stubTwo(get: () => Promise<any>) {
+    const done = new Set<string>();
+    const json = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as any;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: any) => {
+        if (url.includes("/api/provider-auth/radius/mcp") && init?.method !== "POST") return get();
+        if (url.includes("/api/provider-auth/status")) {
+          return json(200, ["radius", "anthropic"].map((id) => ({ id, name: id === "radius" ? "Radius" : "Anthropic", flowType: "auth_code", authenticated: done.has(id), configured: done.has(id), subscription: false })));
+        }
+        if (url.includes("/api/providers")) return json(200, { success: true, providers: {}, health: {} });
+        if (url.includes("/api/provider-auth/catalogue-ready")) return json(200, { ready: true });
+        if (url.includes("/api/provider-auth/start")) {
+          const provider = JSON.parse(init.body).provider as string;
+          done.add(provider);
+          return json(200, { flowId: `f-${provider}`, provider, status: "pending", pending: { kind: "device_code", userCode: "X", verificationUri: "https://x.test" } });
+        }
+        if (url.includes("/api/provider-auth/flow/")) {
+          const flowId = url.split("/flow/")[1];
+          return json(200, { flowId, provider: flowId.slice(2), status: "complete" });
+        }
+        return json(200, {});
+      }),
+    );
+  }
+
+  async function signIn(c: ReturnType<typeof render>, name: string) {
+    fireEvent.click(await c.findByTestId("add-provider-button"));
+    const dlg = await screen.findByRole("dialog");
+    fireEvent.click(Array.from(dlg.querySelectorAll('[role="option"]')).find((o) => o.textContent?.includes(name)) as Element);
+    fireEvent.click(await screen.findByTestId("dialog-sign-in"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  }
+
+  it("completing another provider clears an earlier offer", async () => {
+    stubTwo(async () => ({ ok: true, status: 200, json: async () => OFFER }) as any);
+    const c = render(<ProviderAuthSection />);
+    await signIn(c, "Radius");
+    await screen.findByTestId("radius-mcp-offer");
+    await signIn(c, "Anthropic");
+    await waitFor(() => expect(screen.queryByTestId("radius-mcp-offer")).toBeNull());
+  });
+
+  it("a Radius GET resolving after a later completion does not resurrect the offer", async () => {
+    let release: (v: unknown) => void = () => {};
+    stubTwo(() => new Promise((resolve) => { release = resolve; }));
+    const c = render(<ProviderAuthSection />);
+    await signIn(c, "Radius");
+    await signIn(c, "Anthropic");
+    await act(async () => {
+      release({ ok: true, status: 200, json: async () => OFFER });
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(screen.queryByTestId("radius-mcp-offer")).toBeNull();
+  });
+});
+
 describe("Radius MCP offer — refusal rendering (F4)", () => {
   it("translated message for a known code, no success text", async () => {
     const script: Script = {

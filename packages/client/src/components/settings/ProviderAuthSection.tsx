@@ -56,7 +56,6 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
-import { fetchRadiusMcpOffer, RadiusMcpOffer, type RadiusMcpOfferInfo } from "./RadiusMcpOffer.js";
 import {
   type AddDialogFlowState,
   API_TYPE_OPTIONS,
@@ -66,6 +65,7 @@ import {
   ProviderAddDialog,
 } from "./ProviderAddDialog.js";
 import { derivePillView, type LiveTestResult, ProviderHealthPill } from "./ProviderHealthPill.js";
+import { fetchRadiusMcpOffer, RadiusMcpOffer, type RadiusMcpOfferInfo } from "./RadiusMcpOffer.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -294,6 +294,9 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // the entries whose cached health must drop without a stale closure.
   // Post-sign-in Radius MCP offer. See change: add-radius-provider-login (D4).
   const [radiusOffer, setRadiusOffer] = useState<RadiusMcpOfferInfo | null>(null);
+  // Bumped on every completion and on dismissal: an offer read older than the
+  // latest event is dropped instead of resurrecting a stale offer.
+  const radiusOfferSeqRef = useRef(0);
   const [pendingHealth, setPendingHealth] = useState<Set<string>>(new Set());
   const pendingHealthRef = useRef<Set<string>>(new Set());
   const addPendingHealth = useCallback((name: string) => {
@@ -402,10 +405,18 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
     // only when the Pi-global mcp.json is not already configured. A failed read
     // (503/409) means no offer — never an error on a sign-in that succeeded.
+    const seq = ++radiusOfferSeqRef.current;
     if (id === "radius") {
       void fetchRadiusMcpOffer()
-        .then((offer) => setRadiusOffer(offer))
-        .catch(() => setRadiusOffer(null));
+        .then((offer) => {
+          if (seq === radiusOfferSeqRef.current) setRadiusOffer(offer);
+        })
+        .catch(() => {
+          if (seq === radiusOfferSeqRef.current) setRadiusOffer(null);
+        });
+    } else {
+      // Another sign-in completed: an earlier Radius offer no longer applies.
+      setRadiusOffer(null);
     }
   }, [handleChanged, stopFlowTimers]);
 
@@ -661,6 +672,7 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         <RadiusMcpOffer
           info={radiusOffer}
           onDone={(result) => {
+            radiusOfferSeqRef.current += 1;
             setRadiusOffer(null);
             if (result) {
               showToast(
