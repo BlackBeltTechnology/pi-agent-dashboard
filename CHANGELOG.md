@@ -12,6 +12,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
+  providers page (Account badge) and signs in through the usual
+  browser/device-code choice. It stays hidden while `models.json` points
+  `radius` at a custom gateway. After signing in, the dashboard offers to add
+  the Radius MCP server to the global `mcp.json` (as pi's `/login` does) and
+  reloads sessions. `RADIUS_API_KEY` keeps working as "Radius (API Key)".
+
 - **pi 1.0.0 surfaces.** Sign in with ChatGPT (`openai` OAuth) from the
   providers page; OAuth rows show **Subscription** or **Account**
   (OpenRouter); an Environment row names pi's mechanism (e.g. "workload

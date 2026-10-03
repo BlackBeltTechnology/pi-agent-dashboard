@@ -37,8 +37,8 @@ import {
 } from "../model-proxy/server-model-runtime.js";
 
 /**
- * The eight OAuth providers pi 1.0.0 bundles, minus the excluded `radius`.
- * 1.0.0 adds `openai` (Sign in with ChatGPT).
+ * The nine OAuth providers pi 1.0.0 bundles (incl. `radius`, listed unless a
+ * models.json override hides it). 1.0.0 adds `openai` (Sign in with ChatGPT).
  * See change: update-pi-core-1-0-adopt-apis (test-plan #E10).
  */
 const EXPECTED_IDS = [
@@ -50,6 +50,7 @@ const EXPECTED_IDS = [
   "kimi-coding",
   "meta",
   "xai",
+  "radius",
 ] as const;
 
 beforeAll(async () => {
@@ -64,13 +65,14 @@ describe("registry from the real runtime (E1)", () => {
     expect(getRegistryError()).toBeNull();
   });
 
-  it("contains exactly the eight bundled OAuth providers (E10)", () => {
+  it("contains exactly the nine bundled OAuth providers (E10)", () => {
     const ids = getOAuthRegistry().map((e) => e.id);
     expect([...ids].sort()).toEqual([...EXPECTED_IDS].sort());
   });
 
-  it("excludes `radius`", () => {
-    expect(getOAuthRegistry().some((e) => e.id === "radius")).toBe(false);
+  it("E1/E10: lists `radius` as an Account (non-subscription) auth_code entry", () => {
+    const radius = getOAuthRegistry().find((e) => e.id === "radius");
+    expect(radius).toMatchObject({ name: "Radius", flowType: "auth_code", subscription: false });
   });
 
   it("E10: `openai` is an auth_code flow", () => {
@@ -78,9 +80,9 @@ describe("registry from the real runtime (E1)", () => {
   });
 
   // test-plan #E18 — `subscription` from pi's OAuth `isSubscription`.
-  it("E18: openrouter is subscription:false, the other seven subscription:true", () => {
+  it("E18: openrouter and radius are subscription:false, the other seven subscription:true", () => {
     for (const entry of getOAuthRegistry()) {
-      expect(entry.subscription, entry.id).toBe(entry.id !== "openrouter");
+      expect(entry.subscription, entry.id).toBe(entry.id !== "openrouter" && entry.id !== "radius");
     }
   });
 
@@ -104,13 +106,14 @@ describe("flowType hints (E2)", () => {
     auth: { oauth: { name: id, login: async () => ({ type: "oauth" as const, refresh: "", access: "", expires: 0 }) } },
   });
 
-  it("maps the four auth-code ids and defaults every other id to device_code", () => {
+  it("maps the five auth-code ids and defaults every other id to device_code", () => {
     const entries = mapProviders(
       [
         "anthropic",
         "openai",
         "openai-codex",
         "openrouter",
+        "radius",
         "github-copilot",
         "kimi-coding",
         "meta",
@@ -124,17 +127,19 @@ describe("flowType hints (E2)", () => {
     expect(byId.get("openai")).toBe("auth_code");
     expect(byId.get("openai-codex")).toBe("auth_code");
     expect(byId.get("openrouter")).toBe("auth_code");
+    expect(byId.get("radius")).toBe("auth_code");
     for (const id of ["github-copilot", "kimi-coding", "meta", "xai", "never-heard-of-it"]) {
       expect(byId.get(id), id).toBe("device_code");
     }
   });
 
-  it("hint table names exactly the four auth-code ids", () => {
+  it("hint table names exactly the five auth-code ids", () => {
     expect(Object.keys(FLOW_TYPE_HINT).sort()).toEqual([
       "anthropic",
       "openai",
       "openai-codex",
       "openrouter",
+      "radius",
     ]);
   });
 
@@ -147,13 +152,13 @@ describe("flowType hints (E2)", () => {
     expect(sub.subscription).toBe(true);
   });
 
-  it("drops providers with no OAuth login and the excluded id", () => {
+  it("drops providers with no OAuth login; no id is excluded", () => {
     const entries = mapProviders([
       { id: "no-oauth", auth: {} },
       provider("radius"),
       provider("anthropic"),
     ]);
-    expect(entries.map((e) => e.id)).toEqual(["anthropic"]);
+    expect(entries.map((e) => e.id)).toEqual(["radius", "anthropic"]);
   });
 });
 

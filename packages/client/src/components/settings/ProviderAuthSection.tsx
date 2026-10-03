@@ -56,6 +56,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
 import { InlineMessage } from "../primitives/InlineMessage.js";
 import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
+import { fetchRadiusMcpOffer, RadiusMcpOffer, type RadiusMcpOfferInfo } from "./RadiusMcpOffer.js";
 import {
   type AddDialogFlowState,
   API_TYPE_OPTIONS,
@@ -291,6 +292,8 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   // F10 — names with a write in flight whose detached probe has not landed.
   // The ref mirrors the state so the reconcile timer's failure path can name
   // the entries whose cached health must drop without a stale closure.
+  // Post-sign-in Radius MCP offer. See change: add-radius-provider-login (D4).
+  const [radiusOffer, setRadiusOffer] = useState<RadiusMcpOfferInfo | null>(null);
   const [pendingHealth, setPendingHealth] = useState<Set<string>>(new Set());
   const pendingHealthRef = useRef<Set<string>>(new Set());
   const addPendingHealth = useCallback((name: string) => {
@@ -396,6 +399,14 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // picker entry is gone) and lands the single dispatch.
     setDialogProvider(undefined);
     handleChanged();
+    // pi 1.0.0 `/login` follow-up: only a completed Radius sign-in asks, and
+    // only when the Pi-global mcp.json is not already configured. A failed read
+    // (503/409) means no offer — never an error on a sign-in that succeeded.
+    if (id === "radius") {
+      void fetchRadiusMcpOffer()
+        .then((offer) => setRadiusOffer(offer))
+        .catch(() => setRadiusOffer(null));
+    }
   }, [handleChanged, stopFlowTimers]);
 
   const failFlow = useCallback((id: string, error: string) => {
@@ -645,6 +656,21 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   return (
     <div className="space-y-4">
       <Toast messages={messages} onDismiss={dismissToast} />
+
+      {radiusOffer && (
+        <RadiusMcpOffer
+          info={radiusOffer}
+          onDone={(result) => {
+            setRadiusOffer(null);
+            if (result) {
+              showToast(
+                i18nT("providers.radiusMcpDone", { count: result.reloaded }, `Radius MCP configured — ${result.reloaded} session(s) reloaded`),
+                "success",
+              );
+            }
+          }}
+        />
+      )}
 
       {/* Add-provider — the single entry point (provider-add-flow) */}
       <div className="flex items-center justify-between gap-2">

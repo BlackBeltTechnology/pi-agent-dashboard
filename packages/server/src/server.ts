@@ -222,6 +222,11 @@ import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
+import {
+  createMcpClientConfigService,
+  createRealConfigIO,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
@@ -2379,7 +2384,27 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // injected so auth/ never imports model-proxy/.
   // See change: collapse-model-proxy-onto-modelruntime (D6).
   setOAuthRegistryRuntimeSource(getServerModelRuntime);
-  registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
+  // Radius MCP follow-up: the writer is the mcp-client `./core` service, built
+  // lazily over the host's known-folder cwds + pi's project-trust rule so its
+  // `-`/`_` cross-folder collision check is live. Reload goes through
+  // `dispatchReload` and counts only real reloads.
+  // See change: add-radius-provider-login (D5, D6).
+  let radiusMcpService: RadiusMcpService | undefined;
+  registerProviderAuthRoutes(fastify, {
+    piGateway,
+    browserGateway,
+    radiusMcp: {
+      service: () => {
+        radiusMcpService ??= createMcpClientConfigService({
+          configIO: createRealConfigIO(),
+          knownCwds: pluginServiceRegistry.get("host.knownFolderCwds") as () => string[],
+          isProjectTrusted: pluginServiceRegistry.get("host.isProjectTrusted") as (cwd: string) => boolean,
+        });
+        return radiusMcpService;
+      },
+      reload: () => countReloads(reloadFanOutTargets(), dispatchReload),
+    },
+  });
   // Ungated model-introspection surface for in-session agents (GET /api/models).
   // Registered unconditionally (not behind modelProxy.enabled), subject only to
   // the dashboard's own auth gate — same posture as /api/provider-auth/status.

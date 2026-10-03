@@ -9,3 +9,5 @@ The flow store lives in `provider-auth-adapter.ts` (TTL 10 min, prune per reques
 `PUT /api/provider-auth/api-key` maps a credential-type conflict to 409 (`code` + `vars.storedType`); `DELETE /api/provider-auth/:provider` derives the addressed row kind via `oauthIdSet()` (registry ∪ stored oauth ids) and refuses a mismatch. `GET /api/provider-auth/catalogue-ready` -> `{ ready }`. See change: redesign-providers-settings-page (D2, D5).
 
 `/start` delegates to `beginFlow` (504 on `start_timeout`, 500 on `login_failed`). Flow status/input/cancel resolve via `lookupFlow`: `plugin:` flows skip `await registryReady`. See change: expose-plugin-credential-and-oauth-seams.
+
+`registry()` applies `applyRadiusOverride` to an injected `oauthRegistry` (same filter `getOAuthRegistry()` applies). `GET|POST /api/provider-auth/radius/mcp` → `readRadiusMcpStatus` / `configureRadiusMcp` (`auth/radius-mcp.ts`); deps `radiusMcp: {service, reload}` wired lazily in `server.ts` (mcp-client `./core` service + `countReloads` over `reloadFanOutTargets()`); absent → 503 `provider_auth.radius_mcp_runtime_unavailable`. Both verbs tier `operate`. See change: add-radius-provider-login.
