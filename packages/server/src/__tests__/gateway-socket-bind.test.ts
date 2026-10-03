@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import type http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { processStartedAt } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
@@ -496,6 +497,21 @@ describe("ownership-checked unbind and pidfile failures (D4)", () => {
     await unbindGatewaySocket(null, sockPath);
     expect(fs.lstatSync(sockPath).isSymbolicLink()).toBe(true);
     expect(fs.readFileSync(link, "utf8")).toBe("target");
+  });
+
+  // Review r3 B1: a replacement SOCKET with our stale pidfile still in place.
+  it("unbind never removes a different socket that replaced the path after close", async () => {
+    const a = await bind();
+    opened.length = 0;
+    await new Promise<void>((r) => a.close(() => r())); // libuv unlinks P; pidfile still names us
+    const rogue = net.createServer().listen(sockPath);
+    await new Promise<void>((r) => rogue.once("listening", () => r()));
+    try {
+      await unbindGatewaySocket(a, sockPath);
+      await expect(probeSocket(sockPath)).resolves.toBe("live");
+    } finally {
+      await new Promise<void>((r) => rogue.close(() => r()));
+    }
   });
 
   // X11

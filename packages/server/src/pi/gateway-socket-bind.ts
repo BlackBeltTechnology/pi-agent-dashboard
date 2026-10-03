@@ -129,6 +129,11 @@ const START_SLACK_MS = 2000;
  */
 const owned = new Map<string, http.Server>();
 
+/** dev+ino of the socket inode each server bound, to tell it from a replacement. */
+const boundInodes = new WeakMap<http.Server, string>();
+
+const inodeKey = (st: fs.Stats): string => `${st.dev}:${st.ino}`;
+
 /**
  * Bind an `http.Server` on `socketPath`, `0600` in a `0700` directory.
  *
@@ -167,6 +172,8 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
       /* best-effort */
     }
     owned.set(socketPath, server);
+    const bound = lstatOrNull(socketPath);
+    if (bound) boundInodes.set(server, inodeKey(bound));
     writeOwnerPid(socketPath, startedAt);
     return server;
   } finally {
@@ -372,9 +379,11 @@ export async function unbindGatewaySocket(
   }
   try {
     if (!owned.has(socketPath) && readOwnerRecord(socketPath).pid === process.pid) {
-      // Only a SOCKET at the path is ours to remove: after close another actor
-      // may have put a regular file or symlink there, which is never removed.
-      const targets = lstatOrNull(socketPath)?.isSocket() ? [socketPath, `${socketPath}.pid`] : [`${socketPath}.pid`];
+      // Only the very socket inode WE bound is ours to remove: after close
+      // another actor may have put a file, symlink or a different socket there.
+      const now = lstatOrNull(socketPath);
+      const still = server !== null && now?.isSocket() && boundInodes.get(server) === inodeKey(now);
+      const targets = still ? [socketPath, `${socketPath}.pid`] : [`${socketPath}.pid`];
       for (const p of targets) {
         try {
           fs.unlinkSync(p);
