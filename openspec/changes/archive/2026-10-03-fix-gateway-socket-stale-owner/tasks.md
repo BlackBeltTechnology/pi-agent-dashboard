@@ -45,5 +45,5 @@ Each task: write the test, verify it FAILS on current code (or pins unchanged be
 ## 4. Verification
 
 - [x] 4.1 `security-hardening` pass over the reclaim conditions, fallback auth and the unbind race (design Risks); record the outcome in design.md.
-- [ ] 4.2 Manual: container reboot repro (issue CP-08) — `docker restart` the harness with a persistent `~/.pi` whose `gateway-<port>.sock.pid` names the server's own post-restart pid; dashboard starts and `/api/health` `gateway.listeners` is `["unix"]` with no manual socket deletion. (test-plan: manual-only, #X15)
+- [x] 4.2 Manual: container reboot repro (issue CP-08) — `docker restart` the harness with a persistent `~/.pi` whose `gateway-<port>.sock.pid` names the server's own post-restart pid; dashboard starts and `/api/health` `gateway.listeners` is `["unix"]` with no manual socket deletion. (test-plan: manual-only, #X15)
 - [x] 4.3 Update `gateway-socket-bind.ts.AGENTS.md`, `pi-gateway.ts.AGENTS.md`, and the `process.ts` / `process-manager.ts` rows with `See change: fix-gateway-socket-stale-owner`. Full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green.
