@@ -186,7 +186,7 @@ literal fails the comparison on every render and defeats the guard entirely.
 #### Scenario: Identity is stable across re-renders of the caller
 - **GIVEN** any of the three on-disk surfaces rendering a fixed `cwd` and path
 - **WHEN** the surface re-renders without changing `cwd` or path
-- **THEN** the `imageBase` value passed SHALL be the same object instance as before, and `MarkdownContent` SHALL NOT re-render
+- **THEN** the `imageBase` value passed SHALL be the same object instance as before, and — provided its other props and relevant context are also unchanged — `MarkdownContent` SHALL NOT re-render because of `imageBase`
 
 #### Scenario: Identity changes when the file changes
 - **GIVEN** one of the three on-disk surfaces
