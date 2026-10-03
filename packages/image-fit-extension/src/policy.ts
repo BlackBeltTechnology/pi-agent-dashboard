@@ -14,6 +14,8 @@
  *    diminishing returns >90.
  */
 
+import * as log from "./log.js";
+
 export interface ImageFitConfig {
   /** When true, extension registers no hooks. */
   disabled: boolean;
@@ -78,7 +80,7 @@ export interface ReadConfigOptions {
  */
 export function readConfigFromEnv(opts: ReadConfigOptions = {}): ImageFitConfig {
   const env = opts.env ?? process.env;
-  const warn = opts.warn ?? ((msg: string) => console.warn(msg));
+  const warn = opts.warn ?? log.warn;
 
   const disabled = parseBool(env.PI_IMAGE_FIT_DISABLE);
   const maxEdge = parsePositiveInt(
