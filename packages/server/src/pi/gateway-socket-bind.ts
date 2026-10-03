@@ -372,7 +372,10 @@ export async function unbindGatewaySocket(
   }
   try {
     if (!owned.has(socketPath) && readOwnerRecord(socketPath).pid === process.pid) {
-      for (const p of [socketPath, `${socketPath}.pid`]) {
+      // Only a SOCKET at the path is ours to remove: after close another actor
+      // may have put a regular file or symlink there, which is never removed.
+      const targets = lstatOrNull(socketPath)?.isSocket() ? [socketPath, `${socketPath}.pid`] : [`${socketPath}.pid`];
+      for (const p of targets) {
         try {
           fs.unlinkSync(p);
         } catch {

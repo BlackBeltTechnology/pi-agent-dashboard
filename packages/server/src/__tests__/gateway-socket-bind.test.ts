@@ -479,6 +479,25 @@ describe("ownership-checked unbind and pidfile failures (D4)", () => {
     expect(b.listening).toBe(true);
   });
 
+  // Review r2 B1: owned-only removal also means socket-only removal.
+  it("unbind never removes a non-socket that replaced the path after close", async () => {
+    const a = await bind();
+    opened.length = 0;
+    await new Promise<void>((r) => a.close(() => r())); // libuv unlinks P; pidfile still names us
+    fs.writeFileSync(sockPath, "not a socket");
+    const link = path.join(tmp, "elsewhere");
+    await unbindGatewaySocket(a, sockPath);
+    expect(fs.readFileSync(sockPath, "utf8")).toBe("not a socket");
+
+    fs.rmSync(sockPath);
+    fs.writeFileSync(link, "target");
+    fs.symlinkSync(link, sockPath);
+    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
+    await unbindGatewaySocket(null, sockPath);
+    expect(fs.lstatSync(sockPath).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(link, "utf8")).toBe("target");
+  });
+
   // X11
   it("rebinding the same path in one process works (restart)", async () => {
     const first = await bind();
