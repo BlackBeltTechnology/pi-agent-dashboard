@@ -58,7 +58,7 @@ The command handler SHALL process `send_prompt` text in this exact order:
 6. Check for `/new` → spawn new session in same cwd
 7. Check for `/model provider/id` → model switch via `setModel` callback
 8. Check for `/` prefix matching a known **user-defined flow name** (from `getFlowsList()`) → emit `flow:run` event
-9. Check for `/` prefix matching a known **extension command** (`source: "extension"` in `pi.getCommands()`, excluding `DASHBOARD_NATIVE_COMMANDS` and `__`-prefixed names; evaluated inside `tryDispatchExtensionCommand`, which returns `false` if `getCommands()` throws) → dispatch in-process via `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })` (old-pi gate → `command_feedback { status: "error" }`)
+9. Check for `/` prefix matching a known **extension command** (`source: "extension"` in `pi.getCommands()`, excluding `DASHBOARD_NATIVE_COMMANDS` and `__`-prefixed names; evaluated inside `tryDispatchExtensionCommand`, which returns `false` if `getCommands()` throws) → dispatch in-process via `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })`
 10. Check for `/` prefix → fall through to template expansion + `pi.sendUserMessage()` (handles skills, prompt templates, unrecognized slashes)
 11. Default (no `/` prefix) → `pi.sendUserMessage(text)` (existing passthrough behavior)
 
@@ -82,7 +82,7 @@ Note: pi-flows management commands (`/flows`, `/flows:new`, `/flows:edit`, `/flo
 
 #### Scenario: Extension dispatch beats fall-through
 - **WHEN** `send_prompt` text is `/ctx-stats` AND `ctx-stats` is an extension command AND no earlier step matches
-- **THEN** step 9 fires (in-process dispatch or old-pi gate error)
+- **THEN** step 9 fires (in-process dispatch)
 - **AND** step 10's fall-through to template expansion SHALL NOT execute
 
 ### Requirement: Model command routing
@@ -169,14 +169,14 @@ Skill resolution and original-form-first precedence SHALL remain unchanged.
 - **WHEN** `pi.getCommands()` contains no entry named `totally-unknown` of source `skill` or `prompt`
 - **THEN** `resolveTemplate` SHALL return `null` and the handler SHALL fall through to `pi.sendUserMessage`
 
-### Requirement: Extension slash command dispatch via sendUserMessage
+### Requirement: Extension slash command dispatch via sendUserMessage without a pi version gate
 
 When `isExtensionSlashCommand(text, pi.getCommands())` is true, the bridge
 SHALL dispatch the command in-process by calling
 `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs })`, where
 `deliverAs` is the requested delivery (`"steer"` | `"followUp"`, default
 `"followUp"`). This SHALL apply to every session kind — headless RPC, tmux,
-terminal, user-launched — with no session-kind probe.
+terminal, user-launched — with no session-kind probe and no pi-version probe.
 
 Feedback contract (exactly one `started` and exactly one terminal event per
 invocation):
@@ -189,74 +189,38 @@ invocation):
 
 Handler outcome is NOT observable by the bridge and SHALL NOT be claimed.
 
-Old-pi gate: the bridge SHALL read the version of the pi process it runs
-inside by walking up from `process.argv[1]` to the nearest `package.json`
-whose `name` is `@earendil-works/pi-coding-agent` or
-`@mariozechner/pi-coding-agent`; any failure SHALL yield `undefined` (never
-throw). When the version parses as a triplet below `0.84.2`, the bridge SHALL
-NOT call `sendUserMessage` and SHALL emit `started` followed by `error` with
-message "Extension slash commands from the dashboard require pi 0.84.2+".
-When the version is `undefined` or unparseable, the bridge SHALL treat it as
-new and `console.warn` once per process. The read SHALL NOT resolve the
-package by name through `node_modules` (a hoisted copy is not the running pi).
+The bridge SHALL NOT read the running pi's version to decide dispatch: the
+`1.0.0` floor guarantees `expandPromptTemplates` support, so the former old-pi
+gate and its "requires pi 0.84.2+" error are withdrawn.
 
 The bridge SHALL NOT feature-detect `pi.dispatchCommand` and SHALL NOT emit
 `dispatch_extension_command`.
 
 #### Scenario: Extension command in a headless RPC session
-- **WHEN** `send_prompt` text is `/ctx-stats` in a dashboard-spawned headless session on pi >= 0.84.2
+- **WHEN** `send_prompt` text is `/ctx-stats` in a dashboard-spawned headless session
 - **THEN** the bridge SHALL emit `command_feedback {status:"started"}`
 - **AND** SHALL call `pi.sendUserMessage("/ctx-stats", { expandPromptTemplates: true, deliverAs: "followUp" })`
 - **AND** SHALL emit `command_feedback {status:"completed"}`
 - **AND** SHALL NOT send `dispatch_extension_command` to the server
 
 #### Scenario: Extension command in a tmux / terminal session
-- **WHEN** `send_prompt` text is `/ctx-stats` in a user-launched or tmux session on pi >= 0.84.2
+- **WHEN** `send_prompt` text is `/ctx-stats` in a user-launched or tmux session
 - **THEN** the bridge SHALL dispatch exactly as in the headless scenario
-- **AND** SHALL NOT emit the former "requires pi 0.71+" stopgap error
 
 #### Scenario: Extension command while the agent is streaming, steer delivery
 - **WHEN** `send_prompt` text is `/curator` with `delivery: "steer"` and the agent is streaming
 - **THEN** the bridge SHALL pass `deliverAs: "steer"`
-- **AND** pi SHALL run the extension command immediately regardless of `deliverAs` (core `prompt()` handles extension commands before it consults `streamingBehavior`)
+- **AND** pi SHALL run the extension command immediately regardless of `deliverAs`
 
 #### Scenario: Stale extension context throws synchronously
 - **WHEN** `pi.sendUserMessage` throws synchronously
 - **THEN** the bridge SHALL emit `command_feedback {status:"error", message: <thrown message>}`
 - **AND** SHALL NOT emit `completed`
 
-#### Scenario: Old pi below 0.84.2
-- **GIVEN** `readPiVersion()` returns `0.84.1`
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL emit `started` then `error` with message containing "requires pi 0.84.2+"
-- **AND** SHALL NOT call `pi.sendUserMessage`
-
-#### Scenario: mariozechner build fails the gate
-- **GIVEN** `process.argv[1]` walks up to a manifest `{ name: "@mariozechner/pi-coding-agent", version: "0.73.1" }`
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL emit `started` then `error` containing "requires pi 0.84.2+"
-- **AND** SHALL NOT call `pi.sendUserMessage`
-
-#### Scenario: Hoisted newer copy does not mask an old running pi
-- **GIVEN** the running pi's manifest (via `process.argv[1]`) is `0.80.10` AND a `node_modules/@earendil-works/pi-coding-agent` at `0.85.1` is resolvable by name
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL emit `error` (reads the running pi, not the hoisted copy)
-
-#### Scenario: Reader failure yields exactly one terminal event
-- **GIVEN** the version read throws
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL emit `started` then `completed` (treated as new) and SHALL NOT propagate the throw
-
-#### Scenario: Unreadable version is treated as new
-- **GIVEN** no pi manifest is found from `process.argv[1]`
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL call `pi.sendUserMessage` with `expandPromptTemplates: true`
-- **AND** SHALL have logged one warning for the process
-
-#### Scenario: pi exactly 0.84.2 passes the gate
-- **GIVEN** `readPiVersion()` returns `0.84.2`
-- **WHEN** `send_prompt` text is `/ctx-stats`
-- **THEN** the bridge SHALL call `pi.sendUserMessage` with `expandPromptTemplates: true`
+#### Scenario: No version read on dispatch
+- **WHEN** any extension slash command is dispatched
+- **THEN** the bridge SHALL NOT read a pi `package.json` to decide whether to call `pi.sendUserMessage`
+- **AND** SHALL NOT emit an error mentioning a minimum pi version
 
 #### Scenario: Exactly one terminal event
 - **WHEN** any single dispatch invocation fires
