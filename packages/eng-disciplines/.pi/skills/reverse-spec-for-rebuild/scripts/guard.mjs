@@ -22,8 +22,8 @@
 
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 
 const DEFAULT_PROTECTED = ["openspec", "docs", "packages", ".pi"];
 const VAL_PREFIX = "_rsfr-val-";
@@ -54,17 +54,36 @@ function repoRoot() {
   return realpathSync(root);
 }
 
-/** Real path of `p`, resolving the nearest existing ancestor (p itself may not exist yet). */
-function realPathOf(p) {
-  let existing = resolve(p);
-  const tail = [];
-  while (!existsSync(existing)) {
-    const parent = dirname(existing);
-    if (parent === existing) break;
-    tail.unshift(existing.slice(parent.length).replace(/^[\\/]+/, ""));
-    existing = parent;
+const MAX_LINKS = 40;
+
+/**
+ * Where `p` lands when the kernel walks it, component by component: `..` applies to the
+ * directory reached so far (after following any symlink), symlinks are followed even
+ * when dangling, and components that do not exist yet are appended as real dirs would be.
+ */
+function realPathOf(p, base = process.cwd(), depth = 0) {
+  if (depth > MAX_LINKS) {
+    process.stderr.write(`check-dest: too many symlinks resolving ${p}\n`);
+    process.exit(2);
   }
-  return join(realpathSync(existing), ...tail);
+  let current = isAbsolute(p) ? parse(p).root : realpathSync(base);
+  for (const part of p.split(/[\\/]+/)) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      current = dirname(current);
+      continue;
+    }
+    const next = join(current, part);
+    let st;
+    try {
+      st = lstatSync(next);
+    } catch {
+      current = next; // does not exist (yet)
+      continue;
+    }
+    current = st.isSymbolicLink() ? realPathOf(readlinkSync(next), current, depth + 1) : next;
+  }
+  return current;
 }
 
 function inside(child, parent) {

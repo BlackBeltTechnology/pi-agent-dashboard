@@ -54,9 +54,14 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    or no owner marker and untouched for 10 minutes); a concurrent run's live
    dirs and other skills' transient dirs are untouched.
 3. **Resolve the target.** Confirm the path exists; record
-   `git rev-parse HEAD` for `PKG/README.md`. Create `PKG` (if a package from an
-   earlier run is there and not supplied as the previous package, move it aside
-   to `PKG.prev-<timestamp>` first).
+   `git rev-parse HEAD` for `PKG/README.md`. If a package already sits at
+   `PKG`, move it aside to `PKG.prev-$RUN_ID` first — whether or not it is the
+   previous package. When a previous package is supplied (that one, or any other
+   path), snapshot it once, before generation, into
+   `.reverse-spec-scratch/<target-slug>/previous-$RUN_ID/` (copy `rules.md`,
+   `quirks.md`, `gaps.md`, `README.md`; then `chmod -R a-w` it). That frozen
+   snapshot is the ONLY "previous package" every merge of this run reads — never
+   `PKG`, which each merge rewrites. Then create an empty `PKG`.
 4. **Discover.** One subagent with `prompts/discovery.md` (`KB_AVAILABLE` =
    `kb` tooling or `AGENTS.md` files present). It returns a capability manifest.
    Check `unassigned_files` is empty; otherwise add them to a capability or ask
@@ -68,10 +73,12 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    fragment to `PKG/_fragments/<cap>.json`, nothing else.
 6. **Merge** (this session — design D4; fall back to a consolidator subagent
    only if the fragments exceed context):
-   1. Load the previous package's `rules.md`/`quirks.md`/`gaps.md` when supplied.
+   1. Load `rules.md`/`quirks.md`/`gaps.md` from the frozen `previous-$RUN_ID/`
+      snapshot (step 3) when one exists — on every merge of the run, so ids the
+      previous package retired stay retired even after this run rewrites `PKG`.
    2. Walk fragments in manifest order. For each rule/quirk/gap, match it BY
       MEANING against items already merged in this run (dedupe; add the
-      capability to the existing item), then against the previous package
+      capability to the existing item), then against the frozen snapshot
       (reuse its id). Otherwise assign the next id above the maximum ever used
       (previous package included). Never reuse a retired id.
    3. Render EVERY capability's `PKG/capabilities/<cap>/spec.md` from its
@@ -184,8 +191,9 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   validation dirs.
 - **Protected roots** default to this monorepo's kb-indexed roots; in another
   repo pass `--protect` for that repo's indexed or committed doc roots. The
-  guard resolves `..` and symlinks, and checks the nearest existing ancestor of a
-  not-yet-existing destination.
+  guard walks the path component by component the way the kernel does
+  (a symlink, even a dangling one, is followed before a later `..`), so
+  relative, `..`, symlinked and not-yet-existing destinations cannot bypass it.
 - **`check-ignore` without the trailing slash** reports a not-yet-created
   `.reverse-spec-scratch` as NOT ignored even when `.reverse-spec-scratch/` is in
   an ignore file; always query `.reverse-spec-scratch/`.

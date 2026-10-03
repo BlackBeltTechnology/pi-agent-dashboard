@@ -69,8 +69,9 @@ default `openspec/`, `docs/`, `packages/`, `.pi/` (this repo's kb-indexed roots,
 index provenance-heavy duplicates), overridable per run for other repos.
 Scratch: `.reverse-spec-scratch/` at repo root; this repo already ignores it (`.gitignore:50`);
 elsewhere the skill checks `git check-ignore` and, on consent, appends it to `.git/info/exclude`.
-The check resolves the nearest existing ancestor's real path (the destination may not exist
-yet), so relative, `..` and symlinked paths cannot bypass it. *Alternative:* spec.md into `openspec/specs` + sidecars —
+The check resolves the destination component by component in kernel order (symlinks, even
+dangling ones, followed before a later `..`; the destination may not exist yet), so relative,
+`..` and symlinked paths cannot bypass it. *Alternative:* spec.md into `openspec/specs` + sidecars —
 rejected (user choice; kb pollution, and provenance comments conflict with the kb skill's
 no-line-number policy).
 
@@ -134,8 +135,8 @@ design at toy scale.
 ### D9. Deterministic guards live in a helper script
 `reverse-spec-for-rebuild/scripts/guard.mjs` (Node ≥20, no deps) owns the filesystem and format
 guards so they are testable instead of agent prose:
-- `check-dest <path> [--protect <dir>]...` exits non-zero when the nearest existing ancestor's
-  real path is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
+- `check-dest <path> [--protect <dir>]...` exits non-zero when the path, resolved component by
+  component in kernel order (symlinks — even dangling — followed before `..`), is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
 - `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.
 - `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only abandoned ones (`.owner` pid dead, or no owner and untouched 10 min) so a concurrent run's live dirs survive (no-op without `openspec/specs/`).

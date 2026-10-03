@@ -60,6 +60,20 @@ describe("check-dest refuses protected roots", () => {
     expectRefused(r, "packages");
   });
 
+  it("B1(r3): symlink followed by `..` is resolved in traversal order", () => {
+    mkdirSync(join(repo, "packages", "sub"));
+    mkdirSync(join(repo, "tmp"));
+    symlinkSync(join(repo, "packages", "sub"), join(repo, "tmp", "link"));
+    // the kernel walks tmp/link -> packages/sub, then `..` -> packages
+    expectRefused(guard(repo, "check-dest", "tmp/link/../out"), "packages");
+  });
+
+  it("B1(r3): dangling symlink into a protected root is refused", () => {
+    mkdirSync(join(repo, "tmp"));
+    symlinkSync(join(repo, "docs", "missing"), join(repo, "tmp", "dangling"));
+    expectRefused(guard(repo, "check-dest", "tmp/dangling/x"), "docs");
+  });
+
   it("E4: deep non-existent path under .pi/", () => {
     const r = guard(repo, "check-dest", ".pi/new/deep/dir");
     expectRefused(r, ".pi");
