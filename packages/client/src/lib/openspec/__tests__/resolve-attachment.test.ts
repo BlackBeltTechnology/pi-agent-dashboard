@@ -49,7 +49,7 @@ describe("resolveAttachment", () => {
     const { result } = run({
       cwd: "/repo/.worktrees/os-add-auth", mainPath: "/repo",
       active: { "/repo/.worktrees/os-add-auth": placeholder("ABSENT"), "/repo": known("b") },
-      archives: { "/repo": ok("2026-09-30-add-auth") },
+      archives: { "/repo/.worktrees/os-add-auth": ok(), "/repo": ok("2026-09-30-add-auth") },
     });
     expect(result).toMatchObject({ kind: "archived", cwd: "/repo" });
   });
@@ -103,7 +103,7 @@ describe("resolveAttachment", () => {
     const { result } = run({
       cwd: "/repo/.worktrees/w", mainPath: "/repo",
       active: { "/repo/.worktrees/w": placeholder("ABSENT"), "/repo": placeholder("OPTED_OUT") },
-      archives: { "/repo": ok("2026-09-30-add-auth") },
+      archives: { "/repo/.worktrees/w": ok(), "/repo": ok("2026-09-30-add-auth") },
     });
     expect(result).toMatchObject({ kind: "archived", cwd: "/repo" });
   });
@@ -115,6 +115,21 @@ describe("resolveAttachment", () => {
     const { result, getArchive } = run({ mainPath: "/repo", active: { "/repo": known("b") }, archives: { "/repo": ok() } });
     expect(result).toEqual({ kind: "missing" });
     expect(getArchive.mock.calls.map((c) => c[0])).toEqual(["/repo"]);
+  });
+  it("B1 an unsettled cwd blocks a matching mainPath (lookup order is sequential)", () => {
+    const { result } = run({
+      cwd: "/repo/.worktrees/w", mainPath: "/repo",
+      active: { "/repo": known("add-auth") }, // cwd has no entry yet
+    });
+    expect(result).toEqual({ kind: "unresolved", reason: "loading" });
+  });
+  it("B1 a loading cwd archive blocks a matching mainPath archive", () => {
+    const { result } = run({
+      cwd: "/repo/.worktrees/w", mainPath: "/repo",
+      active: { "/repo/.worktrees/w": known(), "/repo": known() },
+      archives: { "/repo/.worktrees/w": { status: "loading", entries: [] }, "/repo": ok("2026-09-30-add-auth") },
+    });
+    expect(result).toEqual({ kind: "unresolved", reason: "loading" });
   });
   it("archive loading -> unresolved loading; error -> unresolved error", () => {
     expect(run({ active: { "/repo": known() }, archives: { "/repo": { status: "loading", entries: [] } } }).result).toEqual({ kind: "unresolved", reason: "loading" });

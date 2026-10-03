@@ -27,9 +27,11 @@ export function useArchiveEntries(cwd: string | null, mapOverride?: ReadonlyMap<
   const map = mapOverride ?? ctxMap;
   useArchiveVersion();
   const sig = cwd ? sigOf(map.get(cwd)) : null;
+  // Every render is a "read": requestArchive is idempotent and decides whether a
+  // fetch is due (missing / signature changed / TTL / error retry).
   useEffect(() => {
     if (cwd) requestArchive(cwd, sig);
-  }, [cwd, sig]);
+  });
   return cwd ? getArchiveState(cwd, sig) : IDLE_STATE;
 }
 
@@ -62,11 +64,11 @@ export function useAttachmentResolution(
       return getArchiveState(cwd, sig);
     });
   }
-  const key = needed.map(([c, s]) => `${c}\u0000${s ?? ""}`).join("\u0001");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` encodes `needed`
+  // Every render is a "read": requestArchive is idempotent and decides whether a
+  // fetch is due (missing / signature changed / TTL / error retry).
   useEffect(() => {
     for (const [cwd, sig] of needed) requestArchive(cwd, sig);
-  }, [key]);
+  });
   return resolution;
 }
 
@@ -97,11 +99,9 @@ export function useResolvedAttachments(
       }),
     );
   }
-  const key = [...needed].map(([c, sg]) => `${c}\u0000${sg ?? ""}`).join("\u0001");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `key` encodes `needed`
   useEffect(() => {
     for (const [cwd, sig] of needed) requestArchive(cwd, sig);
-  }, [key]);
+  });
   return out;
 }
 

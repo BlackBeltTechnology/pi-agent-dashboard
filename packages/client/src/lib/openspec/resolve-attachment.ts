@@ -60,41 +60,37 @@ function pickEntry(candidates: ArchiveEntry[], startedAt: number): ArchiveEntry 
   return sorted.find((e) => e.date >= day) ?? sorted[0];
 }
 
-/** Steps 1+2: search the active changes of each folder. */
+/** Steps 1+2: search the active changes of each folder, in order. An unsettled
+ *  earlier folder stops the walk — a later match must not win before it settles. */
 function resolveActive(
   name: string,
   folders: string[],
   activeByCwd: ReadonlyMap<string, OpenSpecData>,
 ): { hit: AttachmentResolution | null; unsettled: boolean } {
-  let unsettled = false;
   for (const f of folders) {
     const s = folderState(activeByCwd.get(f));
-    if (s.state === "unsettled") {
-      unsettled = true;
-      continue;
-    }
+    if (s.state === "unsettled") return { hit: null, unsettled: true };
     const change = s.state === "known" ? s.data.changes.find((c) => c.name === name) : undefined;
-    if (change) return { hit: { kind: "active", change, cwd: f }, unsettled };
+    if (change) return { hit: { kind: "active", change, cwd: f }, unsettled: false };
   }
-  return { hit: null, unsettled };
+  return { hit: null, unsettled: false };
 }
 
-/** Steps 3+4: search the archive of each folder. */
+/** Steps 3+4: search the archive of each folder, in order. A not-yet-fetched
+ *  earlier archive stops the walk; a FAILED one does not (spec: error only when
+ *  no match was found elsewhere). */
 function resolveArchive(session: SessionLike, name: string, folders: string[], getArchive: (cwd: string) => ArchiveState): AttachmentResolution {
-  let pending = false;
   let failed = false;
   for (const f of folders) {
     const a = getArchive(f);
-    if (a.status === "ok") {
-      const candidates = matchArchiveEntries(a.entries, name);
-      if (candidates.length > 0) return { kind: "archived", entry: pickEntry(candidates, session.startedAt), cwd: f };
-    } else if (a.status === "error") {
+    if (a.status === "error") {
       failed = true;
-    } else {
-      pending = true;
+      continue;
     }
+    if (a.status !== "ok") return { kind: "unresolved", reason: "loading" };
+    const candidates = matchArchiveEntries(a.entries, name);
+    if (candidates.length > 0) return { kind: "archived", entry: pickEntry(candidates, session.startedAt), cwd: f };
   }
-  if (pending) return { kind: "unresolved", reason: "loading" };
   return failed ? { kind: "unresolved", reason: "error" } : { kind: "missing" };
 }
 

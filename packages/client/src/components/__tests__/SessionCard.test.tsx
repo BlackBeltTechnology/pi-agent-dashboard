@@ -2033,4 +2033,44 @@ describe("SessionCard attachment resolution", () => {
     expect(mem.history?.at(-1)).toBe(`/folder/${encodeFolderPath("/home/user/project")}/openspec/archive/2026-09-30-add-auth/design`);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["BROKEN", { state: "BROKEN", reason: "cli-failed" }],
+    ["STALE", { state: "STALE", reason: "missing-skills" }],
+  ] as const)("B3 %s readiness: an archived attachment keeps its badge, letters and Detach (not the disabled panel)", async (_n, readiness) => {
+    stubArchiveApi({ "/home/user/project": [archiveEntry("2026-09-30-add-auth")] });
+    const mem = memoryLocation({ path: "/", record: true });
+    render(
+      <Router hook={mem.hook}>
+        {withOpenSpecMap(
+          { "/home/user/project": { initialized: false, changes: [], readiness } as never },
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={readiness}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    expect((await screen.findByTestId("attachment-archived-badge")).textContent).toBe("Archived 2026-09-30");
+    expect(screen.getAllByTestId("artifact-letter").length).toBe(3);
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+  });
+
+  it("B3 BROKEN with no attachment still renders the disabled panel", () => {
+    stubArchiveApi({});
+    render(
+      <SessionCard
+        session={makeSession({ status: "idle" })}
+        {...defaultProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+        {...cardProps}
+      />,
+    );
+    expect(screen.queryByTestId("openspec-overflow-btn")).toBeNull();
+  });
 });

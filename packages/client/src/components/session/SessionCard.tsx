@@ -56,7 +56,7 @@ import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
 import { CollapseSummary } from "../chat/collapse-summary.js";
 import { CwdGonePill } from "../folder/CwdGonePill.js";
-import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
+import { AttachmentTrace, isLiveActive } from "../openspec/AttachmentTrace.js";
 import { OpenSpecActivityBadge } from "../openspec/OpenSpecActivityBadge.js";
 import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
@@ -1435,9 +1435,13 @@ export function SessionCard({
         // See change: resolve-archived-attached-proposal.
         const attachedTrace = !!session.attachedProposal && readiness?.state !== "GLOBAL_OFF" && readiness?.state !== "OPTED_OUT";
         if (!open && !disabled && !attachedTrace) return null;
+        // BROKEN / STALE normally swaps in the inert panel, but an attachment that
+        // resolved to archived / missing / main-checkout must stay traceable (+ Detach).
+        const showAttachmentTrace =
+          attachedTrace && !!attachmentResolution && attachmentResolution.kind !== "unresolved" && !isLiveActive(attachmentResolution, session.cwd);
         return (
           <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")} menu={menuFor("openspec")}>
-            {disabled && readiness ? (
+            {disabled && readiness && !showAttachmentTrace ? (
               <OpenSpecDisabledPanel
                 reason={readiness.reason ?? (readiness.state === "BROKEN" ? "cli-failed" : "missing-skills")}
                 onSeekToFolder={onSeekToFolderOpenSpec ? () => onSeekToFolderOpenSpec(session.cwd) : undefined}
