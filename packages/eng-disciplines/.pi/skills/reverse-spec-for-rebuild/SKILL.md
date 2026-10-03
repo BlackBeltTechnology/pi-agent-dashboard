@@ -155,10 +155,16 @@ the repository. Never derive the slug by hand).
     spec directly: every merge re-renders them from fragments, so a direct edit
     is lost. Then loop back through steps 6-10. A package that fails is not
     promotable.
+    Allow at most 3 rounds of this loop; if entry points are still unmapped,
+    report the package as not promotable, run `G unlock "$SLUG" "$RUN_ID"`
+    and stop.
 11. **Cross-cutting audit.** One subagent with `prompts/auditor-rebuild.md`,
     `MODE=cross-cutting`, `ORIGINS` = the origin map. Route each failing item
     to the capability in its `origin`, regenerate it with the finding, and loop
     back through steps 6-11.
+    Allow at most 3 rounds of this loop; if a cross-cutting finding persists,
+    report the package as not promotable, run `G unlock "$SLUG" "$RUN_ID"`
+    and stop.
 12. **Sweep again.** `G sweep --run "$RUN_ID"` then `G sweep`; confirm `git status --porcelain` shows nothing
     new outside `.reverse-spec-scratch/` (a change elsewhere means a subagent
     wrote outside its outputs — investigate before going on).

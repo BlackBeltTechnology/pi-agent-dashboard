@@ -160,7 +160,7 @@ capability-scoped and are rewritten to global ids by the merge.
     { "local": "r1", "class": "explicit", "statement": "...", "cite": "lib/loans.py:41-44", "confidence": "confirmed" }
   ],
   "entities": [
-    { "name": "Loan", "identity": "...", "persistence": "...", "fields": [
+    { "name": "Loan", "identity": "...", "persistence": "...", "cite": "lib/loans.py:18; db/schema.sql:12-21", "confidence": "confirmed", "fields": [
       { "name": "renewals", "type": "integer 0..2", "optional": true, "default": "0",
         "constraints": "...", "rules": ["r3"], "cite": "lib/loans.py:25", "confidence": "confirmed" }
     ], "relationships": ["belongs to Member"] }
@@ -171,7 +171,7 @@ capability-scoped and are rewritten to global ids by the merge.
   ],
   "gaps": [
     { "local": "g1", "title": "...", "unknown": "...", "why": "...", "resolve_by": "...",
-      "rules": ["r5"], "cite": "lib/fees.py:30-33" }
+      "rules": ["r5"], "cite": "lib/fees.py:30-33", "confidence": "confirmed" }
   ],
   "entry_points": [
     { "category": "http-route", "name": "POST /loans", "cite": "api/routes.py:24" }

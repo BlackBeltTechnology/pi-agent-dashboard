@@ -3,8 +3,10 @@
 Seeded fixture: `eval/fixture/` (tiny TS order service, ~320 LoC). Ground truth:
 `eval/answer-key.json`. Not published (`package.json` `files` excludes `eval/**`).
 
-The judge is a subagent (`@research`) given ONLY this file, `answer-key.json`
-and the rebuild package under test. It never reads the skill prompts.
+The judge is a subagent (`@research`) given ONLY this file, `answer-key.json`,
+the rebuild package under test, and read-only access to the fixture source
+(the run copy of `eval/fixture/`, needed to verify extras and citations). It
+never reads the skill prompts.
 
 ## 1. Produce the package
 

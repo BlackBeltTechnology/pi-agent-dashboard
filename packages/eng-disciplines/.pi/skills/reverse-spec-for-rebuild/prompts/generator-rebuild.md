@@ -137,11 +137,12 @@ STEP 6 — Write FRAGMENT OUTPUT as strict JSON (no code fence, no comments):
   "capability": "{CAPABILITY}",
   "rules": [{ "local": "r1", "class": "explicit|implicit", "statement": "", "cite": "", "confidence": "" }],
   "entities": [{ "name": "", "identity": "", "persistence": "", "relationships": [""],
+                 "cite": "<covers identity, persistence and relationships>", "confidence": "",
                  "fields": [{ "name": "", "type": "", "optional": false, "nullable": false,
                               "allowed": "", "default": "", "rules": ["r1"], "cite": "", "confidence": "" }] }],
   "quirks": [{ "local": "q1", "title": "", "observed": "", "suspected_intent": "", "evidence": "",
                "rules": ["r1"], "requirement": "<requirement name>", "cite": "", "confidence": "" }],
-  "gaps": [{ "local": "g1", "title": "", "unknown": "", "why": "", "resolve_by": "", "rules": ["r1"], "cite": "" }],
+  "gaps": [{ "local": "g1", "title": "", "unknown": "", "why": "", "resolve_by": "", "rules": ["r1"], "cite": "", "confidence": "" }],
   "entry_points": [{ "category": "", "name": "", "cite": "" }]
 }
 
