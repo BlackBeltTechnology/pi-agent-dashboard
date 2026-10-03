@@ -232,6 +232,10 @@ describe("same-name rows keep their provenance", () => {
     // row's toggle must not pretend to act on the global entry.
     const globalToggle = screen.getByTestId("mcp-server-toggle-pi-global:docs") as HTMLInputElement;
     expect(globalToggle.disabled).toBe(true);
+    // review r2 B1: "Override…" on the shadowed global row would replace the
+    // existing folder entry, so it is disabled too.
+    const override = screen.getByTestId("mcp-folder-action-pi-global:docs") as HTMLButtonElement;
+    expect(override.disabled).toBe(true);
   });
 });
 

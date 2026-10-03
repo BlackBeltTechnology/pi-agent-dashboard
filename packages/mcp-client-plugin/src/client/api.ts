@@ -103,6 +103,8 @@ export async function fetchSchema(): Promise<Record<string, unknown>> {
 export interface SaveServerBody extends ScopeWire {
   entry: Record<string, unknown>;
   previousName?: string;
+  /** A new server: refused (409 name-collision) when the name already exists. */
+  create?: boolean;
 }
 
 /** `PUT /servers/:name` — replace the entry at one scope. */

@@ -180,8 +180,17 @@ export interface McpClientConfigService {
   getEffectiveView(scope: Scope): EffectiveView;
   /** Merge `fields` over the existing layer entry (or create it), then validate. */
   ensureServerEntry(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigWriteResult;
-  /** Replace the whole entry. `previousName` renames (the old key is removed). */
-  saveServer(name: string, entry: ServerEntry, scope: Scope, opts?: { previousName?: string }): ConfigWriteResult;
+  /**
+   * Replace the whole entry. `previousName` renames (the old key is removed);
+   * `create` refuses when the name already exists. Neither ever replaces
+   * another entry.
+   */
+  saveServer(
+    name: string,
+    entry: ServerEntry,
+    scope: Scope,
+    opts?: { previousName?: string; create?: boolean },
+  ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult;
   /** `disabled: true` → `enabled: false`; drop every adapter-only key. */

@@ -249,3 +249,33 @@ describe("rename keeps cross-layer namespace protection", () => {
     ).toEqual({ ok: true });
   });
 });
+
+// review r2 B2: a rename never replaces another existing entry.
+describe("rename onto an existing name is refused", () => {
+  it("renaming alpha → beta while beta exists in the target layer is refused, file byte-identical", () => {
+    const io = makeIO({ [GLOBAL]: { mcpServers: { alpha: { command: "a" }, beta: { command: "b" } } } });
+    const before = io.files.get(GLOBAL);
+    const r = makeService(io).saveServer("beta", { command: "a2" }, g, { previousName: "alpha" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.refusal.code).toBe("name-collision");
+      expect(r.refusal.conflict).toEqual({ name: "beta", path: GLOBAL });
+    }
+    expect(io.files.get(GLOBAL)).toBe(before);
+  });
+
+  it("a create never replaces an existing entry; it is refused byte-identically", () => {
+    const io = makeIO({ [GLOBAL]: { mcpServers: { beta: { command: "b" } } } });
+    const before = io.files.get(GLOBAL);
+    const r = makeService(io).saveServer("beta", { command: "new" }, g, { create: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.refusal.code).toBe("name-collision");
+    expect(io.files.get(GLOBAL)).toBe(before);
+    expect(makeService(io).saveServer("gamma", { command: "g" }, g, { create: true })).toEqual({ ok: true });
+  });
+
+  it("saving without a rename still replaces the entry of that name", () => {
+    const io = makeIO({ [GLOBAL]: { mcpServers: { beta: { command: "b" } } } });
+    expect(makeService(io).saveServer("beta", { command: "b2" }, g)).toEqual({ ok: true });
+  });
+});

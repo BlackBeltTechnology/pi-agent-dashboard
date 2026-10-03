@@ -152,6 +152,25 @@ describe("whole-entry save + rename", () => {
     expect(lastBody(puts).previousName).toBe("old");
   });
 
+  // review r2 B2 sibling: adding a server never silently replaces an existing one.
+  it("a NEW server PUTs with create:true; an edit does not", async () => {
+    const { puts } = stubFetch();
+    renderEditor({ name: null, entry: { command: "/bin/a" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(screen.getByTestId("mcp-editor-name"), { target: { value: "fresh" } });
+    fireEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(puts.length).toBe(1));
+    expect(lastBody(puts).create).toBe(true);
+    cleanup();
+
+    const second = stubFetch();
+    renderEditor({ name: "srv", entry: { command: "/bin/a" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(second.puts.length).toBe(1));
+    expect(lastBody(second.puts).create).toBeUndefined();
+  });
+
   it("an invalid server name blocks the save client-side", async () => {
     const { puts } = stubFetch();
     renderEditor({ name: null, entry: { command: "/bin/a" } });

@@ -243,6 +243,7 @@ export function ServerEditor({
         ...scopeToWire(scope),
         entry: buildEntry(draft, tab, scope),
         ...(name !== null && target !== name ? { previousName: name } : {}),
+        ...(name === null ? { create: true } : {}),
       });
       invalidateEffective(scope.kind === "project" ? scope.cwd : undefined);
       onChanged();

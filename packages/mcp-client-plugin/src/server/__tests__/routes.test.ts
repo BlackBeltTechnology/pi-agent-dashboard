@@ -109,6 +109,17 @@ describe("mcp-client routes", () => {
     expect(JSON.parse(h.io.files.get(GLOBAL) as string).mcpServers.b).toEqual({ command: "/bin/b", exposure: "direct" });
   });
 
+  it("PUT with create:true onto an existing name is 409 name-collision, no write", async () => {
+    const res = await h.app.inject({
+      method: "PUT",
+      url: "/api/mcp-client/servers/a",
+      payload: { scope: "global", entry: { command: "/bin/other" }, create: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe("name-collision");
+    expect(h.io.writes).toHaveLength(0);
+  });
+
   it("PUT a schema-invalid entry is 400 with no write", async () => {
     const res = await h.app.inject({
       method: "PUT",

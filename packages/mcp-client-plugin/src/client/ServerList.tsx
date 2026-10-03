@@ -67,7 +67,7 @@ interface ServerRowProps {
   /**
    * Folder page: a pi-folder row with the same name exists, so a folder-scope
    * write for this name lands on THAT entry — this global row's write actions
-   * are disabled rather than silently acting on the other row.
+   * (toggle, Override…) are disabled rather than silently replacing it.
    */
   writeShadowed?: boolean;
   onNeedsChoice?: (row: RowRef, omitted: string[]) => void;
@@ -270,6 +270,8 @@ function ServerRow({
         <button
           type="button"
           onClick={() => onOpen(name, server.provenance)}
+          disabled={writeShadowed}
+          title={writeShadowed ? "The folder entry of the same name is the folder-scope write target — edit that row" : undefined}
           data-testid={actionTestId}
           className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
         >

@@ -55,7 +55,12 @@ export interface ConfigWriter {
   targetPath(scope: Scope): string;
   readServerEntry(name: string, scope: Scope): ServerEntry | undefined;
   ensureServerEntry(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigWriteResult;
-  saveServer(name: string, entry: ServerEntry, scope: Scope, opts?: { previousName?: string }): ConfigWriteResult;
+  saveServer(
+    name: string,
+    entry: ServerEntry,
+    scope: Scope,
+    opts?: { previousName?: string; create?: boolean },
+  ): ConfigWriteResult;
   removeServer(name: string, scope: Scope): RemoveResult;
   setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult;
   convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult;
@@ -252,7 +257,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     name: string,
     entry: ServerEntry,
     scope: Scope,
-    opts?: { previousName?: string },
+    opts?: { previousName?: string; create?: boolean },
   ): ConfigWriteResult {
     const p = prepare(name, scope);
     if (!p.ok) return p;
@@ -260,15 +265,27 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       return { ok: false, refusal: { code: "invalid-entry", message: `server "${name}" must be an object` } };
     }
     const prev = opts?.previousName;
-    if (prev !== undefined && prev !== name) {
+    const renaming = prev !== undefined && prev !== name;
+    if (renaming) {
       const bad = nameRefusal(prev);
       if (bad) return { ok: false, refusal: bad };
+    }
+    // A rename or a create never replaces another entry: one write, one entry.
+    if ((renaming || opts?.create === true) && p.layer.servers[name] !== undefined) {
+      return {
+        ok: false,
+        refusal: {
+          code: "name-collision",
+          message: `${p.path} already defines "${name}"${renaming ? ` (cannot rename "${prev}" onto it)` : ""}`,
+          conflict: { name, path: p.path },
+        },
+      };
     }
     const next = nullProto({ ...(entry as Record<string, unknown>) });
     const refusal = validateEntry(name, next, scope, prev);
     if (refusal) return { ok: false, refusal };
     const servers = nullProto({ ...p.layer.servers });
-    if (prev !== undefined && prev !== name) delete servers[prev];
+    if (renaming) delete servers[prev];
     servers[name] = next;
     return write(p.path, p.layer.config, servers);
   }

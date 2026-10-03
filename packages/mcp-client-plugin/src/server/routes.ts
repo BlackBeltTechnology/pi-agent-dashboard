@@ -4,7 +4,7 @@
  *   GET    /api/mcp-client/effective?cwd=         effective view (files only, fast)
  *   GET    /api/mcp-client/live?cwd=&fresh=1      live state from `pi mcp list --json`
  *   GET    /api/mcp-client/schema                 published entry schema
- *   PUT    /api/mcp-client/servers/:name          {scope, cwd?, entry, previousName?} — whole-entry save
+ *   PUT    /api/mcp-client/servers/:name          {scope, cwd?, entry, previousName?, create?} — whole-entry save
  *   DELETE /api/mcp-client/servers/:name?scope=&cwd=   → {ok, removed}
  *   PUT    /api/mcp-client/servers/:name/enabled  {scope, cwd?, enabled}
  *   POST   /api/mcp-client/servers/:name/convert  {scope, cwd?} — adapter leftovers → pi
@@ -139,7 +139,7 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
   fastify.put(`${PREFIX}/servers/:name`, guard, async (request, reply) => {
     const name = pathName(request);
     if (!name) return reply.code(400).send(INVALID_NAME);
-    const body = (request.body ?? {}) as ScopeInput & { entry?: unknown; previousName?: unknown };
+    const body = (request.body ?? {}) as ScopeInput & { entry?: unknown; previousName?: unknown; create?: unknown };
     const parsed = parseScope(body, knownCwds);
     if (!parsed.ok) return reply.code(parsed.status).send(parsed.body);
     if (typeof body.entry !== "object" || body.entry === null || Array.isArray(body.entry)) {
@@ -156,6 +156,7 @@ export function mountMcpClientRoutes(fastify: FastifyInstance, deps: McpClientRo
     }
     const result = runtime.saveServer(name, body.entry as ServerEntry, parsed.scope, {
       ...(typeof body.previousName === "string" ? { previousName: body.previousName } : {}),
+      ...(body.create === true ? { create: true } : {}),
     });
     if (!result.ok) return sendRefusal(reply, result.refusal);
     return { ok: true };
