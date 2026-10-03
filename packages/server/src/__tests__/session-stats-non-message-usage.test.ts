@@ -13,6 +13,8 @@ import path from "node:path";
 import { metaPath, readSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { STATS_EXTRACTOR_VERSION, sumEntryUsage } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
+import { extractStatsFromEvents } from "../session/event-status-extraction.js";
 import { scanAllSessions } from "../session/session-scanner.js";
 import { extractSessionStats } from "../session/session-stats-reader.js";
 
@@ -108,6 +110,22 @@ describe("derived totals include non-message usage", () => {
     expect(derived.tokensIn).toBe(1000 + 300 + 0 + 40000 + 700);
     expect(derived.cacheRead).toBe(300 + 50000);
     expect(derived.lastTotalTokens).toBe(12000);
+  });
+});
+
+describe("#E20 hydration (production extractStatsFromEvents over replay) = JSONL-derived totals", () => {
+  it("replace-with-replay totals equal extractSessionStats on the same fixture; gauge from the assistant", () => {
+    const f = writeJsonl(everyKind);
+    const derived = extractSessionStats(f)!;
+    const replay = replayEntriesAsEvents("s1", everyKind.slice(1), 1_000_000);
+    const hydrated = extractStatsFromEvents(replay.map((m) => m.event as any))!;
+    expect(hydrated.tokensIn).toBe(derived.tokensIn);
+    expect(hydrated.tokensOut).toBe(derived.tokensOut);
+    expect(hydrated.cacheRead).toBe(derived.cacheRead);
+    expect(hydrated.cacheWrite).toBe(derived.cacheWrite);
+    expect(hydrated.cost).toBeCloseTo(derived.cost, 12);
+    expect(hydrated.contextTokens).toBe(12000);
+    expect(hydrated.contextWindow).toBe(1_000_000);
   });
 });
 

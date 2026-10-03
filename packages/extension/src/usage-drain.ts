@@ -65,11 +65,13 @@ export class UsageDrain {
   }
 
   /**
-   * Collect the `usage_recorded` messages for allowlisted usage-bearing entries
-   * appended after the cursor, then advance it. One `getEntries()` copy plus a
-   * reverse scan to `lastEntryId`.
+   * Hand each allowlisted usage-bearing entry appended after the cursor to
+   * `send` (default: collect and return), advancing the cursor entry by entry
+   * only AFTER the hand-off succeeds; a throwing `send` leaves the failed
+   * entry and everything after it for the next drain. One `getEntries()` copy
+   * plus a reverse scan to `lastEntryId`.
    */
-  drain(sm: DrainSessionManager): UsageRecordedMessage[] {
+  drain(sm: DrainSessionManager, send?: (msg: UsageRecordedMessage) => void): UsageRecordedMessage[] {
     const sessionId = sm.getSessionId();
     const entries = sm.getEntries();
     const cursor = this.cursor;
@@ -93,21 +95,23 @@ export class UsageDrain {
       }
     }
     const out: UsageRecordedMessage[] = [];
+    const emit = send ?? ((msg: UsageRecordedMessage) => { out.push(msg); });
     for (let i = start; i < entries.length; i++) {
       const entry = entries[i] as { id?: unknown };
       const u = drainableEntryUsage(entry);
-      if (!u) continue;
-      out.push({
-        type: "usage_recorded",
-        sessionId,
-        kind: u.kind,
-        usage: u.usage,
-        ...(u.provider !== undefined ? { provider: u.provider } : {}),
-        ...(u.model !== undefined ? { model: u.model } : {}),
-        ...(typeof entry.id === "string" ? { entryId: entry.id } : {}),
-      });
+      if (u) {
+        emit({
+          type: "usage_recorded",
+          sessionId,
+          kind: u.kind,
+          usage: u.usage,
+          ...(u.provider !== undefined ? { provider: u.provider } : {}),
+          ...(u.model !== undefined ? { model: u.model } : {}),
+          ...(typeof entry.id === "string" ? { entryId: entry.id } : {}),
+        });
+      }
+      if (typeof entry.id === "string") cursor.lastEntryId = entry.id;
     }
-    if (start < entries.length) cursor.lastEntryId = lastIdOf(entries);
     return out;
   }
 }
@@ -123,7 +127,7 @@ export function drainUsageAndSend(
 ): void {
   try {
     if (!sm) return;
-    for (const msg of drain.drain(sm)) send(msg);
+    drain.drain(sm, send);
   } catch (err) {
     console.error("[dashboard] usage drain failed:", err);
   }

@@ -283,6 +283,34 @@ describe("#E16 observe-only cache_warming_decision", () => {
   });
 });
 
+describe("review B1: a failed send does not skip usage", () => {
+  it("the cursor advances only past entries handed off; the failed one and the rest retry next drain", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const sm = makeSm("A");
+    const d = new UsageDrain();
+    d.baseline(sm);
+    sm.append(usageEntry("u1"));
+    sm.append({ type: "message", id: "m1", message: { role: "user", content: "x" } });
+    sm.append(usageEntry("u2"));
+    sm.append(usageEntry("u3"));
+    const delivered: string[] = [];
+    let failNext = "u2";
+    const send = (m: any) => {
+      if (m.entryId === failNext) {
+        failNext = "";
+        throw new Error("socket send failed");
+      }
+      delivered.push(m.entryId);
+    };
+    drainUsageAndSend(d, sm, send);
+    expect(delivered).toEqual(["u1"]);
+    drainUsageAndSend(d, sm, send);
+    expect(delivered).toEqual(["u1", "u2", "u3"]);
+    drainUsageAndSend(d, sm, send);
+    expect(delivered).toEqual(["u1", "u2", "u3"]);
+  });
+});
+
 describe("#P1 drain budget", () => {
   it("10,000 entries, cursor at end, no new entries: p95 ≤ 5 ms over 200 drains", () => {
     const entries: any[] = [];
