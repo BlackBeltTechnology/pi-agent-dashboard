@@ -123,14 +123,14 @@ const requirement = (found?: string): string =>
 /** True when `version`'s numeric major.minor.patch is >= 1.0.0; a 1.0.0 prerelease and non-numeric values are below. */
 export function meetsMinVersion(version: unknown): boolean {
   if (typeof version !== "string") return false;
-  const m = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(version.trim());
+  const m = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(version.trim());
   if (!m) return false;
   const nums = [Number(m[1]), Number(m[2]), Number(m[3])];
   const floor = PI_MIN_VERSION.split(".").map(Number);
   for (let i = 0; i < 3; i++) {
     if (nums[i] !== floor[i]) return nums[i] > floor[i];
   }
-  return !m[4].startsWith("-");
+  return m[4] === undefined;
 }
 
 function isImageRuntime(value: unknown): value is PiImageRuntime {
@@ -167,7 +167,7 @@ export async function acquirePiRuntime(seams: PiSeams = {}): Promise<PiRuntimeAc
     }
     return { ok: true, runtime };
   } catch (err) {
-    return { ok: false, error: `pi runtime creation failed: ${errText(err)}` };
+    return { ok: false, error: `${requirement(found)}: runtime creation failed: ${errText(err)}` };
   }
 }
 

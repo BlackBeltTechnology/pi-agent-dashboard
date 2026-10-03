@@ -397,6 +397,25 @@ describe("availability guard", () => {
     const res = await generateImage({ prompt: "x", backend: "pi", loadPi });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("auth.json unreadable");
+    expect(res.error).toContain("@earendil-works/pi-coding-agent");
+    expect(res.error).toContain(">= 1.0.0");
+    expect(res.error).toContain("found 1.0.0");
+  });
+
+  it.each(["1.0.0garbage", "1.0.0.abc", "1.0.0abc", "1.0", "v1.0.0", "01.x.0", ""])(
+    "B3 rejects malformed VERSION %j without creating a runtime",
+    async (v) => {
+      const { loadPi, createCalls } = fakeModule(v);
+      const res = await generateImage({ prompt: "x", backend: "pi", loadPi });
+      expect(res.ok).toBe(false);
+      expect(createCalls).toHaveLength(0);
+    },
+  );
+
+  it.each(["1.0.0+build.5", "1.2.3", "2.0.0", "1.0.1-rc.1"])("B3 accepts well-formed VERSION %s", async (v) => {
+    const { loadPi } = fakeModule(v);
+    const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
+    expect(res.ok).toBe(true);
   });
 
   it("X3 a runtime lacking the image methods fails naming the package and floor", async () => {
