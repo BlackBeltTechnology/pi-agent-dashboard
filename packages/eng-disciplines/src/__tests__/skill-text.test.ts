@@ -191,6 +191,7 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     expect(aud).toContain("NECESSARY to verify the exact claim");
     expect(aud).toMatch(/report it in `confidence_errors` when the claim is tagged `confirmed`/);
     expect(aud).toContain("omits only context");
+    expect(aud).toContain("lowering the tag alone does not fix the cite");
     expect(aud).not.toContain("merely omits a supporting line");
     expect(aud).not.toContain("never makes the verdict `revise` on its own");
     expect(norm("prompts/generator-rebuild.md")).toContain("STEP 7 — Self-check every cite BEFORE you reply");

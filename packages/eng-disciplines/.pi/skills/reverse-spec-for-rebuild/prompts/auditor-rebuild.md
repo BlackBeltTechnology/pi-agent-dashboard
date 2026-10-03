@@ -50,7 +50,8 @@ Checks:
    line that is NECESSARY to verify the exact claim as written (the constant
    behind a quoted literal, the throw behind a stated error) is a confidence
    matter: report it in `confidence_errors` when the claim is tagged
-   `confirmed` (it should be `inferred`, or the cite widened). A cite that
+   `confirmed` (it should be `inferred` AND carry that line: lowering the tag
+   alone does not fix the cite, since `inferred` must cite every link). A cite that
    omits only context a reader does not need to verify the claim (a
    neighbouring line, a type declaration) is not a defect: mention it in
    `notes`.
