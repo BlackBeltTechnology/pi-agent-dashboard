@@ -33,7 +33,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { shouldUrlWrapEntry, isJitiLoader } from "../platform/node-spawn.js";
+import { shouldUrlWrapEntry, isJitiLoader, isTsxLoader } from "../platform/node-spawn.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -54,6 +54,15 @@ describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
     expect(shouldUrlWrapEntry(jitiLoader, "win32")).toBe(false);
     expect(shouldUrlWrapEntry(jitiLoader, "linux")).toBe(false);
     expect(shouldUrlWrapEntry(jitiLoader, "darwin")).toBe(false);
+  });
+
+  // Loader identity is mutually exclusive (test-plan #E3).
+  // See change: cleanup-stale-fork-specs.
+  it("isTsxLoader / isJitiLoader classify tsx, jiti and other loaders", () => {
+    const ident = (l: string) => [isTsxLoader(l), isJitiLoader(l)];
+    expect(ident("C:\\x\\node_modules\\tsx\\dist\\esm\\index.mjs")).toEqual([true, false]);
+    expect(ident("file:///a/node_modules/jiti/lib/jiti-register.mjs")).toEqual([false, true]);
+    expect(ident("/usr/bin/node-loader.mjs")).toEqual([false, false]);
   });
 
   it("tsx loader → entry passed RAW on every platform (unchanged)", () => {
