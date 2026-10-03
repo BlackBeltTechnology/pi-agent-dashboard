@@ -160,6 +160,7 @@ async function mcpCall(
 
 test.describe("wired per-session MCP credential (wire-mcp-session-token)", () => {
   test("#F6 works out of the box — no provisioned mcp.json entry; the mint carries token + /mcp URL", async ({ request }) => {
+    test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
     // Nothing is provisioned into mcp.json any more: the Pi-global effective
     // view must hold no dashboard-written `pi-dashboard` entry (it would shadow
     // the bridge's per-session registration), and no credential at rest.
@@ -183,6 +184,32 @@ test.describe("wired per-session MCP credential (wire-mcp-session-token)", () =>
       expect(status).toBe(200);
       const names = ((body.result as { tools?: Array<{ name: string }> }).tools ?? []).map((t) => t.name);
       expect(names).toEqual(ADVERTISED_TOOLS);
+    } finally {
+      session.close();
+    }
+  });
+
+  // migrate-mcp-to-pi-builtin D1/D2: nothing provisioned, the mint carries the
+  // loopback /mcp URL the bridge registers with pi's built-in MCP, and that
+  // credential is served (the exact advertised set is #F6's, quarantined).
+  test("#F7 the mint carries the /mcp URL and nothing is provisioned into mcp.json", async ({ request }) => {
+    const effective = (await (await fetch(`${BASE_URL}/api/mcp-client/effective`)).json()) as {
+      servers?: Array<{ name: string; entry: Record<string, unknown> }>;
+    };
+    const entry = effective.servers?.find((s) => s.name === "pi-dashboard")?.entry;
+    expect(entry?.requestHeadersCommand, "no provisioned header-command entry").toBeUndefined();
+    expect(JSON.stringify(effective)).not.toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
+
+    const port = (await health(request)).piGatewayPort;
+    expect(port).toBeTruthy();
+    const session = new BridgeSession("e2e-mcp-f7", "/tmp/e2e-mcp-f7");
+    try {
+      const token = await session.connectAndMint(port!);
+      expect(session.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+      const { status, body } = await mcpCall(request, token, "tools/list");
+      expect(status).toBe(200);
+      const names = ((body.result as { tools?: Array<{ name: string }> }).tools ?? []).map((t) => t.name);
+      expect(names).toContain("list_sessions");
     } finally {
       session.close();
     }

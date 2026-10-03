@@ -65,7 +65,7 @@ export function mcpNamespace(name: string): string {
   return `mcp__${name.replace(/-/g, "_")}`;
 }
 
-export function isLoopbackHost(hostname: string): boolean {
+function isLoopbackHost(hostname: string): boolean {
   return LOOPBACK_HOSTS.includes(hostname);
 }
 

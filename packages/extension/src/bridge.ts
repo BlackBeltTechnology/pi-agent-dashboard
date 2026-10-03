@@ -74,7 +74,7 @@ import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { createMcpDashboardRegistrar, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
+import { createMcpDashboardRegistrar, type McpRegistrationApi, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
@@ -444,7 +444,7 @@ function initBridge(pi: ExtensionAPI) {
   // only in this registrar and pi's registration — never in process.env.
   // See change: migrate-mcp-to-pi-builtin (D1).
   const mcpRegistrar = createMcpDashboardRegistrar({
-    pi: pi as unknown as import("./mcp-token-delivery.js").McpRegistrationApi,
+    pi: pi as unknown as McpRegistrationApi,
     sessionId: () => sessionId,
     reportUnavailable: (reason) => {
       connection.send({

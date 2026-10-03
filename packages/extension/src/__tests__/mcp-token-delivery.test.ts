@@ -8,7 +8,7 @@
  * `Authorization` header and the server-delivered `/mcp` URL. It never
  * writes `process.env`, never writes a file, never emits on `pi.events`.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";

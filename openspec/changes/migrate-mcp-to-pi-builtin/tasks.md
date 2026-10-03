@@ -5,7 +5,7 @@
 - [x] 1.3 Implement D1 in `packages/extension` (`mcp-token-delivery.ts` + bridge); stop writing `process.env.PI_DASHBOARD_MCP_TOKEN`; verify task 1.1 tests pass and a bash `env` dump in a real session shows no token
 - [x] 1.4 Delete `packages/mcp-server-plugin/src/server/header-command.mjs` and the provisioning write in `provisioning.ts` / `index.ts`; update `tests/e2e/mcp-session-token.spec.ts` and `qa/tests/33-mcp-session-token.sh`, which assert the old header-command mechanism; verify `rg -n 'requestHeadersCommand|PI_DASHBOARD_MCP_TOKEN|header-command' packages tests qa --glob '!**/node_modules/**'` is empty outside migration tests
 - [x] 1.5 Implement the D2 one-time removal (signature `command:"node"` + `args[0]` ending `header-command.mjs`, via the directly imported `createMcpClientConfigService` factory); verify with test-plan #E6 and #X4
-- [ ] 1.6 Real-session check: `/mcp` lists `pi-dashboard` as connected, `tool_search` finds a dashboard tool and the call authenticates as that session; verify after a dashboard restart too
+- [x] 1.6 Real-session check: `/mcp` lists `pi-dashboard` as connected, `tool_search` finds a dashboard tool and the call authenticates as that session; verify after a dashboard restart too
 
 ## 2. mcp-client rebuild
 
@@ -64,6 +64,6 @@
 - [x] 5.32 L1 test: host trust service. Exemplar: `packages/server/src/__tests__/pi-core-trust-exports.test.ts`. Recorded yes / no / none × `defaultProjectTrust` always / ask · `host.isProjectTrusted(cwd)` · recorded decision wins, none+always true, none+ask false (test-plan #E32)
 - [x] 5.33 L1 test: doctor rows. Exemplar: `packages/extension/src/__tests__/doctor/checks.test.ts`. Adapter in packages; operator `pi-dashboard` entry; commented `mcp.json` · doctor checks · one row each, file path named (test-plan #E33)
 - [x] 5.34 L1 test: migration write failure. Exemplar: `packages/mcp-server-plugin/src/server/__tests__/provisioning-fs.test.ts`. Parseable file, rename fails `EACCES` · startup migration · entry kept, file byte-identical, one warn log with the code, start continues (test-plan #X4)
-- [ ] 5.35 L3 Playwright: subprocess cannot read token. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · bash `env` · no token, no `PI_DASHBOARD_MCP_TOKEN` (test-plan #X1)
-- [ ] 5.36 L3 Playwright: session reaches `/mcp` across restart. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · list + `tool_search` + call, restart, call again · connected and authenticated both times (test-plan #X2)
+- [x] 5.35 L3 Playwright: subprocess cannot read token. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · bash `env` · no token, no `PI_DASHBOARD_MCP_TOKEN` (test-plan #X1)
+- [x] 5.36 L3 Playwright: session reaches `/mcp` across restart. Exemplar: `tests/e2e/mcp-token-settings.spec.ts`. Harness session · list + `tool_search` + call, restart, call again · connected and authenticated both times (test-plan #X2)
 - [ ] 5.37 Manual: doctor explains an installed `pi-mcp-adapter` disabling the built-in (test-plan: manual-only, #X3)

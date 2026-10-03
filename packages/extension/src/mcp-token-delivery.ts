@@ -41,7 +41,7 @@ export interface McpRegistrationApi {
   unregisterMcpServer?: (name: string) => void;
 }
 
-export type McpRegistrationUnavailableReason = "api-missing" | "register-failed" | "no-url";
+type McpRegistrationUnavailableReason = "api-missing" | "register-failed" | "no-url";
 
 export interface McpDashboardRegistrarDeps {
   pi: McpRegistrationApi;

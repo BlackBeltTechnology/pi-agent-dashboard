@@ -11,7 +11,7 @@ export const GLOBAL = "/agent/mcp.json";
 export const CWD = "/work/proj";
 export const PROJECT = `${CWD}/.pi/mcp.json`;
 
-export const PATHS: LayerPaths = {
+const PATHS: LayerPaths = {
   globalPath: () => GLOBAL,
   projectPath: (cwd) => `${cwd}/.pi/mcp.json`,
 };

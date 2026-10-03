@@ -380,4 +380,3 @@ function hasPath(entry: Record<string, unknown>, dotted: string): boolean {
   return isPlainObject(v) && v[tail] !== undefined;
 }
 
-export { isValidServerName };

@@ -1120,6 +1120,9 @@ importers:
         specifier: ^11.2.0
         version: 11.2.0
     devDependencies:
+      '@fastify/compress':
+        specifier: ^9.2.0
+        version: 9.2.0
       fastify:
         specifier: ^5.0.0
         version: 5.12.1

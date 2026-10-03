@@ -81,6 +81,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
+  (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients
+  that accept compression (undici `fetch`, pi's built-in MCP client), so
+  `tools/list` failed with "Unexpected end of JSON input". And `list_sessions`,
+  `send_prompt`, `spawn_session`, `abort` and session-bound tools returned
+  their raw object instead of an MCP `CallToolResult`, which strict clients
+  read as empty content; the value now rides as JSON text. See change:
+  migrate-mcp-to-pi-builtin.
+
 - **Plugin config updates reach the plugin UI live.** A plugin server entry's
   `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
   stored the new config under `"undefined"` and the plugin's settings UI kept
