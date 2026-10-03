@@ -14,12 +14,12 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
-import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
-import { DenialNotice } from "../preview/DenialNotice.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { DenialNotice } from "../preview/DenialNotice.js";
+import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { dirname } from "../preview/resolve-local-image-src.js";
 import { ChangedOnDiskBanner } from "./ChangedOnDiskBanner.js";
@@ -113,6 +113,9 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     }
   }, [cwd, path, buffer, mtime, saving]);
 
+  // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
+  const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
+
   if (loadFailure) {
     return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
   }
@@ -186,7 +189,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
             <MarkdownContent
               content={content}
               frontmatter="properties"
-              imageBase={{ cwd, dir: absOf(cwd, dirname(path)) }}
+              imageBase={imageBase}
             />
           </div>
         )}

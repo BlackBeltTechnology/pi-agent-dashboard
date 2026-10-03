@@ -1,6 +1,6 @@
-import React from "react";
+import { mdiArrowExpandAll, mdiMagnifyMinusOutline, mdiMagnifyPlusOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { mdiMagnifyPlusOutline, mdiMagnifyMinusOutline, mdiArrowExpandAll } from "@mdi/js";
+import React from "react";
 // Shared zoom controls — used by MermaidBlock and FlowGraph
 
 export function ZoomControls({
@@ -8,11 +8,14 @@ export function ZoomControls({
   onZoomOut,
   onReset,
   scale,
+  initialScale = 1,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   scale: number;
+  /** Scale the surface starts/resets at; the % readout shows only when scale differs. */
+  initialScale?: number;
 }) {
   const btnClass =
     "w-7 h-7 flex items-center justify-center rounded " +
@@ -35,7 +38,7 @@ export function ZoomControls({
       <button className={btnClass} onClick={onReset} title="Reset zoom">
         <Icon path={mdiArrowExpandAll} size={0.6} />
       </button>
-      {scale !== 1 && (
+      {scale !== initialScale && (
         <div className="text-[10px] text-[var(--text-muted)] text-center tabular-nums">
           {Math.round(scale * 100)}%
         </div>
