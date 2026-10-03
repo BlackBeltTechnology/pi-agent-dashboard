@@ -25,11 +25,6 @@ const ALLOWLIST: readonly string[] = [
   // See change: consolidate-windows-spawn-and-platform-handlers.
   "packages/shared/src/platform/detached-spawn.ts",
   "packages/shared/src/platform/subprocess-adapter.ts",
-  // Legacy-pi cleanup needs a synchronous npm-root probe at server
-  // startup; predates the platform/exec wrapper. See origin commit
-  // ab711621 (feat(bootstrap): detect + one-click cleanup of legacy
-  // @mariozechner/pi-coding-agent).
-  "packages/server/src/legacy-pi-cleanup.ts",
   // deck3d is a standalone publishable package with no dependency edge on
   // the dashboard shared package; `props generate` shells to python3. See
   // change: add-deck3d-presentation-package.

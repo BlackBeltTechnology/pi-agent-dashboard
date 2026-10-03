@@ -3,8 +3,8 @@
  * can show release notes for versions newer than the locally-installed
  * tarball describes.
  *
- * Trust model identical to `pi-dev-version-check`: HTTPS, default Node
- * trust store, 10-second timeout, env-skippable via `PI_OFFLINE`.
+ * Trust model: HTTPS, default Node trust store, 10-second timeout,
+ * env-skippable via `PI_OFFLINE`.
  *
  * See change: read-changelog-from-github.
  */

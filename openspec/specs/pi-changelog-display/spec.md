@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change pi-update-whats-new-panel. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: CHANGELOG parser
 The dashboard server SHALL provide a pure parser that converts a Keep-a-Changelog-style markdown file into a structured list of release entries with typed sub-sections.
 
@@ -152,7 +154,7 @@ The client SHALL provide a `WhatsNewDialog` React component that renders parsed 
 - **AND** the handler SHALL invoke the same `onUpdate` callback the row's `[Update]` button uses, with the same package name argument
 
 ### Requirement: Remote CHANGELOG fetch
-The server SHALL fetch the CHANGELOG markdown for `@earendil-works/pi-coding-agent` (and its declared scope-rename predecessors such as `@mariozechner/pi-coding-agent`) from the package's upstream GitHub repository at `raw.githubusercontent.com` instead of reading the locally-installed copy. The locally-installed copy SHALL be used as a fallback only when the remote fetch fails or is skipped.
+The server SHALL fetch the CHANGELOG markdown for `@earendil-works/pi-coding-agent` from the package's upstream GitHub repository at `raw.githubusercontent.com` instead of reading the locally-installed copy. The locally-installed copy SHALL be used as a fallback only when the remote fetch fails or is skipped.
 
 #### Scenario: Remote URL derived from repository field
 - **WHEN** the package's `package.json#repository` declares a GitHub URL with optional `directory` subfield
@@ -262,4 +264,3 @@ row that has an update available, not only the pi core package.
 - **WHEN** a package row has no available update
 - **THEN** the client SHALL NOT issue a changelog query for that package
 - **AND** SHALL render no What's-New icon
-

@@ -75,4 +75,17 @@ describe("update-checker", () => {
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe("@fission-ai/openspec");
   });
+
+  // E19 — the legacy fork is never checked, for either starter.
+  // See change: drop-mariozechner-pi-fork (test-plan #E19).
+  for (const starter of ["Standalone", "Electron"] as const) {
+    it(`E19: ${starter} checks only earendil pi + openspec`, () => {
+      outdatedOr.mockReturnValue({});
+      outdatedGlobalOr.mockReturnValue({});
+      checkOutdated(starter);
+      const spy = starter === "Standalone" ? outdatedGlobalOr : outdatedOr;
+      const pkgs = spy.mock.calls.map(([arg]) => (arg as { pkg?: string }).pkg);
+      expect(pkgs).toEqual(["@earendil-works/pi-coding-agent", "@fission-ai/openspec"]);
+    });
+  }
 });

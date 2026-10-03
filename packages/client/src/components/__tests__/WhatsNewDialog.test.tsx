@@ -42,7 +42,7 @@ function makeRelease(
 
 function makeResponse(releases: ChangelogRelease[], hasBreaking: boolean): ChangelogResponse {
   return {
-    pkg: "@mariozechner/pi-coding-agent",
+    pkg: "@earendil-works/pi-coding-agent",
     from: "0.62.0",
     to: "0.70.0",
     releases,

@@ -35,16 +35,6 @@ declare module "@earendil-works/pi-coding-agent" {
   }
 }
 
-// Legacy fork — re-exports the same ExtensionAPI shape so existing installs still type-check.
-declare module "@mariozechner/pi-coding-agent" {
-  export type ExtensionAPI = import("@earendil-works/pi-coding-agent").ExtensionAPI;
-  export type ModelRegistry = import("@earendil-works/pi-coding-agent").ModelRegistry;
-  export type EventBus = import("@earendil-works/pi-coding-agent").EventBus;
-}
-
 declare module "@earendil-works/pi-ai" {
-  export function StringEnum<T extends readonly string[]>(values: T, schema?: Record<string, unknown>): any;
-}
-declare module "@mariozechner/pi-ai" {
   export function StringEnum<T extends readonly string[]>(values: T, schema?: Record<string, unknown>): any;
 }

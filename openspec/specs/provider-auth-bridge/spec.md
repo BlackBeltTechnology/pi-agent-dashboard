@@ -100,7 +100,7 @@ The helper SHALL strip common proxy-prefix path segments before registry lookup 
 
 Registry probing SHALL iterate a fixed api-appropriate candidate-provider list in preference order, returning the first match. The helper SHALL tolerate probes that throw by catching the exception and continuing to the next candidate.
 
-The helper SHALL NOT import `@mariozechner/pi-ai` directly; it SHALL consume only the probe function passed as its third argument, which makes it fully unit-testable with a fake probe built from a `Map`.
+The helper SHALL NOT import `@earendil-works/pi-ai` directly; it SHALL consume only the probe function passed as its third argument, which makes it fully unit-testable with a fake probe built from a `Map`.
 
 #### Scenario: Prefixed Anthropic id resolves through anthropic-messages api
 
