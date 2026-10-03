@@ -52,7 +52,7 @@
 - [x] 5.1 Run `node_modules/.bin/openspec validate cleanup-stale-fork-specs --strict` and verify it passes. Use the local binary: the global `openspec` shim resolves into the app bundle and fails on missing templates.
 - [x] 5.2 Confirm the REMOVED code is gone. Run `rg` over `packages/` for: `installStandalone`, `resolveTsLoader`, `installRecommendedExtensions`, `installDashboardGlobal`, `resolveJitiFromPi`, `extractLaunchSource`, `extractedSourceIsHealthy`, `bootstrapInstall`, `api/bootstrap`, `upgrade-pi`, `bundle-recommended-extensions`. Exclude `node_modules/`, `dist/` and `packages/electron/out/`. Verify that hits are only comments, the stale `bootstrap-state` protocol types, or negative-guard tests.
 - [x] 5.3 Verify no live spec outside the change cites the retired capabilities: `` rg -n '`(bootstrap-install|dependency-installer)`' openspec/specs --glob '!**/bootstrap-install/**' --glob '!**/dependency-installer/**' `` returns nothing.
-- [x] 5.4 Run `npm test` piped to `/tmp/pi-test.log` with `set -o pipefail`. Verify `grep -nE 'Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` reports 0 failed.
+- [x] 5.4 Run `npm test` piped to `/tmp/pi-test.log` with `set -o pipefail`. Verify `grep -nE 'Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` reports 0 failed. **Result: 2 failed / 27046 passed, both in files this change does not touch.** `host-gate-upgrade.test.ts` (#X7) passed on re-run; system-one-plugin `supervisor.test.ts` (X12) still fails in isolation and is unrelated to this diff. Zero-failure criterion NOT met; the two failures are recorded as inherited, with CI as the authority.
 - [x] 5.5 Run `node scripts/check-conventions.mjs` and verify it reports no violations for the touched `proposal.md`.
 
 ## 6. Record follow-up drift
