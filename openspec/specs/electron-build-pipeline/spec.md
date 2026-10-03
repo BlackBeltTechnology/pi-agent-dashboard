@@ -4,7 +4,9 @@ Electron desktop packaging pipeline. Defines forge project config, bundled
 Node + server tree, per-platform installers (DMG/DEB/AppImage/Windows ZIP +
 NSIS Setup.exe), CI build matrix, version/branding metadata, and — on Windows — the
 embedded dugite-native git+sh bundle.
+
 ## Requirements
+
 ### Requirement: electron-forge project configuration
 The project SHALL include a `packages/electron/` directory with Electron main process entry point, preload script, and forge configuration.
 
@@ -19,27 +21,6 @@ The project SHALL include a `packages/electron/` directory with Electron main pr
 #### Scenario: Executable name
 - **WHEN** the app is packaged
 - **THEN** the binary SHALL be named `pi-dashboard` (via `executableName` in packagerConfig)
-
-### Requirement: Bundled dashboard server
-The packaged Electron app SHALL include the dashboard server source AND the production-dependency tree of every workspace it directly imports as an extraResource, so the server can run on a clean OS without any user-side `npm install` for those packages. The bundling logic SHALL be implemented in `packages/electron/scripts/bundle-server.mjs` (Node-native, runnable on every host). pi/openspec/tsx are deliberately NOT part of the bundled tree — they live in the managed dir (`~/.pi-dashboard/`) and are installed there by `installStandalone()` from the offline cacache (see `electron-shell` spec for the runtime resolution chain).
-
-#### Scenario: Server bundled via Node-native build script
-- **WHEN** `node packages/electron/scripts/bundle-server.mjs` runs
-- **THEN** it SHALL copy `packages/server/`, `packages/shared/`, and `packages/extension/` source, the built web client, and a synthetic workspace `package.json` to `resources/server/`
-
-#### Scenario: Source-only mode for cross-platform builds
-- **WHEN** `node packages/electron/scripts/bundle-server.mjs --source-only` runs
-- **THEN** it SHALL copy source and client only, skipping `npm install` (native modules must be built on the target platform)
-
-#### Scenario: Bundled tree has only workspace-level dependencies
-- **WHEN** the Electron app is packaged AND `bundle-server.mjs` runs WITHOUT `--source-only`
-- **THEN** `resources/server/node_modules/` SHALL contain `fastify`, `ws`, `node-pty`, and other deps imported by the bundled `cli.ts`
-- **AND** `resources/server/node_modules/` SHALL NOT contain `@mariozechner/pi-coding-agent` (those live in the managed dir)
-- **AND** the bundled server's `cli.ts` SHALL be loadable via the managed dir's tsx loader (or fallback jiti) which is populated by `installStandalone()` on first launch
-
-#### Scenario: Bundle script runs on Windows without bash
-- **WHEN** the electron matrix's `windows-latest` variant invokes the server-bundling step
-- **THEN** the step SHALL execute via `node` (not `bash`) and SHALL NOT depend on `cp`, `find`, `chmod`, `du`, `rm -rf`, or `xattr` external binaries
 
 ### Requirement: Node.js binary included as extraResources
 The build pipeline SHALL download and include the correct Node.js binary for the target platform in the packaged app's resources.
@@ -132,13 +113,13 @@ The local-build helper `packages/electron/scripts/build-installer.sh` SHALL prod
 
 #### Scenario: Stale-arch caches are invalidated automatically
 - **WHEN** `build-installer.sh` runs on darwin with a requested arch that differs from the previously-built arch (tracked via `resources/.last-arch` sentinel)
-- **THEN** it SHALL delete `resources/node/`, `resources/server/`, and `resources/offline-packages/` (when present) before re-running the corresponding bundle steps
+- **THEN** it SHALL delete `resources/node/` and `resources/server/` before re-running the corresponding bundle steps
 - **AND** it SHALL update the sentinel after the bundle completes
 
 #### Scenario: Cross-arch native modules built via Rosetta
 - **WHEN** `build-installer.sh` runs on an Apple Silicon host (`uname -m` = `arm64`) with `--arch x64`
 - **THEN** it SHALL verify Rosetta 2 is installed by probing `arch -x86_64 /usr/bin/true` and exit non-zero with an actionable error message (`softwareupdate --install-rosetta --agree-to-license`) if the probe fails
-- **AND** it SHALL invoke `bundle-server.sh` under `arch -x86_64` so that npm installs x64 prebuilt binaries (notably node-pty's `prebuilds/darwin-x64/pty.node`)
+- **AND** it SHALL invoke `bundle-server.mjs` under `arch -x86_64` so that npm installs x64 prebuilt binaries (notably node-pty's `prebuilds/darwin-x64/pty.node`)
 
 #### Scenario: Intel host cannot cross-build arm64 locally
 - **WHEN** `build-installer.sh` runs on an Intel host (`uname -m` = `x86_64`) with `--arch arm64`
@@ -296,21 +277,6 @@ The project SHALL add npm scripts for Electron development and building.
 - **WHEN** `npm run icons` is run from `packages/electron/`
 - **THEN** it SHALL generate `.icns`, `.ico`, and resized PNGs from the master icon
 
-### Requirement: Bundled-extensions step in publish workflow
-The CI publish workflow SHALL run `packages/electron/scripts/bundle-recommended-extensions.sh` before `packages/electron/scripts/bundle-server.sh` on every release build, with `BUNDLE_RECOMMENDED_EXTENSIONS=1` set.
-
-#### Scenario: Release build order
-- **WHEN** `.github/workflows/publish.yml` builds a release artifact
-- **THEN** it SHALL execute `bundle-recommended-extensions.sh` before `bundle-server.sh` with the opt-in env var set
-
-#### Scenario: Non-release builds skip bundling
-- **WHEN** a feature-branch or PR build runs locally (`npm run build`, forge make without the env var)
-- **THEN** the bundling script SHALL be a no-op and `resources/bundled-extensions/` SHALL NOT be created
-
-#### Scenario: Fresh clone of each release
-- **WHEN** the bundling script runs in CI
-- **THEN** it SHALL clone the configured ref (default: default branch HEAD) fresh every time — no caching of previously bundled source trees between CI runs
-
 ### Requirement: Size budget enforcement in CI
 The CI workflow SHALL report and gate on the size of `resources/bundled-extensions/` after bundling.
 
@@ -374,22 +340,6 @@ The `packages/electron/package.json` `productName` field SHALL be the literal st
 #### Scenario: existing `publish: null` injection preserved
 - **WHEN** the NSIS maker's `getAppBuilderConfig` callback runs
 - **THEN** the returned object SHALL also contain `publish: null` (preserves the existing pre-fix behaviour that prevents electron-builder from attempting auto-publish)
-
-### Requirement: Bundled-server tree intentionally excludes pi-coding-agent
-The `packages/electron/scripts/bundle-server.mjs` script SHALL NOT declare `@mariozechner/pi-coding-agent`, `@mariozechner/jiti`, `@fission-ai/openspec`, `tsx`, or any other dependency that lives in the managed dir (`~/.pi-dashboard/`) as a dependency of the synthetic workspace `package.json` it writes. The bundled server tree (`resources/server/`) SHALL contain only workspace deps that the bundled `cli.ts` directly imports (`fastify`, `ws`, `node-pty`, etc.). Bundled-server-runtime concerns that depend on pi/openspec/tsx SHALL be satisfied via the managed dir, populated by `installStandalone()` on first run from the offline cacache pinned in `packages/electron/offline-packages.json`.
-
-#### Scenario: Synthetic package.json has no pi-coding-agent dependency
-- **WHEN** `bundle-server.mjs` runs and writes `resources/server/package.json`
-- **THEN** the resulting file SHALL NOT contain a `dependencies` block
-- **AND SHALL NOT** declare `@mariozechner/pi-coding-agent`, `@mariozechner/jiti`, `@fission-ai/openspec`, or `tsx` anywhere in its `dependencies` / `devDependencies` / `optionalDependencies`
-
-#### Scenario: Bundle source has documenting comment
-- **WHEN** `bundle-server.mjs` source is read
-- **THEN** the synthetic workspace package.json construction SHALL be preceded by a comment block that explains the architectural reason pi is NOT bundled (managed dir / offline cacache model) and cites change `fix-electron-windows-installer-and-server-bootstrap`
-
-#### Scenario: Bundled tree size stays minimal
-- **WHEN** `bundle-server.mjs` runs without `--source-only`
-- **THEN** `resources/server/` SHALL be approximately 80MB (workspace deps only) and not approximately 160MB (which would indicate pi was incorrectly bundled)
 
 ### Requirement: Windows VERSIONINFO derived from 4-integer build version under prerelease slugs
 
@@ -566,11 +516,11 @@ The `windows-latest` legs that build Setup.exe SHALL smoke-test it on the same r
 - **AND** the build-runner smoke SHALL NOT be relied upon for server-start coverage
 
 ### Requirement: NSIS install location is bootstrap-agnostic
-The NSIS install location SHALL NOT be hardcoded anywhere in the bootstrap, server, or shared code. The bootstrap state machine SHALL resolve the running install location dynamically via `app.getPath('exe')` and `process.resourcesPath`. This guarantees the existing `selectLaunchSource()` resolver in `packages/electron/src/lib/launch-source.ts` works identically for the per-user default (`%LOCALAPPDATA%\Programs\PI Dashboard\`) and any user-chosen path like `D:\MyApps\PI Dashboard\`.
+The NSIS install location SHALL NOT be hardcoded anywhere in the Electron, server, or shared code. The Electron main process SHALL resolve the running install location dynamically, from `process.resourcesPath` and `process.execPath`. This guarantees the `selectLaunchSource()` resolver in `packages/electron/src/lib/launch-source.ts` works identically for the per-user default (`%LOCALAPPDATA%\Programs\PI Dashboard\`) and any user-chosen path like `D:\MyApps\PI Dashboard\`.
 
 #### Scenario: Setup.exe-installed app resolves via existing launch source regardless of install dir
 - **WHEN** the user launches `PI Dashboard.exe` from any directory chosen during install (per-user default or user-chosen)
-- **THEN** `selectLaunchSource()` SHALL resolve to the same `installed` / `extracted` branch that today's `.zip`-extracted install resolves to
+- **THEN** `selectLaunchSource()` SHALL resolve to the same `bundled` source (from `<process.resourcesPath>/server/`) as every other packaged install, when no `attach`, `localLink` or `overlay` source applies first
 - **AND** no new source kind SHALL be added to handle Setup.exe installs
 - **AND** no module under `packages/electron/src/`, `packages/server/src/`, or `packages/shared/src/` SHALL contain a hardcoded path matching `%LOCALAPPDATA%\Programs\PI Dashboard` outside of documentation strings
 
@@ -892,3 +842,36 @@ entry with no matching runtime plugin on disk).
 - **THEN** its name SHALL NOT remain in `BUNDLED_PLUGINS` (the completeness invariant rejects
   entries with no matching runtime plugin on disk)
 
+### Requirement: Bundled dashboard server ships the pi runtime
+The packaged Electron app SHALL ship the following as an extraResource, so the server runs on a clean OS with no user-side `npm install`:
+- the dashboard server source;
+- the production-dependency tree of every workspace it imports;
+- pi (`@earendil-works/pi-coding-agent`), `@fission-ai/openspec` and `tsx`.
+
+`packages/electron/scripts/bundle-server.mjs` SHALL implement the bundling in Node, so it runs on every host. pi, openspec and tsx SHALL arrive in the bundled tree as regular production dependencies of the server workspace. They SHALL NOT be installed at runtime into `~/.pi-dashboard/`, and SHALL NOT come from an offline cache.
+
+#### Scenario: Server bundled via Node-native build script
+- **WHEN** `node packages/electron/scripts/bundle-server.mjs` runs
+- **THEN** it SHALL copy to `resources/server/`:
+  - the `packages/server/`, `packages/shared/`, `packages/extension/` and `packages/dashboard-plugin-runtime/` source;
+  - the built web client;
+  - a synthetic workspace `package.json`.
+
+#### Scenario: Source-only mode for cross-platform builds
+- **WHEN** `node packages/electron/scripts/bundle-server.mjs --source-only` runs
+- **THEN** it SHALL run every copy step that precedes `npm install`, and SHALL skip `npm install` (native modules must be built on the target platform) along with every step that depends on its output
+
+#### Scenario: Bundled tree ships the pi runtime
+- **WHEN** the Electron app is packaged AND `bundle-server.mjs` runs WITHOUT `--source-only`
+- **THEN** `resources/server/node_modules/` SHALL contain `fastify`, `ws`, `node-pty`, and the other deps the bundled `cli.ts` imports
+- **AND** `resources/server/node_modules/` SHALL contain `@earendil-works/pi-coding-agent`, `@fission-ai/openspec` and `tsx`
+- **AND** `resources/server/node_modules/` SHALL NOT contain the legacy `@mariozechner/pi-coding-agent` fork
+
+#### Scenario: Synthetic package.json declares no dependencies directly
+- **WHEN** `bundle-server.mjs` writes `resources/server/package.json`
+- **THEN** the file SHALL list the bundled workspaces and SHALL NOT contain a `dependencies` block
+- **AND** pi, openspec and tsx SHALL be pulled in only through the server workspace's own `dependencies`
+
+#### Scenario: Bundle script runs on Windows without bash
+- **WHEN** the electron matrix's `windows-latest` variant invokes the server-bundling step
+- **THEN** the step SHALL execute via `node` (not `bash`) and SHALL NOT depend on `cp`, `find`, `chmod`, `du`, `rm -rf`, or `xattr` external binaries
