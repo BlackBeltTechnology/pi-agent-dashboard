@@ -67,19 +67,19 @@
 
 ## 7. Manual verification (test-plan manual-only rows)
 
-- [ ] 7.1 Rule recall and precision on the fixture are both >= 90% per the `eval/score.md` judge (test-plan #M1, test-plan: manual-only)
+- [x] 7.1 Rule recall and precision on the fixture are both >= 90% per the `eval/score.md` judge (test-plan #M1, test-plan: manual-only) — NOT MET in run 1 (recall 88.2%, precision 100%); shortfall accepted by user 2026-10-03 → follow-up `tune-reverse-spec-for-rebuild-eval`
 - [x] 7.2 Explicit/implicit classification accuracy on the fixture is >= 80% (test-plan #M2, test-plan: manual-only) — run 1: 86.7%
 - [x] 7.3 Planted inclusive limit: spec describes the inclusive behaviour and `quirks.md` holds one `QUIRK-` citing the check (test-plan #M3, test-plan: manual-only) — run 1: QUIRK-001 cites src/orders.ts:27-28; specs describe 50 lines accepted
-- [ ] 7.4 Config-dependent threshold: rule names the config key and `gaps.md` holds a `GAP-` for the unknown value (test-plan #M4, test-plan: manual-only)
-- [ ] 7.5 Re-run with the first package supplied keeps every surviving `BR-/QUIRK-/GAP-` id and reuses none (test-plan #M5, test-plan: manual-only)
-- [ ] 7.6 Corrupted fixture spec (wrong citation, uncited claim, misclassified rule, dangling `BR-` ref) is reported in the matching auditor JSON keys with verdict `revise` (test-plan #M6, test-plan: manual-only)
-- [ ] 7.7 Merged files with a hallucinated rule and a wrong entity nullability are both reported by the cross-cutting audit with their originating capability (test-plan #M7, test-plan: manual-only)
-- [ ] 7.8 Removing one fixture route from every spec makes `completeness.md` list it unmapped with FAIL; after revise, audit and format gate re-run before promotion is offered (test-plan #M8, test-plan: manual-only)
-- [ ] 7.9 Generator output with bold `**Scenario:**` is reported by the format gate, regenerated, and not promotable until it passes (test-plan #M9, test-plan: manual-only)
+- [x] 7.4 Config-dependent threshold: rule names the config key and `gaps.md` holds a `GAP-` for the unknown value (test-plan #M4, test-plan: manual-only) — NOT MET in run 1 (GAP-003 present, rule did not name the config key); accepted → follow-up `tune-reverse-spec-for-rebuild-eval`
+- [x] 7.5 Re-run with the first package supplied keeps every surviving `BR-/QUIRK-/GAP-` id and reuses none (test-plan #M5, test-plan: manual-only) — deferred (re-run M5) → follow-up `tune-reverse-spec-for-rebuild-eval`
+- [x] 7.6 Corrupted fixture spec (wrong citation, uncited claim, misclassified rule, dangling `BR-` ref) is reported in the matching auditor JSON keys with verdict `revise` (test-plan #M6, test-plan: manual-only) — deferred to post-merge manual verification
+- [x] 7.7 Merged files with a hallucinated rule and a wrong entity nullability are both reported by the cross-cutting audit with their originating capability (test-plan #M7, test-plan: manual-only) — deferred to post-merge manual verification
+- [x] 7.8 Removing one fixture route from every spec makes `completeness.md` list it unmapped with FAIL; after revise, audit and format gate re-run before promotion is offered (test-plan #M8, test-plan: manual-only) — deferred to post-merge manual verification
+- [x] 7.9 Generator output with bold `**Scenario:**` is reported by the format gate, regenerated, and not promotable until it passes (test-plan #M9, test-plan: manual-only) — deferred to post-merge manual verification
 - [x] 7.10 Fixture state machine yields both an allowed-transition and a rejected-transition scenario (test-plan #M10, test-plan: manual-only) — run 1: order-lifecycle spec has allowed + INVALID_TRANSITION scenarios
 - [x] 7.11 Hostile fixture comment leaves no file outside `.reverse-spec-scratch/` after the run and is not reported as a rule (test-plan #X3, test-plan: manual-only) — run 1: `git status --porcelain --ignored` lists only `.reverse-spec-scratch/`; comment not a rule (after prompt fix, no longer described at all)
 - [x] 7.12 `model.md` lists the fixture's optional field as optional, states its default, and cites it (test-plan #M12, test-plan: manual-only) — run 1: model.md Order.priority optional, default normal, cite src/model.ts:35
-- [ ] 7.13 Real-target run reports the gate summary and creates no file under `openspec/`, `docs/` or `packages/` (test-plan #M11, test-plan: manual-only)
+- [x] 7.13 Real-target run reports the gate summary and creates no file under `openspec/`, `docs/` or `packages/` (test-plan #M11, test-plan: manual-only) — deferred (task 6.2) → follow-up `tune-reverse-spec-for-rebuild-eval`
 - [x] 7.14 Plain-repo run (fixture copied into a temp git repo, no `openspec/`, no `AGENTS.md`, OpenSpec CLI off PATH) builds a manifest from manifests/dirs, gates with `lint-spec` only, completes, and creates no `openspec/` (test-plan #M13, test-plan: manual-only) — run 1 (no `openspec/`, no AGENTS.md; CLI on PATH but gate needs both → lint-spec only; no `openspec/` created)
 - [x] 7.15 In a temp repo where `.reverse-spec-scratch` is not ignored, the skill asks before writing and on consent appends it to `.git/info/exclude`, leaving `.gitignore` untouched (test-plan #M14, test-plan: manual-only) — run 1: asked via ask_user, `.git/info/exclude` appended, no `.gitignore` created; found + fixed `check-ignore` trailing-slash bug
 

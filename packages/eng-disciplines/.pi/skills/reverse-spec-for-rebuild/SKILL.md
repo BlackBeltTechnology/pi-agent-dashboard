@@ -1,6 +1,6 @@
 ---
 name: reverse-spec-for-rebuild
-description: 'Characterize existing code into a rebuild package a team can reimplement from without reading the source: behavior specs plus domain model, BR-NNN business rules (explicit/implicit), quirks, gaps and an entry-point completeness report, every claim cited file:line with a confidence level. Use on "reverse-engineer this for a rebuild", "extract the business rules", "reimplement X without the original code", "characterize this code for a rewrite".'
+description: 'Characterize existing code into a rebuild package a team can reimplement from without the source: behavior specs, domain model, BR-NNN rules (explicit/implicit), quirks, gaps, entry-point completeness, each claim cited file:line with confidence. Use on "reverse-engineer this for a rebuild", "extract the business rules", "reimplement X without the original code", "characterize code for a rewrite".'
 ---
 
 # reverse-spec-for-rebuild
