@@ -70,12 +70,22 @@ export interface LoginInteraction {
   notify(event: LoginEvent): void;
 }
 
+/** pi-ai's `LoginOptions` slice the dashboard supplies. */
+interface LoginOptions {
+  getDeviceId?: () => string;
+}
+
 /** The provider half: `provider.auth.oauth` as the runtime exposes it. */
 export interface OAuthLoginFlow {
   name: string;
   isSubscription?: boolean;
   loginLabel?: string;
-  login(interaction: LoginInteraction): Promise<OAuthCredential>;
+  /**
+   * `options.getDeviceId` identifies this installation; pi 1.0.0's Sign in
+   * with ChatGPT (`openai`) rejects without it. See change:
+   * update-pi-core-1-0-adopt-apis.
+   */
+  login(interaction: LoginInteraction, options?: LoginOptions): Promise<OAuthCredential>;
 }
 
 /**
@@ -87,5 +97,11 @@ export interface OAuthRegistryEntry {
   id: string;
   name: string;
   flowType: "auth_code" | "device_code";
+  /**
+   * pi's OAuth `isSubscription` (absent on pi → false). `mapProviders` always
+   * sets it; optional only so hand-built entries stay valid. See change:
+   * update-pi-core-1-0-adopt-apis (D8).
+   */
+  subscription?: boolean;
   auth: OAuthLoginFlow;
 }

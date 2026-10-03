@@ -22,7 +22,9 @@ const _lockfile = _require("proper-lockfile") as typeof import("proper-lockfile"
  * Lock options — the SINGLE source of the dashboard's lock contract, shared by
  * `auth.json` and `plugin-credentials.json`.
  *
- * `stale: 30_000` is coupled to pi 0.86.1 `auth-storage.js` `acquireLockAsync`
+ * `stale: 30_000` is coupled to pi's `auth-storage.js` `acquireLockAsync`
+ * (first verified on 0.86.1; re-verified unchanged on 1.0.0 — `staleMs =
+ * 30_000`, `realpath: false`, see change: update-pi-core-1-0-adopt-apis)
  * (`withLockAsync`), which holds the auth.json lock across its OAuth network
  * refresh and refreshes the lockfile mtime only every `stale/2` = 15 s.
  * proper-lockfile judges staleness by the ACQUIRER's `stale`, so any shorter

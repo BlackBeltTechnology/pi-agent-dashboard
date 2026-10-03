@@ -17,6 +17,7 @@
       "!openspec/changes/**/mockup/**",
       "!spike/*/views/*.html",
       "!openspec/changes/**/mockups/**",
+      "!openspec/changes/**/spikes/**",
       "!**/*.css",
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",

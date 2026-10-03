@@ -3,8 +3,8 @@
  *
  * Also resolves the REAL ≥0.85 runtime when one is installed, so the factory
  * branch is exercised against the actual module rather than only fixtures.
- * Every such test self-skips when no ≥0.85 pi-ai is resolvable, which is what
- * keeps CI green while the pin is still `^0.75.5` (migration plan step 1).
+ * Every such test self-skips when no ≥0.85 pi-ai is resolvable; with the pin
+ * at `1.0.0` they always run in a healthy tree.
  *
  * See change: adopt-piai-factory-api-registry.
  */
@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LEGACY_MEMBERS } from "../detect.js";
 
-/** A module exposing all seven legacy global members. */
+/** A module exposing all seven legacy global members (rejected below the floor). */
 export function legacyFake(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const mod: Record<string, unknown> = {};
   for (const m of LEGACY_MEMBERS) mod[m] = () => undefined;
@@ -59,8 +59,7 @@ let cached: RealPiAi | null | undefined;
 
 /**
  * Resolve a ≥0.85 pi-ai the same way production does (the shared tool
- * registry), returning null when the resolved copy is older. Once the pin
- * moves to `^0.86.1` this stops returning null and every guarded test runs.
+ * registry), returning null when the resolved copy is older.
  */
 export async function resolveFactoryPiAi(): Promise<RealPiAi | null> {
   if (cached !== undefined) return cached;

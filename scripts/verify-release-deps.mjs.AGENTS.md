@@ -1,3 +1,5 @@
 # verify-release-deps.mjs — index
 
 Pre-release dependency-shape gate. RULES assert server declares jiti, node-pty (>=1.2.0-beta.13), pi-coding-agent (>=0.80.10), @fission-ai/openspec (>=1.6.0), tsx (>=4.21.0); extension declares @fission-ai/openspec (>=1.6.0); client declares vite, @vitejs/plugin-react, @tailwindcss/vite, tailwindcss, tsx (>=4.21.0) as runtime `dependencies` so `npm install --omit=dev` keeps the `prepare` Vite build resolvable (#357). Exports `floorOf`, `checkOpenspecFloorConsistency` (server↔extension floor drift), `checkPiPinCoherence`, `collectFailures({repoRoot})` (injectable root for fixture-driven tests); CLI guarded for clean test import. Run by release-cut, Release workflow, ci.yml (develop). See change: fix-pi-install-node26-and-omit-dev-build.
+
+pi `minVersion` 1.0.0. Exports `GOVERNED_PI_PACKAGES`, `piManifests(repoRoot)`, `checkPiRangeShapes(manifests, floor)` (peers exactly `>=<floor>` + optional, devDeps `^<floor>`). `checkPiPinCoherence(..., manifests)` adds pi-ai/pi-tui overrides + every manifest peer lower bound / devDep; `@mariozechner/*` ungoverned. See change: update-pi-core-1-0-adopt-apis.

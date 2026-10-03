@@ -4,12 +4,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   sendPiVersionIfChanged,
   _resetPiVersionCache,
   readPkgVersionByWalkUp,
   readRunningPiVersion,
+  resetReconnectCaches,
 } from "../model-tracker.js";
 import type { BridgeContext } from "../bridge-context.js";
 
@@ -57,6 +59,52 @@ describe("sendPiVersionIfChanged", () => {
     const { bc, send } = makeBc();
     sendPiVersionIfChanged(bc, () => undefined);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  // Review B2: the server does not persist `piVersion` / `piBelowFloor`, so an
+  // unchanged version must be re-sent for a NEW session and after a reconnect.
+  it("re-sends an unchanged version for a different session (session switch)", () => {
+    const send = vi.fn();
+    const bc1 = { sessionId: "sess-1", connection: { send } } as unknown as BridgeContext;
+    const bc2 = { sessionId: "sess-2", connection: { send } } as unknown as BridgeContext;
+    sendPiVersionIfChanged(bc1, () => "0.87.1");
+    sendPiVersionIfChanged(bc2, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ type: "pi_version_update", sessionId: "sess-2", version: "0.87.1" });
+  });
+
+  it("re-sends an unchanged version after resetReconnectCaches (reconnect)", () => {
+    const { bc, send } = makeBc();
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    resetReconnectCaches(bc);
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  // test-plan #E6 — the DEFAULT reader is argv-anchored: the running pi
+  // (0.87.1, argv[1]) wins over the newer 1.0.0 copy resolvable by name from
+  // the bridge's own location (the repo's hoisted pin).
+  // See change: update-pi-core-1-0-adopt-apis.
+  it("E6: default reader reports the running pi, not a hoisted newer copy", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-running-"));
+    const root = path.join(tmp, "node_modules", "@earendil-works", "pi-coding-agent");
+    fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.87.1" }),
+    );
+    const entry = path.join(root, "dist", "cli.js");
+    fs.writeFileSync(entry, "");
+    const prevArgv1 = process.argv[1];
+    process.argv[1] = entry;
+    try {
+      const { bc, send } = makeBc();
+      sendPiVersionIfChanged(bc);
+      expect(send).toHaveBeenCalledWith({ type: "pi_version_update", sessionId: "sess-1", version: "0.87.1" });
+    } finally {
+      process.argv[1] = prevArgv1;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

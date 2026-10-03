@@ -17,6 +17,7 @@ import {
   cancelFlow,
   deleteFlow,
   FLOW_START_TIMEOUT_MS,
+  loadPiDeviceId,
   type OAuthFlow,
   pendingFlowsFor,
   pruneFlows,
@@ -143,6 +144,8 @@ export async function beginFlow(params: BeginFlowParams): Promise<BeginFlowResul
   let outcome: StartOutcome = "timeout";
   await queueStart(params.provider, async () => {
     await supersedePendingFlows(params.provider);
+    // pi 1.0.0 Sign in with ChatGPT needs `getDeviceId`. See change: update-pi-core-1-0-adopt-apis.
+    await loadPiDeviceId();
     started = startFlow({ ...startParams, ...(openBrowser ? { openInBrowser } : {}) });
     outcome = await awaitStartOutcome(started);
   });

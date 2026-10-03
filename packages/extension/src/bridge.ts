@@ -59,7 +59,7 @@ import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
-import { mapEventToProtocol, redactCompactionEntry } from "./event-forwarder.js";
+import { mapEventToProtocol, redactBeforeSettleContext, redactCompactionEntry } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
   registerEventBusForwarding,
@@ -1640,6 +1640,9 @@ function initBridge(pi: ExtensionAPI) {
       _resetReconnectCaches(_bc);
       applyBc(_bc);
       sendStateSync();
+      // The server does not persist `piVersion` / `piBelowFloor`; re-send now
+      // rather than on the next poll tick. See change: update-pi-core-1-0-adopt-apis.
+      sendPiVersionIfChanged();
       // Force-emit git state for the active session’s cwd. The bridge
       // doesn't have direct ctx here, so we walk the active session.
       try {
@@ -1798,7 +1801,7 @@ function initBridge(pi: ExtensionAPI) {
     },
     // Terminal-hosted path only. Dashboard-spawned headless sessions are
     // reloaded by the SERVER via kill-and-respawn (`dispatchReload`).
-    // Self-dispatches `/__dashboard_reload <token>` in-process (pi >= 0.84.2);
+    // Self-dispatches `/__dashboard_reload <token>` in-process (no pi version gate);
     // resolves `handedOff` on success, because the RELOADED instance reports
     // `completed` after re-registering. See `terminal-reload.ts`.
     // See change: fix-terminal-session-dashboard-reload (D1/D3/D4).
@@ -2279,6 +2282,10 @@ function initBridge(pi: ExtensionAPI) {
     // unconditional (no version gate, not merely inert below an old floor).
     "ui_prompt_start",
     "ui_prompt_end",
+    // pi >= 0.87. Fires before final settlement; no status effect (the agent
+    // may still continue). Forwarded without its `context` preview.
+    // See change: update-pi-core-1-0-adopt-apis (D5).
+    "agent_before_settle",
   ] as const;
   // Excluded from subscription (not forwarded):
   // - `context`: carries full message arrays (very large)
@@ -2798,7 +2805,8 @@ function initBridge(pi: ExtensionAPI) {
       if (!sessionReady) return;
       // Same choke point as the enriched loop (D5).
       coalescer.flush();
-      const msg = mapEventToProtocol(sessionId, event);
+      const forwarded = event?.type === "agent_before_settle" ? redactBeforeSettleContext(event) : event;
+      const msg = mapEventToProtocol(sessionId, forwarded);
       connection.send(msg);
     }));
   }
@@ -3865,6 +3873,10 @@ function initBridge(pi: ExtensionAPI) {
     const bc = syncBc();
     _handleSessionChange(bc, ctx, getFlowsList);
     applyBc(bc);
+    // A new session id needs its own `pi_version_update` (below-floor flag).
+    // After applyBc, so syncBc() carries the NEW session id.
+    // See change: update-pi-core-1-0-adopt-apis.
+    sendPiVersionIfChanged();
 
     // Restart polling timers
     startGitPollTimer(ctx);

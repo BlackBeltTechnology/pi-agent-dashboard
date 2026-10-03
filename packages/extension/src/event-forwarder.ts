@@ -65,3 +65,18 @@ export function redactCompactionEntry(
   delete forwarded.compactionEntry;
   return forwarded;
 }
+
+/**
+ * Bridge forwarding policy for pi 0.87+ `agent_before_settle`: a shallow COPY
+ * without `context` (the boundary preview carries full message arrays, like
+ * the never-forwarded `context` event). No dashboard consumer reads it; the
+ * event itself has no status effect. Copy, never mutate (shared event object).
+ * See change: update-pi-core-1-0-adopt-apis (D5).
+ */
+export function redactBeforeSettleContext(
+  event: Record<string, unknown>,
+): Record<string, unknown> {
+  const forwarded: Record<string, unknown> = { ...event };
+  delete forwarded.context;
+  return forwarded;
+}

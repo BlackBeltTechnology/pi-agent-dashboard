@@ -1,15 +1,18 @@
 /**
  * pi-ai module-shape detection (design D2).
  *
- * BOTH branches are positively identified. "not legacy ⇒ factory" is never
- * inferred — an unrecognized module is rejected with the members that are
+ * The factory generation is the ONLY supported one (pi >= 1.0.0). It is
+ * positively identified; "not legacy ⇒ factory" is never inferred. A complete
+ * legacy (global-registry) module is still positively identified — so it is
+ * rejected as an unsupported legacy pi-ai below the floor, not as a vague
+ * unrecognized shape. Anything else is rejected with the members that are
  * missing, so a third generation surfaces as a diagnosable error rather than
  * a silently wrong catalogue.
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: adopt-piai-factory-api-registry, update-pi-core-1-0-adopt-apis.
  */
 
-/** The seven global-registry members every ≤0.75.x pi-ai exports. */
+/** The seven global-registry members every ≤0.75.x pi-ai exports (rejected). */
 export const LEGACY_MEMBERS = [
   "registerBuiltInApiProviders",
   "getModels",
@@ -23,10 +26,7 @@ export const LEGACY_MEMBERS = [
 /** The factory-API markers every ≥0.85 pi-ai exports. */
 export const FACTORY_MEMBERS = ["createModels", "createProvider"] as const;
 
-export type Detection =
-  | { kind: "legacy" }
-  | { kind: "factory" }
-  | { kind: "unrecognized"; reason: string };
+export type Detection = { kind: "factory" } | { kind: "unrecognized"; reason: string };
 
 function fnMembers(mod: unknown, names: readonly string[]): { present: string[]; missing: string[] } {
   const present: string[] = [];
@@ -42,9 +42,10 @@ function fnMembers(mod: unknown, names: readonly string[]): { present: string[];
 /**
  * Classify a resolved pi-ai module.
  *
- * - `legacy` iff all seven global members are functions.
  * - `factory` iff `createModels` AND `createProvider` are functions AND no
  *   legacy member is present.
+ * - all seven legacy global members → `unrecognized`, naming an unsupported
+ *   legacy pi-ai below the 1.0.0 floor.
  * - otherwise `unrecognized`, naming what is missing or conflicting.
  */
 export function detectPiAiShape(mod: unknown): Detection {
@@ -55,7 +56,14 @@ export function detectPiAiShape(mod: unknown): Detection {
   const legacy = fnMembers(mod, LEGACY_MEMBERS);
   const factory = fnMembers(mod, FACTORY_MEMBERS);
 
-  if (legacy.missing.length === 0) return { kind: "legacy" };
+  if (legacy.missing.length === 0 && factory.missing.length > 0) {
+    return {
+      kind: "unrecognized",
+      reason:
+        "pi-ai module is an unsupported legacy pi-ai (global-registry API: " +
+        `${LEGACY_MEMBERS.join(", ")}) below the 1.0.0 floor; upgrade pi to 1.0.0 or later.`,
+    };
+  }
 
   if (factory.missing.length === 0) {
     if (legacy.present.length > 0) {

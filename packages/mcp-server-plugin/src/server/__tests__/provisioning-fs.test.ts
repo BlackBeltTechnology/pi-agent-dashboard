@@ -17,7 +17,17 @@ import type {
   McpConfig,
   ServerProvenance,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hermetic: the provisioning target follows the bundled pi-mcp-adapter's
+// version when none is installed under the agent dir. Pin "none bundled" so
+// these tests exercise the port's own global path regardless of node_modules;
+// individual tests opt in via the `bundledAdapterVersion` option.
+// See change: update-pi-core-1-0-adopt-apis.
+vi.mock("@blackbelt-technology/pi-dashboard-mcp-client-plugin/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-mcp-client-plugin/core")>()),
+  bundledAdapterVersion: () => null,
+}));
 import { DASHBOARD_MCP_KEY, provisionDashboardEntry } from "../provisioning.js";
 import { McpTokenRegistry } from "../tokens.js";
 
@@ -191,5 +201,85 @@ describe("X4 — no plaintext credential at rest, ever", () => {
     // Sanity: the minted token WOULD have matched that scan had it leaked.
     expect(token).toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
     expect(midFlight).not.toContain(token);
+  });
+});
+
+/**
+ * pi 1.0.0 built-in MCP reads `<agentDir>/mcp.json`. An adapter >= 3.0.0 owns
+ * `<agentDir>/mcp-adapter.json` instead, so the dashboard entry goes there and
+ * the dashboard's OWN stale entry is removed from pi's `mcp.json` — otherwise
+ * built-in MCP connects without the adapter-only `requestHeadersCommand` and
+ * posts "pi-dashboard: needs sign-in" in every session. An adapter <= 2.x still
+ * reads `mcp.json` only, so nothing moves.
+ * See change: update-pi-core-1-0-adopt-apis (design D7b).
+ */
+describe("provision target follows the INSTALLED pi-mcp-adapter (pi 1.0.0 built-in MCP)", () => {
+  const agentDir = () => path.join(dir, "agent");
+  const piMcp = () => path.join(agentDir(), "mcp.json");
+  const adapterFile = () => path.join(agentDir(), "mcp-adapter.json");
+  function installAdapter(version: string) {
+    const p = path.join(agentDir(), "npm", "node_modules", "pi-mcp-adapter", "package.json");
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify({ name: "pi-mcp-adapter", version }));
+  }
+  const read = (p: string) => JSON.parse(fs.readFileSync(p, "utf8"));
+  const URL1 = "http://127.0.0.1:8000/mcp";
+
+  it("adapter 5.0.0: writes mcp-adapter.json and removes ONLY its own stale key from pi's mcp.json", () => {
+    installAdapter("5.0.0");
+    fs.mkdirSync(agentDir(), { recursive: true });
+    fs.writeFileSync(
+      piMcp(),
+      JSON.stringify({
+        mcpServers: {
+          [DASHBOARD_MCP_KEY]: { url: URL1, requestHeadersCommand: { command: "node", args: ["/x/header-command.mjs"], env: {} } },
+          other: { command: "foo" },
+        },
+      }),
+    );
+
+    const res = provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()) });
+    expect(res.ok).toBe(true);
+    expect(read(adapterFile()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+    expect(read(piMcp()).mcpServers[DASHBOARD_MCP_KEY]).toBeUndefined();
+    expect(read(piMcp()).mcpServers.other).toEqual({ command: "foo" });
+  });
+
+  it("adapter 5.0.0: a user's own pi-dashboard entry in mcp.json (no requestHeadersCommand) is left alone", () => {
+    installAdapter("5.0.0");
+    fs.mkdirSync(agentDir(), { recursive: true });
+    const userEntry = { url: "https://example.test/mcp", headers: { Authorization: "Bearer user" } };
+    fs.writeFileSync(piMcp(), JSON.stringify({ mcpServers: { [DASHBOARD_MCP_KEY]: userEntry } }));
+
+    expect(provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()) }).ok).toBe(true);
+    expect(read(piMcp()).mcpServers[DASHBOARD_MCP_KEY]).toEqual(userEntry);
+    expect(read(adapterFile()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+  });
+
+  it("adapter 2.30.0: keeps writing pi's mcp.json (the only file it reads)", () => {
+    installAdapter("2.30.0");
+    expect(provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()) }).ok).toBe(true);
+    expect(read(piMcp()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+    expect(fs.existsSync(adapterFile())).toBe(false);
+  });
+
+  it("none installed, bundled 5.0.0 (the docker harness): writes mcp-adapter.json", () => {
+    const res = provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()), bundledAdapterVersion: () => "5.0.0" });
+    expect(res.ok).toBe(true);
+    expect(read(adapterFile()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+    expect(fs.existsSync(piMcp())).toBe(false);
+  });
+
+  it("installed 2.30.0 wins over a bundled 5.0.0 (pi loads the installed copy): mcp.json", () => {
+    installAdapter("2.30.0");
+    expect(provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()), bundledAdapterVersion: () => "5.0.0" }).ok).toBe(true);
+    expect(read(piMcp()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+    expect(fs.existsSync(adapterFile())).toBe(false);
+  });
+
+  it("no adapter installed or bundled: unchanged behaviour (mcp.json)", () => {
+    expect(provisionDashboardEntry(realIO, { url: URL1, adapter: fakePort(piMcp()) }).ok).toBe(true);
+    expect(read(piMcp()).mcpServers[DASHBOARD_MCP_KEY].url).toBe(URL1);
+    expect(fs.existsSync(adapterFile())).toBe(false);
   });
 });

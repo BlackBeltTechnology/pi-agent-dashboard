@@ -302,6 +302,15 @@ export interface DashboardSession {
    */
   piVersion?: string;
   /**
+   * Set when `piVersion` parses below the dashboard's lockstep floor
+   * (`piCompatibility.minimum`); carries the required version for the warning
+   * on the session card and chat view. `null` = explicitly cleared (the client
+   * merges `session_updated` shallowly); absent = never flagged. An unreported
+   * or unparseable version is never flagged.
+   * See change: update-pi-core-1-0-adopt-apis.
+   */
+  piBelowFloor?: { minimum: string } | null;
+  /**
    * Per-session git-worktree identity. Set only when the session's cwd
    * is a git worktree (not the main checkout). See `GitWorktreeInfo`.
    * Absent on older bridges and for plain checkouts. Clients should read
@@ -862,6 +871,13 @@ export interface ProviderInfo {
   envVar?: string;
   /** True when configured via ambient credential chain (AWS profile / GCP ADC). */
   ambient?: boolean;
+  /**
+   * pi's own label for the credential's source, from
+   * `modelRegistry.getProviderAuthStatus(id).label` (pi >= 0.99.2) — e.g.
+   * `"workload identity federation"`, or an env var name. Absent when pi
+   * reports none. See change: update-pi-core-1-0-adopt-apis (D7).
+   */
+  authLabel?: string;
   /** Expiry timestamp for OAuth credentials. */
   expires?: number;
   /**

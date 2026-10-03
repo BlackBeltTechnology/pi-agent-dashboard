@@ -116,3 +116,18 @@ describe("adapterProbePaths", () => {
     ]);
   });
 });
+
+/**
+ * The dashboard-bundled adapter (this package's own `pi-mcp-adapter`
+ * dependency) is the copy pi loads when none is installed under the agent dir
+ * (e.g. the docker harness). Its version decides the provisioning target.
+ * See change: update-pi-core-1-0-adopt-apis (design D7b).
+ */
+describe("bundledAdapterVersion", () => {
+  it("reads the bundled pi-mcp-adapter version (>= 5 after the 1.0.0 bump)", async () => {
+    const { bundledAdapterVersion } = await import("../adapter-verdict.js");
+    const v = bundledAdapterVersion();
+    expect(v).toMatch(/^\d+\.\d+\.\d+/);
+    expect(Number.parseInt(v as string, 10)).toBeGreaterThanOrEqual(5);
+  });
+});

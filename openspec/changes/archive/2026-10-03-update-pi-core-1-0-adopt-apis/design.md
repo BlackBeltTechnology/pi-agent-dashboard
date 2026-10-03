@@ -52,8 +52,19 @@ Anthropic (1.0.0): the first step is now a method `select`, not the auth URL. No
 
 ### D7 — Auth label for environment auth without a key variable
 - `provider-register.ts` already reads `modelRegistry.getProviderAuthStatus(id)` for `configured`/`source`; it also copies `label` → `authLabel`. pi 1.0.0 `ModelRuntime.getProviderAuthStatus` returns `{ configured: true, source: "environment", label: "workload identity federation" }` for Anthropic federation.
-- `provider-auth-storage.ts` `_buildAuthStatus`: `authenticated` also true for an environment row with `authLabel` and no stored key; `row.authLabel` copied. Client Environment mechanism text = `authLabel ?? ambient text`.
+- `provider-auth-storage.ts` `_buildAuthStatus`: `authenticated` also true for an environment row with `authLabel`, no stored key, no `envVar` and not `ambient`; `row.authLabel` copied. pi 1.0.0 labels EVERY environment credential (env-var rows get the variable name), so the gate keeps env-var rows unchanged (user decision during implementation). Client Environment mechanism text = `envVar ? from <envVar> : authLabel ?? ambient text`.
 - Generic: any future pi env auth with a label is named, not just Anthropic.
+
+### D7a — Sign in with ChatGPT needs a device id (found during implementation)
+- pi 1.0.0 `openai` OAuth `login(interaction, options)` throws "Sign in with ChatGPT requires a device ID (UUID) for this installation" without `options.getDeviceId`. pi's TUI passes `SettingsManager.getOrCreateDeviceId()`.
+- The adapter passes `{ getDeviceId }` to every `login()`; `beginFlow` pre-loads pi's public `SettingsManager.create(cwd).getOrCreateDeviceId` (same id as the pi TUI; pi writes `deviceId` to `~/.pi/agent/settings.json` only when absent). Failure to load leaves it unset; only flows needing it fail, with pi's message.
+
+### D7b — Built-in MCP vs the dashboard's adapter entry (found in the harness)
+- pi 1.0.0 built-in MCP reads `<agentDir>/mcp.json` + `.pi/mcp.json`. The dashboard provisioned `mcpServers["pi-dashboard"]` there using the adapter-only `requestHeadersCommand`; built-in connected without the token and posted "MCP servers need attention: pi-dashboard: needs sign-in" in every session (broke e2e `extension-slash-inprocess` #F1).
+- `pi-mcp-adapter` >= 3 owns `<agentDir>/mcp-adapter.json` (2.x reads `mcp.json` only; 5.x also imports Pi's `mcp.json`).
+- Provisioning target follows the adapter pi loads: user-installed (`<agentDir>/{npm/,}node_modules`) else dashboard-bundled. Major >= 3 → `mcp-adapter.json`, and the dashboard's own stale adapter-shaped key (`url` + `requestHeadersCommand`) is removed from `mcp.json` via `removeServer`; a user's entry under the key stays. <= 2.x / none → `mcp.json` (unchanged).
+- Bundled `pi-mcp-adapter` `^2.20.0` → `^5.0.0` (config API names/signatures unchanged; schema gains 4 `ServerEntry` + 9 `McpSettings` keys). 5.0.0 declares peer pi-ai `^0.99.0` (lags 1.0.0 by hours); verified at runtime in the harness.
+- Full MCP migration stays in `migrate-mcp-to-pi-builtin`.
 
 ### D8 — Subscription flag
 - Registry build reads the pi OAuth provider's `isSubscription` (absent → `false`) into the registry entry and OAuth status rows (`subscription`). Client badge: `subscription === false` → "Account", otherwise "Subscription" (older server keeps today's text).

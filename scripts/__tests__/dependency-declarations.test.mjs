@@ -14,6 +14,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { rangeIsSatisfiable, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
+import { checkPiRangeShapes, piManifests } from '../verify-release-deps.mjs';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
@@ -209,6 +210,63 @@ describe('no wildcard ranges (E22)', () => {
       expect(rangeIsSatisfiable('^0.75.5', host), `^0.75.5 vs ${host}`).toBe(false);
       expect(rangeIsSatisfiable('>=0.75.5', host), `>=0.75.5 vs ${host}`).toBe(true);
     }
+  });
+});
+
+/**
+ * Every `@earendil-works` pi range follows the lockstep floor: peers `>=<min>`,
+ * optional, no upper bound; devDependencies `^<min>`. `@mariozechner/*` ranges
+ * are governed elsewhere.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E2, #E3).
+ */
+describe('earendil pi ranges follow the floor (E2, E3)', () => {
+  const floor = readJson(join(REPO_ROOT, 'packages', 'server', 'package.json')).piCompatibility.minimum;
+  const fixture = (path, pkg) => ({ path, pkg });
+  const peer = (range, optional = true) => ({
+    peerDependencies: { '@earendil-works/pi-ai': range },
+    peerDependenciesMeta: { '@earendil-works/pi-ai': { optional } },
+  });
+
+  it('the floor is 1.0.0 or later', () => {
+    expect(floor.localeCompare('1.0.0', undefined, { numeric: true }) >= 0, `minimum=${floor}`).toBe(true);
+  });
+
+  it('root + every packages/* manifest obeys the floor (E2)', () => {
+    expect(checkPiRangeShapes(piManifests(REPO_ROOT), floor)).toEqual([]);
+  });
+
+  it('a broad >=0.80.10 peer fails naming the manifest (E2)', () => {
+    const out = checkPiRangeShapes([fixture('packages/old/package.json', peer('>=0.80.10'))], '1.0.0');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('packages/old/package.json');
+    expect(out[0]).toContain('peerDependencies.@earendil-works/pi-ai');
+  });
+
+  it('an upper-bounded peer (<0.87.0) fails naming the manifest (E2)', () => {
+    const out = checkPiRangeShapes([fixture('packages/cap/package.json', peer('>=1.0.0 <0.87.0'))], '1.0.0');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('packages/cap/package.json');
+  });
+
+  it('a non-optional pi peer fails (E2)', () => {
+    const out = checkPiRangeShapes([fixture('packages/req/package.json', peer('>=1.0.0', false))], '1.0.0');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('optional');
+  });
+
+  it('a broad pi devDependency fails naming the manifest (E3)', () => {
+    const pkg = { devDependencies: { '@earendil-works/pi-tui': '>=0.80.10' } };
+    const out = checkPiRangeShapes([fixture('packages/dev/package.json', pkg)], '1.0.0');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('packages/dev/package.json devDependencies.@earendil-works/pi-tui');
+  });
+
+  it('a conforming fixture passes and @mariozechner ranges are ignored', () => {
+    const pkg = {
+      ...peer('>=1.0.0'),
+      devDependencies: { '@earendil-works/pi-tui': '^1.0.0', '@mariozechner/pi-tui': '>=0.80.10' },
+    };
+    expect(checkPiRangeShapes([fixture('packages/ok/package.json', pkg)], '1.0.0')).toEqual([]);
   });
 });
 

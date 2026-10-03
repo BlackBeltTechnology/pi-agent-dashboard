@@ -10,6 +10,7 @@ export {
   ADAPTER_VERSION_FLOOR,
   type AdapterVerdictProbe,
   adapterProbePaths,
+  bundledAdapterVersion,
   compareSemver,
   createAdapterVerdictProbe,
   probeAdapterVersion,

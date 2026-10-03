@@ -23,3 +23,5 @@ Both status-chip branches (desktop `w-4 h-4`, mobile bare icon) render `<Session
 Computes `working` (streaming ∨ `isRetrying`) + `isMergePrimary` once; threads to `SessionOpenSpecActions` and `GitSubcard` → `WorktreeActionsMenu` (`disabled`, `mergeIsPrimary`). See change: redesign-composer-session-strip.
 Selected card wraps each `.card-glow-fx` in an `aria-hidden` `.card-glow-mask` (outer: `card-glow-mask-outer`) — static mask wrapper so the glow never paints over card content. Test: `components/__tests__/selected-card-fx.test.tsx`. See change: fix-selected-card-light-wash.
 Desktop selected card background = `--bg-primary` (blue `--tint-blue-bg` fill dropped; rim carries selection). Mobile selected card keeps blue fill. See change: fix-selected-card-light-wash.
+
+Mounts `<PiBelowFloorWarning>` after the tag strip (mobile + desktop) when `session.piBelowFloor`. See change: update-pi-core-1-0-adopt-apis.

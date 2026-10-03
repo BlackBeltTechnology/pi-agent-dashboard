@@ -1208,7 +1208,7 @@ Headless command line:
 
 Detached spawn (`platform/detached-spawn.ts`): `spawnDetached` uses `detached: true` on every OS. Windows emits `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`, skips `AssignProcessToJobObject` → child excluded from parent's `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Pi sessions survive dashboard restart on all platforms (matches Unix PGID behavior). `headlessPidRegistry` reconciles survivors at `~/.pi/dashboard/headless-pids.json` on server boot.
 
-Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, gated pi >= 0.84.2; handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
+Reload path selection: headless (dashboard-spawned) sessions → server kill-and-respawn (`handleHeadlessReload`). tmux/wt/wsl-tmux → server forwards `/reload` over session WS → bridge `reload()` (`createTerminalReload`, `terminal-reload.ts`) self-dispatches `pi.sendUserMessage("/__dashboard_reload <token>", {expandPromptTemplates: true})`, ungated (pi 1.0.0 floor); handler gets fresh `ExtensionCommandContext` → `ctx.reload()`. `ExtensionContext` has no `reload()`; nothing captured. See change: fix-terminal-session-dashboard-reload.
 
 Cross-refs:
 - docs/architecture.md:1147
@@ -1317,11 +1317,11 @@ Cross-refs:
 
 ## Why does /ctx-stats work in some sessions but not others?
 
-Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), gated on running pi >= 0.84.2. No session-kind probe, no keeper UDS route.
+Now works in every session kind. Extension commands dispatch in-process via `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` (step 9), ungated (pi 1.0.0 lockstep floor). No session-kind probe, no keeper UDS route.
 
 Pi runs `_tryExecuteExtensionCommand` FIRST — before its compaction guard, before `streamingBehavior` — so headless, tmux, terminal and user-launched sessions all dispatch the same way. `deliverAs` is inert for an extension command.
 
-Below pi 0.84.2: no dispatch. Gate emits `command_feedback {status:"error", message:"Extension slash commands from the dashboard require pi 0.84.2+"}` and the raw slash never reaches the model.
+Below the floor: no per-feature gate. A session running a pi below `piCompatibility.minimum` (1.0.0) shows the generic `piBelowFloor` warning on the session card + chat header; dispatch itself is ungated.
 
 Retired by change `retire-slash-dispatch-via-expand-prompt-templates`: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper UDS), Path D (tmux / Windows Terminal error). Keeper sidecar UNCHANGED — still the durable owner of pi's stdin across dashboard restarts.
 

@@ -16,7 +16,7 @@
  * See change: enable-standalone-npm-install (task 7.2).
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -68,8 +68,13 @@ const RULES = [
       "that and restores the ./client compatibility entry point. 0.86.1 adds the " +
       "`meta` OAuth provider, and is the floor the server's OAuth registry " +
       "(ModelRuntime-sourced, delegated to pi-ai) is verified against. " +
-      "See change: delegate-provider-oauth-to-pi-ai.",
-    minVersion: "0.86.1",
+      "See change: delegate-provider-oauth-to-pi-ai. 1.0.0 is the single " +
+      "supported pi: every @earendil-works pi range (publishable peers, " +
+      "devDependencies, the three workspace overrides) joins the lockstep, which " +
+      "retires the per-feature version gates and the legacy pi-ai generation; " +
+      "1.0.0 also adds the `openai` (ChatGPT) OAuth provider. " +
+      "See change: update-pi-core-1-0-adopt-apis.",
+    minVersion: "1.0.0",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -143,11 +148,93 @@ export function floorOf(range) {
   return m ? m[1] : null;
 }
 
+/** The `@earendil-works` pi packages whose ranges are governed by the floor. */
+export const GOVERNED_PI_PACKAGES = [
+  "@earendil-works/pi-coding-agent",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-tui",
+];
+
 /**
- * pi pin coherence: the SIX single-source pi-version pins MUST resolve to the
+ * The publishable manifests that may declare pi ranges: the root
+ * `package.json` (a published pi package) plus every `packages/*` manifest.
+ * Returns `[{ path, pkg }]` with repo-relative paths. A missing root manifest
+ * is skipped (fixture trees). `packages/electron/resources/bundled-extensions/`
+ * is never scanned: it is not packaged, so it is not a pin surface.
+ * See change: update-pi-core-1-0-adopt-apis.
+ */
+export function piManifests(repoRoot = REPO_ROOT) {
+  const out = [];
+  const rootPkg = path.join(repoRoot, "package.json");
+  if (existsSync(rootPkg)) out.push({ path: "package.json", pkg: JSON.parse(readFileSync(rootPkg, "utf-8")) });
+  const base = path.join(repoRoot, "packages");
+  if (!existsSync(base)) return out;
+  for (const dir of readdirSync(base).sort()) {
+    const rel = `packages/${dir}/package.json`;
+    const abs = path.join(repoRoot, rel);
+    if (existsSync(abs)) out.push({ path: rel, pkg: JSON.parse(readFileSync(abs, "utf-8")) });
+  }
+  return out;
+}
+
+/**
+ * Every governed pi range declared in `manifests`, as `[label, range]` pairs:
+ * peer ranges and devDependency ranges for the three governed packages.
+ * `@mariozechner/*` ranges are not governed here.
+ */
+function piRangeSurfaces(manifests) {
+  const surfaces = [];
+  for (const { path: rel, pkg } of manifests ?? []) {
+    for (const field of ["peerDependencies", "devDependencies"]) {
+      for (const dep of GOVERNED_PI_PACKAGES) {
+        const range = pkg?.[field]?.[dep];
+        if (range !== undefined) surfaces.push([`${rel} ${field}.${dep}`, range]);
+      }
+    }
+  }
+  return surfaces;
+}
+
+/**
+ * Range SHAPE for every governed pi range (the lockstep policy): a peer is
+ * exactly `>=<floor>`, optional (`peerDependenciesMeta.optional: true`) and
+ * carries no upper bound; a devDependency is exactly `^<floor>`. Returns one
+ * failure string per offending range, naming the manifest + field + dep, or
+ * `[]` when conforming.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E2, #E3).
+ */
+export function checkPiRangeShapes(manifests, floor) {
+  const failures = [];
+  for (const { path: rel, pkg } of manifests ?? []) {
+    for (const dep of GOVERNED_PI_PACKAGES) {
+      const peer = pkg?.peerDependencies?.[dep];
+      if (peer !== undefined) {
+        if (peer !== `>=${floor}`) {
+          failures.push(
+            `${rel} peerDependencies.${dep} = "${peer}" — must be ">=${floor}" (floor-tracking lower bound, no upper bound)`,
+          );
+        }
+        if (pkg?.peerDependenciesMeta?.[dep]?.optional !== true) {
+          failures.push(`${rel} peerDependencies.${dep} must be optional (peerDependenciesMeta.optional: true)`);
+        }
+      }
+      const dev = pkg?.devDependencies?.[dep];
+      if (dev !== undefined && dev !== `^${floor}`) {
+        failures.push(`${rel} devDependencies.${dep} = "${dev}" — must be "^${floor}"`);
+      }
+    }
+  }
+  return failures;
+}
+
+/**
+ * pi pin coherence: the single-source pi-version pins MUST resolve to the
  * same normalized version — the server dependency range, `minimum`,
- * `piCompatibility.recommended`, the docker global-install pin, the
- * `pnpm-workspace.yaml` override, and the checker's own `minVersion`.
+ * `piCompatibility.recommended`, the docker global-install pin, the three
+ * `pnpm-workspace.yaml` overrides (pi-coding-agent, pi-ai, pi-tui), every
+ * `@earendil-works` pi peer lower bound and devDependency range in
+ * `manifests` (optional; `[{ path, pkg }]`), and the checker's own
+ * `minVersion`.
  * Compares normalized floors (via `floorOf`) so the differing syntaxes
  * `^0.85.1` / `0.85.1` / `@0.85.1` are treated equal. Returns an error string
  * naming the drifted site(s), or null when coherent. Exported so the unit test
@@ -158,13 +245,15 @@ export function floorOf(range) {
  * semantically equal to `recommended`, and a stale override silently ghosts
  * the tree under `nodeLinker: hoisted` (the harness catches it, no unit test
  * does) — so both join the governed set.
- * See change: update-pi-core-0-85-adopt-apis.
+ * See change: update-pi-core-0-85-adopt-apis. update-pi-core-1-0-adopt-apis
+ * adds the pi-ai / pi-tui overrides and the manifest ranges.
  */
 export function checkPiPinCoherence(
   serverPkg,
   dockerfileText,
   workspaceYamlText,
   checkerMinVersion,
+  manifests = [],
 ) {
   const depRange = serverPkg?.dependencies?.["@earendil-works/pi-coding-agent"];
   const recommended = serverPkg?.piCompatibility?.recommended;
@@ -173,10 +262,10 @@ export function checkPiPinCoherence(
     /@earendil-works\/pi-coding-agent@(\S+)/,
   );
   const dockerPin = dockerMatch ? dockerMatch[1] : undefined;
-  const overrideMatch = String(workspaceYamlText ?? "").match(
-    /^\s*"@earendil-works\/pi-coding-agent":\s*(\S+)/m,
-  );
-  const overridePin = overrideMatch ? overrideMatch[1] : undefined;
+  const overridePins = GOVERNED_PI_PACKAGES.map((dep) => {
+    const m = String(workspaceYamlText ?? "").match(new RegExp(`^\\s*"${dep}":\\s*(\\S+)`, "m"));
+    return [`pnpm-workspace.yaml overrides ${dep}`, m ? m[1] : undefined];
+  });
   const checkerPin = checkerMinVersion;
 
   const missing = [];
@@ -184,7 +273,7 @@ export function checkPiPinCoherence(
   if (!recommended) missing.push("piCompatibility.recommended");
   if (!minimum) missing.push("piCompatibility.minimum");
   if (!dockerPin) missing.push("docker/Dockerfile");
-  if (!overridePin) missing.push("pnpm-workspace.yaml override");
+  for (const [name, pin] of overridePins) if (!pin) missing.push(name);
   if (!checkerPin) missing.push("verify-release-deps.mjs minVersion");
   if (missing.length > 0) {
     return (
@@ -198,8 +287,9 @@ export function checkPiPinCoherence(
     ["piCompatibility.recommended", recommended],
     ["piCompatibility.minimum", minimum],
     ["docker/Dockerfile", dockerPin],
-    ["pnpm-workspace.yaml overrides", overridePin],
+    ...overridePins,
     ["verify-release-deps.mjs minVersion", checkerPin],
+    ...piRangeSurfaces(manifests),
   ];
   const recFloor = floorOf(recommended);
   const floors = surfaces.map(([name, value]) => [name, floorOf(value)]);
@@ -213,7 +303,7 @@ export function checkPiPinCoherence(
   const drifted = floors.filter(([, floor]) => floor !== recFloor);
   if (drifted.length === 0) return null;
   return (
-    "pi pin drift: the six pi-version pins must resolve to one version — " +
+    "pi pin drift: the governed pi-version pins must resolve to one version — " +
     `piCompatibility.recommended "${recommended}" (floor ${recFloor}); drifted: ` +
     drifted.map(([name, floor]) => `${name} ("${floor}")`).join(", ")
   );
@@ -301,7 +391,8 @@ try {
     failures.push(`Cannot check openspec floor consistency: ${err.message}`);
   }
 
-  // pi pin coherence gate: six surfaces must resolve to one pi version.
+  // pi pin coherence gate: every governed surface must resolve to one pi version,
+  // and every governed pi range must have the lockstep shape.
   try {
     const serverPkg = JSON.parse(
       readFileSync(path.join(repoRoot, "packages/server/package.json"), "utf-8"),
@@ -311,13 +402,17 @@ try {
     const piRule = RULES.find(
       (r) => r.pkgPath === "packages/server/package.json" && r.dep === "@earendil-works/pi-coding-agent",
     );
+    const manifests = piManifests(repoRoot);
     const piDrift = checkPiPinCoherence(
       serverPkg,
       dockerfileText,
       workspaceYamlText,
       piRule?.minVersion,
+      manifests,
     );
     if (piDrift) failures.push(piDrift);
+    const floor = serverPkg?.piCompatibility?.minimum;
+    if (floor) failures.push(...checkPiRangeShapes(manifests, floor));
   } catch (err) {
     failures.push(`Cannot check pi pin coherence: ${err.message}`);
   }

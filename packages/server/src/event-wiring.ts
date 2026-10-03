@@ -28,6 +28,7 @@ import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
 import type { PiGateway } from "./pi/pi-gateway.js";
+import { computePiBelowFloor, serverPiMinimum } from "./pi/pi-version-skew.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { routeReloadFeedback } from "./rpc-keeper/dispatch-reload.js";
 import {
@@ -2038,9 +2039,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     if (msg.type === "pi_version_update") {
       // Bridge reports the pi version its session actually runs (ground truth
       // from inside pi's process). Store + broadcast, mirroring git_info_update.
-      // See change: restore-pi-version-skew-surface.
-      sessionManager.update(sessionId, { piVersion: msg.version });
-      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version });
+      // The below-floor flag replaces per-feature pi version gates: one generic
+      // signal, `null` when in-floor so a stale flag is cleared.
+      // See change: restore-pi-version-skew-surface, update-pi-core-1-0-adopt-apis.
+      const piBelowFloor = computePiBelowFloor(msg.version, serverPiMinimum());
+      sessionManager.update(sessionId, { piVersion: msg.version, piBelowFloor });
+      browserGateway.broadcastSessionUpdated(sessionId, { piVersion: msg.version, piBelowFloor });
     }
 
     if (msg.type === "files_list") {

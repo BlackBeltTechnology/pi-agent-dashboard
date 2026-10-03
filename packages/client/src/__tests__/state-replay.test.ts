@@ -559,3 +559,91 @@ describe("replayEntriesAsEvents", () => {
     expect(agentMsg!.toolDetails!.toolUses).toBe(3);
   });
 });
+
+/**
+ * pi 0.87+: a `context_edit` entry changes MODEL context only (append-only),
+ * never the UI history. Replay must ignore it without throwing, and the
+ * targeted message must still render.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E12).
+ */
+describe("replay tolerates context_edit (E12)", () => {
+  it("skips context_edit (replacement: null) and still renders the targeted user message", () => {
+    const entries = [
+      {
+        type: "message",
+        id: "u1",
+        parentId: null,
+        timestamp: "2026-10-01T00:00:00Z",
+        message: { role: "user", content: [{ type: "text", text: "keep me visible" }] },
+      },
+      { type: "context_edit", id: "c1", parentId: "u1", timestamp: "2026-10-01T00:00:01Z", targetId: "u1", replacement: null },
+    ];
+    let events: ReturnType<typeof replayEntriesAsEvents> = [];
+    expect(() => {
+      events = replayEntriesAsEvents("sess-1", entries);
+    }).not.toThrow();
+    expect(events.map((e) => e.event.eventType)).toEqual(["message_start"]);
+
+    let state = createInitialState();
+    for (const e of events) state = reduceEvent(state, e.event as any);
+    expect(JSON.stringify(state.messages)).toContain("keep me visible");
+  });
+});
+
+/**
+ * pi 1.0.0 codemode `image()` attachments (`models.generateImages()`): a
+ * codemode tool result carrying text + a PNG block shows ONE image on the
+ * codemode card, live and on replay.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E19).
+ */
+describe("codemode image attachments (E19)", () => {
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const content = [
+    { type: "text", text: "generated 1 image" },
+    { type: "image", data: PNG, mimeType: "image/png" },
+  ];
+
+  it("live tool_execution_end → one image on the codemode card", () => {
+    let state = createInitialState();
+    state = reduceEvent(state, {
+      eventType: "tool_execution_start",
+      timestamp: 1,
+      data: { toolCallId: "cm-1", toolName: "codemode", args: { code: "await image('a cat')" } },
+    } as any);
+    state = reduceEvent(state, {
+      eventType: "tool_execution_end",
+      timestamp: 2,
+      data: { toolCallId: "cm-1", toolName: "codemode", result: { content }, isError: false },
+    } as any);
+    const card = state.messages.find((m) => m.toolCallId === "cm-1");
+    expect(card?.toolName).toBe("codemode");
+    expect(card?.images).toEqual([{ data: PNG, mimeType: "image/png" }]);
+  });
+
+  it("replay of the same session → the same single image", () => {
+    const entries = [
+      {
+        type: "message",
+        id: "a1",
+        parentId: null,
+        timestamp: "2026-10-01T00:00:00Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "cm-1", name: "codemode", arguments: { code: "await image('a cat')" } }],
+        },
+      },
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: "2026-10-01T00:00:01Z",
+        message: { role: "toolResult", toolCallId: "cm-1", toolName: "codemode", content, isError: false },
+      },
+    ];
+    let state = createInitialState();
+    for (const e of replayEntriesAsEvents("sess-1", entries)) state = reduceEvent(state, e.event as any);
+    const cards = state.messages.filter((m) => m.toolCallId === "cm-1");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].images).toEqual([{ data: PNG, mimeType: "image/png" }]);
+  });
+});

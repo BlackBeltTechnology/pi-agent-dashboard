@@ -1,15 +1,15 @@
 /**
  * OAuth capability facade (design D7).
  *
- * Three boundaries move between pi-ai generations and only one of them is a
- * module-shape change:
+ * On every supported pi-ai (>= 1.0.0):
  *
- * 1. ≤0.75.x `dist/oauth.js` re-exports `getOAuthProvider` / `refreshOAuthToken`.
- * 2. ≥0.85 `dist/oauth.js` is a TYPE-ONLY stub (`export {};`). Holding it as a
- *    truthy `{}` is exactly the bug: every refresh throws `TypeError`.
- * 3. The real implementations moved to `dist/auth/oauth/*.js` behind ASYNC
- *    loaders (`load<Provider>OAuth()`), a path NOT in the package `exports`
- *    map.
+ * - `dist/oauth.js` is a TYPE-ONLY stub (`export {};`). Holding it as a truthy
+ *   `{}` was the original bug (every refresh threw `TypeError`), so it is never
+ *   consulted. The ≤0.75.x legacy `dist/oauth.js` preference is retired
+ *   (update-pi-core-1-0-adopt-apis).
+ * - The real implementations live in `dist/auth/oauth/*.js` behind ASYNC
+ *   loaders (`load<Provider>OAuth()`), a path NOT in the package `exports`
+ *   map.
  *
  * The facade resolves per provider, pre-loads the async loaders during
  * `adaptPiAi` so `InternalAuthStorage`'s synchronous `getOAuthProvider(id)`
@@ -20,13 +20,10 @@
  * Degradation is PARTIAL and EXPLICIT: an unreachable provider reports
  * `isAvailable(id) === false` with a reason; api-key models keep routing.
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: adopt-piai-factory-api-registry, update-pi-core-1-0-adopt-apis.
  */
 import { derivePiAiSubpath } from "./subpath.js";
 import type { AdaptDeps, OAuthRefreshCredentials, PiAiOAuthModule } from "./types.js";
-
-/** Members a legacy `dist/oauth.js` must export to be usable. */
-const LEGACY_OAUTH_MEMBERS = ["getOAuthProvider", "refreshOAuthToken"] as const;
 
 /**
  * Provider id → loader export in `dist/auth/oauth/load.js`.
@@ -56,12 +53,6 @@ interface PiAiOAuthCredential {
 
 interface PiAiOAuthAuth {
   refresh: (credential: PiAiOAuthCredential, signal: AbortSignal) => Promise<PiAiOAuthCredential>;
-}
-
-function isUsableLegacyOAuth(mod: unknown): boolean {
-  if (!mod || typeof mod !== "object") return false;
-  const rec = mod as Record<string, unknown>;
-  return LEGACY_OAUTH_MEMBERS.every((m) => typeof rec[m] === "function");
 }
 
 /**
@@ -112,7 +103,7 @@ function toStorageProvider(auth: PiAiOAuthAuth) {
 }
 
 /** A facade in which no provider has a reachable OAuth implementation. */
-export function unavailableOAuthFacade(reason: string): PiAiOAuthModule {
+function unavailableOAuthFacade(reason: string): PiAiOAuthModule {
   return {
     isAvailable: () => false,
     unavailableReason: () => reason,
@@ -123,63 +114,31 @@ export function unavailableOAuthFacade(reason: string): PiAiOAuthModule {
   };
 }
 
-/** Wrap a usable legacy `dist/oauth.js` — it already speaks the storage contract. */
-export function legacyOAuthFacade(mod: Record<string, any>): PiAiOAuthModule {
-  return {
-    isAvailable: (providerId: string) =>
-      typeof mod.getOAuthProvider === "function" &&
-      (mod.getOAuthProvider(providerId) !== undefined || typeof mod.refreshOAuthToken === "function"),
-    unavailableReason: () => undefined,
-    getOAuthProvider: (id: string) => mod.getOAuthProvider(id),
-    refreshOAuthToken: (providerId, credentials, signal) =>
-      mod.refreshOAuthToken(providerId, credentials, signal),
-  };
-}
-
 /**
  * Build the OAuth facade for a resolved pi-ai.
  *
- * Resolution order per design D7: usable legacy `oauth.js` → relocated async
- * loaders → unavailable. Every step PROBES; nothing is assumed reachable,
- * because `dist/auth/oauth/*` is outside the package `exports` map and may
- * move on any minor release.
+ * Resolution: relocated async loaders → unavailable. The step PROBES; nothing
+ * is assumed reachable, because `dist/auth/oauth/*` is outside the package
+ * `exports` map and may move on any minor release.
  *
  * An UNRECOGNIZED resolved layout is the one failure that is NOT degraded:
- * it propagates out of here (see the derivation comment below), because a
- * wrong layout means every derived path is meaningless and reporting "no OAuth"
- * would hide it.
+ * derivation THROWS on it (it does not return a bogus path) and that error is
+ * deliberately NOT caught here — swallowing it would turn "the resolved layout
+ * is wrong" into "no provider has OAuth", the silent-downgrade the spec
+ * forbids. The error names the resolved path and surfaces through the
+ * registry's `lastError`.
+ * See change: adopt-piai-factory-api-registry (spec: "Unexpected resolved
+ * layout is reported").
  */
 export async function buildOAuthFacade(
   resolvedPath: string,
   deps: Required<Pick<AdaptDeps, "importPath" | "exists">>,
 ): Promise<PiAiOAuthModule> {
-  // 1. Legacy oauth.js — only when it ACTUALLY exports the expected functions.
-  //    A ≥0.85 `export {}` stub is truthy but unusable; that is the bug.
-  //
-  //    Derivation THROWS on an unrecognized layout (it does not return a bogus
-  //    path), and that error is deliberately NOT caught here: swallowing it
-  //    would turn "the resolved layout is wrong" into "no provider has OAuth",
-  //    which is the silent-downgrade the spec forbids. The error names the
-  //    resolved path and surfaces through the registry's `lastError`.
-  //    See change: adopt-piai-factory-api-registry (spec: "Unexpected resolved
-  //    layout is reported").
-  const legacyPath = derivePiAiSubpath(resolvedPath, "oauth.js");
-  if (deps.exists(legacyPath)) {
-    try {
-      const mod = await deps.importPath(legacyPath);
-      if (isUsableLegacyOAuth(mod)) return legacyOAuthFacade(mod as Record<string, any>);
-    } catch {
-      // The MODULE failed to load/parse (not the derivation) — fall through to
-      // the relocated loaders, which is a real optional-capability case.
-    }
-  }
-
-  // 2. Relocated async loaders under dist/auth/oauth/load.js.
   const loadPath = derivePiAiSubpath(resolvedPath, "auth/oauth/load.js");
   if (!deps.exists(loadPath)) {
     return unavailableOAuthFacade(
       `no usable OAuth implementation found for the pi-ai resolved at "${resolvedPath}" ` +
-        `(dist/oauth.js exports no refresh functions and dist/auth/oauth/load.js is absent)`,
+        "(dist/auth/oauth/load.js is absent)",
     );
   }
 

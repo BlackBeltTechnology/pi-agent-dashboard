@@ -1,5 +1,5 @@
 /**
- * pi pin coherence gate: the SIX single-source pi-version pins (server dep
+ * pi pin coherence gate: the single-source pi-version pins (server dep
  * range, `piCompatibility.minimum`, `piCompatibility.recommended`, the
  * docker/Dockerfile global-install pin, the pnpm-workspace.yaml override, and
  * the checker's own `minVersion`) MUST resolve to one normalized version.
@@ -7,23 +7,36 @@
  * module must not run the CLI).
  *
  * See change: update-pi-core-0-85-adopt-apis (test-plan #E1/#E2/#E3).
+ * update-pi-core-1-0-adopt-apis widens the governed set to the pi-ai / pi-tui
+ * overrides plus every `@earendil-works` pi peer lower bound and devDependency
+ * range in the root + packages/* manifests (test-plan #E4).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkPiPinCoherence } from "../verify-release-deps.mjs";
+import { checkPiPinCoherence, piManifests } from "../verify-release-deps.mjs";
 
-const V = "0.85.1";
+const V = "1.0.0";
 const serverPkg = (dep, recommended, minimum = recommended) => ({
   dependencies: { "@earendil-works/pi-coding-agent": dep },
   piCompatibility: { recommended, minimum },
 });
 const dockerfile = (pin) =>
   `RUN npm install -g @earendil-works/pi-coding-agent@${pin} openspec \\`;
-const workspace = (pin) =>
-  `overrides:\n  "@earendil-works/pi-coding-agent": ${pin}\n`;
-const check = (pkg, dock, ws, checker = V) => checkPiPinCoherence(pkg, dock, ws, checker);
+const workspace = (pin, { ai = pin, tui = pin } = {}) =>
+  "overrides:\n" +
+  `  "@earendil-works/pi-coding-agent": ${pin}\n` +
+  `  "@earendil-works/pi-ai": ${ai}\n` +
+  `  "@earendil-works/pi-tui": ${tui}\n`;
+const check = (pkg, dock, ws, checker = V, manifests) =>
+  checkPiPinCoherence(pkg, dock, ws, checker, manifests);
+const manifest = (path, pkg) => ({ path, pkg });
+const peerPkg = (range, devRange) => ({
+  peerDependencies: { "@earendil-works/pi-coding-agent": range },
+  peerDependenciesMeta: { "@earendil-works/pi-coding-agent": { optional: true } },
+  ...(devRange ? { devDependencies: { "@earendil-works/pi-tui": devRange } } : {}),
+});
 
 describe("checkPiPinCoherence — six governed pins", () => {
   it("E8: coherent six-pin fixture passes", () => {
@@ -71,23 +84,71 @@ describe("checkPiPinCoherence — six governed pins", () => {
     expect(check(serverPkg(`^${V}`, V), "no pin here", workspace(V))).toContain("missing");
     expect(check(serverPkg(`^${V}`, V), dockerfile(V), "no override here")).toContain("missing");
   });
+
+  it("E4: a drifted pi-tui override fails and names it", () => {
+    const err = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V, { tui: "0.98.0" }));
+    expect(err).toBeTruthy();
+    expect(err).toContain("pnpm-workspace.yaml overrides @earendil-works/pi-tui");
+    expect(err).not.toContain("overrides @earendil-works/pi-ai");
+  });
+
+  it("E4: a missing pi-ai override is reported", () => {
+    const ws = `overrides:\n  "@earendil-works/pi-coding-agent": ${V}\n  "@earendil-works/pi-tui": ${V}\n`;
+    const err = check(serverPkg(`^${V}`, V), dockerfile(V), ws);
+    expect(err).toContain("missing");
+    expect(err).toContain("@earendil-works/pi-ai");
+  });
+
+  it("E4: coherent manifests (peer lower bounds + devDeps) pass", () => {
+    const manifests = [
+      manifest("package.json", peerPkg(`>=${V}`, `^${V}`)),
+      manifest("packages/a/package.json", peerPkg(`>=${V}`)),
+    ];
+    expect(check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, manifests)).toBeNull();
+  });
+
+  it("E4: a drifted peer lower bound fails naming exactly that manifest", () => {
+    const manifests = [
+      manifest("package.json", peerPkg(`>=${V}`)),
+      manifest("packages/a/package.json", peerPkg(">=0.86.1")),
+    ];
+    const err = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, manifests);
+    expect(err).toBeTruthy();
+    expect(err).toContain("packages/a/package.json peerDependencies.@earendil-works/pi-coding-agent");
+    // only the drifted manifest is named, not the coherent root one
+    expect(err.match(/peerDependencies\./g)).toHaveLength(1);
+  });
+
+  it("E4: a drifted pi devDependency fails naming the manifest", () => {
+    const manifests = [manifest("packages/b/package.json", peerPkg(`>=${V}`, "^0.86.1"))];
+    const err = check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, manifests);
+    expect(err).toContain("packages/b/package.json devDependencies.@earendil-works/pi-tui");
+  });
+
+  it("@mariozechner ranges are not governed here", () => {
+    const pkg = {
+      ...peerPkg(`>=${V}`),
+      devDependencies: { "@mariozechner/pi-coding-agent": ">=0.80.10" },
+    };
+    const manifests = [manifest("packages/c/package.json", pkg)];
+    expect(check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, manifests)).toBeNull();
+  });
 });
 
 /**
- * test-plan E28 — the gate is what actually holds the repo's OWN six pins
+ * test-plan E28 — the gate is what actually holds the repo's OWN pins
  * together at HEAD, not just synthetic fixtures.
  *
- * The floor asserted here is `0.86.1` (the version that bundles the `meta`
- * OAuth provider) rather than an exact equality: the requirement is
- * "`^0.86.1` or later, and every other pin agrees", so a later lockstep bump
- * must NOT have to edit this test. What it forbids is a pin below the floor or
- * any disagreement between the six surfaces.
- * See change: delegate-provider-oauth-to-pi-ai (D3).
+ * The floor asserted here is `1.0.0` rather than an exact equality: the
+ * requirement is "`^1.0.0` or later, and every other pin agrees", so a later
+ * lockstep bump must NOT have to edit this test. What it forbids is a pin below
+ * the floor or any disagreement between the governed surfaces.
+ * See change: delegate-provider-oauth-to-pi-ai (D3), update-pi-core-1-0-adopt-apis.
  */
-describe("repo HEAD — six governed pins agree at or above the meta floor", () => {
+describe("repo HEAD — governed pins agree at or above the 1.0.0 floor", () => {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const read = (rel) => fs.readFileSync(path.join(repoRoot, rel), "utf8");
-  const FLOOR = "0.86.1";
+  const FLOOR = "1.0.0";
 
   const serverPkg = JSON.parse(read("packages/server/package.json"));
   const dockerfileText = read("docker/Dockerfile");
@@ -100,9 +161,15 @@ describe("repo HEAD — six governed pins agree at or above the meta floor", () 
 
   const floorOf = (value) => String(value ?? "").match(/(\d+\.\d+\.\d+)/)?.[1];
 
-  it("the six-pin coherence gate passes on the real tree", () => {
+  it("the coherence gate passes on the real tree (incl. every manifest)", () => {
     expect(
-      checkPiPinCoherence(serverPkg, dockerfileText, workspaceYamlText, checkerPin),
+      checkPiPinCoherence(
+        serverPkg,
+        dockerfileText,
+        workspaceYamlText,
+        checkerPin,
+        piManifests(repoRoot),
+      ),
     ).toBeNull();
   });
 

@@ -653,6 +653,7 @@ export function _buildProviderCatalogue(
     } catch { /* fallback to id */ }
     let configured = false;
     let source: ProviderInfo["source"];
+    let authLabel: string | undefined;
     try {
       // Registry-level status (pi-ai 0.80.x) sees keys supplied via
       // pi.registerProvider() (held in providerRequestConfigs), which
@@ -664,6 +665,10 @@ export function _buildProviderCatalogue(
         if (regStatus) {
           configured = !!regStatus.configured;
           source = regStatus.source;
+          // pi >= 0.99.2 labels environment auth (e.g. "workload identity
+          // federation", which no env-key probe can see). See change:
+          // update-pi-core-1-0-adopt-apis (D7).
+          if (typeof regStatus.label === "string" && regStatus.label) authLabel = regStatus.label;
         }
       } else {
         const status = modelRegistry.authStorage?.getAuthStatus?.(id);
@@ -697,6 +702,7 @@ export function _buildProviderCatalogue(
       source,
       envVar,
       ambient,
+      ...(authLabel ? { authLabel } : {}),
       expires,
       custom: customIds.has(id) || undefined,
     };

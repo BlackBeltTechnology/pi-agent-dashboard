@@ -298,3 +298,49 @@ describe("D3 re-mint on every re-register (wire-mcp-session-token)", () => {
     expect(mint.sessionId).toBe("sess-456");
   });
 });
+
+/**
+ * pi 0.99+ creates the session file on the FIRST user message, so a bridge
+ * registers while `getSessionFile()` names a path that does not exist yet.
+ * Register + state sync must succeed with cwd/model and log no error; a later
+ * session change picks the file up.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #X1).
+ */
+describe("session file not yet created (X1)", () => {
+  it("registers headless and TUI sessions without error and records the path", async () => {
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-nofile-"));
+    const missing = path.join(dir, "not-yet.jsonl");
+    expect(fs.existsSync(missing)).toBe(false);
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const cachedHasUI of [false, true]) {
+        const bc = createMockBridgeContext({
+          cachedHasUI,
+          cachedCtx: {
+            sessionManager: {
+              getSessionFile: () => missing,
+              getSessionDir: () => dir,
+              getBranch: () => [],
+              getEntries: () => [],
+            },
+          } as any,
+        });
+        expect(() => sendStateSync(bc, () => [])).not.toThrow();
+        const register = (bc as any)._sent.find((m: any) => m.type === "session_register");
+        expect(register).toBeDefined();
+        expect(register.sessionFile).toBe(missing);
+        expect(register.cwd).toBe(process.cwd());
+      }
+      expect(err).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      err.mockRestore();
+      warn.mockRestore();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

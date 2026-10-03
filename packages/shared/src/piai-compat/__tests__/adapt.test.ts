@@ -1,7 +1,8 @@
 /**
  * `adaptPiAi` end-to-end behaviour across both generations.
  *
- * Covers test-plan #E1 (legacy passthrough), #E2 (factory adapted),
+ * Covers test-plan #E2 (factory adapted), #E9 (legacy rejected — the legacy
+ * passthrough #E1 is retired by update-pi-core-1-0-adopt-apis),
  * #E3/#E4 (rejections), #E5 (getProviders projection + non-trivial COUNT),
  * #E10 (built-in dedup precedence unperturbed) and #P2 (first-use cost).
  *
@@ -17,52 +18,27 @@ import { emptyStream, factoryFake, legacyFake, resolveFactoryPiAi } from "./fake
 
 const LEGACY_PATH = ["", "fake", "pi-ai", "dist", "index.js"].join(sep);
 
-describe("adaptPiAi — legacy branch", () => {
-  // test-plan #E1
-  it("returns the input object identity and probes NO factory subpath", async () => {
-    const mod = legacyFake({ streamSimple: () => emptyStream() });
+describe("adaptPiAi — factory generation only (E9)", () => {
+  // test-plan #E9 — legacy-only module → error naming unsupported legacy pi-ai.
+  it("rejects a legacy-only module naming it an unsupported legacy pi-ai, probing nothing", async () => {
     const imported: string[] = [];
-    const result = await adaptPiAi(mod, LEGACY_PATH, {
-      importPath: async (p) => {
+    const deps = {
+      importPath: async (p: string) => {
         imported.push(p);
         return {};
       },
-      exists: () => false,
-    });
-
-    expect(result.generation).toBe("legacy");
-    expect(result.module).toBe(mod);
-    // No providers/all.js, no api/*.lazy.js, no utils/transcript.js.
-    expect(imported.filter((p) => /providers|api|transcript/.test(p))).toEqual([]);
+      exists: () => true,
+    };
+    await expect(adaptPiAi(legacyFake({ streamSimple: () => emptyStream() }), LEGACY_PATH, deps)).rejects.toThrow(
+      /unsupported legacy pi-ai/,
+    );
+    await expect(adaptPiAi(legacyFake(), undefined, deps)).rejects.toThrow(/1\.0\.0/);
+    expect(imported).toEqual([]);
   });
 
-  // test-plan #X7 (the seam half) — the legacy branch must not normalize.
-  it("does not wrap streamSimple, so the legacy context passes through unnormalized", async () => {
-    const seen: any[] = [];
-    const mod = legacyFake({
-      streamSimple: (_m: any, ctx: any) => {
-        seen.push(ctx);
-        return emptyStream();
-      },
-    });
-    const { module } = await adaptPiAi(mod, LEGACY_PATH, {
-      importPath: async () => ({}),
-      exists: () => false,
-    });
-    const context = { messages: [{ role: "user" }], systemPrompt: "SP", tools: [{ name: "t" }] };
-    module.streamSimple({ provider: "p", id: "m", api: "anthropic-messages" }, context);
-
-    expect(seen).toHaveLength(1);
-    // Identity: not a normalized `{ messages }` projection.
-    expect(seen[0]).toBe(context);
-    expect(seen[0].systemPrompt).toBe("SP");
-  });
-
-  it("works without a resolved path, reporting OAuth unavailable", async () => {
-    const mod = legacyFake();
-    const result = await adaptPiAi(mod, undefined, { importPath: async () => ({}), exists: () => false });
-    expect(result.module).toBe(mod);
-    expect(result.oauth.isAvailable("anthropic")).toBe(false);
+  // test-plan #E9 — partial factory → error naming the missing members.
+  it("rejects a partial factory module naming the missing member", async () => {
+    await expect(adaptPiAi({ createModels: () => ({}) }, LEGACY_PATH)).rejects.toThrow(/createProvider/);
   });
 });
 
