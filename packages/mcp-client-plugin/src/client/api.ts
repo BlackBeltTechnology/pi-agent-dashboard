@@ -87,9 +87,11 @@ export async function fetchEffective(cwd?: string): Promise<EffectiveView> {
  * call on page view and on an explicit refresh only; render from `/effective`
  * first.
  */
-export async function fetchLive(cwd?: string): Promise<LiveState> {
+export async function fetchLive(cwd?: string, opts?: { fresh?: boolean }): Promise<LiveState> {
   const params = new URLSearchParams();
   if (cwd) params.set("cwd", cwd);
+  // An explicit refresh bypasses the server's 30 s per-cwd cache.
+  if (opts?.fresh) params.set("fresh", "1");
   const qs = params.toString();
   return readJson<LiveState>(await fetch(`${API_BASE}/live${qs ? `?${qs}` : ""}`));
 }

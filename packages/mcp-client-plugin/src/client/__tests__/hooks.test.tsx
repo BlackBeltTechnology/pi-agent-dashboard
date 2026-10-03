@@ -116,6 +116,10 @@ describe("useLiveState — page view + explicit refresh only", () => {
     result.current.refresh();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(result.current.live).toEqual(LIVE_OK);
+    // review r3 B1: the page view may use the server's 30 s cache; an explicit
+    // refresh must bypass it (`fresh=1`) or it returns the cached state.
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("fresh=1");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("fresh=1");
   });
 
   it("a failed live fetch leaves live null without throwing", async () => {

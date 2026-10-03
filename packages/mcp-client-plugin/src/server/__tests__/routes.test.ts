@@ -99,6 +99,14 @@ describe("mcp-client routes", () => {
     expect(res.json()).toMatchObject({ ok: true, servers: { a: { state: "connected", tools: 1 } } });
   });
 
+  it("GET /live is cached per cwd; ?fresh=1 reruns pi mcp list", async () => {
+    await h.app.inject({ method: "GET", url: "/api/mcp-client/live" });
+    await h.app.inject({ method: "GET", url: "/api/mcp-client/live" });
+    expect(h.runnerCalls).toHaveLength(1);
+    await h.app.inject({ method: "GET", url: "/api/mcp-client/live?fresh=1" });
+    expect(h.runnerCalls).toHaveLength(2);
+  });
+
   it("PUT /servers/:name saves the whole entry", async () => {
     const res = await h.app.inject({
       method: "PUT",

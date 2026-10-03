@@ -149,7 +149,8 @@ export function useLiveState(cwd?: string): LiveStateHook {
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    fetchLive(cwd)
+    // nonce 0 = page view (server cache ok); > 0 = explicit refresh (fresh).
+    fetchLive(cwd, nonce > 0 ? { fresh: true } : undefined)
       .then((v) => {
         if (alive) setLive(v);
       })

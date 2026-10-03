@@ -70,11 +70,11 @@ export function createMcpDashboardRegistrar(deps: McpDashboardRegistrarDeps): Mc
   let registered = false;
   let reported = false;
 
-  const unavailable = (reason: McpRegistrationUnavailableReason, detail?: string): void => {
+  const unavailable = (reason: McpRegistrationUnavailableReason): void => {
     if (reported) return;
     reported = true;
     deps.log?.warn(
-      `[dashboard] MCP registration unavailable for session ${deps.sessionId()} (${reason}${detail ? `: ${detail}` : ""}); dashboard MCP tools are not reachable from this session`,
+      `[dashboard] MCP registration unavailable for session ${deps.sessionId()} (${reason}); dashboard MCP tools are not reachable from this session`,
     );
     try {
       deps.reportUnavailable(reason);
@@ -118,8 +118,10 @@ export function createMcpDashboardRegistrar(deps: McpDashboardRegistrarDeps): Mc
           headers: { Authorization: `Bearer ${token}` },
           exposure: "deferred",
         });
-      } catch (err) {
-        unavailable("register-failed", (err instanceof Error ? err.message : String(err)).slice(0, 200));
+      } catch {
+        // No exception text: pi's error may echo the rejected config, and with
+        // it the bearer. The fixed reason is the whole record.
+        unavailable("register-failed");
         return;
       }
       registered = true;

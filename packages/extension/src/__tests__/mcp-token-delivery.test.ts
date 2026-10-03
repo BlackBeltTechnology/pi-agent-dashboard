@@ -219,6 +219,17 @@ describe("E16 — registration guard", () => {
     expect(reports).toEqual(["api-missing", "api-missing"]);
   });
 
+  // review r3 B2: pi's error may echo the rejected config (and with it the bearer).
+  it("a registration error that contains the token never reaches a log line", () => {
+    const { deps, pi, lines } = makeDeps();
+    pi.registerMcpServer.mockImplementation((_n: string, config: unknown) => {
+      throw new Error(`invalid config ${JSON.stringify(config)}`);
+    });
+    createMcpDashboardRegistrar(deps).onMinted(minted("mcp_secret-in-error"));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l).not.toContain("mcp_secret-in-error");
+  });
+
   it("delivery without a url (older server): no registration, one report", () => {
     const { deps, pi, reports } = makeDeps();
     const r = createMcpDashboardRegistrar(deps);
