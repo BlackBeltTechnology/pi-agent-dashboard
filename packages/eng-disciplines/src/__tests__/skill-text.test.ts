@@ -189,9 +189,12 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     const aud = norm("prompts/auditor-rebuild.md");
     // review B1: an omitted line that is NECESSARY for the exact claim is a confidence matter, mere context is a note
     expect(aud).toContain("NECESSARY to verify the exact claim");
-    expect(aud).toMatch(/report it in `confidence_errors` when the claim is tagged `confirmed`/);
+    expect(aud).toMatch(/A `confirmed` claim that omits a line NECESSARY to verify the exact claim as written .* goes in `confidence_errors`/);
     expect(aud).toContain("omits only context");
     expect(aud).toContain("lowering the tag alone does not fix the cite");
+    // review r5 B1: an incomplete inferred/assumed cite has its own verdict path (bad_citations)
+    expect(aud).toMatch(/when a claim tagged `inferred` or `assumed` omits a line that is NECESSARY to verify it/);
+    expect(aud).toContain("judged under the `inferred` rule above");
     expect(aud).not.toContain("merely omits a supporting line");
     expect(aud).not.toContain("never makes the verdict `revise` on its own");
     expect(norm("prompts/generator-rebuild.md")).toContain("STEP 7 — Self-check every cite BEFORE you reply");
