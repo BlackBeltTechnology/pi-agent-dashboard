@@ -7,9 +7,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import type http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { processStartedAt } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   bindGatewaySocket,
   GatewaySocketConflictError,
@@ -32,6 +34,30 @@ afterEach(async () => {
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+/**
+ * A REAL crash leftover: a child binds the path, then is SIGKILLed so libuv's
+ * close-time unlink never runs. Leaves a socket inode with no listener.
+ */
+async function makeStaleSocket(p = sockPath): Promise<void> {
+  const child = spawn(process.execPath, [
+    "-e",
+    `require('net').createServer().listen(${JSON.stringify(p)},()=>console.log('up'))`,
+  ]);
+  await new Promise<void>((resolve, reject) => {
+    child.stdout.once("data", () => resolve());
+    child.once("error", reject);
+  });
+  child.kill("SIGKILL");
+  await new Promise<void>((r) => child.once("exit", () => r()));
+  expect(fs.lstatSync(p).isSocket()).toBe(true);
+}
+
+/** A live unrelated process, started AFTER the call. Caller kills it. */
+function liveSleeper(): { pid: number; kill: () => void } {
+  const c = spawn("sleep", ["60"], { stdio: "ignore" });
+  return { pid: c.pid as number, kill: () => c.kill("SIGKILL") };
+}
 
 const bind = async (over: Partial<Parameters<typeof bindGatewaySocket>[0]> = {}) => {
   const s = await bindGatewaySocket({ socketPath: sockPath, ...over });
@@ -169,30 +195,38 @@ describe("unbindGatewaySocket", () => {
 describe("stale-socket reclamation (pidfile discriminator)", () => {
   it("records our own pid alongside the socket after a successful bind", async () => {
     await bind();
-    expect(fs.readFileSync(`${sockPath}.pid`, "utf8").trim()).toBe(String(process.pid));
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8").trim().split(" ")[0]).toBe(String(process.pid));
   });
 
   it("reclaims a leftover socket whose recorded pid is provably dead", async () => {
     // A real SIGKILL leaves exactly this on disk: a socket file, a pidfile,
     // and no listener. The probe alone cannot tell it from a saturated one.
-    fs.writeFileSync(sockPath, "");
+    await makeStaleSocket();
     fs.writeFileSync(`${sockPath}.pid`, "2147483646\n"); // never a live pid
     const server = await bind({ probe: async () => "refused" });
     expect(server.listening).toBe(true);
     expect(fs.statSync(sockPath).isSocket()).toBe(true);
   });
 
-  it("still refuses when the recorded pid is alive", async () => {
-    fs.writeFileSync(sockPath, "");
-    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
-    await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
-      GatewaySocketConflictError,
-    );
-    expect(fs.existsSync(sockPath)).toBe(true);
+  // Rewritten for D1.4: the old fixture recorded `process.pid`, which is now
+  // (correctly) reclaimed when nothing in this process serves the path.
+  it("still refuses when the recorded pid is an alive, older, unrelated process", async () => {
+    await makeStaleSocket();
+    // A live process that predates the pidfile (legacy bare pid, D1.3).
+    const c = liveSleeper();
+    try {
+      fs.writeFileSync(`${sockPath}.pid`, `${c.pid}\n`);
+      await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
+        GatewaySocketConflictError,
+      );
+      expect(fs.existsSync(sockPath)).toBe(true);
+    } finally {
+      c.kill();
+    }
   });
 
   it("still refuses when there is no pidfile to prove death", async () => {
-    fs.writeFileSync(sockPath, "");
+    await makeStaleSocket();
     await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
     );
@@ -203,7 +237,7 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
     // The probe is authoritative when it is unambiguous; the pidfile only
     // resolves the ambiguous case. A recycled/incorrect pidfile must not be
     // able to authorise unlinking a socket something is answering on.
-    fs.writeFileSync(sockPath, "");
+    await makeStaleSocket();
     fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
     await expect(bind({ probe: async () => "live" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
@@ -232,7 +266,7 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
 // ──────────────────────────────────────────────────────────────────────────
 describe("a saturated live listener is not a stale socket", () => {
   it("refuses to unlink on a probe TIMEOUT even with a dead pid recorded", async () => {
-    fs.writeFileSync(sockPath, "");
+    await makeStaleSocket();
     fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
     await expect(bind({ probe: async () => "timeout" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
@@ -241,7 +275,7 @@ describe("a saturated live listener is not a stale socket", () => {
   });
 
   it("still reclaims on a REFUSED probe with a dead pid recorded", async () => {
-    fs.writeFileSync(sockPath, "");
+    await makeStaleSocket();
     fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
     const server = await bind({ probe: async () => "refused" });
     expect(server.listening).toBe(true);
@@ -268,5 +302,248 @@ describe("a saturated live listener is not a stale socket", () => {
     fs.symlinkSync(elsewhere, `${sockPath}.pid`);
     await bind();
     expect(fs.readFileSync(elsewhere, "utf8")).toBe("do-not-clobber");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// fix-gateway-socket-stale-owner: a recycled pid must not wedge the path
+// (#744), and a refusal alone / a non-socket / a live own listener never
+// authorise an unlink. (test-plan #E1–#E8, #X10–#X13)
+// ──────────────────────────────────────────────────────────────────────────
+describe("owner start time (D1) and socket-inode gate (D2)", () => {
+  const sleepers: Array<{ kill: () => void }> = [];
+  afterEach(() => {
+    for (const c of sleepers.splice(0)) c.kill();
+  });
+  const sleeper = () => {
+    const c = liveSleeper();
+    sleepers.push(c);
+    return c;
+  };
+  const refused = { probe: async () => "refused" as const };
+  const startOf = (pid: number) => {
+    const t = processStartedAt(pid);
+    expect(t).not.toBeNull();
+    return t as number;
+  };
+
+  // E1
+  it("reclaims when the recorded pid is alive but started at a different time", async () => {
+    await makeStaleSocket();
+    const c = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid} ${startOf(c.pid) - 60_000}\n`);
+    const server = await bind(refused);
+    expect(server.listening).toBe(true);
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8")).toMatch(new RegExp(`^${process.pid} \\d+\\n$`));
+  });
+
+  // E2 / E3 — the 2 s slack boundary
+  it("fails closed when the start time differs by less than the slack (+1500 ms)", async () => {
+    await makeStaleSocket();
+    const ino = fs.lstatSync(sockPath).ino;
+    const c = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid} ${startOf(c.pid) + 1500}\n`);
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    expect(fs.lstatSync(sockPath).ino).toBe(ino);
+  });
+  it("reclaims when the start time differs by more than the slack (+2500 ms)", async () => {
+    await makeStaleSocket();
+    const c = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid} ${startOf(c.pid) + 2500}\n`);
+    const server = await bind(refused);
+    expect(server.listening).toBe(true);
+  });
+
+  // E4 — legacy bare pid, decided against the pidfile mtime
+  it("legacy bare pid: reclaims a pid started after the pidfile, refuses one started before", async () => {
+    await makeStaleSocket();
+    const c = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid}\n`);
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(`${sockPath}.pid`, past, past);
+    const server = await bind(refused); // (a) pid started after mtime + 2 s
+    expect(server.listening).toBe(true);
+    await unbindGatewaySocket(server, sockPath);
+    opened.length = 0;
+
+    await makeStaleSocket();
+    const d = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${d.pid}\n`);
+    const future = new Date(Date.now() + 60_000);
+    fs.utimesSync(`${sockPath}.pid`, future, future);
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError); // (b)
+    expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
+  });
+
+  // E5 — #744's own-pid collision
+  it("reclaims when the pidfile names this very process and nothing here serves the path", async () => {
+    await makeStaleSocket();
+    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
+    const server = await bind(refused);
+    expect(server.listening).toBe(true);
+  });
+  it("refuses when the pidfile names this process and this process serves the path", async () => {
+    const incumbent = await bind();
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    await expect(probeSocket(sockPath)).resolves.toBe("live");
+    expect(incumbent.listening).toBe(true);
+  });
+
+  // E6 — unprovable inputs fail closed
+  it.each([
+    ["missing pidfile", null],
+    ["empty pidfile", ""],
+    ["unparseable pid", "abc\n"],
+  ])("fails closed on %s", async (_n, content) => {
+    await makeStaleSocket();
+    if (content !== null) fs.writeFileSync(`${sockPath}.pid`, content);
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
+  });
+  it("fails closed on a malformed second field and on an unavailable start time", async () => {
+    await makeStaleSocket();
+    const c = sleeper();
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid} abc\n`);
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    fs.writeFileSync(`${sockPath}.pid`, `${c.pid} 1\n`);
+    await expect(bind({ ...refused, startedAt: () => null })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
+  });
+
+  // Review B1/B2: malformed or unrepresentable records never authorise an unlink.
+  it.each([
+    ["own pid with a malformed start field", () => `${process.pid} abc\n`],
+    ["own pid with three fields", () => `${process.pid} 1 2\n`],
+    ["dead pid with a malformed start field", () => "2147483646 abc\n"],
+    ["oversized pid", () => `${"9".repeat(400)}\n`],
+    ["unsafe-integer pid", () => `${Number.MAX_SAFE_INTEGER + 2}\n`],
+    ["oversized start time", () => `${sleeper().pid} ${"9".repeat(400)}\n`],
+    ["unsafe-integer start time", () => `${sleeper().pid} ${Number.MAX_SAFE_INTEGER + 2}\n`],
+  ])("fails closed on %s", async (_n, content) => {
+    await makeStaleSocket();
+    fs.writeFileSync(`${sockPath}.pid`, content());
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
+  });
+
+  // E7 — a non-socket is never removed, even with a dead owner recorded
+  it("never removes a regular file, a symlink, or a dangling symlink", async () => {
+    const cases: Array<[string, () => Promise<void> | void]> = [
+      ["file", () => fs.writeFileSync(sockPath, "")],
+      [
+        "symlink-to-stale-socket",
+        async () => {
+          const real = path.join(tmp, "real.sock");
+          await makeStaleSocket(real);
+          fs.symlinkSync(real, sockPath);
+        },
+      ],
+      ["dangling", () => fs.symlinkSync(path.join(tmp, "nowhere"), sockPath)],
+    ];
+    for (const [, setup] of cases) {
+      fs.rmSync(sockPath, { force: true });
+      await setup();
+      fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
+      const before = fs.lstatSync(sockPath);
+      await expect(bind()).rejects.toBeInstanceOf(GatewaySocketConflictError);
+      const after = fs.lstatSync(sockPath);
+      expect(after.isSocket()).toBe(before.isSocket());
+      expect(after.isSymbolicLink()).toBe(before.isSymbolicLink());
+    }
+  });
+
+  // E8 — record format
+  it("records '<pid> <startMs>' when the start time is known, bare pid otherwise", async () => {
+    const s1 = await bind({ startedAt: () => 1234567 });
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8")).toBe(`${process.pid} 1234567\n`);
+    expect(fs.statSync(`${sockPath}.pid`).mode & 0o777).toBe(0o600);
+    await unbindGatewaySocket(s1, sockPath);
+    opened.length = 0;
+    await bind({ startedAt: () => null });
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8")).toBe(`${process.pid}\n`);
+  });
+});
+
+describe("ownership-checked unbind and pidfile failures (D4)", () => {
+  // X10
+  it("a stopping dashboard does not remove its successor's socket", async () => {
+    const a = await bind();
+    opened.length = 0;
+    await new Promise<void>((r) => a.close(() => r())); // libuv unlinks P
+    const b = await bind(); // successor binds in the window, writes its pidfile
+    await unbindGatewaySocket(a, sockPath);
+    await expect(probeSocket(sockPath)).resolves.toBe("live");
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8")).toMatch(new RegExp(`^${process.pid}\\b`));
+    expect(fs.existsSync(`${sockPath}.lock`)).toBe(true);
+    expect(b.listening).toBe(true);
+  });
+
+  // Review r2 B1: owned-only removal also means socket-only removal.
+  it("unbind never removes a non-socket that replaced the path after close", async () => {
+    const a = await bind();
+    opened.length = 0;
+    await new Promise<void>((r) => a.close(() => r())); // libuv unlinks P; pidfile still names us
+    fs.writeFileSync(sockPath, "not a socket");
+    const link = path.join(tmp, "elsewhere");
+    await unbindGatewaySocket(a, sockPath);
+    expect(fs.readFileSync(sockPath, "utf8")).toBe("not a socket");
+
+    fs.rmSync(sockPath);
+    fs.writeFileSync(link, "target");
+    fs.symlinkSync(link, sockPath);
+    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
+    await unbindGatewaySocket(null, sockPath);
+    expect(fs.lstatSync(sockPath).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(link, "utf8")).toBe("target");
+  });
+
+  // Review r3 B1: a replacement SOCKET with our stale pidfile still in place.
+  it("unbind never removes a different socket that replaced the path after close", async () => {
+    const a = await bind();
+    opened.length = 0;
+    await new Promise<void>((r) => a.close(() => r())); // libuv unlinks P; pidfile still names us
+    const rogue = net.createServer().listen(sockPath);
+    await new Promise<void>((r) => rogue.once("listening", () => r()));
+    try {
+      await unbindGatewaySocket(a, sockPath);
+      await expect(probeSocket(sockPath)).resolves.toBe("live");
+    } finally {
+      await new Promise<void>((r) => rogue.close(() => r()));
+    }
+  });
+
+  // X11
+  it("rebinding the same path in one process works (restart)", async () => {
+    const first = await bind();
+    opened.length = 0;
+    await unbindGatewaySocket(first, sockPath);
+    const second = await bind();
+    expect(second.listening).toBe(true);
+  });
+
+  // X12
+  it("logs a warning naming the pidfile when it cannot be written", async () => {
+    fs.mkdirSync(`${sockPath}.pid`);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const server = await bind();
+      expect(server.listening).toBe(true);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes(`${sockPath}.pid`))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  // X13
+  it("a saturated-looking live own listener is never reclaimed (macOS refusal)", async () => {
+    const incumbent = await bind();
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8")).toMatch(/^\d+ \d+\n$/);
+    await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(incumbent.listening).toBe(true);
+    await expect(probeSocket(sockPath)).resolves.toBe("live");
   });
 });

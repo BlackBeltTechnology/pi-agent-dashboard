@@ -1,7 +1,9 @@
 ## Purpose
 
 Define how the `MarkdownContent` component renders markdown across all dashboard surfaces: supported elements, plugin chain, image/asset resolution, lightbox behavior, and frontmatter handling.
+
 ## Requirements
+
 ### Requirement: Markdown text rendering
 The MarkdownContent component SHALL accept a `content` string prop, pre-process it with `wrapAsciiTables` to ensure ASCII/box-drawing tables render in monospace, then render the result as formatted HTML using react-markdown with the `remark-gfm` plugin enabled and the `remark-math` plugin enabled. The rehype plugin chain SHALL be ordered `[rehypeRaw, rehypeKatex, stripReactRefAttributes]`. Supported elements SHALL include: paragraphs, headings, bold, italic, strikethrough, lists (ordered and unordered), links, inline code, fenced code blocks, GFM tables, task lists, autolinks, blockquotes, Mermaid diagrams, LaTeX math expressions (inline `$…$` and display `$$…$$`), and image references. Fenced code blocks with syntax highlighting SHALL use `var(--bg-code)` as their background color. Image references whose `src` begins with `pi-asset:<hash>` SHALL be resolved against the current `SessionAssetsContext` map and rendered as `<img src="data:<mimeType>;base64,<data>">`; image references with any other scheme (`data:`, `http(s):`, `blob:`, fragment, or relative) SHALL render via the default ReactMarkdown `<img>` with the original `src` unchanged. Every successfully-rendered `<img>` (i.e. excluding the unresolved `pi-asset:` placeholder span) SHALL be clickable: clicking it SHALL open an `<ImageLightbox>` modal carrying the same `src` and `alt` as the rendered `<img>`, providing zoom / pan / Escape-to-close / backdrop-click-to-close behavior. The clickable `<img>` SHALL render with `cursor-pointer` styling so the affordance is discoverable.
 
@@ -193,3 +195,61 @@ be defined once on the `.markdown-content` scope so no surface diverges.
 - **THEN** `--table-stripe` SHALL resolve to a defined value for that theme/mode,
   so the zebra banding renders on every palette
 
+### Requirement: Rendered markdown SHALL NOT remount on an unrelated re-render
+The `MarkdownContent` component SHALL preserve the DOM nodes of its rendered
+output across renders in which its markdown source has not changed. Component
+overrides passed to the markdown renderer SHALL hold a stable identity across
+renders, because the renderer consumes them as React element types and a changed
+type forces React to unmount and remount the subtree.
+
+#### Scenario: Parent re-renders with unchanged content
+- **WHEN** a component containing `MarkdownContent` re-renders and the `content` prop is unchanged
+- **THEN** the rendered markdown DOM nodes SHALL be the same node instances as before the re-render
+
+#### Scenario: Application-wide re-render from a WebSocket event
+- **WHEN** a WebSocket event causes the application root to re-render while a markdown document is displayed
+- **THEN** no markdown DOM node SHALL be removed or replaced
+
+#### Scenario: Interactive state inside rendered markdown survives
+- **WHEN** an interactive block inside rendered markdown holds local state and the parent re-renders
+- **THEN** that state SHALL be preserved
+
+#### Scenario: Streaming content still updates
+- **WHEN** the `content` prop grows during streaming
+- **THEN** the newly arrived markdown SHALL render, and previously rendered blocks SHALL NOT be remounted
+
+#### Scenario: Prose overrides are stable when file linking is active
+- **WHEN** a tool context carrying a file-link renderer is supplied, activating the paragraph and list-item overrides, and the parent re-renders
+- **THEN** paragraph and list-item DOM nodes SHALL be the same node instances as before the re-render
+
+#### Scenario: Inline code spans are stable
+- **WHEN** rendered markdown contains inline code spans inside prose and the parent re-renders
+- **THEN** those inline code DOM nodes SHALL be the same node instances as before the re-render
+
+#### Scenario: File-link gating is preserved
+- **WHEN** no file-link renderer is supplied in the context
+- **THEN** the paragraph and list-item overrides SHALL NOT be applied, and prose SHALL render without linkification
+
+#### Scenario: Tables are stable
+- **WHEN** rendered markdown contains a GFM table and the parent re-renders
+- **THEN** the table DOM nodes SHALL be the same node instances as before the re-render
+
+### Requirement: Component overrides SHALL hold a stable identity
+Every component override supplied to the markdown renderer SHALL hold a stable
+identity across renders, whether or not it captures per-render values. The
+renderer resolves an overridden tag to the supplied component and uses it as the
+React element type, so identity — not captured scope — is what determines whether
+React preserves or remounts the subtree. An override that captures nothing is
+still a fresh type when defined inline.
+
+#### Scenario: Override that captures nothing
+- **WHEN** an override closes over no per-render value and the parent re-renders
+- **THEN** its rendered DOM nodes SHALL still be preserved
+
+#### Scenario: Override that requires per-render values
+- **WHEN** an override needs per-render values to render correctly
+- **THEN** it SHALL receive them without its own identity changing, and its rendered DOM nodes SHALL be preserved
+
+#### Scenario: Conditionally supplied overrides
+- **WHEN** a group of overrides is supplied only under a condition and that condition is unchanged between renders
+- **THEN** the supplied map SHALL present the same override identities as the previous render

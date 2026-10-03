@@ -54,6 +54,27 @@ describe("Process Manager", () => {
       expect(cmd).not.toContain("new-session");
     });
 
+    // (test-plan #E12) A pane inherits the tmux SERVER's env, so the endpoint
+    // pin must ride per-window `-e` like the spawn token. See change:
+    // fix-gateway-socket-stale-owner (D6).
+    it.each([true, false])("passes the endpoint pins via -e (session exists: %s)", (exists) => {
+      const unix = buildTmuxCommand("/p", exists, { spawnToken: "tok" } as never, ["pi"], "", {
+        url: "ws://localhost:9999",
+        socket: "/h/gateway-9999.sock",
+      });
+      expect(unix).toContain("PI_DASHBOARD_URL=ws://localhost:9999");
+      expect(unix).toContain("PI_DASHBOARD_SOCKET=/h/gateway-9999.sock");
+
+      const fb = buildTmuxCommand("/p", exists, undefined, ["pi"], "", { url: "ws://127.0.0.1:9999" });
+      expect(fb).toContain("PI_DASHBOARD_URL=ws://127.0.0.1:9999");
+      // Empty = unset: cancels a stale value inherited from the tmux server.
+      expect(fb).toContain("PI_DASHBOARD_SOCKET=");
+    });
+
+    it("adds no endpoint pin when none is given", () => {
+      expect(buildTmuxCommand("/p", true).join(" ")).not.toContain("PI_DASHBOARD_");
+    });
+
     it("should not set PI_DASHBOARD_SPAWNED env var", () => {
       const cmd = buildTmuxCommand("/home/user/project", false);
       expect(cmd).not.toContain("PI_DASHBOARD_SPAWNED");

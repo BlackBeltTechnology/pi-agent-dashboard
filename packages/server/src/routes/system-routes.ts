@@ -1076,6 +1076,10 @@ export function registerSystemRoutes(
       // the port the gateway actually bound, which is not the file-config
       // value when it was allocated dynamically.
       piGatewayPort: piGateway?.address() ?? null,
+      // Which bridge listeners are active; the loopback fallback is visible
+      // here without reading the log. No path, no pid: /api/health is
+      // unauthenticated. See change: fix-gateway-socket-stale-owner (D7).
+      gateway: piGateway?.bridgeListeners?.() ?? { listeners: [] },
       // Derived label: promotes a stale `bridge` (no live session, past the
       // 30 s grace window) to `bridge-orphaned`. Static `launchSource` above
       // is left untouched for the `decideShutdownOnQuit` back-compat rule.

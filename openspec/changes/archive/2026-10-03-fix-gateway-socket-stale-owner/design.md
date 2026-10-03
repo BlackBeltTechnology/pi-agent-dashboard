@@ -209,3 +209,13 @@ detail.
 Pidfile gains an optional second field; old builds parse the pid unchanged.
 No config or wire change. Rollback = revert; an older build regains the reboot
 wedge and the aborting fallback.
+
+## Security review (task 4.1)
+
+Pass over reclaim conditions, fallback auth and the unbind race, at implementation time:
+
+- **Reclaim** requires lstat==socket AND probe `refused` AND owner gone (D1/D2); `live`/`timeout`/`indeterminate` and every malformed or unreadable input fail closed. Verified by test-plan E1–E8, X13.
+- **Fallback auth**: the fallback `WebSocketServer` is built with a per-listener `requireLocalCredential`, so `decideBridgeUpgrade` runs with `requireTicketOnLoopback: true`; the opt-in TCP listener keeps its grace (X8, X9). `startLoopbackFallback` refuses to start without `bridgeAuth` (no accidental open listener).
+- **Unbind race**: removal happens under the bind lock and only when no server in this process owns the path and the pidfile names this pid; `.lock` is never deleted (X10).
+- **Known limit, pre-existing**: `isProcessAlive` maps `EPERM` to "dead", so a pidfile naming a live process of another user reads as gone; same-uid tampering is inside the `0700` boundary (already accepted under Risks).
+- No new finding blocks the change.
