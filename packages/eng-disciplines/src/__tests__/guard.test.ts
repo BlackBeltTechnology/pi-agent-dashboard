@@ -4,7 +4,7 @@
  * See change: add-reverse-spec-for-rebuild.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -314,6 +314,30 @@ describe("lock (B2 r7)", () => {
     );
     expect(codes.filter((c) => c === 0)).toHaveLength(1);
     expect(codes.filter((c) => c === 1)).toHaveLength(5);
+  });
+
+  it("racing breakers cannot erase a successor's lock (B1 r9)", async () => {
+    const { spawn } = await import("node:child_process");
+    const GUARD = join(SKILL_DIR, "scripts", "guard.mjs");
+    const run = (args: string[], env: Record<string, string> = {}) =>
+      new Promise<number | null>((done) => {
+        spawn(process.execPath, [GUARD, ...args], { cwd: repo, env: { ...process.env, ...env } }).on("exit", (c) =>
+          done(c),
+        );
+      });
+    guard(repo, "lock", "root", "run1");
+    // two breakers both observe run1, then pause between owner check and removal
+    // breaker 1 removes after ~200 ms, breaker 2 only after ~1500 ms
+    const breakers = [
+      run(["break-lock", "root", "run1"], { RSFR_GUARD_TEST_DELAY_MS: "200" }),
+      run(["break-lock", "root", "run1"], { RSFR_GUARD_TEST_DELAY_MS: "1500" }),
+    ];
+    await new Promise((r) => setTimeout(r, 800)); // breaker 1 is done; breaker 2 still waits
+    const first = await run(["lock", "root", "runA"]); // a successor acquires it
+    await Promise.all(breakers);
+    const second = await run(["lock", "root", "runB"]); // must still be refused
+    const owner = existsSync(lockFile("root")) ? readFileSync(lockFile("root"), "utf8").trim() : "";
+    expect([first, second, owner]).toEqual([0, 1, "runA"]);
   });
 
   it("rejects unsafe slug or run id", () => {

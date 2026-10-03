@@ -210,6 +210,12 @@ function slug(args) {
   process.stdout.write(`${readable}-${hash}\n`);
 }
 
+/** Test-only seam: pause between a lock-owner check and the removal it guards. */
+function testDelay() {
+  const ms = Number(process.env.RSFR_GUARD_TEST_DELAY_MS ?? 0);
+  if (ms > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 function lockArgs(args, cmd) {
   const [slugArg, run, extra] = args;
   if (!slugArg || !run || extra !== undefined) usage(`${cmd}: needs <slug> <run-id>`);
@@ -217,46 +223,97 @@ function lockArgs(args, cmd) {
   return { file: join(repoRoot(), ".reverse-spec-scratch", `${slugArg}.lock`), run };
 }
 
-function lock(args) {
-  const { file, run } = lockArgs(args, "lock");
-  mkdirSync(dirname(file), { recursive: true });
-  try {
-    writeFileSync(file, `${run}\n`, { flag: "wx" });
-    return;
-  } catch (err) {
-    if (err.code !== "EEXIST") throw err;
-  }
-  const owner = readFileSync(file, "utf8").trim();
-  if (owner === run) return;
-  const slugArg = args[0];
-  process.stderr.write(
-    `locked: target is held by run ${owner} (${file}). If that run is no longer active, ` +
-      `ask the user, then: node guard.mjs break-lock ${slugArg} ${owner}\n`,
-  );
-  process.exit(1);
+const MUTEX_WAIT_MS = 10_000;
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function breakLock(args) {
-  const { file, run: owner } = lockArgs(args, "break-lock");
-  if (!existsSync(file)) return;
-  const current = readFileSync(file, "utf8").trim();
-  if (current !== owner) {
-    process.stderr.write(`not breaking: lock is held by run ${current}, not ${owner}\n`);
-    process.exit(1);
+/**
+ * Run `fn` holding the per-target mutex `<lock>.mutex` (mkdir is atomic), so lock
+ * acquisition, owner check and removal never interleave across processes. The mutex is
+ * held only for this process's short operation; one left by a crashed guard (its pid is
+ * dead) is reported, not stolen. `fn` returns an exit code; the mutex is always released.
+ */
+function withMutex(file, fn) {
+  const mutex = `${file}.mutex`;
+  mkdirSync(dirname(file), { recursive: true });
+  const deadline = Date.now() + MUTEX_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(mutex);
+      break;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+    }
+    let holder = 0;
+    try {
+      holder = Number.parseInt(readFileSync(join(mutex, "pid"), "utf8"), 10);
+    } catch {
+      // holder is between mkdir and writing its pid
+    }
+    if (holder > 0 && !alive(holder)) {
+      process.stderr.write(`lock mutex ${mutex} was left by a dead process (${holder}); remove it by hand\n`);
+      process.exit(2);
+    }
+    if (Date.now() > deadline) {
+      process.stderr.write(`timed out waiting for lock mutex ${mutex}\n`);
+      process.exit(2);
+    }
+    sleep(20);
   }
-  rmSync(file, { force: true });
-  process.stdout.write(`broke lock of run ${owner}\n`);
+  let code;
+  try {
+    writeFileSync(join(mutex, "pid"), `${process.pid}\n`);
+    code = fn();
+  } finally {
+    rmSync(mutex, { recursive: true, force: true });
+  }
+  if (code) process.exit(code);
+}
+
+function lock(args) {
+  const { file, run } = lockArgs(args, "lock");
+  withMutex(file, () => {
+    try {
+      writeFileSync(file, `${run}\n`, { flag: "wx" });
+      return 0;
+    } catch (err) {
+      if (err.code !== "EEXIST") throw err;
+    }
+    const owner = readFileSync(file, "utf8").trim();
+    if (owner === run) return 0;
+    process.stderr.write(
+      `locked: target is held by run ${owner} (${file}). If that run is no longer active, ` +
+        `ask the user, then: node guard.mjs break-lock ${args[0]} ${owner}\n`,
+    );
+    return 1;
+  });
+}
+
+/** Remove `file` when `owner` holds it — check and removal under the same mutex. */
+function removeOwned(file, owner, refusal) {
+  withMutex(file, () => {
+    if (!existsSync(file)) return 0;
+    const current = readFileSync(file, "utf8").trim();
+    if (current !== owner) {
+      process.stderr.write(`${refusal}: lock is held by run ${current}, not ${owner}\n`);
+      return 1;
+    }
+    testDelay();
+    rmSync(file, { force: true });
+    return 0;
+  });
 }
 
 function unlock(args) {
   const { file, run } = lockArgs(args, "unlock");
-  if (!existsSync(file)) return;
-  const owner = readFileSync(file, "utf8").trim();
-  if (owner !== run) {
-    process.stderr.write(`not unlocking: owned by run ${owner}\n`);
-    process.exit(1);
-  }
-  rmSync(file, { force: true });
+  removeOwned(file, run, "not unlocking");
+}
+
+function breakLock(args) {
+  const { file, run: owner } = lockArgs(args, "break-lock");
+  removeOwned(file, owner, "not breaking");
 }
 
 function checkManifest(args) {
