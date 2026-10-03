@@ -165,9 +165,10 @@ Changes under test:
 
 - D1 catalog boundary — error maps + fallbacks = rules; plumbing = formatting/numbering w/o decision. Applied generator, auditor, SKILL.md merge.
 - D2 literal external config key.
-- D3 `guard.mjs lint-cite` — confirmed cite needs ≥2 `path:line` tokens, OR unterminated `<!-- cite:` → exit 1.
+- D3 `guard.mjs lint-cite` — REJECTS `confirmed` cite naming ≥2 `path:line` tokens (any separator); REJECTS unterminated `<!-- cite:`. Exit 1.
 - Merged-cite policy — union; >1 location → inferred.
-- Tuning 1 — confirmed cite holds every line claim needs; absence clause → whole item inferred; auditor: omitted supporting line = note, not revise.
+- Tuning 1 — confirmed cite holds every line claim needs; absence clause → whole item inferred; auditor: omitted line NECESSARY to verify exact claim (constant behind quoted literal) → `confidence_errors` when tagged confirmed; omitted mere context → `notes`.
+- Runs 2b/2c/real-target ran earlier wording (omitted supporting line = note). Narrowed after review round 3 finding B1; eval not re-run with final wording.
 - Tuning 2 — generator STEP 7 cite self-check.
 
 Fixture runs — plain repo, `@fast` deepseek-v4.1-flash gen, `@research` opus-5.5 audit, scripted merge.
@@ -196,6 +197,6 @@ Real target — kb discovery, `packages/server/src/canvas`, 2 capabilities, 2 fi
 Verdict:
 
 - D1/D2 confirmed on fixture — R11, I6, I4 recalled; literal key named.
-- D3 lint = a floor, NOT the convergence lever. Convergence came from generator self-check + auditor non-blocking cite-omission rule + revise loops.
+- D3 lint = a floor, NOT the convergence lever. Convergence came from generator self-check + auditor cite-omission split (necessary → confidence, context → note) + revise loops.
 - Shortfalls accepted by user: M3 duplicate quirk (scripted merge), cross-cutting cap residual in run 2c.
 - Open: meaning-based merge dedupe not mechanised; absence-claim tagging by `@fast` generator still needs revise rounds.
