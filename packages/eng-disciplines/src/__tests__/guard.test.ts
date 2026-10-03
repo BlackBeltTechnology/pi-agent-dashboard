@@ -316,28 +316,38 @@ describe("lock (B2 r7)", () => {
     expect(codes.filter((c) => c === 1)).toHaveLength(5);
   });
 
-  it("racing breakers cannot erase a successor's lock (B1 r9)", async () => {
+  /** Start `guard.mjs ...args` in the background; resolves with exit code and wall time. */
+  async function start(args: string[], delayMs = 0) {
     const { spawn } = await import("node:child_process");
-    const GUARD = join(SKILL_DIR, "scripts", "guard.mjs");
-    const run = (args: string[], env: Record<string, string> = {}) =>
-      new Promise<number | null>((done) => {
-        spawn(process.execPath, [GUARD, ...args], { cwd: repo, env: { ...process.env, ...env } }).on("exit", (c) =>
-          done(c),
-        );
-      });
-    guard(repo, "lock", "root", "run1");
-    // two breakers both observe run1, then pause between owner check and removal
-    // breaker 1 removes after ~200 ms, breaker 2 only after ~1500 ms
-    const breakers = [
-      run(["break-lock", "root", "run1"], { RSFR_GUARD_TEST_DELAY_MS: "200" }),
-      run(["break-lock", "root", "run1"], { RSFR_GUARD_TEST_DELAY_MS: "1500" }),
-    ];
-    await new Promise((r) => setTimeout(r, 800)); // breaker 1 is done; breaker 2 still waits
-    const first = await run(["lock", "root", "runA"]); // a successor acquires it
-    await Promise.all(breakers);
-    const second = await run(["lock", "root", "runB"]); // must still be refused
-    const owner = existsSync(lockFile("root")) ? readFileSync(lockFile("root"), "utf8").trim() : "";
-    expect([first, second, owner]).toEqual([0, 1, "runA"]);
+    const t0 = Date.now();
+    const env = { ...process.env, RSFR_GUARD_TEST_DELAY_MS: String(delayMs) };
+    return new Promise<{ code: number | null; ms: number }>((done) => {
+      spawn(process.execPath, [join(SKILL_DIR, "scripts", "guard.mjs"), ...args], { cwd: repo, env }).on("exit", (code) =>
+        done({ code, ms: Date.now() - t0 }),
+      );
+    });
+  }
+  const owner = () => (existsSync(lockFile("root")) ? readFileSync(lockFile("root"), "utf8").trim() : "");
+
+  // The delay seam pauses a remover right AFTER it has read the owner and BEFORE it
+  // removes. A fenced guard must make every other lock op wait out that pause; an
+  // unfenced guard lets the successor through at once (and then erases its lock).
+  it.each([
+    ["break-lock", ["break-lock", "root", "run1"]],
+    ["unlock", ["unlock", "root", "run1"]],
+  ])("a paused %s fences out a successor until it finishes (B1 r9)", async (_name, removeArgs) => {
+    expect(guard(repo, "lock", "root", "run1").code).toBe(0);
+    const remover = start(removeArgs, 1500); // reads run1, then pauses holding the mutex
+    await new Promise((r) => setTimeout(r, 300));
+    const successor = await start(["lock", "root", "runA"]);
+    expect((await remover).code).toBe(0);
+    expect(successor.code).toBe(0);
+    expect(successor.ms).toBeGreaterThanOrEqual(800); // it had to wait for the paused remover
+    expect(owner()).toBe("runA"); // the remover did not erase the successor's lock
+    // a late breaker that still believes run1 owns the target cannot remove runA's lock
+    expect((await start(["break-lock", "root", "run1"])).code).toBe(1);
+    expect((await start(["lock", "root", "runB"])).code).toBe(1);
+    expect(owner()).toBe("runA");
   });
 
   it("rejects unsafe slug or run id", () => {
