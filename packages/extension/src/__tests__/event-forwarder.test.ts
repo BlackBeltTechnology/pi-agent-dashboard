@@ -214,3 +214,19 @@ describe("redactBeforeSettleContext", () => {
     expect(event.context).toBeDefined();
   });
 });
+
+// See change: render-nested-tool-calls — test-plan E21.
+describe("mapEventToProtocol — nested tool calls (E21)", () => {
+  it("carries parentToolCallId on a nested tool_execution_start", () => {
+    const result = mapEventToProtocol("s1", {
+      type: "tool_execution_start",
+      toolCallId: "call_1/1",
+      toolName: "bash",
+      args: { command: "ls" },
+      parentToolCallId: "call_1",
+    });
+    expect(result.type).toBe("event_forward");
+    expect(result.event.data.parentToolCallId).toBe("call_1");
+    expect(result.event.data.toolCallId).toBe("call_1/1");
+  });
+});

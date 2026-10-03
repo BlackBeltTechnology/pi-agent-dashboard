@@ -80,6 +80,12 @@ export function extractSessionUpdates(
   return updates;
 }
 
+/** A nested tool event carries a non-empty string `parentToolCallId`. */
+function isNestedToolEvent(event: DashboardEvent): boolean {
+  const parent = event.data.parentToolCallId;
+  return typeof parent === "string" && parent !== "";
+}
+
 function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null {
   switch (event.eventType) {
     case "agent_start":
@@ -118,10 +124,15 @@ function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null 
     case "ui_prompt_end":
       return { currentTool: null };
 
+    // Nested calls (pi codemode / `ctx.executeTool`) carry `parentToolCallId`
+    // and never touch `currentTool`: it tracks the model-issued call only.
+    // See change: render-nested-tool-calls (D2).
     case "tool_execution_start":
+      if (isNestedToolEvent(event)) return null;
       return { currentTool: (event.data.toolName as string) ?? null };
 
     case "tool_execution_end":
+      if (isNestedToolEvent(event)) return null;
       return { currentTool: null };
 
     case "model_select": {

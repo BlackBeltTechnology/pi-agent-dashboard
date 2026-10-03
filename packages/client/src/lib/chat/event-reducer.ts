@@ -17,6 +17,17 @@ import {
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  applyNestedEnd,
+  applyNestedStart,
+  applyNestedUpdate,
+  closeRunningNested,
+  isNestedToolEvent,
+  mergeNestedRecord,
+  type NestedCallState,
+  readNestedCallsEnvelope,
+  rootIdOf,
+} from "./nested-tool-calls.js";
 
 export interface ChatImage {
   data: string;
@@ -75,6 +86,14 @@ export interface ChatMessage {
    * See change: fix-lazy-history-backfill-ux (D5).
    */
   toolStatus?: "running" | "complete" | "error" | "elided";
+  /**
+   * Nested tool calls this (root) tool made — pi codemode / `ctx.executeTool`.
+   * Mirrors `ToolCallState.nested`; renderers read it from the row.
+   * See change: render-nested-tool-calls (D1).
+   */
+  nested?: NestedCallState[];
+  /** `false` when pi's nested-call record says it is incomplete. */
+  nestedComplete?: boolean;
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -159,6 +178,10 @@ export interface ToolCallState {
    * fix-stuck-tool-card-superseded-heal.
    */
   emittedAtInferenceSeq?: number;
+  /** Root-owned nested calls (never in the top-level map). See change: render-nested-tool-calls (D1). */
+  nested?: NestedCallState[];
+  /** `false` when pi's nested-call record says it is incomplete. */
+  nestedComplete?: boolean;
 }
 
 export type CompactionReason = "manual" | "threshold" | "overflow";
@@ -1489,10 +1512,126 @@ export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] 
     const finalize = m.isStreaming === true;
     if (!elide && !finalize) return m;
     const out = { ...m };
-    if (elide) out.toolStatus = "elided";
+    if (elide) {
+      out.toolStatus = "elided";
+      // No nested entry stays running under an elided root.
+      // See change: render-nested-tool-calls (D1).
+      if (out.nested) out.nested = closeRunningNested(out.nested);
+    }
     if (finalize) out.isStreaming = false;
     return out;
   });
+}
+
+// ── Nested tool calls (see change: render-nested-tool-calls, D1) ──────────────
+
+/** Index of the top-level toolResult row for `toolCallId`, or -1. */
+function findToolRowIndex(messages: ChatMessage[], toolCallId: string): number {
+  return messages.findLastIndex((m) => m.role === "toolResult" && m.toolCallId === toolCallId);
+}
+
+/** A root is a top-level call the client knows: a map entry or a toolResult row. */
+function isKnownRoot(next: SessionState, id: string): boolean {
+  return next.toolCalls.has(id) || findToolRowIndex(next.messages, id) !== -1;
+}
+
+function nestedListOf(next: SessionState, rootId: string): NestedCallState[] {
+  const idx = findToolRowIndex(next.messages, rootId);
+  return (idx !== -1 ? next.messages[idx].nested : undefined) ?? next.toolCalls.get(rootId)?.nested ?? [];
+}
+
+/** Root terminal = complete / error / elided. The row (elided lives only there) wins over the map. */
+function isRootTerminal(next: SessionState, rootId: string): boolean {
+  const idx = findToolRowIndex(next.messages, rootId);
+  if (idx !== -1) return next.messages[idx].toolStatus !== "running";
+  const tc = next.toolCalls.get(rootId);
+  return tc !== undefined && tc.status !== "running";
+}
+
+/**
+ * Resolve the root for a live nested event: the id's first segment when it is
+ * a known root; else via `parentToolCallId` (a known root, or a nested entry
+ * whose root owns it). Unresolved → undefined (orphan, dropped).
+ */
+function resolveNestedRoot(next: SessionState, id: string, parentId: string): string | undefined {
+  const first = rootIdOf(id);
+  if (isKnownRoot(next, first)) return first;
+  if (isKnownRoot(next, parentId)) return parentId;
+  const parentRoot = rootIdOf(parentId);
+  if (isKnownRoot(next, parentRoot) && nestedListOf(next, parentRoot).some((e) => e.id === parentId)) {
+    return parentRoot;
+  }
+  for (const m of next.messages) {
+    if (m.role === "toolResult" && m.toolCallId && m.nested?.some((e) => e.id === parentId)) return m.toolCallId;
+  }
+  for (const tc of next.toolCalls.values()) {
+    if (tc.nested?.some((e) => e.id === parentId)) return tc.toolCallId;
+  }
+  return undefined;
+}
+
+/** Write a root's nested list (and optional completeness) to its row AND map entry. */
+function writeNested(
+  next: SessionState,
+  rootId: string,
+  list: NestedCallState[],
+  complete?: boolean,
+): void {
+  const patch = { nested: list, ...(complete !== undefined ? { nestedComplete: complete } : {}) };
+  const tc = next.toolCalls.get(rootId);
+  if (tc) next.toolCalls.set(rootId, { ...tc, ...patch });
+  const idx = findToolRowIndex(next.messages, rootId);
+  if (idx !== -1) {
+    next.messages = [...next.messages];
+    next.messages[idx] = { ...next.messages[idx], ...patch };
+  }
+}
+
+/** Merge a `nestedCalls` record into its root, then enforce the terminal-root invariant. */
+function mergeRecordIntoRoot(next: SessionState, rootId: string, record: unknown): void {
+  const env = readNestedCallsEnvelope(record);
+  if (!env || !isKnownRoot(next, rootId)) return;
+  let list = mergeNestedRecord(nestedListOf(next, rootId), env.calls);
+  if (isRootTerminal(next, rootId)) list = closeRunningNested(list);
+  writeNested(next, rootId, list, env.complete);
+}
+
+/** Reduce a nested `tool_execution_*` event into its root's list. Never touches top-level state. */
+function reduceNestedToolEvent(next: SessionState, event: DashboardEvent): void {
+  const data = event.data;
+  const id = data.toolCallId;
+  const parentId = data.parentToolCallId as string;
+  if (typeof id !== "string" || id === "") return;
+  const rootId = resolveNestedRoot(next, id, parentId);
+  if (rootId === undefined) return; // orphan: dropped
+  const list = nestedListOf(next, rootId);
+  const name = typeof data.toolName === "string" ? data.toolName : "unknown";
+  switch (event.eventType) {
+    case "tool_execution_start": {
+      const args = data.args && typeof data.args === "object" ? (data.args as Record<string, unknown>) : undefined;
+      writeNested(
+        next,
+        rootId,
+        applyNestedStart(list, { id, parentId, name, args, startedAt: event.timestamp }, isRootTerminal(next, rootId)),
+      );
+      return;
+    }
+    case "tool_execution_update": {
+      const partial = data.partialResult;
+      const text = partial == null ? undefined : truncateOutputForDisplay(partial);
+      writeNested(next, rootId, applyNestedUpdate(list, id, text));
+      return;
+    }
+    case "tool_execution_end": {
+      const result = data.result == null ? undefined : truncateOutputForDisplay(data.result);
+      writeNested(
+        next,
+        rootId,
+        applyNestedEnd(list, { id, parentId, name, isError: data.isError === true, result, endedAt: event.timestamp }),
+      );
+      return;
+    }
+  }
 }
 
 export function reduceEvent(
@@ -1696,6 +1835,11 @@ export function reduceEvent(
 
     case "message_start": {
       const msg = data.message as any;
+      // Live nested-call record rides the root's toolResult message.
+      // See change: render-nested-tool-calls (D1).
+      if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+      }
       if (msg?.role === "assistant") {
         // Reset the per-message flush flag at the start of every assistant
         // message. See change: fix-streaming-text-vs-interactive-ui-order.
@@ -1899,6 +2043,11 @@ export function reduceEvent(
 
     case "message_end": {
       const msg = data.message as any;
+      // Live nested-call record rides the root's toolResult message.
+      // See change: render-nested-tool-calls (D1).
+      if (msg?.role === "toolResult" && typeof msg.toolCallId === "string" && msg.nestedCalls !== undefined) {
+        mergeRecordIntoRoot(next, msg.toolCallId, msg.nestedCalls);
+      }
       if (msg?.role === "custom") {
         // Custom MESSAGE row (pi.sendMessage) — change:
         // render-inline-reasoning-and-custom-entries. EXACT `display ===
@@ -2137,6 +2286,12 @@ export function reduceEvent(
     }
 
     case "tool_execution_start": {
+      // Nested call: attach to its root; no row, no flush, no currentTool.
+      // See change: render-nested-tool-calls (D1).
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
       const toolCallId = data.toolCallId as string;
       // A live tool_execution_start can arrive with an absent/non-string
       // toolName (pi core emits it that way for some tools; the bridge
@@ -2224,6 +2379,10 @@ export function reduceEvent(
     }
 
     case "tool_execution_update": {
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
       const toolCallId = data.toolCallId as string;
       const partialResult = data.partialResult;
       if (partialResult) {
@@ -2300,6 +2459,10 @@ export function reduceEvent(
     }
 
     case "tool_execution_end": {
+      if (isNestedToolEvent(data)) {
+        reduceNestedToolEvent(next, event);
+        break;
+      }
       const toolCallId = data.toolCallId as string;
       // A SYNTHESIZED heal (`healedBy` set — `"superseded"` from the client,
       // `"session_ended"` from the server) MUST NOT clobber a real terminal row
@@ -2379,6 +2542,17 @@ export function reduceEvent(
           ...(images ? { images } : {}),
           ...(finalDetails ? { toolDetails: finalDetails } : {}),
         };
+      }
+
+      // The root is terminal now (real end or heal): merge a replay-synthesized
+      // nested record, then close any still-running nested entry. An orphan end
+      // (no row, no map entry) creates nothing.
+      // See change: render-nested-tool-calls (D1, D3).
+      if (data.nestedCalls !== undefined) mergeRecordIntoRoot(next, toolCallId, data.nestedCalls);
+      {
+        const nestedList = nestedListOf(next, toolCallId);
+        const closed = closeRunningNested(nestedList);
+        if (closed !== nestedList) writeNested(next, toolCallId, closed);
       }
 
       // Subagent backfill: when this tool_execution_end refers to a completed

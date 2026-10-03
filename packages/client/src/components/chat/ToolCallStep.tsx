@@ -11,6 +11,8 @@ import { getSummary } from "../../lib/chat/tool-summary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
+import type { NestedCallState } from "../../lib/chat/nested-tool-calls.js";
+import { NestedToolCallList } from "./NestedToolCallList.js";
 import { getToolRenderer, type ToolContext } from "../tool-renderers/index.js";
 import { type StopController, ToolStopControl, useToolStopState } from "./ToolStopControl.js";
 
@@ -73,6 +75,10 @@ interface Props {
    * See change: fix-chat-burst-tool-stop.
    */
   stopController?: StopController | null;
+  /** Nested calls this tool made (codemode). See change: render-nested-tool-calls. */
+  nested?: NestedCallState[];
+  /** `false` when pi's nested-call record is incomplete. */
+  nestedComplete?: boolean;
 }
 
 const statusIcons: Record<string, ReactNode> = {
@@ -83,7 +89,7 @@ const statusIcons: Record<string, ReactNode> = {
   elided: <Icon path={mdiMinusCircleOutline} size={0.55} />,
 };
 
-export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill, stopController }: Props) {
+export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill, stopController, nested, nestedComplete }: Props) {
   const isMobile = useMobile();
   const hasImages = images && images.length > 0;
   const isAgentRunning = toolName === "Agent" && status === "running";
@@ -197,6 +203,9 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
       </button>
       {status === "running" && <ToolStopControl controller={stop} testIdPrefix="tool" />}
       </div>
+      {nested && nested.length > 0 && (
+        <NestedToolCallList rootId={toolCallId} nested={nested} complete={nestedComplete} sessionId={context.sessionId} />
+      )}
       {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
           <ErrorBoundary>

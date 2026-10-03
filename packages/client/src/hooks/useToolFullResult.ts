@@ -3,6 +3,9 @@
  * "Show full output" affordance when the rendered result was truncated.
  *
  * See change: adopt-pi-071-072-073-features (C.1).
+ * The id is URL-encoded: a nested id (`call_1/1`) carries `/`, which the route
+ * only matches as one `:toolCallId` param when encoded. See change:
+ * render-nested-tool-calls (D3).
  */
 import { useCallback, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
@@ -27,7 +30,7 @@ export function useToolFullResult(sessionId: string | undefined, toolCallId: str
     setError(undefined);
     setResult(undefined); // clear stale full output before re-fetching
     try {
-      const res = await fetch(`${getApiBase()}/api/sessions/${sessionId}/tool-result/${toolCallId}`);
+      const res = await fetch(`${getApiBase()}/api/sessions/${sessionId}/tool-result/${encodeURIComponent(toolCallId)}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError(

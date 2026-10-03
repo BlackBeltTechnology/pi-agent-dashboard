@@ -721,6 +721,13 @@ function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
   return obj;
 }
 
+/** pi's `NestedToolCalls` envelope shape: `{ calls: array, complete: boolean }`. */
+function isNestedCallsEnvelope(val: unknown): val is { calls: unknown[]; complete: boolean } {
+  if (!val || typeof val !== "object" || Array.isArray(val)) return false;
+  const v = val as Record<string, unknown>;
+  return Array.isArray(v.calls) && typeof v.complete === "boolean";
+}
+
 /**
  * Recursively truncate large string fields in an object.
  * Returns a new object if any truncation occurred, otherwise the original.
@@ -755,6 +762,23 @@ export function truncateStrings(obj: unknown, maxSize: number, depth = 0): unkno
       // See change: fix-pasted-image-message-vanishes.
       if (key === "data" && typeof val === "string" && isBase64DataCarrier(obj)) {
         result[key] = val;
+        continue;
+      }
+      // pi nested-call record (`{ calls: [], complete }` under `nestedCalls`,
+      // on `data` or `data.message`): exempt `calls` from the >20 array
+      // clobber and truncate each record as its OWN root, so its scalar fields
+      // never hit the depth limit while its `arguments` keep the normal
+      // per-string + depth bounds. Not a ceiling exemption.
+      // See change: render-nested-tool-calls (D3).
+      if (key === "nestedCalls" && isNestedCallsEnvelope(val)) {
+        let callsChanged = false;
+        const calls = val.calls.map((record) => {
+          const t = truncateStrings(record, maxSize, 0);
+          if (t !== record) callsChanged = true;
+          return t;
+        });
+        if (callsChanged) changed = true;
+        result[key] = callsChanged ? { ...val, calls } : val;
         continue;
       }
       // Skip 'thinking' blocks entirely — large and not shown in chat
