@@ -71,10 +71,16 @@ if [ "$ELAPSED" -ge 14 ]; then
   rm -rf "$TEST_DIR"
   exit 1
 fi
-if echo "$PUSH_RESP" | grep -qi "terminal prompts disabled\|auth_failed\|could not read"; then
-  echo "Push failed fast (${ELAPSED}s) on non-interactive error"
+# The ONLY acceptable outcome is git's own non-interactive auth failure surfaced
+# by the push route: a fast `auth_failed` (mapPushStderr maps "terminal prompts
+# disabled" / "could not read Username" to it). Anything else - empty body, a
+# different code, success - means the push never reached git or env was lost.
+if echo "$PUSH_RESP" | grep -q '"code":"auth_failed"'; then
+  echo "Push failed fast (${ELAPSED}s) on non-interactive auth error"
 else
-  echo "NOTE: push response did not match expected markers: $PUSH_RESP"
+  echo "FAIL: expected push route to answer auth_failed, got: ${PUSH_RESP:-<empty>}"
+  rm -rf "$TEST_DIR"
+  exit 1
 fi
 
 # Cleanup

@@ -373,16 +373,59 @@ test.describe.serial("host gate — Allow → Save → admitted", () => {
 
 /**
  * F3 (harden-server-request-surfaces): the gate now defaults to `enforce`, so the
- * normal `localhost` path must still load end-to-end. The port is the
- * harness-derived `DASHBOARD_PORT`, never a hardcoded value. Mode-agnostic by
- * design: sibling specs flip and restore `hostGate.mode`, and the property under
- * test is "an admitted Host is never locked out", true in either mode.
+ * normal `localhost` path must still load end-to-end WITH a live WebSocket.
+ * Sibling specs flip and restore `hostGate.mode`, leaving an explicit key
+ * behind, so this test first removes the key from the harness `config.json`
+ * (the "no hostGate config" default state), asserts the live mode is `enforce`
+ * via `GET /api/host-gate`, then restores the file byte-for-byte. The port is
+ * the harness-derived `DASHBOARD_PORT`, never hardcoded.
  */
-test.describe("host gate — default enforce does not lock out localhost", () => {
-  test("F3: dashboard loads and the health endpoint answers 200 on localhost", async ({ page, request }) => {
+test.describe.serial("host gate — default enforce does not lock out localhost", () => {
+  const CONFIG_PATH = '"$HOME/.pi/dashboard/config.json"';
+  let originalRaw: string | undefined;
+
+  test.afterAll(() => {
+    if (originalRaw === undefined) return;
+    execFileSync("docker", ["exec", "-i", harnessContainer(), "sh", "-c", `cat > ${CONFIG_PATH}`], {
+      input: originalRaw,
+      timeout: 30_000,
+    });
+  });
+
+  test("F3: no hostGate key → mode enforce, dashboard + WebSocket still load on localhost", async ({
+    page,
+    request,
+  }) => {
+    originalRaw = execFileSync(
+      "docker",
+      ["exec", harnessContainer(), "sh", "-c", `cat ${CONFIG_PATH}`],
+      { encoding: "utf8", timeout: 30_000 },
+    );
+    const stripped = JSON.parse(originalRaw) as Record<string, unknown>;
+    delete stripped.hostGate;
+    execFileSync("docker", ["exec", "-i", harnessContainer(), "sh", "-c", `cat > ${CONFIG_PATH}`], {
+      input: JSON.stringify(stripped),
+      timeout: 30_000,
+    });
+
+    // The gate re-reads config live (mtime snapshot) — poll until it converges.
+    await expect
+      .poll(
+        async () => {
+          const res = await request.get(`http://localhost:${DASHBOARD_PORT}/api/host-gate`);
+          return ((await res.json()) as { mode?: string }).mode;
+        },
+        { timeout: 15_000 },
+      )
+      .toBe("enforce");
+
     const health = await request.get(`http://localhost:${DASHBOARD_PORT}/api/health`);
     expect(health.status()).toBe(200);
+
+    const wsPromise = page.waitForEvent("websocket", { predicate: (ws) => ws.url().includes("/ws"), timeout: 30_000 });
     await gotoDashboard(page);
-    await expect(page.locator("#root")).toBeVisible({ timeout: 30_000 });
+    const ws = await wsPromise;
+    await page.waitForTimeout(1_000);
+    expect(ws.isClosed(), "dashboard WebSocket must stay open under the enforce default").toBe(false);
   });
 });
