@@ -122,13 +122,13 @@ hardcode `:18000`.
 
 - [x] 6.1 `docs/architecture.md` in the file viewer, harness idle · 30s · **0** `.mermaid-diagram` removal waves after mount AND every stamped node survives — see `tests/e2e/file-preview-survives-churn.spec.ts` for the churn-survival harness shape and `tests/e2e/chat-render-perf.spec.ts` for the perf-window shape (test-plan #P1) — covered by `tests/e2e/mermaid-stability.spec.ts` (notes.md fixture with mermaid fence, 30s soak)
 - [x] 6.2 Chat view with a rendered mermaid block · 30s idle · every stamped `.mermaid-diagram` node survives — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #P2) — covered by `tests/e2e/mermaid-stability.spec.ts` (chat, 30s)
-- [ ] 6.3 Same file with concurrent session activity driven against the harness · 30s · **0** removal waves under load — guards the baseline finding that wave rate scales with event volume — see `tests/e2e/chat-render-perf.spec.ts` (test-plan #P3)
+- [x] 6.3 Same file with concurrent session activity driven against the harness · 30s · **0** removal waves under load — guards the baseline finding that wave rate scales with event volume — see `tests/e2e/chat-render-perf.spec.ts` (test-plan #P3) — `tests/e2e/mermaid-stability.spec.ts` (12-diagram notes.md, second page streams a reply, 30s)
 - [x] 6.4 File viewer on `docs/architecture.md` · an application-wide re-render occurs · no markdown DOM node removed or replaced — see `tests/e2e/file-preview-survives-churn.spec.ts` (test-plan #F1) — covered via session-churn re-render in the same spec
-- [ ] 6.5 Diagram clicked to focus, controls visible · ancestor re-renders repeatedly · controls remain in the DOM and operable, `scale` unchanged — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F2)
+- [x] 6.5 Diagram clicked to focus, controls visible · ancestor re-renders repeatedly · controls remain in the DOM and operable, `scale` unchanged — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F2) — same spec, second page drives churn so focus is not click-dropped
 - [x] 6.6 Diagram zoomed to a non-fit scale and panned · ancestor re-renders · scale and pan offset unchanged — see `tests/e2e/diagram-preview.spec.ts` for the zoom-surface harness (test-plan #F3) — partially: zoom transform survives churn; pan offset not asserted
 - [x] 6.7 Diagram at fitted scale in the fixed-height viewport · user zooms past the fitted scale · viewport height unchanged, overflow reachable by panning — see `tests/e2e/diagram-preview.spec.ts` (test-plan #F11) — viewport height stable under button zoom asserted; wheel zoom not
-- [ ] 6.8 A `.mmd` file open via `MermaidViewer` · 30s idle · 0 removal waves — closes the branch the investigation never reproduced — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F12)
-- [ ] 6.9 A diagram type outside `{flowchart, sequence, gantt}` · rendered · fitted to the viewport, not left at intrinsic width — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F13)
+- [x] 6.8 A `.mmd` file open via `MermaidViewer` · 30s idle · 0 removal waves — closes the branch the investigation never reproduced — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F12) — same spec, new `docker/fixtures/sample-git/flow.mmd` fixture
+- [x] 6.9 A diagram type outside `{flowchart, sequence, gantt}` · rendered · fitted to the viewport, not left at intrinsic width — see `tests/e2e/mermaid-colorize.spec.ts` (test-plan #F13) — same spec, `journey` diagram asserted against computed contain scale
 
 ## 7. Manual-only scenarios (deferred post-merge by ship-change)
 
@@ -151,6 +151,6 @@ group 0 rather than being restated here.
 - [x] 8.9 Update the directory `AGENTS.md` rows for every touched file with `See change: fix-markdown-remount-storm`
 
 
-## Ship-it status (honest gaps)
+## Ship-it status
 
-Not delivered by ship-it, carried as follow-up: 0.4/0.5/0.8 (moot — storm no longer reproduces), 6.3 (concurrent-load soak), 6.5 (focus survival under re-render — a prompt send clicks the composer, which deliberately un-focuses), 6.8 (`.mmd` E2E, no fixture), 6.9 (non-`useMaxWidth` type E2E), 8.3/8.4 manual. Group 7 manual-only deferred by ship-change.
+Not done by ship-it: 0.4/0.5/0.8 (moot — storm no longer reproduces on the current tree), 8.3/8.4 manual, 8.8 rebuild (post-merge). Group 7 manual-only deferred by ship-change.
