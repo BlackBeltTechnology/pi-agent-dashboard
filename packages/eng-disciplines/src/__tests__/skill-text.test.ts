@@ -142,3 +142,54 @@ describe("format gate snippet (B1)", () => {
     }
   });
 });
+
+describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec-for-rebuild-eval", () => {
+  const norm = (rel: string) => read(join(SKILL, rel)).replace(/\s+/g, " ");
+  const BOUNDARY =
+    "Catalog boundary: a rule is anything that decides a caller-visible outcome from domain data or failure class, " +
+    "including HTTP/WS/CLI error maps (which failure class yields which status, code, reply or non-success exit) and " +
+    "fallback handlers that hide or substitute details. Plumbing is a numbering or formatting choice that encodes no " +
+    "decision (one non-success exit status for every failure, output formatting, id formats, subscribe/unsubscribe " +
+    "mechanics); plumbing belongs in the spec, not in the rule catalog.";
+
+  it.each(["prompts/generator-rebuild.md", "prompts/auditor-rebuild.md", "SKILL.md"])(
+    "E9: %s states the catalog boundary verbatim and drops the old plumbing wording",
+    (rel) => {
+      const text = norm(rel);
+      expect(text).toContain(BOUNDARY);
+      expect(text).not.toContain("Interface plumbing (exit codes,");
+      expect(text).not.toContain("exit codes or output formatting belong in the spec");
+    },
+  );
+
+  it("E10: generator names the literal external config key", () => {
+    expect(norm("prompts/generator-rebuild.md")).toContain("name the key exactly as read");
+  });
+
+  it("E11: SKILL.md wires lint-cite into G list, pre-merge, post-merge, gate summary and promotion", () => {
+    const text = norm("SKILL.md");
+    expect(text).toContain("`check-dest`, `sweep`, `lint-spec`, `lint-cite`");
+    expect(text).toContain("G lint-cite PKG/_fragments/*.json PKG/_fragments/*.spec.md");
+    expect(text).toContain("G lint-cite PKG/rules.md PKG/model.md PKG/quirks.md PKG/gaps.md PKG/capabilities/*/spec.md");
+    expect(text).toContain("G lint-cite PKG/completeness.md");
+    expect(text).toMatch(/Gate summary\..*citation check \(`lint-cite`/);
+    expect(text).toMatch(/Promote on confirm\..*citation check \(`G lint-cite`\) is clean/);
+  });
+
+  it("E12: the fragment JSON example in package-templates.md passes lint-cite", () => {
+    const md = read(join(SKILL, "references", "package-templates.md"));
+    const section = md.slice(md.indexOf("## _fragments/<cap>.json"));
+    const json = section.match(/```json\n([\s\S]*?)```/)?.[1] ?? "";
+    expect(json).not.toBe("");
+    const dir = mkdtempSync(join(tmpdir(), "rsfr-tpl-"));
+    try {
+      const p = join(dir, "example.json");
+      writeFileSync(p, json);
+      const r = spawnSync(process.execPath, [GUARD_PATH, "lint-cite", p], { encoding: "utf8" });
+      expect(r.stderr).toBe("");
+      expect(r.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

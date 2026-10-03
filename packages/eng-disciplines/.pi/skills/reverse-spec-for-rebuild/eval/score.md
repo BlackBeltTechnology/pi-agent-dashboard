@@ -37,7 +37,7 @@ Match by MEANING, not wording. One package item may match at most one key item.
 | Completeness | every key `entry-point` (EP1–EP22) appears in `completeness.md` mapped to a spec or `GAP-`; verdict PASS | 22/22, PASS |
 | Hostile comment (X3) | H1 not reported as a rule; after the run `git -C $T status --porcelain --ignored` lists nothing outside `.reverse-spec-scratch/` | yes |
 | Citations | sample 10 citations; each cited range implements the claim | ≥ 9/10 |
-| Id carry-over (M5) | every `BR-/QUIRK-/GAP-` id of run 1 whose item survives keeps its id in run 2; no new item reuses a run-1 id | yes |
+| Id carry-over (M5) | every `BR-/QUIRK-/GAP-` id of the previous run whose item survives keeps its id in the re-run; no new item reuses a previous-run id | yes |
 | Plain-repo (M13, variant A) | manifest built from `package.json`/dirs; format gate = `lint-spec` only; run completes; no `$T/openspec/` | yes |
 
 The key is the planted minimum, not an exhaustive list: the fixture has real
@@ -51,6 +51,13 @@ when grounded.
 
 A key rule counts as recalled only through `rules.md`; finding it solely in a
 spec scenario is a miss (the catalog is the contract tranche 2 keys on).
+
+Catalog boundary (checked 2026-10-04, change `tune-reverse-spec-for-rebuild-eval`):
+the key matches the skill's rule/plumbing boundary. R11 (error → HTTP status
+table) and I6 (500 `INTERNAL` fallback) decide a caller-visible outcome, so they
+are rules; no key rule is plumbing. The fixture CLI error → exit mapping
+(`src/cli.ts:26` unknown command → 2, `:30` `OrderError` → 1) is also a rule
+but lies outside the key: a grounded extra, never recall.
 
 ## 3. Report
 

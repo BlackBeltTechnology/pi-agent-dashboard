@@ -37,7 +37,7 @@ Skip for a single trivial file, or when you only want searchable docs.
 ## Procedure
 
 `G` below is `node <this skill dir>/scripts/guard.mjs` (the deterministic guards in
-`scripts/guard.mjs`: `check-dest`, `sweep`, `lint-spec`), run from the
+`scripts/guard.mjs`: `check-dest`, `sweep`, `lint-spec`, `lint-cite`), run from the
 repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
 (`<target-slug>` = output of `G slug <target>`: `root` for the repository root,
 else a kebab-case form of the canonical repo-relative path plus a short hash —
@@ -92,8 +92,26 @@ the repository. Never derive the slug by hand).
    message, with `prompts/generator-rebuild.md`. Each writes its unmerged spec
    (local `{r1}` refs) to `PKG/_fragments/<cap>.spec.md` (SPEC OUTPUT) and its
    fragment to `PKG/_fragments/<cap>.json`, nothing else.
+   **Citation check before each merge:** `G lint-cite PKG/_fragments/*.json PKG/_fragments/*.spec.md`.
+   Exit 1 lists every `confirmed` cite with more than one location and every
+   unterminated cite. For each finding this session may only LOWER the
+   confidence to `inferred` — the item in `<cap>.json` and the matching cite
+   comment in `<cap>.spec.md` together, mechanically (the one exception to step 5's
+   rule that only generators write fragments). Narrowing a cite to one location is the
+   generator's job: route it as `FINDINGS`. Re-run until exit 0.
 6. **Merge** (this session — design D4; fall back to a consolidator subagent
    only if the fragments exceed context):
+   Catalog boundary: a rule is anything that decides a caller-visible outcome
+   from domain data or failure class, including HTTP/WS/CLI error maps (which
+   failure class yields which status, code, reply or non-success exit) and
+   fallback handlers that hide or substitute details. Plumbing is a numbering or
+   formatting choice that encodes no decision (one non-success exit status for
+   every failure, output formatting, id formats, subscribe/unsubscribe
+   mechanics); plumbing belongs in the spec, not in the rule catalog.
+   Keep a rule that falls under this boundary in `rules.md`; never drop an
+   error map or fallback rule as plumbing. Keep rule statements verbatim:
+   never rewrite config key names (the generator names the literal external
+   key).
    1. Load `rules.md`/`quirks.md`/`gaps.md` from the frozen `previous-$RUN_ID/`
       snapshot (step 3) when one exists — on every merge of the run, so ids the
       previous package retired stay retired even after this run rewrites `PKG`.
@@ -111,12 +129,18 @@ the repository. Never derive the slug by hand).
       that shifts ids cannot leave a stale reference in an unrevised spec. No
       `{...}` local reference may remain. Never edit the rendered spec by hand.
    4. A merged item's confidence is the LOWEST of its sources; never raise it.
+      A merged item's cite is the union of its sources' locations; a union of
+      more than one location caps its confidence at `inferred`.
       When a fragment rule spans several catalog rules, map its local id to
       the closest one and list the others in the spec text, rather than
       narrowing the claim.
    5. Merge entities by name into `model.md`; render `rules.md`, `quirks.md`,
       `gaps.md`, using `references/package-templates.md`. Keep a JSON origin map
       `item id -> capability` for the cross-cutting audit.
+   6. At the end of EVERY merge, before step 7:
+      `G lint-cite PKG/rules.md PKG/model.md PKG/quirks.md PKG/gaps.md PKG/capabilities/*/spec.md`.
+      A finding only in merged output is a merge error: re-run the merge
+      applying rule 4 (never hand-edit a catalog). No audit runs while it fails.
 7. **Audit in parallel.** One subagent per capability in a SINGLE message,
    `prompts/auditor-rebuild.md`, `MODE=capability`.
 8. **Revise loop.** For each `verdict: revise`, re-run its generator with the
@@ -148,7 +172,8 @@ the repository. Never derive the slug by hand).
    A failing spec is regenerated with the failures as `FINDINGS` (back to step
    5 for that capability, then 6-9). It is never promotable while failing.
 10. **Completeness gate.** One subagent with `prompts/completeness.md` writes
-    `PKG/completeness.md`. Any unmapped entry point = FAIL: re-run the
+    `PKG/completeness.md`, then `G lint-cite PKG/completeness.md` before the
+    cross-cutting audit (a finding re-runs completeness). Any unmapped entry point = FAIL: re-run the
     suggested capability's generator with the unmapped list as FINDINGS — it
     either specs the entry point or records it as a gap (and an entry point)
     in its fragment. Never edit `rules.md`/`quirks.md`/`gaps.md` or a rendered
@@ -171,10 +196,12 @@ the repository. Never derive the slug by hand).
 13. **Gate summary.** Write `PKG/README.md` (template in
     `references/package-templates.md`, with the commit SHA) and report per
     capability: audit verdict, format gate (`lint-spec`, plus `openspec
-    validate` when it ran), rule counts (explicit/implicit), quirks, gaps, and
+    validate` when it ran), citation check (`lint-cite` on fragments, catalogs
+    and `completeness.md`), rule counts (explicit/implicit), quirks, gaps, and
     the completeness verdict.
 14. **Promote on confirm.** Offer promotion only when every capability passed
-    audit and format gate and completeness is PASS. `ask_user` for a
+    audit and format gate, completeness is PASS and the citation check
+    (`G lint-cite`) is clean. `ask_user` for a
     destination; run `G check-dest <dest>` (add `--protect <dir>` per root when
     the user overrides the protected roots). Exit 1 = inside a protected root:
     say so and ask for another destination. On exit 0 MOVE (not copy) `PKG` to
@@ -253,6 +280,9 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   `openspec/` exist. *(Portable operation; Behavioral coverage)*
 - Every requirement, scenario, rule, field, quirk and gap has a cite comment
   with a confidence level. *(Per-claim provenance and confidence)*
+- `G lint-cite` exited 0 on fragments before each merge, on the merged catalogs
+  and specs after each merge, and on `completeness.md`. *(Per-claim provenance
+  and confidence)*
 - `rules.md` lists each rule once with `BR-NNN`, class and capabilities; specs
   reference ids that resolve. *(Business rule catalog; Grounding audit)*
 - `model.md` covers every entity field with type, optionality and default.

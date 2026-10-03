@@ -160,7 +160,7 @@ capability-scoped and are rewritten to global ids by the merge.
     { "local": "r1", "class": "explicit", "statement": "...", "cite": "lib/loans.py:41-44", "confidence": "confirmed" }
   ],
   "entities": [
-    { "name": "Loan", "identity": "...", "persistence": "...", "cite": "lib/loans.py:18; db/schema.sql:12-21", "confidence": "confirmed", "fields": [
+    { "name": "Loan", "identity": "...", "persistence": "...", "cite": "lib/loans.py:18; db/schema.sql:12-21", "confidence": "inferred", "fields": [
       { "name": "renewals", "type": "integer 0..2", "optional": true, "default": "0",
         "constraints": "...", "rules": ["r3"], "cite": "lib/loans.py:25", "confidence": "confirmed" }
     ], "relationships": ["belongs to Member"] }

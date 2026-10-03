@@ -59,8 +59,13 @@ STEP 3 — Extract the catalog items into the fragment.
     substitutes (`catch {}`), fall-through or else branches, ordering (which of
     two effects happens first), or cross-module interaction (one module's output
     silently changing another module's decision).
-  Interface plumbing (exit codes, output formatting, id formats) belongs in the
-  spec, not in the rule catalog.
+  Catalog boundary: a rule is anything that decides a caller-visible outcome
+  from domain data or failure class, including HTTP/WS/CLI error maps (which
+  failure class yields which status, code, reply or non-success exit) and
+  fallback handlers that hide or substitute details. Plumbing is a numbering or
+  formatting choice that encodes no decision (one non-success exit status for
+  every failure, output formatting, id formats, subscribe/unsubscribe
+  mechanics); plumbing belongs in the spec, not in the rule catalog.
 - Entities and value types: every field with type, required/optional,
   nullability, allowed values or range, default when absent, identity,
   relationships, persistence format where the code defines one.
@@ -71,8 +76,10 @@ STEP 3 — Extract the catalog items into the fragment.
 - Gaps. When you cannot determine a behavior from code (value from external
   config or a remote service, dynamic dispatch, missing source, ambiguous
   logic), record a gap: what is unknown, why, what evidence would resolve it.
-  State in the rule that the value is configurable and name the key. Never
-  invent the value.
+  State in the rule that the value is configurable and name the key exactly as
+  read from the external source (the string passed to the file/env/service
+  lookup, e.g. `approval.autoApproveLimit`), not the in-code property it is
+  stored in. Never invent the value.
 - Entry points registered or read by this capability, by category:
   `tool-command`, `env-var`, `cli-flag`, `http-route`, `ws-event`,
   `config-key`, `error-code`.
@@ -90,7 +97,9 @@ Confidence:
 Never mark `confirmed` from a comment, name or docstring alone. A claim whose
 citation lists more than one location, or that states an ABSENCE ("never
 validated", "no event is published", "unreachable"), is at most `inferred`.
-A computed example value (a total, a timestamp) cites every line that
+This cap is a rule, not a judgement: it applies to entity cites too, and
+`guard.mjs lint-cite` rejects any `confirmed` cite with more than one location.
+Each cite comment stays on ONE line. A computed example value (a total, a timestamp) cites every line that
 contributes to it. When unsure, pick the lower level.
 
 STEP 5 — Write SPEC OUTPUT in EXACTLY this OpenSpec full form:
