@@ -184,14 +184,17 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
         next = followUpReprobe(next.cwd, applied);
       }
     } catch (err) {
-      if (!logged) {
-        logged = true;
-        log(`[dashboard] git facts re-probe failed: ${String(err)}`);
-      }
+      logOnce(err);
     } finally {
       reprobing = false;
       queuedReprobe = undefined;
     }
+  }
+
+  function logOnce(err: unknown): void {
+    if (logged) return;
+    logged = true;
+    log(`[dashboard] git facts re-probe failed: ${String(err)}`);
   }
 
   /**
@@ -246,7 +249,7 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       }
       ticks += 1;
       const stampChanged = facts.stampChanged(tickCwd);
-      if (stampChanged || ticks % FACTS_REPROBE_EVERY_N_TICKS === 0) void reprobeFacts(tickCwd, stampChanged);
+      if (stampChanged || ticks % FACTS_REPROBE_EVERY_N_TICKS === 0) reprobeFacts(tickCwd, stampChanged).catch(logOnce);
       const fresh = reader.read(tickCwd, facts.get(tickCwd)?.gitDir);
       const branchMoved = fresh !== undefined && fresh !== branch;
       // Observe the last SETTLED branch; a moved branch is observed by the
@@ -262,7 +265,7 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
 
     refresh() {
       if (disposed || !cwd) return;
-      void reprobeFacts(cwd);
+      reprobeFacts(cwd).catch(logOnce);
       requestProbe("fast", "refresh");
     },
 

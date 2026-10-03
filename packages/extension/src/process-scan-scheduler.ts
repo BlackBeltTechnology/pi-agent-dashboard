@@ -71,7 +71,9 @@ export function createProcessScanScheduler(deps: ProcessScanSchedulerDeps): Proc
     timer = setTimer(() => {
       timer = undefined;
       timerDue = Number.POSITIVE_INFINITY;
-      void run();
+      run().catch(() => {
+        /* run() never rejects */
+      });
     }, delay);
   }
 
@@ -117,7 +119,9 @@ export function createProcessScanScheduler(deps: ProcessScanSchedulerDeps): Proc
       if (toolName && toolName.toLowerCase() === "bash" && !disposed) {
         const t = setTimer(() => {
           oneShots.delete(t);
-          void run();
+          run().catch(() => {
+            /* run() never rejects */
+          });
         }, POST_BASH_MS);
         oneShots.add(t);
       }

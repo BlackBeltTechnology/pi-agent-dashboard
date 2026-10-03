@@ -66,7 +66,9 @@ export function createGitProbeScheduler(deps: GitProbeSchedulerDeps): GitProbeSc
     if (timer) clearTimer(timer);
     timer = setTimer(() => {
       timer = undefined;
-      void start();
+      start().catch(() => {
+        /* start() never rejects: the probe contract is non-throwing */
+      });
     }, Math.max(0, due - now()));
   }
 
