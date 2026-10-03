@@ -133,13 +133,17 @@ describe("Radius MCP offer — suppression (F3)", () => {
 
 describe("Radius MCP offer — stale state (B1)", () => {
   /** Two providers, both completable; GET /radius/mcp is held until released. */
-  function stubTwo(get: () => Promise<any>) {
+  function stubTwo(get: () => Promise<any>): Set<string> {
     const done = new Set<string>();
     const json = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as any;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: any) => {
         if (url.includes("/api/provider-auth/radius/mcp") && init?.method !== "POST") return get();
+        if (init?.method === "DELETE" && /\/api\/provider-auth\/[^/]+$/.test(url)) {
+          done.delete(url.split("/").pop() as string);
+          return json(200, { ok: true });
+        }
         if (url.includes("/api/provider-auth/status")) {
           return json(200, ["radius", "anthropic"].map((id) => ({ id, name: id === "radius" ? "Radius" : "Anthropic", flowType: "auth_code", authenticated: done.has(id), configured: done.has(id), subscription: false })));
         }
@@ -157,6 +161,7 @@ describe("Radius MCP offer — stale state (B1)", () => {
         return json(200, {});
       }),
     );
+    return done;
   }
 
   async function signIn(c: ReturnType<typeof render>, name: string) {
@@ -177,6 +182,45 @@ describe("Radius MCP offer — stale state (B1)", () => {
     await screen.findByTestId("radius-mcp-offer");
     await signIn(c, "Anthropic");
     await waitFor(() => expect(screen.queryByTestId("radius-mcp-offer")).toBeNull());
+  });
+
+  it("a second Radius completion clears the displayed offer while its own read is pending", async () => {
+    let calls = 0;
+    let release: (v: unknown) => void = () => {};
+    const done = stubTwo(() => {
+      calls += 1;
+      if (calls === 1) return Promise.resolve({ ok: true, status: 200, json: async () => OFFER } as any);
+      return new Promise((resolve) => { release = resolve; });
+    });
+    const c = render(<ProviderAuthSection />);
+    await signIn(c, "Radius");
+    await screen.findByTestId("radius-mcp-offer");
+    // Signed out, then signed in again: the old offer must not stay clickable.
+    fireEvent.click(await c.findByRole("button", { name: /sign out/i }));
+    await waitFor(() => expect(done.has("radius")).toBe(false));
+    await signIn(c, "Radius");
+    expect(calls).toBe(2);
+    expect(screen.queryByTestId("radius-mcp-offer")).toBeNull();
+    await act(async () => {
+      release({ ok: true, status: 200, json: async () => ({ ...OFFER, configured: true }) });
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(screen.queryByTestId("radius-mcp-offer")).toBeNull();
+  });
+
+  it("dismissal during an in-flight read: the late GET does not restore the offer", async () => {
+    let release: (v: unknown) => void = () => {};
+    stubTwo(() => new Promise((resolve) => { release = resolve; }));
+    const c = render(<ProviderAuthSection />);
+    await signIn(c, "Radius");
+    // Pending read: no offer yet. A completion of another provider invalidates it.
+    expect(screen.queryByTestId("radius-mcp-offer")).toBeNull();
+    await signIn(c, "Anthropic");
+    await act(async () => {
+      release({ ok: true, status: 200, json: async () => OFFER });
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    expect(screen.queryByTestId("radius-mcp-offer")).toBeNull();
   });
 
   it("a Radius GET resolving after a later completion does not resurrect the offer", async () => {

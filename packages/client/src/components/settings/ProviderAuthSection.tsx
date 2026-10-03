@@ -406,6 +406,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     // only when the Pi-global mcp.json is not already configured. A failed read
     // (503/409) means no offer — never an error on a sign-in that succeeded.
     const seq = ++radiusOfferSeqRef.current;
+    // Every completion first drops the displayed offer: it belongs to the
+    // PREVIOUS sign-in and must not stay clickable while this one's read is
+    // pending (or when that read reports configured / fails).
+    setRadiusOffer(null);
     if (id === "radius") {
       void fetchRadiusMcpOffer()
         .then((offer) => {
@@ -414,9 +418,6 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
         .catch(() => {
           if (seq === radiusOfferSeqRef.current) setRadiusOffer(null);
         });
-    } else {
-      // Another sign-in completed: an earlier Radius offer no longer applies.
-      setRadiusOffer(null);
     }
   }, [handleChanged, stopFlowTimers]);
 
