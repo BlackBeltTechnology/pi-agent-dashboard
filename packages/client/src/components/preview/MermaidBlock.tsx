@@ -329,7 +329,10 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
     if (!svg || !el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
-      setFit(computeFitScale(svg, r.width, r.height));
+      // clientWidth/Height are layout sizes: unaffected by the zoom transform (unlike getBoundingClientRect).
+      const node = el.querySelector("svg") as unknown as SVGSVGElement | null;
+      const measured = node && node.clientWidth > 0 && node.clientHeight > 0 ? { w: node.clientWidth, h: node.clientHeight } : null;
+      setFit(computeFitScale(svg, r.width, r.height, measured));
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;

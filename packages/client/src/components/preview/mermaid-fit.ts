@@ -25,7 +25,22 @@ function absLength(v: string | null): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** Resolution order: viewBox → absolute width/height → null (unknown). */
+/** `max-width:800px` from the inline style (px only). */
+function styleMaxWidth(tag: string): number | null {
+  const m = /max-width\s*:\s*(\d+(?:\.\d+)?)px/i.exec(attr(tag, "style") ?? "");
+  return m ? Number(m[1]) : null;
+}
+
+/** True when the root `<svg>` is container-relative (`width="100%"` / no width): a mounted measurement would be circular. */
+export function isFluidWidth(svg: string): boolean {
+  const tag = /<svg\b[^>]*>/i.exec(svg)?.[0];
+  return !tag || absLength(attr(tag, "width")) == null;
+}
+
+/**
+ * Resolution order (design D4.3): viewBox → style max-width (+ absolute height)
+ * → absolute width/height → null (caller may measure a non-fluid mounted SVG).
+ */
 export function intrinsicSize(svg: string): Size | null {
   const tag = /<svg\b[^>]*>/i.exec(svg)?.[0];
   if (!tag) return null;
@@ -36,15 +51,19 @@ export function intrinsicSize(svg: string): Size | null {
     if (parts.length === 4 && pos(parts[2]) && pos(parts[3])) return { w: parts[2], h: parts[3] };
   }
 
-  const w = absLength(attr(tag, "width"));
   const h = absLength(attr(tag, "height"));
+  const mw = styleMaxWidth(tag);
+  if (mw != null && h != null && pos(mw) && pos(h)) return { w: mw, h };
+
+  const w = absLength(attr(tag, "width"));
   if (w != null && h != null && pos(w) && pos(h)) return { w, h };
   return null;
 }
 
 /** Contain scale `min(vw/w, vh/h)`; 1 when size or viewport is unknown. Unclamped. */
-export function computeFitScale(svg: string, viewportW: number, viewportH: number): number {
-  const size = intrinsicSize(svg);
+export function computeFitScale(svg: string, viewportW: number, viewportH: number, measured?: Size | null): number {
+  // `measured` (mounted, untransformed size) is the last resort and is ignored for fluid-width SVGs.
+  const size = intrinsicSize(svg) ?? (measured && !isFluidWidth(svg) ? measured : null);
   if (!size || !pos(viewportW) || !pos(viewportH)) return 1;
   const s = Math.min(viewportW / size.w, viewportH / size.h);
   return pos(s) ? s : 1;

@@ -113,12 +113,12 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
     }
   }, [cwd, path, buffer, mtime, saving]);
 
+  // Hook order: declared before any early return. Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
+  const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
+
   if (loadFailure) {
     return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
   }
-  // Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
-  const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
-
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
   if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("common.loading2", undefined, "Loading…")}</div>;
 

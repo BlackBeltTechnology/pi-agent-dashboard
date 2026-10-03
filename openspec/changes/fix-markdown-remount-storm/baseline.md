@@ -87,3 +87,5 @@ amplifier was removed, so the ~1Hz trigger no longer has an observable effect.
 Falsified premise: "the `components` map is rebuilt inline" (no longer true).
 Remaining valid scope: D3 (stable `imageBase`), D4 (fixed-height fitted viewport).
 Group 1 L1 scenarios are kept as regression guards.
+
+`.mmd` path (task 4.1): `MermaidViewer` → `MermaidBlock`, 30s idle on current build: 0 removals, 1 of 1 node survives.

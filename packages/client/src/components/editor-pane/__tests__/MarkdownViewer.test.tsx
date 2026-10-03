@@ -147,3 +147,35 @@ describe("MarkdownViewer imageBase identity", () => {
     await waitFor(() => expect(imageBases.some((b) => b && (b as { dir: string }).dir.endsWith("other"))).toBe(true));
   });
 });
+
+// Review B1: the imageBase hook must be declared before the `loadFailure` early
+// return, else a refused load followed by a successful one changes hook order.
+describe("MarkdownViewer hook order across a refused load", () => {
+  it("recovers from a 404 target to a loadable one without a hook-order crash", async () => {
+    globalThis.fetch = vi.fn((url: string) =>
+      Promise.resolve(
+        String(url).includes("gone.md")
+          ? { ok: false, status: 404, json: () => Promise.resolve({}) }
+          : { ok: true, status: 200, json: () => Promise.resolve({ success: true, data: { type: "file", content: "# ok", mtime: 1 } }) },
+      ),
+    ) as unknown as typeof fetch;
+    const el = (path: string) => (
+      <ThemeProvider>
+        <MarkdownViewer cwd="/proj" path={path} kind="markdown" mimeType="text/markdown" size={0} />
+      </ThemeProvider>
+    );
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const winErrors: string[] = [];
+    const onErr = (e: ErrorEvent) => { winErrors.push(e.message); e.preventDefault(); };
+    window.addEventListener("error", onErr);
+    const { rerender } = render(el("gone.md"));
+    await waitFor(() => expect(screen.queryByTestId("md-preview")).toBeNull());
+    await new Promise((r) => setTimeout(r, 20)); // let the 404 land as loadFailure
+    rerender(el("fine.md"));
+    expect(await screen.findByTestId("md-preview")).toBeTruthy();
+    const hookErrors = errSpy.mock.calls.filter((c) => /hooks/i.test(String(c[0]) + String(c[1] ?? "")));
+    window.removeEventListener("error", onErr);
+    expect(hookErrors).toEqual([]);
+    expect(winErrors.filter((m) => /hooks/i.test(m))).toEqual([]);
+  });
+});
