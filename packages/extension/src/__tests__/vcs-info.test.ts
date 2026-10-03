@@ -38,6 +38,7 @@ import {
   detectRemoteUrl,
   detectWorktree,
   gatherGitInfo,
+  dotGitStampOf,
   GitFactsCache,
   type StaticGitFacts,
   worktreeFromRoots,
@@ -424,5 +425,48 @@ describe("GitFactsCache (D4)", () => {
     const out = await p;
     expect(out.committed).toBe(false);
     expect(c.get("/r")?.remoteUrl).toBe("git@new:o/r.git");
+  });
+
+  it("CR: the .git stamp ignores DIRECTORY mtimes (index.lock churn) but sees a worktree pointer FILE change", () => {
+    const roots = { thisCheckout: "/w", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git", gitDir: "/r/.git/worktrees/w" } as any;
+    const mk = (m: Record<string, { dir?: boolean; mtime: number }>) => (p: string) => {
+      const e = m[p];
+      if (!e) throw new Error("ENOENT");
+      return { isDirectory: () => !!e.dir, mtimeMs: e.mtime };
+    };
+    const base = { "/w/.git": { mtime: 1 }, "/r/.git/worktrees/w": { dir: true, mtime: 10 }, "/r/.git/worktrees/w/gitdir": { mtime: 5 } };
+    const a = dotGitStampOf("/w", roots, mk(base));
+    // routine git activity rewrites entries inside the git dir -> its dir mtime moves
+    expect(dotGitStampOf("/w", roots, mk({ ...base, "/r/.git/worktrees/w": { dir: true, mtime: 99 } }))).toBe(a);
+    // `git worktree repair/move` rewrites the pointer files
+    expect(dotGitStampOf("/w", roots, mk({ ...base, "/w/.git": { mtime: 2 } }))).not.toBe(a);
+    expect(dotGitStampOf("/w", roots, mk({ ...base, "/r/.git/worktrees/w/gitdir": { mtime: 6 } }))).not.toBe(a);
+    // removal is seen
+    const { ["/r/.git/worktrees/w"]: _gone, ...without } = base;
+    expect(dotGitStampOf("/w", roots, mk(without))).not.toBe(a);
+    // a plain (non-repo) cwd sees `git init`
+    expect(dotGitStampOf("/p", null, mk({}))).not.toBe(dotGitStampOf("/p", null, mk({ "/p/.git": { dir: true, mtime: 1 } })));
+  });
+
+  it("CR: the HEAD fallback memo is keyed by repository, and reset() forgets it", async () => {
+    const calls: string[] = [];
+    const deps = {
+      readFile: () => "0123456789abcdef0123456789abcdef01234567",
+      mtimeOf: () => 0,
+      fallback: vi.fn(async (cwd: string) => {
+        calls.push(cwd);
+        return `sha-of-${cwd}`;
+      }),
+    };
+    const r = createHeadBranchReader(() => {}, deps);
+    r.read("/a", "/a/.git");
+    r.read("/b", "/b/.git"); // same HEAD content, different repo: must NOT reuse /a's answer
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.sort()).toEqual(["/a", "/b"]);
+    expect(r.read("/b", "/b/.git")).toBe("sha-of-/b");
+    r.reset();
+    r.read("/b", "/b/.git");
+    expect(calls.filter((c) => c === "/b")).toHaveLength(2); // memo cleared by reset()
   });
 });

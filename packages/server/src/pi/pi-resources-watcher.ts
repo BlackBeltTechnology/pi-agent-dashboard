@@ -34,6 +34,8 @@ export interface PiResourcesWatcherDeps {
   /** Override `~` (tests). */
   homeDir?: string;
   isDir?: (p: string) => boolean;
+  /** Identity of a directory (inode); a recreated dir at the same path differs. */
+  inodeOf?: (p: string) => number;
 }
 
 export interface PiResourcesWatcher {
@@ -63,10 +65,19 @@ export function createPiResourcesWatcher(deps: PiResourcesWatcherDeps): PiResour
         return false;
       }
     });
+  const inodeOf =
+    deps.inodeOf ??
+    ((p: string) => {
+      try {
+        return fs.statSync(p).ino;
+      } catch {
+        return 0;
+      }
+    });
   const home = () => deps.homeDir ?? process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
 
-  /** scope key → (dir → watcher) */
-  const scopes = new Map<string, Map<string, Pick<fs.FSWatcher, "close" | "on">>>();
+  /** scope key → (dir → watcher + the inode it was attached to) */
+  const scopes = new Map<string, Map<string, { w: Pick<fs.FSWatcher, "close" | "on">; ino: number }>>();
 
   const baseOf = (key: string): string =>
     key === GLOBAL ? path.join(home(), ".pi", "agent") : path.join(key, ".pi");
@@ -105,25 +116,49 @@ export function createPiResourcesWatcher(deps: PiResourcesWatcherDeps): PiResour
       dirs = new Map();
       scopes.set(key, dirs);
     }
-    dirs.set(dir, w);
+    dirs.set(dir, { w, ino: inodeOf(dir) });
     return true;
   }
 
+  function closeDir(key: string, dir: string): void {
+    const entry = scopes.get(key)?.get(dir);
+    if (!entry) return;
+    try {
+      entry.w.close();
+    } catch {
+      /* already closed */
+    }
+    scopes.get(key)?.delete(dir);
+  }
+
+  /**
+   * Attach what exists, drop what vanished, and RE-attach a directory that was
+   * removed and recreated: `fs.watch` stays bound to the old inode, so without
+   * the identity check a recreated `skills/` would never invalidate again.
+   */
   function reconcileScope(key: string): boolean {
     const base = baseOf(key);
-    let attached = false;
-    if (isDir(base)) attached = attachDir(key, base, true) || attached;
-    for (const sub of PI_RESOURCE_SUBDIRS) {
-      const dir = path.join(base, sub);
-      if (isDir(dir)) attached = attachDir(key, dir, false) || attached;
-    }
+    let attached = syncDir(key, base, true);
+    for (const sub of PI_RESOURCE_SUBDIRS) attached = syncDir(key, path.join(base, sub), false) || attached;
     return attached;
+  }
+
+  /** Bring one directory's watch in line with the filesystem. True iff newly attached. */
+  function syncDir(key: string, dir: string, isBase: boolean): boolean {
+    const existing = scopes.get(key)?.get(dir);
+    if (!isDir(dir)) {
+      if (existing) closeDir(key, dir);
+      return false;
+    }
+    if (existing && existing.ino === inodeOf(dir)) return false;
+    if (existing) closeDir(key, dir);
+    return attachDir(key, dir, isBase);
   }
 
   function detachScope(key: string): void {
     const dirs = scopes.get(key);
     if (!dirs) return;
-    for (const w of dirs.values()) {
+    for (const { w } of dirs.values()) {
       try {
         w.close();
       } catch {

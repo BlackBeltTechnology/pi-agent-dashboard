@@ -233,4 +233,13 @@ describe("pi-resources on demand", () => {
     service.startPolling(() => {});
     expect(service.getPiResources(cwd)?.stale).toBe(true);
   });
+
+  it("CR: a failed COLD scan releases the watchers it attached (nothing else would)", async () => {
+    const { service, w } = mk();
+    const cwd = project("cold");
+    scanPiResources.mockRejectedValueOnce(new Error("cold boom"));
+    await expect(service.refreshPiResources(cwd)).rejects.toThrow("cold boom");
+    expect(w.listeners.has(path.join(cwd, ".pi", "skills"))).toBe(false);
+    expect(service.getPiResources(cwd)).toBeUndefined();
+  });
 });

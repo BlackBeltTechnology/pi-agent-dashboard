@@ -1528,6 +1528,14 @@ export function createDirectoryService(
         enforcePiResourcesBounds();
         return data;
       })
+      .catch((err) => {
+        // A failed COLD scan never enters the cache, so nothing else would ever
+        // release the watchers `touchPiResources` attached for it.
+        if (!piResourcesCache.has(cwd)) {
+          try { piResourcesWatcher.detach(cwd); } catch { /* best-effort */ }
+        }
+        throw err;
+      })
       .finally(() => piResourcesInFlight.delete(cwd));
     piResourcesInFlight.set(cwd, run);
     return run;

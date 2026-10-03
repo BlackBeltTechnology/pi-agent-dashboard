@@ -21,6 +21,7 @@ $tests = @(
 $passed = 0
 $failed = 0
 $skipped = 0
+$preconditionSkipped = 0
 $results = @()
 
 Write-Host "========================================"
@@ -50,8 +51,10 @@ foreach ($test in $tests) {
             $results += "PASS  $test"
         } elseif ($LASTEXITCODE -eq 77) {
             # Convention: a script that cannot establish its own precondition exits 77.
-            $skipped++
-            $results += "SKIP  $test (precondition not met)"
+            # Loud but NOT a suite failure: the check could not be established on this
+            # server (e.g. it was not bridge-started), unlike a missing script.
+            $preconditionSkipped++
+            $results += "SKIP  $test (precondition not met - not run)"
         } else {
             $failed++
             $results += "FAIL  $test"
@@ -75,7 +78,7 @@ foreach ($r in $results) {
 }
 $total = $passed + $failed
 Write-Host "========================================"
-Write-Host "  Total: $total  Passed: $passed  Failed: $failed  Skipped: $skipped"
+Write-Host "  Total: $total  Passed: $passed  Failed: $failed  Skipped: $skipped  Precondition-skipped: $preconditionSkipped"
 Write-Host "========================================"
 
 # Fail the suite if anything was skipped or failed — skipped tests mean the

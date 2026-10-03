@@ -328,4 +328,18 @@ describe("git tracker — first evaluation and probe path", () => {
     expect(calls).toEqual(["/a", "/b"]);
     h.tracker.dispose();
   });
+
+  it("CR: a non-repository cwd costs no `git status` per tick", async () => {
+    const NONREPO: StaticGitFacts = { roots: null, gitDir: undefined, dotGitStamp: "none:-" };
+    const h = harness({ head: { value: undefined }, evaluateAsync: async () => NONREPO });
+    (h.evaluate as any).mockReturnValue(NONREPO);
+    h.stampBox.value = "none:-"; // the cwd is stable: no stamp churn
+    h.tracker.evaluateFirst(h.bc, "/definitely/not/a/repo/xyz");
+    for (let i = 0; i < 6; i++) {
+      h.tracker.tick(h.bc, "/definitely/not/a/repo/xyz");
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    expect(h.statusProbe).not.toHaveBeenCalled();
+    h.tracker.dispose();
+  });
 });

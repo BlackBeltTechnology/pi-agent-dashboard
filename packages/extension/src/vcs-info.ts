@@ -8,10 +8,10 @@
  */
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { incPollCost } from "./poll-cost.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
-import type { GitStatus, GitWorktreeInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { GitWorktreeInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { buildGitLinks, type GitLinks } from "./git-link-builder.js";
+import { incPollCost } from "./poll-cost.js";
 
 export interface GitInfo {
   gitBranch: string;
@@ -93,7 +93,7 @@ export function detectWorktree(cwd: string): GitWorktreeInfo | undefined {
 
 /** Pure worktree-identity derivation from a resolver verdict (see {@link detectWorktree}). */
 export function worktreeFromRoots(roots: git.GitCheckoutRoots | null | undefined): GitWorktreeInfo | undefined {
-  if (!roots || !roots.isLinkedWorktree) return undefined;
+  if (!roots?.isLinkedWorktree) return undefined;
 
   const mainPath = roots.mainCheckout;
   if (!mainPath || git.hasGitPathSegment(mainPath)) return undefined;
@@ -127,20 +127,29 @@ export interface StaticGitFacts {
 /** Injectable stat for the stamp (tests). */
 export type StatFn = (p: string) => { isDirectory(): boolean; mtimeMs: number };
 
+/**
+ * Existence + type for a directory, existence + mtime for a FILE. Directory
+ * mtimes are deliberately excluded: they change whenever an entry inside is
+ * created/renamed (`index.lock` on every `git add`), which would turn routine
+ * git activity into a full facts re-probe. A worktree's `.git` pointer FILE and
+ * `<gitDir>/gitdir` are files, so `git worktree repair/move` still shows.
+ */
 function statToken(p: string, stat: StatFn): string {
   try {
     const st = stat(p);
-    return `${st.isDirectory() ? "d" : "f"}${st.mtimeMs}`;
+    return st.isDirectory() ? "d" : `f${st.mtimeMs}`;
   } catch {
     return "-";
   }
 }
 
-/** Cheap (two `stat`s, no spawn) change detector for worktree identity. */
-function dotGitStampOf(cwd: string, roots: git.GitCheckoutRoots | null, stat: StatFn = statSync): string {
+/** Cheap (a few `stat`s, no spawn) change detector for worktree identity. */
+export function dotGitStampOf(cwd: string, roots: git.GitCheckoutRoots | null, stat: StatFn = statSync): string {
   if (!roots) return `none:${statToken(path.join(cwd, ".git"), stat)}`;
   const top = roots.thisCheckout ?? cwd;
-  return `${statToken(path.join(top, ".git"), stat)}|${roots.gitDir ? statToken(roots.gitDir, stat) : "-"}`;
+  const gitDir = roots.gitDir ? statToken(roots.gitDir, stat) : "-";
+  const pointer = roots.gitDir ? statToken(path.join(roots.gitDir, "gitdir"), stat) : "-";
+  return `${statToken(path.join(top, ".git"), stat)}|${gitDir}|${pointer}`;
 }
 
 /** Synchronous facts probe (first evaluation: ~3-5 git spawns, once per cwd). */
@@ -279,12 +288,12 @@ export function createHeadBranchReader(
             last = m[1];
             return last;
           }
-          key = `c:${content}`;
+          key = `c:${gitDir}:${content}`;
         } catch (e) {
-          key = `e:${(e as NodeJS.ErrnoException)?.code ?? "?"}:${deps.mtimeOf(path.join(gitDir, "HEAD"))}`;
+          key = `e:${gitDir}:${(e as NodeJS.ErrnoException)?.code ?? "?"}:${deps.mtimeOf(path.join(gitDir, "HEAD"))}`;
         }
       } else {
-        key = "e:nogitdir";
+        key = `e:nogitdir:${cwd}`;
       }
       if (memo.has(key)) {
         const v = memo.get(key);
@@ -309,6 +318,8 @@ export function createHeadBranchReader(
     },
     reset() {
       last = undefined;
+      memo.clear();
+      pending.clear();
     },
   };
 }

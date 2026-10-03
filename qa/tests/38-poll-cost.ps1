@@ -52,6 +52,10 @@ if (-not $mine) {
   Write-Error "FAIL: the scanning session $($scanned.sessionId) is not on the session surface"
   exit 1
 }
+if (-not $mine.PSObject.Properties['processes'] -or $null -eq $mine.processes) {
+  Write-Error "FAIL: session $($mine.id) has no process list"
+  exit 1
+}
 foreach ($p in @($mine.processes)) {
   if ($p.pid -eq $serverPid) {
     Write-Error "FAIL: session $($mine.id) lists the dashboard server PID $serverPid in its process list"

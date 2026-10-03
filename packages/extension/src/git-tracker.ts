@@ -255,6 +255,9 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       // Observe the last SETTLED branch; a moved branch is observed by the
       // probe it triggers, together with its status.
       observePr(bc);
+      // A cwd that is not (yet) a repository costs no `git status` per tick;
+      // the stamp / 10th-tick re-probe still notices a later `git init`.
+      if (!branch && !facts.get(tickCwd)?.gitDir) return;
       requestProbe(branchMoved ? "fast" : "slow", "tick");
     },
 
