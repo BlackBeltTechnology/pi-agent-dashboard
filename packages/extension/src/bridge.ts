@@ -67,9 +67,10 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
+import { drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect } from "./bridge-polling.js";
 import { createGitPollState, runGitPollTick } from "./git-poll.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
-import { createPrStatusScheduler, handleGitInfoRefresh, type PrStatusScheduler } from "./pr-status.js";
+import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
@@ -232,16 +233,6 @@ export default function (pi: ExtensionAPI) {
 
 
 
-
-/** Run and clear every registered disposable; one throwing never blocks the rest. */
-function drainDisposables(state: { disposables?: Array<() => void> }): void {
-  const list = state.disposables;
-  state.disposables = [];
-  if (!list) return;
-  for (const dispose of list) {
-    try { dispose(); } catch { /* best-effort teardown */ }
-  }
-}
 
 function initBridge(pi: ExtensionAPI) {
   const prev = getBridgeState();
@@ -1421,10 +1412,7 @@ function initBridge(pi: ExtensionAPI) {
       // Forced PR-status probe after a worktree Push / Open PR. The server
       // only targets bridges whose cwd is inside the worktree. See change:
       // redesign-composer-session-strip (D5).
-      if (msg.type === "git_info_refresh" && ((msg as { reason?: unknown }).reason === "push" || (msg as { reason?: unknown }).reason === "pr")) {
-        gitTracker?.refresh();
-      }
-      if (handleGitInfoRefresh(msg, prStatus)) return;
+      if (routeGitInfoRefresh(msg, { prStatus, gitTracker })) return;
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -2385,13 +2373,7 @@ function initBridge(pi: ExtensionAPI) {
       // See change: coalesce-bridge-message-update-snapshots.
       if (flushesParkedText(eventType)) coalescer.flush();
       // Adaptive process-scan cadence hooks. See change: optimize-polling-hot-paths.
-      if (eventType === "agent_start") processScan?.onAgentStart();
-      else if (eventType === "agent_end") processScan?.onAgentEnd();
-      else if (eventType === "tool_execution_start") processScan?.onToolStart();
-      else if (eventType === "tool_execution_end") {
-        processScan?.onToolEnd(event?.toolName);
-        gitTracker?.onToolEnd(event?.toolName);
-      }
+      feedPollingEvent(eventType, event, { processScan, gitTracker });
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -2525,7 +2507,7 @@ function initBridge(pi: ExtensionAPI) {
         // 50 ms deferral lets pi's ctx.model reflect the new model first (same
         // as the dashboard-initiated setModel path). See change:
         // optimize-polling-hot-paths (D8).
-        setRegisteredTimeout(() => sendModelUpdateIfChanged(), 50);
+        scheduleModelRecheckOnSelect(setRegisteredTimeout, sendModelUpdateIfChanged);
         return;
       }
 

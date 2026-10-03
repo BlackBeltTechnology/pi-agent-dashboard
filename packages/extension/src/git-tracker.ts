@@ -85,6 +85,8 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
   let branch: string | undefined;
   let status: GitStatus | undefined;
   let reprobing = false;
+  let reprobeAgain = false;
+  let reprobeAgainStamp = false;
   let logged = false;
 
   const watcher: GitDirWatcher = createGitDirWatcher({
@@ -160,17 +162,34 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
     return "ok";
   }
 
-  async function reprobeFacts(forCwd: string): Promise<void> {
-    if (reprobing || disposed) return;
+  /**
+   * Re-probe the static facts asynchronously. A request that arrives while one
+   * is in flight is NOT dropped: it sets `reprobeAgain` and exactly one more
+   * probe runs after the first settles (the first may have read stale state).
+   * The watcher is re-attached after any probe the `.git` stamp triggered, even
+   * when the facts compare equal — a git dir replaced at the same path leaves a
+   * dead watch on the old inode.
+   */
+  async function reprobeFacts(forCwd: string, stampTriggered = false): Promise<void> {
+    if (disposed) return;
+    if (reprobing) {
+      reprobeAgain = true;
+      reprobeAgainStamp ||= stampTriggered;
+      return;
+    }
     reprobing = true;
     const gen = generation;
+    let stamp = stampTriggered;
     try {
-      const { changed } = await facts.reprobe(forCwd);
-      if (disposed || gen !== generation || !deps.isActive()) return;
-      if (changed) {
-        attachWatcher();
-        requestProbe("fast", "refresh");
-      }
+      do {
+        reprobeAgain = false;
+        const { changed } = await facts.reprobe(forCwd);
+        if (disposed || gen !== generation || !deps.isActive()) return;
+        if (changed || stamp) attachWatcher();
+        if (changed) requestProbe("fast", "refresh");
+        stamp = reprobeAgainStamp;
+        reprobeAgainStamp = false;
+      } while (reprobeAgain);
     } catch (err) {
       if (!logged) {
         logged = true;
@@ -178,6 +197,8 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       }
     } finally {
       reprobing = false;
+      reprobeAgain = false;
+      reprobeAgainStamp = false;
     }
   }
 
@@ -211,7 +232,8 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
         return;
       }
       ticks += 1;
-      if (facts.stampChanged(tickCwd) || ticks % FACTS_REPROBE_EVERY_N_TICKS === 0) void reprobeFacts(tickCwd);
+      const stampChanged = facts.stampChanged(tickCwd);
+      if (stampChanged || ticks % FACTS_REPROBE_EVERY_N_TICKS === 0) void reprobeFacts(tickCwd, stampChanged);
       const fresh = reader.read(tickCwd, facts.get(tickCwd)?.gitDir);
       const branchMoved = fresh !== undefined && fresh !== branch;
       // Observe the last SETTLED branch; a moved branch is observed by the

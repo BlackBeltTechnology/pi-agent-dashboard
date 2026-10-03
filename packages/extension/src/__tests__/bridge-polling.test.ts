@@ -5,11 +5,15 @@
  * — placement is asserted against the real source and behaviour against the
  * real pure pieces.
  *
+ * The seams live in `bridge-polling.ts` (real functions, driven here); the
+ * source assertions pin that `bridge.ts` still calls them and where.
+ *
  * test-plan ids: E39 E40 E41 X5 X6 X7.
  */
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeContext } from "../bridge-context.js";
+import { drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect } from "../bridge-polling.js";
 import { sendModelUpdateIfChanged } from "../model-tracker.js";
 import { __resetPollCostForTests, pollCost } from "../poll-cost.js";
 import { scanChildProcesses } from "../process-scanner.js";
@@ -28,24 +32,25 @@ describe("model_select pushes a model_update (E39/E40)", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  /** Reduced model of the forwarder branch: forward, then defer the check by 50 ms. */
-  function model(ctxModel: { model: { provider: string; id: string } }) {
+  /** The bridge's real seam: `scheduleModelRecheckOnSelect` + the real change-detector. */
+  function bridge(ctx: { model: { provider: string; id: string } }) {
     const sent: any[] = [];
     const bc = {
       sessionId: "S",
-      cachedCtx: ctxModel,
+      cachedCtx: ctx,
       pi: { getThinkingLevel: () => "high" },
       connection: { send: (m: any) => sent.push(m) },
       lastModel: "anthropic/claude",
       lastThinkingLevel: "high",
     } as unknown as BridgeContext;
-    const onModelSelect = () => setTimeout(() => sendModelUpdateIfChanged(bc), 50);
-    return { bc, sent, onModelSelect };
+    const onModelSelect = () =>
+      scheduleModelRecheckOnSelect((fn, ms) => setTimeout(fn, ms), () => sendModelUpdateIfChanged(bc));
+    return { sent, onModelSelect };
   }
 
   it("E39: no update before 50 ms, exactly one at 50 ms once ctx reflects the new model", async () => {
     const ctx = { model: { provider: "anthropic", id: "claude" } };
-    const { sent, onModelSelect } = model(ctx);
+    const { sent, onModelSelect } = bridge(ctx);
     ctx.model = { provider: "openai", id: "gpt" };
     onModelSelect();
     await vi.advanceTimersByTimeAsync(49);
@@ -56,17 +61,70 @@ describe("model_select pushes a model_update (E39/E40)", () => {
   });
 
   it("E40: same model + thinking level → no update", async () => {
-    const { sent, onModelSelect } = model({ model: { provider: "anthropic", id: "claude" } });
+    const { sent, onModelSelect } = bridge({ model: { provider: "anthropic", id: "claude" } });
     onModelSelect();
     await vi.advanceTimersByTimeAsync(100);
     expect(sent).toHaveLength(0);
   });
 
-  it("source: the existing forwarder branch defers the check by 50 ms through the timer registry", () => {
+  it("the bridge's model_select branch uses the seam through the timer registry (no second pi.on)", () => {
     const branch = region('if (eventType === "model_select") {', "// Pi 0.71+ fires a dedicated thinking_level_select");
-    expect(branch).toContain("setRegisteredTimeout(() => sendModelUpdateIfChanged(), 50)");
-    // No second pi.on subscription for model_select.
+    expect(branch).toContain("scheduleModelRecheckOnSelect(setRegisteredTimeout, sendModelUpdateIfChanged)");
     expect(SRC.match(/pi\.on\("model_select"/g)).toBeNull();
+  });
+});
+
+describe("git_info_refresh routing (B1)", () => {
+  it("EVERY refresh reason reaches the tracker; the PR scheduler keeps its own reason handling", () => {
+    for (const reason of ["push", "pr", "something-else", undefined]) {
+      const tracker = { refresh: vi.fn() };
+      const prStatus = { refresh: vi.fn() };
+      expect(routeGitInfoRefresh({ type: "git_info_refresh", reason }, { prStatus, gitTracker: tracker })).toBe(true);
+      expect(tracker.refresh).toHaveBeenCalledTimes(1);
+      expect(prStatus.refresh).toHaveBeenCalledTimes(reason === "push" || reason === "pr" ? 1 : 0);
+    }
+  });
+
+  it("other messages are not consumed and do not refresh", () => {
+    const tracker = { refresh: vi.fn() };
+    expect(routeGitInfoRefresh({ type: "send_prompt" }, { prStatus: { refresh: vi.fn() }, gitTracker: tracker })).toBe(false);
+    expect(tracker.refresh).not.toHaveBeenCalled();
+  });
+
+  it("a missing tracker is tolerated", () => {
+    expect(routeGitInfoRefresh({ type: "git_info_refresh", reason: "pr" }, { prStatus: { refresh: vi.fn() }, gitTracker: null })).toBe(true);
+  });
+
+  it("the bridge routes inbound messages through the seam", () => {
+    expect(SRC).toContain("routeGitInfoRefresh(msg, { prStatus, gitTracker })");
+  });
+});
+
+describe("lifecycle events feed the polling machinery", () => {
+  it("maps agent/tool events to the scan cadence; a tool end also reaches the git tracker", () => {
+    const processScan = { onAgentStart: vi.fn(), onAgentEnd: vi.fn(), onToolStart: vi.fn(), onToolEnd: vi.fn() } as any;
+    const gitTracker = { onToolEnd: vi.fn() };
+    const deps = { processScan, gitTracker };
+    feedPollingEvent("agent_start", undefined, deps);
+    feedPollingEvent("agent_end", undefined, deps);
+    feedPollingEvent("tool_execution_start", { toolName: "bash" }, deps);
+    feedPollingEvent("message_update", undefined, deps);
+    expect(processScan.onAgentStart).toHaveBeenCalledTimes(1);
+    expect(processScan.onAgentEnd).toHaveBeenCalledTimes(1);
+    expect(processScan.onToolStart).toHaveBeenCalledTimes(1);
+    expect(gitTracker.onToolEnd).not.toHaveBeenCalled();
+    feedPollingEvent("tool_execution_end", { toolName: "Bash" }, deps);
+    expect(processScan.onToolEnd).toHaveBeenCalledWith("Bash");
+    expect(gitTracker.onToolEnd).toHaveBeenCalledWith("Bash");
+  });
+
+  it("null schedulers are tolerated (before session_start / after shutdown)", () => {
+    expect(() => feedPollingEvent("tool_execution_end", {}, { processScan: null, gitTracker: null })).not.toThrow();
+  });
+
+  it("the bridge feeds events AFTER the parked-text flush choke point", () => {
+    const entry = region("if (flushesParkedText(eventType)) coalescer.flush();", "// Track agent streaming state");
+    expect(entry).toContain("feedPollingEvent(eventType, event, { processScan, gitTracker })");
   });
 });
 
@@ -85,6 +143,30 @@ describe("poll-cost counters ride the heartbeat (E41)", () => {
       ].sort(),
     );
     expect(region("metrics: {", "HEARTBEAT_INTERVAL")).toContain("...pollCost");
+  });
+});
+
+describe("drainDisposables (X5/X7)", () => {
+  it("runs every disposable once, tolerates a throwing one, and clears the list", () => {
+    const order: string[] = [];
+    const state = {
+      disposables: [
+        () => order.push("scan"),
+        () => { throw new Error("boom"); },
+        () => order.push("git"),
+      ],
+    };
+    drainDisposables(state);
+    expect(order).toEqual(["scan", "git"]);
+    expect(state.disposables).toEqual([]);
+    drainDisposables(state); // idempotent
+    expect(order).toEqual(["scan", "git"]);
+  });
+
+  it("tolerates a state with no disposables", () => {
+    const state: { disposables?: Array<() => void> } = {};
+    expect(() => drainDisposables(state)).not.toThrow();
+    expect(state.disposables).toEqual([]);
   });
 });
 

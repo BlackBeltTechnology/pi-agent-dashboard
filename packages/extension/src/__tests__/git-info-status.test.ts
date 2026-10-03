@@ -65,15 +65,17 @@ describe("sendGitInfoIfChanged — gitStatus", () => {
 
 const FACTS: StaticGitFacts = { remoteUrl: undefined, roots: null, gitDir: "/r/.git", dotGitStamp: "s" };
 
-function harness(opts: { status?: () => Promise<any>; head?: { value: string | undefined } } = {}) {
+function harness(opts: { status?: () => Promise<any>; head?: { value: string | undefined }; evaluateAsync?: () => Promise<StaticGitFacts> } = {}) {
   const { bc, send } = makeBc();
   const head = opts.head ?? { value: "main" };
   const evaluate = vi.fn(() => FACTS);
-  const evaluateAsync = vi.fn(async () => FACTS);
-  const facts = new GitFactsCache({ evaluate, evaluateAsync, stamp: () => "s" });
+  const evaluateAsync = vi.fn(opts.evaluateAsync ?? (async () => FACTS));
+  const stampBox = { value: "s" };
+  const facts = new GitFactsCache({ evaluate, evaluateAsync, stamp: () => stampBox.value });
   const statusProbe = vi.fn(opts.status ?? (async () => ({ ok: true, value: CLEAN })));
   const observe = vi.fn();
   (bc as any).prStatus = { observe, tuple: () => ({}), refresh: vi.fn(), dispose: vi.fn(), invocations: () => 0 };
+  const watchSpy = vi.fn();
   let active = true;
   const reader: HeadBranchReader = { read: () => head.value, reset: () => {} };
   const tracker = createGitTracker({
@@ -83,9 +85,9 @@ function harness(opts: { status?: () => Promise<any>; head?: { value: string | u
     facts,
     statusProbe: statusProbe as any,
     headReader: () => reader,
-    watch: () => ({ close: () => {}, on: () => ({}) as any }) as any,
+    watch: ((...a: unknown[]) => { watchSpy(...a); return { close: () => {}, on: () => ({}) as any }; }) as any,
   });
-  return { tracker, bc, send, head, statusProbe, evaluate, evaluateAsync, observe, setActive: (v: boolean) => (active = v) };
+  return { tracker, bc, send, head, statusProbe, evaluate, evaluateAsync, observe, watchSpy, stampBox, setActive: (v: boolean) => (active = v) };
 }
 
 beforeEach(() => {
@@ -255,6 +257,39 @@ describe("git tracker — first evaluation and probe path", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(h.send).not.toHaveBeenCalled();
     expect(h.statusProbe).not.toHaveBeenCalled();
+    h.tracker.dispose();
+  });
+
+  it("B3: a refresh arriving while a facts re-probe is in flight is not lost — one follow-up re-probe runs", async () => {
+    let release!: (f: StaticGitFacts) => void;
+    let calls = 0;
+    const h = harness({
+      evaluateAsync: () => {
+        calls += 1;
+        return calls === 1 ? new Promise<StaticGitFacts>((r) => (release = r)) : Promise.resolve(FACTS);
+      },
+    });
+    h.tracker.evaluateFirst(h.bc, "/r");
+    h.tracker.refresh(); // starts re-probe #1 (hangs)
+    h.tracker.refresh(); // arrives mid-flight
+    h.tracker.refresh(); // coalesces with the previous one
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.evaluateAsync).toHaveBeenCalledTimes(1);
+    release(FACTS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.evaluateAsync).toHaveBeenCalledTimes(2);
+    h.tracker.dispose();
+  });
+
+  it("B4: a stamp-triggered re-probe re-attaches the watcher even when the facts compare equal", async () => {
+    const h = harness();
+    h.tracker.evaluateFirst(h.bc, "/r");
+    expect(h.watchSpy).toHaveBeenCalledTimes(1);
+    h.stampBox.value = "replaced"; // .git replaced at the same path: facts equal, stamp differs
+    h.tracker.tick(h.bc, "/r");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.evaluateAsync).toHaveBeenCalledTimes(1);
+    expect(h.watchSpy).toHaveBeenCalledTimes(2);
     h.tracker.dispose();
   });
 });

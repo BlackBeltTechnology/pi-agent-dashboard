@@ -205,4 +205,19 @@ describe("pi-resources on demand", () => {
     await p;
     expect(service.getPiResources(cwd)?.stale).toBe(true);
   });
+
+  it("B2: a poll tick with 17 recently requested cwds keeps ≤ 16 watchers (no attach/detach thrash)", async () => {
+    const { service, w } = mk();
+    const cwds = Array.from({ length: 17 }, (_, i) => project(`t${i}`));
+    for (const c of cwds) await service.refreshPiResources(c);
+    const watchedCwds = () => cwds.filter((c) => w.listeners.has(path.join(c, ".pi", "skills"))).length;
+    expect(watchedCwds()).toBe(16);
+    service.startPolling(() => {});
+    await vi.advanceTimersByTimeAsync(61_000);
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(watchedCwds()).toBe(16);
+    // The oldest is the one left unwatched, and it is served stale, not dropped.
+    expect(w.listeners.has(path.join(cwds[0]!, ".pi", "skills"))).toBe(false);
+    expect(service.getPiResources(cwds[0]!)).toMatchObject({ stale: true });
+  });
 });

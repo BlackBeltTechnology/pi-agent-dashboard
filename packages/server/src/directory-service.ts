@@ -1485,17 +1485,23 @@ export function createDirectoryService(
    */
   function reconcilePiResources(): void {
     const now = piResourcesNow();
-    for (const [cwd, entry] of piResourcesCache) {
+    // Newest first: only the most recently requested non-idle cwds keep watches,
+    // so the cap holds across ticks and never thrashes attach/detach.
+    let watchBudget = PI_RESOURCES_MAX_WATCHED;
+    for (const [cwd, entry] of [...piResourcesCache].reverse()) {
       try {
-        if (now - entry.lastRequestedAt > PI_RESOURCES_WATCH_IDLE_MS) {
-          if (piResourcesWatcher.has(cwd)) {
-            piResourcesWatcher.detach(cwd);
-            entry.stale = true; // unwatched ⇒ cannot be trusted fresh
-          }
-        } else if (piResourcesWatcher.has(cwd)) piResourcesWatcher.reconcile(cwd);
-        else piResourcesWatcher.attach(cwd);
+        const idle = now - entry.lastRequestedAt > PI_RESOURCES_WATCH_IDLE_MS;
+        if (!idle && watchBudget > 0) {
+          watchBudget--;
+          if (piResourcesWatcher.has(cwd)) piResourcesWatcher.reconcile(cwd);
+          else piResourcesWatcher.attach(cwd);
+        } else if (piResourcesWatcher.has(cwd)) {
+          piResourcesWatcher.detach(cwd);
+          entry.stale = true; // unwatched ⇒ cannot be trusted fresh
+        }
       } catch { /* best-effort */ }
     }
+    enforcePiResourcesBounds();
     if (!piResourcesCache.size && piResourcesWatcher.hasGlobal()) {
       // Nobody is viewing anything: release the shared global watches too.
       try { piResourcesWatcher.detachAll(); } catch { /* best-effort */ }
