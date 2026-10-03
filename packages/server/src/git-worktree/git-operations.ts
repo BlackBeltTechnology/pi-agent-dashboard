@@ -97,7 +97,13 @@ function isBinaryMissing(err: unknown): boolean {
  * catch site that holds the `cwd` the spawn ran in.
  */
 function binaryMissingAt(err: unknown, cwd: string): boolean {
-  return isBinaryMissing(err) && fs.existsSync(cwd);
+  if (!isBinaryMissing(err)) return false;
+  try {
+    // A regular file used as cwd yields ENOTDIR with no status too.
+    return fs.statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 /**

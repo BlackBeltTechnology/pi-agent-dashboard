@@ -1514,6 +1514,25 @@ describe("argv migration — caller values stay single argv elements", () => {
     expect(pick(r)).not.toBe("gh_not_found");
   });
 
+  // review r4 B2 — a regular FILE as cwd makes Node report ENOTDIR with no
+  // status although git is installed.
+  it.each([
+    ["mergeWorktree", (c: string) => mergeWorktree({ cwd: c }), (r: any) => r.code],
+    ["worktreeDiffStat", (c: string) => worktreeDiffStat({ cwd: c }), (r: any) => r.code],
+    ["pushBranch", (c: string) => pushBranch({ cwd: c }), (r: any) => r.code],
+    ["addWorktreeFromPr", (c: string) => addWorktreeFromPr({ cwd: c, prNumber: 7 }), (r: any) => r.error],
+    ["createPullRequest", (c: string) => createPullRequest({ cwd: c, ghPath: process.execPath, title: "t" }), (r: any) => r.code],
+    ["listPullRequests", (c: string) => listPullRequests({ cwd: c, ghPath: process.execPath }), (r: any) => r.code],
+    ["addWorktree", (c: string) => addWorktree({ cwd: c, base: "main", newBranch: "feat/file-cwd" }), (r: any) => r.error],
+  ])("%s with a regular file as cwd is not git_not_found", (_n, run, pick) => {
+    const file = join(mkdtempSync(join(tmpdir(), "file-cwd-")), "not-a-dir");
+    writeFileSync(file, "x");
+    const r = run(file) as any;
+    expect(r.ok).toBe(false);
+    expect(pick(r)).not.toBe("git_not_found");
+    expect(pick(r)).not.toBe("gh_not_found");
+  });
+
   // review r2 B3 — the dedicated code is a property of the BINARY, so every
   // migrated entry point must report it, not only addWorktree / createPullRequest.
   it.each([
