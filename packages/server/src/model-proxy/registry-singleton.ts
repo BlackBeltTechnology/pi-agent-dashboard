@@ -141,18 +141,26 @@ export type RuntimeStreamSimpleFn = (model: any, context: any, options?: StreamS
 
 /**
  * The runtime's `streamSimple`, once the registry is initialized; `null`
- * before. An `apiKey` in the options is DROPPED: the facade already resolved
- * (and, if needed, refreshed) the credential, and the runtime re-reads it
- * through the store and applies the provider's own auth path — an OAuth access
- * token passed as an api-key override would be sent as the wrong header.
+ * before. Only the request OPTIONS the runtime understands are forwarded
+ * (`headers`, `maxTokens`, `temperature`, `signal`): callers hand over their
+ * whole route/plugin opts object, which also carries `apiKey` (an OAuth access
+ * token passed as an api-key override would be sent as the wrong header — the
+ * runtime re-reads the credential and applies the provider's own auth path)
+ * and the transcript (`system`, `messages`, `tools`, `model`), which belongs
+ * in the Context, never under another key.
  * See change: collapse-model-proxy-onto-modelruntime (D5).
  */
 export function getStreamSimpleFn(): RuntimeStreamSimpleFn | null {
   const runtime = cachedRuntime;
   if (!runtime) return null;
   return (model, context, options = {}) => {
-    const { apiKey: _apiKey, ...rest } = options;
-    return runtime.streamSimple(model, context, rest);
+    const { headers, maxTokens, temperature, signal } = options;
+    return runtime.streamSimple(model, context, {
+      ...(headers ? { headers } : {}),
+      ...(maxTokens != null ? { maxTokens } : {}),
+      ...(temperature != null ? { temperature } : {}),
+      ...(signal ? { signal } : {}),
+    });
   };
 }
 

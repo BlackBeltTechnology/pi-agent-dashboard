@@ -294,3 +294,87 @@ describe("projection changes reach the cached listing (CodeRabbit)", () => {
     for (const l of lines) expect(l).not.toContain("SENTINEL");
   });
 });
+
+describe("a rejected registration is not retried per lookup (CodeRabbit)", () => {
+  it("logs once and does not re-register or defeat the listing cache until the config changes", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      lines.push(a.map(String).join(" "));
+    });
+    const state = {
+      providers: {} as Record<string, CustomProviderEntry>,
+      auth: { bad: { type: "api_key", key: "sk-bad" } } as Record<string, any>,
+      discovered: [{ id: "b1", provider: "bad", api: "openai-completions" }] as CustomModelEntry[],
+    };
+    const { registry, runtime } = makeRegistry(state);
+    const register = vi.fn((_id: string, _config: RuntimeProviderConfig) => {
+      throw new Error("rejected by runtime");
+    });
+    runtime.registerProvider = register;
+
+    await registry.refresh();
+    await registry.getAvailable();
+    await registry.getAvailable();
+    await registry.find("bad", "b1");
+
+    expect(register).toHaveBeenCalledTimes(1);
+    expect(lines.filter((l) => l.includes('"bad"') && l.includes("registration failed"))).toHaveLength(1);
+
+    // A changed config is retried.
+    state.auth = { bad: { type: "api_key", key: "sk-bad-2" } };
+    await registry.getAvailable();
+    expect(register).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("only runtime options reach streamSimple (CodeRabbit)", () => {
+  it("drops apiKey and the transcript keys; forwards headers, maxTokens, temperature, signal", async () => {
+    const singleton = await import("../registry-singleton.js");
+    const { createRealRuntime, captureProviderStreams } = await import("../../__tests__/helpers/pi-models-fixture.js");
+    const { _setRuntimeModuleLoaderForTests } = await import("../server-model-runtime.js");
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const authPath = path.join(os.homedir(), ".pi", "agent", "auth.json");
+    fs.mkdirSync(path.dirname(authPath), { recursive: true });
+    fs.writeFileSync(authPath, JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant" } }), { mode: 0o600 });
+    const real = await createRealRuntime();
+    _setRuntimeModuleLoaderForTests(async () => ({ ModelRuntime: { create: async () => real } }));
+    singleton.disposeModelRegistry();
+    try {
+      await singleton.getModelRegistry();
+      const captured = await captureProviderStreams(real, "anthropic");
+      const fn = singleton.getStreamSimpleFn();
+      if (!fn) throw new Error("streamSimple not available");
+      const signal = new AbortController().signal;
+      const model = real.getModels("anthropic")[0];
+      // The shape both /v1 wirings and the plugin seam hand over.
+      for await (const _e of fn(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }], systemPrompt: "SYS" }, {
+        model,
+        messages: [{ role: "user", content: "LEAK" }],
+        system: "LEAK-SYSTEM",
+        tools: [{ name: "LEAK-TOOL" }],
+        apiKey: "sk-LEAK-OVERRIDE",
+        headers: { "X-Org": "a" },
+        maxTokens: 77,
+        temperature: 0.3,
+        signal,
+      } as never)) {
+        // drain
+      }
+      expect(captured).toHaveLength(1);
+      const options = captured[0].options;
+      expect(options.apiKey).toBe("sk-ant");
+      expect(options.headers).toMatchObject({ "X-Org": "a" });
+      expect(options.maxTokens).toBe(77);
+      expect(options.temperature).toBe(0.3);
+      expect(options.signal).toBeDefined();
+      for (const key of ["system", "messages", "tools", "model"]) expect(options).not.toHaveProperty(key);
+      expect(JSON.stringify(options)).not.toContain("LEAK");
+      expect(JSON.stringify(captured[0].context)).toContain("SYS");
+    } finally {
+      _setRuntimeModuleLoaderForTests(null);
+      singleton.disposeModelRegistry();
+    }
+  });
+});

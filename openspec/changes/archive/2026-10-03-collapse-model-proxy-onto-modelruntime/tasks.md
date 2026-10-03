@@ -18,7 +18,7 @@
 
 ## 3. Removal
 
-- [x] 3.1 Delete `packages/shared/src/piai-compat/` and `test-support/piai-factory-fixture.ts`; remove the dead catalogue-loading/refresh code from `internal-registry.ts` / `internal-auth-storage.ts`; verify `rg -n 'piai-compat|adaptPiAi' packages` is empty and `npm test` is green
+- [x] 3.1 Delete `packages/shared/src/piai-compat/` and `test-support/piai-factory-fixture.ts`; remove the dead catalogue-loading/refresh code from `internal-registry.ts` / `internal-auth-storage.ts`; verify `rg -n 'piai-compat|adaptPiAi' packages` is empty and `npm test` is green except two failures that also reproduce on pristine `origin/develop` (`no-upstream-model-proxy-refs`, `system-one-plugin` supervisor X12)
 - [x] 3.2 Decide `provider-catalogue-cache.ts` per D4; delete it if redundant, otherwise record it as follow-up; verify the providers settings page renders unchanged — kept (not redundant: bridge-pushed displayName/envVar/ambient/authLabel), recorded in design.md
 
 ## 4. Review and docs

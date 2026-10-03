@@ -123,6 +123,8 @@ export class InternalRegistry {
   private registered = new Map<string, string>();
   /** Providers already reported as unprojectable (one log line each). */
   private reportedUnroutable = new Set<string>();
+  /** Provider id → fingerprint of a config the runtime rejected: one log line, no per-lookup retry until the config changes. */
+  private rejected = new Map<string, string>();
 
   constructor(runtime: RuntimeCatalogue, authStorage: InternalAuthStorage, deps: InternalRegistryDeps) {
     this.runtime = runtime;
@@ -358,6 +360,7 @@ export class InternalRegistry {
     const desired = this.desiredProjection(models);
     let changed = false;
 
+    for (const id of [...this.rejected.keys()]) if (!desired.has(id)) this.rejected.delete(id);
     for (const id of [...this.registered.keys()]) {
       if (desired.has(id)) continue;
       changed = true;
@@ -370,14 +373,16 @@ export class InternalRegistry {
     }
     for (const [id, config] of desired) {
       const fingerprint = JSON.stringify(config);
-      if (this.registered.get(id) === fingerprint) continue;
+      if (this.registered.get(id) === fingerprint || this.rejected.get(id) === fingerprint) continue;
       changed = true;
       try {
         if (this.registered.has(id)) unregisterProvider.call(this.runtime, id);
         this.registered.delete(id);
         registerProvider.call(this.runtime, id, config);
         this.registered.set(id, fingerprint);
+        this.rejected.delete(id);
       } catch (err) {
+        this.rejected.set(id, fingerprint);
         console.warn(`[model-proxy] custom provider "${id}" registration failed: ${(err as Error)?.message ?? "unknown error"}`);
       }
     }
