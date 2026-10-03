@@ -62,6 +62,7 @@ Layout:
   completeness.md      entry-point → spec|gap map + verdict
   capabilities/<cap>/spec.md
   _fragments/<cap>.json  per-generator rule/entity/quirk/gap fragments (merge input)
+  _fragments/<cap>.spec.md  unmerged spec with local refs; every merge re-renders all capabilities/ specs from it
 ```
 Promotion moves the tree to a user-chosen path, refusing any path inside a protected root —
 default `openspec/`, `docs/`, `packages/`, `.pi/` (this repo's kb-indexed roots, where kb would
@@ -136,7 +137,7 @@ guards so they are testable instead of agent prose:
 - `check-dest <path> [--protect <dir>]...` exits non-zero when the nearest existing ancestor's
   real path is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
-- `sweep` removes only `openspec/specs/_rsfr-val-*` directories (no-op without `openspec/specs/`).
+- `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only stale ones (untouched 10 min) so a concurrent run's live ids survive (no-op without `openspec/specs/`).
 - `lint-spec <file>` is the built-in structural check (D3); exit 1 and `file:line: reason` per
   violation.
 - Bad input → exit 2 + usage.

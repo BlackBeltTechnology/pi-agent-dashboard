@@ -5,8 +5,10 @@
 //       exit 0 when <path> may receive a promoted rebuild package;
 //       exit 1 when its resolved real path lies inside a protected root
 //       (default roots: openspec docs packages .pi; --protect replaces them).
-//   node guard.mjs sweep
-//       remove leftover openspec/specs/_rsfr-val-* dirs (this skill's transient ids only).
+//   node guard.mjs sweep [--run <id>]
+//       remove this skill's transient openspec/specs/_rsfr-val-* dirs: with --run, every
+//       _rsfr-val-<id>-* dir of that run; without, only stale ones (untouched for
+//       STALE_MS, i.e. left by an interrupted run), so a concurrent run's live ids survive.
 //   node guard.mjs lint-spec <file>
 //       structural check of an OpenSpec full-form spec; exit 1 with
 //       "<file>:<line>: <reason>" per violation on stdout.
@@ -21,10 +23,11 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const DEFAULT_PROTECTED = ["openspec", "docs", "packages", ".pi"];
 const VAL_PREFIX = "_rsfr-val-";
+const STALE_MS = 10 * 60 * 1000;
 
 const USAGE = `usage:
   node guard.mjs check-dest <path> [--protect <dir>]...
-  node guard.mjs sweep
+  node guard.mjs sweep [--run <id>]
   node guard.mjs lint-spec <file>`;
 
 function usage(msg) {
@@ -97,12 +100,22 @@ function checkDest(args) {
 }
 
 function sweep(args) {
-  if (args.length) usage(`sweep: unexpected argument ${args[0]}`);
+  let run;
+  if (args[0] === "--run") {
+    run = args[1];
+    if (!run || /[\\/]/.test(run)) usage("sweep: --run needs a run id (no path separators)");
+    if (args.length > 2) usage(`sweep: unexpected argument ${args[2]}`);
+  } else if (args.length) usage(`sweep: unexpected argument ${args[0]}`);
   const specs = join(repoRoot(), "openspec", "specs");
   if (!existsSync(specs) || !statSync(specs).isDirectory()) return;
+  const now = Date.now();
   for (const name of readdirSync(specs)) {
-    if (!name.startsWith(VAL_PREFIX)) continue;
-    rmSync(join(specs, name), { recursive: true, force: true });
+    const path = join(specs, name);
+    const owned = run
+      ? name.startsWith(`${VAL_PREFIX}${run}-`)
+      : name.startsWith(VAL_PREFIX) && now - statSync(path).mtimeMs > STALE_MS;
+    if (!owned) continue;
+    rmSync(path, { recursive: true, force: true });
     process.stdout.write(`swept: openspec/specs/${name}\n`);
   }
 }
@@ -133,6 +146,7 @@ class SpecLinter {
     this.title = 0;
     this.purpose = 0;
     this.requirements = 0;
+    this.section = ""; // text of the current `## ` heading
     this.reqCount = 0;
     this.req = null; // { line, scenarios }
     this.scen = null; // { line, when, then }
@@ -196,9 +210,13 @@ class SpecLinter {
   }
 
   heading(line, n) {
+    if (/^##\s/.test(line)) {
+      this.closeRequirement();
+      this.section = line.trim();
+    }
     if (/^## Purpose\s*$/.test(line)) this.purpose = n;
     else if (/^## Requirements\s*$/.test(line)) this.requirements = n;
-    else if (/^##\s/.test(line)) this.closeRequirement();
+    else if (/^##\s/.test(line)) return;
     else if (/^###\s+Requirement\b/.test(line)) this.requirement(line, n);
     else if (/^####\s+Scenario\b/.test(line)) this.scenario(line, n);
     else {
@@ -213,7 +231,7 @@ class SpecLinter {
     this.req = { line: n, scenarios: 0 };
     if (!/^### Requirement: \S/.test(line)) this.report(n, MSG.reqHeading);
     else if (/^### Requirement: (?:\d+[.:)]|#\d)/.test(line)) this.report(n, MSG.reqNumbered);
-    if (!this.requirements) this.report(n, MSG.reqOutside);
+    if (this.section !== "## Requirements") this.report(n, MSG.reqOutside);
   }
 
   scenario(line, n) {

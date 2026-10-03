@@ -9,7 +9,8 @@ rules.md               BR-NNN business rules (explicit | implicit)
 quirks.md              QUIRK-NNN suspected defects, kept faithful
 gaps.md                GAP-NNN registered unknowns
 completeness.md        entry point -> spec | GAP map + verdict
-capabilities/<cap>/spec.md   behavioral spec (OpenSpec full form)
+capabilities/<cap>/spec.md   behavioral spec (OpenSpec full form), rendered by the merge
+_fragments/<cap>.spec.md     unmerged spec with local refs (generator output, merge input)
 _fragments/<cap>.json  generator output, merge input (kept for re-runs)
 ```
 

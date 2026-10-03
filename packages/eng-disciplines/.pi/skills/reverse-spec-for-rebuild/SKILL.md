@@ -47,8 +47,11 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    it is not ignored, `ask_user` before writing anything: on consent append
    `.reverse-spec-scratch/` to `.git/info/exclude` (never to a committed ignore
    file); on refusal stop.
-2. **Sweep leftovers.** `G sweep` — removes only `openspec/specs/_rsfr-val-*`
-   left by an interrupted run; other skills' transient dirs are untouched.
+2. **Run id + sweep leftovers.** Set `RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)`; every
+   transient validation id of this run is `_rsfr-val-$RUN_ID-<cap>`. Run
+   `G sweep` — removes only stale `openspec/specs/_rsfr-val-*` dirs (untouched
+   for 10 minutes, i.e. left by an interrupted run); a concurrent run's live
+   ids and other skills' transient dirs are untouched.
 3. **Resolve the target.** Confirm the path exists; record
    `git rev-parse HEAD` for `PKG/README.md`. Create `PKG` (if a package from an
    earlier run is there and not supplied as the previous package, move it aside
@@ -59,8 +62,9 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    the subagent to re-cluster. For a single-capability target you may write the
    manifest by hand.
 5. **Generate in parallel.** One subagent per capability, all in a SINGLE
-   message, with `prompts/generator-rebuild.md`. Each writes
-   `PKG/capabilities/<cap>/spec.md` and `PKG/_fragments/<cap>.json`, nothing else.
+   message, with `prompts/generator-rebuild.md`. Each writes its unmerged spec
+   (local `{r1}` refs) to `PKG/_fragments/<cap>.spec.md` (SPEC OUTPUT) and its
+   fragment to `PKG/_fragments/<cap>.json`, nothing else.
 6. **Merge** (this session — design D4; fall back to a consolidator subagent
    only if the fragments exceed context):
    1. Load the previous package's `rules.md`/`quirks.md`/`gaps.md` when supplied.
@@ -69,8 +73,11 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
       capability to the existing item), then against the previous package
       (reuse its id). Otherwise assign the next id above the maximum ever used
       (previous package included). Never reuse a retired id.
-   3. Rewrite every `{r1}`/`{q1}`/`{g1}` in each spec to its global id; no
-      `{...}` local reference may remain.
+   3. Render EVERY capability's `PKG/capabilities/<cap>/spec.md` from its
+      unmerged `PKG/_fragments/<cap>.spec.md`, replacing each `{r1}`/`{q1}`/`{g1}`
+      with its global id — on every merge, for all capabilities, so a re-merge
+      that shifts ids cannot leave a stale reference in an unrevised spec. No
+      `{...}` local reference may remain. Never edit the rendered spec by hand.
    4. A merged item's confidence is the LOWEST of its sources; never raise it.
       When a fragment rule spans several catalog rules, map its local id to
       the closest one and list the others in the spec text, rather than
@@ -82,16 +89,19 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    `prompts/auditor-rebuild.md`, `MODE=capability`.
 8. **Revise loop.** For each `verdict: revise`, re-run its generator with the
    audit JSON as `FINDINGS`, then go back to step 6 (every revision re-merges),
-   and re-audit the revised capabilities. Stop after 3 rounds for a capability
+   and re-audit every capability whose rendered spec changed in that merge
+   (revised or not). Stop after 3 rounds for a capability
    that still fails: report it as not promotable.
 9. **Format gate.** For every spec: `G lint-spec PKG/capabilities/<cap>/spec.md`
    (exit 1 lists `file:line: reason`). Additionally, only when the OpenSpec CLI
    is on PATH AND `openspec/` exists, validate each spec through a transient id
-   and delete it in the same iteration:
+   that is deleted in the same iteration. Run this block once per capability
+   with shell variables `PKG` (package dir), `CAP` and `RUN_ID` set; its exit
+   status is the validation result:
    ```bash
-   d="openspec/specs/_rsfr-val-<cap>"; mkdir -p "$d"
-   cp "PKG/capabilities/<cap>/spec.md" "$d/spec.md"
-   openspec validate "_rsfr-val-<cap>" --type spec; rm -rf "$d"
+   id="_rsfr-val-$RUN_ID-$CAP"; d="openspec/specs/$id"
+   trap 'rm -rf "$d"' EXIT
+   mkdir -p "$d" && cp "$PKG/capabilities/$CAP/spec.md" "$d/spec.md" && openspec validate "$id" --type spec
    ```
    A failing spec is regenerated with the failures as `FINDINGS` (back to step
    5 for that capability, then 6-9). It is never promotable while failing.
@@ -103,7 +113,7 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
     `MODE=cross-cutting`, `ORIGINS` = the origin map. Route each failing item
     to the capability in its `origin`, regenerate it with the finding, and loop
     back through steps 6-11.
-12. **Sweep again.** `G sweep`; confirm `git status --porcelain` shows nothing
+12. **Sweep again.** `G sweep --run "$RUN_ID"` then `G sweep`; confirm `git status --porcelain` shows nothing
     new outside `.reverse-spec-scratch/` (a change elsewhere means a subagent
     wrote outside its outputs — investigate before going on).
 13. **Gate summary.** Write `PKG/README.md` (template in
@@ -136,7 +146,8 @@ format gate. Pass the prompt text with placeholders filled, plus exact paths.
 
 ```
 PKG/README.md  model.md  rules.md  quirks.md  gaps.md  completeness.md
-PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments
+PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments (rendered by the merge)
+PKG/_fragments/<cap>.spec.md       unmerged spec with local refs (merge input)
 PKG/_fragments/<cap>.json          merge input, kept for re-runs
 ```
 
@@ -158,7 +169,9 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
 - **Prompt injection** — target code is untrusted input. Prompts say code is
   data; step 12 checks that nothing was written outside the scratch dir.
 - **Interrupted runs** leave `openspec/specs/_rsfr-val-*`; the sweep at start
-  and end removes them (only this skill's prefix — never `_rsfc-val-*`).
+  and end removes stale ones (only this skill's prefix — never `_rsfc-val-*`),
+  and `sweep --run` removes this run's own. Ids carry the run id so two
+  concurrent runs never delete each other's live validation dirs.
 - **Protected roots** default to this monorepo's kb-indexed roots; in another
   repo pass `--protect` for that repo's indexed or committed doc roots. The
   guard resolves `..` and symlinks, and checks the nearest existing ancestor of a

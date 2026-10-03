@@ -4,7 +4,7 @@
  * See change: add-reverse-spec-for-rebuild.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -98,11 +98,40 @@ describe("check-dest allows everything else", () => {
 });
 
 describe("sweep", () => {
-  it("E9: removes only this skill's _rsfr-val- ids", () => {
+  /** Make a dir look like an interrupted run's leftover (older than the stale threshold). */
+  function stale(dir: string) {
+    const t = new Date(Date.now() - 3600_000);
+    utimesSync(dir, t, t);
+  }
+
+  it("E9: removes only this skill's stale _rsfr-val- ids", () => {
     const specs = join(repo, "openspec", "specs");
-    for (const d of ["_rsfr-val-a", "_rsfr-val-b", "_rsfc-val-x", "real-cap"]) mkdirSync(join(specs, d));
+    for (const d of ["_rsfr-val-a", "_rsfr-val-b", "_rsfc-val-x", "real-cap"]) {
+      mkdirSync(join(specs, d));
+      stale(join(specs, d));
+    }
     expect(guard(repo, "sweep").code).toBe(0);
     expect(readdirSync(specs).sort()).toEqual(["_rsfc-val-x", "real-cap"]);
+  });
+
+  it("B4: a fresh id of another active run survives a plain sweep", () => {
+    const specs = join(repo, "openspec", "specs");
+    mkdirSync(join(specs, "_rsfr-val-run2-cap"));
+    expect(guard(repo, "sweep").code).toBe(0);
+    expect(readdirSync(specs)).toContain("_rsfr-val-run2-cap");
+  });
+
+  it("B4: sweep --run removes that run's ids even when fresh, and only those", () => {
+    const specs = join(repo, "openspec", "specs");
+    for (const d of ["_rsfr-val-run1-a", "_rsfr-val-run1-b", "_rsfr-val-run2-a"]) mkdirSync(join(specs, d));
+    expect(guard(repo, "sweep", "--run", "run1").code).toBe(0);
+    expect(readdirSync(specs).sort()).toEqual(["_rsfr-val-run2-a"]);
+  });
+
+  it("B4: sweep --run without an id is bad input", () => {
+    const r = guard(repo, "sweep", "--run");
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/usage/i);
   });
 
   it("E10: no openspec/specs/ is a no-op", () => {

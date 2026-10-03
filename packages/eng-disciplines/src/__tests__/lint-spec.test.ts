@@ -58,6 +58,15 @@ describe("lint-spec", () => {
     expect(r.stdout).toMatch(new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:${line}: .+`, "m"));
   });
 
+  it("B3: a requirement after another ## section is outside ## Requirements", () => {
+    const body = `${OK}\n## Notes\n\n### Requirement: Stray\nThe system SHALL x.\n\n#### Scenario: s\n- **WHEN** a\n- **THEN** b\n`;
+    const p = spec("stray.md", body);
+    const r = guard(dir, "lint-spec", p);
+    expect(r.code).toBe(1);
+    const line = body.split("\n").indexOf("### Requirement: Stray") + 1;
+    expect(r.stdout).toContain(`${p}:${line}: requirement outside`);
+  });
+
   it("E23: missing ## Purpose", () => {
     const r = guard(dir, "lint-spec", spec("no-purpose.md", OK.replace("## Purpose\n\nChecks an order total against a configured maximum.\n\n", "")));
     expect(r.code).toBe(1);

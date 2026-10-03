@@ -2,7 +2,9 @@
  * reverse-spec-for-rebuild skill text (test-plan E14, E15): self-contained references
  * and discoverable frontmatter. See change: add-reverse-spec-for-rebuild.
  */
-import { existsSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { read, SKILL } from "./files";
@@ -42,5 +44,49 @@ describe("reverse-spec-for-rebuild skill text", () => {
     expect(fm?.[1]).toMatch(/^name: reverse-spec-for-rebuild$/m);
     const desc = fm?.[1].match(/^description: (.*)$/m)?.[1] ?? "";
     expect(desc).toContain("rebuild");
+  });
+});
+
+describe("format gate snippet (B1)", () => {
+  // The `openspec validate` block SKILL.md tells the agent to run, executed for real
+  // against a stub CLI: the block's exit status must be validate's, and the transient
+  // id must be gone either way.
+  const block = read(join(SKILL, "SKILL.md")).match(/```bash\n([\s\S]*?openspec validate[\s\S]*?)```/)?.[1] ?? "";
+
+  function runGate(validateExit: number) {
+    const repo = mkdtempSync(join(tmpdir(), "rsfr-gate-"));
+    try {
+      mkdirSync(join(repo, "openspec", "specs"), { recursive: true });
+      mkdirSync(join(repo, "pkg", "capabilities", "cap-a"), { recursive: true });
+      writeFileSync(join(repo, "pkg", "capabilities", "cap-a", "spec.md"), "# x\n");
+      mkdirSync(join(repo, "bin"));
+      writeFileSync(join(repo, "bin", "openspec"), `#!/bin/sh\nexit ${validateExit}\n`);
+      chmodSync(join(repo, "bin", "openspec"), 0o755);
+      const r = spawnSync("bash", ["-c", block], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", CAP: "cap-a", RUN_ID: "r1" },
+      });
+      return { code: r.status, left: readdirSync(join(repo, "openspec", "specs")) };
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }
+
+  it("is present and uses real variables, not placeholders", () => {
+    expect(block).not.toBe("");
+    expect(block).not.toMatch(/<cap>|(?<![$])\bPKG\//);
+  });
+
+  it("fails when validation fails, and cleans up", () => {
+    const r = runGate(1);
+    expect(r.code).not.toBe(0);
+    expect(r.left).toEqual([]);
+  });
+
+  it("passes when validation passes, and cleans up", () => {
+    const r = runGate(0);
+    expect(r.code).toBe(0);
+    expect(r.left).toEqual([]);
   });
 });
