@@ -82,6 +82,8 @@ export function CollapsedToolGroup({ group, toolContext }: Props) {
                   key={row.id}
                   toolName={row.toolName ?? "unknown"}
                   toolCallId={row.toolCallId ?? row.id}
+                  nested={row.nested}
+                  nestedComplete={row.nestedComplete}
                   args={row.args}
                   status={row.toolStatus ?? "complete"}
                   result={row.result}

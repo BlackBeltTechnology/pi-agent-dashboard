@@ -82,3 +82,37 @@ describe("selectInflightBashTools (redesign-process-list-activity-bar)", () => {
     expect(selectInflightBashTools(state)[0].command).toBe("");
   });
 });
+
+// See change: render-nested-tool-calls — test-plan E18.
+describe("selectInflightBashTools — nested bash (E18)", () => {
+  it("includes a running nested bash under a codemode root", () => {
+    const state = withToolCalls({
+      toolCallId: "call_1",
+      toolName: "codemode",
+      status: "running",
+      startedAt: 1000,
+      nested: [
+        { id: "call_1/1", parentId: "call_1", name: "bash", status: "running", startedAt: 1500, args: { command: "npm test" } },
+        { id: "call_1/2", parentId: "call_1", name: "bash", status: "complete", startedAt: 1200, args: { command: "ls" } },
+        { id: "call_1/3", parentId: "call_1", name: "read", status: "running", startedAt: 1600 },
+      ],
+    });
+    expect(selectInflightBashTools(state)).toEqual([
+      { toolCallId: "call_1/1", command: "npm test", startedAt: 1500 },
+    ]);
+  });
+
+  it("orders nested and top-level bash together, newest first", () => {
+    const state = withToolCalls(
+      { toolCallId: "tc-top", toolName: "bash", args: { command: "sleep 1" }, status: "running", startedAt: 1000 },
+      {
+        toolCallId: "call_1",
+        toolName: "codemode",
+        status: "running",
+        startedAt: 900,
+        nested: [{ id: "call_1/1", parentId: "call_1", name: "Bash", status: "running", startedAt: 2000, args: { command: "pwd" } }],
+      },
+    );
+    expect(selectInflightBashTools(state).map((r) => r.toolCallId)).toEqual(["call_1/1", "tc-top"]);
+  });
+});

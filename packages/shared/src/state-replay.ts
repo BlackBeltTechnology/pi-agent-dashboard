@@ -183,6 +183,12 @@ export function replayEntriesAsEvents(
         if (msg.details && typeof msg.details === "object") {
           eventData.details = msg.details;
         }
+        // pi ≥0.99 nested-call record (codemode / ctx.executeTool): nested calls
+        // write no transcript entries, so this record is the only replay trace.
+        // See change: render-nested-tool-calls.
+        if (msg.nestedCalls && typeof msg.nestedCalls === "object") {
+          eventData.nestedCalls = msg.nestedCalls;
+        }
         messages.push(makeEvent(sessionId, "tool_execution_end", ts, eventData));
         openToolCalls.delete(msg.toolCallId);
       }

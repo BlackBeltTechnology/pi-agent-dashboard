@@ -315,3 +315,31 @@ describe("agent_before_settle (E12)", () => {
     expect(updates).toBeNull();
   });
 });
+
+// See change: render-nested-tool-calls — test-plan E15.
+describe("extractSessionUpdates — nested tool calls never touch currentTool (E15)", () => {
+  const nestedStart = makeEvent("tool_execution_start", {
+    toolCallId: "call_1/1",
+    toolName: "bash",
+    parentToolCallId: "call_1",
+  });
+  const nestedEnd = makeEvent("tool_execution_end", {
+    toolCallId: "call_1/1",
+    toolName: "bash",
+    parentToolCallId: "call_1",
+  });
+
+  for (const pending of [false, true]) {
+    it(`nested start → null (hasPendingPrompt=${pending})`, () => {
+      expect(extractSessionUpdates(nestedStart, pending)).toBeNull();
+    });
+    it(`nested end → null (hasPendingPrompt=${pending})`, () => {
+      expect(extractSessionUpdates(nestedEnd, pending)).toBeNull();
+    });
+  }
+
+  it("a top-level end with a pending prompt still yields ask_user", () => {
+    const topEnd = makeEvent("tool_execution_end", { toolCallId: "call_1", toolName: "codemode" });
+    expect(extractSessionUpdates(topEnd, true)).toEqual({ currentTool: "ask_user" });
+  });
+});

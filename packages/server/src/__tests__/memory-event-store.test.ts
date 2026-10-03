@@ -2700,3 +2700,75 @@ describe("memory-event-store — byte-trim telemetry", () => {
     expect(store.getTrimStats().trimmedBytes).toBeGreaterThan(0);
   });
 });
+
+// See change: render-nested-tool-calls — test-plan X1, X2.
+describe("memory-event-store — nestedCalls record carve-out", () => {
+  const neverPinned = () => false;
+  const deep = { a: { b: { c: { d: { e: { f: "deepest" } } } } } };
+  const record = (i: number) => ({
+    id: `call_1/${i + 1}`,
+    name: i % 2 === 0 ? "bash" : "read",
+    status: "ok",
+    durationMs: 5,
+    arguments: i === 7 ? deep : { command: `echo ${i}` },
+  });
+  const toolResultEnd = (n: number, extra: Record<string, unknown> = {}): DashboardEvent => ({
+    eventType: "message_end",
+    timestamp: Date.now(),
+    data: {
+      message: {
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "codemode",
+        content: [{ type: "text", text: "done" }],
+        nestedCalls: { calls: Array.from({ length: n }, (_, i) => record(i)), complete: true },
+        ...extra,
+      },
+    },
+  });
+
+  it("X1: 40 nested records survive the generic pass; deep arguments summarized, not raw", () => {
+    const store = createMemoryEventStore(neverPinned);
+    store.insertEvent("s1", toolResultEnd(40));
+    const stored = store.getEvent("s1", 1) as any;
+    const calls = stored.data.message.nestedCalls.calls;
+    expect(Array.isArray(calls)).toBe(true);
+    expect(calls).toHaveLength(40);
+    for (const c of calls) {
+      expect(typeof c.id).toBe("string");
+      expect(typeof c.name).toBe("string");
+      expect(c.status).toBe("ok");
+    }
+    expect(calls[7].arguments).not.toEqual(deep);
+    expect(JSON.stringify(calls[7].arguments)).toContain("[truncated: deep]");
+    expect(stored.data.message.nestedCalls.complete).toBe(true);
+  });
+
+  it("X1b: a top-level `data.nestedCalls` (replay-synthesized end) is carved out too", () => {
+    const store = createMemoryEventStore(neverPinned);
+    store.insertEvent("s1", {
+      eventType: "tool_execution_end",
+      timestamp: Date.now(),
+      data: {
+        toolCallId: "call_1",
+        nestedCalls: { calls: Array.from({ length: 30 }, (_, i) => record(i)), complete: false },
+      },
+    });
+    const stored = store.getEvent("s1", 1) as any;
+    expect(stored.data.nestedCalls.calls).toHaveLength(30);
+  });
+
+  it("X2: not a ceiling exemption — an over-ceiling nestedCalls event is bounded without throwing", () => {
+    const CEIL = 20_000;
+    const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+    const big = toolResultEnd(40, { content: [{ type: "text", text: "Z".repeat(3_000) }] });
+    const msg = (big.data as any).message;
+    for (const c of msg.nestedCalls.calls) c.error = "E".repeat(3_000);
+    let seq = 0;
+    expect(() => {
+      seq = store.insertEvent("s1", big);
+    }).not.toThrow();
+    const stored = store.getEvent("s1", seq) as any;
+    expect(JSON.stringify(stored.data).length).toBeLessThanOrEqual(CEIL);
+  });
+});

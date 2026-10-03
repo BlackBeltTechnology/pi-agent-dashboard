@@ -41,6 +41,12 @@ export function selectInflightBashTools(
   if (!state) return [];
   const out: InflightBashTool[] = [];
   for (const tc of state.toolCalls.values()) {
+    // Nested bash (codemode / `ctx.executeTool`) counts too. Only live entries
+    // are ever `running`. See change: render-nested-tool-calls (D3).
+    for (const n of tc.nested ?? []) {
+      if (n.status !== "running" || n.name.toLowerCase() !== "bash") continue;
+      out.push({ toolCallId: n.id, command: extractCommand(n.args), startedAt: n.startedAt ?? 0 });
+    }
     if (tc.status !== "running") continue;
     if (tc.toolName.toLowerCase() !== "bash") continue;
     out.push({
