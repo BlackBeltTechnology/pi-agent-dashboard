@@ -10,7 +10,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
+import { normalizeUsageSeed, type SessionManager } from "../session/memory-session-manager.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
@@ -874,6 +874,10 @@ export function createPiGateway(
                 // normalization as the untrusted inputs above.
                 // See change: fix-spawn-correlation-ttl-coupling (D3).
                 dashboardSpawned: msg.dashboardSpawned === true,
+                // Untrusted socket input: normalized to finite non-negative
+                // numbers or dropped. Applied by `register` only for an id the
+                // server has no record of. See change: count-non-message-usage.
+                usageSeed: normalizeUsageSeed(msg.usageSeed),
               });
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 

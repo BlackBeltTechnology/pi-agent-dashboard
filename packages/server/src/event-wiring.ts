@@ -9,7 +9,8 @@ import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import type { ExtensionToServerMessage, PluginRequestMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
-import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
+import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
@@ -849,6 +850,60 @@ export function wireEvents(deps: EventWiringDeps): void {
   }
   const LAST_ACTIVITY_BROADCAST_INTERVAL_MS = 30_000;
 
+  /**
+   * One accumulator for every live usage source (assistant `turn_end`,
+   * tool-result `message_end`, bridge-drained `usage_recorded`): adds all five
+   * totals to the session record, then synthesizes a `stats_update` (stored +
+   * broadcast). A non-turn source carries `usageKind` and no `contextUsage`,
+   * so the client adds it to totals without turn bookkeeping.
+   * See change: count-non-message-usage.
+   */
+  function accumulateUsage(sessionId: string, stats: StatsData, usageKind?: string): void {
+    const session = sessionManager.get(sessionId);
+    const statsUpdates: Partial<DashboardSession> = {
+      tokensIn: (session?.tokensIn ?? 0) + stats.tokensIn,
+      tokensOut: (session?.tokensOut ?? 0) + stats.tokensOut,
+      cacheRead: (session?.cacheRead ?? 0) + (stats.turnUsage?.cacheRead ?? 0),
+      cacheWrite: (session?.cacheWrite ?? 0) + (stats.turnUsage?.cacheWrite ?? 0),
+      cost: (session?.cost ?? 0) + stats.cost,
+    };
+    if (stats.contextUsage) {
+      statsUpdates.contextTokens = stats.contextUsage.tokens;
+      statsUpdates.contextWindow = stats.contextUsage.contextWindow;
+    }
+    sessionManager.update(sessionId, statsUpdates);
+
+    // Synthesize a stats_update event for client replay compatibility
+    const statsEvent = {
+      eventType: "stats_update",
+      timestamp: Date.now(),
+      data: {
+        ...(usageKind ? { usageKind } : {}),
+        tokensIn: stats.tokensIn,
+        tokensOut: stats.tokensOut,
+        cost: stats.cost,
+        turnUsage: stats.turnUsage,
+        ...(usageKind ? {} : { contextUsage: stats.contextUsage }),
+      },
+    };
+    const statsSeq = eventStore.insertEvent(sessionId, statsEvent);
+    if (!replayingSessions.has(sessionId)) {
+      browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
+      browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
+    }
+  }
+
+  /** `StatsData` for a non-turn usage (no `contextUsage`). */
+  function nonTurnStats(usage: Record<string, unknown>): StatsData {
+    const t = usageToTotals(usage);
+    return {
+      tokensIn: t.tokensIn,
+      tokensOut: t.tokensOut,
+      cost: t.cost,
+      turnUsage: { input: t.tokensIn, output: t.tokensOut, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite },
+    };
+  }
+
   const coreGatewayEventHandler = (sessionId: string, msg: ExtensionToServerMessage): void => {
     // Generic plugin bridge→server channel. Routed to plugin-server
     // handlers by messageType; never touches core session state.
@@ -1208,40 +1263,30 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (msg.event.eventType === "turn_end") {
         const ctxUsage = msg.event.data.contextUsage as { tokens: number | null; contextWindow: number } | undefined;
         const stats = extractTurnStats(msg.event.data, ctxUsage);
-        if (stats) {
-          const session = sessionManager.get(sessionId);
-          const statsUpdates: Partial<DashboardSession> = {
-            tokensIn: (session?.tokensIn ?? 0) + stats.tokensIn,
-            tokensOut: (session?.tokensOut ?? 0) + stats.tokensOut,
-            cacheRead: (session?.cacheRead ?? 0) + (stats.turnUsage?.cacheRead ?? 0),
-            cacheWrite: (session?.cacheWrite ?? 0) + (stats.turnUsage?.cacheWrite ?? 0),
-            cost: (session?.cost ?? 0) + stats.cost,
-          };
-          if (stats.contextUsage) {
-            statsUpdates.contextTokens = stats.contextUsage.tokens;
-            statsUpdates.contextWindow = stats.contextUsage.contextWindow;
-          }
-          sessionManager.update(sessionId, statsUpdates);
-
-          // Synthesize a stats_update event for client replay compatibility
-          const statsEvent = {
-            eventType: "stats_update",
-            timestamp: Date.now(),
-            data: {
-              tokensIn: stats.tokensIn,
-              tokensOut: stats.tokensOut,
-              cost: stats.cost,
-              turnUsage: stats.turnUsage,
-              contextUsage: stats.contextUsage,
-            },
-          };
-          const statsSeq = eventStore.insertEvent(sessionId, statsEvent);
-          if (!replayingSessions.has(sessionId)) {
-            browserGateway.broadcastEvent(sessionId, statsSeq, statsEvent);
-            browserGateway.broadcastSessionUpdated(sessionId, statsUpdates);
-          }
+        if (stats) accumulateUsage(sessionId, stats);
+      }
+      // Tool-result usage (codemode models.classify()/generateImages()): its
+      // ONE live source is the forwarded tool-result `message_end`, read from
+      // the in-flight event (never the stored, possibly truncated copy). An
+      // assistant `message_end` is never counted (`turn_end` is its source),
+      // and `turn_end.toolResults` is never counted.
+      // See change: count-non-message-usage.
+      if (msg.event.eventType === "message_end") {
+        const m = (msg.event.data as { message?: { role?: unknown; usage?: unknown } } | undefined)?.message;
+        if (m?.role === "toolResult" && m.usage && typeof m.usage === "object") {
+          accumulateUsage(sessionId, nonTurnStats(m.usage as Record<string, unknown>), "tool");
         }
       }
+    }
+
+    // Entry usage drained by the bridge (`usage` entries, compaction /
+    // branch-summary usage). Same accumulator + kind-marked synthesis.
+    // See change: count-non-message-usage.
+    if (msg.type === "usage_recorded") {
+      if (typeof msg.kind === "string" && msg.usage && typeof msg.usage === "object") {
+        accumulateUsage(sessionId, nonTurnStats(msg.usage), msg.kind);
+      }
+      return;
     }
 
     // Heartbeat-carried agent liveness. `status: "streaming"` is otherwise a
