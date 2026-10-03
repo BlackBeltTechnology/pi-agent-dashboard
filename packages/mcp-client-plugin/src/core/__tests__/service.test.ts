@@ -120,25 +120,40 @@ describe("E27 — the global list runs in an empty scratch dir", () => {
 });
 
 describe("one pi mcp list per cwd at a time", () => {
-  it("a fresh request while a run is in flight shares it instead of spawning another", async () => {
+  // review r4 B1: a Refresh during an in-flight run must see a run that STARTS
+  // after the refresh — one queued follow-up, coalescing every fresh request
+  // made meanwhile (≤ 1 running + 1 queued per cwd).
+  it("a fresh request while a run is in flight queues ONE post-refresh run; plain reads share in-flight", async () => {
+    const OLD = JSON.stringify({ servers: [{ name: "a", state: "connecting", tools: [] }], errors: [] });
+    const NEW = JSON.stringify({ servers: [{ name: "a", state: "connected", tools: ["t"] }], errors: [] });
     let calls = 0;
-    let release: (v: { stdout: string; code: number }) => void = () => {};
+    const releases: Array<(v: { stdout: string; code: number }) => void> = [];
     const runner: PiMcpListRunner = () => {
       calls += 1;
       return new Promise((resolve) => {
-        release = resolve;
+        releases.push(resolve);
       });
     };
     const reader = createLiveStateReader({ runner });
     const a = reader.read(CWD);
     const b = reader.read(CWD, { fresh: true });
+    const c = reader.read(CWD, { fresh: true });
+    const plain = reader.read(CWD);
     expect(calls).toBe(1);
-    release({ stdout: LIST, code: 0 });
-    expect((await a).ok).toBe(true);
-    expect(await b).toEqual(await a);
-    // Settled → a fresh request runs again.
-    void reader.read(CWD, { fresh: true });
+    expect(plain).toBe(a);
+    expect(c).toBe(b);
+
+    releases[0]({ stdout: OLD, code: 0 });
+    const first = await a;
+    expect(first.ok && first.servers.a.state).toBe("connecting");
+    await vi.waitFor(() => expect(calls).toBe(2));
+
+    releases[1]({ stdout: NEW, code: 0 });
+    const refreshed = await b;
+    expect(refreshed.ok && refreshed.servers.a.state).toBe("connected");
+    expect(await c).toEqual(refreshed);
+    // The refreshed run is now the cached value.
+    expect(await reader.read(CWD)).toEqual(refreshed);
     expect(calls).toBe(2);
-    release({ stdout: LIST, code: 0 });
   });
 });

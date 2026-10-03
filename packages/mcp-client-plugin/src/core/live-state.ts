@@ -63,6 +63,7 @@ export function createLiveStateReader(deps: LiveStateReaderDeps): LiveStateReade
   const now = deps.now ?? (() => Date.now());
   const cache = new Map<string, { at: number; value: Promise<LiveState>; settled: boolean }>();
 
+
   async function run(cwd: string): Promise<LiveState> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -87,23 +88,47 @@ export function createLiveStateReader(deps: LiveStateReaderDeps): LiveStateReade
     }
   }
 
+  interface Slot {
+    at: number;
+    value: Promise<LiveState>;
+    settled: boolean;
+  }
+  /** One queued post-refresh run per cwd, coalescing every fresh request made meanwhile. */
+  const queued = new Map<string, Promise<LiveState>>();
+
+  function start(cwd: string): Promise<LiveState> {
+    const value = run(cwd);
+    const slot: Slot = { at: now(), value, settled: false };
+    cache.set(cwd, slot);
+    void value.then((r) => {
+      slot.settled = true;
+      // A failure is not cached: the next view retries instead of showing
+      // "state unknown" for a whole TTL.
+      if (!r.ok && cache.get(cwd) === slot) cache.delete(cwd);
+    });
+    return value;
+  }
+
   return {
     read(cwd, opts) {
       const hit = cache.get(cwd);
-      // A run still in flight is shared even by a `fresh` request: one `pi mcp
-      // list` (which connects to every server) per cwd at a time.
-      if (hit && !hit.settled) return hit.value;
+      if (hit && !hit.settled) {
+        // One `pi mcp list` (which connects to every server) per cwd at a
+        // time. A plain read shares the in-flight run; a `fresh` read must see
+        // a run that STARTS after it, so it queues one follow-up (≤ 1 running
+        // + 1 queued per cwd; later fresh reads join the same follow-up).
+        if (!opts?.fresh) return hit.value;
+        const pending = queued.get(cwd);
+        if (pending) return pending;
+        const next = hit.value.then(() => {
+          queued.delete(cwd);
+          return start(cwd);
+        });
+        queued.set(cwd, next);
+        return next;
+      }
       if (!opts?.fresh && hit && now() - hit.at < ttl) return hit.value;
-      const value = run(cwd);
-      const slot = { at: now(), value, settled: false };
-      cache.set(cwd, slot);
-      void value.then((r) => {
-        slot.settled = true;
-        // A failure is not cached: the next view retries instead of showing
-        // "state unknown" for a whole TTL.
-        if (!r.ok && cache.get(cwd) === slot) cache.delete(cwd);
-      });
-      return value;
+      return start(cwd);
     },
   };
 }
