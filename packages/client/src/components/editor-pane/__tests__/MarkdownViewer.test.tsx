@@ -9,7 +9,7 @@
  * See change: improve-content-editor (tasks §5).
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -170,7 +170,8 @@ describe("MarkdownViewer hook order across a refused load", () => {
     window.addEventListener("error", onErr);
     const { rerender } = render(el("gone.md"));
     await waitFor(() => expect(screen.queryByTestId("md-preview")).toBeNull());
-    await new Promise((r) => setTimeout(r, 20)); // let the 404 land as loadFailure
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await act(async () => {}); // flush the 404 into loadFailure
     rerender(el("fine.md"));
     expect(await screen.findByTestId("md-preview")).toBeTruthy();
     const hookErrors = errSpy.mock.calls.filter((c) => /hooks/i.test(String(c[0]) + String(c[1] ?? "")));

@@ -1,7 +1,9 @@
 ## Purpose
 
 Define the in-app markdown preview surface: a reusable `MarkdownPreviewView` that replaces the chat view to render markdown content (OpenSpec proposals/specs, package READMEs, skill SKILL.md) with navigation chrome.
+
 ## Requirements
+
 ### Requirement: Markdown preview replaces chat view
 
 The canvas SHALL render **side-by-side** with the chat only on **desktop** viewports
@@ -156,6 +158,11 @@ thinking surfaces SHALL NOT pass `imageBase`. Surfaces hosted by
 `WhatsNewDialog`) have no `cwd`/`path` and are explicitly OUT OF SCOPE — they keep
 today's behavior.
 
+The value passed SHALL have a **stable identity** for a given `cwd` and file
+path, rather than being constructed fresh on each render. `MarkdownContent` is
+wrapped in `React.memo`, which shallow-compares each prop, so a per-render object
+literal fails the comparison on every render and defeats the guard entirely.
+
 #### Scenario: FilePreviewOverlay threads the file directory
 - **GIVEN** `FilePreviewOverlay` previewing `{ cwd: "/w", path: "docs/review.md" }`
 - **WHEN** it renders the `.md` body via `MarkdownContent`
@@ -176,3 +183,17 @@ today's behavior.
 - **WHEN** it renders
 - **THEN** no `imageBase` SHALL be passed and the surface keeps its current behavior (not regressed)
 
+#### Scenario: Identity is stable across re-renders of the caller
+- **GIVEN** any of the three on-disk surfaces rendering a fixed `cwd` and path
+- **WHEN** the surface re-renders without changing `cwd` or path
+- **THEN** the `imageBase` value passed SHALL be the same object instance as before, and `MarkdownContent` SHALL NOT re-render
+
+#### Scenario: Identity changes when the file changes
+- **GIVEN** one of the three on-disk surfaces
+- **WHEN** the previewed `cwd` or path changes
+- **THEN** a new `imageBase` value SHALL be passed and `MarkdownContent` SHALL re-render
+
+#### Scenario: Two on-disk surfaces mounted at once
+- **GIVEN** two `MarkdownContent` instances rendered with different `imageBase` values
+- **WHEN** both are mounted simultaneously
+- **THEN** each SHALL resolve its local images against its own base

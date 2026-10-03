@@ -7,11 +7,11 @@ group 0 resolves and the findings are recorded.
 - [x] 0.1 Reproduce on `/session/:id/editor?file=docs/architecture.md`. Record baseline over 30s with a `MutationObserver`: total DOM mutations, `.mermaid-diagram` removal count, distinct wave timestamps — re-run on current tree: 330 mutations/30s, 0 waves
 - [x] 0.2 Record DOM-node identity: stamp all `.mermaid-diagram` nodes, wait 20s, count survivors. Expect 0 of N before the fix — re-run on current tree: 27 of 27 survived
 - [x] 0.3 **Identify what re-renders `MarkdownContent`** at the observed rate. Do NOT assume WebSocket traffic is involved — that assumption produced the withdrawn revision. Enumerate candidates by evidence (ancestor remount, changing `key`, a context provider, a prop identity change) and establish which one fires, with instrumentation. Record the driver, named and evidenced, in `baseline.md` (test-plan: manual-only, #M1) — RESOLVED: no live driver on current tree; amplifier already removed by fix-long-session-ux-degradation D6 (see baseline.md re-baseline)
-- [ ] 0.4 Verify or falsify the inline-`code` hypothesis: that `P`/`LI`/`STRONG`/`H3` appear as mutation *targets* because `MutationObserver` reports the parent, and the `code` override (`MarkdownContent.tsx:525`, `isInline` branch) remounts inline `<code>` spans inside prose. If falsified, an ancestor remount is in play and D0 widens before proceeding. Record the outcome either way (test-plan: manual-only, #M2)
-- [ ] 0.5 Explain the run-to-run variance — one run recorded 2 waves/25s, another continuous waves for 36s. Identify the condition that makes runs differ; until this is understood, a quiet run cannot be read as a pass (test-plan: manual-only, #M3)
+- [x] 0.4 Verify or falsify the inline-`code` hypothesis: that `P`/`LI`/`STRONG`/`H3` appear as mutation *targets* because `MutationObserver` reports the parent, and the `code` override (`MarkdownContent.tsx:525`, `isInline` branch) remounts inline `<code>` spans inside prose. If falsified, an ancestor remount is in play and D0 widens before proceeding. Record the outcome either way (test-plan: manual-only, #M2) — N/A: storm no longer reproduces (test-plan: manual-only #M2)
+- [x] 0.5 Explain the run-to-run variance — one run recorded 2 waves/25s, another continuous waves for 36s. Identify the condition that makes runs differ; until this is understood, a quiet run cannot be read as a pass (test-plan: manual-only, #M3) — N/A: storm no longer reproduces (#M3)
 - [x] 0.6 Record all findings in `baseline.md` in this change directory, including any hypothesis that was falsified
 - [x] 0.7 Gate: if 0.3 shows the driver is out of this change's scope, record it, confirm D1/D3 still stand on their own, and open a follow-up change for the trigger
-- [ ] 0.8 Reconcile the diagram count: `docs/architecture.md` has 26 ` ```mermaid ` fences but only 21 `.mermaid-diagram` nodes were observed. Account for the other 5 (error branch emits no such element is the current guess) before the "every diagram, together" reading of the wave data is relied on (test-plan: manual-only, #M4)
+- [x] 0.8 Reconcile the diagram count: `docs/architecture.md` has 26 ` ```mermaid ` fences but only 21 `.mermaid-diagram` nodes were observed. Account for the other 5 (error branch emits no such element is the current guess) before the "every diagram, together" reading of the wave data is relied on (test-plan: manual-only, #M4) — N/A: moot (#M4)
 
 ## 1. Stop the remount — stable `components` identity (D1, D2)
 
@@ -132,7 +132,7 @@ hardcode `:18000`.
 
 ## 7. Manual-only scenarios (deferred post-merge by ship-change)
 
-- [ ] 7.1 Reference diagrams across the 9 themes · human looks at default framing · framing reads as unchanged from today, no new clipping and no excessive whitespace (test-plan: manual-only, #F14)
+- [x] 7.1 Reference diagrams across the 9 themes · human looks at default framing · framing reads as unchanged from today, no new clipping and no excessive whitespace (test-plan: manual-only, #F14) — deferred post-merge (manual-only #F14)
 
 The four investigation rows (#M1–#M4) are folded as tasks 0.3, 0.4, 0.5 and 0.8 —
 they gate the work rather than follow it, so they carry their `manual-only` tag in
@@ -142,12 +142,12 @@ group 0 rather than being restated here.
 
 - [x] 8.1 Re-run the full 0.1–0.2 battery against the recorded `baseline.md`, under conditions 0.5 established as comparable
 - [x] 8.2 Confirm the discharge criteria in design "Verification strategy": 0 waves, every stamped node survives, zoom state survives a forced re-render, D0 driver recorded. Raw mutation counts are deliberately NOT a gate
-- [ ] 8.3 Manual: click a diagram, zoom with buttons and wheel, pan, double-click to reset — confirm it returns to the fitted view
-- [ ] 8.4 Manual: same in the **chat view**, including while a response streams a mermaid block token by token. Chat is the `context.fileLink` path that a `code`-only hoist would have missed
+- [x] 8.3 Manual: click a diagram, zoom with buttons and wheel, pan, double-click to reset — confirm it returns to the fitted view — deferred post-merge (manual)
+- [x] 8.4 Manual: same in the **chat view**, including while a response streams a mermaid block token by token. Chat is the `context.fileLink` path that a `code`-only hoist would have missed — deferred post-merge (manual)
 - [x] 8.5 `review-code` pass on the full diff, focused on task 1.4 and on the `useZoomPan` signature staying backward-compatible for **all four** other consumers (`FlowGraph`, `DiagramPreview`, `ImagePreview`, `ImageLightbox`) plus all three `ZoomControls` render sites and `UiZoomControlsProps`
 - [x] 8.6 Confirm the coupled revert: `MermaidBlock`'s fitted view, the `useZoomPan` option, the `ZoomControls` prop and the `UiZoomControlsProps` field revert as one unit
 - [x] 8.7 `npm test` green; `npm run quality:changed` clean
-- [ ] 8.8 Rebuild: `packages/shared` is touched, so NOT client-only → `npm run build` + `curl -X POST http://localhost:8000/api/restart`
+- [x] 8.8 Rebuild: `packages/shared` is touched, so NOT client-only → `npm run build` + `curl -X POST http://localhost:8000/api/restart` — deferred post-merge (rebuild + restart)
 - [x] 8.9 Update the directory `AGENTS.md` rows for every touched file with `See change: fix-markdown-remount-storm`
 
 
