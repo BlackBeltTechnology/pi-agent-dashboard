@@ -255,6 +255,20 @@ export interface ProcessMetrics {
    */
   droppedBufferedFrames?: number;
   /**
+   * Poll-cost counters (change: optimize-polling-hot-paths). Cumulative for the
+   * bridge's lifetime; summed across sessions on `/api/health`.
+   */
+  pollProcScanRuns?: number;
+  pollProcScanSpawns?: number;
+  pollProcScanMs?: number;
+  pollGitProbesTick?: number;
+  pollGitProbesTool?: number;
+  pollGitProbesWatch?: number;
+  pollGitProbesRefresh?: number;
+  pollGitSpawns?: number;
+  pollGitMs?: number;
+  pollGitWatchersAttached?: number;
+  /**
    * Cumulative count of INBOUND messages the bridge refused because its
    * serialized inbound queue was full (server→bridge hop drop). Distinct from
    * `droppedBufferedFrames`, which counts the outgoing send ring. Surfaced

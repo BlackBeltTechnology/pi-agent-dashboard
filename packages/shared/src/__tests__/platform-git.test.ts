@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 import {
   currentBranch,
   currentBranchOr,
+  gitStatusV2Async,
   diff,
   GH_PR_STATUS,
   GIT_CURRENT_BRANCH,
@@ -225,6 +226,7 @@ describe("GIT_STATUS_V2.argv", () => {
   it("is the branch-aware porcelain=v2 invocation", () => {
     expect(GIT_STATUS_V2.argv({ cwd: "/x" })).toEqual([
       "git",
+      "--no-optional-locks",
       "status",
       "--porcelain=v2",
       "--branch",
@@ -300,5 +302,33 @@ describe("parseGitStatusV2", () => {
   it("ignores '!' ignored entries", () => {
     const out = ["# branch.head main", "! ignored.ts"].join("\n");
     expect(parseGitStatusV2(out).dirtyCount).toBe(0);
+  });
+});
+
+// optimize-polling-hot-paths #E52: a status probe must not refresh .git/index.
+describe("gitStatusV2Async (no optional locks)", () => {
+  it("E52: leaves .git/index untouched (mtime) on a stat-dirty tree", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const cp = await import("node:child_process");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "git-nol-"));
+    try {
+      const g = (...a: string[]) => cp.execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], { cwd: dir, stdio: "pipe" });
+      g("init", "-q");
+      fs.writeFileSync(path.join(dir, "a.txt"), "one\n");
+      g("add", "a.txt");
+      g("commit", "-qm", "init");
+      // Make the index stat-stale: touch the file so an optional-locks status would rewrite the index.
+      const future = new Date(Date.now() + 5_000);
+      fs.utimesSync(path.join(dir, "a.txt"), future, future);
+      const idx = path.join(dir, ".git", "index");
+      const before = fs.statSync(idx).mtimeMs;
+      await new Promise((r) => setTimeout(r, 30));
+      const res = await gitStatusV2Async({ cwd: dir });
+      expect(res.ok).toBe(true);
+      expect(fs.statSync(idx).mtimeMs).toBe(before);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

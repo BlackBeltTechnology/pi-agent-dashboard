@@ -251,9 +251,14 @@ export const GIT_STATUS_PORCELAIN: Recipe<WithCwd & { path?: string }, string> =
   timeout: GIT_TIMEOUT,
 };
 
-/** `git status --porcelain=v2 --branch` → parsed dirty/drift counts. */
+/**
+ * `git status --porcelain=v2 --branch` → parsed dirty/drift counts.
+ * `--no-optional-locks`: a polled read must not refresh `.git/index` (that
+ * rewrite would itself fire the index watcher and re-trigger the probe).
+ * See change: optimize-polling-hot-paths.
+ */
 export const GIT_STATUS_V2: Recipe<WithCwd, GitStatus> = {
-  argv: () => ["git", "status", "--porcelain=v2", "--branch"],
+  argv: () => ["git", "--no-optional-locks", "status", "--porcelain=v2", "--branch"],
   parse: (out) => parseGitStatusV2(out),
   timeout: GIT_TIMEOUT,
 };
@@ -423,6 +428,12 @@ export interface GitCheckoutRoots {
    * `thisCheckout` / `mainCheckout` without re-probing the cwd.
    */
   commonDir: string;
+  /**
+   * The canonical absolute per-worktree `--git-dir` the resolver already
+   * probed. Lets a watcher attach without re-probing. Optional so hand-built
+   * verdicts stay valid. See change: optimize-polling-hot-paths.
+   */
+  gitDir?: string;
 }
 
 /**
@@ -546,7 +557,7 @@ export function resolveCheckoutRootsFrom(
   const thisCheckout = topLevelRaw ? normalizePath(topLevelRaw, platform) : null;
 
   const isLinkedWorktree = isLinked(gitDir, commonDir, platform);
-  if (!isLinkedWorktree) return { thisCheckout, isLinkedWorktree, mainCheckout: thisCheckout, commonDir };
+  if (!isLinkedWorktree) return { thisCheckout, isLinkedWorktree, mainCheckout: thisCheckout, commonDir, gitDir };
 
   // Rule 1 — repository-local `core.worktree`, resolved against the common dir.
   const configured = tryProbe(() => probes.localCoreWorktree(commonDir));
@@ -556,6 +567,7 @@ export function resolveCheckoutRootsFrom(
       isLinkedWorktree,
       mainCheckout: normalizePath(path.resolve(commonDir, configured), platform),
       commonDir,
+      gitDir,
     };
   }
   // Rule 2 — the parent of the common dir, when the common dir is named `.git`
@@ -571,10 +583,11 @@ export function resolveCheckoutRootsFrom(
       isLinkedWorktree,
       mainCheckout: normalizePath(path.dirname(commonDir), platform),
       commonDir,
+      gitDir,
     };
   }
   // Rule 3 — a bare hub has no working tree to name.
-  return { thisCheckout, isLinkedWorktree, mainCheckout: null, commonDir };
+  return { thisCheckout, isLinkedWorktree, mainCheckout: null, commonDir, gitDir };
 }
 
 /**
@@ -956,4 +969,22 @@ export async function headShaOrAsync(
   fallback?: string,
 ): Promise<string | undefined> {
   return unwrap(await runAsync(GIT_HEAD_SHA, input, { cwd: input.cwd }), fallback);
+}
+
+/** Async `git --no-optional-locks status --porcelain=v2 --branch` → parsed status. */
+export function gitStatusV2Async(input: WithCwd): Promise<Result<GitStatus>> {
+  return runAsync(GIT_STATUS_V2, input, { cwd: input.cwd });
+}
+
+/** Async `git remote get-url` → url (fallback on error). See change: optimize-polling-hot-paths. */
+export async function remoteUrlOrAsync(
+  input: WithCwd & { remote?: string },
+  fallback?: string,
+): Promise<string | undefined> {
+  return unwrap(await runAsync(GIT_REMOTE_URL, input, { cwd: input.cwd }), fallback);
+}
+
+/** Async current-branch read → ref name, `"HEAD"` when detached (fallback on error). */
+export async function currentBranchOrAsync(input: WithCwd, fallback?: string): Promise<string | undefined> {
+  return unwrap(await runAsync(GIT_CURRENT_BRANCH, input, { cwd: input.cwd }), fallback);
 }

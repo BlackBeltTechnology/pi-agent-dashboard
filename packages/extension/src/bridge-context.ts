@@ -5,6 +5,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { shouldSkipByPrefilter } from "./auto-session-namer.js";
 import type { ConnectionManager } from "./connection.js";
+import type { GitTracker } from "./git-tracker.js";
 import type { PrStatusScheduler } from "./pr-status.js";
 
 export interface BridgeContext {
@@ -41,6 +42,12 @@ export interface BridgeContext {
    * See change: redesign-composer-session-strip (D5).
    */
   prStatus?: PrStatusScheduler;
+  /**
+   * Per-bridge git tracker (facts cache, HEAD branch, async status probe).
+   * Stable reference across `syncBc()` snapshots. Absent in unit-test contexts.
+   * See change: optimize-polling-hot-paths.
+   */
+  gitTracker?: GitTracker;
   /**
    * Last serialized `GitWorktreeInfo` snapshot sent to the server, or
    * the literal string `"null"` when we explicitly cleared worktree

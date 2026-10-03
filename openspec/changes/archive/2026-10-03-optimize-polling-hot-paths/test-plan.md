@@ -101,7 +101,7 @@ Level routing: L1 = vitest `packages/*/src/**/__tests__/*.test.ts` (fake clock +
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
 | P1 | PT-poll + GC-refresh (design goal) | threshold (simulation) | L1 | automated | fake-clock idle session: agent idle, watcher attached, 3 long-lived children | process + git spawns/min ≤ 1/5 of a baseline simulation of today's code (3+k ps per 5 s; ~6 git per 30 s) | 10 simulated min |
 | P2 | GC-refresh (design D6 gate) | threshold (simulation) | L1 | automated | fake-clock active session: mutating tool end every 2 s, no branch change | `git status` probes ≤ 6/min; sync git spawns = 0 | 5 simulated min |
-| P3 | PT-poll + GC-refresh (G3) | soak + threshold | L2 | automated | `qa/tests/NN-poll-cost.sh`: start server, one idle pi session + one session looping file edits via faux model, read per-session `poll*` counters | idle: (`pollProcScanSpawns`+`pollGitSpawns`)/min ≤ 3; active: `pollGitProbesTool`/min ≤ 6 | 5 min |
+| P3 | PT-poll + GC-refresh (G3) | soak + threshold | L2 | automated | `qa/tests/NN-poll-cost.sh`: start server, one idle pi session + one session looping file edits via faux model, read per-session `poll*` counters | idle: (`pollProcScanSpawns`+`pollGitSpawns`)/min ≤ 5 (plan said ≤ 3; the design fixes the idle floor at 4/min — see notes.md); active: `pollGitProbesTool`/min ≤ 6 | 5 min |
 | P4 | PT-poll + GC-refresh (G3) | real-machine measurement | — | manual-only | macOS dev machine, 3 sessions (idle / bash loop / editing), before vs after builds | idle-session spawns/min drop ≥ 5×, recorded in `notes.md` | 5 min each |
 
 ### Frontend-quirk

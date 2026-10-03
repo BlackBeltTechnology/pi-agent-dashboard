@@ -1,3 +1,5 @@
 # openspec-routes.ts — index
 
 REST routes: openspec-archive, pi-resources (cwd optional → falls back to `process.cwd()` for the global Settings resource pages; change: resources-card-tabs), pi-resource-file. Adds POST /api/openspec/config (core→CLI preset, expanded/custom→atomic JSON write, busts configCache), POST /api/openspec/update (per-cwd or all known cwds, records signature), GET /api/openspec/update-status (up-to-date|needs-update|unknown). knownCwds = union(session cwds, pinned dirs). GET /api/openspec/config reads via `configListOrAsync` (async, non-blocking). `currentGlobalSignature` async + computed ONCE per request (profile is global). GET /api/openspec/update-status + POST /api/openspec/update signature step no longer spawn `openspec config list` per-cwd — was ~11s blocking for 11 projects, starved concurrent config GET. See changes: add-openspec-profile-settings, fix-openspec-profile-load-race.
+
+`GET /api/pi-resources`: stale-while-revalidate — serves a stale entry at once and starts one deduped background rescan (rejection swallowed, next request retries); cold miss / `refresh=true` await the scan. See change: optimize-polling-hot-paths.
