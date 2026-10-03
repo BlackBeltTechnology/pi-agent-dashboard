@@ -1570,6 +1570,25 @@ describe("argv migration — caller values stay single argv elements", () => {
       } finally { s.restore(); }
     });
 
+    // review r6 B1 — fail closed: an unreadable status is NOT a clean checkout.
+    it("mergeWorktree: a non-zero status probe fails closed, never checkout/merge", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/os0" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({
+        fileThrow: (file, args) =>
+          file === "git" && args[0] === "status" && args[1] === "--porcelain"
+            ? Object.assign(new Error("fatal: unable to read index"), { status: 128, stdout: "", stderr: "fatal: unable to read index" })
+            : undefined,
+      });
+      try {
+        const r = mergeWorktree({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_failed");
+        expect(s.argvCalls.some((c) => c.args[0] === "checkout" || c.args[0] === "merge")).toBe(false);
+      } finally { s.restore(); }
+    });
+
     it("mergeWorktree / worktreeDiffStat: one-shot ENOENT at the base probe", () => {
       const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/os2" });
       expect(wt.ok).toBe(true);

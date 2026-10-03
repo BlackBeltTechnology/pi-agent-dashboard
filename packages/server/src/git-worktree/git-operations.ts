@@ -1342,7 +1342,11 @@ function mergeWorktreeImpl(opts: {
 
   // 1. Main must be clean.
   const porcelain = tryRunStrict(["git", "status", "--porcelain"], mainPath);
-  if (porcelain && porcelain.length > 0) {
+  // Fail closed: an UNREADABLE status is not a clean checkout.
+  if (porcelain === undefined) {
+    return { ok: false, code: "git_failed", stderr: "could not read the main checkout status" };
+  }
+  if (porcelain.length > 0) {
     return { ok: false, code: "dirty_main" as any, stderr: porcelain };
   }
 
