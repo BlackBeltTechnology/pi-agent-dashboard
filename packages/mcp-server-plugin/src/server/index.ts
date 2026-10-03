@@ -17,23 +17,22 @@
  *   why minting for a foreign session is unrepresentable rather than merely
  *   rejected.
  *
- * - Provisioning failure is logged, never thrown: writing `mcp.json` is a
- *   convenience for local pi sessions, not a precondition for serving `/mcp`
- *   (J7).
+ * - Local pi sessions reach `/mcp` through a per-session registration the
+ *   bridge makes with pi's built-in MCP (`pi.registerMcpServer`), using the
+ *   token AND the `/mcp` URL this plugin delivers in `mcp_token_minted`. No
+ *   `mcp.json` is written; at startup the entry earlier builds provisioned is
+ *   removed (it would shadow the registration). Migration failure is logged,
+ *   never thrown.
  *
- * See change: extract-mcp-client-plugin (tasks 6.1, 6.2).
+ * See change: migrate-mcp-to-pi-builtin (D1, D2); earlier: extract-mcp-client-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import {
-  createRealConfigIO,
-  type McpClientConfigService,
-} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
-import { createAdapterWarnOnce } from "./adapter-diagnostic.js";
+import { createRealConfigIO } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import type { ToolInvocation } from "./dispatch.js";
 import { GENERATED_TOOLS } from "./generated/tools.js";
 import { type ListSessionsArgs, listSessions, validateListSessionsArgs } from "./list-sessions.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { provisionDashboardEntry } from "./provisioning.js";
+import { logMigration, migrateProvisionedEntry } from "./legacy-entry-migration.js";
 import { mountMcpRoutes } from "./routes.js";
 import { filterToolsByRoute } from "./route-skew.js";
 import { SubscriptionRegistry } from "./streaming.js";
@@ -45,6 +44,14 @@ const PLUGIN_ID = "mcp-server";
 /** Bridge message names this plugin answers on a session's own socket. */
 const MINT_MESSAGE = "mcp/mint-token";
 const REVOKE_MESSAGE = "mcp/revoke-token";
+/** The bridge could not register `pi-dashboard` with pi's MCP (D1 guard). */
+const REGISTRATION_UNAVAILABLE_MESSAGE = "mcp/registration-unavailable";
+const REGISTRATION_UNAVAILABLE_REASONS = new Set(["api-missing", "register-failed", "no-url"]);
+
+/** The `/mcp` URL a local session registers (same host the server binds). */
+export function dashboardMcpUrl(port: number): string {
+  return `http://127.0.0.1:${port}/mcp`;
+}
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("mcp-server plugin server entry activated");
@@ -60,6 +67,8 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   }
 
   const tokens = new McpTokenRegistry();
+  const hostHttpPort = ctx.consume<() => number | null>("host.httpPort");
+  const httpPort = (): number => hostHttpPort?.() ?? 8000;
   const subscriptions = new SubscriptionRegistry();
 
   // Resolved once at load and asserted: a missing host service would silently
@@ -126,19 +135,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     );
   }
 
-  // Lazy, once-per-process adapter-version diagnostic. Emitted on the first
-  // `/mcp` request (not at registration) and only when the consumed service's
-  // verdict is not `ok`; a missing service reads as `unknown`.
-  const warnAdapterOnce = createAdapterWarnOnce(ctx.logger, () =>
-    ctx.consume<McpClientConfigService>("mcp-client.config"),
-  );
-
   await mountMcpRoutes(ctx.fastify, {
     tokens,
     tools,
     verifyDeviceToken: (token) => verifyDeviceToken(token),
     verifyDeviceTokenTier: hostVerifyDeviceTokenTier ?? undefined,
-    onMcpRequest: warnAdapterOnce,
     serverInfo: { name: "pi-dashboard", version: process.env.npm_package_version ?? "0.0.0" },
     invokeTool: async (invocation) => {
       const handler = handlers[invocation.tool.name];
@@ -213,7 +214,11 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // `return { token }` here was dead code and the delivery path never had a
     // wire. X1: a closed bridge socket surfaces as `false` — logged with the
     // session id, never a throw, and /mcp keeps serving other callers.
-    const delivered = ctx.sendExtensionMessage(sessionId, { type: "mcp_token_minted", token });
+    // D1: the URL rides along so the bridge registers the right endpoint
+    // (its own `ws://` endpoint is a different port and scheme). A live
+    // getter: the bound port is unknown until listen() resolves.
+    const url = dashboardMcpUrl(httpPort());
+    const delivered = ctx.sendExtensionMessage(sessionId, { type: "mcp_token_minted", token, url });
     if (!delivered) {
       ctx.logger.warn(
         `mcp-server: could not deliver the minted token to session ${sessionId} (bridge unreachable)`,
@@ -227,6 +232,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     return { revoked };
   });
 
+  ctx.registerPiHandler(REGISTRATION_UNAVAILABLE_MESSAGE, (msg: unknown, sessionId: string) => {
+    const raw = (msg as { reason?: unknown } | null)?.reason;
+    // Closed set: a bridge-supplied string never reaches the log verbatim.
+    const reason = typeof raw === "string" && REGISTRATION_UNAVAILABLE_REASONS.has(raw) ? raw : "unknown";
+    ctx.logger.warn(`mcp.dashboard_registration_unavailable session=${sessionId} reason=${reason}`);
+  });
+
   ctx.onSessionEnded((sessionId: string) => {
     const revoked = tokens.revokeSession(sessionId);
     if (revoked > 0) {
@@ -234,19 +246,12 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     }
   });
 
-  // --- Provisioning ---------------------------------------------------------
+  // --- Legacy entry migration (D2) ----------------------------------------
 
-  // A live getter — the bound port is unknown until listen() resolves, so a
-  // boot-time snapshot would provision a URL pointing at the wrong address on
-  // any non-default port.
-  const port = ctx.consume<() => number | null>("host.httpPort")?.() ?? 8000;
-  const result = provisionDashboardEntry(createRealConfigIO(), {
-    url: `http://127.0.0.1:${port}/mcp`,
-  });
-  if (!result.ok) {
-    ctx.logger.warn(`mcp-server: could not provision mcp.json (${result.state}): ${result.message}`);
-  } else {
-    ctx.logger.info(`mcp-server: mcp.json entry ${result.action}`);
+  try {
+    logMigration(migrateProvisionedEntry(createRealConfigIO()), ctx.logger);
+  } catch (err) {
+    ctx.logger.warn(`mcp-server: legacy mcp.json migration failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   ctx.provide(`${PLUGIN_ID}.disposeForTest`, () => {

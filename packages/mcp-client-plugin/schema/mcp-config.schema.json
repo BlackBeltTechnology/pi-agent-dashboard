@@ -1,137 +1,53 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://pi-dashboard.local/schemas/mcp-config.schema.json",
-  "title": "pi-mcp-adapter configuration",
-  "description": "Hand-authored from pi-mcp-adapter/dist/types.d.ts. Describes the per-server entry and global settings so the dashboard client can render editors without hard-coding field lists. Every per-server field is optional (a layer entry may be a partial override). No oneOf: a partial entry legitimately carries a subset of fields. Annotations: x-transport groups the three transports; x-secret marks credential-bearing fields (redacted when inherited); x-atomic marks object fields that replace an inherited object wholesale on write.",
+  "title": "pi built-in MCP server entry",
+  "description": "Hand-authored from pi 1.0.0 dist/core/mcp-servers.d.ts (McpServerConfig). Describes one `mcpServers.<name>` entry of ~/.pi/agent/mcp.json or <cwd>/.pi/mcp.json so the dashboard client can render editors without hard-coding field lists. Annotations: x-transport marks the two mutually exclusive transports (command xor url); x-secret marks credential-bearing fields (masked in the editor, redacted when inherited, omitted from folder copies); x-global-only marks fields pi reads only from the global file. The writer additionally mirrors pi's validateMcpServerConfig rules (pi-rules.ts).",
   "$defs": {
-    "HttpRequestHeadersCommand": {
-      "type": "object",
-      "additionalProperties": true,
-      "required": ["command"],
-      "properties": {
-        "command": { "type": "string" },
-        "args": { "type": "array", "items": { "type": "string" } },
-        "env": { "type": "object", "additionalProperties": { "type": "string" }, "x-secret": true, "x-atomic": true },
-        "timeoutMs": { "type": "number" }
-      }
+    "Exposure": {
+      "enum": ["codemode", "deferred", "direct", "hidden", "codemode-deferred"],
+      "description": "How the server's tools reach the model. Default codemode. codemode-deferred is pi's legacy alias of codemode, accepted on read and preserved."
     },
     "OAuthConfig": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "grantType": { "enum": ["authorization_code", "client_credentials"] },
         "clientId": { "type": "string" },
         "clientSecret": { "type": "string", "x-secret": true },
+        "callbackPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "callbackUrl": { "type": "string" },
         "scope": { "type": "string" },
-        "authorizationParams": { "type": "object", "additionalProperties": { "type": "string" } },
-        "redirectUri": { "type": "string" },
-        "clientName": { "type": "string" },
-        "clientUri": { "type": "string" },
-        "logoUri": { "type": "string" },
-        "authServerMetadataUrl": { "type": "string" },
-        "skipIssuerMetadataValidation": { "type": "boolean" }
+        "clientName": { "type": "string", "minLength": 1 },
+        "authServerMetadataUrl": { "type": "string" }
       }
     },
-    "McpOutputGuardSettings": {
+    "AuthConfig": {
       "type": "object",
       "additionalProperties": true,
+      "required": ["provider"],
       "properties": {
-        "maxBytes": { "type": "number" },
-        "maxLines": { "type": "number" },
-        "detailsMaxBytes": { "type": "number" }
-      }
-    },
-    "McpTraceSettings": {
-      "type": "object",
-      "additionalProperties": true,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "file": { "type": "string" },
-        "maxBytes": { "type": "number" },
-        "maxEvents": { "type": "number" }
+        "provider": { "type": "string", "minLength": 1 }
       }
     },
     "ServerEntry": {
       "type": "object",
       "additionalProperties": true,
-      "description": "A per-server layer entry. All fields optional.",
+      "description": "One pi MCP server entry: stdio (command) or streamable HTTP (url).",
       "properties": {
+        "type": { "enum": ["stdio", "http", "streamable-http"] },
+        "description": { "type": "string" },
         "command": { "type": "string", "x-transport": "command" },
         "args": { "type": "array", "items": { "type": "string" } },
-        "socket": { "type": "string", "x-transport": "socket" },
-        "env": { "type": "object", "additionalProperties": { "type": "string" }, "x-secret": true, "x-atomic": true },
+        "env": { "type": "object", "additionalProperties": { "type": "string" }, "x-secret": true },
         "cwd": { "type": "string" },
         "url": { "type": "string", "x-transport": "url" },
-        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "x-secret": true, "x-atomic": true },
-        "requestHeadersCommand": { "$ref": "#/$defs/HttpRequestHeadersCommand", "x-atomic": true },
-        "auth": { "oneOf": [{ "enum": ["oauth", "bearer"] }, { "const": false }] },
-        "bearerToken": { "type": "string", "x-secret": true },
-        "bearerTokenEnv": { "type": "string" },
-        "bearerTokenStore": { "const": true },
-        "oauth": { "oneOf": [{ "$ref": "#/$defs/OAuthConfig" }, { "const": false }], "x-atomic": true },
-        "lifecycle": { "enum": ["keep-alive", "lazy", "lazy-keep-alive", "eager"] },
-        "idleTimeout": { "type": "number" },
-        "requestTimeoutMs": { "type": "number" },
-        "exposeResources": { "type": "boolean" },
-        "directTools": { "oneOf": [{ "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] },
-        "toolPrefix": { "enum": ["server", "none", "short", "mcp"] },
-        "includeTools": { "type": "array", "items": { "type": "string" } },
-        "excludeTools": { "type": "array", "items": { "type": "string" } },
-        "searchKeywords": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } }, "x-atomic": true },
-        "approveTools": { "oneOf": [{ "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] },
-        "debug": { "type": "boolean" },
-        "trace": { "type": "boolean" },
-        "httpTransport": { "enum": ["streamable-http", "sse"] },
-        "pluginDataDir": { "type": "string" },
-        "literalEnv": { "type": "boolean" },
-        "protocolVersion": { "enum": ["legacy", "auto", "2026-07-28"] },
-        "disabled": { "type": "boolean" },
-        "description": { "type": "string" },
-        "inheritEnv": { "type": "boolean" },
-        "caFile": { "type": "string" },
-        "tasks": { "type": "boolean" }
-      }
-    },
-    "McpSettings": {
-      "type": "object",
-      "additionalProperties": true,
-      "description": "Global adapter settings, nested under the top-level `settings` object.",
-      "properties": {
-        "toolPrefix": { "enum": ["server", "none", "short", "mcp"] },
-        "showStatusIcon": { "type": "boolean" },
-        "mcpFooterStatus": { "enum": ["full", "compact", "off"] },
-        "notifyOnStartupConnect": { "type": "boolean" },
-        "hostConfigDiscovery": { "enum": ["off", "prompt", "on"] },
-        "agentPluginPaths": { "type": "array", "items": { "type": "string" } },
-        "idleTimeout": { "type": "number" },
-        "requestTimeoutMs": { "type": "number" },
-        "directTools": { "type": "boolean" },
-        "strictDirectToolArguments": { "type": "boolean" },
-        "directToolResultDetails": { "enum": ["lean", "bounded"] },
-        "warnOnLargeDirectTools": { "type": "boolean" },
-        "scriptMode": { "type": "boolean" },
-        "toolResultRendering": { "enum": ["compact", "boxed"] },
-        "collapsedResultLines": { "enum": [1, 2, 3] },
-        "approveTools": { "oneOf": [{ "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] },
-        "disableProxyTool": { "type": "boolean" },
-        "freezeDirectTools": { "type": "boolean" },
-        "autoAuth": { "type": "boolean" },
-        "sampling": { "type": "boolean" },
-        "samplingAutoApprove": { "type": "boolean" },
-        "elicitation": { "type": "boolean" },
-        "outputGuard": { "oneOf": [{ "type": "boolean" }, { "$ref": "#/$defs/McpOutputGuardSettings" }] },
-        "trace": { "$ref": "#/$defs/McpTraceSettings" },
-        "authRequiredMessage": { "type": "string" },
-        "oauthDir": { "type": "string" },
-        "projectServers": { "enum": ["ask", "allow"] },
-        "allowInstall": { "type": "boolean" },
-        "ancestorConfigRoots": { "type": "array", "items": { "type": "string" } },
-        "deferWithMissingMetadata": { "type": "boolean" },
-        "namespaceProxyTools": { "type": "boolean" },
-        "scriptSkill": { "enum": ["manual", "model"] },
-        "exposeResources": { "type": "boolean" },
-        "jev": { "oneOf": [{ "const": false }, { "type": "object" }] },
-        "oauthCredentialStore": { "enum": ["encrypted-file"] }
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "x-secret": true },
+        "oauth": { "$ref": "#/$defs/OAuthConfig" },
+        "auth": { "$ref": "#/$defs/AuthConfig", "x-global-only": true },
+        "exposure": { "$ref": "#/$defs/Exposure" },
+        "toolExposure": { "type": "object", "additionalProperties": { "$ref": "#/$defs/Exposure" } },
+        "timeout": { "type": "number", "exclusiveMinimum": 0 },
+        "enabled": { "type": "boolean" }
       }
     }
   }

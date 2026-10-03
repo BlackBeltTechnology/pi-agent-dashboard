@@ -393,13 +393,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             }
         ],
         "client": "./src/client/index.tsx",
-        "server": "./src/server/index.ts",
-        "configSchema": "./configSchema.json",
-        "requires": {
-            "piExtensions": [
-                "pi-mcp-adapter"
-            ]
-        }
+        "server": "./src/server/index.ts"
     },
     claims: [
       { pluginId: "mcp-client", priority: 100, slot: "settings-section", tab: "general", Component: McpSettingsClaim },

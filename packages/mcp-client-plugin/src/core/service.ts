@@ -1,121 +1,96 @@
 /**
  * mcp-client-plugin · `mcp-client.config` service factory.
  *
- * Composes the merge-only writer, the effective-view reader, and the adapter
- * verdict probe behind the in-process service contract other plugins consume.
- * The scratch directory used for global-scope adapter merges is created once
- * per service and always empty.
+ * Composes the writer, the effective-view reader and (optionally) the
+ * `pi mcp list` live-state reader behind the in-process service contract
+ * other plugins consume. A hostless caller (the apple-tools CLI) gets the
+ * identical implementation from this factory; without an `isProjectTrusted`
+ * predicate every project counts as untrusted.
  *
- * See change: extract-mcp-client-plugin (design D4).
+ * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin (D4).
  */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createAdapterVerdictProbe } from "./adapter-verdict.js";
-import { createDefaultAdapterPort } from "./adapter-worker.js";
 import { createConfigWriter } from "./config-writer.js";
-import { createEffectiveViewReader, type EffectiveView } from "./effective-view.js";
-import type {
-  AdapterPort,
-  ConfigIO,
-  McpClientConfigService,
-  Scope,
-  ServerEntry,
-} from "./types.js";
+import { createEffectiveViewReader } from "./effective-view.js";
+import { defaultLayerPaths, type LayerPaths } from "./layers.js";
+import { createLiveStateReader } from "./live-state.js";
+import type { ConfigIO, LiveState, McpClientConfigService, PiMcpListRunner, Scope } from "./types.js";
 
 export interface McpClientConfigServiceDeps {
   configIO: ConfigIO;
   knownCwds: () => string[];
-  /** Defaults to the worker-thread port over the real `pi-mcp-adapter/config`. */
-  adapter?: AdapterPort;
-  /** Always-empty scratch dir for global merges. Defaults to a fresh mkdtemp. */
+  /** pi's project-trust rule (`host.isProjectTrusted`). Absent → untrusted. */
+  isProjectTrusted?: (cwd: string) => boolean;
+  /** Layer paths. Defaults to `$PI_CODING_AGENT_DIR/mcp.json` + `<cwd>/.pi/mcp.json`. */
+  paths?: LayerPaths;
+  /** Runs `pi mcp list --json`. Absent → live state reports `spawn-failed`. */
+  runner?: PiMcpListRunner;
+  /** Always-empty dir the global live-state list runs in. Defaults to a fresh mkdtemp. */
   scratchCwd?: string;
-  verdictTtlMs?: number;
+  liveTimeoutMs?: number;
+  liveCacheTtlMs?: number;
 }
 
-/** The provided service plus the effective-view reader the HTTP layer needs. */
+/** The provided service plus the live-state reader the HTTP layer needs. */
 export interface McpClientRuntime extends McpClientConfigService {
-  getEffectiveView(scope: Scope, opts?: { timeoutMs?: number }): Promise<EffectiveView>;
+  getLiveState(scope: Scope, opts?: { fresh?: boolean }): Promise<LiveState>;
 }
 
 export function createMcpClientConfigService(deps: McpClientConfigServiceDeps): McpClientRuntime {
-  const scratchCwd = deps.scratchCwd ?? mkdtempSync(join(tmpdir(), "pi-mcp-client-"));
-  const adapter = deps.adapter ?? createDefaultAdapterPort();
+  const paths = deps.paths ?? defaultLayerPaths();
   const writer = createConfigWriter({
     configIO: deps.configIO,
-    adapter,
+    paths,
     knownCwds: deps.knownCwds,
-    scratchCwd,
+    ...(deps.isProjectTrusted ? { isProjectTrusted: deps.isProjectTrusted } : {}),
   });
-  const viewReader = createEffectiveViewReader({ configIO: deps.configIO, adapter, scratchCwd });
-  const probe = createAdapterVerdictProbe({
+  const viewReader = createEffectiveViewReader({
     configIO: deps.configIO,
-    adapter,
-    ...(deps.verdictTtlMs !== undefined ? { ttlMs: deps.verdictTtlMs } : {}),
+    paths,
+    ...(deps.isProjectTrusted ? { isProjectTrusted: deps.isProjectTrusted } : {}),
   });
+  const runner: PiMcpListRunner =
+    deps.runner ?? (() => Promise.reject(new Error("no pi mcp list runner configured")));
+  const live = createLiveStateReader({
+    runner,
+    ...(deps.liveTimeoutMs !== undefined ? { timeoutMs: deps.liveTimeoutMs } : {}),
+    ...(deps.liveCacheTtlMs !== undefined ? { cacheTtlMs: deps.liveCacheTtlMs } : {}),
+  });
+  let scratch = deps.scratchCwd;
+  const scratchCwd = (): string => {
+    scratch ??= mkdtempSync(join(tmpdir(), "pi-mcp-client-"));
+    return scratch;
+  };
 
   return {
-    adapterVerdict: (opts) => probe.adapterVerdict(opts),
-
-    targetPath(scope: Scope): string {
-      return writer.targetPath(scope);
-    },
-
-    readServerEntry(name: string, scope: Scope): ServerEntry | undefined {
-      const r = writer.readServerEntry(name, scope);
-      return r.ok ? r.entry : undefined;
-    },
-
-    ensureServerEntry(name, fields, scope) {
-      return writer.ensureServerEntry(name, fields, scope);
-    },
-
-    applyServerPatch(name, set, unset, scope, opts) {
-      return writer.applyServerPatch(name, set, unset, scope, opts);
-    },
-
-    setServerDisabled(name, disabled, scope, opts) {
-      return writer.setServerDisabled(name, disabled, scope, opts);
-    },
-
-    setDirectTools(name, tools, scope) {
-      return writer.setDirectTools(name, tools, scope);
-    },
-
-    patchSettings(set, unset) {
-      return writer.patchSettings(set, unset);
-    },
-
-    removeServer(name, scope) {
-      return writer.removeServer(name, scope);
-    },
-
-    ensureAdapterPackage() {
-      return writer.ensureAdapterPackage();
-    },
+    targetPath: (scope) => writer.targetPath(scope),
+    readServerEntry: (name, scope) => writer.readServerEntry(name, scope),
+    getEffectiveView: (scope) => viewReader.getEffectiveView(scope),
+    ensureServerEntry: (name, fields, scope) => writer.ensureServerEntry(name, fields, scope),
+    saveServer: (name, entry, scope, opts) => writer.saveServer(name, entry, scope, opts),
+    removeServer: (name, scope) => writer.removeServer(name, scope),
+    setEnabled: (name, enabled, scope) => writer.setEnabled(name, enabled, scope),
+    convertAdapterLeftovers: (name, scope) => writer.convertAdapterLeftovers(name, scope),
 
     checkConfigFiles(opts) {
-      const mcpPath = adapter.getPiGlobalConfigPath();
-      let settingsJson = writer.readParseStatus(writer.settingsJsonPath());
-      let mcpJson = writer.readParseStatus(mcpPath);
+      const path = paths.globalPath();
+      let mcpJson = writer.readParseStatus(path);
       // A dry run of the ensure the caller is about to perform, so check mode
-      // and write mode agree on the refusal (E39).
+      // and write mode agree on the refusal.
       if (mcpJson.ok && opts?.serverName !== undefined) {
         const refusal = writer.previewEnsure(opts.serverName, opts.fields ?? {}, { kind: "global" });
-        if (refusal) mcpJson = { path: mcpPath, ok: false, message: refusal.message };
+        if (refusal) mcpJson = { path, ok: false, message: refusal.message };
       }
-      // The generic `packages` array check, so check mode also refuses the
-      // settings.json shape `ensureAdapterPackage` would refuse.
-      if (settingsJson.ok) {
-        const refusal = writer.previewAdapterPackage();
-        if (refusal) settingsJson = { path: settingsJson.path, ok: false, message: refusal.message };
-      }
-      return { mcpJson, settingsJson };
+      return { mcpJson };
     },
 
-    getEffectiveView(scope, opts) {
-      return viewReader.getEffectiveView(scope, { timeoutMs: opts?.timeoutMs ?? 10_000 });
+    getLiveState(scope, opts) {
+      const cwd = scope.kind === "project" ? scope.cwd : scratchCwd();
+      if (scope.kind === "project") writer.targetPath(scope); // admission
+      return live.read(cwd, opts);
     },
   };
 }

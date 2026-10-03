@@ -16,7 +16,8 @@ derives-from:
 
 ## SCOPE
 Whether iMCP is provisioned for the `apple-tools` plugin on this host: platform,
-macOS version floor, `imcp-server` discovery, and the two config writes. macOS
+macOS version floor, `imcp-server` discovery, and the `mcp.json` write (pi's
+built-in MCP; `settings.json` is never written). macOS
 only — a non-macOS host is inert, never a fault.
 
 ## KNOWLEDGE

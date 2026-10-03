@@ -3,11 +3,11 @@
  * that touches the real OS — every probe and side effect is concentrated here
  * so the state machine (`install.ts`) stays pure and Linux-testable.
  *
- * Config paths and the hardened atomic write now live in the `mcp-client`
- * plugin's `./core` (design D2/D3): this factory only builds the
- * `mcp-client.config` service with the real filesystem IO and the default
- * adapter port, so target paths resolve through the adapter's own helpers and
- * honour `PI_CODING_AGENT_DIR` (a hard-coded `~/.pi/agent` would not).
+ * Config paths and the hardened atomic write live in the `mcp-client`
+ * plugin's `./core`: this factory only builds the `mcp-client.config` service
+ * with the real filesystem IO, so the target path is pi's built-in MCP file
+ * and honours `PI_CODING_AGENT_DIR` (a hard-coded `~/.pi/agent` would not).
+ * See change: migrate-mcp-to-pi-builtin (D4).
  *
  * Security discipline (see change: add-apple-tools-imcp-plugin, Decision 4):
  *   - `brew` is invoked with an argv array via execFileSync — never a shell,
@@ -17,10 +17,10 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import {
-  type AdapterPort,
   type ConfigIO,
   createMcpClientConfigService,
   createRealConfigIO,
+  type LayerPaths,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { IMCP_BREW_CASK } from "./detect.js";
@@ -71,8 +71,8 @@ export interface CreateEnvOptions {
   overridePath?: string;
   /** Test seam: inject config IO (defaults to the real filesystem). */
   configIO?: ConfigIO;
-  /** Test seam: inject the adapter port (defaults to the worker-thread port). */
-  adapter?: AdapterPort;
+  /** Test seam: inject the layer paths (defaults to pi's built-in MCP paths). */
+  paths?: LayerPaths;
 }
 
 /** Build a real InstallerEnv wired to the current host. */
@@ -90,7 +90,7 @@ export function createInstallerEnv(opts: CreateEnvOptions = {}): InstallerEnv {
     mcps: createMcpClientConfigService({
       configIO: opts.configIO ?? createRealConfigIO(),
       knownCwds: () => [],
-      ...(opts.adapter ? { adapter: opts.adapter } : {}),
+      ...(opts.paths ? { paths: opts.paths } : {}),
     }),
   };
 }

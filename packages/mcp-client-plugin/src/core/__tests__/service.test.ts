@@ -1,134 +1,159 @@
 /**
- * `mcp-client.config` service factory (change extract-mcp-client-plugin,
- * task 2.5): write-only isolation, check/write parity, merge-only guarantees.
+ * Live state from `pi mcp list --json` via an injected runner
+ * (migrate-mcp-to-pi-builtin test-plan E14, E22, E23, E27).
  */
 
-import { describe, expect, it } from "vitest";
-import { createMcpClientConfigService } from "../service.js";
-import type { AdapterPort, ConfigIO, ServerEntry } from "../types.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createLiveStateReader } from "../live-state.js";
+import type { PiMcpListRunner } from "../types.js";
+import { CWD, GLOBAL, makeIO, makeService, PROJECT } from "./helpers.js";
 
-const GLOBAL = "/agent/mcp.json";
-const SETTINGS = "/agent/settings.json";
-const SCRATCH = "/tmp/mcp-scratch";
+const LIST = JSON.stringify({
+  servers: [
+    { name: "a", state: "connected", tools: ["t1", "t2"] },
+    { name: "b", state: "disconnected", tools: [], error: "ECONNREFUSED" },
+  ],
+  errors: [],
+});
 
-function makeIO(initial: Record<string, string> = {}): ConfigIO & { files: Map<string, string>; writes: string[] } {
-  const files = new Map(Object.entries(initial));
-  const writes: string[] = [];
-  return {
-    files,
-    writes,
-    readFile: (p) => (files.has(p) ? (files.get(p) as string) : null),
-    writeFileAtomic: (p, content) => {
-      writes.push(p);
-      files.set(p, content);
-    },
-  };
-}
+afterEach(() => {
+  vi.useRealTimers();
+});
 
-function makePort(loaderThrows = false): AdapterPort {
-  return {
-    loadMcpConfig: () => {
-      if (loaderThrows) throw new Error("loader must not be called");
-      return Promise.resolve({ mcpServers: {} });
-    },
-    getServerProvenance: () => {
-      if (loaderThrows) throw new Error("loader must not be called");
-      return Promise.resolve(new Map());
-    },
-    getConfigDiscoveryPaths: () => [],
-    getPiGlobalConfigPath: () => GLOBAL,
-    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
-  };
-}
+describe("E14 — exit codes", () => {
+  const cases: Array<[string, PiMcpListRunner, boolean]> = [
+    ["exit 0 + JSON", async () => ({ stdout: LIST, code: 0 }), true],
+    ["exit 1 + valid JSON", async () => ({ stdout: LIST, code: 1 }), true],
+    ["exit 1 + garbage", async () => ({ stdout: "boom", code: 1 }), false],
+    [
+      "spawn error",
+      async () => {
+        throw new Error("ENOENT pi");
+      },
+      false,
+    ],
+  ];
 
-function makeService(io: ConfigIO, port: AdapterPort, known: string[] = []) {
-  return createMcpClientConfigService({ configIO: io, adapter: port, knownCwds: () => known, scratchCwd: SCRATCH });
-}
+  it.each(cases)("%s", async (_label, runner, ok) => {
+    const live = await makeService(makeIO(), { runner }).getLiveState({ kind: "global" });
+    expect(live.ok).toBe(ok);
+    if (live.ok) {
+      expect(live.servers.a).toEqual({ state: "connected", tools: 2 });
+      expect(live.servers.b).toEqual({ state: "disconnected", tools: 0, error: "ECONNREFUSED" });
+    }
+  });
+});
 
-describe("createMcpClientConfigService", () => {
-  it("exposes the adapter verdict through the probe", () => {
-    const io = makeIO({ [`${GLOBAL.replace("/mcp.json", "")}/npm/node_modules/pi-mcp-adapter/package.json`]: JSON.stringify({ version: "2.31.0" }) });
-    const svc = makeService(io, makePort());
-    expect(svc.adapterVerdict()).toMatchObject({ kind: "ok", installed: "2.31.0" });
+describe("E22 — 30 s timeout boundary", () => {
+  it("a runner resolving at 29.9 s yields pi state", async () => {
+    vi.useFakeTimers();
+    const runner: PiMcpListRunner = () =>
+      new Promise((resolve) => setTimeout(() => resolve({ stdout: LIST, code: 0 }), 29_900));
+    const pending = makeService(makeIO(), { runner }).getLiveState({ kind: "global" });
+    await vi.advanceTimersByTimeAsync(29_900);
+    expect((await pending).ok).toBe(true);
   });
 
-  it("readServerEntry returns the raw file entry without consulting the loader (E38)", () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { iMCP: { command: "/bin/x", disabled: true } } }) });
-    const svc = makeService(io, makePort(true));
-    expect(svc.readServerEntry("iMCP", { kind: "global" })).toEqual({ command: "/bin/x", disabled: true });
+  it("a runner hanging past 30 s is killed and reports state unknown", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const runner: PiMcpListRunner = (_cwd, s) => {
+      signal = s;
+      return new Promise(() => {});
+    };
+    const pending = makeService(makeIO(), { runner }).getLiveState({ kind: "global" });
+    await vi.advanceTimersByTimeAsync(30_000);
+    const r = await pending;
+    expect(r).toMatchObject({ ok: false, reason: "timeout" });
+    expect(signal?.aborted).toBe(true);
   });
+});
 
-  it("write-only operations never consult the adapter loaders", () => {
-    const io = makeIO({});
-    const svc = makeService(io, makePort(true));
-    expect(svc.ensureServerEntry("x", { command: "x" }, { kind: "global" }).ok).toBe(true);
-    expect(svc.setDirectTools("x", ["t"], { kind: "global" }).ok).toBe(true);
-    expect(svc.ensureAdapterPackage().ok).toBe(true);
-    expect(svc.checkConfigFiles({ serverName: "x", fields: { command: "y" } }).mcpJson.ok).toBe(true);
+describe("E23 — per-cwd cache TTL boundary", () => {
+  it("cwd A at 0, 29.9 s, 30.1 s and cwd B at 1 s → 3 runner calls", async () => {
+    let t = 0;
+    const calls: string[] = [];
+    const runner: PiMcpListRunner = async (cwd) => {
+      calls.push(cwd);
+      return { stdout: LIST, code: 0 };
+    };
+    const other = "/work/other";
+    // Drive the clock through the reader's injected `now`.
+    const reader = createLiveStateReader({ runner, now: () => t });
+    await reader.read(CWD);
+    t = 1_000;
+    await reader.read(other);
+    t = 29_900;
+    await reader.read(CWD);
+    t = 30_100;
+    await reader.read(CWD);
+    expect(calls).toEqual([CWD, other, CWD]);
   });
+});
 
-  it("check and write agree on a transport conflict (E39)", () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { x: { url: "u" } } }) });
-    const svc = makeService(io, makePort());
-    const check = svc.checkConfigFiles({ serverName: "x", fields: { command: "/bin/x" } as Partial<ServerEntry> });
-    expect(check.mcpJson.ok).toBe(false);
-    const write = svc.ensureServerEntry("x", { command: "/bin/x" }, { kind: "global" });
-    expect(write.ok === false && write.refusal.code).toBe("transport-conflict");
-    expect(io.writes).toHaveLength(0);
-  });
-
-  it("checkConfigFiles never writes", () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: {} }) });
-    const svc = makeService(io, makePort());
-    svc.checkConfigFiles({ serverName: "x", fields: { command: "x" } });
-    expect(io.writes).toHaveLength(0);
-  });
-
-  it("ensureAdapterPackage merges settings.json only", () => {
-    const io = makeIO({ [SETTINGS]: JSON.stringify({ packages: ["npm:a"], other: 1 }) });
-    const svc = makeService(io, makePort(true));
-    expect(svc.ensureAdapterPackage().ok).toBe(true);
-    expect(JSON.parse(io.files.get(SETTINGS) as string)).toMatchObject({ packages: ["npm:a", "npm:pi-mcp-adapter"], other: 1 });
-  });
-
-  it("ensureServerEntry preserves operator-set fields (E41)", () => {
+describe("E27 — the global list runs in an empty scratch dir", () => {
+  it("runner cwd is the scratch dir and the view lists only Pi-global servers", async () => {
+    const seen: string[] = [];
+    const runner: PiMcpListRunner = async (cwd) => {
+      seen.push(cwd);
+      return { stdout: LIST, code: 0 };
+    };
     const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { iMCP: { command: "old", disabled: true, directTools: ["a"], unknown: 1 } } }),
+      [GLOBAL]: { mcpServers: { a: { command: "a" } } },
+      [PROJECT]: { mcpServers: { f: { command: "f" } } },
     });
-    const svc = makeService(io, makePort(true));
-    expect(svc.ensureServerEntry("iMCP", { command: "new" }, { kind: "global" }).ok).toBe(true);
-    expect(JSON.parse(io.files.get(GLOBAL) as string).mcpServers.iMCP).toEqual({
-      command: "new",
-      disabled: true,
-      directTools: ["a"],
-      unknown: 1,
-    });
+    const svc = makeService(io, { runner, scratchCwd: "/scratch-empty" });
+    await svc.getLiveState({ kind: "global" });
+    expect(seen).toEqual(["/scratch-empty"]);
+    expect(svc.getEffectiveView({ kind: "global" }).servers.map((s) => s.name)).toEqual(["a"]);
   });
 
-  it("factory with in-memory IO + a stub port touches no real path", async () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: {} }) });
-    const svc = makeService(io, makePort());
-    const view = await svc.getEffectiveView({ kind: "global" });
-    expect(view.cwd).toBe(SCRATCH);
-    expect(io.writes).toHaveLength(0);
+  it("a project live read runs in that cwd", async () => {
+    const seen: string[] = [];
+    const runner: PiMcpListRunner = async (cwd) => {
+      seen.push(cwd);
+      return { stdout: LIST, code: 0 };
+    };
+    await makeService(makeIO(), { runner }).getLiveState({ kind: "project", cwd: CWD });
+    expect(seen).toEqual([CWD]);
   });
+});
 
-  it("check and write agree on a malformed settings `packages` (E32)", () => {
-    const io = makeIO({ [SETTINGS]: JSON.stringify({ packages: {} }) });
-    const svc = makeService(io, makePort());
-    const check = svc.checkConfigFiles({ serverName: "x", fields: { command: "y" } });
-    expect(check.settingsJson.ok).toBe(false);
-    const write = svc.ensureAdapterPackage();
-    expect(write.ok === false && write.refusal.code).toBe("unparseable");
-    expect(io.writes).toHaveLength(0);
-  });
+describe("one pi mcp list per cwd at a time", () => {
+  // review r4 B1: a Refresh during an in-flight run must see a run that STARTS
+  // after the refresh — one queued follow-up, coalescing every fresh request
+  // made meanwhile (≤ 1 running + 1 queued per cwd).
+  it("a fresh request while a run is in flight queues ONE post-refresh run; plain reads share in-flight", async () => {
+    const OLD = JSON.stringify({ servers: [{ name: "a", state: "connecting", tools: [] }], errors: [] });
+    const NEW = JSON.stringify({ servers: [{ name: "a", state: "connected", tools: ["t"] }], errors: [] });
+    let calls = 0;
+    const releases: Array<(v: { stdout: string; code: number }) => void> = [];
+    const runner: PiMcpListRunner = () => {
+      calls += 1;
+      return new Promise((resolve) => {
+        releases.push(resolve);
+      });
+    };
+    const reader = createLiveStateReader({ runner });
+    const a = reader.read(CWD);
+    const b = reader.read(CWD, { fresh: true });
+    const c = reader.read(CWD, { fresh: true });
+    const plain = reader.read(CWD);
+    expect(calls).toBe(1);
+    expect(plain).toBe(a);
+    expect(c).toBe(b);
 
-  it("removeServer returns the removed raw entry", () => {
-    const removed = { command: "a", unknownKey: { n: [1] } };
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { a: removed, b: { command: "b" } } }) });
-    const svc = makeService(io, makePort(true));
-    const r = svc.removeServer("a", { kind: "global" });
-    expect(r).toEqual({ ok: true, removed });
-    expect(JSON.parse(io.files.get(GLOBAL) as string).mcpServers.b).toEqual({ command: "b" });
+    releases[0]({ stdout: OLD, code: 0 });
+    const first = await a;
+    expect(first.ok && first.servers.a.state).toBe("connecting");
+    await vi.waitFor(() => expect(calls).toBe(2));
+
+    releases[1]({ stdout: NEW, code: 0 });
+    const refreshed = await b;
+    expect(refreshed.ok && refreshed.servers.a.state).toBe("connected");
+    expect(await c).toEqual(refreshed);
+    // The refreshed run is now the cached value.
+    expect(await reader.read(CWD)).toEqual(refreshed);
+    expect(calls).toBe(2);
   });
 });

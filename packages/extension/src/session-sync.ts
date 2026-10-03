@@ -198,10 +198,10 @@ export function sendStateSync(
   // D3: re-mint after EVERY re-register — this is the path a dashboard
   // restart actually takes (onReconnect → sendStateSync, registerReason
   // "reattach"): the server's in-memory token registry died with the old
-  // process, so without this the session env keeps a stale credential
+  // process, so without this the registration keeps a stale credential
   // forever. Ordered after session_register on the SAME socket, so the
   // gateway's connection-key attribution is established; the reply
-  // (mcp_token_minted) rewrites process.env and the server-side re-mint
+  // (mcp_token_minted) re-registers pi-dashboard with pi's MCP and the server-side re-mint
   // invalidates the stale row (D4). Idempotent with the session_start-driven
   // mint — last mint wins. See change: wire-mcp-session-token (D3/D6;
   // CodeRabbit round 1).

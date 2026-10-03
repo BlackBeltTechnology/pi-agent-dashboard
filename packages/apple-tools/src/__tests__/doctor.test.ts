@@ -4,12 +4,9 @@
  * See change: add-apple-tools-imcp-plugin.
  */
 import {
-  type AdapterPort,
   type ConfigIO,
   createMcpClientConfigService,
   type McpClientConfigService,
-  type McpConfig,
-  type ServerProvenance,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { describe, expect, it } from "vitest";
 import { doctorProbe } from "../doctor.js";
@@ -31,18 +28,9 @@ function memIO(files: Record<string, string> = {}): ConfigIO & { writes: string[
   };
 }
 
-function fakePort(): AdapterPort {
-  return {
-    loadMcpConfig: () => Promise.resolve({} as McpConfig),
-    getServerProvenance: () => Promise.resolve(new Map<string, ServerProvenance>()),
-    getConfigDiscoveryPaths: () => [],
-    getPiGlobalConfigPath: () => GLOBAL,
-    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
-  };
-}
 
 function makeService(io: ConfigIO): McpClientConfigService {
-  return createMcpClientConfigService({ configIO: io, knownCwds: () => [], adapter: fakePort() });
+  return createMcpClientConfigService({ configIO: io, knownCwds: () => [], paths: { globalPath: () => GLOBAL, projectPath: (cwd) => `${cwd}/.pi/mcp.json` } });
 }
 
 function makeEnv(overrides: Partial<InstallerEnv> = {}): InstallerEnv {

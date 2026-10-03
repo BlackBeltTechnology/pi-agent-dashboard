@@ -1,260 +1,180 @@
 /**
- * Effective-view reader contract (change extract-mcp-client-plugin, task 2.2):
- * provenance classification, server-side redaction, settings sources, and
- * unparseable-layer reporting.
+ * Effective view over pi's two layers
+ * (migrate-mcp-to-pi-builtin test-plan E8, E9, E24, E25, E26).
  */
 
 import { describe, expect, it } from "vitest";
-import { createEffectiveViewReader, isSecretKey } from "../effective-view.js";
-import type { AdapterPort, ConfigDiscoveryPath, ConfigIO, McpConfig, Scope, ServerEntry } from "../types.js";
+import { CWD, GLOBAL, makeIO, makeService, PROJECT } from "./helpers.js";
 
-const GLOBAL = "/agent/mcp.json";
-const CWD = "/known";
-const FOLDER = "/known/.pi/mcp.json";
-const SHARED = "/known/.mcp.json";
-const AGENTS = "/home/.agents/mcp.json";
-const SCRATCH = "/tmp/scratch-empty";
+const p = { kind: "project", cwd: CWD } as const;
+const g = { kind: "global" } as const;
 
-function makeIO(files: Record<string, string>): ConfigIO & { reads: string[] } {
-  const reads: string[] = [];
-  return {
-    reads,
-    readFile: (p) => {
-      reads.push(p);
-      return p in files ? files[p] : null;
-    },
-    writeFileAtomic: () => {
-      throw new Error("view must never write");
-    },
-  };
-}
+describe("E8 — project entry replaces global as a whole", () => {
+  it("docs equals the folder entry exactly and is marked overriding Pi global", () => {
+    const io = makeIO({
+      [GLOBAL]: { mcpServers: { docs: { url: "https://g.example/mcp", description: "global", timeout: 9 } } },
+      [PROJECT]: { mcpServers: { docs: { command: "local-docs" } } },
+    });
+    const view = makeService(io).getEffectiveView(p);
+    const rows = view.servers.filter((s) => s.name === "docs");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].entry).toEqual({ command: "local-docs" });
+    expect(rows[0].provenance).toBe("pi-folder");
+    expect(rows[0].overridesGlobal).toBe(true);
+    expect(rows[0].active).toBe(true);
+  });
 
-interface PortOpts {
-  discovered: ConfigDiscoveryPath[];
-  merged?: McpConfig;
-  prov?: Array<[string, { path: string; kind: "user" | "project" | "import"; importKind?: string }]>;
-  cwdSeen?: string[];
-}
-
-function makePort(opts: PortOpts): AdapterPort {
-  return {
-    loadMcpConfig: (_override, cwd) => {
-      opts.cwdSeen?.push(cwd);
-      return Promise.resolve(opts.merged ?? { mcpServers: {} });
-    },
-    getServerProvenance: () => Promise.resolve(new Map(opts.prov ?? [])),
-    getConfigDiscoveryPaths: () => opts.discovered,
-    getPiGlobalConfigPath: () => GLOBAL,
-    getProjectPiConfigPath: (cwd) => `${cwd}/.pi/mcp.json`,
-  };
-}
-
-function d(path: string, label = path): ConfigDiscoveryPath {
-  return { path, label, exists: true };
-}
-
-function reader(io: ConfigIO, port: AdapterPort) {
-  return createEffectiveViewReader({ configIO: io, adapter: port, scratchCwd: SCRATCH });
-}
-
-const GLOBAL_SCOPE: Scope = { kind: "global" };
-const PROJECT_SCOPE: Scope = { kind: "project", cwd: CWD };
-
-describe("isSecretKey", () => {
-  it("flags credential-named keys and not plain ones", () => {
-    expect(isSecretKey("Authorization")).toBe(true);
-    expect(isSecretKey("API_KEY")).toBe(true);
-    expect(isSecretKey("X_SECRET")).toBe(true);
-    expect(isSecretKey("Accept")).toBe(false);
-    expect(isSecretKey("PATH")).toBe(false);
+  it("the global view lists only the Pi-global layer", () => {
+    const io = makeIO({
+      [GLOBAL]: { mcpServers: { a: { command: "a" } } },
+      [PROJECT]: { mcpServers: { b: { command: "b" } } },
+    });
+    const view = makeService(io).getEffectiveView(g);
+    expect(view.servers.map((s) => s.name)).toEqual(["a"]);
+    expect(view.servers[0].provenance).toBe("pi-global");
   });
 });
 
-describe("effective view — provenance classification", () => {
-  it("classifies pi-global / pi-folder / shared / import / other", async () => {
-    const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { g: { command: "g" } } }),
-      [FOLDER]: JSON.stringify({ mcpServers: { f: { command: "f" } } }),
-      [SHARED]: JSON.stringify({ mcpServers: { s: { command: "s" } } }),
-      [AGENTS]: JSON.stringify({ mcpServers: { i: { command: "i" } } }),
-    });
-    const port = makePort({
-      discovered: [d(FOLDER), d(SHARED), d(GLOBAL), d(AGENTS)],
-      merged: { mcpServers: { g: { command: "g" }, f: { command: "f" }, s: { command: "s" }, i: { command: "i" }, o: { command: "o" } } },
-      prov: [["i", { path: GLOBAL, kind: "import", importKind: "claude-code" }]],
-    });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    const byName = Object.fromEntries(view.servers.map((s) => [s.name, s.provenance]));
+describe("E9 — trust predicate", () => {
+  const files = { [PROJECT]: { mcpServers: { f: { command: "f" } } } };
 
-    expect(byName.g[0]).toMatchObject({ layer: "pi-global", writable: true });
-    expect(byName.f[0]).toMatchObject({ layer: "pi-folder", writable: true });
-    expect(byName.s[0]).toMatchObject({ layer: "shared", writable: false });
-    expect(byName.i[0]).toMatchObject({ layer: "shared", writable: false, importKind: "claude-code" });
-    expect(byName.o[0]).toMatchObject({ layer: "other", writable: false });
+  it("true → active", () => {
+    const v = makeService(makeIO(files), { isProjectTrusted: () => true }).getEffectiveView(p);
+    expect(v.trusted).toBe(true);
+    expect(v.servers[0]).toMatchObject({ name: "f", active: true });
   });
 
-  it("reports every defining layer in precedence order", async () => {
-    const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { x: { command: "g" } } }),
-      [FOLDER]: JSON.stringify({ mcpServers: { x: { command: "f" } } }),
-      [SHARED]: JSON.stringify({ mcpServers: { x: { command: "s" } } }),
-    });
-    const port = makePort({
-      discovered: [d(FOLDER), d(SHARED), d(GLOBAL)],
-      merged: { mcpServers: { x: { command: "f" } } },
-    });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x");
-    expect(x?.provenance.map((p) => p.layer)).toEqual(["pi-folder", "shared", "pi-global"]);
-    expect(x?.entry).toEqual({ command: "f" });
+  it("false → inactive, project not trusted", () => {
+    const v = makeService(makeIO(files), { isProjectTrusted: () => false }).getEffectiveView(p);
+    expect(v.trusted).toBe(false);
+    expect(v.servers[0]).toMatchObject({ name: "f", active: false, inactiveReason: "project-not-trusted" });
   });
 
-  it("reports an unparseable layer but still returns other layers' servers", async () => {
+  it("absent predicate → inactive", () => {
+    const v = makeService(makeIO(files), { isProjectTrusted: undefined }).getEffectiveView(p);
+    expect(v.servers[0]).toMatchObject({ active: false, inactiveReason: "project-not-trusted" });
+  });
+
+  it("untrusted folder override leaves the global entry in effect", () => {
     const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { g: { command: "g" } } }),
-      [FOLDER]: JSON.stringify({ mcpServers: { f: { command: "f" } } }),
-      [SHARED]: `{ truncated`,
+      [GLOBAL]: { mcpServers: { f: { command: "global-f" } } },
+      ...files,
     });
-    const port = makePort({
-      discovered: [d(FOLDER), d(SHARED), d(GLOBAL)],
-      merged: { mcpServers: { g: { command: "g" }, f: { command: "f" } } },
-    });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    expect(view.layerErrors).toHaveLength(1);
-    expect(view.layerErrors[0].path).toBe(SHARED);
-    expect(view.servers.map((s) => s.name).sort()).toEqual(["f", "g"]);
+    const v = makeService(io, { isProjectTrusted: () => false }).getEffectiveView(p);
+    const global = v.servers.find((s) => s.provenance === "pi-global");
+    const folder = v.servers.find((s) => s.provenance === "pi-folder");
+    expect(global).toMatchObject({ active: true });
+    expect(folder).toMatchObject({ active: false, inactiveReason: "project-not-trusted" });
   });
 });
 
-describe("effective view — secret redaction", () => {
-  const enriched: ServerEntry = {
-    url: "https://x",
-    bearerToken: "TOKEN",
-    headers: { Authorization: "Bearer SECRET", Accept: "application/json" },
-    env: { API_KEY: "k", PATH: "/usr/bin" },
-    requestHeadersCommand: { command: "/bin/sign", env: { X_SECRET: "s" } },
-    oauth: { clientSecret: "cs" },
-  };
-
-  it("redacts secrets inherited from a shared layer with key-name markers", async () => {
-    const io = makeIO({ [SHARED]: JSON.stringify({ mcpServers: { x: enriched } }) });
-    const port = makePort({ discovered: [d(SHARED)], merged: { mcpServers: { x: enriched } } });
-    const view = await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x") as { entry: Record<string, unknown> };
-    expect(x.entry.bearerToken).toEqual({ redacted: true });
-    expect((x.entry.oauth as Record<string, unknown>).clientSecret).toEqual({ redacted: true });
-    expect(x.entry.headers).toMatchObject({ redacted: true });
-    const headers = x.entry.headers as { keys: Array<{ name: string; secret: boolean }> };
-    expect(headers.keys).toEqual([
-      { name: "Authorization", secret: true },
-      { name: "Accept", secret: false },
-    ]);
-    const env = (x.entry.env as { keys: Array<{ name: string; secret: boolean }> }).keys;
-    expect(env).toEqual([
-      { name: "API_KEY", secret: true },
-      { name: "PATH", secret: false },
-    ]);
-    expect(JSON.stringify(view)).not.toContain("TOKEN");
-    expect(JSON.stringify(view)).not.toContain("Bearer SECRET");
-    expect(JSON.stringify(view)).not.toContain("cs");
-  });
-
-  it("leaves own-layer secrets intact", async () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { x: enriched } }) });
-    const port = makePort({ discovered: [d(GLOBAL)], merged: { mcpServers: { x: enriched } } });
-    const view = await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x") as { entry: Record<string, unknown> };
-    expect(x.entry.bearerToken).toBe("TOKEN");
-    expect(x.entry.headers).toMatchObject({ Authorization: "Bearer SECRET" });
-  });
-
-  it("redacts a secret defined in Pi-global when viewed at project scope", async () => {
-    const io = makeIO({ [GLOBAL]: JSON.stringify({ mcpServers: { x: enriched } }) });
-    const port = makePort({ discovered: [d(GLOBAL)], merged: { mcpServers: { x: enriched } } });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x") as { entry: Record<string, unknown> };
-    expect(x.entry.bearerToken).toEqual({ redacted: true });
-  });
-
-  // The folder surface cannot tell an override from an inheritance from the
-  // MERGED entry alone: a non-secret inherited key looks identical to an own
-  // one. `own` is what makes the override chip + per-field hint possible.
-  it("exposes the writable layer's own entry, unmerged", async () => {
-    const merged = { mcpServers: { x: { command: "/bin/x", lifecycle: "lazy", disabled: true } } };
-    const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { x: { command: "/bin/x", lifecycle: "lazy" } } }),
-      [FOLDER]: JSON.stringify({ mcpServers: { x: { disabled: true } } }),
-    });
-    const port = makePort({
-      discovered: [d(GLOBAL), d(FOLDER)],
-      merged: merged as never,
-      prov: [
-        ["x", { path: GLOBAL, kind: "user" }],
-        ["x", { path: FOLDER, kind: "project" }],
+describe("secrets of inherited global entries are redacted in a project view", () => {
+  it("headers/env → key markers, oauth.clientSecret → marker, raw entry not mutated", () => {
+    const raw = {
+      url: "https://g.example/mcp",
+      headers: { Authorization: "Bearer s1", "X-Trace": "t" },
+      oauth: { clientId: "id", clientSecret: "s2" },
+    };
+    const io = makeIO({ [GLOBAL]: { mcpServers: { g: raw } } });
+    const svc = makeService(io);
+    const row = svc.getEffectiveView(p).servers[0];
+    expect(JSON.stringify(row.entry)).not.toContain("s1");
+    expect(JSON.stringify(row.entry)).not.toContain("s2");
+    expect(row.entry.headers).toEqual({
+      redacted: true,
+      keys: [
+        { name: "Authorization", secret: true },
+        { name: "X-Trace", secret: false },
       ],
     });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x") as {
-      entry: Record<string, unknown>;
-      own?: Record<string, unknown>;
+    expect((row.entry.oauth as Record<string, unknown>).clientId).toBe("id");
+    // The global view (own layer) is verbatim.
+    expect(svc.getEffectiveView(g).servers[0].entry).toEqual(raw);
+  });
+});
+
+describe("adapter-era secret leftovers are redacted in a project view too", () => {
+  it("bearerToken and requestHeadersCommand.env never reach the folder view", () => {
+    const raw = {
+      url: "https://g.example/mcp",
+      bearerToken: "plain-s3",
+      requestHeadersCommand: { command: "node", args: ["x.mjs"], env: { TOKEN: "plain-s4" } },
     };
-    // Merged entry carries both layers …
-    expect(x.entry).toMatchObject({ command: "/bin/x", disabled: true });
-    // … while `own` is ONLY the folder layer's entry, so the client can name
-    // `disabled` as the override and `command`/`lifecycle` as inherited.
-    expect(x.own).toEqual({ disabled: true });
-  });
-
-  it("omits `own` for a server the writable layer does not define", async () => {
-    const io = makeIO({ [SHARED]: JSON.stringify({ mcpServers: { x: enriched } }) });
-    const port = makePort({ discovered: [d(SHARED)], merged: { mcpServers: { x: enriched } } });
-    const view = await reader(io, port).getEffectiveView(PROJECT_SCOPE, { timeoutMs: 1000 });
-    const x = view.servers.find((s) => s.name === "x") as { own?: unknown };
-    expect(x.own).toBeUndefined();
+    const io = makeIO({ [GLOBAL]: { mcpServers: { g: raw } } });
+    const row = makeService(io).getEffectiveView(p).servers[0];
+    const wire = JSON.stringify(row.entry);
+    expect(wire).not.toContain("plain-s3");
+    expect(wire).not.toContain("plain-s4");
+    expect((row.entry.requestHeadersCommand as Record<string, unknown>).command).toBe("node");
+    // the raw file content is untouched
+    expect(JSON.parse(io.files.get(GLOBAL) as string).mcpServers.g).toEqual(raw);
   });
 });
 
-describe("effective view — global scope isolation + settings", () => {
-  it("uses the scratch cwd for a global view and no project layers", async () => {
-    const cwdSeen: string[] = [];
-    const io = makeIO({});
-    const port = makePort({ discovered: [], merged: { mcpServers: {} }, cwdSeen });
-    await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
-    expect(cwdSeen).toEqual([SCRATCH]);
-  });
-
-  it("reports each settings key's source layer or default", async () => {
+describe("E24 — adapter leftover keys are flagged", () => {
+  it("disabled:true reads as enabled under pi with the keys flagged", () => {
     const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: {}, settings: { toolPrefix: "mcp", idleTimeout: 5 } }),
-      [SHARED]: JSON.stringify({ mcpServers: {}, settings: { idleTimeout: 9, requestTimeoutMs: 20 } }),
+      [GLOBAL]: { mcpServers: { s: { url: "https://s.example/mcp", disabled: true, directTools: ["a"], lifecycle: "lazy" } } },
     });
-    const port = makePort({
-      discovered: [d(SHARED), d(GLOBAL)],
-      merged: { mcpServers: {}, settings: { toolPrefix: "mcp", idleTimeout: 5, requestTimeoutMs: 20, directTools: true } as never },
-    });
-    const view = await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
-    expect(view.settings.toolPrefix).toMatchObject({ source: "pi-global" });
-    expect(view.settings.idleTimeout).toMatchObject({ source: "pi-global" });
-    expect(view.settings.requestTimeoutMs).toMatchObject({ source: "shared", path: SHARED });
-    expect(view.settings.directTools).toMatchObject({ source: "default" });
+    const row = makeService(io).getEffectiveView(g).servers[0];
+    expect(row.enabled).toBe(true);
+    expect(row.active).toBe(true);
+    expect(row.adapterLeftovers.sort()).toEqual(["directTools", "disabled", "lifecycle"]);
   });
 });
 
-describe("effective view — prototype-chain safety", () => {
-  it("does not treat an inherited Object.prototype key as a defining layer", async () => {
+describe("E25 — strict JSON layers", () => {
+  it("a trailing-comma global file is reported skipped; project servers still listed", () => {
     const io = makeIO({
-      [GLOBAL]: JSON.stringify({ mcpServers: { toString: { command: "x" } } }),
-      [SHARED]: JSON.stringify({ mcpServers: {} }),
+      [GLOBAL]: '{ "mcpServers": { "a": { "command": "x" }, } }',
+      [PROJECT]: { mcpServers: { f: { command: "f" } } },
     });
-    const port = makePort({
-      discovered: [d(SHARED, "shared"), d(GLOBAL, "global")],
-      merged: { mcpServers: { toString: { command: "x" } } },
+    const v = makeService(io).getEffectiveView(p);
+    const gl = v.layers.find((l) => l.layer === "pi-global");
+    expect(gl?.ok).toBe(false);
+    expect(gl?.message).toContain(GLOBAL);
+    expect(v.servers.map((s) => s.name)).toEqual(["f"]);
+  });
+});
+
+describe("E26 — dual-transport read follows pi", () => {
+  it("{command,url} is HTTP with command ignored; with type stdio it is stdio with url ignored", () => {
+    const io = makeIO({
+      [GLOBAL]: {
+        mcpServers: {
+          a: { command: "x", url: "https://a.example/mcp" },
+          b: { command: "x", url: "https://b.example/mcp", type: "stdio" },
+        },
+      },
     });
-    const view = await reader(io, port).getEffectiveView(GLOBAL_SCOPE, { timeoutMs: 1000 });
-    const server = view.servers.find((s) => s.name === "toString");
-    expect(server).toBeDefined();
-    // Only the global layer defines it; the empty shared layer must not look
-    // like a definer just because `servers["toString"]` resolves up the chain.
-    expect(server?.provenance.map((p) => p.layer)).toEqual(["pi-global"]);
+    const [a, b] = makeService(io).getEffectiveView(g).servers;
+    expect(a).toMatchObject({ transport: "http", ignoredKeys: ["command"] });
+    expect(b).toMatchObject({ transport: "stdio", ignoredKeys: ["url"] });
+  });
+});
+
+describe("auth mode and pi validation on rows", () => {
+  it("provider / header / OAuth / stdio", () => {
+    const io = makeIO({
+      [GLOBAL]: {
+        mcpServers: {
+          a: { url: "https://a.example/mcp", auth: { provider: "radius" } },
+          b: { url: "https://b.example/mcp", headers: { authorization: "Bearer ${T}" } },
+          c: { url: "https://c.example/mcp", headers: { "X-Api-Key": "k" } },
+          d: { command: "d" },
+          e: { url: "ftp://e" },
+        },
+      },
+    });
+    const rows = makeService(io).getEffectiveView(g).servers;
+    expect(rows.map((r) => r.authMode)).toEqual([
+      { kind: "provider", provider: "radius" },
+      { kind: "header" },
+      { kind: "oauth" },
+      undefined,
+      { kind: "oauth" },
+    ]);
+    expect(rows[4]).toMatchObject({ active: false, inactiveReason: "invalid-entry" });
+    expect(rows[4].piError).toMatch(/url must be an http or https URL/);
   });
 });
