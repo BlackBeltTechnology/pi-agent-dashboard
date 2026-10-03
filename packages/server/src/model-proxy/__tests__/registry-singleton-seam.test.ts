@@ -81,7 +81,7 @@ describe("custom providers are projected onto the runtime", () => {
 
     const config = registered.get("acme");
     expect(config).toMatchObject({ baseUrl: "https://acme.example/v1", api: "openai-completions", apiKey: "sk-acme" });
-    expect((config?.models as Array<{ id: string }>).map((m) => m.id)).toEqual(["a1", "a2"]);
+    expect(((config?.models ?? []) as Array<{ id: string }>).map((m) => m.id)).toEqual(["a1", "a2"]);
   });
 
   it("never projects a built-in provider", async () => {
