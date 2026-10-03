@@ -268,6 +268,13 @@ interface OwnerRecord {
   startMs: number | null | undefined;
 }
 
+/** Digits-only token → safe integer, else null (never Infinity / imprecise). */
+function parseSafeUint(tok: string | undefined): number | null {
+  if (!tok || !/^\d+$/.test(tok)) return null;
+  const n = Number(tok);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 /** Parse `<socketPath>.pid` — `"<pid>"` (legacy) or `"<pid> <ownerStartMs>"`. */
 function readOwnerRecord(socketPath: string): OwnerRecord {
   let raw: string;
@@ -277,11 +284,11 @@ function readOwnerRecord(socketPath: string): OwnerRecord {
     return { pid: null, startMs: null };
   }
   const [pidTok, startTok, ...rest] = raw.trim().split(/\s+/);
-  if (!/^\d+$/.test(pidTok ?? "") || Number(pidTok) <= 0) return { pid: null, startMs: null };
-  const pid = Number(pidTok);
+  const pid = parseSafeUint(pidTok);
+  if (pid === null || pid <= 0) return { pid: null, startMs: null };
   if (startTok === undefined) return { pid, startMs: undefined };
-  if (rest.length > 0 || !/^\d+$/.test(startTok)) return { pid, startMs: null };
-  return { pid, startMs: Number(startTok) };
+  const startMs = rest.length > 0 ? null : parseSafeUint(startTok);
+  return { pid, startMs };
 }
 
 /**
@@ -294,12 +301,13 @@ function ownerIsProvablyGone(
 ): boolean {
   const { pid, startMs } = readOwnerRecord(socketPath);
   if (pid === null) return false;
+  // A malformed second field is "not proven", before ANY positive rule.
+  if (startMs === null) return false;
   // 1. Not alive.
   if (!isProcessAlive(pid)) return true;
   // 4. Our own pid: nothing in this process serves the path (#744's
   //    deterministic self-collision), whatever the start-time probe says.
   if (pid === process.pid) return !(owned.get(socketPath)?.listening ?? false);
-  if (startMs === null) return false; // malformed: not proven
   const started = startedAt(pid);
   if (started === null) return false;
   // 2. Alive, but a different process than the one that recorded itself.

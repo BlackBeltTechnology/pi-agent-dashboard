@@ -411,6 +411,22 @@ describe("owner start time (D1) and socket-inode gate (D2)", () => {
     expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
   });
 
+  // Review B1/B2: malformed or unrepresentable records never authorise an unlink.
+  it.each([
+    ["own pid with a malformed start field", () => `${process.pid} abc\n`],
+    ["own pid with three fields", () => `${process.pid} 1 2\n`],
+    ["dead pid with a malformed start field", () => "2147483646 abc\n"],
+    ["oversized pid", () => `${"9".repeat(400)}\n`],
+    ["unsafe-integer pid", () => `${Number.MAX_SAFE_INTEGER + 2}\n`],
+    ["oversized start time", () => `${sleeper().pid} ${"9".repeat(400)}\n`],
+    ["unsafe-integer start time", () => `${sleeper().pid} ${Number.MAX_SAFE_INTEGER + 2}\n`],
+  ])("fails closed on %s", async (_n, content) => {
+    await makeStaleSocket();
+    fs.writeFileSync(`${sockPath}.pid`, content());
+    await expect(bind(refused)).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    expect(fs.lstatSync(sockPath).isSocket()).toBe(true);
+  });
+
   // E7 — a non-socket is never removed, even with a dead owner recorded
   it("never removes a regular file, a symlink, or a dangling symlink", async () => {
     const cases: Array<[string, () => Promise<void> | void]> = [

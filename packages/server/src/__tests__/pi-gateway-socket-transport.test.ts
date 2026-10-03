@@ -618,6 +618,8 @@ describe("loopback fallback (fix-gateway-socket-stale-owner)", () => {
     const ticketed = new WebSocket(`ws://127.0.0.1:${port}/?ticket=${tickets.mint("bridge")}`);
     clients.push(ticketed);
     expect(await outcome(ticketed)).toBe("open");
+    await register(ticketed, "fb-ticket");
+    expect(await waitConnected(g, "fb-ticket")).toBe(true);
   });
 
   // X9
