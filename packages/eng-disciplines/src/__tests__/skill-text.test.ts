@@ -89,4 +89,28 @@ describe("format gate snippet (B1)", () => {
     expect(r.code).toBe(0);
     expect(r.left).toEqual([]);
   });
+  it("cleans up each iteration when looped over capabilities in one shell", () => {
+    const repo = mkdtempSync(join(tmpdir(), "rsfr-gate-"));
+    try {
+      mkdirSync(join(repo, "openspec", "specs"), { recursive: true });
+      for (const cap of ["cap-a", "cap-b"]) {
+        mkdirSync(join(repo, "pkg", "capabilities", cap), { recursive: true });
+        writeFileSync(join(repo, "pkg", "capabilities", cap, "spec.md"), "# x\n");
+      }
+      mkdirSync(join(repo, "bin"));
+      // stub: validation of cap-a fails, cap-b passes
+      writeFileSync(join(repo, "bin", "openspec"), '#!/bin/sh\ncase "$2" in *cap-a) exit 1;; esac\nexit 0\n');
+      chmodSync(join(repo, "bin", "openspec"), 0o755);
+      const script = `CAP=cap-a\n${block}\nr1=$?\nn1=$(ls openspec/specs | wc -l | tr -d ' ')\nCAP=cap-b\n${block}\nr2=$?\necho "$r1 $n1 $r2"`;
+      const r = spawnSync("bash", ["-c", script], {
+        cwd: repo,
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${join(repo, "bin")}:${process.env.PATH}`, PKG: "pkg", RUN_ID: "r1" },
+      });
+      expect(r.stdout.trim()).toBe("1 0 0");
+      expect(readdirSync(join(repo, "openspec", "specs"))).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
 });

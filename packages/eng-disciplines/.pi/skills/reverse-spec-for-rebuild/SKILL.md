@@ -47,11 +47,12 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    it is not ignored, `ask_user` before writing anything: on consent append
    `.reverse-spec-scratch/` to `.git/info/exclude` (never to a committed ignore
    file); on refusal stop.
-2. **Run id + sweep leftovers.** Set `RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)`; every
-   transient validation id of this run is `_rsfr-val-$RUN_ID-<cap>`. Run
-   `G sweep` — removes only stale `openspec/specs/_rsfr-val-*` dirs (untouched
-   for 10 minutes, i.e. left by an interrupted run); a concurrent run's live
-   ids and other skills' transient dirs are untouched.
+2. **Run id + sweep leftovers.** Set `RUN_ID=$(G new-run)` (UTC timestamp plus
+   random suffix, so concurrent runs never share it); every transient
+   validation id of this run is `_rsfr-val-$RUN_ID-<cap>`. Run `G sweep` — it
+   removes only abandoned `openspec/specs/_rsfr-val-*` dirs (owner process gone,
+   or no owner marker and untouched for 10 minutes); a concurrent run's live
+   dirs and other skills' transient dirs are untouched.
 3. **Resolve the target.** Confirm the path exists; record
    `git rev-parse HEAD` for `PKG/README.md`. Create `PKG` (if a package from an
    earlier run is there and not supplied as the previous package, move it aside
@@ -89,19 +90,27 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
    `prompts/auditor-rebuild.md`, `MODE=capability`.
 8. **Revise loop.** For each `verdict: revise`, re-run its generator with the
    audit JSON as `FINDINGS`, then go back to step 6 (every revision re-merges),
-   and re-audit every capability whose rendered spec changed in that merge
-   (revised or not). Stop after 3 rounds for a capability
+   and re-audit every capability that was regenerated, whose rendered spec
+   changed, or that is listed under (or contributed) a catalog item — rule,
+   quirk, gap or entity field — whose statement, class, citation, confidence or
+   id changed in that merge. Diff the previous merge's catalog files against the
+   new ones to find those items. Stop after 3 rounds for a capability
    that still fails: report it as not promotable.
 9. **Format gate.** For every spec: `G lint-spec PKG/capabilities/<cap>/spec.md`
    (exit 1 lists `file:line: reason`). Additionally, only when the OpenSpec CLI
    is on PATH AND `openspec/` exists, validate each spec through a transient id
    that is deleted in the same iteration. Run this block once per capability
-   with shell variables `PKG` (package dir), `CAP` and `RUN_ID` set; its exit
-   status is the validation result:
+   (it is a subshell, safe to repeat in one shell) with shell variables `PKG`
+   (package dir), `CAP` and `RUN_ID` set; its exit status is the validation
+   result, and it records its own pid in `.owner` so a concurrent sweep leaves
+   it alone while it runs:
    ```bash
-   id="_rsfr-val-$RUN_ID-$CAP"; d="openspec/specs/$id"
-   trap 'rm -rf "$d"' EXIT
-   mkdir -p "$d" && cp "$PKG/capabilities/$CAP/spec.md" "$d/spec.md" && openspec validate "$id" --type spec
+   (
+     id="_rsfr-val-$RUN_ID-$CAP"; d="openspec/specs/$id"
+     trap 'rm -rf "$d"' EXIT
+     mkdir -p "$d" && sh -c 'echo $PPID' > "$d/.owner" &&
+       cp "$PKG/capabilities/$CAP/spec.md" "$d/spec.md" && openspec validate "$id" --type spec
+   )
    ```
    A failing spec is regenerated with the failures as `FINDINGS` (back to step
    5 for that capability, then 6-9). It is never promotable while failing.
@@ -170,8 +179,9 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   data; step 12 checks that nothing was written outside the scratch dir.
 - **Interrupted runs** leave `openspec/specs/_rsfr-val-*`; the sweep at start
   and end removes stale ones (only this skill's prefix — never `_rsfc-val-*`),
-  and `sweep --run` removes this run's own. Ids carry the run id so two
-  concurrent runs never delete each other's live validation dirs.
+  and `sweep --run` removes this run's own. Ids carry a random run id and each
+  live dir an `.owner` pid, so two concurrent runs never delete each other's
+  validation dirs.
 - **Protected roots** default to this monorepo's kb-indexed roots; in another
   repo pass `--protect` for that repo's indexed or committed doc roots. The
   guard resolves `..` and symlinks, and checks the nearest existing ancestor of a

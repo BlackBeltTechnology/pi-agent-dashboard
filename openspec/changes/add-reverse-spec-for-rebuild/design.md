@@ -137,7 +137,8 @@ guards so they are testable instead of agent prose:
 - `check-dest <path> [--protect <dir>]...` exits non-zero when the nearest existing ancestor's
   real path is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
-- `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only stale ones (untouched 10 min) so a concurrent run's live ids survive (no-op without `openspec/specs/`).
+- `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.
+- `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only abandoned ones (`.owner` pid dead, or no owner and untouched 10 min) so a concurrent run's live dirs survive (no-op without `openspec/specs/`).
 - `lint-spec <file>` is the built-in structural check (D3); exit 1 and `file:line: reason` per
   violation.
 - Bad input → exit 2 + usage.

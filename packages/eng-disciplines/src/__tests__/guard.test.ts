@@ -3,8 +3,8 @@
  * Every case runs in a throwaway temp repo laid out like this one, never the real repo.
  * See change: add-reverse-spec-for-rebuild.
  */
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -126,6 +126,32 @@ describe("sweep", () => {
     for (const d of ["_rsfr-val-run1-a", "_rsfr-val-run1-b", "_rsfr-val-run2-a"]) mkdirSync(join(specs, d));
     expect(guard(repo, "sweep", "--run", "run1").code).toBe(0);
     expect(readdirSync(specs).sort()).toEqual(["_rsfr-val-run2-a"]);
+  });
+
+  it("B4: an old dir whose owner process is alive survives a plain sweep", () => {
+    const specs = join(repo, "openspec", "specs");
+    const d = join(specs, "_rsfr-val-slow-cap");
+    mkdirSync(d);
+    writeFileSync(join(d, ".owner"), `${process.pid}\n`);
+    stale(d);
+    expect(guard(repo, "sweep").code).toBe(0);
+    expect(readdirSync(specs)).toContain("_rsfr-val-slow-cap");
+  });
+
+  it("B4: a fresh dir whose owner process is gone is swept at once", () => {
+    const specs = join(repo, "openspec", "specs");
+    const d = join(specs, "_rsfr-val-dead-cap");
+    mkdirSync(d);
+    const dead = spawnSync(process.execPath, ["-e", "0"]).pid;
+    writeFileSync(join(d, ".owner"), `${dead}\n`);
+    expect(guard(repo, "sweep").code).toBe(0);
+    expect(readdirSync(specs)).not.toContain("_rsfr-val-dead-cap");
+  });
+
+  it("B4: new-run prints distinct, collision-resistant run ids", () => {
+    const ids = Array.from({ length: 5 }, () => guard(repo, "new-run").stdout.trim());
+    for (const id of ids) expect(id).toMatch(/^\d{8}T\d{6}Z-[0-9a-f]{8}$/);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("B4: sweep --run without an id is bad input", () => {

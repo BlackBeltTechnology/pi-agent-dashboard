@@ -5,10 +5,13 @@
 //       exit 0 when <path> may receive a promoted rebuild package;
 //       exit 1 when its resolved real path lies inside a protected root
 //       (default roots: openspec docs packages .pi; --protect replaces them).
+//   node guard.mjs new-run
+//       print a collision-resistant run id: <UTC yyyymmddThhmmssZ>-<8 random hex>.
 //   node guard.mjs sweep [--run <id>]
 //       remove this skill's transient openspec/specs/_rsfr-val-* dirs: with --run, every
-//       _rsfr-val-<id>-* dir of that run; without, only stale ones (untouched for
-//       STALE_MS, i.e. left by an interrupted run), so a concurrent run's live ids survive.
+//       _rsfr-val-<id>-* dir of that run; without, only abandoned ones — a dir whose
+//       `.owner` pid is no longer alive, or (no `.owner`) one untouched for STALE_MS —
+//       so a concurrent run's live validation dirs survive.
 //   node guard.mjs lint-spec <file>
 //       structural check of an OpenSpec full-form spec; exit 1 with
 //       "<file>:<line>: <reason>" per violation on stdout.
@@ -18,6 +21,7 @@
 // `git rev-parse --show-toplevel`, falling back to the current directory.
 
 import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -27,6 +31,7 @@ const STALE_MS = 10 * 60 * 1000;
 
 const USAGE = `usage:
   node guard.mjs check-dest <path> [--protect <dir>]...
+  node guard.mjs new-run
   node guard.mjs sweep [--run <id>]
   node guard.mjs lint-spec <file>`;
 
@@ -99,6 +104,31 @@ function checkDest(args) {
   process.stdout.write(`ok: ${real}\n`);
 }
 
+function newRun(args) {
+  if (args.length) usage(`new-run: unexpected argument ${args[0]}`);
+  const ts = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  process.stdout.write(`${ts}-${randomBytes(4).toString("hex")}\n`);
+}
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM"; // exists, owned by another user
+  }
+}
+
+/** A validation dir no live run owns: its `.owner` pid is gone, or (no owner) it is stale. */
+function abandoned(path, now) {
+  const owner = join(path, ".owner");
+  if (existsSync(owner)) {
+    const pid = Number.parseInt(readFileSync(owner, "utf8"), 10);
+    if (pid > 0) return !alive(pid);
+  }
+  return now - statSync(path).mtimeMs > STALE_MS;
+}
+
 function sweep(args) {
   let run;
   if (args[0] === "--run") {
@@ -111,9 +141,7 @@ function sweep(args) {
   const now = Date.now();
   for (const name of readdirSync(specs)) {
     const path = join(specs, name);
-    const owned = run
-      ? name.startsWith(`${VAL_PREFIX}${run}-`)
-      : name.startsWith(VAL_PREFIX) && now - statSync(path).mtimeMs > STALE_MS;
+    const owned = run ? name.startsWith(`${VAL_PREFIX}${run}-`) : name.startsWith(VAL_PREFIX) && abandoned(path, now);
     if (!owned) continue;
     rmSync(path, { recursive: true, force: true });
     process.stdout.write(`swept: openspec/specs/${name}\n`);
@@ -275,6 +303,9 @@ const [cmd, ...rest] = process.argv.slice(2);
 switch (cmd) {
   case "check-dest":
     checkDest(rest);
+    break;
+  case "new-run":
+    newRun(rest);
     break;
   case "sweep":
     sweep(rest);
