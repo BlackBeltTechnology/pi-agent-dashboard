@@ -15,6 +15,8 @@ The set of **known directories** SHALL be the union of:
 
 Ended sessions — including hidden ones — SHALL NOT contribute their cwd to the known-directory set. A directory whose sessions have all ended and that is not pinned SHALL stop being polled until a new session registers in it or it is pinned.
 
+A browser-initiated `openspec_refresh` SHALL be subject to the same admission gates as the on-demand `openspec_get` fetch: OpenSpec globally enabled, the cwd not opted out, the cwd present in the session registry (any status) or pinned, and `<cwd>/openspec/` present. A refresh that fails any gate SHALL spawn no process, SHALL NOT probe the filesystem below the cwd before the tracked-cwd gate has passed, and SHALL NOT broadcast.
+
 #### Scenario: Periodic poll for a known directory
 - **WHEN** one poll interval has elapsed since the last poll for a directory
 - **THEN** the server SHALL evaluate the directory for re-polling (subject to change detection, see below) and broadcast an `openspec_update` message with `cwd` and `data` fields if the data has changed
@@ -59,8 +61,25 @@ Ended sessions — including hidden ones — SHALL NOT contribute their cwd to t
 - **THEN** the server SHALL cache `{ initialized: false, pending: false, changes: [] }` for that directory
 
 #### Scenario: Browser requests immediate refresh
-- **WHEN** a browser sends `openspec_refresh` with a `cwd` field
+- **WHEN** a browser sends `openspec_refresh` with a `cwd` that is pinned or present in the session registry, is not opted out, and contains `openspec/`
 - **THEN** the server SHALL immediately re-poll the openspec CLI for that directory, **bypassing change detection** but still respecting the concurrency cap, and broadcast the result
+
+#### Scenario: Refresh for an untracked directory does not spawn
+- **GIVEN** `/tmp/anywhere` is neither pinned nor present in the session registry
+- **WHEN** a paired browser sends `openspec_refresh { cwd: "/tmp/anywhere" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
+- **AND** no `openspec_update` SHALL be broadcast for that cwd
+- **AND** the server SHALL NOT stat any path below `/tmp/anywhere`
+
+#### Scenario: Refresh for an opted-out directory does not spawn
+- **GIVEN** `/repo/a` is tracked and its cwd is opted out of OpenSpec polling
+- **WHEN** a browser sends `openspec_refresh { cwd: "/repo/a" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
+
+#### Scenario: Refresh for a tracked directory without an openspec root does not spawn
+- **GIVEN** `/repo/c` is tracked but has no `openspec/` directory
+- **WHEN** a browser sends `openspec_refresh { cwd: "/repo/c" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
 
 ### Requirement: Change-detection gate to avoid redundant CLI invocations
 
