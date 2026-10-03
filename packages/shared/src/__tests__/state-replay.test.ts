@@ -281,3 +281,52 @@ describe("X6/X7 — orphan-close shape", () => {
     expect(ends[0].event.data.isError).toBeFalsy();
   });
 });
+
+// ── E6: nested-call record survives transcript replay ─────────────────────
+// Nested calls write no transcript entries; the bounded `nestedCalls` record on
+// the root's toolResult message is the only replay trace. The synthesized top-
+// level end SHALL carry it. See change: render-nested-tool-calls (D3).
+describe("E6 — nestedCalls rides the synthesized tool_execution_end", () => {
+  it("copies message.nestedCalls onto the synthesized end", () => {
+    const nestedCalls = {
+      calls: [
+        { id: "call_1/1", name: "codemode", status: "ok", durationMs: 4 },
+        { id: "call_1/1/1", name: "bash", status: "error", error: "exit 1" },
+        { id: "call_1/2", name: "write", status: "unfinished", argumentsBytes: 9000 },
+      ],
+      complete: false,
+    };
+    const events = replayEntriesAsEvents("sess-1", [
+      userEntry("u1", "go", T("30")),
+      {
+        type: "message",
+        id: "r1",
+        parentId: "u1",
+        timestamp: T("32"),
+        message: {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "codemode",
+          content: [{ type: "text", text: "ok" }],
+          nestedCalls,
+        },
+      },
+    ]);
+    const end = events.find((e) => e.event.eventType === "tool_execution_end");
+    expect(end?.event.data.nestedCalls).toEqual(nestedCalls);
+  });
+
+  it("omits nestedCalls when the toolResult carries none", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      {
+        type: "message",
+        id: "r1",
+        parentId: null,
+        timestamp: T("32"),
+        message: { role: "toolResult", toolCallId: "t1", toolName: "bash", content: [{ type: "text", text: "ok" }] },
+      },
+    ]);
+    const end = events.find((e) => e.event.eventType === "tool_execution_end");
+    expect(end?.event.data).not.toHaveProperty("nestedCalls");
+  });
+});

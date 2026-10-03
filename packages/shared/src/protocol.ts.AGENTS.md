@@ -21,3 +21,7 @@ Adds `PluginRequestMessage` (`plugin_request`: `requestId`,`pluginId`,`messageTy
 ## electron-runtime-overlay-updates
 
 `BridgeExtensionIdentity {dir, version?}`; `SessionRegisterMessage.extensionIdentity?` (D8). See change: electron-runtime-overlay-updates.
+
+`PiVersionUpdateMessage` doc: version is argv-anchored running pi; server derives below-floor flag. `DispatchExtensionCommandMessage` note drops the 0.84.2 qualifier. See change: update-pi-core-1-0-adopt-apis.
+
+`UsageRecordedMessage` (`usage_recorded`: kind, usage, provider?/model?, entryId?) joins `ExtensionToServerMessage` — top-level, never `event_forward`. `SessionRegisterMessage.usageSeed?: UsageTotals` — bridge baseline totals, applied server-side only for an unknown id. See change: count-non-message-usage.

@@ -28,3 +28,9 @@ Installs the plugin-request symbol on `onOpen`, uninstalls + `failAll("disconnec
 Plugin lane uses `connection.sendIfOpen`; `pluginLaneUp/Down` follow the CURRENT connection (`primaryConnection` guard) and the `/dashboard-connect` move target (its `onOpen`/`onClose` + `plugin_reply` dispatch; lane re-raised after rebind). See change: expose-plugin-credential-and-oauth-seams.
 
 Creates per-bridge `prStatus` (`createPrStatusScheduler`, probe `git.prStatusAsync`, `alive: isActive`, timers in bridge registry); `git_info_refresh` via `handleGitInfoRefresh`; `/dashboard-where` prints `pr-probe:` invocation count. See change: redesign-composer-session-strip.
+
+Pass-through list gains `agent_before_settle` (forwarded via `redactBeforeSettleContext`, no status effect). Terminal reload comment: no pi version gate. See change: update-pi-core-1-0-adopt-apis.
+
+`sendPiVersionIfChanged()` also fires on reconnect (after `sendStateSync`) and after a session switch (after `applyBc`). See change: update-pi-core-1-0-adopt-apis (review B1/B2).
+
+Owns a `UsageDrain` (`usage-drain.ts`): `session_start` baselines ONE `getEntries()` snapshot before any register and sends it as `usageSeed` (init register + `handleSessionChange`). Drain points `turn_end`, `agent_settled`, `cache_warming_decision` (dedicated observe-only handler, never `event_forward`), `session_shutdown` (drain BEFORE `session_unregister`). See change: count-non-message-usage.

@@ -23,7 +23,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { invalidateChangelogCache } from "../changelog/changelog-parser.js";
 import { fetchPackageMeta } from "../package/npm-search-proxy.js";
-import { getLatestPiRelease, type PiDevReleaseInfo } from "./pi-dev-version-check.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,14 +36,12 @@ const MANAGED_NODE_MODULES = path.join(MANAGED_DIR, "node_modules");
 /** Known core packages (not extensions). Order matters for display. */
 export const CORE_PACKAGE_NAMES: readonly string[] = [
 	"@earendil-works/pi-coding-agent",
-	"@mariozechner/pi-coding-agent",
 	"@blackbelt-technology/pi-agent-dashboard",
 ];
 
 /** Display name mapping for known packages. Falls back to package name. */
 const DISPLAY_NAMES: Readonly<Record<string, string>> = {
 	"@earendil-works/pi-coding-agent": "pi (core agent)",
-	"@mariozechner/pi-coding-agent": "pi (core agent — legacy fork)",
 	"@blackbelt-technology/pi-agent-dashboard": "pi-dashboard",
 };
 
@@ -69,26 +66,8 @@ function resolveDisplayName(name: string): string {
 }
 
 /**
- * Dynamically-discovered package-name aliases for `@mariozechner/pi-coding-agent`.
- * Populated from pi.dev's `latest-version` response, which returns the
- * authoritative package name for fresh installs (used for the upcoming
- * `@mariozechner` → `@earendil-works` scope migration). The dashboard
- * accepts whatever name pi.dev declares as a trusted alias — this avoids
- * having to ship a release every time the canonical scope changes.
- *
- * See change: improve-pi-update-detection.
- */
-let dynamicPiAliases: Set<string> = new Set();
-
-/** Test seam: clear runtime aliases between tests. */
-export function _resetDynamicPiAliases(): void {
-	dynamicPiAliases = new Set();
-}
-
-/**
  * Strict whitelist check: a package is part of the pi-ecosystem CORE
- * tooling if and only if its name is in `CORE_PACKAGE_NAMES` OR a
- * pi.dev-declared alias. The previous `pi-*` name-prefix heuristic was
+ * tooling if and only if its name is in `CORE_PACKAGE_NAMES`. The previous `pi-*` name-prefix heuristic was
  * removed because it caused recommended-extension packages (e.g.
  * `pi-agent-browser`, `pi-dashboard-subagents`) to appear in BOTH the
  * Core ecosystem panel and the Installed Packages panel. Recommended
@@ -96,11 +75,8 @@ export function _resetDynamicPiAliases(): void {
  * `/api/packages/installed`. See change: consolidate-packages-settings-ui.
  */
 function looksLikePiEcosystem(name: string): boolean {
-	return CORE_PACKAGE_NAMES.includes(name) || dynamicPiAliases.has(name);
+	return CORE_PACKAGE_NAMES.includes(name);
 }
-
-/** Pi packages whose latestVersion comes from pi.dev (not npm registry). */
-const PI_DEV_PACKAGE = "@mariozechner/pi-coding-agent";
 
 export interface NpmListRunner {
 	/** Run `npm list -g --depth=0 --json` and return stdout. */
@@ -112,13 +88,6 @@ export interface PiCoreCheckerOptions {
 	npmList?: NpmListRunner;
 	/** Inject version fetcher (for tests). */
 	fetchLatest?: (packageName: string) => Promise<string | null>;
-	/**
-	 * Inject pi.dev release fetcher (for tests). Production uses
-	 * `getLatestPiRelease` which honours PI_OFFLINE / PI_SKIP_VERSION_CHECK
-	 * envs and falls back to `undefined` on any failure. See change:
-	 * improve-pi-update-detection.
-	 */
-	fetchPiDevRelease?: (currentVersion: string) => Promise<PiDevReleaseInfo | undefined>;
 	/** Override managed directory (for tests). */
 	managedDir?: string;
 }
@@ -141,13 +110,11 @@ export class PiCoreChecker {
 	private cache: { at: number; data: PiCoreStatus } | null = null;
 	private readonly npmList: NpmListRunner;
 	private readonly fetchLatest: (packageName: string) => Promise<string | null>;
-	private readonly fetchPiDevRelease: (currentVersion: string) => Promise<PiDevReleaseInfo | undefined>;
 	private readonly managedNodeModules: string;
 
 	constructor(opts: PiCoreCheckerOptions = {}) {
 		this.npmList = opts.npmList ?? defaultNpmList;
 		this.fetchLatest = opts.fetchLatest ?? defaultFetchLatest;
-		this.fetchPiDevRelease = opts.fetchPiDevRelease ?? getLatestPiRelease;
 		this.managedNodeModules = opts.managedDir
 			? path.join(opts.managedDir, "node_modules")
 			: MANAGED_NODE_MODULES;
@@ -180,37 +147,16 @@ export class PiCoreChecker {
 		for (const entry of global) byName.set(entry.name, { version: entry.version, source: "global" });
 		for (const entry of managed) byName.set(entry.name, { version: entry.version, source: "managed" });
 
-		// Fetch latest versions in parallel. For pi-coding-agent (and its
-		// declared scope-rename aliases), prefer pi.dev's authoritative
-		// version-check endpoint over the npm registry; fall back to npm
-		// registry on any failure so the dashboard never reports "unknown
-		// version" just because pi.dev had a hiccup. See change:
-		// improve-pi-update-detection.
+		// Fetch latest versions in parallel from the npm registry — the sole
+		// latest-version source. See change: drop-mariozechner-pi-fork.
 		const entries = Array.from(byName.entries());
 		const withLatest = await Promise.all(
 			entries.map(async ([name, info]) => {
 				let latest: string | null = null;
-				const isPi = name === PI_DEV_PACKAGE || dynamicPiAliases.has(name);
-				if (isPi) {
-					try {
-						const piDev = await this.fetchPiDevRelease(info.version);
-						if (piDev) {
-							latest = piDev.version;
-							// Record any new alias for next-time discovery.
-							if (piDev.packageName && !CORE_PACKAGE_NAMES.includes(piDev.packageName)) {
-								dynamicPiAliases.add(piDev.packageName);
-							}
-						}
-					} catch {
-						/* fall through to npm registry */
-					}
-				}
-				if (latest === null) {
-					try {
-						latest = await this.fetchLatest(name);
-					} catch {
-						latest = null;
-					}
+				try {
+					latest = await this.fetchLatest(name);
+				} catch {
+					latest = null;
 				}
 				const updateAvailable = latest !== null && latest !== info.version;
 				const pkg: PiCorePackage = {

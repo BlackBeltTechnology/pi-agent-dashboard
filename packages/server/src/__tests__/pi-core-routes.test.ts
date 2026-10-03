@@ -182,3 +182,65 @@ describe("pi-core-routes", () => {
 		expect(updater.update).not.toHaveBeenCalled();
 	});
 });
+
+describe("pi-core-routes: legacy fork is rejected (drop-mariozechner-pi-fork)", () => {
+	const EARENDIL = "@earendil-works/pi-coding-agent";
+	const FORK = "@mariozechner/pi-coding-agent";
+	let app: FastifyInstance;
+	let updater: { update: ReturnType<typeof vi.fn> };
+
+	beforeEach(async () => {
+		const { PiCoreChecker } = await import("../pi/pi-core-checker.js");
+		const managedDir = (await import("node:fs")).mkdtempSync(
+			(await import("node:path")).join((await import("node:os")).tmpdir(), "pi-core-routes-fork-"),
+		);
+		// Real checker over a machine with BOTH the fork and earendil installed.
+		const checker = new PiCoreChecker({
+			npmList: async () =>
+				JSON.stringify({
+					dependencies: {
+						[EARENDIL]: { version: "1.0.0" },
+						[FORK]: { version: "0.73.1" },
+					},
+				}),
+			fetchLatest: async () => "1.0.2",
+			managedDir,
+		});
+		updater = { update: vi.fn().mockResolvedValue({ results: [] }) };
+		app = Fastify({ logger: false });
+		registerPiCoreRoutes(app, {
+			piCoreChecker: checker,
+			piCoreUpdater: updater as unknown as PiCoreUpdaterLike,
+			onUpdateComplete: vi.fn(),
+		});
+		await app.ready();
+	});
+
+	afterEach(async () => {
+		await app.close();
+	});
+
+	it("E6: POST with the fork returns 400 Unknown package(s) and never runs the updater", async () => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/api/pi-core/update",
+			payload: { packages: [FORK] },
+		});
+		expect(res.statusCode).toBe(400);
+		expect((res.json() as { error: string }).error).toBe(`Unknown package(s): ${FORK}`);
+		expect(updater.update).not.toHaveBeenCalled();
+	});
+
+	it("E7: a mixed list is all-or-nothing — 400 naming only the fork, nothing updated", async () => {
+		const res = await app.inject({
+			method: "POST",
+			url: "/api/pi-core/update",
+			payload: { packages: [EARENDIL, FORK] },
+		});
+		expect(res.statusCode).toBe(400);
+		expect((res.json() as { error: string }).error).toBe(`Unknown package(s): ${FORK}`);
+		expect(updater.update).not.toHaveBeenCalled();
+	});
+});
+
+type PiCoreUpdaterLike = Parameters<typeof registerPiCoreRoutes>[1]["piCoreUpdater"];

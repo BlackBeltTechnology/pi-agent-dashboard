@@ -829,8 +829,13 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
     { showToast, successToast: i18nT("providers.keyRemoved", { name: provider.name }, `Removed ${provider.name} key`), onSuccess: onChanged },
   );
 
+  // An OAuth row whose server reports `subscription: false` is an account
+  // sign-in (e.g. OpenRouter); absent (older server) keeps "Subscription".
+  // See change: update-pi-core-1-0-adopt-apis (D8).
   const badgeLabel = kind === "subscription"
-    ? i18nT("providers.badgeSubscription", undefined, "Subscription")
+    ? provider.subscription === false
+      ? i18nT("providers.badgeAccount", undefined, "Account")
+      : i18nT("providers.badgeSubscription", undefined, "Subscription")
     : kind === "environment"
       ? i18nT("providers.badgeEnvironment", undefined, "Environment")
       : i18nT("providers.badgeApiKey", undefined, "API key");
@@ -859,7 +864,9 @@ function AuthRow({ provider, kind, onChanged, showToast, peerMissing = false, pe
               <span>
                 {provider.envVar
                   ? i18nT("providers.fromEnvVar", { envVar: provider.envVar }, `from ${provider.envVar}`)
-                  : i18nT("providers.ambientMechanism", undefined, "application default credentials · not stored by pi")}
+                  : provider.authLabel
+                    ? provider.authLabel
+                    : i18nT("providers.ambientMechanism", undefined, "application default credentials · not stored by pi")}
               </span>
             )}
             {kind === "api-key" && provider.maskedKey && (

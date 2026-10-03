@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   isAbove,
   isBelow,
@@ -18,6 +19,7 @@ import {
   readPiCompatibilityRange,
 } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 import { getDefaultRegistry, type ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import semver from "semver";
 
 // The version comparators moved to `shared/pi-installs/versions.ts` so the
 // shared enumerator + override validator can use them. Re-exported here so
@@ -77,12 +79,9 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
   try {
     const req = createRequire(import.meta.url);
     let pkgJson: string | undefined;
-    for (const name of ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]) {
-      try {
-        pkgJson = req.resolve(`${name}/package.json`);
-        break;
-      } catch { /* try next alias */ }
-    }
+    try {
+      pkgJson = req.resolve("@earendil-works/pi-coding-agent/package.json");
+    } catch { /* not resolvable by name — fall through to the registry */ }
     if (pkgJson) {
       const raw = fs.readFileSync(pkgJson, "utf8");
       const parsed = JSON.parse(raw) as { version?: string };
@@ -93,8 +92,8 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
   }
   // Fall back to the registry's resolved path + ../package.json.
   // `where` / `which` strategies typically return a symlinked npm bin
-  // launcher (e.g. ~/.nvm/.../bin/pi → ../lib/node_modules/@mariozechner/
-  // pi-coding-agent/dist/cli.js). Realpath the result first so the
+  // launcher (e.g. ~/.nvm/.../bin/pi → ../lib/node_modules/@earendil-works/
+  // pi-coding-agent/dist/cli.js). The manifest is read whatever its scope. Realpath the result first so the
   // dirname math lands on the real pi module directory, not the
   // bin-containing Node install prefix. See change: warn-pi-version-skew-in-cli.
   try {
@@ -120,6 +119,22 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
 }
 
 /**
+ * Floor check with full SemVer precedence (`semver.lt`): validates every
+ * identifier and orders pre-releases correctly (`1.0.0-beta.1` < `1.0.0`,
+ * `1.0.0-beta.1` < `1.0.0-rc.1`); build metadata never matters. When either
+ * side is not valid SemVer, falls back to the shared prefix-tolerant `isBelow`
+ * (its pre-existing behaviour for odd manifests). The shared helper is left
+ * unchanged for its other callers.
+ * See change: update-pi-core-1-0-adopt-apis (review rounds 1-3).
+ */
+function isBelowFloor(version: string, minimum: string): boolean {
+  const v = semver.valid(version.trim());
+  const m = semver.valid(minimum.trim());
+  if (v && m) return semver.lt(v, m);
+  return isBelow(version, minimum);
+}
+
+/**
  * Compute the `compatibility` snapshot from a compatibility range and
  * the current pi version (or undefined when not yet installed). Pure
  * function \u2014 all I/O is done by callers.
@@ -130,7 +145,7 @@ export function computeCompatibility(
 ): BootstrapCompatibility {
   const out: BootstrapCompatibility = { ...range, current };
   if (!current) return out;
-  if (isBelow(current, range.minimum)) {
+  if (isBelowFloor(current, range.minimum)) {
     // Below minimum: hard advisory. Signal via both `upgradeRecommended`
     // (soft flag, kept for back-compat) and a populated `error` string
     // naming both versions, which drives the red advisory state.
@@ -147,3 +162,35 @@ export function computeCompatibility(
   return out;
 }
 
+/**
+ * Below-floor flag for a session, from its bridge-reported `piVersion` and the
+ * lockstep floor (`piCompatibility.minimum`). Returns `{ minimum }` (the
+ * required version, for the warning) when the version parses AND is below the
+ * floor; `null` otherwise — an unreported or unparseable version raises no
+ * flag. `null` (not `undefined`) so a `session_updated` patch CLEARS a stale
+ * flag under the client's shallow merge. Pure.
+ * See change: update-pi-core-1-0-adopt-apis (D2).
+ */
+export function computePiBelowFloor(
+  version: string | undefined,
+  minimum: string,
+): { minimum: string } | null {
+  // Unreported or not valid SemVer (incl. `0.99.9garbage`, empty or
+  // leading-zero identifiers) → no flag, per spec.
+  if (!version || !semver.valid(version.trim()) || !semver.valid(minimum.trim())) return null;
+  return isBelowFloor(version, minimum) ? { minimum } : null;
+}
+
+let cachedMinimum: string | undefined;
+
+/**
+ * The server's own `piCompatibility.minimum` (`packages/server/package.json`),
+ * read once — the same single source `/api/health` uses. Falls back to the
+ * shared defaults when unreadable.
+ */
+export function serverPiMinimum(): string {
+  cachedMinimum ??= readPiCompatibility(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json"),
+  ).minimum;
+  return cachedMinimum;
+}

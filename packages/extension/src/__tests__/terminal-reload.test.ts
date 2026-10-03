@@ -8,7 +8,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCommandHandler } from "../command-handler.js";
-import { _resetDispatchWarnings } from "../slash-dispatch.js";
 import {
   consumePendingReloadOnSessionStart,
   createTerminalReload,
@@ -23,13 +22,12 @@ import {
 
 const SID = "sess-1";
 
-function setup(opts: { version?: string; send?: (text: string, o: any) => void } = {}) {
+function setup(opts: { send?: (text: string, o: any) => void } = {}) {
   let n = 0;
   const sendUserMessage = vi.fn(opts.send ?? (() => {}));
   const tr = createTerminalReload({
     pi: { sendUserMessage },
     getSessionId: () => SID,
-    readVersion: () => opts.version ?? "0.87.1",
     mintToken: () => `tok-${++n}`,
   });
   return { tr, sendUserMessage };
@@ -58,7 +56,6 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_000_000);
   writePendingReload(undefined);
-  _resetDispatchWarnings();
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => {
@@ -68,13 +65,16 @@ afterEach(() => {
 });
 
 describe("requesting side (B1)", () => {
-  it("E2: pi < 0.84.2 → error naming 0.84.2, nothing sent, no slot", async () => {
-    const { tr, sendUserMessage } = setup({ version: "0.84.1" });
-    const outcome = await tr.reload();
-    expect(outcome.ok).toBe(false);
-    expect((outcome as any).reason).toContain("0.84.2");
-    expect(sendUserMessage).not.toHaveBeenCalled();
-    expect(readPendingReload()).toBeUndefined();
+  it("E2: no pi version gate — reload self-dispatches immediately and arms the slot", async () => {
+    // pi >= 1.0.0 is the single supported pi; the 0.84.2 gate is retired.
+    // See change: update-pi-core-1-0-adopt-apis.
+    const { tr, sendUserMessage } = setup();
+    const p = tr.reload();
+    expect(sendUserMessage).toHaveBeenCalledWith("/__dashboard_reload tok-1", { expandPromptTemplates: true });
+    expect(readPendingReload()).toMatchObject({ token: "tok-1", sessionId: SID, state: "armed" });
+    // Settle the dispatch (no handler runs) so the promise is observed, not discarded.
+    await vi.advanceTimersByTimeAsync(START_TIMEOUT_MS);
+    await expect(p).resolves.toMatchObject({ ok: false });
   });
 
   it.each([

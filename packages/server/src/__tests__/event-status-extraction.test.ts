@@ -300,3 +300,46 @@ describe("E11: a redacted session_compact payload still clears the latch", () =>
     expect(updates).toEqual({ compacting: false });
   });
 });
+
+// pi 0.87+ `agent_before_settle` fires BEFORE settlement — the agent may still
+// continue, so it must not flip the session to idle.
+// See change: update-pi-core-1-0-adopt-apis (test-plan #E12).
+describe("agent_before_settle (E12)", () => {
+  it("has no status effect", () => {
+    const updates = extractSessionUpdates({
+      eventType: "agent_before_settle",
+      timestamp: Date.now(),
+      data: { entries: [], continue: false },
+    } as DashboardEvent);
+    // `null` = "no update" — the strongest form of "no status effect".
+    expect(updates).toBeNull();
+  });
+});
+
+// See change: render-nested-tool-calls — test-plan E15.
+describe("extractSessionUpdates — nested tool calls never touch currentTool (E15)", () => {
+  const nestedStart = makeEvent("tool_execution_start", {
+    toolCallId: "call_1/1",
+    toolName: "bash",
+    parentToolCallId: "call_1",
+  });
+  const nestedEnd = makeEvent("tool_execution_end", {
+    toolCallId: "call_1/1",
+    toolName: "bash",
+    parentToolCallId: "call_1",
+  });
+
+  for (const pending of [false, true]) {
+    it(`nested start → null (hasPendingPrompt=${pending})`, () => {
+      expect(extractSessionUpdates(nestedStart, pending)).toBeNull();
+    });
+    it(`nested end → null (hasPendingPrompt=${pending})`, () => {
+      expect(extractSessionUpdates(nestedEnd, pending)).toBeNull();
+    });
+  }
+
+  it("a top-level end with a pending prompt still yields ask_user", () => {
+    const topEnd = makeEvent("tool_execution_end", { toolCallId: "call_1", toolName: "codemode" });
+    expect(extractSessionUpdates(topEnd, true)).toEqual({ currentTool: "ask_user" });
+  });
+});

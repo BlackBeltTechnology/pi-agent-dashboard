@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Documents how dashboard bridge routes typed `/foo` text from chat input to pi handlers. Extension command dispatch (step 9) is ONE in-process call — `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` — gated on running pi >= 0.84.2. Works in every session kind (dashboard headless, tmux, terminal, user-launched). Paths B/C/D retired by change `retire-slash-dispatch-via-expand-prompt-templates`.
+Documents how dashboard bridge routes typed `/foo` text from chat input to pi handlers. Extension command dispatch (step 9) is ONE in-process call — `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})` — ungated (pi 1.0.0 lockstep floor). Works in every session kind (dashboard headless, tmux, terminal, user-launched). Paths B/C/D retired by change `retire-slash-dispatch-via-expand-prompt-templates`.
 
 ## Routing Order
 
@@ -16,7 +16,7 @@ Documents how dashboard bridge routes typed `/foo` text from chat input to pi ha
 6. `/new` → `spawnNew()` callback
 7. `/model <provider/id>` → `setModel(provider, id)` callback
 8. `/<name>` matching user-defined flow from `getFlowsList()` → `pi.events.emit("flow:run", {flowName, task})`
-9. `/<name>` matching extension command (`source: "extension"` in `pi.getCommands()`, not in `DASHBOARD_NATIVE_COMMANDS`) → gate running pi >= 0.84.2 → `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})`. Single in-process call; every session kind; no session-kind probe.
+9. `/<name>` matching extension command (`source: "extension"` in `pi.getCommands()`, not in `DASHBOARD_NATIVE_COMMANDS`) → `pi.sendUserMessage(text, {expandPromptTemplates: true, deliverAs})`. Single in-process call; every session kind; no session-kind probe.
 10. `/` prefix fall-through → `expandPromptTemplateFromDisk` then `pi.sendUserMessage` (skills, prompt templates, unknown slashes)
 11. No prefix → `pi.sendUserMessage(text)` passthrough
 
@@ -48,11 +48,9 @@ flowchart TD
 
   SP --> F{Flow fast-path:<br/>name in getFlowsList()?}
   F -->|yes| FR["pi.events.emit('flow:run',{flowName,task})"]
-  F -->|no| X{Step 9 gate:<br/>isExtensionSlashCommand(text, getCommands())}
+  F -->|no| X{Step 9 detect:<br/>isExtensionSlashCommand(text, getCommands())}
   X -->|false| FB["steps 10-11:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage(expanded,{deliverAs:'followUp'})"]
-  X -->|true| G{running pi >= 0.84.2?}
-  G -->|no| OG["emit command_feedback {status:'error', message:'Extension slash commands from the dashboard require pi 0.84.2+'}<br/>NO sendUserMessage call"]
-  G -->|yes| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}<br/>sync throw -> {status:'error'}"]
+  X -->|true| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}<br/>sync throw -> {status:'error'}"]
 ```
 
 Old three-way gate retired: Path B (`pi.dispatchCommand`, never shipped upstream), Path C (headless RPC via keeper), Path D (tmux / Windows-Terminal error). Server keeps a one-release tombstone for `dispatch_extension_command` (see Telemetry). Detection stays inside the helper's try — a stale-ctx `getCommands()` throw returns `false` → fall-through.
@@ -87,7 +85,7 @@ sequenceDiagram
   Note over H: handler never runs
 ```
 
-**Resolved (pi >= 0.84.2).** pi honors an explicit `expandPromptTemplates: true` on `sendUserMessage`. Core `AgentSession.prompt()` then runs `_tryExecuteExtensionCommand(text)` FIRST — before its compaction guard and before it consults `streamingBehavior`. Bridge passes the flag; handler runs in every session kind. Verified on pi 0.86.1: `dist/core/agent-session.js` L938/L945/L953 (`?? true`, `_tryExecuteExtensionCommand` first, compaction guard) and L1273/L1296 (`sendUserMessage` → `prompt(..., ?? false)`); `dist/core/extensions/loader.js` L284-287 (`assertActive()` + void call).
+**Resolved (pi 1.0.0 floor).** pi honors an explicit `expandPromptTemplates: true` on `sendUserMessage`. Core `AgentSession.prompt()` then runs `_tryExecuteExtensionCommand(text)` FIRST — before its compaction guard and before it consults `streamingBehavior`. Bridge passes the flag; handler runs in every session kind. Verified on pi 0.86.1: `dist/core/agent-session.js` L938/L945/L953 (`?? true`, `_tryExecuteExtensionCommand` first, compaction guard) and L1273/L1296 (`sendUserMessage` → `prompt(..., ?? false)`); `dist/core/extensions/loader.js` L284-287 (`assertActive()` + void call).
 
 ## Affected Commands Today
 
@@ -138,7 +136,7 @@ Cross-reference: design.md Decision 2.
 
 ### Decision 3: Feature detection over version sniffing
 
-**SUPERSEDED** by change `retire-slash-dispatch-via-expand-prompt-templates` — replaced by a running-pi version gate (`>= 0.84.2`). `readRunningPiVersion()` (`packages/extension/src/model-tracker.ts`) anchors on `process.argv[1]` (pi's own CLI entry), walks up with `readPkgVersionByWalkUp`, accepts `@earendil-works/pi-coding-agent` OR `@mariozechner/pi-coding-agent`. A hoisted newer copy in `node_modules` can never mask an old running pi. `undefined` / unparseable version → treated as new + `console.warn` once per process.
+**SUPERSEDED twice.** First by a running-pi version gate (`>= 0.84.2`, change `retire-slash-dispatch-via-expand-prompt-templates`), then RETIRED entirely by change `update-pi-core-1-0-adopt-apis` — slash dispatch is ungated; no version read on the dispatch path. `readRunningPiVersion()` (`packages/extension/src/model-tracker.ts`) still anchors on `process.argv[1]` (pi's own CLI entry), walks up with `readPkgVersionByWalkUp`, accepts `@earendil-works/pi-coding-agent` OR `@mariozechner/pi-coding-agent`, but now feeds `pi_version_update` → the server's generic below-floor signal. `undefined` / unparseable version → no flag.
 
 Historical rule: `typeof pi.dispatchCommand === "function"` per call — existed only for the never-shipped Path B. No semver checks, no version strings.
 
@@ -146,7 +144,7 @@ Cross-reference: design.md Decision 3 (D3).
 
 ### Decision 4: Telemetry events
 
-**Choice (current):** EXACTLY ONE `command_feedback {command, status: "started"}` before the call; EXACTLY ONE terminal event after. `completed` immediately after the call returned — fire-and-forget, pi accepted the text for dispatch. `error` on a synchronous throw from pi's `assertActive()` (stale ctx) or below pi 0.84.2. Handler outcome NOT observable by the bridge — pi routes in-prompt failures to `runner.emitError`. Version read + `sendUserMessage` both sit inside the try, so no throw escapes between `started` and terminal.
+**Choice (current):** EXACTLY ONE `command_feedback {command, status: "started"}` before the call; EXACTLY ONE terminal event after. `completed` immediately after the call returned — fire-and-forget, pi accepted the text for dispatch. `error` on a synchronous throw from pi's `assertActive()` (stale ctx). Handler outcome NOT observable by the bridge — pi routes in-prompt failures to `runner.emitError`. `sendUserMessage` sits inside the try, so no throw escapes between `started` and terminal.
 
 **Rationale:** Mirrors existing pattern for `/reload`, `/new`, `/model`, `/compact`. Client `event-reducer.ts` renders `command_feedback`. `deliverAs` forwarded for uniformity but inert for an extension command — pi consults `streamingBehavior` only after the extension-command branch.
 
@@ -154,9 +152,9 @@ Cross-reference: design.md Decision 4.
 
 ### Decision 5: Test shape
 
-**Choice (current):** `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`. Stub pi `sendUserMessage` + `getCommands`. Payload table: extension cmd, skill cmd, prompt template, passthrough, `/compact`, `/flows:new`. Assert `sendUserMessage` called with `{expandPromptTemplates: true, deliverAs}`, `command_feedback` emission sequence, and old-pi gate emits `started` + `error` with NO `sendUserMessage` call. `pi-version-tracker.test.ts` covers the argv-anchored version read.
+**Choice (current):** `packages/extension/src/__tests__/bridge-slash-command-routing.test.ts`. Stub pi `sendUserMessage` + `getCommands`. Payload table: extension cmd, skill cmd, prompt template, passthrough, `/compact`, `/flows:new`. Assert `sendUserMessage` called with `{expandPromptTemplates: true, deliverAs}` and the `command_feedback` emission sequence. `pi-version-tracker.test.ts` covers the argv-anchored version read.
 
-**Rationale:** Pins contract that extension slash commands route via the in-process call, never the passthrough. Pins the version gate.
+**Rationale:** Pins contract that extension slash commands route via the in-process call, never the passthrough.
 
 Cross-reference: design.md Decision 5.
 
@@ -168,16 +166,14 @@ Cross-reference: design.md Decision 5.
 flowchart TD
   S["bridge.ts::sessionPrompt(text)"] --> FF{User-defined flow?<br/>(step 8)}
   FF -->|yes| FR["pi.events.emit('flow:run', ...)"]
-  FF -->|no| G["isExtensionSlashCommand(text, pi.getCommands())<br/>(pure helper, step 9 gate)"]
+  FF -->|no| G["isExtensionSlashCommand(text, pi.getCommands())<br/>(pure helper, step 9 detect)"]
   G -->|false| FB["steps 10-11 fall-through:<br/>expandPromptTemplateFromDisk -> pi.sendUserMessage"]
-  G -->|true| V{running pi >= 0.84.2?}
-  V -->|no| EE["emit command_feedback {status:'error', message:'...require pi 0.84.2+'}<br/>NO sendUserMessage call"]
-  V -->|yes| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}"]
+  G -->|true| IS["emit command_feedback {status:'started'}<br/>pi.sendUserMessage(text,{expandPromptTemplates:true, deliverAs})<br/>emit command_feedback {status:'completed'}"]
   IS -.->|sync throw| ER["emit command_feedback {status:'error', message:<thrown>}"]
 ```
 
 - Single in-process path. No upstream dependency, no session-kind probe, no RPC route.
-- Gate: running pi >= 0.84.2 (argv-anchored version read).
+- No pi version gate: pi 1.0.0 is the single supported pi (lockstep floor). A session on an older global pi is flagged once by the server's `piBelowFloor` signal, not per feature.
 - Same regression test pins the call + emission sequence on stub pi.
 
 ## Empirical Verification
@@ -231,7 +227,7 @@ Spec scenarios as truth table:
 
 - `status: "started"` emitted once, before the `pi.sendUserMessage` call.
 - `status: "completed"` emitted once, immediately after the call returns (fire-and-forget).
-- `status: "error", message: <human-readable reason>` emitted on a synchronous throw (pi `assertActive`, stale ctx) or below pi 0.84.2.
+- `status: "error", message: <human-readable reason>` emitted on a synchronous throw (pi `assertActive`, stale ctx).
 
 Handler outcome UNOBSERVABLE from bridge. `_tryExecuteExtensionCommand` swallows handler exceptions and routes in-prompt failures to pi's internal `runner.emitError`; only rpc-mode emits an `extension_error` JSON line, and `packages/extension/src/bridge.ts` does NOT subscribe to it. Bridge emits `completed` on any returned call (fire-and-forget) — cannot claim handler success.
 
@@ -239,7 +235,7 @@ Handler outcome UNOBSERVABLE from bridge. `_tryExecuteExtensionCommand` swallows
 
 ## Risks
 
-- Old running pi (< 0.84.2) → gate emits `started` + `error`; raw slash never reaches the model. Enforced dashboard floor (`piCompatibility.minimum == recommended == 0.86.1`) makes this a non-dashboard-spawn edge.
+- Session on a below-floor pi → generic `piBelowFloor` warning (session card + header); dispatch itself is ungated, so this is advisory, not a per-feature error.
 - Detection false-positive if `getCommands()` lists a command pi cannot dispatch → `completed` while pi sends the text to the model. Bounded to reload windows (`getCommands()` is pi's own list).
 - `command_feedback` rendering varies → existing client `event-reducer.ts` handles all three statuses for `/reload`, `/new`, `/model`, `/compact`. No client change.
 - Multi-line slash `/skill:foo\nuser ctx` classified as passthrough → `isExtensionSlashCommand` rejects multi-line, fix scoped to single-line slash only.

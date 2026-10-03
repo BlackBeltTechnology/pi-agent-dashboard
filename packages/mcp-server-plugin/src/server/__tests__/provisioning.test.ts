@@ -12,6 +12,16 @@ import type {
   ServerProvenance,
 } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { describe, expect, it, vi } from "vitest";
+
+// Hermetic: the provisioning target follows the bundled pi-mcp-adapter's
+// version when none is installed under the agent dir. Pin "none bundled" so
+// these tests exercise the port's own global path regardless of node_modules;
+// individual tests opt in via the `bundledAdapterVersion` option.
+// See change: update-pi-core-1-0-adopt-apis.
+vi.mock("@blackbelt-technology/pi-dashboard-mcp-client-plugin/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-mcp-client-plugin/core")>()),
+  bundledAdapterVersion: () => null,
+}));
 import {
   DASHBOARD_MCP_KEY,
   headerCommandPath,

@@ -3,8 +3,8 @@
  * dashboard.
  *
  * `ExtensionContext` has no `reload()`; only a command handler's
- * `ExtensionCommandContext` does. Since pi 0.84.2,
- * `pi.sendUserMessage(text, {expandPromptTemplates: true})` runs
+ * `ExtensionCommandContext` does. `pi.sendUserMessage(text,
+ * {expandPromptTemplates: true})` (every supported pi, >= 1.0.0) runs
  * `_tryExecuteExtensionCommand`, which hands the handler a FRESH command ctx.
  * So the bridge self-dispatches `/__dashboard_reload <token>` and the handler
  * calls `ctx.reload()`. Nothing callable is cached, so every reload works (the
@@ -23,11 +23,13 @@
  * torn down by the reload. B1 reports every failure. Slot transitions are
  * compare-and-set, so B1's `error` and B2's `completed` are mutually exclusive.
  *
- * See change: fix-terminal-session-dashboard-reload.
+ * No pi version gate (update-pi-core-1-0-adopt-apis): the retired
+ * `>= 0.84.2` check could never fail on a supported pi.
+ *
+ * See change: fix-terminal-session-dashboard-reload, update-pi-core-1-0-adopt-apis.
  */
 import crypto from "node:crypto";
 import {
-  NO_RELOAD_PATH_REASON,
   PI_DID_NOT_RELOAD_REASON,
   RELOAD_DID_NOT_RUN_REASON,
   RELOAD_IN_PROGRESS_REASON,
@@ -35,7 +37,6 @@ import {
   RELOAD_TIMEOUT_REASON,
   type ReloadOutcome,
 } from "./command-handler.js";
-import { supportsInProcessCommandDispatch } from "./slash-dispatch.js";
 
 /** The bridge's reload command (registered as `__dashboard_reload`). */
 export const RELOAD_COMMAND_NAME = "__dashboard_reload";
@@ -94,8 +95,6 @@ interface ReloadCommandCtx {
 export interface TerminalReloadDeps {
   pi: { sendUserMessage: (text: string, options?: { expandPromptTemplates?: boolean }) => void };
   getSessionId: () => string;
-  /** Injectable for tests; defaults to the argv-anchored pi version reader. */
-  readVersion?: () => string | undefined;
   /** Injectable for tests. */
   mintToken?: () => string;
 }
@@ -139,10 +138,6 @@ export function createTerminalReload(deps: TerminalReloadDeps): TerminalReload {
   const pending = new Map<string, PendingDeferred>();
 
   function reload(): Promise<ReloadOutcome> {
-    const readVersion = deps.readVersion;
-    if (!supportsInProcessCommandDispatch(readVersion)) {
-      return Promise.resolve({ ok: false, reason: NO_RELOAD_PATH_REASON });
-    }
     const sessionId = deps.getSessionId();
     const armedAt = Date.now();
     if (isInFlight(readPendingReload(), sessionId, armedAt)) {

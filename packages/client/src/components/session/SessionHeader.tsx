@@ -10,6 +10,7 @@ import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { CountBadges } from "./CountBadges.js";
+import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
@@ -305,6 +306,12 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
     <div className="px-2 py-1 border-b border-[var(--border-primary)] flex flex-col text-sm">
       {row1}
       {chipRow}
+      {/* See change: update-pi-core-1-0-adopt-apis. */}
+      {session.piBelowFloor ? (
+        <div className="py-0.5">
+          <PiBelowFloorWarning session={session} />
+        </div>
+      ) : null}
       {/* Active-YOLO peer indicator: the sidebar pill is not rendered here.
           See change: add-access-grant-dialog (8b.7). */}
       <YoloSessionIndicator cwd={session.cwd} />
@@ -468,6 +475,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       {session.piVersion && (
         <span className="text-[var(--text-tertiary)]" title="pi version">pi {session.piVersion}</span>
       )}
+      {/* See change: update-pi-core-1-0-adopt-apis. */}
+      {session.piBelowFloor ? <PiBelowFloorWarning session={session} /> : null}
       {/* Extension UI System (Phase 2): footer-segment decorator slot. */}
       {/* See change: add-extension-ui-decorations. */}
       <FooterSegmentSlot session={session} />

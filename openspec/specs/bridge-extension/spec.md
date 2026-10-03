@@ -379,7 +379,7 @@ async custom() {
 },
 ```
 
-(source: `~/.nvm/.../@mariozechner/pi-coding-agent/dist/modes/rpc/rpc-mode.js:150-152`)
+(source: `~/.nvm/.../@earendil-works/pi-coding-agent/dist/modes/rpc/rpc-mode.js`)
 
 Any TUI adapter arm that awaits `originals.custom(...)` in dashboard headless mode will therefore receive `undefined` synchronously (one event-loop tick), interpret it as cancellation, and call `bus.respond({ cancelled: true, source: "tui" })`. The PromptBus's first-response-wins semantics will then dismiss the dashboard's already-rendered `MultiselectRenderer` before the user can interact with it.
 
@@ -431,33 +431,6 @@ If `(ctx.ui as any).multiselect` is already a function before the patch runs (de
 - **THEN** `console.warn` SHALL be called with a message containing `"already exists"`
 - **AND** the patch SHALL still complete (the bus-routed version replaces the prior assignment)
 - **AND** subsequent calls to `ctx.ui.multiselect(...)` SHALL flow through `bus.request`, not the prior implementation
-
-### Requirement: Bridge anchors jiti loader resolution at the active pi cli
-
-The bridge extension SHALL resolve pi's TypeScript loader (jiti) by anchoring `createRequire` at `process.argv[1]` (the active pi cli's entry point) and probing the following package names in order:
-
-1. `jiti` — the un-namespaced upstream package shipped by `@earendil-works/pi-coding-agent` (the primary fork).
-2. `@mariozechner/jiti` — the namespaced fork shipped by `@mariozechner/pi-coding-agent` (legacy).
-
-The bridge SHALL NOT probe `@oh-my-pi/jiti`. If neither name resolves, the bridge SHALL surface the error message "Cannot find pi's TypeScript loader (jiti). Is `@earendil-works/pi-coding-agent` or `@mariozechner/pi-coding-agent` installed?" — naming both supported forks in primary-first order, never naming `@oh-my-pi`.
-
-#### Scenario: Earendil pi resolves bare jiti
-
-- **WHEN** the bridge runs inside `@earendil-works/pi-coding-agent`'s Node.js process
-- **THEN** `createRequire(piCli).resolve("jiti/package.json")` succeeds
-- **AND** `@mariozechner/jiti` is never probed
-
-#### Scenario: Legacy pi falls through to namespaced jiti
-
-- **WHEN** the bridge runs inside `@mariozechner/pi-coding-agent`'s Node.js process
-- **THEN** the bare-jiti probe fails fast
-- **AND** `createRequire(piCli).resolve("@mariozechner/jiti/package.json")` succeeds
-
-#### Scenario: Error message lists supported forks only
-
-- **WHEN** neither jiti name resolves (e.g., pi is not installed)
-- **THEN** the thrown error message SHALL list `@earendil-works/pi-coding-agent` and `@mariozechner/pi-coding-agent`
-- **AND** SHALL NOT mention `@oh-my-pi/pi-coding-agent`
 
 ### Requirement: Default model applied only to brand-new sessions
 
@@ -699,7 +672,7 @@ A read failure SHALL log a warning and skip the send without crashing the bridge
 
 ### Requirement: Server stores and broadcasts reported pi version
 
-On receipt of `pi_version_update`, the server SHALL store `version` as `DashboardSession.piVersion` for that session and broadcast a session update to subscribed browsers, mirroring the `git_info_update` handling. Older bridges that never send the message SHALL leave `piVersion` undefined; no client behaviour depends on its presence beyond an optional read-only display in the session header.
+The bridge SHALL report the version of the pi process it runs inside, read by walking up from that process's entry point (`process.argv[1]`) to the nearest pi-coding-agent manifest, never by resolving the package by name. On receipt of `pi_version_update`, the server SHALL store `version` as `DashboardSession.piVersion` for that session and broadcast a session update to subscribed browsers, mirroring the `git_info_update` handling. Older bridges that never send the message SHALL leave `piVersion` undefined; its presence drives the read-only display in the session header and the below-floor warning (`pi-core-version-check`).
 
 #### Scenario: Stored and broadcast
 - **WHEN** the server receives `{ type: "pi_version_update", sessionId, version: "0.80.2" }`
@@ -868,17 +841,17 @@ The field SHALL be optional in the protocol so a bridge that predates this chang
 - **WHEN** the server receives a heartbeat with no `agentRunning` field
 - **THEN** no reconcile is performed and the session's status is unchanged
 
-### Requirement: Slash dispatch helper dispatches in-process
+### Requirement: Slash dispatch helper dispatches in-process without a pi version gate
 The `tryDispatchExtensionCommand(pi, text, sessionId, sink, delivery?)` helper in `packages/extension/src/slash-dispatch.ts` SHALL:
 
 1. Return `false` (no feedback emitted) when `isExtensionSlashCommand(text, pi.getCommands())` is false, or when `pi.getCommands()` throws (stale ctx) — the caller proceeds with the existing passthrough.
-2. Otherwise emit `command_feedback {status:"started"}`; then, if the running pi's version (injectable reader; default walks up from `process.argv[1]`, never throws) parses below `0.84.2`, emit `{status:"error", message:"Extension slash commands from the dashboard require pi 0.84.2+"}`; else call `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs: delivery ?? "followUp" })` and emit `{status:"completed"}`, or `{status:"error", message}` if the call throws synchronously.
+2. Otherwise emit `command_feedback {status:"started"}`; then call `pi.sendUserMessage(text, { expandPromptTemplates: true, deliverAs: delivery ?? "followUp" })` and emit `{status:"completed"}`, or `{status:"error", message}` if the call throws synchronously.
 3. Return `true` whenever it emitted `started`.
 
 The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `pi.dispatchCommand`, and SHALL NOT emit `dispatch_extension_command`. Both call sites (`bridge.ts::sessionPrompt`, `command-handler.ts` slash else-arm) SHALL pass the requested `delivery` when known.
 
 #### Scenario: In-process dispatch
-- **GIVEN** `text` is `/ctx-stats`, `ctx-stats` is in `pi.getCommands()` with `source: "extension"`, pi version `0.86.1`
+- **GIVEN** `text` is `/ctx-stats`, `ctx-stats` is in `pi.getCommands()` with `source: "extension"`
 - **WHEN** `tryDispatchExtensionCommand(pi, text, sessionId, sink, "followUp")` is called
 - **THEN** `pi.sendUserMessage("/ctx-stats", { expandPromptTemplates: true, deliverAs: "followUp" })` SHALL be invoked
 - **AND** sink SHALL receive `command_feedback {status:"started"}` then `{status:"completed"}`
@@ -887,13 +860,6 @@ The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `
 #### Scenario: Steer delivery forwarded
 - **WHEN** called with `delivery: "steer"`
 - **THEN** `pi.sendUserMessage` SHALL receive `deliverAs: "steer"`
-
-#### Scenario: Old pi gate
-- **GIVEN** pi version `0.84.1`
-- **WHEN** the helper is called with an extension command
-- **THEN** sink SHALL receive `started` then `error` containing "requires pi 0.84.2+"
-- **AND** `pi.sendUserMessage` SHALL NOT be called
-- **AND** the helper SHALL return `true`
 
 #### Scenario: Synchronous throw
 - **GIVEN** `pi.sendUserMessage` throws
@@ -904,3 +870,34 @@ The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `
 - **GIVEN** `text` is `/skill:foo` (source: "skill") OR `/totally-unknown` (no match)
 - **WHEN** the helper is called
 - **THEN** it SHALL return `false` and sink SHALL receive no `command_feedback`
+
+#### Scenario: No version read
+- **WHEN** the helper dispatches any extension command
+- **THEN** it SHALL NOT read the running pi's version
+
+### Requirement: Bridge anchors jiti loader resolution at the active earendil pi cli
+
+The bridge extension SHALL resolve pi's TypeScript loader (jiti) by anchoring `createRequire` at `process.argv[1]` (the active pi cli's entry point) and probing the following package names in order:
+
+1. `jiti` — the un-namespaced upstream package shipped by `@earendil-works/pi-coding-agent`.
+2. `@mariozechner/jiti` — the namespaced jiti package, retained as a loader fallback. It is a separate package from the dropped `@mariozechner/pi-coding-agent` fork.
+
+The bridge SHALL NOT probe `@oh-my-pi/jiti`. If neither name resolves, the bridge SHALL surface the error message "Cannot find pi's TypeScript loader (jiti). Is `@earendil-works/pi-coding-agent` installed?" — naming only `@earendil-works/pi-coding-agent`, never `@mariozechner/pi-coding-agent` or `@oh-my-pi`.
+
+#### Scenario: Earendil pi resolves bare jiti
+
+- **WHEN** the bridge runs inside `@earendil-works/pi-coding-agent`'s Node.js process
+- **THEN** `createRequire(piCli).resolve("jiti/package.json")` succeeds
+- **AND** `@mariozechner/jiti` is never probed
+
+#### Scenario: Namespaced jiti fallback
+
+- **WHEN** the bare `jiti` package is not resolvable from the active pi cli and `@mariozechner/jiti` is
+- **THEN** the bare-jiti probe fails fast
+- **AND** `createRequire(piCli).resolve("@mariozechner/jiti/package.json")` succeeds
+
+#### Scenario: Error message names only the earendil pi package
+
+- **WHEN** neither jiti name resolves (e.g., pi is not installed)
+- **THEN** the thrown error message SHALL name `@earendil-works/pi-coding-agent`
+- **AND** SHALL NOT mention `@mariozechner/pi-coding-agent` or `@oh-my-pi/pi-coding-agent`

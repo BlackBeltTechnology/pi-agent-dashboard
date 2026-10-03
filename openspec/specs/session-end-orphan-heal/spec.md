@@ -8,7 +8,7 @@ Every tool card and subagent a session left in flight reaches a terminal state w
 
 ### Requirement: Server SHALL close every open tool call when a session ends
 
-On `sessionManager.onEnded(sessionId)` — the terminal transition fired by BOTH the `unregister()` and the `update({status:"ended"})` seams — and BEFORE broadcasting `session_updated{status:"ended"}`, the server SHALL derive the set of open tool calls from the session's stored events — every `tool_execution_start` after the last `agent_start` that has no `tool_execution_end` with the same `toolCallId` — and for each SHALL insert into the event store and broadcast a synthesized `tool_execution_end` event with `data: { toolCallId, toolName, isError: true, result: "parent session ended", healedBy: "session_ended" }`. When the open call's `toolName` is `"Agent"`, `data.details.agentId` SHALL carry the agent id recovered from the latest `tool_execution_update` for that `toolCallId` whose `data.partialResult.details.agentId` is a string. The derivation SHALL be a pure function (`findOpenToolCalls(events)`) bounded by the store's retained window. The heal SHALL be skipped when the session record carries `movedTo` (a relocation to another instance, whose tool calls are still running on the destination). The gate SHALL be the `movedTo` field, NOT `closedReason` — `ClosedReason` has no member marking a move.
+On `sessionManager.onEnded(sessionId)` — the terminal transition fired by BOTH the `unregister()` and the `update({status:"ended"})` seams — and BEFORE broadcasting `session_updated{status:"ended"}`, the server SHALL derive the set of open tool calls from the session's stored events — every `tool_execution_start` without `parentToolCallId` after the last `agent_start` that has no `tool_execution_end` with the same `toolCallId`. Nested calls (`parentToolCallId` set) SHALL be excluded: pi may legitimately finish them as `unfinished`, and their root call's terminal event closes them in the reducer — and for each SHALL insert into the event store and broadcast a synthesized `tool_execution_end` event with `data: { toolCallId, toolName, isError: true, result: "parent session ended", healedBy: "session_ended" }`. When the open call's `toolName` is `"Agent"`, `data.details.agentId` SHALL carry the agent id recovered from the latest `tool_execution_update` for that `toolCallId` whose `data.partialResult.details.agentId` is a string. The derivation SHALL be a pure function (`findOpenToolCalls(events)`) bounded by the store's retained window. The heal SHALL be skipped when the session record carries `movedTo` (a relocation to another instance, whose tool calls are still running on the destination). The gate SHALL be the `movedTo` field, NOT `closedReason` — `ClosedReason` has no member marking a move.
 
 #### Scenario: two open tool calls, one Agent, on watchdog death
 
@@ -53,6 +53,14 @@ On `sessionManager.onEnded(sessionId)` — the terminal transition fired by BOTH
 - **GIVEN** a session with one open tool call
 - **WHEN** it is ended via `sessionManager.update(id, { status: "ended" })` without `unregister()`
 - **THEN** the synthesized `tool_execution_end` SHALL still be inserted and broadcast
+
+#### Scenario: Nested start without an end is not healed
+- **WHEN** a session ends whose stored events contain `tool_execution_start` for `call_1/1` (with `parentToolCallId: "call_1"`) and no end for it, while `call_1` has ended
+- **THEN** no synthesized `tool_execution_end` SHALL be produced for `call_1/1`
+
+#### Scenario: Root call still healed
+- **WHEN** a session ends while `call_1` and its nested call `call_1/1` are both open
+- **THEN** a synthesized end SHALL be produced for `call_1` only
 
 ### Requirement: Server SHALL terminate every non-terminal subagent when a session ends
 

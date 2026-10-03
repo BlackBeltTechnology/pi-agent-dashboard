@@ -26,3 +26,5 @@ Version-list refresh after completion comes from `usePiCoreVersions`' own indepe
 - Move + Reset-to-npm are the ONLY disabled controls. Reason: they ride `moveTracker` not `packageQueue` — `moveId`-keyed identity + partial-success semantics don't fit source-keyed `statusFor(source)`, so they can't be queued; unqueued they take the busy lock directly with NO 409 retry.
 
 See change: unify-pi-core-into-package-queue.
+
+`PI_CORE_PKG_LEGACY` / `isPiCorePkg` removed — icon + changelog wired to `@earendil-works/pi-coding-agent` only; a stale fork row gets neither. See change: drop-mariozechner-pi-fork.

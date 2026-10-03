@@ -202,13 +202,20 @@ describe("readPiEnginesFloor (test-plan E2)", () => {
   it("never consults a global pi elsewhere on the machine", () => {
     // The "global" copy carries a DIFFERENT floor; the spawned copy's chain
     // is the only thing walked.
-    piCopy(path.join(tmp, "usr-local-lib"), "@mariozechner/pi-coding-agent", ">=20.0.0");
+    piCopy(path.join(tmp, "usr-local-lib"), "@other/pi-coding-agent", ">=20.0.0");
     const spawned = piCopy(
       path.join(tmp, "bundled"),
       "@earendil-works/pi-coding-agent",
       ">=25.0.0",
     );
     expect(readPiEnginesFloor(spawned)).toEqual({ floor: "25.0.0", source: "engines" });
+  });
+
+  // E10 — the pi manifest is recognised under any scope.
+  // See change: drop-mariozechner-pi-fork (test-plan #E10).
+  it("reads engines.node from a pi-coding-agent manifest under any scope", () => {
+    const entry = piCopy(path.join(tmp, "other-scope"), "@other/pi-coding-agent", ">=24.1.0");
+    expect(readPiEnginesFloor(entry)).toEqual({ floor: "24.1.0", source: "engines" });
   });
 
   it("climbs past non-pi package.json files (bin-shim realpaths)", () => {

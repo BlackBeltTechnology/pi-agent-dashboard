@@ -2,7 +2,7 @@
 
 ### Requirement: Folder MCP page follows pi's project rules
 
-The folder page at `/folder/:encodedCwd/mcp` SHALL list the effective servers for that cwd with provenance **Pi global** or **Pi folder**, marking folder entries that replace a global one. When pi does not trust the project, the page SHALL state that folder servers are inactive until the project is trusted, and SHALL still allow editing `<cwd>/.pi/mcp.json`.
+The folder page at `/folder/:encodedCwd/mcp` SHALL list the effective servers for that cwd with provenance **Pi global** or **Pi folder**, marking folder entries that replace a global one. When pi does not trust the project, the page SHALL state that folder servers are inactive until the project is trusted, except in dashboard-spawned headless sessions started in that folder (which the bridge trusts per run), and SHALL still allow editing `<cwd>/.pi/mcp.json`.
 
 #### Scenario: Untrusted folder
 - **WHEN** the folder has `.pi/mcp.json` and the project is not trusted
@@ -10,7 +10,7 @@ The folder page at `/folder/:encodedCwd/mcp` SHALL list the effective servers fo
 
 ### Requirement: Folder overrides are whole entries
 
-Editing from the folder page SHALL write only to `<cwd>/.pi/mcp.json`. "Override…" on a global server SHALL open the editor pre-filled with the complete global entry, and saving SHALL write the complete entry to the folder layer, because pi replaces the global entry as a whole. Inherited secrets SHALL be written only if the operator explicitly re-enters or confirms them; they SHALL NOT be copied silently from the global file.
+Editing from the folder page SHALL write only to `<cwd>/.pi/mcp.json`. "Override…" on a global server SHALL open the editor pre-filled with the complete global entry, and saving SHALL write the complete entry to the folder layer, because pi replaces the global entry as a whole. Inherited secrets (`headers`, `env`, `oauth.clientSecret`) SHALL be written only if the operator explicitly re-enters or confirms them; they SHALL NOT be copied silently from the global file. An inherited `auth` block SHALL be left out of the pre-fill with a note that provider auth is global-only.
 
 #### Scenario: Override writes a complete entry
 - **WHEN** the operator overrides global `docs` in a folder and changes only `exposure`

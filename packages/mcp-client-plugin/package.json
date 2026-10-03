@@ -52,7 +52,7 @@
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "ajv": "^8.17.1",
-    "pi-mcp-adapter": "^2.20.0",
+    "pi-mcp-adapter": "^5.0.0",
     "strip-json-comments": "^5.0.3"
   },
   "devDependencies": {

@@ -904,3 +904,26 @@ describe("performance", () => {
     }
   }, 120_000);
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// pi 0.99+ built-in tool/extension settings survive a dashboard toggle.
+// See change: update-pi-core-1-0-adopt-apis (test-plan #E11).
+// ────────────────────────────────────────────────────────────────────────
+
+describe("built-in settings round-trip (E11)", () => {
+  it("toggling extension foo keeps -builtin:mcp and defaultTools [+codemode, -bash]", async () => {
+    const foo = writeExtension(path.join(tmpDir, ".pi"), "foo");
+    writeLocalSettings({ extensions: ["-builtin:mcp"], defaultTools: ["+codemode", "-bash"] });
+
+    expectOk(await toggle({ type: "extension", filePath: foo, enabled: false }));
+    let settings = readLocalSettings();
+    expect(settings.extensions).toContain("-builtin:mcp");
+    expect(settings.extensions).toContain("-extensions/foo.ts");
+    expect(settings.defaultTools).toEqual(["+codemode", "-bash"]);
+
+    expectOk(await toggle({ type: "extension", filePath: foo, enabled: true }));
+    settings = readLocalSettings();
+    expect(settings.extensions).toEqual(["-builtin:mcp"]);
+    expect(settings.defaultTools).toEqual(["+codemode", "-bash"]);
+  });
+});

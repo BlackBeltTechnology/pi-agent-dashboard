@@ -12,7 +12,7 @@
 # 6. Kill the app and check clean exit.
 #
 # Rewrite scope: this script previously simulated a wizard runtime-install
-# (npm install tsx + @mariozechner/pi-coding-agent into ~/.pi-dashboard/).
+# (npm install tsx + pi-coding-agent into ~/.pi-dashboard/).
 # That flow was deleted under change `eliminate-electron-runtime-install` —
 # the .deb now ships pi/openspec/tsx pre-installed in the bundle. The
 # wizard-simulation stage is gone; everything else is identical.

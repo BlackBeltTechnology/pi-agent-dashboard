@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageQueue } from "../../lib/package/package-queue.js";
 import { usePackageOperations } from "../usePackageOperations.js";
 
-const PI = "@mariozechner/pi-coding-agent";
+const PI = "@earendil-works/pi-coding-agent";
 const PI_SRC = `pi-core:${PI}`;
 
 type Api = ReturnType<typeof usePackageOperations>;
@@ -108,10 +108,11 @@ describe("usePackageOperations — coreUpdate", () => {
     expect(api.messageFor(PI_SRC)).toBe("boom");
   });
 
-  it("E16: Update All fan-out over the 3 core packages — no upstream pi-model-proxy source", async () => {
+  it("E16: Update All fan-out over the 2 core packages — no upstream pi-model-proxy source", async () => {
     // See change: remove-pi-model-proxy-upstream-references.
-    // The two pi forks + the dashboard are the sole pi-core names; the
-    // upstream proxy is no longer one, so its source never enqueues.
+    // Earendil pi + the dashboard are the sole pi-core names (see change:
+    // drop-mariozechner-pi-fork); the upstream proxy is no longer one, so its
+    // source never enqueues.
     const { fetchMock } = makeDeferredFetchMock({ success: true, data: { results: [] } });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -120,7 +121,6 @@ describe("usePackageOperations — coreUpdate", () => {
 
     const coreNames = [
       "@earendil-works/pi-coding-agent",
-      "@mariozechner/pi-coding-agent",
       "@blackbelt-technology/pi-agent-dashboard",
     ];
     await act(async () => {
@@ -133,7 +133,7 @@ describe("usePackageOperations — coreUpdate", () => {
       expect(status === "running" || status === "queued").toBe(true);
     }
     expect(api.statusFor("pi-core:@blackbelt-technology/pi-model-proxy")).toBe("idle");
-    // Only the first op POSTs; the other two wait in the queue.
+    // Only the first op POSTs; the other waits in the queue.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

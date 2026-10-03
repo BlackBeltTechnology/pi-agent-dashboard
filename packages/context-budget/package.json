@@ -44,7 +44,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10"
+    "@earendil-works/pi-coding-agent": ">=1.0.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
@@ -52,6 +52,6 @@
     }
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.10"
+    "@earendil-works/pi-coding-agent": "^1.0.0"
   }
 }

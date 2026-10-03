@@ -1,7 +1,9 @@
 ## Purpose
 
 Client-side state machine that converts a stream of `DashboardEvent` objects into `SessionState` for rendering the chat view. Pure function: `(state, event) → newState`.
+
 ## Requirements
+
 ### Requirement: Session state structure
 The `SessionState` SHALL contain: `messages` (array of `ChatMessage`), `toolCalls` (Map of in-flight tool states), `streamingText` and `streamingThinking` (current assistant output), `isStreaming` (boolean), `model`, `thinkingLevel`, token counters (`tokensIn`, `tokensOut`, `cacheRead`, `cacheWrite`, `cost`), `currentTool`, `status`, `turnStats` (per-turn token breakdown array, max 50), `contextUsage`, and `pendingPrompt`.
 
@@ -110,10 +112,10 @@ The preference SHALL apply uniformly across all three branches of the `message_e
 - **THEN** the pushed `ChatMessage` SHALL have `content: "xyz"` (from msg.content), NOT `"abc"` (from deltas)
 
 ### Requirement: Tool call state machine
-A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status: "running"`. A `tool_execution_end` event SHALL update the entry to `status: "complete"` (or `"error"` if `isError` is true) and store the result text. A tool call still `running` when a backfill segment has been fully reduced SHALL resolve to `status: "elided"`.
+A `tool_execution_start` event without `parentToolCallId` SHALL create a `ToolCallState` entry with `status: "running"`. Any `tool_execution_start`, `tool_execution_update` or `tool_execution_end` carrying `parentToolCallId` is a nested call: it SHALL NOT create or update a top-level `ToolCallState` and follows "Nested tool calls render inside their parent tool call" instead. A `tool_execution_end` event without `parentToolCallId` SHALL update the entry to `status: "complete"` (or `"error"` if `isError` is true) and store the result text. A tool call still `running` when a backfill segment has been fully reduced SHALL resolve to `status: "elided"`.
 
 #### Scenario: Tool starts running
-- **WHEN** a `tool_execution_start` event arrives
+- **WHEN** a `tool_execution_start` event without `parentToolCallId` arrives
 - **THEN** a new ToolCallState SHALL be created with `status: "running"`, `toolName`, and `args`
 
 #### Scenario: Tool completes successfully
@@ -143,15 +145,20 @@ A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status
 - **AND** it SHALL remain eligible for the stale running-tool reconcile
 
 ### Requirement: Stats accumulation
-A `stats_update` event SHALL add per-turn token usage to the running totals and append a `TurnStat` entry (capped at 50 entries). If `contextUsage` is present, it SHALL update the session's context usage.
+A `stats_update` event SHALL add its `tokensIn`, `tokensOut`, `cost`, and its `turnUsage` cache-read and cache-write tokens to the running totals, whatever its usage kind. Only a turn-kind `stats_update` (no usage kind, or kind `turn`) carrying `turnUsage` SHALL perform turn bookkeeping: assign a `turnIndex` to the last user message, increment `turnCount`, and append a `TurnStat` entry (capped at 50 entries). Non-turn usage (tool, compaction, branch summary, usage entries) SHALL NOT perform turn bookkeeping, so it neither appears as a chart bar, evicts real turns, nor shifts turn numbering. If `contextUsage` is present, it SHALL update the session's context usage.
 
 #### Scenario: Turn stats recorded
-- **WHEN** a `stats_update` event with `turnUsage` arrives
+- **WHEN** a `stats_update` event with `turnUsage` and no usage kind arrives
 - **THEN** a TurnStat SHALL be appended to `turnStats` and totals SHALL be incremented
 
 #### Scenario: Turn stats capped
 - **WHEN** `turnStats` exceeds 50 entries
 - **THEN** the oldest entry SHALL be removed
+
+#### Scenario: Non-turn usage adds to totals only
+- **WHEN** a `stats_update` with usage kind `usage:cache_warm` and `turnUsage.cacheRead: 50000` arrives
+- **THEN** `cacheRead` and the other totals SHALL increase
+- **AND** `turnStats`, `turnCount` and every message's `turnIndex` SHALL be unchanged
 
 ### Requirement: Session compact handling
 A `session_compact` event SHALL clear all messages and tool call state, resetting the chat view. This occurs when pi compacts the session history to reclaim context window space.
@@ -360,7 +367,9 @@ The `addInteractiveRequest` helper SHALL accept an optional `toolCallId` paramet
 
 The reducer SHALL flush a non-empty `streamingText` into a permanent `role:"assistant"` `ChatMessage` row at `tool_execution_start` time so that any subsequent `toolResult` or `interactiveUi` rows pushed for the same assistant message land BELOW the assistant text in `messages[]`, preserving the model's content-array order in the live render even before the deferred `message_end` arrives.
 
-Specifically: when a `tool_execution_start` event arrives and `streamingText` is non-empty AND `streamingTextFlushed` is not yet `true` for the current assistant message, the reducer SHALL push a `role:"assistant"` row using the current `streamingText` content, SHALL clear `streamingText` to the empty string, and SHALL set `streamingTextFlushed` to `true` BEFORE pushing the `role:"toolResult"` row.
+Specifically: when a `tool_execution_start` event without `parentToolCallId` arrives and `streamingText` is non-empty AND `streamingTextFlushed` is not yet `true` for the current assistant message, the reducer SHALL push a `role:"assistant"` row using the current `streamingText` content, SHALL clear `streamingText` to the empty string, and SHALL set `streamingTextFlushed` to `true` BEFORE pushing the `role:"toolResult"` row.
+
+A `tool_execution_start` carrying `parentToolCallId` (a nested call) pushes no `toolResult` row and SHALL NOT flush.
 
 `streamingTextFlushed` SHALL be reset to `false` on every `message_start` event whose `message.role` is `"assistant"` AND on every `message_end` event whose `message.role` is `"assistant"`. This dual-reset keeps the flag's lifecycle equal to "between message_start and message_end" so a stray `tool_execution_start` arriving outside that window cannot silently no-op the flush.
 
@@ -443,6 +452,12 @@ The `findFlushedAssistantRowIndex` helper SHALL scan `messages[]` from the tail 
 - **WHEN** `message_update` events for the second text block ("Done.") arrive
 - **THEN** the reducer SHALL NOT re-populate `streamingText` (because `streamingTextFlushed === true`)
 - **AND** the user accepts that the second text does not stream visibly during the tool execution
+
+#### Scenario: nested tool_execution_start does not flush
+- **GIVEN** `streamingText` is non-empty and `streamingTextFlushed` is `false`
+- **WHEN** a `tool_execution_start` carrying `parentToolCallId` arrives
+- **THEN** the reducer SHALL NOT push an assistant row
+- **AND** `streamingText` and `streamingTextFlushed` SHALL be unchanged
 
 ### Requirement: Tool execution start is idempotent on toolCallId
 A `tool_execution_start` event SHALL NOT push a duplicate `toolResult` row when a row with the same `toolCallId` already exists in `messages[]` and is in the `running` state. Instead, the existing row SHALL be updated in place — `args`, `toolName`, `startedAt`, and `timestamp` SHALL be refreshed to the new event's values; `result`, `images`, `duration`, and `toolDetails` (if any) SHALL be left untouched.
@@ -721,3 +736,95 @@ A tool call with status `elided` SHALL be rendered with a neutral affordance sta
 - **THEN** neither SHALL select it
 - **AND** no supersede-heal sentinel SHALL be written into that row
 
+### Requirement: Nested tool calls render inside their parent tool call
+
+A tool execution event carrying `parentToolCallId` (pi ≥ 0.99: codemode scripts and `ctx.executeTool()`) SHALL be attached as a nested call to its **root** tool call — the model-issued call whose id is the first `/`-separated segment of the nested id (pi assigns `<caller id>/<n>` recursively, so `call_1/1/2` belongs to `call_1`). The nested entry SHALL keep its direct `parentToolCallId` so a grandchild can be shown under its caller. It SHALL NOT create a top-level chat row and SHALL NOT change `SessionState.currentTool`. A nested entry's status is one of `running`, `complete`, `error` or `unfinished`. A nested call SHALL NOT be counted by the stale running-tool reconcile or by the elision rule as an independent tool call. pi records nested calls as `nestedCalls` on the root's tool-result message (live: the toolResult `message_start`/`message_end`; transcript replay: the synthesized `tool_execution_end`, onto which transcript replay SHALL copy the message's `nestedCalls`). Only an event carrying `parentToolCallId` is nested. A record-sourced entry's parent is its id minus the last `/` segment. Whenever such a record arrives, the reducer SHALL merge it into the root's nested list: a record id with an existing entry updates its status and duration and keeps its live result; a record id without an entry creates one; an entry absent from the record is kept. Records map as follows: status `ok` → complete, `error` → error, `unfinished` → unfinished (rendered as neither running nor failed); `arguments` when present, otherwise an "arguments omitted (N bytes)" note from `argumentsBytes`. When the record's `complete` flag is false, the parent SHALL show a generic incomplete-record notice; because pi sets `complete:false` for dropped calls, omitted arguments, or unfinished calls alike, the notice SHALL NOT claim which of these occurred. The live view may show more nested calls than a recorded replay; when the record is incomplete this SHALL be signalled by the incomplete-record notice. When the root never finished, pi writes no record and transcript replay shows no nested entries. No nested entry SHALL remain `running` while its root tool call is terminal (complete, error or elided): a root's terminal transition and every record merge SHALL mark running nested entries unfinished, and a nested start whose root is already terminal SHALL be created unfinished. The session's in-flight bash indicator SHALL include running nested `bash` entries. A nested event SHALL NOT trigger the streaming-text flush. A nested call's result SHALL be truncated and offer the full-output affordance under the same rules as a top-level tool result.
+
+#### Scenario: Live nested call attaches to parent
+- **WHEN** `tool_execution_start` arrives with `toolCallId: "call_1/1"` and `parentToolCallId: "call_1"` while `call_1` is running
+- **THEN** no new top-level ToolCallState SHALL be created
+- **AND** `call_1` SHALL list a nested call `call_1/1` with status `running`
+
+#### Scenario: Nested call completes
+- **WHEN** `tool_execution_end` arrives for `call_1/1` with `isError: true`
+- **THEN** the nested entry SHALL show status `error`
+- **AND** the parent `call_1` status SHALL be unchanged
+
+#### Scenario: Replay rebuilds nested calls
+- **WHEN** a session is replayed whose tool-result message for `call_1` carries `nestedCalls` with two records (`ok`, `error`)
+- **THEN** `call_1` SHALL list those two nested calls with their recorded name, status and `durationMs`
+
+#### Scenario: Truncated record is signalled
+- **WHEN** a replayed `nestedCalls` has `complete: false` and one record with `status: "unfinished"` and `argumentsBytes` instead of `arguments`
+- **THEN** `call_1` SHALL show the incomplete-record notice, the unfinished call as unfinished, and "arguments omitted" with the byte count
+
+#### Scenario: Grandchild call attaches to the root
+- **WHEN** `tool_execution_start` arrives with `toolCallId: "call_1/1/1"` and `parentToolCallId: "call_1/1"` while `call_1` is running
+- **THEN** `call_1` SHALL list `call_1/1/1` as a nested call under `call_1/1`
+
+#### Scenario: Parent end closes running nested calls
+- **WHEN** `call_1` ends while its nested entry `call_1/1` is still running
+- **THEN** `call_1/1` SHALL show status unfinished
+
+#### Scenario: Late nested end after the root ended
+- **WHEN** `call_1` ended (marking `call_1/1` unfinished) and a real `tool_execution_end` for `call_1/1` then arrives with `isError: false`
+- **THEN** `call_1/1` SHALL show status complete
+
+#### Scenario: Late nested start after the root ended
+- **WHEN** `call_1` has ended and a `tool_execution_start` for `call_1/2` with `parentToolCallId: "call_1"` then arrives
+- **THEN** `call_1/2` SHALL be listed with status unfinished, not running
+
+#### Scenario: Nested start does not flush streaming text
+- **WHEN** `streamingText` is non-empty and a `tool_execution_start` carrying `parentToolCallId` arrives
+- **THEN** no assistant row SHALL be pushed, `streamingText` SHALL be unchanged and `streamingTextFlushed` SHALL be unchanged
+
+#### Scenario: Long nested result is truncated with the full-output affordance
+- **WHEN** a nested `tool_execution_end` for `call_1/1` carries a result longer than the tool-result truncation limit
+- **THEN** the nested entry SHALL keep the last lines with the omission marker
+- **AND** SHALL offer the full-output affordance
+
+#### Scenario: Nested update refreshes the nested entry
+- **WHEN** `tool_execution_update` arrives for running nested call `call_1/1`
+- **THEN** the nested entry SHALL show the latest partial result and no top-level row SHALL be created
+
+#### Scenario: Replay record merges with live entries
+- **WHEN** live entries `call_1/1` and `call_1/2` exist and the tool-result for `call_1` arrives carrying `nestedCalls` with records for `call_1/1` and `call_1/2`
+- **THEN** each nested entry SHALL take the recorded status and duration and keep its live result
+- **AND** a live entry absent from the record SHALL be kept
+
+#### Scenario: Record entry without a live entry is created
+- **WHEN** a record for `call_1` lists `call_1/1` and `call_1/2` but only `call_1/1` was seen live
+- **THEN** `call_1` SHALL list both, `call_1/2` with its recorded status
+
+#### Scenario: Live record merge leaves nothing running
+- **WHEN** `call_1` has ended, a live entry `call_1/3` is still running and absent from the record, and the record arrives on the toolResult `message_end`
+- **THEN** `call_1/3` SHALL be kept with status unfinished
+
+#### Scenario: Nested start under an elided root
+- **WHEN** a nested start arrives for a root whose status is `elided`
+- **THEN** the nested entry SHALL be created unfinished
+
+#### Scenario: Nested events leave currentTool alone
+- **WHEN** `SessionState.currentTool` is `codemode` and a nested `tool_execution_start` for `bash` then its `tool_execution_end` arrive
+- **THEN** `SessionState.currentTool` SHALL remain `codemode` throughout
+
+#### Scenario: Nested bash counts as in-flight work
+- **WHEN** a nested `bash` call is running
+- **THEN** the session's in-flight bash indicator SHALL include it
+
+#### Scenario: Non-conforming id falls back to the parent chain
+- **WHEN** a nested event's id does not start with a known root but its `parentToolCallId` names a known nested entry
+- **THEN** it SHALL attach to that entry's root
+
+#### Scenario: Orphan nested event
+- **WHEN** a nested event arrives whose root tool call is unknown
+- **THEN** the reducer SHALL drop it without creating a top-level row and without throwing
+
+#### Scenario: Nested result fetch with a slash in the id
+- **WHEN** a nested call `call_1/1` has a truncated live result and the user expands it
+- **THEN** the full result SHALL be fetched from the tool-result endpoint successfully (the id is URL-encoded as one path segment)
+- **AND** a full-fidelity diff upgrade for a nested `edit`/`write` SHALL NOT be attempted, because pi writes no transcript entry for nested calls
+
+#### Scenario: Nested calls never mark the session stuck
+- **WHEN** a parent tool call has completed and one of its nested entries never received an end event
+- **THEN** the stale running-tool reconcile SHALL NOT report a stuck tool for that nested entry

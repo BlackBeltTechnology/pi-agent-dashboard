@@ -895,6 +895,7 @@
   "providers.authUrlFallback": "If the browser did not open, use this link:",
   "providers.availableCount": "{count} available",
   "providers.badgeApiKey": "API key",
+  "providers.badgeAccount": "Account",
   "providers.badgeCustom": "Custom endpoint",
   "providers.badgeEnvironment": "Environment",
   "providers.badgeSubscription": "Subscription",

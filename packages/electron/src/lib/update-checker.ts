@@ -29,7 +29,6 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const PACKAGES_TO_CHECK = [
   "@earendil-works/pi-coding-agent",
-  "@mariozechner/pi-coding-agent",
   "@fission-ai/openspec",
 ];
 

@@ -181,7 +181,7 @@ describe("PackageRow", () => {
 		render(
 			<PackageRow
 				displayName="pi (core agent)"
-				source="@mariozechner/pi-coding-agent"
+				source="@earendil-works/pi-coding-agent"
 				sourceType="global"
 				currentVersion="0.70.5"
 				latestVersion="0.70.6"

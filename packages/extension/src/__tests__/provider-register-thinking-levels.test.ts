@@ -139,3 +139,27 @@ describe("toModelInfo — endpoint reasoning without a synthesized map (E11)", (
     expect(info.supportedThinkingLevels).toContain("xhigh");
   });
 });
+
+/**
+ * pi 1.0.0 audit (design D3): pi-ai's own `getSupportedThinkingLevels` is NOT
+ * adopted. It offers `max` whenever the map opts in (no runtime gate) and
+ * collapses a metadata-less reasoning model to `["off"]`; the dashboard
+ * derivation is fail-closed for `max` and keeps the full set for a
+ * metadata-less model. This pins both the divergence and the dashboard rule
+ * against the INSTALLED pi-ai, so a pi release that changes the rule fails here.
+ * See change: update-pi-core-1-0-adopt-apis (test-plan #E14).
+ */
+describe("pi 1.0.0 audit — thinking max stays fail-closed (E14)", () => {
+  it("E14: map opts into max but the runtime lacks max → no max published", () => {
+    expect(deriveSupportedThinkingLevels(true, { max: "max" }, false)).not.toContain("max");
+  });
+
+  it("installed pi-ai offers max on the map alone (fail-open) — the reason it is not adopted", async () => {
+    const { getSupportedThinkingLevels } = (await import("@earendil-works/pi-ai")) as any;
+    expect(typeof getSupportedThinkingLevels).toBe("function");
+    const piAi = getSupportedThinkingLevels({ reasoning: true, thinkingLevelMap: { max: "max" } });
+    expect(piAi).toContain("max");
+    // The dashboard, with a runtime that does not advertise max, refuses it.
+    expect(deriveSupportedThinkingLevels(true, { max: "max" }, false)).not.toContain("max");
+  });
+});

@@ -5,60 +5,56 @@
  * instead of raising `TypeError`) and #X3 (the relocated async loaders work,
  * with the credential-shape translation in BOTH directions).
  *
- * The third case — the usable legacy `dist/oauth.js` — is what every ≤0.75.x
- * runtime ships, so all three resolution branches of D7 are pinned here.
+ * The legacy `dist/oauth.js` preference is retired (update-pi-core-1-0-adopt-apis):
+ * a usable legacy `dist/oauth.js` is never consulted — only the relocated
+ * loaders count.
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: adopt-piai-factory-api-registry, update-pi-core-1-0-adopt-apis.
  */
 import { sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { adaptPiAi } from "../index.js";
 import { FIXTURE_PATH, makeFactoryFixture } from "../../test-support/piai-factory-fixture.js";
-import { legacyFake } from "./fakes.js";
+import { factoryFake } from "./fakes.js";
 
 const signal = () => new AbortController().signal;
-/** Only `dist/oauth.js` exists — NOT `dist/auth/oauth/load.js`. */
-const onlyLegacyOAuthJs = (p: string) => p.endsWith(`dist${sep}oauth.js`);
 
-describe("OAuth facade — legacy dist/oauth.js", () => {
-  it("uses the legacy module when it exports the expected functions", async () => {
-    const refreshToken = vi.fn(async () => ({ accessToken: "a2" }));
-    const oauthModule = {
-      getOAuthProvider: (id: string) => (id === "anthropic" ? { refreshToken } : undefined),
-      refreshOAuthToken: vi.fn(async () => ({ accessToken: "generic" })),
-    };
-    const { oauth } = await adaptPiAi(legacyFake(), FIXTURE_PATH, {
-      exists: onlyLegacyOAuthJs,
-      importPath: async () => oauthModule,
+describe("OAuth facade — dist/oauth.js is never consulted", () => {
+  it("ignores a USABLE legacy dist/oauth.js when the relocated loaders are absent", async () => {
+    const fx = makeFactoryFixture({
+      oauthLoaders: null,
+      oauthModule: { getOAuthProvider: () => ({ refreshToken: vi.fn() }), refreshOAuthToken: vi.fn() },
     });
-
-    expect(oauth.isAvailable("anthropic")).toBe(true);
-    expect(oauth.getOAuthProvider("anthropic")).toBeTruthy();
-    await oauth.getOAuthProvider("anthropic")!.refreshToken({ accessToken: "a1" }, signal());
-    expect(refreshToken).toHaveBeenCalledOnce();
+    const imported: string[] = [];
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, {
+      ...fx.deps,
+      importPath: async (p: string) => {
+        imported.push(p);
+        return fx.deps.importPath(p);
+      },
+    });
+    expect(imported.some((p) => p.endsWith(`dist${sep}oauth.js`))).toBe(false);
+    expect(oauth.isAvailable("anthropic")).toBe(false);
   });
 
-  // test-plan #X2 — the exact 0.86.1 shape. `{}` is TRUTHY, which is why the
-  // pre-change `if (!this.oauthModule)` guard passed and then threw.
-  it("reports unavailable for an `export {}` stub instead of throwing TypeError", async () => {
-    const { oauth } = await adaptPiAi(legacyFake(), FIXTURE_PATH, {
-      // Only dist/oauth.js exists, and it is the type-only stub.
-      exists: onlyLegacyOAuthJs,
-      importPath: async () => ({}),
+  it("prefers the relocated loaders even when a usable legacy dist/oauth.js exists", async () => {
+    const fx = makeFactoryFixture({
+      oauthModule: { getOAuthProvider: () => undefined, refreshOAuthToken: async () => ({}) },
     });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
+    expect(oauth.isAvailable("anthropic")).toBe(true);
+  });
+
+  // test-plan #X2 — the type-only `export {}` stub never surfaces as TypeError.
+  it("reports unavailable (not TypeError) with only the `export {}` stub present", async () => {
+    // Default fixture oauth.js IS the type-only stub; no relocated loaders.
+    const fx = makeFactoryFixture({ oauthLoaders: null });
+    const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
 
     expect(oauth.isAvailable("anthropic")).toBe(false);
     expect(oauth.unavailableReason?.("anthropic")).toBeTruthy();
     expect(oauth.getOAuthProvider("anthropic")).toBeUndefined();
     await expect(oauth.refreshOAuthToken("anthropic", {}, signal())).rejects.toThrow(/unavailable/);
-  });
-
-  it("rejects a legacy module missing one of the expected functions", async () => {
-    const { oauth } = await adaptPiAi(legacyFake(), FIXTURE_PATH, {
-      exists: onlyLegacyOAuthJs,
-      importPath: async () => ({ getOAuthProvider: () => undefined }),
-    });
-    expect(oauth.isAvailable("anthropic")).toBe(false);
   });
 });
 
@@ -228,16 +224,16 @@ describe("OAuth facade — a malformed refresh is a failure, not a success", () 
 // silently treated as a missing optional capability.
 
 describe("OAuth facade — an unrecognized layout is REPORTED, not silently degraded", () => {
-  it("propagates the derivation error on a legacy-shaped module", async () => {
+  it("propagates the derivation error on a factory-shaped module", async () => {
     const bad = "/opt/bundled/pi-ai/app.js";
     await expect(
-      adaptPiAi(legacyFake(), bad, { importPath: async () => ({}), exists: () => false }),
+      adaptPiAi(factoryFake(), bad, { importPath: async () => ({}), exists: () => false }),
     ).rejects.toThrowError(bad);
   });
 
   it("does not report the bad layout as 'no OAuth provider available'", async () => {
     const bad = "C:\\weird\\layout\\main.js";
-    const err = await adaptPiAi(legacyFake(), bad, {
+    const err = await adaptPiAi(factoryFake(), bad, {
       importPath: async () => ({}),
       exists: () => false,
     }).catch((e: Error) => e);
@@ -250,7 +246,7 @@ describe("OAuth facade — an unrecognized layout is REPORTED, not silently degr
     expect((err as Error).message).toContain(bad);
   });
 
-  it("still degrades to unavailable when the layout is fine but oauth.js is absent", async () => {
+  it("still degrades to unavailable when the layout is fine but the loaders are absent", async () => {
     // The genuine optional-capability case must keep working.
     const fx = makeFactoryFixture({ oauthModule: null, oauthLoaders: null });
     const { oauth } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);

@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isPiCodingAgentName } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/candidates.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
 import { gatherGitInfo, gatherGitStatus } from "./vcs-info.js";
@@ -101,7 +101,13 @@ export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
  * reconnect and suppresses redundant pushes. See change:
  * restore-pi-version-skew-surface.
  */
-let lastPiVersion: string | undefined;
+/**
+ * Last sent `pi_version_update`, keyed by session — the server keeps
+ * `piVersion` / `piBelowFloor` only in memory, so a new session in the same pi
+ * process (session switch) must receive it, and a reconnect clears it
+ * (`resetReconnectCaches`). See change: update-pi-core-1-0-adopt-apis (review B2).
+ */
+let lastPiVersionKey: string | undefined;
 
 const PI_PKG = "@earendil-works/pi-coding-agent";
 
@@ -113,25 +119,27 @@ const PI_PKG = "@earendil-works/pi-coding-agent";
  * `ERR_PACKAGE_PATH_NOT_EXPORTED` (pi 0.80.2 is such a package). So we resolve
  * the always-present `"."` entry instead, then walk up to the nearest
  * `package.json` whose `name` matches — the `name` check avoids grabbing an
- * ancestor workspace manifest under hoisted/linked layouts. Returns `undefined`
+ * ancestor workspace manifest under hoisted/linked layouts. `matchName`
+ * defaults to the exact `pkgName`; a caller may pass a broader predicate
+ * (e.g. `isPiCodingAgentName`). Returns `undefined`
  * (not throw) when no matching manifest is found; a truly-uninstalled package
  * still throws from `resolveEntry`, which the caller catches.
  *
  * `resolveEntry`/`readFile`/`fileExists` are injectable for tests.
  */
 export function readPkgVersionByWalkUp(
-  pkgName: string | readonly string[],
+  pkgName: string,
   resolveEntry: (spec: string) => string,
   readFile: (p: string) => string = (p) => readFileSync(p, "utf8"),
   fileExists: (p: string) => boolean = existsSync,
+  matchName: (name: string) => boolean = (name) => name === pkgName,
 ): string | undefined {
-  const names = typeof pkgName === "string" ? [pkgName] : pkgName;
-  let dir = dirname(resolveEntry(names[0]));
+  let dir = dirname(resolveEntry(pkgName));
   for (let i = 0; i < 10; i++) {
     const candidate = join(dir, "package.json");
     if (fileExists(candidate)) {
       const parsed = JSON.parse(readFile(candidate)) as { name?: string; version?: string };
-      if (parsed.name !== undefined && names.includes(parsed.name)) {
+      if (parsed.name !== undefined && matchName(parsed.name)) {
         return typeof parsed.version === "string" ? parsed.version : undefined;
       }
     }
@@ -141,26 +149,6 @@ export function readPkgVersionByWalkUp(
   }
   return undefined;
 }
-
-/**
- * Default reader: pi-coding-agent version from inside the bridge's own tree.
- *
- * Uses `import.meta.resolve` (the ESM resolver, `import` condition) rather than
- * `createRequire().resolve` (CJS, `require` condition): pi's `"."` export defines
- * only `import`/`types`, so the CJS resolver would itself throw
- * `ERR_PACKAGE_PATH_NOT_EXPORTED` ("No exports main defined"). `import.meta.resolve`
- * returns a `file://` URL, converted to a path for the walk-up.
- */
-export function defaultReadPiVersion(): string | undefined {
-  return readPkgVersionByWalkUp(PI_PKG, (spec) => fileURLToPath(import.meta.resolve(spec)));
-}
-
-/**
- * Both pi package identities a bridge can be running inside. The dashboard's
- * resolver prefers earendil, but a hoisted/transitive `.bin/pi` (e.g.
- * pi-flows') or a user-launched session can point at the mariozechner build.
- */
-const PI_PKG_NAMES = [PI_PKG, "@mariozechner/pi-coding-agent"] as const;
 
 /** Injectable filesystem probes for {@link readRunningPiVersion}. */
 export interface ReadRunningPiVersionFs {
@@ -174,30 +162,33 @@ export interface ReadRunningPiVersionFs {
  * Read the version of the pi process this bridge runs INSIDE, anchored on
  * `process.argv[1]` (pi's CLI entry) rather than a by-name resolution.
  *
- * Why argv, not {@link defaultReadPiVersion}: this monorepo hoists a pinned
- * earendil copy at the root, so by-name resolution can read the hoisted NEW
- * version while the session actually runs an OLD host pi (or a `@mariozechner`
- * build) — waving through a `sendUserMessage` that hard-codes
- * `expandPromptTemplates:false` and silently turns the slash into an LLM turn.
+ * Why argv, not a by-name resolution: this monorepo hoists a pinned earendil
+ * copy at the root, so by-name resolution can read the hoisted NEW version
+ * while the session actually runs an OLD host pi (or a pi-coding-agent build
+ * under another scope) — reporting a supported pi for a session that is below
+ * the floor. The manifest match is scope-agnostic (`isPiCodingAgentName`), so
+ * any running pi reports its true version. See change: drop-mariozechner-pi-fork.
  * `process.argv[1]` is the entry node was started with, so the walk-up always
  * lands on the manifest of the running copy.
  *
  * Whole body in try/catch → `undefined`: a missing argv[1], a bun-compiled
  * binary with no reachable manifest, or an unreadable/invalid manifest. A
- * caller must treat `undefined` as "assume new", never as "too old".
+ * caller must treat `undefined` as "unknown" (no below-floor flag), never as
+ * "too old".
  *
  * `argv[1]` is REALPATH-ed first, and that is load-bearing: a pi installed as a
  * bin shim is a SYMLINK (`node_modules/.bin/pi` → `../@…/dist/cli.js`;
  * `/usr/local/bin/pi` → `../lib/node_modules/…/cli.js`) and Node does NOT
  * resolve it for `argv[1]`. Walking from the symlink's directory finds no pi
- * manifest within the depth bound, so the reader would answer `undefined`,
- * the gate would "assume new", and an OLD pi would receive the raw slash as a
- * model turn — the exact silent regression this reader exists to prevent.
+ * manifest within the depth bound, so the reader would answer `undefined`
+ * and an OLD pi would never be flagged below the floor.
  * A failed realpath (deleted symlink target, virtual path) falls back to the
  * literal entry rather than aborting the read.
  *
  * The `fs` probes are injectable for tests. See change:
- * retire-slash-dispatch-via-expand-prompt-templates (design D3).
+ * retire-slash-dispatch-via-expand-prompt-templates (design D3). Since
+ * update-pi-core-1-0-adopt-apis it feeds `pi_version_update` (the server's
+ * below-floor signal) instead of the retired slash-dispatch gate.
  */
 export function readRunningPiVersion(
   argv1: string | undefined = process.argv[1],
@@ -214,10 +205,11 @@ export function readRunningPiVersion(
       entry = argv1;
     }
     return readPkgVersionByWalkUp(
-      PI_PKG_NAMES,
+      PI_PKG,
       () => entry,
       fs.readFile ?? ((p) => readFileSync(p, "utf8")),
       fs.fileExists ?? existsSync,
+      isPiCodingAgentName,
     );
   } catch {
     return undefined;
@@ -226,14 +218,16 @@ export function readRunningPiVersion(
 
 /**
  * Send `pi_version_update` when the bridge's pi version differs from the last
- * sent value (including the first read). The bridge runs inside pi's own tree,
- * so `createRequire` resolution always succeeds. A read failure logs a warning
- * and skips the send; the next poll tick retries. `readVersion` is injectable
- * for tests.
+ * sent value (including the first read). The version is the RUNNING pi, read
+ * argv-anchored via {@link readRunningPiVersion} — never a by-name resolution,
+ * which can read a hoisted newer copy. An unknown version (`undefined`) is not
+ * sent. A read failure logs a warning and skips the send; the next poll tick
+ * retries. `readVersion` is injectable for tests.
+ * See change: update-pi-core-1-0-adopt-apis (D2).
  */
 export function sendPiVersionIfChanged(
   bc: BridgeContext,
-  readVersion: () => string | undefined = defaultReadPiVersion,
+  readVersion: () => string | undefined = readRunningPiVersion,
 ): void {
   let version: string | undefined;
   try {
@@ -242,8 +236,10 @@ export function sendPiVersionIfChanged(
     console.warn("[dashboard] pi version read failed:", e);
     return;
   }
-  if (!version || version === lastPiVersion) return;
-  lastPiVersion = version;
+  if (!version) return;
+  const key = `${bc.sessionId}\u0000${version}`;
+  if (key === lastPiVersionKey) return;
+  lastPiVersionKey = key;
   bc.connection.send({
     type: "pi_version_update",
     sessionId: bc.sessionId,
@@ -253,7 +249,7 @@ export function sendPiVersionIfChanged(
 
 /** Test-only: clear the module-scoped pi-version cache. */
 export function _resetPiVersionCache(): void {
-  lastPiVersion = undefined;
+  lastPiVersionKey = undefined;
 }
 
 /**
@@ -269,6 +265,8 @@ export function resetReconnectCaches(bc: BridgeContext): void {
   bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
   bc.lastGitStatusJson = undefined;
+  // The server does not persist `piVersion`; re-send on the next tick.
+  lastPiVersionKey = undefined;
 }
 
 /**

@@ -4,12 +4,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   sendPiVersionIfChanged,
   _resetPiVersionCache,
   readPkgVersionByWalkUp,
   readRunningPiVersion,
+  resetReconnectCaches,
 } from "../model-tracker.js";
 import type { BridgeContext } from "../bridge-context.js";
 
@@ -58,6 +60,52 @@ describe("sendPiVersionIfChanged", () => {
     sendPiVersionIfChanged(bc, () => undefined);
     expect(send).not.toHaveBeenCalled();
   });
+
+  // Review B2: the server does not persist `piVersion` / `piBelowFloor`, so an
+  // unchanged version must be re-sent for a NEW session and after a reconnect.
+  it("re-sends an unchanged version for a different session (session switch)", () => {
+    const send = vi.fn();
+    const bc1 = { sessionId: "sess-1", connection: { send } } as unknown as BridgeContext;
+    const bc2 = { sessionId: "sess-2", connection: { send } } as unknown as BridgeContext;
+    sendPiVersionIfChanged(bc1, () => "0.87.1");
+    sendPiVersionIfChanged(bc2, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({ type: "pi_version_update", sessionId: "sess-2", version: "0.87.1" });
+  });
+
+  it("re-sends an unchanged version after resetReconnectCaches (reconnect)", () => {
+    const { bc, send } = makeBc();
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    resetReconnectCaches(bc);
+    sendPiVersionIfChanged(bc, () => "0.87.1");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  // test-plan #E6 — the DEFAULT reader is argv-anchored: the running pi
+  // (0.87.1, argv[1]) wins over the newer 1.0.0 copy resolvable by name from
+  // the bridge's own location (the repo's hoisted pin).
+  // See change: update-pi-core-1-0-adopt-apis.
+  it("E6: default reader reports the running pi, not a hoisted newer copy", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-running-"));
+    const root = path.join(tmp, "node_modules", "@earendil-works", "pi-coding-agent");
+    fs.mkdirSync(path.join(root, "dist"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "0.87.1" }),
+    );
+    const entry = path.join(root, "dist", "cli.js");
+    fs.writeFileSync(entry, "");
+    const prevArgv1 = process.argv[1];
+    process.argv[1] = entry;
+    try {
+      const { bc, send } = makeBc();
+      sendPiVersionIfChanged(bc);
+      expect(send).toHaveBeenCalledWith({ type: "pi_version_update", sessionId: "sess-1", version: "0.87.1" });
+    } finally {
+      process.argv[1] = prevArgv1;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("readPkgVersionByWalkUp", () => {
@@ -98,6 +146,24 @@ describe("readPkgVersionByWalkUp", () => {
       (p) => p in files,
     );
     expect(v).toBe("0.80.2");
+  });
+
+  // E18 — the scope-agnostic match is opt-in: the exact-name (by-name) mode
+  // does not broaden to other scopes. `defaultReadPiVersion` was removed by
+  // update-pi-core-1-0-adopt-apis; this pins the walk-up contract it relied on.
+  // See change: drop-mariozechner-pi-fork (test-plan #E18).
+  it("E18: exact-name mode ignores an @other/pi-coding-agent manifest", () => {
+    const root = "/r/node_modules/@other/pi-coding-agent";
+    const files: Record<string, string> = {
+      [`${root}/package.json`]: JSON.stringify({ name: "@other/pi-coding-agent", version: "0.73.1" }),
+    };
+    const v = readPkgVersionByWalkUp(
+      "@earendil-works/pi-coding-agent",
+      () => `${root}/dist/index.js`,
+      (p) => files[p] ?? (() => { throw new Error(`ENOENT ${p}`); })(),
+      (p) => p in files,
+    );
+    expect(v).toBeUndefined();
   });
 
   it("returns undefined (no throw) when no matching manifest is found", () => {
@@ -154,14 +220,14 @@ describe("readRunningPiVersion", () => {
   });
 
   it("a failing realpath falls back to the literal argv[1] (no throw)", () => {
-    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+    const root = "/x/node_modules/@earendil-works/pi-coding-agent";
     const v = readRunningPiVersion(`${root}/dist/cli.js`, {
       realpath: () => {
         throw new Error("ENOENT");
       },
       ...fsStub({
         [`${root}/package.json`]: JSON.stringify({
-          name: "@mariozechner/pi-coding-agent",
+          name: "@earendil-works/pi-coding-agent",
           version: "0.73.1",
         }),
       }),
@@ -169,18 +235,64 @@ describe("readRunningPiVersion", () => {
     expect(v).toBe("0.73.1");
   });
 
-  it("E8: reads the @mariozechner build the process actually runs inside", () => {
-    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+  // E17 — the running-version walk-up is scope-agnostic (isPiCodingAgentName).
+  // See change: drop-mariozechner-pi-fork (test-plan #E17, #X2).
+  it("E17a: reads a pi-coding-agent build under any scope", () => {
+    const root = "/x/node_modules/@other/pi-coding-agent";
     const v = readRunningPiVersion(
       `${root}/dist/cli.js`,
       fsStub({
         [`${root}/package.json`]: JSON.stringify({
-          name: "@mariozechner/pi-coding-agent",
+          name: "@other/pi-coding-agent",
           version: "0.73.1",
         }),
       }),
     );
     expect(v).toBe("0.73.1");
+  });
+
+  it("E17b: skips a nested non-pi manifest and returns the outer pi version", () => {
+    const root = "/x/node_modules/@other/pi-coding-agent";
+    const nested = `${root}/node_modules/some-dep`;
+    const v = readRunningPiVersion(
+      `${nested}/dist/index.js`,
+      fsStub({
+        [`${nested}/package.json`]: JSON.stringify({ name: "some-dep", version: "9.9.9" }),
+        [`${root}/package.json`]: JSON.stringify({
+          name: "@other/pi-coding-agent",
+          version: "0.73.1",
+        }),
+      }),
+    );
+    expect(v).toBe("0.73.1");
+  });
+
+  it("E17c: no pi manifest within the walk → undefined", () => {
+    const v = readRunningPiVersion(
+      "/x/node_modules/pi-coding-agent-x/dist/cli.js",
+      fsStub({
+        "/x/node_modules/pi-coding-agent-x/package.json": JSON.stringify({
+          name: "pi-coding-agent-x",
+          version: "1.0.0",
+        }),
+      }),
+    );
+    expect(v).toBeUndefined();
+  });
+
+  it("X2: a read error on the first manifest returns undefined without throwing", () => {
+    const root = "/x/node_modules/@earendil-works/pi-coding-agent";
+    let v: string | undefined = "sentinel";
+    expect(() => {
+      v = readRunningPiVersion(`${root}/dist/cli.js`, {
+        realpath: (p) => p,
+        fileExists: () => true,
+        readFile: () => {
+          throw new Error("EACCES");
+        },
+      });
+    }).not.toThrow();
+    expect(v).toBeUndefined();
   });
 
   it("E9: argv anchor wins over a hoisted newer by-name copy", () => {

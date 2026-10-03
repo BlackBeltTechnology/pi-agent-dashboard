@@ -2,7 +2,11 @@
 
 ### Requirement: The dashboard MCP server is registered per session by the bridge
 
-A pi session on the dashboard's machine SHALL reach `/mcp` through a `pi-dashboard` MCP server that the bridge registers for that session with pi's extension MCP registration, carrying the session's delivered bearer credential as an `Authorization` header. The bridge SHALL register only after the credential is delivered, SHALL re-register when a new credential is delivered (replacing the earlier registration), and SHALL unregister when the session's credential is revoked. The operator SHALL NOT be required to edit an MCP config file, copy a token, or run a pairing flow. The credential SHALL resolve to a caller identity the server recorded, never to anything the MCP client asserts. The registration SHALL negotiate the modern protocol era.
+A pi session on the dashboard's machine SHALL reach `/mcp` through a `pi-dashboard` MCP server that the bridge registers for that session with pi's extension MCP registration, carrying the session's delivered bearer credential as an `Authorization` header and the `/mcp` URL the server delivered with it. The bridge SHALL register only after the credential is delivered, SHALL re-register when a new credential is delivered (replacing the earlier registration), and SHALL unregister when the session shuts down. A delivery without a URL SHALL NOT be registered and SHALL be reported as registration unavailable. The operator SHALL NOT be required to edit an MCP config file, copy a token, or run a pairing flow. The credential SHALL resolve to a caller identity the server recorded, never to anything the MCP client asserts. The registration SHALL rely on pi's protocol negotiation and SHALL NOT require a revision pi's client does not offer; the dual-era endpoint serves the revision pi declares.
+
+#### Scenario: Legacy-era pi client is served
+- **WHEN** pi's MCP client declares a legacy revision such as `2025-11-25`
+- **THEN** `tools/list` and a `pi-dashboard` tool call SHALL succeed for that session
 
 #### Scenario: Session reaches /mcp without configuration
 - **WHEN** a dashboard-connected pi session starts and its credential is delivered
@@ -45,6 +49,35 @@ No dashboard package SHALL register a pi slash command named `mcp`, because doin
 #### Scenario: Built-in MCP stays active
 - **WHEN** a pi session loads every dashboard extension
 - **THEN** `/mcp` SHALL be served by pi's built-in MCP extension
+
+## MODIFIED Requirements
+
+### Requirement: Delivered credentials survive neither a restart nor the session's end
+Because the token registry is in-memory, a dashboard restart SHALL invalidate
+every delivered credential. The delivery path SHALL re-run so a session recovers
+a working credential without operator action. No delivered credential SHALL be
+written to disk.
+
+#### Scenario: Restart re-delivers rather than stranding
+- **WHEN** the dashboard restarts while a pi session is running
+- **AND** the session's bridge reconnects
+- **THEN** a fresh credential SHALL be delivered to that session
+- **AND** the session SHALL reach `/mcp` again without operator action
+
+#### Scenario: A stale credential is not left behind
+- **WHEN** a session ends
+- **THEN** its `pi-dashboard` registration SHALL be removed
+- **AND** presenting its credential SHALL be refused
+
+#### Scenario: Delivery failure is surfaced, never silent
+- **WHEN** credential delivery fails
+- **THEN** the failure SHALL be logged with the affected session id
+- **AND** the dashboard SHALL continue serving `/mcp` to other callers
+
+#### Scenario: Delivery failure is logged by the side that can see it
+- **WHEN** registration fails on the session side
+- **THEN** the bridge SHALL log it with the session id
+- **AND** a failure that is structurally invisible to the server SHALL NOT be the only record of it
 
 ## REMOVED Requirements
 

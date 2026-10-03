@@ -10,8 +10,35 @@
  * See change: extract-mcp-client-plugin (design D3).
  */
 
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import type { AdapterPort, AdapterVerdict, ConfigIO } from "./types.js";
+
+/**
+ * Version of the dashboard-BUNDLED `pi-mcp-adapter` (this package's own
+ * dependency), or `null`. pi loads this copy when no adapter is installed under
+ * the agent dir. Resolved through the package's exported `./config` entry
+ * (its `package.json` is not exported), then walked up to the manifest.
+ * See change: update-pi-core-1-0-adopt-apis (design D7b).
+ */
+export function bundledAdapterVersion(): string | null {
+  try {
+    let dir = dirname(createRequire(import.meta.url).resolve("pi-mcp-adapter/config"));
+    for (let i = 0; i < 4; i++) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; version?: unknown };
+        if (pkg.name === "pi-mcp-adapter" && typeof pkg.version === "string") return pkg.version;
+      } catch {
+        /* no manifest at this level */
+      }
+      dir = dirname(dir);
+    }
+  } catch {
+    /* not resolvable */
+  }
+  return null;
+}
 
 /** Minimum `pi-mcp-adapter` that speaks the protocol the dashboard requires. */
 export const ADAPTER_VERSION_FLOOR = "2.20.0";

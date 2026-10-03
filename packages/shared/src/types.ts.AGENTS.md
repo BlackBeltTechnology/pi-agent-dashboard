@@ -15,3 +15,7 @@ Adds `ProviderSource` — the six-member pi-ai union (`stored | runtime | enviro
 Adds `GitPrState`, `GitPrChecks`; `DashboardSession.gitPrNumber|Url` `| null` + `gitPrState|Draft|Checks|CheckedAt` (not persisted). See change: redesign-composer-session-strip.
 
 `NotifyLogEntry` gains optional `ts` (emit time, epoch ms; persisted with the notify log). See change: collapse-and-order-notify-rows.
+
+`DashboardSession.piBelowFloor?: {minimum}|null` (null = cleared). `ProviderInfo.authLabel?`. See change: update-pi-core-1-0-adopt-apis.
+
+`DashboardSession.statsExtractorVersion?` — extractor version of the totals (server-only, persisted via `sessionToMeta`). See change: count-non-message-usage.
