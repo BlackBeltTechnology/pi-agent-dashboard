@@ -64,3 +64,28 @@ as a pass**.
    Unverified. (Task 0.4)
 4. Figures 1.39M / 0-of-21 / "100% React commit phase" come from a live session
    and are not reproducible from the repo alone. Task 0.1–0.2 re-derives them.
+
+## Re-baseline on current tree (ship-it, group 0)
+
+Measured against the production dashboard at :8000 (client `dist` built after
+`fix-long-session-ux-degradation` #699), same URL class
+(`/session/<id>/editor?file=docs/architecture.md`), 30s idle, `MutationObserver`
++ node-identity stamping.
+
+| Measurement | Pre-#699 (above) | Current tree |
+|---|---|---|
+| `.mermaid-diagram` nodes | 21 | 27 |
+| DOM mutations / 30s | ~1.39M (36s) | **330** |
+| `.mermaid-diagram` removal waves | ~96 | **0** |
+| Stamped nodes surviving | 0 of 21 | **27 of 27** |
+
+**Finding (0.3/0.7):** the remount storm no longer reproduces. `MarkdownContent`
+already uses module-scope `MARKDOWN_COMPONENTS` + `MarkdownRenderContext`
+(`fix-long-session-ux-degradation` D6). Group 1 (D1/D2) is therefore already
+delivered; the driver investigation (0.3–0.5, 0.8) is moot for this change — the
+amplifier was removed, so the ~1Hz trigger no longer has an observable effect.
+Falsified premise: "the `components` map is rebuilt inline" (no longer true).
+Remaining valid scope: D3 (stable `imageBase`), D4 (fixed-height fitted viewport).
+Group 1 L1 scenarios are kept as regression guards.
+
+`.mmd` path (task 4.1): `MermaidViewer` → `MermaidBlock`, 30s idle on current build: 0 removals, 1 of 1 node survives.
