@@ -12,6 +12,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **nano-banana: opt-in pi image backend.** `pi-nano-banana --backend pi` (or
+  `NANO_BANANA_BACKEND=pi`; library `backend: "pi"`) generates and edits images
+  through pi 1.0.0's model runtime with the OpenRouter credential pi already
+  holds (`/login openrouter` or `OPENROUTER_API_KEY`) — no `GEMINI_API_KEY`.
+  Default stays Gemini; a missing Gemini key never falls back to pi. The CLI
+  prints the model and an estimated cost.
+
 - **pi 1.0.0 surfaces.** Sign in with ChatGPT (`openai` OAuth) from the
   providers page; OAuth rows show **Subscription** or **Account**
   (OpenRouter); an Environment row names pi's mechanism (e.g. "workload
