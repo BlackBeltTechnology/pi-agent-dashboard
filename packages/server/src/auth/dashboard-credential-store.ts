@@ -16,6 +16,9 @@
  * A rejected `fn` takes one more locked read: a different, fresh credential
  * another writer stored meanwhile is returned instead of the error.
  *
+ * A credential this store persisted < 30 s ago is returned as-is, so one
+ * request's two auth resolutions never refresh a short-lived token twice.
+ *
  * Refresh-only: the server never calls `runtime.login()`, so every `modify`
  * the runtime issues is an OAuth refresh. A non-refresh write (no stored OAuth
  * credential, or a non-OAuth result) is refused, never persisted.
@@ -59,6 +62,15 @@ export interface RuntimeCredentialStore {
  * still expiring", so the store and pi cannot disagree.
  */
 const OAUTH_REFRESH_WINDOW_MS = 5 * 60_000;
+
+/**
+ * A credential THIS store just persisted is not refreshed again within this
+ * window. pi refreshes whenever < 5 min remain and accepts a refreshed token
+ * that is itself inside that window, and one completion resolves auth twice
+ * (facade `getAuth`, then `streamSimple`'s own) — without the debounce a
+ * short-lived token would hit the refresh endpoint twice per request.
+ */
+const RECENT_REFRESH_MS = 30_000;
 
 function isFreshOAuth(cred: AuthCredential | undefined): cred is OAuthCredential {
   return cred?.type === "oauth" && typeof cred.expires === "number" && cred.expires > Date.now() + OAUTH_REFRESH_WINDOW_MS;
@@ -120,6 +132,8 @@ async function withLockedAuthRead(signal: AbortSignal | undefined): Promise<Auth
 export class DashboardCredentialStore implements RuntimeCredentialStore {
   /** Per-provider tail of the in-process mutex. Never rejects. */
   private readonly chains = new Map<string, Promise<void>>();
+  /** Last credential this store persisted per provider, and when. */
+  private readonly recentlyWritten = new Map<string, { credential: AuthCredential; at: number }>();
 
   /**
    * Serialize `task` after every earlier `modify`/`delete` of `providerId`.
@@ -186,6 +200,7 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
       const snap = await readStoredCredentialLocked(providerId, signal);
       if (snap.outcome === "corrupt") throw coordinationError(providerId, "corrupt");
       const current = snap.outcome === "ok" ? snap.credential : undefined;
+      if (current && this.justRefreshed(providerId, current)) return current;
 
       let next: AuthCredential | undefined;
       try {
@@ -222,6 +237,7 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
     const result = await writeRefreshedOAuth(providerId, next, current, signal);
     switch (result.outcome) {
       case "written":
+        this.recentlyWritten.set(providerId, { credential: result.credential, at: Date.now() });
         return result.credential;
       case "changed":
         if (isFreshOAuth(result.credential)) return result.credential;
@@ -229,6 +245,17 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
       default:
         throw coordinationError(providerId, result.outcome);
     }
+  }
+
+  /** `current` is exactly what this store persisted for `providerId` within {@link RECENT_REFRESH_MS}. */
+  private justRefreshed(providerId: string, current: AuthCredential): boolean {
+    const recent = this.recentlyWritten.get(providerId);
+    if (!recent) return false;
+    if (Date.now() - recent.at >= RECENT_REFRESH_MS) {
+      this.recentlyWritten.delete(providerId);
+      return false;
+    }
+    return isDeepStrictEqual(current, recent.credential);
   }
 
   /**
@@ -260,8 +287,9 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
 
   delete(providerId: string, options: CredentialOperationOptions = {}): Promise<void> {
     const { signal } = options;
-    return this.enqueue(providerId, signal, () =>
-      removeCredential(providerId, undefined, { createIfMissing: false, ...(signal ? { signal } : {}) }),
-    );
+    return this.enqueue(providerId, signal, async () => {
+      this.recentlyWritten.delete(providerId);
+      await removeCredential(providerId, undefined, { createIfMissing: false, ...(signal ? { signal } : {}) });
+    });
   }
 }

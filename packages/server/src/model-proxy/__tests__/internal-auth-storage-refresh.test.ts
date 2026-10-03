@@ -149,6 +149,23 @@ describe("facade auth resolution", () => {
   });
 });
 
+describe("one completion refreshes at most once (ship-it review round 2, B1)", () => {
+  it("a refreshed token with < 5 min validity is not refreshed again by the stream's own auth resolution", async () => {
+    writeAuth({ anthropic: expired() });
+    const shortLived = { type: "oauth" as const, access: "short-a", refresh: "r-new", expires: Date.now() + 3 * 60_000 };
+    const refresh = vi.fn(async () => ({ ...shortLived }));
+    const { models } = piModelsOver({ oauth: { anthropic: refresh } });
+    const storage = new InternalAuthStorage(models as never);
+
+    // 1. The facade resolves (and refreshes) before streaming.
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toMatchObject({ apiKey: "short-a" });
+    // 2. `runtime.streamSimple` → `prepareRequest` resolves auth again, exactly like this.
+    const again = await models.getAuth(model, {});
+    expect(again?.auth.apiKey).toBe("short-a");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("a joined request is not failed by someone else's disconnect (audit)", () => {
   it("initiator aborts mid-refresh; a still-connected joiner resolves through its own attempt", async () => {
     writeAuth({ anthropic: expired() });
