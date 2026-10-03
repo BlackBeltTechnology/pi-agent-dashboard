@@ -1,12 +1,12 @@
 ## REMOVED Requirements
 
-### Requirement: The dashboard SHALL run against either pi-ai module generation
+### Requirement: The dashboard SHALL run against the factory pi-ai module generation only
 
 **Reason**: The server no longer loads pi-ai modules itself; it uses pi's `ModelRuntime`, which owns module shape.
 
 **Migration**: See `model-proxy-credential-routing` "The server SHALL use a single model runtime".
 
-### Requirement: Derived runtime subpaths SHALL be validated, never assumed
+### Requirement: Derived factory-runtime subpaths SHALL be validated, never assumed
 
 **Reason**: No pi-ai subpath is derived by the dashboard any more.
 

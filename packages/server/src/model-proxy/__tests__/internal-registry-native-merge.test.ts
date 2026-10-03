@@ -12,19 +12,15 @@ import {
   type CustomProviderEntry,
   InternalRegistry,
   type InternalRegistryDeps,
-  type PiAiModule,
+  type RuntimeCatalogue,
 } from "../internal-registry.js";
 
-function makePiAi(builtins: Record<string, any[]>): PiAiModule {
+/** Catalogue-only model-runtime fake. See change: collapse-model-proxy-onto-modelruntime. */
+function makePiAi(builtins: Record<string, any[]>): RuntimeCatalogue {
   return {
-    registerBuiltInApiProviders: () => {},
-    getProviders: () => Object.keys(builtins),
-    getModels: (provider: string) => builtins[provider] ?? [],
-    getModel: () => null,
-    registerApiProvider: () => {},
-    unregisterApiProviders: () => {},
-    streamSimple: async function* () {},
-  } as unknown as PiAiModule;
+    getProviders: () => Object.keys(builtins).map((id) => ({ id })),
+    getModels: (provider?: string) => (provider ? (builtins[provider] ?? []) : Object.values(builtins).flat()),
+  };
 }
 
 async function buildRegistry(opts: {
@@ -275,5 +271,51 @@ describe("getAllModels — metadataSource provenance (E19/E20)", () => {
       ],
     });
     expect(pick(reg, "newapi", "glm-5.2").metadataSource).toBe("catalog");
+  });
+});
+
+/**
+ * test-plan #E3 — a custom provider with 2 discovered models is listed by
+ * `/api/models`, routable through the proxy, and visible to plugins
+ * (`getModelRegistry().find` + `streamSimple`) — all from the ONE runtime.
+ * Drives a REAL model runtime with a capturing provider.
+ * See change: collapse-model-proxy-onto-modelruntime (D3, D5).
+ */
+describe("custom provider visible everywhere (E3)", () => {
+  it("E3: both models listed, found by the plugin registry, and routed through the runtime's streamSimple", async () => {
+    const { createRealRuntime, captureProviderStreams } = await import("../../__tests__/helpers/pi-models-fixture.js");
+    const { InternalAuthStorage } = await import("../internal-auth-storage.js");
+    const runtime = await createRealRuntime();
+    const auth = { acme: { type: "api_key" as const, key: "sk-acme" } };
+    const discovered: CustomModelEntry[] = [
+      { id: "a1", provider: "acme", api: "openai-completions", baseUrl: "https://acme.example/v1" },
+      { id: "a2", provider: "acme", api: "openai-completions", baseUrl: "https://acme.example/v1" },
+    ];
+    const reg = new InternalRegistry(runtime, new InternalAuthStorage(runtime, () => auth), {
+      readProviders: () => ({ acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-acme" } }),
+      readModels: () => [],
+      readAuth: () => auth,
+      discoverCustomProviders: async () => discovered,
+    });
+    await reg.refresh();
+
+    // Listed (/api/models reads getAvailable / getAllAnnotated).
+    const listed = (await reg.getAvailable()).filter((m: any) => m.provider === "acme").map((m: any) => m.id);
+    expect(listed.sort()).toEqual(["a1", "a2"]);
+    // Projected onto the runtime.
+    expect(runtime.getModels("acme").map((m: any) => m.id).sort()).toEqual(["a1", "a2"]);
+
+    // Plugin view: find + streamSimple (the runtime's, apiKey override dropped).
+    const model = await reg.find("acme", "a2");
+    expect(model).not.toBeNull();
+    const captured = await captureProviderStreams(runtime, "acme");
+    const { apiKey } = await reg.getApiKeyAndHeaders(model);
+    expect(apiKey).toBe("sk-acme");
+    for await (const _e of runtime.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] })) {
+      // drain
+    }
+    expect(captured).toHaveLength(1);
+    expect(captured[0].model).toMatchObject({ provider: "acme", id: "a2", api: "openai-completions", baseUrl: "https://acme.example/v1" });
+    expect(captured[0].options.apiKey).toBe("sk-acme");
   });
 });

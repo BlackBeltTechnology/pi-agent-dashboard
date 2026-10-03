@@ -1,7 +1,7 @@
 /**
  * Tests for InternalRegistry credential-kind-aware filtering.
  *
- * Uses a fake PiAiModule + injected deps — no real pi-ai.
+ * Uses a fake model-runtime catalogue + injected deps — no real runtime.
  *
  * See change: filter-oauth-incompatible-models, tasks 4.1 / 4.2.
  */
@@ -10,22 +10,18 @@ import {
   type CustomModelEntry,
   InternalRegistry,
   type InternalRegistryDeps,
-  type PiAiModule,
+  type RuntimeCatalogue,
 } from "../internal-registry.js";
 import { OAUTH_INCOMPATIBLE } from "../oauth-compat.js";
 
 // ── Fakes ────────────────────────────────────────────────────────────────
 
-function makePiAi(builtins: Record<string, any[]>): PiAiModule {
+/** Catalogue-only model-runtime fake. See change: collapse-model-proxy-onto-modelruntime. */
+function makePiAi(builtins: Record<string, any[]>): RuntimeCatalogue {
   return {
-    registerBuiltInApiProviders: () => {},
-    getProviders: () => Object.keys(builtins),
-    getModels: (provider: string) => builtins[provider] ?? [],
-    getModel: () => null,
-    registerApiProvider: () => {},
-    unregisterApiProviders: () => {},
-    streamSimple: async function* () {},
-  } as unknown as PiAiModule;
+    getProviders: () => Object.keys(builtins).map((id) => ({ id })),
+    getModels: (provider?: string) => (provider ? (builtins[provider] ?? []) : Object.values(builtins).flat()),
+  };
 }
 
 function makeRegistry(opts: {
@@ -324,5 +320,34 @@ describe("custom-provider discovery containment (E17, X1, X4)", () => {
     const m = reg.getAll().find((x) => x.provider === "good" && x.id === "good-model");
     expect(m.contextWindow).toBe(1_000_000);
     expect(m.metadataSource).toBe("endpoint");
+  });
+});
+
+/**
+ * test-plan #E9 — listing stays auth.json-based: an ambient env key the
+ * runtime would resolve does NOT make a provider listed.
+ * See change: collapse-model-proxy-onto-modelruntime (D5).
+ */
+describe("ambient environment keys do not change the listed catalogue (E9)", () => {
+  it("E9: OPENAI_API_KEY exported, no openai credential in auth.json → no openai/* listed", async () => {
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "sk-ambient";
+    try {
+      const reg = makeRegistry({
+        builtins: {
+          openai: [{ id: "gpt-5", provider: "openai", api: "openai-responses" }],
+          anthropic: [{ id: "claude", provider: "anthropic", api: "anthropic-messages" }],
+        },
+        auth: { anthropic: { type: "api_key", key: "sk-ant" } },
+      });
+      const available = await reg.getAvailable();
+      expect(available.some((m: any) => m.provider === "openai")).toBe(false);
+      expect(available.some((m: any) => m.provider === "anthropic")).toBe(true);
+      const annotated = reg.getAllAnnotated().find(({ model }) => model.provider === "openai");
+      expect(annotated?.excludedReason).toBe("no-credential");
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
   });
 });
