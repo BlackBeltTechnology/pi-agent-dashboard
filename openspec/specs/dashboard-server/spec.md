@@ -160,87 +160,12 @@ The dashboard server SHALL expose `POST /api/session/:id/attach-proposal` and `P
 - **WHEN** a `POST /api/session/:id/detach-proposal` request is received
 - **THEN** the server SHALL clear the session's attached proposal and respond with `{ success: true }`
 
-### Requirement: TypeScript loader passed as file:// URL
-All call sites that spawn the dashboard server with `node --import <loader> <entry-script>` SHALL pass the loader argument as a `file://` URL, and SHALL pass the entry-script argument as a `file://` URL EXCEPT when the loader is tsx, in which case the entry SHALL be passed as a raw filesystem path. This covers the jiti register hook, the tsx fallback, and the entry-script path resolved via `fileURLToPath(import.meta.url)`.
-
-The asymmetry exists because tsx's ESM hook treats the entry-script argument as a user-typed specifier and rejects `file://` URLs (resolving them as `<cwd>/file:/...` and throwing `ERR_MODULE_NOT_FOUND`). Node's default resolver and jiti's ESM hook both accept `file://` URL entries. URL-wrapping the entry is required on Windows for drive letters whose single-letter prefix collides with URL-scheme parsing (e.g. `B:\...` parses with scheme `b:`).
-
-#### Scenario: resolveJitiImport returns file URL
-- **WHEN** `resolveJitiImport()` resolves jiti successfully on any platform
-- **THEN** the returned string SHALL start with `file://` and SHALL be accepted by `new URL(...)` without throwing
-
-#### Scenario: Electron jiti resolver returns file URL
-- **WHEN** `resolveJitiFromAnchor()` in `server-lifecycle.ts` resolves jiti successfully
-- **THEN** the returned string SHALL be a `file://` URL
-
-#### Scenario: tsx fallback returns file URL
-- **WHEN** `cmdStart` falls back to the tsx loader (jiti resolution failed)
-- **THEN** the loader path passed to `--import` SHALL be a `file://` URL
-
-#### Scenario: Entry-script is a file:// URL when loader is jiti or Node default
-- **WHEN** a server-spawn call site constructs argv of the form `node --import <loader> <entry> <args...>` AND the loader is NOT tsx
-- **THEN** the `<entry>` argument SHALL be a `file://` URL
-
-#### Scenario: Entry-script is a raw OS path when loader is tsx
-- **WHEN** a server-spawn call site constructs argv of the form `node --import <tsx-loader> <entry> <args...>`
-- **THEN** the `<entry>` argument SHALL be a raw filesystem path
-- **AND** SHALL NOT be a `file://` URL (tsx's ESM hook rejects URL entries as user-typed specifiers)
-
-#### Scenario: Windows drive-letter loader path no longer crashes
-- **WHEN** the loader file lives on a drive whose single-letter prefix collides with URL-scheme parsing (e.g. `B:\...\jiti-register.mjs`) on Windows
-- **THEN** `node --import <loader> <entry>` SHALL start the server successfully
-- **AND** SHALL NOT produce `ERR_UNSUPPORTED_ESM_URL_SCHEME`
-
-#### Scenario: Windows drive-letter entry-script path no longer crashes under jiti
-- **WHEN** the dashboard source lives on a drive whose single-letter prefix collides with URL-scheme parsing (e.g. `B:\Dev\...\cli.ts`) on Windows AND the loader is jiti
-- **AND** the user invokes `pi-dashboard start`, the bridge auto-starts the server, the Electron app spawns the server, or `POST /api/restart` is called
-- **THEN** the spawned Node process SHALL load the entry script successfully
-- **AND** SHALL NOT produce `ERR_UNSUPPORTED_ESM_URL_SCHEME`
-
-#### Scenario: Linux tsx-fallback server start succeeds
-- **WHEN** `pi-dashboard start` runs on Linux in a repo where pi is not installed and tsx is the resolved loader
-- **THEN** the spawned Node process SHALL load the entry script successfully
-- **AND** SHALL NOT produce `ERR_MODULE_NOT_FOUND` with a `<cwd>/file:/...` resolution error
-
-### Requirement: Centralized helper for Node ESM-loader argv construction
-The repository SHALL expose helpers in `packages/shared/src/platform/node-spawn.ts` that are the canonical way to build argv for `node --import <loader> <entry>` spawns:
-
-- `toFileUrl(pathOrUrl)` SHALL be pure, idempotent, and correctly wrap Windows drive-letter paths regardless of host OS so the Windows contract can be unit-tested on Linux and macOS.
-- `isTsxLoader(loader)` SHALL return `true` when the loader path or URL contains a `tsx/` directory segment (the canonical location of every tsx install's hook), allowing callers to branch between URL-entry and raw-entry based on loader identity.
-- `spawnNodeScript(opts)` SHALL URL-wrap the loader unconditionally, and SHALL URL-wrap the entry EXCEPT when `isTsxLoader(opts.loader)` returns `true`.
-
-#### Scenario: toFileUrl is idempotent on file:// URLs
-- **WHEN** `toFileUrl("file:///C:/foo.ts")` is called
-- **THEN** the helper SHALL return `"file:///C:/foo.ts"` unchanged
-
-#### Scenario: toFileUrl wraps Windows drive-letter paths on any host
-- **WHEN** `toFileUrl("B:\\Dev\\cli.ts")` or `toFileUrl("B:/Dev/cli.ts")` is called on Linux, macOS, or Windows
-- **THEN** the helper SHALL return `"file:///B:/Dev/cli.ts"`
-
-#### Scenario: toFileUrl wraps POSIX absolute paths
-- **WHEN** `toFileUrl("/usr/local/bin/cli.js")` is called on any host
-- **THEN** the helper SHALL return `"file:///usr/local/bin/cli.js"`
-
-#### Scenario: isTsxLoader detects tsx hook paths
-- **WHEN** `isTsxLoader` is called with a URL or path containing a `tsx/` directory segment (e.g. `file:///home/u/node_modules/tsx/dist/esm/index.mjs` or `C:\x\node_modules\tsx\dist\esm\index.mjs`)
-- **THEN** the helper SHALL return `true`
-
-#### Scenario: isTsxLoader returns false for jiti and other loaders
-- **WHEN** `isTsxLoader` is called with a jiti hook path (e.g. `file:///.../@mariozechner/jiti/lib/jiti-register.mjs`) or any path without a `tsx/` segment
-- **THEN** the helper SHALL return `false`
-
-#### Scenario: spawnNodeScript URL-wraps entry when loader is not tsx
-- **WHEN** `spawnNodeScript({ loader, entry, args })` is invoked with a non-tsx loader and raw OS paths
-- **THEN** the resulting argv SHALL equal `["--import", toFileUrl(loader), toFileUrl(entry), ...args]`
-
-#### Scenario: spawnNodeScript passes entry as raw path when loader is tsx
-- **WHEN** `spawnNodeScript({ loader, entry, args })` is invoked with a tsx loader (detected via `isTsxLoader`) and raw OS paths
-- **THEN** the resulting argv SHALL equal `["--import", toFileUrl(loader), entry, ...args]` (entry unchanged)
-
 ### Requirement: CI detects raw paths passed to Node ESM loader
-The test suite SHALL include a lint-style check that scans the source tree for `spawn(...)` calls whose argv passes `"--import"` or `"--loader"` followed by a bare identifier that is neither URL-wrapped (`toFileUrl` / `pathToFileURL`) nor an allowlisted function that returns URLs (`resolveJitiImport`, `resolveJitiFromAnchor`). Violations SHALL fail CI with a message identifying file and line number. This guard mirrors the existing `no-direct-child-process.test.ts` and `no-direct-process-kill.test.ts` patterns and prevents regression when future contributors add a new spawn site.
+The test suite SHALL include a lint-style check (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) that scans the `packages/` source tree for argv literals in which `"--import"` or `"--loader"` is followed by a loader or entry position that is neither a `file:` string literal nor a `toFileUrl(...)` / `pathToFileURL(...).href` call. The scan covers each package's `src/` tree and skips `__tests__` directories. Violations SHALL fail CI with a message identifying file and line number. Exemptions inside the scanned tree SHALL be limited to:
+- a file allowlist containing only `packages/shared/src/platform/node-spawn.ts` and `packages/shared/src/server-launcher.ts`, the files that own argv construction;
+- a per-line `ban:raw-node-import-ok` opt-out marker.
 
-Note: the lint intentionally does not flag raw entry-script arguments when the loader is tsx, because raw is correct for that case. The lint's scope is "unintended raw argv next to URL-requiring positions", not "URL-wrap everything mechanically".
+No function name SHALL be allowlisted. New spawn sites SHALL build argv through `buildNodeImportArgvParts` / `spawnNodeScript`, which apply the entry-wrap rule owned by the `server-launch` capability.
 
 #### Scenario: Lint passes on the current codebase
 - **WHEN** `npm test` is run after the migration
@@ -370,15 +295,15 @@ All additions SHALL be optional/additive — no protocol version bump and no rem
 - **THEN** the message SHALL parse and dispatch identically to pre-change behavior
 
 ### Requirement: CLI bin entry resolves jiti at runtime (no tsx fallback)
-The `pi-dashboard` CLI entry point SHALL be a plain JavaScript file (`packages/server/bin/pi-dashboard.mjs`) that resolves jiti at runtime via `resolveJitiImport()` and re-execs Node with `--import <jiti-url> packages/server/src/cli.ts <args>`. There SHALL be no tsx fallback path. When jiti cannot be resolved, the wrapper SHALL exit 1 with a stderr message instructing the user to install pi.
+The `pi-dashboard` CLI entry point SHALL be a plain JavaScript file (`packages/server/bin/pi-dashboard.mjs`) that resolves jiti at runtime and re-execs Node with `--import <jiti-url> packages/server/src/cli.ts <args>`. Resolution SHALL use `createRequire` anchored at the wrapper's own real path and try the jiti packages listed in `ToolResolver`'s `JITI_PACKAGES`, in order. The wrapper SHALL apply the entry-wrap rule owned by the `server-launch` capability, so a jiti loader gets a raw entry path. There SHALL be no tsx fallback path. Metadata invocations (`--version`, `-v`, `version`) are answered from `package.json` before jiti resolution. For every other invocation, jiti is a direct dependency of the server package, so a miss SHALL be treated as a corrupted install: the wrapper SHALL exit 1 with a stderr message that says so and suggests reinstalling the dashboard.
 
 #### Scenario: Direct CLI invocation with pi available
 - **WHEN** a user runs `pi-dashboard status` from a shell with pi reachable on the module graph
 - **THEN** the wrapper SHALL resolve jiti and exec `node --import <jiti-url> packages/server/src/cli.ts status`, forwarding stdio and the child's exit code
 
 #### Scenario: Direct CLI invocation without pi
-- **WHEN** a user runs `pi-dashboard status` and `resolveJitiImport()` cannot resolve a jiti package
-- **THEN** the wrapper SHALL print `pi-dashboard: cannot find jiti. Install pi: 'npm install -g @earendil-works/pi-coding-agent'` to stderr and exit 1
+- **WHEN** a user runs `pi-dashboard status` and no listed jiti package resolves from the wrapper's install
+- **THEN** the wrapper SHALL print a stderr message beginning `pi-dashboard: cannot find jiti.`, stating the install may be corrupted and suggesting `npm install -g @blackbelt-technology/pi-agent-dashboard`, then exit 1
 - **AND** SHALL NOT attempt to resolve `tsx` or any other TypeScript loader
 
 ### Requirement: CLI shebang is loader-agnostic
@@ -387,14 +312,6 @@ The `packages/server/src/cli.ts` shebang SHALL be `#!/usr/bin/env node` (no `--i
 #### Scenario: Shebang inspection
 - **WHEN** inspecting line 1 of `packages/server/src/cli.ts`
 - **THEN** it SHALL read `#!/usr/bin/env node` with no loader flag
-
-### Requirement: Bootstrap install lists exclude tsx
-Every install list that seeds packages into `~/.pi-dashboard/node_modules/` SHALL NOT include `"tsx"`. The five known lists (`packages/server/src/cli.ts:255`, `packages/server/src/server.ts:802`, `packages/electron/src/lib/dependency-installer.ts:260`, `packages/electron/src/lib/power-user-install.ts:42`, `packages/shared/src/bootstrap-install.ts:216`) SHALL each contain only `@earendil-works/pi-coding-agent` and `@fission-ai/openspec` (plus any future non-loader packages).
-
-#### Scenario: Fresh install does not write tsx to managed dir
-- **WHEN** any install path completes for a clean `~/.pi-dashboard/`
-- **THEN** `~/.pi-dashboard/node_modules/tsx` SHALL NOT exist
-- **AND** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` SHALL exist (or the legacy `@mariozechner/pi-coding-agent` for older configs)
 
 ### Requirement: Doctor does not probe for tsx
 Electron Doctor (`packages/electron/src/lib/doctor.ts`) SHALL NOT execute `where tsx` / `which tsx` and SHALL NOT report a "No tsx binary" detail string. Doctor's "Server launch test" reduces to checking `node` + pi.
@@ -664,3 +581,48 @@ same network guard used by other session routes.
   segments
 - **THEN** the response SHALL be `404` and no filesystem read outside the addressed session
   SHALL occur
+
+### Requirement: Canonical Node ESM-loader argv helpers
+`packages/shared/src/platform/node-spawn.ts` SHALL expose the canonical helpers for `node --import <loader> <entry>` spawns:
+- `toFileUrl(pathOrUrl)` SHALL perform no I/O and SHALL be idempotent. It SHALL wrap Windows drive-letter paths correctly on any host OS, so the Windows contract can be unit-tested on Linux and macOS. Relative inputs are resolved against the process cwd.
+- `isTsxLoader(loader)` SHALL return `true` when the loader path or URL contains a `tsx/` directory segment.
+- `isJitiLoader(loader)` SHALL return `true` when the loader path or URL contains a `jiti/` directory segment.
+- `buildNodeImportArgvParts({ loader, entry, args?, platform? })` SHALL be the single pure builder of the `--import` argv shape. It SHALL always URL-wrap the loader. It SHALL wrap the entry exactly when `shouldUrlWrapEntry(loader, platform)` says so. The `server-launch` capability owns that entry-wrap rule; this requirement does not restate it.
+- `spawnNodeScript(opts)` SHALL build its argv through `buildNodeImportArgvParts` when a loader is given.
+
+#### Scenario: toFileUrl is idempotent on file:// URLs
+- **WHEN** `toFileUrl("file:///C:/foo.ts")` is called
+- **THEN** the helper SHALL return `"file:///C:/foo.ts"` unchanged
+
+#### Scenario: toFileUrl wraps Windows drive-letter paths on any host
+- **WHEN** `toFileUrl("B:\\Dev\\cli.ts")` or `toFileUrl("B:/Dev/cli.ts")` is called on Linux, macOS, or Windows
+- **THEN** the helper SHALL return `"file:///B:/Dev/cli.ts"`
+
+#### Scenario: toFileUrl wraps POSIX absolute paths
+- **WHEN** `toFileUrl("/usr/local/bin/cli.js")` is called on any host
+- **THEN** the helper SHALL return `"file:///usr/local/bin/cli.js"`
+
+#### Scenario: Loader identity helpers
+- **WHEN** `isTsxLoader` / `isJitiLoader` are called with a path or URL containing a `tsx/` or a `jiti/` segment respectively (e.g. `C:\x\node_modules\tsx\dist\esm\index.mjs`, `file:///.../node_modules/jiti/lib/jiti-register.mjs`)
+- **THEN** the matching helper SHALL return `true` and the other SHALL return `false`
+
+#### Scenario: Loader position is always a file:// URL
+- **WHEN** `buildNodeImportArgvParts` is called with a raw loader path on any `platform`, including a Windows drive letter that collides with URL-scheme parsing (e.g. `B:\...\jiti-register.mjs`)
+- **THEN** argv position 1 SHALL equal `toFileUrl(loader)`
+- **AND** the spawned Node process SHALL NOT fail with `ERR_UNSUPPORTED_ESM_URL_SCHEME`
+
+#### Scenario: Entry position follows shouldUrlWrapEntry
+- **WHEN** `buildNodeImportArgvParts({ loader, entry, args, platform })` is called
+- **THEN** the result SHALL equal `["--import", toFileUrl(loader), shouldUrlWrapEntry(loader, platform) ? toFileUrl(entry) : entry, ...args]`
+
+### Requirement: Startup fails hard when pi cannot be resolved
+pi, openspec and tsx are regular dependencies of the server package. During foreground startup the server SHALL therefore resolve `pi` through the tool registry. When the resolve fails, the server SHALL throw a hard error. The error SHALL name a corrupted `node_modules/` tree, list the resolution strategies tried, and suggest reinstalling the dashboard or the Electron app. There SHALL be no degraded mode and no runtime install.
+
+#### Scenario: pi resolves at startup
+- **WHEN** the server starts and the tool registry resolves `pi`
+- **THEN** the server SHALL log `[bootstrap] ready (pi resolved via <source>)` and continue startup
+
+#### Scenario: pi unresolvable at startup
+- **WHEN** the server starts and the tool registry cannot resolve `pi`
+- **THEN** startup SHALL throw an error whose message contains `corrupted node_modules/ tree` and the tried strategies
+- **AND** the server SHALL NOT attempt any package install
