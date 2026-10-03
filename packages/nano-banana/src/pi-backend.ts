@@ -123,7 +123,7 @@ const requirement = (found?: string): string =>
 /** True when `version`'s numeric major.minor.patch is >= 1.0.0; a 1.0.0 prerelease and non-numeric values are below. */
 export function meetsMinVersion(version: unknown): boolean {
   if (typeof version !== "string") return false;
-  const m = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(version.trim());
+  const m = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version.trim());
   if (!m) return false;
   const nums = [Number(m[1]), Number(m[2]), Number(m[3])];
   const floor = PI_MIN_VERSION.split(".").map(Number);

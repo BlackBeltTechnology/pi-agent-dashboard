@@ -352,7 +352,7 @@ describe("outputs and usage", () => {
 describe("availability guard", () => {
   it("E22 older pi fails naming both versions without creating a runtime", async () => {
     const { loadPi, createCalls } = fakeModule("0.86.1");
-    const res = await generateImage({ prompt: "x", backend: "pi", loadPi });
+    const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("0.86.1");
     expect(res.error).toContain("1.0.0");
@@ -361,7 +361,7 @@ describe("availability guard", () => {
 
   it("E23 a prerelease of the floor counts as below", async () => {
     const { loadPi } = fakeModule("1.0.0-rc.1");
-    const res = await generateImage({ prompt: "x", backend: "pi", loadPi });
+    const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
     expect(res.ok).toBe(false);
     expect(res.error).toContain("1.0.0-rc.1");
   });
@@ -402,17 +402,30 @@ describe("availability guard", () => {
     expect(res.error).toContain("found 1.0.0");
   });
 
-  it.each(["1.0.0garbage", "1.0.0.abc", "1.0.0abc", "1.0", "v1.0.0", "01.x.0", ""])(
-    "B3 rejects malformed VERSION %j without creating a runtime",
-    async (v) => {
+  it.each([
+    "1.0.0garbage",
+    "1.0.0.abc",
+    "1.0.0abc",
+    "1.0",
+    "v1.0.0",
+    "01.x.0",
+    "",
+    "1.0.0+..",
+    "1.0.1-..",
+    "1.0.1-",
+    "1.0.1+",
+    "1.0.1-a..b",
+    "1.0.1-a.",
+    "1.0.1-a+b+c",
+    "1.0.1-a b",
+  ])("B3 rejects malformed VERSION %j without creating a runtime", async (v) => {
       const { loadPi, createCalls } = fakeModule(v);
-      const res = await generateImage({ prompt: "x", backend: "pi", loadPi });
+      const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
       expect(res.ok).toBe(false);
       expect(createCalls).toHaveLength(0);
-    },
-  );
+    });
 
-  it.each(["1.0.0+build.5", "1.2.3", "2.0.0", "1.0.1-rc.1"])("B3 accepts well-formed VERSION %s", async (v) => {
+  it.each(["1.0.0+build.5", "1.2.3", "2.0.0", "1.0.1-rc.1", "1.0.1-rc.1+b.7", "1.0.1-0.3.7", "1.0.1-x-y.z"])("B3 accepts well-formed VERSION %s", async (v) => {
     const { loadPi } = fakeModule(v);
     const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
     expect(res.ok).toBe(true);
