@@ -45,6 +45,11 @@ Checks:
    missing.
 3. Citations — each cited range exists and implements the claim it is attached
    to. A claim with no citation is uncited.
+   Report a citation in `bad_citations` only when the cited range does not
+   exist or does not implement the claim (wrong lines). A true claim whose cite
+   merely omits a supporting line (a constant, the line before or after) is not
+   a defect: mention it in `notes`, never in `bad_citations`, and it never makes
+   the verdict `revise` on its own.
 4. Classification — each rule's `explicit`/`implicit` tag. Explicit = stated by
    a guard, validation, table, formula or matching comment. Implicit = emerges
    from a default value, exception handler, fall-through, ordering or

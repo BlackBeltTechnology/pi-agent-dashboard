@@ -99,7 +99,14 @@ citation lists more than one location, or that states an ABSENCE ("never
 validated", "no event is published", "unreachable"), is at most `inferred`.
 This cap is a rule, not a judgement: it applies to entity cites too, and
 `guard.mjs lint-cite` rejects any `confirmed` cite with more than one location.
-Each cite comment stays on ONE line. A computed example value (a total, a timestamp) cites every line that
+Each cite comment stays on ONE line.
+A `confirmed` cite must contain EVERY line its exact claim needs: the line
+that throws, returns or publishes what you state AND the constant or helper that
+supplies each literal value you quote (e.g. `MAX_LINES` for "50"). If the claim
+needs a line outside the cite, add that location and tag `inferred`. A sentence
+with an absence clause ("no copy", "no validation", "no error or warning") makes
+the whole cited item `inferred`: state the positive claim and the absence as
+separate items when you want the positive one `confirmed`. A computed example value (a total, a timestamp) cites every line that
 contributes to it. When unsure, pick the lower level.
 
 STEP 5 — Write SPEC OUTPUT in EXACTLY this OpenSpec full form:

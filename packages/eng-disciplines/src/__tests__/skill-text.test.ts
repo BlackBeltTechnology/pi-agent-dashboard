@@ -184,6 +184,12 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     expect(step5).not.toContain("lint-cite");
   });
 
+  it("D4 tuning: generator requires every needed line in a confirmed cite; auditor does not block on omitted supporting lines", () => {
+    expect(norm("prompts/generator-rebuild.md")).toContain("A `confirmed` cite must contain EVERY line its exact claim needs");
+    expect(norm("prompts/auditor-rebuild.md")).toContain("merely omits a supporting line");
+    expect(norm("prompts/auditor-rebuild.md")).toContain("never makes the verdict `revise` on its own");
+  });
+
   it("E12: the fragment JSON example in package-templates.md passes lint-cite", () => {
     const md = read(join(SKILL, "references", "package-templates.md"));
     const section = md.slice(md.indexOf("## _fragments/<cap>.json"));
