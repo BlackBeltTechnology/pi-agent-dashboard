@@ -12,8 +12,9 @@
  *   `pi.registerMcpServer(name, { url, headers: { Authorization }, exposure:
  *   "deferred" })`. A later registration of the same name replaces the earlier
  *   one, so a re-mint simply registers again.
- * - Unregister on `session_shutdown`; later deliveries are ignored until the
- *   next `session_start` (replacement session on the same instance).
+ * - Unregister on `session_shutdown` AND on `session_start` (a replacement
+ *   session on the same instance never inherits the previous bearer); later
+ *   deliveries are ignored between shutdown and the next `session_start`.
  * - The credential lives only in this closure and in pi's registration. It is
  *   NEVER written to `process.env` (subprocesses must not inherit it), to a
  *   file, to a log line, or to `pi.events`.
@@ -82,6 +83,16 @@ export function createMcpDashboardRegistrar(deps: McpDashboardRegistrarDeps): Mc
     }
   };
 
+  const unregister = (): void => {
+    if (!registered) return;
+    registered = false;
+    try {
+      deps.pi.unregisterMcpServer?.call(deps.pi, DASHBOARD_MCP_SERVER_NAME);
+    } catch {
+      // A reload releases the old runtime; its registry may already be gone.
+    }
+  };
+
   return {
     onMinted(msg) {
       if (ended) return;
@@ -118,16 +129,14 @@ export function createMcpDashboardRegistrar(deps: McpDashboardRegistrarDeps): Mc
     onSessionShutdown() {
       if (ended) return;
       ended = true;
-      if (!registered) return;
-      registered = false;
-      try {
-        deps.pi.unregisterMcpServer?.call(deps.pi, DASHBOARD_MCP_SERVER_NAME);
-      } catch {
-        // A reload releases the old runtime; its registry may already be gone.
-      }
+      unregister();
     },
 
     onSessionStart() {
+      // A replacement session must never call /mcp with the previous
+      // session's bearer while its own mint is pending (or fails): drop any
+      // registration still standing, even without a preceding shutdown.
+      unregister();
       ended = false;
       // A replacement session reports its own unavailability.
       reported = false;

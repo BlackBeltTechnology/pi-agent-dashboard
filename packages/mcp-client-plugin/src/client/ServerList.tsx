@@ -62,8 +62,14 @@ interface ServerRowProps {
   scope?: Scope;
   live: LiveState | null;
   liveLoading: boolean;
-  onOpen: (name: string) => void;
+  onOpen: (name: string, provenance: EffectiveServerView["provenance"]) => void;
   onChanged: () => void;
+  /**
+   * Folder page: a pi-folder row with the same name exists, so a folder-scope
+   * write for this name lands on THAT entry — this global row's write actions
+   * are disabled rather than silently acting on the other row.
+   */
+  writeShadowed?: boolean;
   onNeedsChoice?: (row: RowRef, omitted: string[]) => void;
   onOmitted?: (row: RowRef, omitted: string[]) => void;
   /** Folder page: remove the whole folder entry for this server. */
@@ -84,6 +90,7 @@ function ServerRow({
   onOmitted,
   onRemoveOverride,
   chipsRemovable = true,
+  writeShadowed = false,
 }: ServerRowProps): React.ReactElement {
   const { name, entry } = server;
   const folder = scope.kind === "project";
@@ -163,7 +170,8 @@ function ServerRow({
             aria-label={`Enable ${name}`}
             aria-busy={pending}
             checked={enabled}
-            disabled={pending}
+            disabled={pending || writeShadowed}
+            title={writeShadowed ? "The folder entry of the same name is the folder-scope write target" : undefined}
             onChange={(e) => void toggle(e.target.checked)}
             data-testid={`mcp-server-toggle-${key}`}
             className="w-4 h-4"
@@ -238,7 +246,7 @@ function ServerRow({
             sign in: /mcp login {name}
           </span>
         )}
-        {server.adapterLeftovers.length > 0 && (
+        {server.adapterLeftovers.length > 0 && (!folder || server.provenance === "pi-folder") && (
           <span className="inline-flex items-center gap-1 flex-none">
             <span
               data-testid={`mcp-leftovers-${key}`}
@@ -261,7 +269,7 @@ function ServerRow({
         )}
         <button
           type="button"
-          onClick={() => onOpen(name)}
+          onClick={() => onOpen(name, server.provenance)}
           data-testid={actionTestId}
           className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
         >
@@ -320,7 +328,7 @@ export interface ServerListProps {
   /** Live state from `/live`; `null` while absent → rows read "state unknown". */
   live?: LiveState | null;
   liveLoading?: boolean;
-  onOpen: (name: string) => void;
+  onOpen: (name: string, provenance: EffectiveServerView["provenance"]) => void;
   onAdd: () => void;
   onChanged: () => void;
   /** Folder page: a folder enable that needs re-entered secrets. */
@@ -354,6 +362,7 @@ export function ServerList({
   const sorted = [...servers].sort(
     (a, b) => (a.name === b.name ? a.provenance.localeCompare(b.provenance) : a.name.localeCompare(b.name)),
   );
+  const folderNames = new Set(sorted.filter((s) => s.provenance === "pi-folder").map((s) => s.name));
   const brokenLayers = layers.filter((l) => !l.ok);
   const empty = sorted.length === 0 && brokenLayers.length === 0;
 
@@ -382,6 +391,7 @@ export function ServerList({
           onOmitted={onOmitted}
           onRemoveOverride={onRemoveOverride}
           chipsRemovable={chipsRemovable}
+          writeShadowed={scope?.kind === "project" && s.provenance === "pi-global" && folderNames.has(s.name)}
         />
       ))}
       {empty && (

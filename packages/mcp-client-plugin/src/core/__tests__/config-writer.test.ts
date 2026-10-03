@@ -228,3 +228,24 @@ describe("ensureServerEntry merges over the existing entry", () => {
     if (!r.ok) expect(r.refusal).toMatchObject({ code: "write-failed", ioCode: "EACCES" });
   });
 });
+
+// review r1 B3: a rename excludes only the entry it replaces in the TARGET
+// layer — not a same-named entry in another layer.
+describe("rename keeps cross-layer namespace protection", () => {
+  it("renaming global dev-radius → dev_radius is refused while a trusted folder defines dev-radius", () => {
+    const io = makeIO({
+      [GLOBAL]: { mcpServers: { "dev-radius": { url: "https://r.example/mcp" } } },
+      [PROJECT]: { mcpServers: { "dev-radius": { command: "x" } } },
+    });
+    const r = makeService(io).saveServer("dev_radius", { url: "https://r.example/mcp" }, g, { previousName: "dev-radius" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.refusal.conflict).toEqual({ name: "dev-radius", path: PROJECT });
+  });
+
+  it("the same rename succeeds when no other layer holds the old name", () => {
+    const io = makeIO({ [GLOBAL]: { mcpServers: { "dev-radius": { url: "https://r.example/mcp" } } } });
+    expect(
+      makeService(io).saveServer("dev_radius", { url: "https://r.example/mcp" }, g, { previousName: "dev-radius" }),
+    ).toEqual({ ok: true });
+  });
+});

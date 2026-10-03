@@ -134,7 +134,7 @@ interface FolderActions {
   omittedNote: OmittedNoteState | null;
   actionError: string | null;
   scope: Scope;
-  open: (name: string) => void;
+  open: (name: string, provenance: Provenance) => void;
   openAdd: () => void;
   closeEditor: () => void;
   removeOverride: (name: string) => void;
@@ -194,8 +194,10 @@ function useFolderActions(
     omittedNote,
     actionError,
     scope,
-    open: (name) => {
-      const server = view?.servers.find((s) => s.name === name) ?? null;
+    open: (name, provenance) => {
+      // Same-name rows (untrusted folder + global) are distinct: act on the
+      // row the operator clicked.
+      const server = view?.servers.find((s) => s.name === name && s.provenance === provenance) ?? null;
       setEditing(prefillFor(server));
     },
     openAdd: () => setEditing({ name: "", entry: {} }),

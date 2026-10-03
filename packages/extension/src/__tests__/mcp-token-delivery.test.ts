@@ -102,6 +102,19 @@ describe("E3 — session end unregisters", () => {
     expect(pi.registerMcpServer.mock.calls[1][1].headers.Authorization).toBe("Bearer mcp_tok-N");
   });
 
+  // review r1 B1: a replacement session must never keep calling /mcp with the
+  // previous session's bearer while its own mint is pending (or fails).
+  it("session_start without a preceding shutdown unregisters the previous session's registration", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    r.onSessionStart();
+    expect(pi.unregisterMcpServer).toHaveBeenCalledTimes(1);
+    expect(pi.unregisterMcpServer).toHaveBeenCalledWith("pi-dashboard");
+    r.onSessionStart();
+    expect(pi.unregisterMcpServer).toHaveBeenCalledTimes(1);
+  });
+
   it("shutdown before any registration does not unregister", () => {
     const { deps, pi } = makeDeps();
     createMcpDashboardRegistrar(deps).onSessionShutdown();

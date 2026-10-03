@@ -118,7 +118,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     return { ok: true, path, layer };
   }
 
-  /** Names a write must not collide with (excluding `exclude`), with where they live. */
+  /** Every entry a write could collide with, and the file it lives in. */
   function collisionCandidates(scope: Scope): Array<{ name: string; path: string }> {
     const out: Array<{ name: string; path: string }> = [];
     const add = (path: string): void => {
@@ -137,12 +137,17 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
     return out;
   }
 
-  /** Validation shared by every write that sets an entry's content. */
+  /**
+   * Validation shared by every write that sets an entry's content. `replacing`
+   * names the entry a rename removes; it is excluded from the collision check
+   * only in the TARGET layer — a same-named entry in another layer still
+   * collides (pi would drop it).
+   */
   function validateEntry(
     name: string,
     entry: Record<string, unknown>,
     scope: Scope,
-    exclude: ReadonlySet<string>,
+    replacing?: string,
   ): ConfigRefusal | null {
     if (typeof entry.command === "string" && typeof entry.url === "string") {
       return {
@@ -160,7 +165,11 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       };
     }
     const ns = mcpNamespace(name);
-    const clash = collisionCandidates(scope).find((c) => c.name !== name && !exclude.has(c.name) && mcpNamespace(c.name) === ns);
+    const target = targetPath(scope);
+    const clash = collisionCandidates(scope).find(
+      (c) =>
+        c.name !== name && !(c.name === replacing && c.path === target) && mcpNamespace(c.name) === ns,
+    );
     if (clash) {
       return {
         code: "name-collision",
@@ -221,7 +230,7 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       if (v === undefined) delete next[k];
       else next[k] = v;
     }
-    const refusal = validateEntry(name, next, scope, new Set());
+    const refusal = validateEntry(name, next, scope);
     if (refusal) return { ok: false, refusal };
     return { ok: true, p, next };
   }
@@ -255,9 +264,8 @@ export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
       const bad = nameRefusal(prev);
       if (bad) return { ok: false, refusal: bad };
     }
-    const exclude = new Set(prev !== undefined ? [prev] : []);
     const next = nullProto({ ...(entry as Record<string, unknown>) });
-    const refusal = validateEntry(name, next, scope, exclude);
+    const refusal = validateEntry(name, next, scope, prev);
     if (refusal) return { ok: false, refusal };
     const servers = nullProto({ ...p.layer.servers });
     if (prev !== undefined && prev !== name) delete servers[prev];

@@ -203,6 +203,38 @@ describe("untrusted folder", () => {
   });
 });
 
+// review r1 B2: an untrusted folder can show a folder row AND a global row with
+// the same name. Each row's actions must act on THAT row's entry.
+describe("same-name rows keep their provenance", () => {
+  it("Edit on the folder row pre-fills the folder entry; the global row's write actions are disabled", async () => {
+    const { calls } = makeFetch(
+      view({
+        trusted: false,
+        servers: [
+          globalRow("docs", { url: "https://g.example/mcp", description: "global docs" }),
+          { ...folderRow("docs", { command: "/bin/local-docs" }), active: false, inactiveReason: "project-not-trusted" },
+        ],
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByTestId("mcp-folder-action-pi-folder:docs"));
+    const command = (await screen.findByTestId("mcp-field-input-command")) as HTMLInputElement;
+    expect(command.value).toBe("/bin/local-docs");
+    fireEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const put = lastCall(calls, "PUT");
+    expect(put.body.scope).toBe("project");
+    expect((put.body.entry as Record<string, unknown>).command).toBe("/bin/local-docs");
+    expect((put.body.entry as Record<string, unknown>).url).toBeUndefined();
+
+    // A folder-scope write for "docs" lands on the folder entry, so the global
+    // row's toggle must not pretend to act on the global entry.
+    const globalToggle = screen.getByTestId("mcp-server-toggle-pi-global:docs") as HTMLInputElement;
+    expect(globalToggle.disabled).toBe(true);
+  });
+});
+
 describe("folder enable/disable writes", () => {
   it("a disable that omitted secrets shows a note naming them", async () => {
     makeFetch(
