@@ -195,6 +195,33 @@ export function summarizeListModelsResult(context: FauxContext): string {
   }
 }
 
+/**
+ * Markers for the built-in MCP registration scenarios (change:
+ * migrate-mcp-to-pi-builtin, test-plan X1/X2). Each scenario runs REAL tools in
+ * a harness session and echoes a deterministic summary of the last tool result
+ * as plain text, so the L3 spec asserts a stable transcript marker.
+ */
+export const MCP_ENV_PROBE_PREFIX = "mcp-env-probe";
+export const MCP_DASHBOARD_CALL_PREFIX = "mcp-dashboard-call";
+/** pi sanitizes `mcp__<server>__<tool>` to `[A-Za-z0-9_]`: `pi-dashboard` → `pi_dashboard`. */
+export const MCP_DASHBOARD_LIST_SESSIONS_TOOL = "mcp__pi_dashboard__list_sessions";
+
+/** X1: does the bash `env` dump expose the dashboard MCP credential? */
+export function summarizeEnvProbe(context: FauxContext): string {
+  const out = lastToolResultText(context);
+  const tokenVar = /(^|\n)PI_DASHBOARD_MCP_TOKEN=/.test(out);
+  const mcpToken = /mcp_[A-Za-z0-9_-]{20,}/.test(out);
+  const ran = out.includes("PATH=");
+  return `${MCP_ENV_PROBE_PREFIX} ran=${ran} tokenVar=${tokenVar} mcpToken=${mcpToken}`;
+}
+
+/** X2: did the deferred `pi-dashboard` tool answer with a session list? */
+export function summarizeDashboardCall(context: FauxContext): string {
+  const out = lastToolResultText(context);
+  const ok = /"sessions"\s*:/.test(out);
+  return `${MCP_DASHBOARD_CALL_PREFIX} ok=${ok} result=${out.replace(/\s+/g, " ").slice(0, 120)}`;
+}
+
 /** Build a single-tool-call scenario for the client renderer matrix. */
 function toolScenario(
   name: string,
@@ -950,6 +977,30 @@ export const SCENARIOS: Record<string, Scenario> = {
   // collapse/virtualization. Proves the steady-state `registryReady: true` +
   // populated catalogue path (V.2); the absent-registry race (V.3) stays
   // unit-proven (role-model-tools-registry-readiness.test.ts case A).
+  // Built-in MCP registration, live (change: migrate-mcp-to-pi-builtin X1/X2).
+  // X1 runs the REAL bash tool and reports whether `env` carries the dashboard
+  // MCP credential (it must not: the bridge keeps it in pi's registration only).
+  "mcp-env-probe": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "env" })], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(summarizeEnvProbe(context))]),
+    ],
+    expect: { text: MCP_ENV_PROBE_PREFIX },
+  },
+  // X2 loads the deferred `pi-dashboard` tool through pi's `tool_search`, then
+  // calls it directly — a round trip through pi's built-in MCP client to the
+  // dashboard's /mcp with the session's registered bearer.
+  "mcp-dashboard-call": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("tool_search", { query: "pi dashboard list sessions", limit: 5 })], {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage([fauxToolCall(MCP_DASHBOARD_LIST_SESSIONS_TOOL, { limit: 1 })], { stopReason: "toolUse" }),
+      (context: FauxContext) => fauxAssistantMessage([fauxText(summarizeDashboardCall(context))]),
+    ],
+    expect: { text: MCP_DASHBOARD_CALL_PREFIX },
+  },
+
   "tool-list-models": {
     script: [
       fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),

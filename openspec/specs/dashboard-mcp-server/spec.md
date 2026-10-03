@@ -170,119 +170,6 @@ Streaming is a modern-era feature: legacy-era requests SHALL NOT open a stream.
 - **AND** the server SHALL terminate the subscription once its buffer limit is reached
 - **AND** the server SHALL NOT silently drop events from a still-open subscription
 
-### Requirement: Dashboard MCP entry is provisioned into the user MCP config
-The dashboard SHALL provision its own entry into the adapter's Pi-global config file (`~/.pi/agent/mcp.json` by default, resolved through the adapter's path helper so a custom agent directory is honoured) so a local pi session can reach the endpoint. The write SHALL go through the MCP client package's core writer (a package dependency, not a plugin dependency), sharing its JSONC parsing, servers-key alias handling, hardened atomic IO and refusal set. The entry SHALL declare a protocol version selection that negotiates or pins the modern era rather than relying on the adapter's legacy default.
-
-#### Scenario: Entry declares protocol negotiation
-- **WHEN** the dashboard writes its `mcpServers` entry
-- **THEN** the entry SHALL set a protocol version selection of `auto` or a pinned `2026-07-28`
-- **AND** it SHALL NOT omit the protocol version selection
-
-#### Scenario: Entry uses the HTTP server shape
-- **WHEN** the dashboard writes its `mcpServers` entry
-- **THEN** the entry SHALL declare the endpoint by `url`
-- **AND** it SHALL NOT use the stdio `command` shape used for local stdio servers
-
-#### Scenario: Entry occupies the reserved pi-dashboard key
-- **WHEN** the dashboard writes its `mcpServers` entry
-- **THEN** it SHALL be written under the key `pi-dashboard`
-
-#### Scenario: A foreign entry under the reserved key is never clobbered
-- **WHEN** the Pi-global file's servers already hold an entry under `pi-dashboard` that does not declare a `url` (checked by a layer-level read of that file only)
-- **THEN** the writer SHALL refuse the write and surface an error
-- **AND** the existing file SHALL be left unmodified
-
-#### Scenario: An existing dashboard entry is refreshed
-- **WHEN** `mcpServers` already holds an entry under `pi-dashboard` that declares a `url`
-- **THEN** the writer SHALL update every field the dashboard owns (`url`, the protocol version selection) to the current values
-- **AND** operator-added fields on that entry (for example `disabled` or `headers`) SHALL be preserved
-
-#### Scenario: Sibling entries are preserved
-- **WHEN** the write occurs and the file already contains other `mcpServers` entries
-- **THEN** every sibling entry SHALL be preserved unchanged
-
-#### Scenario: Write is atomic
-- **WHEN** the write occurs
-- **THEN** it SHALL be performed via a temporary file and rename
-- **AND** a partially-written file SHALL never be observable
-
-#### Scenario: Unparseable config is refused, not repaired
-- **WHEN** the existing file is present but the adapter's own parser (JSON with comments and trailing commas) cannot parse it
-- **THEN** the write SHALL be refused and surfaced
-- **AND** the existing file SHALL be left unmodified
-
-#### Scenario: Server name does not collide
-- **WHEN** the entry is written
-- **THEN** its server name SHALL NOT be one already owned by another provisioner
-
-#### Scenario: Commented config is provisioned
-- **WHEN** the existing file contains comments or trailing commas that the adapter parses
-- **THEN** the dashboard entry is written and every other entry is preserved
-
-#### Scenario: Alias servers key is preserved
-- **WHEN** the existing file defines servers under `mcp-servers`
-- **THEN** the entry is written under `mcp-servers`
-- **AND** no `mcpServers` key is added
-
-#### Scenario: Custom agent directory is provisioned
-- **WHEN** `PI_CODING_AGENT_DIR` points at a custom directory
-- **THEN** the dashboard entry is written to `<custom>/mcp.json`
-
-### Requirement: Endpoint naming avoids collision with the pi MCP adapter
-Dashboard surfaces added by this change SHALL NOT claim names owned by
-`pi-mcp-adapter`.
-
-#### Scenario: Command palette entry does not shadow the adapter
-- **WHEN** the plugin declares a `command-route` claim
-- **THEN** the claimed command SHALL NOT be `/mcp`
-
-#### Scenario: No OAuth callback port is bound
-- **WHEN** the MCP endpoint starts
-- **THEN** it SHALL NOT bind an OAuth callback port
-
-### Requirement: Adapter version floor is consumed, not probed
-
-The dashboard MCP server plugin SHALL NOT own a `pi-mcp-adapter` version probe. When it needs the adapter verdict (for the provisioning surface or diagnostics) it SHALL consume the `mcp-client.config` service at call time. The plugin SHALL NOT declare `dependsOn: ["mcp-client"]`, so the dashboard endpoint keeps working when the MCP client plugin is disabled.
-
-#### Scenario: Verdict sourced from mcp-client
-
-- **WHEN** the provisioning surface reports the adapter version state and `mcp-client` is enabled
-- **THEN** the reported verdict equals the one `mcp-client` reports
-
-#### Scenario: Absent mcp-client degrades to unknown
-
-- **WHEN** `mcp-client` is disabled or absent
-- **THEN** the adapter version state is reported as unknown
-- **AND** the MCP endpoint itself remains available
-
-#### Scenario: Below-floor warning moves to the first MCP request
-
-- **WHEN** the installed adapter is below the floor and the first request reaches the plugin's `/mcp` route
-- **THEN** the plugin logs the below-floor warning once
-- **AND** no warning is logged at registration
-
-### Requirement: A local pi session obtains a working /mcp credential without manual configuration
-A pi session running on the same machine as the dashboard SHALL be able to reach
-`/mcp` through the provisioned `pi-dashboard` MCP entry using only credentials the
-system delivers to it. The operator SHALL NOT be required to hand-edit an MCP
-config file, copy a token, or run a pairing flow to make the local path work.
-
-The delivered credential SHALL resolve to a caller identity the server itself
-recorded. It SHALL NOT be derived from anything the MCP client asserts.
-
-#### Scenario: Provisioned entry authenticates out of the box
-- **WHEN** a pi session on the dashboard's own machine connects through the provisioned `pi-dashboard` entry
-- **THEN** the request SHALL be authenticated
-- **AND** the session SHALL be able to invoke an advertised tool
-
-#### Scenario: No hand-editing is required
-- **WHEN** the dashboard has provisioned its MCP entry and no operator has edited an MCP config file
-- **THEN** the local pi path SHALL still authenticate
-
-#### Scenario: An unauthenticated caller is still refused
-- **WHEN** a request reaches `/mcp` without the delivered credential
-- **THEN** it SHALL be refused exactly as before this change
-
 ### Requirement: The delivered credential is bound to the session it was delivered to
 The credential delivered to a pi session SHALL identify that session to the
 server, so a call made through it resolves to `{originating session: that
@@ -304,8 +191,8 @@ locally-provisioned caller.
 ### Requirement: Delivered credentials survive neither a restart nor the session's end
 Because the token registry is in-memory, a dashboard restart SHALL invalidate
 every delivered credential. The delivery path SHALL re-run so a session recovers
-a working credential without operator action, and SHALL NOT leave a credential on
-disk that the server no longer honours.
+a working credential without operator action. No delivered credential SHALL be
+written to disk.
 
 #### Scenario: Restart re-delivers rather than stranding
 - **WHEN** the dashboard restarts while a pi session is running
@@ -314,9 +201,9 @@ disk that the server no longer honours.
 - **AND** the session SHALL reach `/mcp` again without operator action
 
 #### Scenario: A stale credential is not left behind
-- **WHEN** a session ends, or its credential is revoked
-- **THEN** any on-disk copy of that credential SHALL be removed or replaced
-- **AND** presenting it SHALL be refused
+- **WHEN** a session ends
+- **THEN** its `pi-dashboard` registration SHALL be removed
+- **AND** presenting its credential SHALL be refused
 
 #### Scenario: Delivery failure is surfaced, never silent
 - **WHEN** credential delivery fails
@@ -324,9 +211,8 @@ disk that the server no longer honours.
 - **AND** the dashboard SHALL continue serving `/mcp` to other callers
 
 #### Scenario: Delivery failure is logged by the side that can see it
-- **WHEN** delivery fails on the session side, where the MCP client discards the credential command's diagnostics
-- **THEN** the failure SHALL be logged by a component that holds the session id
-- **AND** the log line SHALL identify the affected session
+- **WHEN** registration fails on the session side
+- **THEN** the bridge SHALL log it with the session id
 - **AND** a failure that is structurally invisible to the server SHALL NOT be the only record of it
 
 ### Requirement: One session's credential failures do not lock out the others
@@ -348,28 +234,6 @@ sessions holding valid ones.
 #### Scenario: Brute-force protection still applies
 - **WHEN** an unauthenticated caller guesses credentials repeatedly
 - **THEN** it SHALL still be throttled
-
-### Requirement: A credential written to disk is protected and never clobbers operator config
-Where credential delivery writes to an MCP config file, the write SHALL use the
-same hardened atomic path as the existing provisioning write, SHALL restrict the
-file's permissions to the owning user, and SHALL preserve every field the
-dashboard does not own.
-
-#### Scenario: File is owner-only
-- **WHEN** a credential is written into an MCP config file
-- **THEN** that file SHALL NOT be readable by other users on the machine
-
-#### Scenario: Operator-added fields survive
-- **WHEN** the entry already carries operator-added fields such as `disabled`
-- **THEN** those fields SHALL be preserved by the credential write
-
-#### Scenario: Write is atomic
-- **WHEN** the credential write occurs
-- **THEN** a partially-written config file SHALL never be observable
-
-#### Scenario: Credential is not logged
-- **WHEN** delivery succeeds or fails
-- **THEN** the plaintext credential SHALL NOT appear in any log line
 
 ### Requirement: Dual-era MCP endpoint
 The dashboard SHALL expose a single MCP endpoint at `POST /mcp` serving two
@@ -658,3 +522,53 @@ non-allowlisted context members.
 #### Scenario: Existing tools keep their contract
 - **WHEN** a `control` caller invokes `list_sessions`, `send_prompt`, `spawn_session` or `abort` with the arguments accepted before this change
 - **THEN** the result SHALL be unchanged
+
+### Requirement: The dashboard MCP server is registered per session by the bridge
+
+A pi session on the dashboard's machine SHALL reach `/mcp` through a `pi-dashboard` MCP server that the bridge registers for that session with pi's extension MCP registration, carrying the session's delivered bearer credential as an `Authorization` header and the `/mcp` URL the server delivered with it. The bridge SHALL register only after the credential is delivered, SHALL re-register when a new credential is delivered (replacing the earlier registration), and SHALL unregister when the session shuts down. A delivery without a URL SHALL NOT be registered and SHALL be reported as registration unavailable. The operator SHALL NOT be required to edit an MCP config file, copy a token, or run a pairing flow. The credential SHALL resolve to a caller identity the server recorded, never to anything the MCP client asserts. The registration SHALL rely on pi's protocol negotiation and SHALL NOT require a revision pi's client does not offer; the dual-era endpoint serves the revision pi declares.
+
+#### Scenario: Legacy-era pi client is served
+- **WHEN** pi's MCP client declares a legacy revision such as `2025-11-25`
+- **THEN** `tools/list` and a `pi-dashboard` tool call SHALL succeed for that session
+
+#### Scenario: Session reaches /mcp without configuration
+- **WHEN** a dashboard-connected pi session starts and its credential is delivered
+- **THEN** pi SHALL list a connected `pi-dashboard` MCP server for that session
+- **AND** a call to a `pi-dashboard` tool SHALL authenticate as that session
+
+#### Scenario: Re-mint replaces the registration
+- **WHEN** the dashboard restarts and re-delivers a new credential to a running session
+- **THEN** the session's `pi-dashboard` server SHALL use the new credential without the operator restarting the session
+
+#### Scenario: Nothing is written to mcp.json
+- **WHEN** the registration happens
+- **THEN** no MCP config file SHALL be created or modified
+
+### Requirement: The delivered MCP credential SHALL NOT be placed in the pi process environment
+
+The bridge SHALL hold the delivered credential in memory and pass it only in the MCP registration. It SHALL NOT assign it to any environment variable of the pi process, so subprocesses the session spawns cannot inherit it.
+
+#### Scenario: Subprocess cannot read the credential
+- **WHEN** a session with a delivered credential runs a bash command that prints its environment
+- **THEN** the output SHALL NOT contain the credential or a `PI_DASHBOARD_MCP_TOKEN` variable
+
+### Requirement: The previously provisioned mcp.json entry is migrated away
+
+On startup the dashboard SHALL remove a `pi-dashboard` entry that an earlier build provisioned into the Pi-global `mcp.json`, identified by its dashboard-owned shape. The write SHALL be merge-only and atomic, SHALL preserve every other entry and key, and SHALL leave an unparseable file untouched. An operator-authored entry of the same name that does not match the provisioned shape SHALL be left in place and reported, because a file entry takes precedence over the bridge registration.
+
+#### Scenario: Provisioned entry is removed
+- **WHEN** `~/.pi/agent/mcp.json` contains the provisioned `pi-dashboard` entry and another server
+- **THEN** after startup only the other server remains
+
+#### Scenario: Operator entry is kept and reported
+- **WHEN** `~/.pi/agent/mcp.json` contains a `pi-dashboard` entry the operator wrote with a different shape
+- **THEN** the entry SHALL be preserved
+- **AND** the doctor SHALL report that it shadows the dashboard's registration
+
+### Requirement: The dashboard SHALL NOT take over pi's /mcp command
+
+No dashboard package SHALL register a pi slash command named `mcp`, because doing so disables pi's built-in MCP support.
+
+#### Scenario: Built-in MCP stays active
+- **WHEN** a pi session loads every dashboard extension
+- **THEN** `/mcp` SHALL be served by pi's built-in MCP extension

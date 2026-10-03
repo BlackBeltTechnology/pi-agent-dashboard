@@ -216,7 +216,7 @@ State persists in a named volume; API keys seed into `auth.json` on first run (o
 - **Browser-based provider auth** — sign in to Anthropic, OpenAI Codex, GitHub Copilot, Gemini CLI, and Antigravity from Settings. Enter API keys for other providers. Credentials saved to `~/.pi/agent/auth.json` and live-synced to running sessions.
 - **Custom LLM providers** — add OpenAI-compatible, Anthropic-compatible, or Google Generative AI endpoints (Settings → Providers → LLM Providers). **Test** button verifies the base URL + API key before saving. Adding / editing / removing takes effect live in every running session — no restart.
 - **Package management** — browse, install, update, remove, and **move** pi packages between global and project scopes from a single rich-row UI used in both Settings and Pi Resources. Install dialog exposes a Local/Global radio when launched from a per-folder context. Search the npm registry for pi-package extensions/skills/themes; install from npm or git URL. Active sessions auto-reload after changes.
-- **MCP endpoint** — `POST /mcp` exposes dashboard sessions to MCP clients (Claude Desktop, Cursor) once the server runs. Every request needs a bearer credential, including localhost. `~/.pi/agent/mcp.json` gets a `pi-dashboard` entry automatically on first server start; external clients authenticate with a paired-device token. Local pi sessions need `pi-mcp-adapter >= 2.20.0`.
+- **MCP endpoint** — `POST /mcp` exposes dashboard sessions to MCP clients (Claude Desktop, Cursor) once the server runs. Every request needs a bearer credential, including localhost. Local pi sessions get it automatically: the bridge registers `pi-dashboard` with pi's built-in MCP (`pi.registerMcpServer`), no `mcp.json` write. External clients authenticate with a paired-device token. Requires pi ≥ 1.0.0.
 
 **Dev tools**
 - **Integrated terminal** — full browser-based terminal emulator (xterm.js + node-pty) with ANSI colors, scrollback, and keep-alive
@@ -250,7 +250,6 @@ This keeps plugin-provided dynamic content, package names, model names, and comm
 | Requirement | Why | Install |
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** | The AI coding agent the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
-| **pi-mcp-adapter ≥ 2.20.0** | Lets local pi sessions call the dashboard's `POST /mcp` endpoint | `pi ext update pi-mcp-adapter` |
 | **Node.js ≥ 22.19.0** | Server runtime. Node 22.0.0–22.18.x and 24.1.0–24.2.x refused (affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515), crashes Fastify at startup). Cap < 27 for tested range. | [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for the integrated terminal | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 
@@ -398,14 +397,12 @@ The file is deliberately separate from `config.json` so machine-specific paths d
 
 ### MCP servers
 
-Enable the **MCP Client** plugin (`mcp-client`) in Settings → Plugins to manage the MCP servers your pi sessions use. It requires the `pi-mcp-adapter` pi extension (minimum version `2.20.0`); the plugins index offers an inline Install for it.
+Enable the **MCP Client** plugin (`mcp-client`) in Settings → Plugins to manage the MCP servers your pi sessions use. It uses pi's built-in MCP config (pi ≥ 1.0.0) — no `pi-mcp-adapter`.
 
-- **Global surface** — `/settings/plugins/mcp-client`: every server the adapter resolves, with its source layer (Pi global, Pi folder, shared, other), enable/disable, a per-server editor, and the global adapter settings form. Writes land only in `~/.pi/agent/mcp.json`.
-- **Per folder** — `/folder/<cwd>/mcp`, reachable from the folder pill: the effective merged view for that directory plus folder-layer overrides. Writes land only in `<cwd>/.pi/mcp.json`.
+- **Global surface** — `/settings/plugins/mcp-client`: every server in pi's two layers with its provenance (Pi global, Pi folder), enable/disable, a per-server editor, and live state from `pi mcp list --json`. Writes land only in `~/.pi/agent/mcp.json` (`$PI_CODING_AGENT_DIR` honoured).
+- **Per folder** — `/folder/<cwd>/mcp`, reachable from the folder pill: the effective view for that directory plus folder-layer overrides. A project entry replaces the global entry of the same name. Writes land only in `<cwd>/.pi/mcp.json`, and only when the folder is trusted.
 
-Shared layers (`<cwd>/.mcp.json`, imports, `package.json#mcp`) are read-only and shown with provenance. Secret values inherited from a layer you cannot write are redacted server-side and never reach the browser. Comments in a `mcp.json` are not preserved on write.
-
-**`adapterLoadTimeoutMs`** (Dashboard plugin settings group, default `10000`, range `1000`–`120000`) bounds how long the dashboard waits for one `pi-mcp-adapter` config load. The load runs in a worker thread; on expiry the request fails with `adapter-timeout`. It bounds the **dashboard's** config read only — it does not affect pi sessions.
+Both layers parse as strict JSON: an `mcp.json` with comments or trailing commas is skipped whole by pi, shown as unparseable, and never written over. Secret values inherited from a layer you cannot write are redacted server-side and never reach the browser. Adapter-only keys (e.g. `disabled`) are ignored by pi — the editor offers a one-click **Convert** to `enabled: false`.
 
 ---
 

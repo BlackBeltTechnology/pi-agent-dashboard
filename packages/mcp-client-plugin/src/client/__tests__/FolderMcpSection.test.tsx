@@ -1,16 +1,14 @@
 /**
- * FolderMcpSection (change extract-mcp-client-plugin, tasks 8.1 + 8.3):
- * count · off · error marker (naming path / timeout), the loading placeholder,
- * the cached 403 "not tracked" state (one request per cwd until the session
- * list changes), navigation to `/folder/<encodedCwd>/mcp`, the worktree cwd,
- * and the sidebar/card surface variants.
- * See spec mcp-client-folder-section (test-plan #E44, #F15, #F18, #F35).
+ * FolderMcpSection tests (change migrate-mcp-to-pi-builtin): the pill counts
+ * from `/effective` (active count; off = disabled OR inactive), the untrusted
+ * inactive state, the parse-error marker (layer ok:false), the cached 403
+ * "not tracked" state with the session-list retry, navigation, and surfaces.
+ * See spec mcp-client-folder-section.
  */
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import type { AdapterVerdict } from "../../core/types.js";
 import { FolderMcpSection, folderMcpUrl } from "../FolderMcpSection.js";
 import { __resetNotTrackedCache, invalidateEffective } from "../hooks.js";
 
@@ -28,27 +26,31 @@ vi.mock("@blackbelt-technology/dashboard-plugin-runtime", async (importOriginal)
   };
 });
 
-const OK: AdapterVerdict = { kind: "ok", installed: "2.21.0", floor: "2.20.0" };
-const GLOBAL_PROV = [
-  { layer: "pi-global", path: "/h/.pi/agent/mcp.json", label: "Pi global", writable: true },
-];
-
-interface Server {
-  name: string;
-  entry: Record<string, unknown>;
-  provenance: Array<Record<string, unknown>>;
-  own?: Record<string, unknown>;
+function row(name: string, entry: Record<string, unknown>, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name,
+    provenance: "pi-global",
+    entry,
+    transport: "stdio",
+    enabled: entry.enabled !== false,
+    exposure: "codemode",
+    active: entry.enabled !== false,
+    ignoredKeys: [],
+    adapterLeftovers: [],
+    ...extra,
+  };
 }
+
 interface ViewShape {
+  scope: "project";
   cwd: string;
-  servers: Server[];
-  settings: Record<string, unknown>;
-  layerErrors: Array<{ path: string; message: string }>;
-  adapter: AdapterVerdict;
+  trusted?: boolean;
+  servers: Array<Record<string, unknown>>;
+  layers: Array<Record<string, unknown>>;
 }
 
 function view(cwd: string, over: Partial<ViewShape> = {}): ViewShape {
-  return { cwd, servers: [], settings: {}, layerErrors: [], adapter: OK, ...over };
+  return { scope: "project", cwd, trusted: true, servers: [], layers: [], ...over };
 }
 
 function jsonOk(body: unknown): Response {
@@ -57,13 +59,13 @@ function jsonOk(body: unknown): Response {
 function jsonErr(status: number, body: unknown): Response {
   return { ok: false, status, json: async () => body } as unknown as Response;
 }
-function serve(viewBody: ViewShape) {
-  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonOk(viewBody));
+function serve(body: ViewShape) {
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => jsonOk(body));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
-let counter = 0;
+let counter = 100;
 function nextCwd(): string {
   counter += 1;
   return `/repo/wt-${counter}`;
@@ -88,16 +90,16 @@ afterEach(() => {
   invalidateEffective();
 });
 
-describe("pill summary (test-plan #E44)", () => {
-  it("reads '4 servers · 1 off' and omits the off segment at zero", async () => {
+describe("pill summary", () => {
+  it("counts active servers; off counts disabled OR inactive rows", async () => {
     const cwd = nextCwd();
     serve(
       view(cwd, {
         servers: [
-          { name: "a", entry: { command: "a" }, provenance: GLOBAL_PROV },
-          { name: "b", entry: { command: "b", disabled: true }, provenance: GLOBAL_PROV },
-          { name: "c", entry: { command: "c" }, provenance: GLOBAL_PROV },
-          { name: "d", entry: { command: "d" }, provenance: GLOBAL_PROV },
+          row("a", { command: "a" }),
+          row("b", { command: "b", enabled: false }, { active: false, inactiveReason: "disabled" }),
+          row("c", { command: "c" }, { active: false, inactiveReason: "project-not-trusted" }),
+          row("d", { command: "d" }),
         ],
       }),
     );
@@ -105,54 +107,38 @@ describe("pill summary (test-plan #E44)", () => {
     const pill = await findByTestId("mcp-folder-pill");
     await findByTestId("mcp-folder-pill-off");
     expect(pill.textContent).toContain("4 servers");
-    expect(pill.textContent).toContain("1 off");
-    expect(pill.textContent).toContain("·");
+    expect(pill.textContent).toContain("2 off");
   });
 
-  it("a single server reads '1 server'; none reads '0 servers'", async () => {
-    const one = nextCwd();
-    serve(view(one, { servers: [{ name: "a", entry: { command: "a" }, provenance: GLOBAL_PROV }] }));
-    const first = renderPill(one);
-    await waitFor(() => expect(first.getByTestId("mcp-folder-pill-count").textContent).toContain("1 server"));
-    first.unmount();
-
-    const none = nextCwd();
-    serve(view(none));
-    const second = renderPill(none);
-    await waitFor(() => expect(second.getByTestId("mcp-folder-pill-count").textContent).toContain("0 servers"));
+  it("an untrusted folder shows the inactive state instead of counts", async () => {
+    const cwd = nextCwd();
+    serve(view(cwd, { trusted: false, servers: [row("a", { command: "a" })] }));
+    const { findByTestId, queryByTestId } = renderPill(cwd);
+    await findByTestId("mcp-folder-pill-untrusted");
+    expect(queryByTestId("mcp-folder-pill-count")).toBeNull();
+    expect(queryByTestId("mcp-folder-pill-off")).toBeNull();
   });
 
-  it("shows the error marker naming the failing layer path", async () => {
+  it("shows the error marker naming the failing layer path (layer ok:false)", async () => {
     const cwd = nextCwd();
     serve(
       view(cwd, {
-        servers: [{ name: "keep", entry: { command: "k" }, provenance: GLOBAL_PROV }],
-        layerErrors: [{ path: "/broken/mcp.json", message: "Unexpected token }" }],
+        servers: [row("keep", { command: "k" })],
+        layers: [{ layer: "pi-folder", path: "/repo/wt/.pi/mcp.json", exists: true, ok: false, message: "Unexpected token }" }],
       }),
     );
     const { findByTestId } = renderPill(cwd);
     const marker = await findByTestId("mcp-folder-pill-error");
-    expect(marker.getAttribute("aria-label")).toContain("/broken/mcp.json");
-  });
-
-  it("a 504 marker names the timeout and never renders stale data", async () => {
-    const cwd = nextCwd();
-    vi.stubGlobal("fetch", vi.fn(async () => jsonErr(504, { error: "adapter-timeout", timeoutMs: 1000 })));
-    const { findByTestId, queryByTestId } = renderPill(cwd);
-    const marker = await findByTestId("mcp-folder-pill-error");
-    expect(marker.getAttribute("aria-label")).toContain("1000");
-    expect(queryByTestId("mcp-folder-pill-count")).toBeNull();
+    expect(marker.getAttribute("aria-label")).toContain("/repo/wt/.pi/mcp.json");
   });
 });
 
-describe("loading + not-tracked (test-plan #F15)", () => {
+describe("loading + not-tracked", () => {
   it("renders a muted placeholder of the same height while loading", () => {
     const cwd = nextCwd();
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
     const { getByTestId } = renderPill(cwd);
     const placeholder = getByTestId("mcp-folder-pill-loading");
-    // Same element/height as the loaded pill: the placeholder fills the pill's
-    // count line instead of leaving an empty slot.
     expect(placeholder.className).toContain("h-[15px]");
     expect(getByTestId("mcp-folder-pill")).toBeTruthy();
   });
@@ -188,7 +174,6 @@ describe("loading + not-tracked (test-plan #F15)", () => {
     await findByTestId("mcp-folder-pill-not-tracked");
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // A new session can make the folder known → one fresh request.
     hoisted.sessions = [{ id: "s1" }, { id: "s2" }];
     rerender(
       <Router hook={hook as never}>

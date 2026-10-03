@@ -39,8 +39,8 @@ describe("package manifest", () => {
     const m = pkg["pi-dashboard-plugin"];
     expect(m?.id).toBe("apple-tools");
     expect(m?.requires?.paths).toEqual(["${imcpServerPath}"]);
-    // The adapter requirement moved to the mcp-client plugin, which apple-tools
-    // now depends on; a hard pi-mcp-adapter dependency would pull a second copy.
+    // pi's built-in MCP serves iMCP; no pi-mcp-adapter requirement or
+    // dependency anywhere (an installed adapter disables the built-in).
     expect(m?.requires?.piExtensions).toBeUndefined();
     expect(pkg.dependencies?.["pi-mcp-adapter"]).toBeUndefined();
     expect(m?.dependsOn).toEqual(["mcp-client"]);

@@ -22,6 +22,7 @@ const EXPECTED = [
 	"build-reload",
 	"env-node",
 	"install-topology",
+	"mcp-builtin",
 	"model-resolution",
 	"peers",
 	"pi-resolution",

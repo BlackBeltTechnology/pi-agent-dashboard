@@ -1320,43 +1320,53 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
-### MCP Client Plugin (`extract-mcp-client-plugin`)
+### MCP Client Plugin (`extract-mcp-client-plugin`, `migrate-mcp-to-pi-builtin`)
 
-New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of `pi-mcp-adapter` configuration on the dashboard side. `apple-tools` and `mcp-server-plugin` consume it.
+New plugin `packages/mcp-client-plugin/`, id `mcp-client`. Sole owner of the two Pi MCP config layers on the dashboard side. NO `pi-mcp-adapter` dependency — rebuilt on pi 1.0.0's BUILT-IN MCP. `apple-tools` and `mcp-server-plugin` consume it. See change: migrate-mcp-to-pi-builtin.
 
 **Claims.** `settings-section` → `/settings/plugins/mcp-client`. Folder pill = ONE component on two slots: `sidebar-folder-section` + `worktree-card-section`. `shell-overlay-route` `/folder/:encodedCwd/mcp`, `depth: 2`, `parentPath` `/folder/:encodedCwd`.
 
 **Exports.** `./client`, `./server`, `./core`. `./core` imports NO React and NO host runtime — the hostless `pi-apple-tools-install` CLI builds the same service from it.
 
-**Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, adapter? })`. Surface: `readServerEntry`, `ensureServerEntry`, `setServerDisabled`, `setDirectTools`, `ensureAdapterPackage`, `checkConfigFiles`, `adapterVerdict`, `targetPath`. Write-only operations never call the adapter loaders.
+**Two layers.** Pi global `$PI_CODING_AGENT_DIR/mcp.json` (else `~/.pi/agent/mcp.json`) + trusted `<cwd>/.pi/mcp.json`. A project entry REPLACES the global entry of the same name — whole entry, not a field merge, matching pi's own rule. Both layers parse as STRICT `JSON.parse`; a file with comments or trailing commas is an unparseable layer that pi skips WHOLE — shown as such, never written over. `src/core/layers.ts` (`LayerPaths`, `piAgentDir`, `defaultLayerPaths`, `nullProto`, `readLayer`). DELETED: adapter worker/port, adapter version floor, global-settings form, `adapterLoadTimeoutMs`, `configSchema.json`, and every shared/import layer (`.mcp.json`, `~/.config/mcp`, host imports). `pi-mcp-adapter` + `strip-json-comments` deps removed; `ajv` stays.
 
-**Worker-thread adapter port.** `loadMcpConfig` / `getServerProvenance` are synchronous, so the default port runs them in one lazily-spawned `worker_threads` Worker (`src/core/adapter-worker.ts`). Each load carries the deadline `adapterLoadTimeoutMs` — plugin host config namespace `plugins.mcp-client`, manifest `configSchema` `./configSchema.json`, integer, default `10000`, minimum `1000`, maximum `120000`. Expiry terminates the worker, rejects `AdapterTimeoutError`, respawns on the next load. HTTP maps it to `504 { error: "adapter-timeout", timeoutMs }`. Write-only paths spawn nothing.
+**pi rules.** `src/core/pi-rules.ts` mirrors pi 1.0.0's unexported `validateMcpServerConfig`. `isValidServerName` (`[A-Za-z0-9_-]+`, ≤128, not `__proto__`/`constructor`/`prototype`); `transportOf` (HTTP when `url`, unless `type: "stdio"`); `MCP_EXPOSURES` + `MCP_EXPOSURE_ALIASES` (`codemode-deferred` → `codemode`); `ADAPTER_ONLY_KEYS` / `adapterLeftovers` / `ignoredKeys` (pi ignores unknown keys — adapter keys survive in the file, pi never acts on them); `authModeOf` (provider | header (case-insensitive `Authorization`) | oauth).
 
-**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/schema`, `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/servers/:name` (patch `{scope, set, unset}`), `DELETE /api/mcp-client/servers/:name?scope` (returns the removed raw layer entry for exact undo), `PUT /api/mcp-client/servers/:name/disabled`, `PUT /api/mcp-client/settings`. EVERY route — GET included — registers with `{ preHandler: ctx.networkGuard }`: mutating bodies become executable config for pi, and the effective view returns own-layer secrets.
+**Service.** `ctx.provide("mcp-client.config", …)` before any route registers. Factory `createMcpClientConfigService({ configIO, knownCwds, isProjectTrusted?, paths?, runner?, scratchCwd?, liveTimeoutMs?, liveCacheTtlMs? })` → `McpClientRuntime` = service + `getLiveState(scope, {fresh})`. Write-only paths never run `pi mcp list`.
 
-**Effective view.** Provenance per server, classified from `getServerProvenance` by `kind` + Pi-path equality: `user` → **Pi global**; `project` at `<cwd>/.pi/mcp.json` → **Pi folder**; `project` elsewhere (`<cwd>/.mcp.json`) → **Shared**; `import` → **Shared**, labelled by `importKind`. A server the provenance map omits (`package.json#mcp`, agent plugin) → **Other**, read-only. Only Pi global + Pi folder are writable. Secret redaction is SERVER-SIDE: any secret-marked value not defined in the requested scope's writable layer leaves the process as a marker — scalar `{ redacted: true }`, record `{ redacted: true, keys: [{ name, secret }] }` (key names only, never values). `own` = the writable layer's unmerged entry, so a client distinguishes an override (key in `own`) from an inherited field.
+**Trust.** `isProjectTrusted(cwd)` INJECTED. Dashboard server supplies `host.isProjectTrusted` (see Bootstrap). Untrusted folder → its project layer never loads, its rows inactive (`project-not-trusted`). Hostless caller (apple-tools CLI) treats every project as untrusted → global writes only.
 
-**Schema.** Published `schema/mcp-config.schema.json` describes `ServerEntry` + `McpSettings`. Markers `x-secret` (redaction + masking), `x-atomic` (layer-atomic records the adapter spreads wholesale), `x-transport` (`command` / `url` / `socket` grouping). Distinct from `configSchema.json`, which covers only the plugin's own dashboard-side settings.
+**Live state.** `src/core/live-state.ts` `createLiveStateReader({runner,timeoutMs,cacheTtlMs,now})` runs `pi mcp list --json` through the shared safe-spawn. `LIVE_STATE_TIMEOUT_MS` 30000, `LIVE_STATE_CACHE_TTL_MS` 30000. stdout parsed whatever the exit code — pi exits `1` whenever a server is disconnected or an entry invalid. Timeout aborts the signal → `{ok:false,reason:"timeout"}`; failures never cached. Global view spawns in an empty `mkdtemp` scratch dir so only the global layer loads.
 
-**Consumers.** `apple-tools` declares `dependsOn: ["mcp-client"]` — first first-party consumer of `dependsOn` + `ctx.provide`/`ctx.consume` — and drops `requires.piExtensions: ["pi-mcp-adapter"]`, which moves to the `mcp-client` recommended row. `src/mcp-config.ts` is DELETED; `install.ts` calls `ensureServerEntry("iMCP", …)` / `ensureAdapterPackage` / `checkConfigFiles`, the panel readout calls `readServerEntry`. `set-disabled` + `set-direct-tools` `plugin_action`s are removed (hard break, no shim); the panel links "Manage MCP servers →" to `/settings/plugins/mcp-client`. `mcp-server-plugin` takes the plugin as a PACKAGE dependency (no `dependsOn`, so `/mcp` survives `mcp-client` disabled) and writes its `pi-dashboard` entry through the shared core.
+**Effective view.** `createEffectiveViewReader`. Global view = Pi-global layer only. Project view = global then folder. Rows carry provenance `pi-global`/`pi-folder`, `overridesGlobal`, `transport`, `enabled`, `exposure`, `active`, `inactiveReason` (`disabled` | `project-not-trusted` | `invalid-entry` | `name-collision` | `global-only-auth`), `piError`, `ignoredKeys`, `adapterLeftovers`, `authMode`. Server-side redaction (`redactEntry`, `isSecretKey`): GLOBAL entries shown in a project view lose `headers`/`env` → `{redacted,keys}` and `oauth.clientSecret` → `{redacted}`.
+
+**Writer.** `createConfigWriter({configIO,paths,knownCwds,isProjectTrusted?})`: `targetPath`, `readServerEntry`, `ensureServerEntry` (merge fields), `saveServer` (whole entry, `previousName` rename), `removeServer`, `setEnabled`, `convertAdapterLeftovers`, `previewEnsure`, `readParseStatus`. Validation order: transport-conflict → pi rules (`invalid-entry`, pi's own message) → project `auth` on HTTP refused (global-only) → `-`/`_` `name-collision`. Collision scope: project = global + project names; global = global + every known TRUSTED folder's project names; entry being replaced excluded. `setEnabled`: write `enabled:false` or remove the key. Folder-disable of a global-only server writes a `folderCopyOf` copy WITHOUT `headers`/`env`/`oauth.clientSecret`/`auth` and returns `omitted`; re-enabling such a copy returns `action:"needs-choice"`. `ConfigRefusalCode` is CLOSED: `unparseable | entry-not-object | invalid-name | name-collision | transport-conflict | invalid-entry | write-failed`. Exports `NotAllowedCwdError`, `FOLDER_COPY_OMITTED`, `folderCopyOf`.
+
+**Schema.** Published `schema/mcp-config.schema.json` is the pi 1.0.0 entry shape: `description`, `oauth.clientName` / `oauth.authServerMetadataUrl`, global-only `auth.provider`, `exposure` (alias included), `toolExposure`, `timeout` > 0, `enabled`. `ajv` validates every write BEFORE IO. Markers `x-secret` (redaction + masking), `x-transport`, `x-global-only` drive the editor.
+
+**REST.** `GET /api/mcp-client/effective?cwd=`, `GET /api/mcp-client/live?cwd=&fresh=1`, `GET /api/mcp-client/schema`, `PUT /api/mcp-client/servers/:name` `{scope,cwd?,entry,previousName?}`, `DELETE /api/mcp-client/servers/:name?scope=&cwd=` → `{ok,removed}`, `PUT /api/mcp-client/servers/:name/enabled` `{scope,cwd?,enabled}`, `POST /api/mcp-client/servers/:name/convert` `{scope,cwd?}`. Removed: `/adapter`, `/settings`, `/disabled`. EVERY route — GET included — sits behind `networkGuard`: mutating bodies become executable config for pi and the effective view returns own-layer credentials. Path name decoded + validated and project cwd admitted (403 `not-allowed` + `reason`/`hint`) BEFORE any IO.
+
+**Runner.** `src/server/pi-runner.ts` `createPiMcpListRunner()`: `ToolResolver.resolvePi()` + shared `spawn` (no shell) + `buildSpawnEnvForArgv` (`ELECTRON_RUN_AS_NODE`) + SIGKILL on abort + 4 MiB stdout cap. Plugin `index.ts` consumes `host.knownFolderCwds` + `host.isProjectTrusted`; absent `isProjectTrusted` → one warning, every project untrusted.
+
+**Consumers.** `apple-tools` declares `dependsOn: ["mcp-client"]` and drops `requires.piExtensions: ["pi-mcp-adapter"]`. `install.ts` writes only `mcpServers.iMCP` via `ensureServerEntry` (command refreshed; `enabled`/`exposure`/`toolExposure` + unknown keys preserved); `ensureAdapterPackage` and every `settings.json` write removed. `set-disabled` + `set-direct-tools` `plugin_action`s removed (hard break); panel links "Manage MCP servers →" to `/settings/plugins/mcp-client`.
 
 ```mermaid
 flowchart LR
-  ADP["pi-mcp-adapter/config"] --> W["adapter-worker.ts<br/>adapterLoadTimeoutMs"]
-  W --> CORE
-  IO["ConfigIO (wx + 0600 + fsync)"] --> CORE
+  PG["Pi global mcp.json<br/>$PI_CODING_AGENT_DIR else ~/.pi/agent"] --> LV
+  PF["trusted folder .pi/mcp.json<br/>project replaces global"] --> LV
+  PI["pi mcp list --json<br/>live-state.ts 30s timeout+cache"] --> LV
+  TR["host.isProjectTrusted"] --> LV
   subgraph MC ["packages/mcp-client-plugin"]
-    CORE["./core<br/>createMcpClientConfigService"] --> SVC["ctx.provide('mcp-client.config')"]
+    LV["core/layers.ts + effective-view.ts"] --> CORE["createMcpClientConfigService"]
+    CORE --> SVC["ctx.provide('mcp-client.config')"]
     CORE --> RT["./server routes<br/>networkGuard on every route"]
     CORE --> CLI2["./client<br/>settings + folder pill + /folder/:cwd/mcp"]
   end
   SVC -->|"ctx.consume (dependsOn)"| AT["apple-tools install.ts<br/>ensureServerEntry('iMCP')"]
-  SVC -->|"lazy consume, first POST /mcp"| MS["mcp-server-plugin<br/>adapter-diagnostic.ts"]
-  CORE -->|"package dep, hostless"| PROV["mcp-server-plugin provisioning.ts<br/>ensureServerEntry('pi-dashboard')"]
   CORE -->|"package dep, hostless"| BIN["pi-apple-tools-install CLI"]
 ```
 
-### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`)
+### MCP Endpoint (`add-dashboard-mcp-server`, `mcp-legacy-clients-and-token-issuance`, `paginate-mcp-list-sessions`, `migrate-mcp-to-pi-builtin`)
 
 New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
 
@@ -1394,17 +1404,21 @@ Two credential kinds resolve to one `McpCaller`:
 
 **Session tokens.** Opaque 256-bit. `mcp_` prefix. SHA-256 at rest. Plaintext returned once at mint. Constant-time compare. Flat-array scan, no membership-timing leak. No independent expiry — a token's lifetime IS its session's lifetime. IN-MEMORY only: no `mcp-tokens.json`. Registry dies with the plugin. All die on restart. Sessions re-mint when bridge re-registers. Revocation: `onSessionEnded` / bridge disconnect (primary), mint-replaces (D4; re-mint on reconnect invalidates previous token immediately), explicit `mcp/revoke-token`, process exit / plugin unload.
 
-**Minting.** Bridge calls `mcp/mint-token` over session's own bridge WebSocket on every (re)registration (`bridge.ts`, D3). Server mints via `McpTokenRegistry.mintForSession` — REPLACES session's row (D4; stale token dead on re-mint). Server attributes it to session CONNECTION registered as (`currentSessionId`), never `msg.sessionId`. `mcp/revoke-token` revokes by session.
+**Minting.** Bridge calls `mcp/mint-token` over session's own bridge WebSocket on every (re)registration (`bridge.ts`, D3). Server mints via `McpTokenRegistry.mintForSession` — REPLACES session's row (D4; stale token dead on re-mint). Server attributes it to session CONNECTION registered as (`currentSessionId`), never `msg.sessionId`. `mcp/revoke-token` revokes by session. Reply is `{type:"mcp_token_minted", token, url}`; `url = dashboardMcpUrl(port)` = `http://127.0.0.1:<host.httpPort>/mcp` (live getter at mint time, fallback 8000).
 
 `plugin_pi_message.sessionId` a REQUIRED protocol field (`protocol.ts:593`), always present. `pi-gateway.ts` previously preferred it over the connection — a bridge could name any session and receive that session's credential. `plugin_pi_message` now excluded from body-sessionId precedence. Other message types keep prior behaviour.
 
 Guarantee stated exactly: "the session this connection registered as". Not spoofable per-message — what the self-target guard needs. NOT a claim about pi-gateway port authentication. `currentSessionId` itself set from the first `register` message. Pre-existing bridge trust model. Out of scope here.
 
-Reply travels ONLY on session-private extension lane: `mcp_token_minted` (new `ServerToExtensionMessage` member, `packages/shared/src/protocol.ts`), sent via trust-gated `sendExtensionMessage` context capability (`packages/dashboard-plugin-runtime/src/server/server-context.ts`; wired trust-gated in `packages/server/src/server.ts`, gate = manifest priority ≤ 100). NEVER `pi.events` — `plugin_emit_event` measured to reach unrelated subscribers (spike Q4b).
+Reply travels ONLY on session-private extension lane: `mcp_token_minted` (`packages/shared/src/protocol.ts`; `McpTokenMintedExtensionMessage` gains an optional `url`), sent via trust-gated `sendExtensionMessage` context capability (`packages/dashboard-plugin-runtime/src/server/server-context.ts`; wired trust-gated in `packages/server/src/server.ts`, gate = manifest priority ≤ 100). NEVER `pi.events` — `plugin_emit_event` measured to reach unrelated subscribers (spike Q4b).
 
-Bridge handler `packages/extension/src/mcp-token-delivery.ts`: assigns `process.env.PI_DASHBOARD_MCP_TOKEN` (memory only, never a file), then triggers recovery. `connection.status` read nowhere (measured to lie, spike Q3).
+**Registration (replaces provisioning).** `packages/extension/src/mcp-token-delivery.ts` builds `createMcpDashboardRegistrar({pi, sessionId, reportUnavailable, log})`. On `onMinted(msg)` (requires `token` + `url`) it calls `pi.registerMcpServer("pi-dashboard", { url, headers: { Authorization: "Bearer <token>" }, exposure: "deferred" })`. Re-mint re-registers — a later registration of the same name REPLACES the earlier one. `onSessionShutdown()` calls `pi.unregisterMcpServer("pi-dashboard")`; `onSessionStart()` re-arms (new/fork/resume keep the same extension instance). Wired in `packages/extension/src/bridge.ts` (`mcp_token_minted` → `onMinted`, `session_start` → `onSessionStart`, `session_shutdown` → `onSessionShutdown`). Exports `DASHBOARD_MCP_SERVER_NAME`, `McpRegistrationApi`, `McpTokenMintedPayload`. NO per-session `mcp.json` write, no header script. Exposure `deferred` → pi auto-activates `tool_search`; found tools then called directly. An `mcp.json` entry named `pi-dashboard` TAKES PRECEDENCE over the registration.
 
-Recovery trigger: mint reply. D6 deviation (approved, recorded in design.md § Open Questions): shipped pi-mcp-adapter 2.31.0 exposes no programmatic reconnect for config-defined entry; recovery completes via adapter's `lazyConnect` on entry's next use (60 s failure backoff), presenting fresh env per request (spike Q2: header command re-reads live env per HTTP request). Bridge keeps injected `reconnect` seam.
+**Guard.** Missing or throwing `registerMcpServer`, or delivery without `url` → NO registration, one warn log naming the session id, one `plugin_pi_message` `mcp-server`/`mcp/registration-unavailable` `{reason: "api-missing" | "register-failed" | "no-url"}` for the doctor. An installed `pi-mcp-adapter` does NOT throw (pi reports an extension error) — the doctor's adapter row covers it. The dashboard registers NO `/mcp` pi command (static scan `no-mcp-command.test.ts` asserts no `pi.registerCommand` name across `packages/*/src` is `mcp`).
+
+**Protocol era.** pi sessions reach `/mcp` in the LEGACY era: pi 1.0.0's client offers `2024-11-05`…`2025-11-25` and sends `2025-11-25`. Every request/response tool works. `subscriptions/listen` streaming (modern-era only) is NOT available to pi sessions. Requires pi ≥ 1.0.0.
+
+**Startup migration.** `packages/mcp-server-plugin/src/server/legacy-entry-migration.ts` (D2). On server start `index.ts` runs `migrateProvisionedEntry` + `logMigration` (never throws). Removes the old provisioned Pi-global `mcp.json` key `pi-dashboard` IFF it matches the provisioned signature (`isProvisionedDashboardEntry`: `requestHeadersCommand.command === "node"` + `args[0]` ending `header-command.mjs`). Via `createMcpClientConfigService` — merge-only, atomic, refuses an unparseable file. A non-matching operator entry is KEPT + warned (it would shadow the registration). Idempotent, no marker. Exports `DASHBOARD_MCP_KEY`, `MigrationResult` (`absent | removed | kept-operator-entry | skipped-unparseable | failed`), `migrateProvisionedEntry(configIO,{paths?})`, `logMigration(result, logger)`. New pi handler `mcp/registration-unavailable` logs `mcp.dashboard_registration_unavailable session=<id> reason=<r>`. Removed: provisioning, the adapter diagnostic, and the `onMcpRequest` route hook (`routes.ts` `McpRouteDeps.onMcpRequest` gone).
 
 **Direct device-token mint.** `POST /api/paired-devices` issues durable bearer credentials for external MCP clients (Claude Code, Cursor). Gated by `operatorGuard`: requires dashboard login session (`authVia === "session"`), valid `X-Pi-Local-Token`, or genuine local loopback (`isGenuinelyLocal`, no proxy headers). Enforces unconditional Host admission (closes DNS-rebinding). Accepts `{ label, tier }` (`tier` optional, `"observe" | "control" | "operate"`, default `"observe"`, 1..64 UTF-8 bytes for label). Plaintext token returned ONCE in response, never stored or retrievable. Paired-device registry (`~/.pi/dashboard/paired-devices.json`, 0600) stores SHA-256 hash with `source: "manual"` (`source: "pairing"` for QR pairing), `tier` field. Rows without `tier` read as `"operate"` (back-compat with existing paired devices). Revocation via `DELETE /api/paired-devices/:id`.
 
@@ -1429,35 +1443,25 @@ Recovery trigger: mint reply. D6 deviation (approved, recorded in design.md § O
 
 **Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
 
-**Provisioning.** Writes the Pi-global `mcp.json` key `pi-dashboard` on server start, THROUGH the `mcp-client` core (`createMcpClientConfigService(...).ensureServerEntry`) — path from the adapter's own helper, so `PI_CODING_AGENT_DIR` is honoured. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` stays pinned to `2026-07-28` (D7) — never omitted, keeping local pi on modern path while endpoint serves foreign legacy clients. Entry now carries `requestHeadersCommand` `{command:"node", args:[<pkg>/src/server/header-command.mjs], env:{PI_DASHBOARD_MCP_TOKEN:"${PI_DASHBOARD_MCP_TOKEN}"}}` (D2). Header command echoes `{"Authorization":"Bearer …"}` from its OWN env, never argv (spike Q1b); exits non-zero when unset (X2). `args` carries a plain path — every interpolation form there resolves to "" (adapter `Array.map` bug, spike Q1a). Path resolved from `headerCommandPath()` (`provisioning.ts`) = the plugin's own install dir. Merge-only, so operator-added fields (`disabled`, `headers`) now survive a refresh. JSONC parse + `mcpServers` / `mcp-servers` alias + atomic hardened write come from the core, not a local reader. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
-
-**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. The probe moved to `mcp-client` core; this plugin DELETED its `probeAdapterVersion` / `readInstalledAdapterVersion` and the atomic-write copy. Diagnostic is LAZY (`src/server/adapter-diagnostic.ts`): no `dependsOn`, so it consumes `mcp-client.config` at call time — absent service reads as `unknown` — and warns at most once, fired from the routes' `onMcpRequest` hook on the first `POST /mcp`, not at registration.
-
 **Config reference.** `MCP_BODY_LIMIT_BYTES` 1 MiB body cap. `MAX_BUFFERED_EVENTS` 1000 buffered events.
 
 ```mermaid
 sequenceDiagram
-    participant C as MCP client
-    participant S as /mcp (encapsulated scope)
-    participant R as McpTokenRegistry
-    participant B as Bridge (session socket)
-    C->>S: POST /mcp (Authorization: Bearer, MCP-Protocol-Version)
-    S->>S: authenticate(header) → McpCaller
-    S->>S: resolveProtocolVersion(header, params._meta)
-    S->>S: dispatchRpc (method allowlist)
-    Note over S,R: session token kind
-    B->>S: plugin_pi_message mcp/mint-token (over session's own socket)
-    S->>R: mintForSession (replaces row)
-    S->>B: mcp_token_minted (session-private lane, sendExtensionMessage)
-    B->>B: process.env.PI_DASHBOARD_MCP_TOKEN = token
-    Note over B: recovery via adapter lazyConnect on next use
+    participant B as Bridge
+    participant S as Server (/mcp tokens)
+    participant P as pi built-in MCP
+    B->>S: plugin_pi_message mcp/mint-token
+    S-->>B: mcp_token_minted {token, url}
+    B->>P: registerMcpServer("pi-dashboard", {url, headers:{Authorization:"Bearer "+token}, exposure:"deferred"})
+    Note over B,P: dashboard restart → re-mint → register again (replaces)
+    B->>P: unregisterMcpServer("pi-dashboard") on session_shutdown
 ```
 
 **Seam change.** `RegisterPiHandlerFn` widened to `(msg, sessionId)`. Gateway passes its socket key through `dispatchPluginPiMessage`. Additive — `(msg)`-only handlers still valid. `sessionId` from the socket key, never the message body — a plugin can attribute a bridge message as a trust decision.
 
-**Security notes (accepted exposure).** The delivered credential lives in the pi process's own environment. ANY subprocess the session spawns inherits it and can read `PI_DASHBOARD_MCP_TOKEN`. Accepted: cost of the only verified per-session delivery mechanism (D2); same-uid `ps -E` surface the pi process already exposes. Residual: token revoked server-side without a re-mint strands the entry until session restart (pre-change behaviour for that case). Plaintext never at rest, never logged (asserted X4/X5); argv carries no token (X9 probe, `qa/tests/33-mcp-session-token.sh`).
+**Security notes (accepted exposure).** The bearer lives ONLY in pi's in-memory `pi-dashboard` registration — never `process.env`, never a file, never `pi.events`, never a log line. REMOVED: `PI_DASHBOARD_MCP_TOKEN` and `header-command.mjs`, which put the token in EVERY subprocess's environment. Remaining exposure: an in-process extension can read it via `pi.getMcpServers()`. Accepted — extensions are trusted in-process code that could already read `process.env`; subprocesses, the documented exposure, no longer see it. Plaintext never at rest, never logged (asserted X4/X5).
 
-See change: add-dashboard-mcp-server, wire-mcp-session-token, mcp-legacy-clients-and-token-issuance, expand-mcp-tiered-surface.
+See change: add-dashboard-mcp-server, wire-mcp-session-token, mcp-legacy-clients-and-token-issuance, expand-mcp-tiered-surface, migrate-mcp-to-pi-builtin.
 
 ### Bootstrap & First Run (R3, immutable bundle)
 
@@ -1476,6 +1480,8 @@ Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `read
 **pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.0.0). Supported range `>=1.0.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.0.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
 See change: collapse-model-proxy-onto-modelruntime.
+
+**Host project-trust service.** `packages/server/src/server.ts` registers `host.isProjectTrusted(cwd)` (awaited at boot) next to `host.knownFolderCwds`. `packages/server/src/pi/host-project-trust.ts` `createHostProjectTrust({recordedDecision, defaultProjectTrust})` / `loadHostProjectTrust(agentDir)` mirrors a session's own rule: the recorded `ProjectTrustStore` decision wins, else `defaultProjectTrust === "always"`. Unresolvable pi → always false. `mcp-client` injects it as `isProjectTrusted` so folder MCP rows load the project layer only in trusted folders. See change: migrate-mcp-to-pi-builtin.
 
 #### Legacy `~/.pi-dashboard/` advisory
 

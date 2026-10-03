@@ -7,13 +7,17 @@
  * the mcp.json readout; owns reconciliation of a discovered non-default path
  * into the server-owned plugin config store (Decision 1).
  *
- * The MCP server enable/disable + directTools controls moved to the mcp-client
+ * The MCP server enable/disable + exposure controls live in the mcp-client
  * plugin's own generic surface; this plugin no longer writes mcp.json.
  *
- * See changes: add-apple-tools-imcp-plugin, extract-mcp-client-plugin.
+ * See changes: add-apple-tools-imcp-plugin, extract-mcp-client-plugin,
+ * migrate-mcp-to-pi-builtin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { McpClientConfigService } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import {
+  displayExposure,
+  type McpClientConfigService,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
 import { createInstallerEnv } from "../env.js";
 import { runInstaller, type TerminalState } from "../install.js";
 import { DEFAULT_IMCP_PATH, shouldReconcilePath } from "../reconcile.js";
@@ -37,11 +41,12 @@ interface StatusReadout {
   resolvedPath?: string;
   imcpServerPath: string;
   /**
-   * Adapter-owned fields, read from the Pi-global `mcp.json` through the
-   * mcp-client service (the source of truth) rather than our plugin config.
+   * pi built-in MCP fields of the iMCP entry, read from the Pi-global
+   * `mcp.json` through the mcp-client service (the source of truth) rather
+   * than our plugin config. `exposure` is the display value (default codemode).
    */
-  directTools: string[];
-  disabled: boolean;
+  exposure: string;
+  enabled: boolean;
   /**
    * True when iMCP.app is actually on disk. The dashboard can only perform the
    * fast config-write half of provisioning; when this is false the operator
@@ -79,11 +84,9 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       message: result.message,
       ...(result.resolvedPath ? { resolvedPath: result.resolvedPath } : {}),
       imcpServerPath: configured ?? DEFAULT_IMCP_PATH,
-      directTools: Array.isArray(entry?.directTools)
-        ? entry.directTools.filter((t): t is string => typeof t === "string")
-        : [],
-      // pi-mcp-adapter's isServerDisabled: only a literal `true` disables.
-      disabled: entry?.disabled === true,
+      exposure: displayExposure(entry?.exposure),
+      // pi: only a literal `enabled: false` disables.
+      enabled: entry?.enabled !== false,
       // Reported by the traversal itself: false when the state is a prediction.
       appPresent: result.appPresent,
     };

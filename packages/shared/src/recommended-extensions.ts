@@ -447,50 +447,22 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		],
 	},
 	{
-		// The pi-server MCP client the dashboard's MCP surface depends on. Named
-		// as a recommended extension so the mcp-client plugin row's
-		// `requires.piExtensions` renders an INLINE Install (the affordance
-		// matches on recommended ids, else it falls back to the Packages tab).
-		// See change: extract-mcp-client-plugin.
-		id: "pi-mcp-adapter",
-		source: "npm:pi-mcp-adapter",
-		displayName: "pi-mcp-adapter",
-		fallbackDescription:
-			"Connects pi to MCP servers (stdio/HTTP/SSE), merges the layered " +
-			"mcp.json config, and exposes MCP tools. Backs the dashboard's " +
-			"mcp-client plugin and iMCP (Apple Tools) provisioning.",
-		status: "strongly-suggested",
-		unlocks: [
-			"MCP server connections + tools in pi",
-			"Dashboard mcp-client plugin (server manager, effective config)",
-			"iMCP (Apple Tools) provisioning",
-		],
-		autowired: true,
-	},
-	{
-		// Generic MCP server manager plugin. Requires the adapter above, so the
-		// plugins index renders an inline Install for that missing requirement.
-		// See change: extract-mcp-client-plugin.
+		// Generic MCP server manager plugin over pi's BUILT-IN MCP config. No
+		// pi-mcp-adapter: an installed adapter disables the built-in MCP.
+		// See changes: extract-mcp-client-plugin, migrate-mcp-to-pi-builtin.
 		id: "@blackbelt-technology/pi-dashboard-mcp-client-plugin",
 		source: "npm:@blackbelt-technology/pi-dashboard-mcp-client-plugin",
 		displayName: "pi-dashboard-mcp-client-plugin",
 		fallbackDescription:
-			"Dashboard plugin for MCP configuration: the effective merged view, " +
-			"server create/edit/enable/disable, directTools, and the published " +
-			"config schema. Companion to the pi-mcp-adapter extension.",
+			"Dashboard plugin for pi's built-in MCP configuration: Pi-global + " +
+			"trusted-folder mcp.json view with live state, server " +
+			"create/edit/enable/disable, exposure, and the published entry schema.",
 		status: "optional",
 		unlocks: [
-			"MCP server manager (create/edit/enable/disable + directTools)",
-			"Effective MCP config view with layer provenance",
+			"MCP server manager (create/edit/enable/disable + exposure)",
+			"Effective MCP config view with Pi global / Pi folder provenance",
 		],
 		dashboardPlugin: "mcp-client",
-		// The adapter needs >= 2.20.0 (below that the 2026-07-28 handshake
-		// silently degrades). The floor stays a runtime probe — see
-		// packages/mcp-client-plugin/src/core/adapter-verdict.ts — not a manifest
-		// field: `PluginRequirements` cannot express a version floor, and adding
-		// one would change the manifest schema for every plugin.
-		// See change: extract-mcp-client-plugin.
-		requires: { piExtensions: ["pi-mcp-adapter"] },
 	},
 	{
 		// Apple PIM (iMCP) integration. See change: add-apple-tools-imcp-plugin.
@@ -503,7 +475,7 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"dashboard provisioning panel, and an agent skill. macOS-only; no Apple Mail.",
 		status: "optional",
 		unlocks: [
-			"Apple PIM access via iMCP + pi-mcp-adapter",
+			"Apple PIM access via iMCP + pi's built-in MCP",
 			"Provisioning panel + one-command installer",
 		],
 		dashboardPlugin: "apple-tools",

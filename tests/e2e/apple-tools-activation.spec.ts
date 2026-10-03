@@ -4,11 +4,11 @@ import { byTestId, gotoDashboard } from "./helpers/index.js";
 // apple-tools plugin — activation UI + provisioning panel (L3).
 //
 // The docker harness is a LINUX host, so the apple-tools plugin reports
-// `UNSUPPORTED_PLATFORM` and BOTH of its declared requirements are unsatisfied:
+// `UNSUPPORTED_PLATFORM` and its declared requirement is unsatisfied:
 //   - `paths: ["${imcpServerPath}"]` → resolves to the configSchema default
 //     `/Applications/iMCP.app/Contents/MacOS/imcp-server`, which does not exist
-//   - `piExtensions: ["pi-mcp-adapter"]` → not installed
-// That makes the non-macOS + missing-requirement scenarios directly assertable
+// No plugin requires `pi-mcp-adapter` any more (pi's built-in MCP serves iMCP;
+// see change migrate-mcp-to-pi-builtin). That makes the non-macOS + missing-requirement scenarios directly assertable
 // here. Scenarios that require a PROVISIONED macOS host (#F6, #F7, #F9, #F10,
 // #F11, #X9) are manual-only — the harness has no mock seam for provisioning
 // state. Their invariants are pinned at L1 instead (mcp-config/doctor tests).
@@ -56,19 +56,15 @@ test.describe("apple-tools — missing-requirement surfacing", () => {
     await expect(page.getByTestId(`install-path-${IMCP_DEFAULT_PATH}`)).toHaveCount(0);
   });
 
-  test("#F3: the pi-mcp-adapter requirement offers an inline Install (recommended extension)", async ({
-    page,
-  }) => {
+  test("#F3: no plugin row asks for pi-mcp-adapter (built-in MCP only)", async ({ page }) => {
     await openPluginsTab(page);
-
-    const pill = page.getByTestId("missing-piExtension-pi-mcp-adapter");
-    await expect(pill).toBeVisible({ timeout: 30_000 });
-
-    // pi-mcp-adapter IS a curated RECOMMENDED_EXTENSIONS entry (see change
-    // extract-mcp-client-plugin task 5.5), so the binding row offers a one-click
-    // inline Install rather than the Packages-tab link fallback.
-    await expect(page.getByTestId("install-piExtension-pi-mcp-adapter")).toBeVisible();
-    await expect(page.getByTestId("install-piExtension-link-pi-mcp-adapter")).toHaveCount(0);
+    await expect(page.getByTestId(`missing-path-${IMCP_DEFAULT_PATH}`)).toBeVisible({
+      timeout: 30_000,
+    });
+    // An installed adapter would DISABLE pi's built-in MCP, so nothing may
+    // offer to install it. See change: migrate-mcp-to-pi-builtin.
+    await expect(page.getByTestId("missing-piExtension-pi-mcp-adapter")).toHaveCount(0);
+    await expect(page.getByTestId("install-piExtension-pi-mcp-adapter")).toHaveCount(0);
   });
 });
 

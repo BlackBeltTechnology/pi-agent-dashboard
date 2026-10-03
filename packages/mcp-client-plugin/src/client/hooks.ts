@@ -6,26 +6,19 @@
  * and caches the last success, so several components mounting together issue a
  * single request and a remount is free.
  *
- * `useAdapterStatus` derives the ONE status object (pill, banner, read-only
- * flag) from an adapter verdict, so those three can never disagree.
+ * `useLiveState` reads `/api/mcp-client/live` on mount (page view) and on an
+ * explicit refresh only — the command connects to every server, so it is slow.
  *
- * See change: extract-mcp-client-plugin (task 7.1).
+ * See change: migrate-mcp-to-pi-builtin.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AdapterVerdict } from "../core/types.js";
-import { ApiError, type EffectiveResponse, fetchEffective } from "./api.js";
-
-/**
- * Fallback floor, used ONLY when a caller has no verdict at all. The real
- * constant lives in `core/adapter-verdict.ts`, which this browser bundle must
- * not import (`node:path`). Every route supplies `floor` on the verdict.
- */
-const FALLBACK_ADAPTER_FLOOR = "2.20.0";
+import { useCallback, useEffect, useState } from "react";
+import type { EffectiveView, LiveState } from "../core/types.js";
+import { ApiError, fetchEffective, fetchLive } from "./api.js";
 
 // ─── effective config store ──────────────────────────────────────────────────
 
-const cache = new Map<string, EffectiveResponse>();
-const inflight = new Map<string, Promise<EffectiveResponse>>();
+const cache = new Map<string, EffectiveView>();
+const inflight = new Map<string, Promise<EffectiveView>>();
 
 /**
  * Per-cwd 403 cache. The server is the ONLY source of cwd admission (the slot
@@ -53,7 +46,7 @@ export function __resetNotTrackedCache(): void {
 export function loadEffective(
   cwd?: string,
   opts: { force?: boolean } = {},
-): Promise<EffectiveResponse> {
+): Promise<EffectiveView> {
   const key = keyOf(cwd);
   if (!opts.force) {
     const refused = notTracked.get(key);
@@ -94,7 +87,7 @@ export function invalidateEffective(cwd?: string): void {
 }
 
 export interface EffectiveState {
-  view: EffectiveResponse | null;
+  view: EffectiveView | null;
   loading: boolean;
   error: unknown;
   /** Re-fetch, bypassing the cache. */
@@ -103,7 +96,7 @@ export interface EffectiveState {
 
 /** The effective view for a cwd (global when omitted). */
 export function useEffectiveConfig(cwd?: string): EffectiveState {
-  const [view, setView] = useState<EffectiveResponse | null>(() => cache.get(keyOf(cwd)) ?? null);
+  const [view, setView] = useState<EffectiveView | null>(() => cache.get(keyOf(cwd)) ?? null);
   const [loading, setLoading] = useState(view === null);
   const [error, setError] = useState<unknown>(null);
   const [nonce, setNonce] = useState(0);
@@ -132,45 +125,46 @@ export function useEffectiveConfig(cwd?: string): EffectiveState {
   return { view, loading, error, reload };
 }
 
-// ─── adapter status ──────────────────────────────────────────────────────────
+// ─── live state ──────────────────────────────────────────────────────────────
 
-/** The single derived status: pill, banner, and page-wide read-only all read it. */
-export interface AdapterStatus {
-  kind: AdapterVerdict["kind"];
-  /** True only for `ok` — the sole kind that permits writes. */
-  ok: boolean;
-  /** Every mutating control is disabled and the editor opens in view mode. */
-  readOnly: boolean;
-  installed?: string;
-  floor: string;
-  message: string;
-  /** The banner's single CTA: upgrade for `below-floor`, install for `absent`. */
-  action: "upgrade" | "install" | null;
+export interface LiveStateHook {
+  live: LiveState | null;
+  loading: boolean;
+  /** Re-run the live command (explicit refresh). */
+  refresh: () => void;
 }
 
-const DEFAULT_MESSAGE: Record<AdapterVerdict["kind"], string> = {
-  ok: "pi-mcp-adapter is up to date.",
-  absent: "pi-mcp-adapter is not installed.",
-  "below-floor": "pi-mcp-adapter is below the required version.",
-  unparseable: "pi-mcp-adapter's installed version could not be read.",
-  unknown: "pi-mcp-adapter status is unknown.",
-};
+/**
+ * Live state for a scope. Fetches on mount (page view) and on `refresh()`
+ * only — never on an interval — and renders `null` until the result lands so
+ * the list can render from `/effective` first. A failure leaves `live` null
+ * (rows read "state unknown"); it is not a page error.
+ */
+export function useLiveState(cwd?: string): LiveStateHook {
+  const [live, setLive] = useState<LiveState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [nonce, setNonce] = useState(0);
 
-export function deriveAdapterStatus(verdict: AdapterVerdict | undefined): AdapterStatus {
-  const v: AdapterVerdict = verdict ?? { kind: "unknown", floor: FALLBACK_ADAPTER_FLOOR };
-  const ok = v.kind === "ok";
-  return {
-    kind: v.kind,
-    ok,
-    readOnly: !ok,
-    installed: v.installed,
-    floor: v.floor,
-    message: v.message ?? DEFAULT_MESSAGE[v.kind],
-    action: v.kind === "below-floor" ? "upgrade" : v.kind === "absent" ? "install" : null,
-  };
-}
+  // biome-ignore lint/correctness/useExhaustiveDependencies: nonce is the explicit-refresh remount key
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    // nonce 0 = page view (server cache ok); > 0 = explicit refresh (fresh).
+    fetchLive(cwd, nonce > 0 ? { fresh: true } : undefined)
+      .then((v) => {
+        if (alive) setLive(v);
+      })
+      .catch(() => {
+        if (alive) setLive(null);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [cwd, nonce]);
 
-/** One memoized status object per verdict, so pill + banner update together. */
-export function useAdapterStatus(verdict: AdapterVerdict | undefined): AdapterStatus {
-  return useMemo(() => deriveAdapterStatus(verdict), [verdict]);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  return { live, loading, refresh };
 }
