@@ -58,7 +58,7 @@ export interface ModelProxyRegistry {
    * fix-and-prefer-model-proxy-resolution.
    */
   firstAvailable(preferred: string[]): Promise<ProxyModel | null>;
-  getApiKeyAndHeaders(model: ProxyModel): Promise<{ apiKey: string; headers: Record<string, string> }>;
+  getApiKeyAndHeaders(model: ProxyModel, signal?: AbortSignal): Promise<{ apiKey: string; headers: Record<string, string> }>;
 }
 
 /** Outcome of resolving a requested label to a registry model. */
@@ -350,14 +350,16 @@ async function runCompletion<B extends CompletionBody>(
   reply: FastifyReply,
 ) {
   const upstream = fmt.toUpstream(body);
-  const creds = await registry.getApiKeyAndHeaders(model);
   const controller = new AbortController();
   // Abort on client disconnect. Listen on the RESPONSE: on modern Node
   // `request.raw` emits "close" once the body is consumed (before this
-  // listener attaches), so it never signals a disconnect.
+  // listener attaches), so it never signals a disconnect. Attached BEFORE
+  // credential resolution so a disconnect also aborts an in-flight OAuth
+  // refresh. See change: collapse-model-proxy-onto-modelruntime.
   reply.raw.on("close", () => {
     if (!reply.raw.writableFinished) controller.abort();
   });
+  const creds = await registry.getApiKeyAndHeaders(model, controller.signal);
 
   const streamSimple = deps.streamSimple;
   if (!streamSimple) {

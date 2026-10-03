@@ -539,3 +539,56 @@ describe("catalogue and login flows agree (E2)", () => {
     }
   });
 });
+
+describe("client disconnect during credential resolution (ship-it review B1, test-plan X14)", () => {
+  it("aborts the signal handed to getApiKeyAndHeaders when the client disconnects mid-refresh", async () => {
+    let authSignal: AbortSignal | undefined;
+    const authStarted = { resolve: () => {} };
+    const started = new Promise<void>((r) => {
+      authStarted.resolve = r;
+    });
+    const { cleartext, entry } = makeKey();
+    const config: ModelProxyConfig = {
+      enabled: true,
+      maxConcurrentStreams: 16,
+      perKeyConcurrentStreams: 4,
+      logRequests: false,
+      apiKeys: [entry],
+    };
+    const app = Fastify({ logger: false });
+    app.addHook("onRequest", createModelProxyAuthGate({ getConfig: () => config }));
+    registerModelProxyRoutes(app, {
+      getConfig: () => config,
+      getRegistry: async () => ({
+        ...makeFakeRegistry(),
+        // A refresh that only ends when the request's signal aborts.
+        getApiKeyAndHeaders: (_model: unknown, signal?: AbortSignal) => {
+          authSignal = signal;
+          authStarted.resolve();
+          return new Promise((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        },
+      }),
+      streamSimple: () => fakeTextStream("never"),
+    });
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    try {
+      const { port } = app.server.address() as { port: number };
+      const client = new AbortController();
+      const pending = fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${cleartext}`, "content-type": "application/json" },
+        body: JSON.stringify({ model: "anthropic/claude-3-5-sonnet", messages: [{ role: "user", content: "hi" }], stream: true }),
+        signal: client.signal,
+      }).catch(() => undefined);
+      await started;
+      expect(authSignal).toBeDefined();
+      client.abort();
+      await vi.waitFor(() => expect(authSignal?.aborted).toBe(true));
+      await pending;
+    } finally {
+      await app.close();
+    }
+  });
+});
