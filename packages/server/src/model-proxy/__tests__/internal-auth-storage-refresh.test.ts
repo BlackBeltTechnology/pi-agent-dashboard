@@ -149,20 +149,48 @@ describe("facade auth resolution", () => {
   });
 });
 
-describe("one completion refreshes at most once (ship-it review round 2, B1)", () => {
-  it("a refreshed token with < 5 min validity is not refreshed again by the stream's own auth resolution", async () => {
+describe("one completion refreshes at most once (ship-it review rounds 2–3, B1)", () => {
+  /** One completion as the proxy runs it: facade auth, then pi's `streamSimple` (which resolves auth again). */
+  async function completion(storage: InternalAuthStorage, models: any): Promise<string | undefined> {
+    const { apiKey } = await storage.getApiKeyAndHeaders(model);
+    let stopReason: string | undefined;
+    for await (const event of models.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] })) {
+      stopReason = (event as { type: string }).type;
+    }
+    expect(stopReason).toBeDefined();
+    return apiKey;
+  }
+
+  it("a refreshed token with < 5 min validity is not refreshed again by the completion's streamSimple", async () => {
     writeAuth({ anthropic: expired() });
-    const shortLived = { type: "oauth" as const, access: "short-a", refresh: "r-new", expires: Date.now() + 3 * 60_000 };
-    const refresh = vi.fn(async () => ({ ...shortLived }));
+    const refresh = vi.fn(async () => ({ type: "oauth" as const, access: "short-a", refresh: "r-new", expires: Date.now() + 3 * 60_000 }));
     const { models } = piModelsOver({ oauth: { anthropic: refresh } });
     const storage = new InternalAuthStorage(models as never);
 
-    // 1. The facade resolves (and refreshes) before streaming.
-    await expect(storage.getApiKeyAndHeaders(model)).resolves.toMatchObject({ apiKey: "short-a" });
-    // 2. `runtime.streamSimple` → `prepareRequest` resolves auth again, exactly like this.
-    const again = await models.getAuth(model, {});
-    expect(again?.auth.apiKey).toBe("short-a");
+    await expect(completion(storage, models)).resolves.toBe("short-a");
     expect(refresh).toHaveBeenCalledTimes(1);
+    // The stream's own resolution saw the same, just-persisted token.
+    await expect(models.getAuth(model, {})).resolves.toMatchObject({ auth: { apiKey: "short-a" } });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("a just-persisted token that has already EXPIRED is refreshed again, never served", async () => {
+    writeAuth({ anthropic: expired() });
+    let n = 0;
+    const refresh = vi.fn(async () => {
+      n += 1;
+      // First answer: a token that is already expired by the next resolution.
+      return n === 1
+        ? { type: "oauth" as const, access: "stale-a", refresh: "r1", expires: Date.now() - 1 }
+        : { type: "oauth" as const, access: "fresh-a", refresh: "r2", expires: Date.now() + 3_600_000 };
+    });
+    const { models } = piModelsOver({ oauth: { anthropic: refresh } });
+    const storage = new InternalAuthStorage(models as never);
+
+    await storage.getApiKeyAndHeaders(model);
+    // Inside the debounce window, but the stored token is expired → refresh.
+    await expect(models.getAuth(model, {})).resolves.toMatchObject({ auth: { apiKey: "fresh-a" } });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -16,7 +16,7 @@
  * A rejected `fn` takes one more locked read: a different, fresh credential
  * another writer stored meanwhile is returned instead of the error.
  *
- * A credential this store persisted < 30 s ago is returned as-is, so one
+ * A still-unexpired credential this store persisted < 30 s ago is returned as-is, so one
  * request's two auth resolutions never refresh a short-lived token twice.
  *
  * Refresh-only: the server never calls `runtime.login()`, so every `modify`
@@ -247,14 +247,20 @@ export class DashboardCredentialStore implements RuntimeCredentialStore {
     }
   }
 
-  /** `current` is exactly what this store persisted for `providerId` within {@link RECENT_REFRESH_MS}. */
+  /**
+   * `current` is exactly what this store persisted for `providerId` within
+   * {@link RECENT_REFRESH_MS} AND has not expired yet — an expired credential
+   * is always handed to pi's refresh callback, never served from the debounce.
+   */
   private justRefreshed(providerId: string, current: AuthCredential): boolean {
     const recent = this.recentlyWritten.get(providerId);
     if (!recent) return false;
-    if (Date.now() - recent.at >= RECENT_REFRESH_MS) {
+    const now = Date.now();
+    if (now - recent.at >= RECENT_REFRESH_MS) {
       this.recentlyWritten.delete(providerId);
       return false;
     }
+    if (current.type !== "oauth" || !(typeof current.expires === "number" && current.expires > now)) return false;
     return isDeepStrictEqual(current, recent.credential);
   }
 
