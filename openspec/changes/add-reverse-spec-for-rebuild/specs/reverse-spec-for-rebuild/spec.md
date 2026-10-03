@@ -6,7 +6,7 @@ Define the contract of the `reverse-spec-for-rebuild` skill: extracting, from ex
 
 ### Requirement: Skill registration and attribution
 
-The `packages/eng-disciplines` package SHALL register the `reverse-spec-for-rebuild` skill in its `package.json` `pi.skills[]` array alongside its existing skills. The package `NOTICE` SHALL credit greenfield (MIT) as the source of adapted methodology. The skill's evaluation fixture SHALL be excluded from the published package files. The skill SHALL NOT reference files outside its own skill directory, so it works when the package is installed on its own.
+The `packages/eng-disciplines` package SHALL register the `reverse-spec-for-rebuild` skill in its `package.json` `pi.skills[]` array alongside its existing skills. The package `NOTICE` SHALL credit greenfield (Apache-2.0) as the source of adapted methodology. The skill's evaluation fixture SHALL be excluded from the published package files. The skill SHALL NOT reference files outside its own skill directory, so it works when the package is installed on its own.
 
 #### Scenario: Skill is discoverable
 - **WHEN** pi loads the `eng-disciplines` package

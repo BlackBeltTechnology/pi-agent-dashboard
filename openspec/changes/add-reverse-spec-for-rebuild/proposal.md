@@ -27,7 +27,7 @@ later characterize (golden vectors) and rebuild-check (blind rebuild) tranches.
 - Scratch-first under `.reverse-spec-scratch/` (asks to add it to `.git/info/exclude` when not
   ignored); promotion to a user-chosen path on confirm; never inside a protected root
   (default `openspec/`, `docs/`, `packages/`, `.pi/`, overridable).
-- Methodology adapted (rewritten, not copied) from greenfield (MIT); credited in the package `NOTICE`.
+- Methodology adapted (rewritten, not copied) from greenfield (Apache-2.0); credited in the package `NOTICE`.
 - Seeded evaluation fixture (small module with planted explicit/implicit rules + a quirk) to
   measure rule recall/precision; excluded from the published package.
 - Out of scope (later tranches): executing the original, golden vectors, hidden duals, blind

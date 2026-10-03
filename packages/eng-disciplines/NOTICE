@@ -36,6 +36,23 @@ TypeScript rewrite of the upstream CDP scope-walker.
   systematic-debugging          skills/software-development
   node-inspect-debugger         skills/software-development
 
+The `reverse-spec-for-rebuild` skill adapts methodology (provenance
+citations, confirmed/inferred/assumed confidence levels, state/edge-case/error
+templates, entry-point completeness checks) from greenfield. Its prompts and
+references were rewritten for this repo; no upstream files are copied. The
+MIT License text below does not cover greenfield; greenfield is licensed under
+the Apache License, Version 2.0 (https://www.apache.org/licenses/LICENSE-2.0).
+
+  greenfield
+  Copyright 2026 Prime Radiant, Inc.
+  Licensed under the Apache License, Version 2.0 (Apache-2.0)
+  https://github.com/prime-radiant-inc/greenfield
+  (fork: https://github.com/PGCodeLLM/greenfield)
+
+  this package                  upstream source
+  ----------------------------  --------------------------------------
+  reverse-spec-for-rebuild      methodology (adapted and rewritten)
+
 The MIT License text from the upstream projects applies to the adapted skill
 content and is reproduced here (the same MIT terms cover both derivations):
 

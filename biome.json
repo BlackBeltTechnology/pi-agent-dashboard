@@ -23,6 +23,7 @@
       "!**/deck3d/fixtures/**/deck.html",
       "!presentations/**/deck.html",
       "!packages/pi-forms-bpmn/.pi/skills/**/assets/**",
+    "!packages/eng-disciplines/.pi/skills/reverse-spec-for-rebuild/eval/**",
       "!site/vendor/**",
       "!packages/browser-plugin/src/server/relay/vendor/playwright-core/**",
       "!packages/browser-plugin/src/server/relay/vendor/shims/manualPromise.ts",

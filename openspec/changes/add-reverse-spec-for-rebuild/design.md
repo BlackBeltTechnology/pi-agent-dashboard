@@ -7,7 +7,7 @@ E3–E9, T1–T3, T5). The existing `reverse-spec-from-code` skill
 (capability clustering via kb tree), a blind generator, a code-grounded auditor emitting strict
 JSON, a step-6.5 `openspec validate` gate using throwaway ids, and a data-backed model routing
 (`@fast` generator + `@research` auditor). It forbids implementation detail and line numbers by
-design, because its output is indexed by kb. greenfield (MIT) supplies proven methodology for
+design, because its output is indexed by kb. greenfield (Apache-2.0) supplies proven methodology for
 provenance citations, confidence levels, state/edge/error templates and an entry-point
 completeness check, but runs as a Claude Code plugin and never verifies rebuildability.
 
@@ -83,6 +83,7 @@ transient `_rsfr-val-<cap>` id. Citations are inline HTML comments
 (`<!-- cite: ref=path:L-L, confidence=confirmed -->`) adapted from greenfield's format (dropped
 `agent`/`source` fields: single source type in v1). Task 1.1 spikes that `openspec validate`
 tolerates these comments; `lint-spec` ignores them by construction.
+- 2026-10-02 spike (task 1.1): VALID — `openspec validate _rsfr-val-spike --type spec` (and `--strict`) accepts cite comments after a SHALL line, between `#### Scenario` and `- **WHEN**`, and after THEN/AND bullets; task 1.2 not needed.
 
 ### D4. Fragments + orchestrator merge for cross-cutting files
 Generators run in parallel, one per capability, and each emits `_fragments/<cap>.json`
