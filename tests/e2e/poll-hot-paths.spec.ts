@@ -43,7 +43,8 @@ test.describe("poll hot paths — UI latency", () => {
 
   test("F1: a terminal `git checkout -b` updates the branch label within 6 s", async ({ page }) => {
     await ensureGitSession(page);
-    const label = byTestId(page, "gitBranchBtn").first();
+    // The branch NAME is a sibling of the icon-only button, so read the row.
+    const label = byTestId(page, "gitBranchBtn").first().locator("xpath=..");
     await expect(label).toBeVisible({ timeout: 30_000 });
     git("checkout -q -b e2e-branch");
     await expect(label).toContainText("e2e-branch", { timeout: 6_000 });
