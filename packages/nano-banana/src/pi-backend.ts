@@ -120,10 +120,14 @@ const errText = (err: unknown): string => (err instanceof Error ? err.message : 
 const requirement = (found?: string): string =>
   `pi image backend needs ${PI_PACKAGE} >= ${PI_MIN_VERSION}` + (found ? ` (found ${found})` : "");
 
+/** Official semver.org grammar (no leading zeros in numeric parts or numeric prerelease ids). Groups: major, minor, patch, prerelease. */
+const SEMVER =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*)?$/;
+
 /** True when `version`'s numeric major.minor.patch is >= 1.0.0; a 1.0.0 prerelease and non-numeric values are below. */
 export function meetsMinVersion(version: unknown): boolean {
   if (typeof version !== "string") return false;
-  const m = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(version.trim());
+  const m = SEMVER.exec(version.trim());
   if (!m) return false;
   const nums = [Number(m[1]), Number(m[2]), Number(m[3])];
   const floor = PI_MIN_VERSION.split(".").map(Number);

@@ -418,6 +418,12 @@ describe("availability guard", () => {
     "1.0.1-a.",
     "1.0.1-a+b+c",
     "1.0.1-a b",
+    "1.0.1-01",
+    "1.0.1-rc.01",
+    "1.0.1-0.00",
+    "01.0.1",
+    "1.00.1",
+    "1.0.01",
   ])("B3 rejects malformed VERSION %j without creating a runtime", async (v) => {
       const { loadPi, createCalls } = fakeModule(v);
       const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
@@ -425,7 +431,7 @@ describe("availability guard", () => {
       expect(createCalls).toHaveLength(0);
     });
 
-  it.each(["1.0.0+build.5", "1.2.3", "2.0.0", "1.0.1-rc.1", "1.0.1-rc.1+b.7", "1.0.1-0.3.7", "1.0.1-x-y.z"])("B3 accepts well-formed VERSION %s", async (v) => {
+  it.each(["1.0.0+build.5", "1.2.3", "2.0.0", "1.0.1-rc.1", "1.0.1-rc.1+b.7", "1.0.1-0.3.7", "1.0.1-x-y.z", "1.0.1-0", "1.0.1-0a", "1.0.1-a.0", "1.0.1+001"])("B3 accepts well-formed VERSION %s", async (v) => {
     const { loadPi } = fakeModule(v);
     const res = await generateImage({ prompt: "x", backend: "pi", output: path.join(tmp(), "a.png"), loadPi });
     expect(res.ok).toBe(true);
