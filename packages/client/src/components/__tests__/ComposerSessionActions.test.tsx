@@ -658,6 +658,21 @@ describe("ComposerSessionActions change chip for non-live attachments (resolve-a
     expect(screen.getByTestId("composer-change-detach")).toBeTruthy();
   });
 
+  it("unresolved (OpenSpec data not settled yet): chip menu is Detach-only", () => {
+    stubArchiveApi({});
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          {}, // no entry for the cwd yet → unresolved{loading}
+          <ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...base} />,
+        )}
+      </Router>,
+    );
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    expect(screen.queryByTestId("composer-change-open-proposal")).toBeNull();
+    expect(screen.getByTestId("composer-change-detach")).toBeTruthy();
+  });
+
   it("live active attachment still offers 'Open proposal'", () => {
     stubArchiveApi({});
     render(

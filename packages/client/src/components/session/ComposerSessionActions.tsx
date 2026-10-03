@@ -163,7 +163,7 @@ function ChangeChip({
   name: string;
   onOpenProposal?: () => void;
   onDetach?: () => void;
-  /** False for an archived / main-checkout attachment: the active-preview route would not find it. */
+  /** True only for a live-active attachment in the session's cwd; archived / main-checkout / unresolved attachments are Detach-only. */
   showOpenProposal?: boolean;
 }) {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
@@ -431,7 +431,7 @@ export function ComposerSessionActions({
         name={attached}
         onOpenProposal={onReadArtifact ? () => onReadArtifact(attached, "proposal") : undefined}
         onDetach={onDetach}
-        showOpenProposal={!showTrace}
+        showOpenProposal={isLiveActive(resolution, session.cwd)}
       />
       {showTrace && <AttachmentTrace resolution={resolution} sessionCwd={session.cwd} />}
       {change && (
