@@ -8,6 +8,7 @@ import type { ClosedReason, DashboardSession, SessionSource, SessionStatus } fro
 import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
 import { projectPluginRefs } from "./plugin-refs.js";
 import { resolveOrderKey } from "./resolve-order-key.js";
+import { STATS_EXTRACTOR_VERSION, emptyUsageTotals, type UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 
 /**
  * Snapshot window constants (D4). The specs state the same numbers.
@@ -122,6 +123,29 @@ export interface RegisterSessionParams {
    * See change: fix-spawn-correlation-ttl-coupling (D3).
    */
   dashboardSpawned?: boolean;
+  /**
+   * Bridge baseline totals (every kind, cache included), forwarded from
+   * `SessionRegisterMessage.usageSeed` (normalized by the gateway). Applied
+   * ONLY when the id is unknown (fork, switch to an unscanned file); a known
+   * id keeps its carried-over totals. See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals;
+}
+
+/**
+ * Normalize an untrusted `usageSeed` off the socket: every field a finite,
+ * non-negative number, else the whole seed is dropped (undefined).
+ */
+export function normalizeUsageSeed(raw: unknown): UsageTotals | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const out = emptyUsageTotals();
+  for (const k of Object.keys(out) as (keyof UsageTotals)[]) {
+    const v = r[k];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 0) return undefined;
+    out[k] = v;
+  }
+  return out;
 }
 
 export interface OnChangeContext {
@@ -323,6 +347,7 @@ export function createMemorySessionManager(
           cacheRead: existing.cacheRead,
           cacheWrite: existing.cacheWrite,
           cost: existing.cost,
+          statsExtractorVersion: existing.statsExtractorVersion,
           // Preserve user-set openspec assignment (not polled, set via dashboard UI)
           attachedProposal: existing.attachedProposal,
           // Preserve user-owned tags across a bridge reattach (not polled, set via
@@ -350,9 +375,20 @@ export function createMemorySessionManager(
           // worktree-removal window. See design D2b.
           // See change: fix-worktree-grouping-lost-on-remove.
           gitWorktree: existing.cwd === params.cwd ? existing.gitWorktree : undefined,
+        } : params.usageSeed ? {
+          // First-seen id with existing history (fork, switch to an unscanned
+          // file): start from the bridge's baseline snapshot totals; live
+          // drain adds only usage after that baseline. Seed totals count every
+          // kind, so they are current-extractor totals.
+          // See change: count-non-message-usage.
+          ...params.usageSeed,
+          statsExtractorVersion: STATS_EXTRACTOR_VERSION,
         } : {
+          // All five totals pinned to zero (cache fields too).
           tokensIn: 0,
           tokensOut: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
           cost: 0,
         }),
         // Apply registration params (always override)

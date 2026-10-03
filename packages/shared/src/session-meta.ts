@@ -233,6 +233,13 @@ export interface SessionMeta {
 
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;
+  /**
+   * Version of the stats extractor that produced the cached totals. Absent or
+   * older than `STATS_EXTRACTOR_VERSION` ⇒ a non-archived sidecar re-extracts
+   * on discovery even when the JSONL is not newer than `cachedAt`.
+   * See change: count-non-message-usage.
+   */
+  statsExtractorVersion?: number;
 }
 
 /**

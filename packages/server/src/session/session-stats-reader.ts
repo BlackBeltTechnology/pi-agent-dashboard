@@ -3,6 +3,7 @@
  * Used to populate session card data after server restart.
  */
 import { readFileSync, existsSync } from "node:fs";
+import { addUsageTotals, entryUsage, usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 
 export interface SessionStats {
   tokensIn: number;
@@ -20,7 +21,9 @@ export interface SessionStats {
 
 /**
  * Read a session JSONL file and extract cumulative stats.
- * Only reads the file once — accumulates from all assistant messages with usage.
+ * Only reads the file once — accumulates every usage kind (assistant, tool
+ * result, compaction, branch summary, `usage` entries) via the shared
+ * `entryUsage` helper. Only assistant usage drives `lastTotalTokens`.
  */
 export function extractSessionStats(filePath: string): SessionStats | null {
   if (!existsSync(filePath)) return null;
@@ -54,18 +57,12 @@ export function extractSessionStats(filePath: string): SessionStats | null {
           stats.thinkingLevel = entry.level;
         }
 
-        // Accumulate usage from assistant messages
-        if (entry.type === "message" && entry.message?.role === "assistant" && entry.message?.usage) {
-          const usage = entry.message.usage;
-          stats.tokensIn += (usage.input ?? 0);
-          stats.tokensOut += (usage.output ?? 0);
-          stats.cacheRead += (usage.cacheRead ?? 0);
-          stats.cacheWrite += (usage.cacheWrite ?? 0);
-          if (usage.cost?.total) {
-            stats.cost += usage.cost.total;
-          }
-          if (usage.totalTokens) {
-            lastTotalTokens = usage.totalTokens;
+        // Accumulate usage of every kind; only assistant usage sets the gauge.
+        const u = entryUsage(entry);
+        if (u) {
+          addUsageTotals(stats, usageToTotals(u.usage));
+          if (u.kind === "turn" && typeof u.usage.totalTokens === "number" && u.usage.totalTokens) {
+            lastTotalTokens = u.usage.totalTokens;
           }
         }
       } catch {

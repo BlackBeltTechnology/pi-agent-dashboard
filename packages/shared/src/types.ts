@@ -271,6 +271,12 @@ export interface DashboardSession {
   cacheRead?: number;
   cacheWrite?: number;
   cost?: number;
+  /**
+   * Version of the stats extractor the totals were derived under (server-only).
+   * Persisted via `sessionToMeta` so a full-overwrite save keeps it.
+   * See change: count-non-message-usage.
+   */
+  statsExtractorVersion?: number;
   currentTool?: string | null;
   gitBranch?: string;
   gitBranchUrl?: string;

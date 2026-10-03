@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -94,6 +95,9 @@ function seedSession(id: string, cwd: string, mainPath: string): { metaFile: str
       jsonlMtime: fs.statSync(sessionFile).mtimeMs,
       jsonlSize: fs.statSync(sessionFile).size,
       gitWorktree: { mainPath, name: path.basename(cwd) },
+      // Current extractor version: no version-triggered re-extract rewrite.
+      // See change: count-non-message-usage.
+      statsExtractorVersion: STATS_EXTRACTOR_VERSION,
     }),
   );
   return { metaFile };
@@ -240,6 +244,9 @@ describe("load-time worktree inference from cwd", () => {
         // `mtimeMs` is fractional while `Date.now()` truncates, so ceil it —
         // otherwise the freshness check reads the record as stale by <1ms.
         cachedAt: opts.cachedAt ?? Math.ceil(jsonlMtime),
+        // Current extractor version: these cases test worktree repair, not a
+        // version-triggered re-extract. See change: count-non-message-usage.
+        statsExtractorVersion: STATS_EXTRACTOR_VERSION,
         ...extra,
       }),
     );

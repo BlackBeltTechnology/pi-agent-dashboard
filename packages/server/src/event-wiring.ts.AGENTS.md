@@ -23,3 +23,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 `handleNotify(sessionId, incoming)` validates `incoming.ts` via module-level `isValidNotifyTs` (finite number > 0) else stamps `Date.now()`; every logged entry + browser `notify` carries `ts` (live, legacy `fromLegacyPromptRequest`, server-created locality notice). Live `notify` branch forwards raw `msg.ts`. See change: collapse-and-order-notify-rows.
 
 `pi_version_update` arm stamps + broadcasts `piBelowFloor = computePiBelowFloor(version, serverPiMinimum())` (`null` clears). See change: update-pi-core-1-0-adopt-apis.
+
+`accumulateUsage(sessionId, stats, usageKind?)` — one accumulator for `turn_end`, tool-result `message_end` (read from in-flight event; assistant `message_end` never counted) and `usage_recorded`; adds all five totals, stores + broadcasts `stats_update` (non-turn: `usageKind`, no `contextUsage`). See change: count-non-message-usage.
