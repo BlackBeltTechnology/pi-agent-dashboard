@@ -180,7 +180,7 @@ describe("processStartedAt", () => {
   });
 
   it("parses `ps -o lstart=` output off Linux", () => {
-    const exec = vi.fn(() => "Thu Oct  1 00:49:08 2026\n");
+    const exec = vi.fn((_cmd: string) => "Thu Oct  1 00:49:08 2026\n");
     expect(processStartedAt(42, { platform: "darwin", exec })).toBe(Date.parse("Thu Oct  1 00:49:08 2026"));
     expect(exec.mock.calls[0][0]).toContain("LC_ALL=C");
   });
