@@ -178,15 +178,11 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       return;
     }
     reprobing = true;
-    const gen = generation;
     let stamp = stampTriggered;
     try {
       do {
         reprobeAgain = false;
-        const { changed } = await facts.reprobe(forCwd);
-        if (disposed || gen !== generation || !deps.isActive()) return;
-        if (changed || stamp) attachWatcher();
-        if (changed) requestProbe("fast", "refresh");
+        if (!(await probeFactsOnce(forCwd, stamp))) return;
         stamp = reprobeAgainStamp;
         reprobeAgainStamp = false;
       } while (reprobeAgain);
@@ -200,6 +196,16 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       reprobeAgain = false;
       reprobeAgainStamp = false;
     }
+  }
+
+  /** One async facts probe; false when a newer evaluation owns the cache (nothing applied). */
+  async function probeFactsOnce(forCwd: string, stampTriggered: boolean): Promise<boolean> {
+    const gen = generation;
+    const { changed, committed } = await facts.reprobe(forCwd, () => !disposed && gen === generation && deps.isActive());
+    if (!committed) return false;
+    if (changed || stampTriggered) attachWatcher();
+    if (changed) requestProbe("fast", "refresh");
+    return true;
   }
 
   return {

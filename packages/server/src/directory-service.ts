@@ -1627,6 +1627,12 @@ export function createDirectoryService(
   function stopTimers() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     try { piResourcesWatcher.detachAll(); } catch { /* best-effort */ }
+    // Unwatched ⇒ cannot be trusted fresh: an edit made while polling was
+    // stopped is otherwise served as fresh after a restart re-attaches.
+    for (const [cwd, entry] of piResourcesCache) {
+      entry.stale = true;
+      piResourcesVersion.set(cwd, (piResourcesVersion.get(cwd) ?? 0) + 1);
+    }
     for (const t of scheduledPhaseTimers) clearTimeout(t);
     scheduledPhaseTimers.clear();
   }

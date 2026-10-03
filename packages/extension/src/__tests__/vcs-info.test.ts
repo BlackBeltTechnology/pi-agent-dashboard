@@ -406,4 +406,23 @@ describe("GitFactsCache (D4)", () => {
     const roots = { thisCheckout: "/r/.worktrees/os-x", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" };
     expect(worktreeFromRoots(roots as any)).toEqual({ mainPath: "/r", name: "os-x" });
   });
+
+  it("B3: reprobe commits only when accept() still holds after the await", async () => {
+    const OLD = facts({ remoteUrl: "git@old:o/r.git" });
+    const NEW = facts({ remoteUrl: "git@new:o/r.git" });
+    let release!: (f: StaticGitFacts) => void;
+    const c = new GitFactsCache({
+      evaluate: () => NEW,
+      evaluateAsync: () => new Promise<StaticGitFacts>((r) => (release = r)),
+      stamp: () => "s1",
+    });
+    c.evaluate("/r"); // NEW installed
+    let current = true;
+    const p = c.reprobe("/r", () => current);
+    current = false; // a newer evaluation took over while the probe was in flight
+    release(OLD);
+    const out = await p;
+    expect(out.committed).toBe(false);
+    expect(c.get("/r")?.remoteUrl).toBe("git@new:o/r.git");
+  });
 });

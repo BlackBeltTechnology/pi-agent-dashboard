@@ -194,12 +194,22 @@ export class GitFactsCache {
     return !!cached && this.deps.stamp(cwd, cached.roots) !== cached.dotGitStamp;
   }
 
-  /** Async re-probe; stores the result and reports whether the facts changed. */
-  async reprobe(cwd: string): Promise<{ facts: StaticGitFacts; changed: boolean }> {
-    const before = this.map.get(cwd);
+  /**
+   * Async re-probe. The result is committed only when `accept()` (checked AFTER
+   * the await) still says the caller's context is current — a session/cwd
+   * change that installed fresh facts meanwhile must not be overwritten by an
+   * older in-flight probe. Reports whether the facts changed and whether they
+   * were committed.
+   */
+  async reprobe(
+    cwd: string,
+    accept: () => boolean = () => true,
+  ): Promise<{ facts: StaticGitFacts; changed: boolean; committed: boolean }> {
     const facts = await this.deps.evaluateAsync(cwd);
+    if (!accept()) return { facts, changed: false, committed: false };
+    const before = this.map.get(cwd);
     this.map.set(cwd, facts);
-    return { facts, changed: !before || !sameFacts(before, facts) };
+    return { facts, changed: !before || !sameFacts(before, facts), committed: true };
   }
 
   clear(): void {

@@ -220,4 +220,17 @@ describe("pi-resources on demand", () => {
     expect(w.listeners.has(path.join(cwds[0]!, ".pi", "skills"))).toBe(false);
     expect(service.getPiResources(cwds[0]!)).toMatchObject({ stale: true });
   });
+
+  it("B2: stop → edit → restart → request serves the entry as STALE (unwatched data is never fresh)", async () => {
+    const { service, w } = mk();
+    const cwd = project("s");
+    service.startPolling(() => {});
+    await service.refreshPiResources(cwd);
+    expect(service.getPiResources(cwd)?.stale).toBe(false);
+    service.stopPolling();
+    expect(w.closed.some((d) => d.startsWith(path.join(cwd, ".pi")))).toBe(true);
+    // an edit while stopped raises no event (watchers are gone)
+    service.startPolling(() => {});
+    expect(service.getPiResources(cwd)?.stale).toBe(true);
+  });
 });

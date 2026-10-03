@@ -72,3 +72,71 @@ export function scheduleModelRecheckOnSelect(
 ): void {
   setTimer(recheck, MODEL_SELECT_RECHECK_MS);
 }
+
+/** Owns the per-incarnation scan scheduler and git tracker so replacing one disposes the previous. */
+export interface PollingHolder {
+  readonly processScan: ProcessScanScheduler | null;
+  readonly gitTracker: GitTracker | null;
+  /** Dispose the previous scan scheduler (schedules never stack) and hold `next`. */
+  replaceProcessScan(next: ProcessScanScheduler): void;
+  /** Dispose the previous tracker and hold `next`; returns it. */
+  replaceGitTracker(next: GitTracker): GitTracker;
+  /** Dispose and forget both (registered once as a bridge disposable). */
+  disposeAll(): void;
+}
+
+export function createPollingHolder(): PollingHolder {
+  let processScan: ProcessScanScheduler | null = null;
+  let gitTracker: GitTracker | null = null;
+  return {
+    get processScan() {
+      return processScan;
+    },
+    get gitTracker() {
+      return gitTracker;
+    },
+    replaceProcessScan(next) {
+      processScan?.dispose();
+      processScan = next;
+    },
+    replaceGitTracker(next) {
+      gitTracker?.dispose();
+      gitTracker = next;
+      return next;
+    },
+    disposeAll() {
+      processScan?.dispose();
+      processScan = null;
+      gitTracker?.dispose();
+      gitTracker = null;
+    },
+  };
+}
+
+/** The slice of `BridgeState` the re-init teardown touches. */
+export interface PreviousIncarnation {
+  cleanup?: () => void;
+  connections?: Array<{ disconnect(): void }>;
+  timers?: Array<ReturnType<typeof setInterval>>;
+  disposables?: Array<() => void>;
+}
+
+/**
+ * Tear down what a previous bridge incarnation left behind (`/reload`, session
+ * replacement). Returns `false` — touching NOTHING — on a subagent re-entry, so
+ * a subagent loading the bridge in the parent's process never disposes the
+ * parent's schedulers, watchers or timers.
+ */
+export function teardownPreviousIncarnation(prev: PreviousIncarnation, isReentry: () => boolean): boolean {
+  if (isReentry()) return false;
+  prev.cleanup?.();
+  prev.cleanup = undefined;
+  // Disconnect ALL orphaned connections from previous bridge incarnations
+  for (const conn of prev.connections ?? []) conn.disconnect();
+  prev.connections = [];
+  // Clear ALL orphaned timers (clearInterval also clears timeouts)
+  for (const t of prev.timers ?? []) clearInterval(t);
+  prev.timers = [];
+  drainDisposables(prev);
+  return true;
+}

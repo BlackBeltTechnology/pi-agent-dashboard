@@ -67,7 +67,7 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect } from "./bridge-polling.js";
+import { createPollingHolder, drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { createGitPollState, runGitPollTick } from "./git-poll.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
@@ -88,7 +88,7 @@ import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcessesAsync } from "./process-scanner.js";
-import { createProcessScanScheduler, type ProcessScanScheduler } from "./process-scan-scheduler.js";
+import { createProcessScanScheduler } from "./process-scan-scheduler.js";
 import { pollCost } from "./poll-cost.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
@@ -243,30 +243,12 @@ function initBridge(pi: ExtensionAPI) {
   // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
   // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
   // See change: fix-terminal-session-dashboard-reload (D4).
-  if (isBridgeReentry(prev, pi)) {
+  // Re-init teardown (cleanup, connections, timers, disposables) runs only for a
+  // genuine re-init; a subagent re-entry returns here untouched. Seam:
+  // `bridge-polling.ts`. See change: optimize-polling-hot-paths (D11).
+  if (!teardownPreviousIncarnation(prev, () => isBridgeReentry(prev, pi))) {
     return;
   }
-
-  prev.cleanup?.();
-  prev.cleanup = undefined;
-
-  // Disconnect ALL orphaned connections from previous bridge incarnations
-  if (prev.connections) {
-    for (const conn of prev.connections) {
-      conn.disconnect();
-    }
-  }
-  prev.connections = [];
-  // Clear ALL orphaned timers
-  if (prev.timers) {
-    for (const t of prev.timers) {
-      clearInterval(t);
-    }
-  }
-  prev.timers = [];
-  // Dispose schedulers/watchers left by the previous incarnation. After the
-  // `isBridgeReentry` return above so a subagent never kills the parent's.
-  drainDisposables(prev);
 
   // Bump generation so stale listeners from previous initBridge calls bail out
   const generation = (prev.generation ?? 0) + 1;
@@ -347,11 +329,10 @@ function initBridge(pi: ExtensionAPI) {
   let gitPollTimer: ReturnType<typeof setInterval> | null = null;
   // Adaptive async process-scan scheduler (replaces the fixed setInterval).
   // See change: optimize-polling-hot-paths.
-  let processScan: ProcessScanScheduler | null = null;
+  const polling = createPollingHolder();
   // Per-session git tracker (facts cache, HEAD branch, async status probe);
   // renewed at every session_start / session change. See change:
   // optimize-polling-hot-paths.
-  let gitTracker: GitTracker | null = null;
   let previousProcessPids: string = ""; // JSON-stringified PID set for diff
   const trackedPgids = new Set<number>(); // PGIDs captured during bash tool calls
   // PIDs of subprocesses the bridge has spawned itself (dashboard server,
@@ -396,19 +377,16 @@ function initBridge(pi: ExtensionAPI) {
   const registerDisposable = (fn: () => void): void => {
     (getBridgeState().disposables ??= []).push(fn);
   };
-  registerDisposable(() => { processScan?.dispose(); processScan = null; });
-  registerDisposable(() => { gitTracker?.dispose(); gitTracker = null; });
+  registerDisposable(() => polling.disposeAll());
   /** Dispose the previous tracker and start a fresh one for the incoming session. */
   function renewGitTracker(): GitTracker {
-    gitTracker?.dispose();
-    gitTracker = createGitTracker({
+    return polling.replaceGitTracker(createGitTracker({
       getBc: () => syncBc(),
       applyBc: (bc) => applyBc(bc),
       isActive,
       setTimer: setRegisteredTimeout,
       clearTimer: clearRegisteredTimeout,
-    });
-    return gitTracker;
+    }));
   }
   const prStatus: PrStatusScheduler = createPrStatusScheduler({
     probe: (cwd) => git.prStatusAsync({ cwd }),
@@ -417,7 +395,7 @@ function initBridge(pi: ExtensionAPI) {
     // redesign-composer-session-strip (doubt-review #2).
     alive: isActive,
     onChange: () => {
-      if (isActive()) gitTracker?.sendCached();
+      if (isActive()) polling.gitTracker?.sendCached();
     },
     setTimer: setRegisteredTimeout,
     clearTimer: clearRegisteredTimeout,
@@ -1412,7 +1390,7 @@ function initBridge(pi: ExtensionAPI) {
       // Forced PR-status probe after a worktree Push / Open PR. The server
       // only targets bridges whose cwd is inside the worktree. See change:
       // redesign-composer-session-strip (D5).
-      if (routeGitInfoRefresh(msg, { prStatus, gitTracker })) return;
+      if (routeGitInfoRefresh(msg, { prStatus, gitTracker: polling.gitTracker })) return;
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -1705,7 +1683,7 @@ function initBridge(pi: ExtensionAPI) {
         if (activeCtx?.cwd) {
           // First evaluation again: the server lost its git state with the connection.
           const gbc = syncBc();
-          gitTracker?.evaluateFirst(gbc, activeCtx.cwd);
+          polling.gitTracker?.evaluateFirst(gbc, activeCtx.cwd);
           applyBc(gbc);
           sendCwdMissingIfChanged(activeCtx.cwd);
         }
@@ -2181,7 +2159,7 @@ function initBridge(pi: ExtensionAPI) {
       dashboardSpawned,
       selfSpawnedPgids,
       prStatus,
-      gitTracker: gitTracker ?? undefined,
+      gitTracker: polling.gitTracker ?? undefined,
     };
   }
   /** Sync BridgeContext mutations back to local variables */
@@ -2373,7 +2351,7 @@ function initBridge(pi: ExtensionAPI) {
       // See change: coalesce-bridge-message-update-snapshots.
       if (flushesParkedText(eventType)) coalescer.flush();
       // Adaptive process-scan cadence hooks. See change: optimize-polling-hot-paths.
-      feedPollingEvent(eventType, event, { processScan, gitTracker });
+      feedPollingEvent(eventType, event, polling);
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -3888,7 +3866,6 @@ function initBridge(pi: ExtensionAPI) {
     // One async `ps -A` per scan; fast while the agent/tools run, idle
     // otherwise. session_start re-runs: dispose the previous scheduler first so
     // schedules never stack. See change: optimize-polling-hot-paths.
-    processScan?.dispose();
     const scheduler = createProcessScanScheduler({
       platform: process.platform,
       setTimer: setRegisteredTimeout,
@@ -3901,7 +3878,7 @@ function initBridge(pi: ExtensionAPI) {
           PROCESS_MIN_ELAPSED_MS,
           { excludedPgids: selfSpawnedPgids },
         );
-        if (!isActive() || processScan !== scheduler) return { changed: false };
+        if (!isActive() || polling.processScan !== scheduler) return { changed: false };
         const currentPids = JSON.stringify(processes.map((p) => p.pid).sort());
         if (currentPids === previousProcessPids) return { changed: false };
         previousProcessPids = currentPids;
@@ -3913,7 +3890,7 @@ function initBridge(pi: ExtensionAPI) {
         return { changed: true };
       },
     });
-    processScan = scheduler;
+    polling.replaceProcessScan(scheduler);
     scheduler.start();
 
     // Register flow event listeners (pi-flows emits these via pi.events)
@@ -4002,7 +3979,7 @@ function initBridge(pi: ExtensionAPI) {
         cachedCwd: () => cachedCwd,
         tickGit: (cwd) => {
           const gbc = syncBc();
-          gitTracker?.tick(gbc, cwd);
+          polling.gitTracker?.tick(gbc, cwd);
           applyBc(gbc);
         },
         sendCwdMissingIfChanged,

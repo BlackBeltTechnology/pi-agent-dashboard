@@ -87,7 +87,7 @@ function harness(opts: { status?: () => Promise<any>; head?: { value: string | u
     headReader: () => reader,
     watch: ((...a: unknown[]) => { watchSpy(...a); return { close: () => {}, on: () => ({}) as any }; }) as any,
   });
-  return { tracker, bc, send, head, statusProbe, evaluate, evaluateAsync, observe, watchSpy, stampBox, setActive: (v: boolean) => (active = v) };
+  return { tracker, bc, send, head, statusProbe, evaluate, evaluateAsync, observe, watchSpy, stampBox, facts, setActive: (v: boolean) => (active = v) };
 }
 
 beforeEach(() => {
@@ -290,6 +290,22 @@ describe("git tracker — first evaluation and probe path", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(h.evaluateAsync).toHaveBeenCalledTimes(1);
     expect(h.watchSpy).toHaveBeenCalledTimes(2);
+    h.tracker.dispose();
+  });
+
+  it("B3: a stale in-flight facts re-probe never overwrites a newer same-cwd evaluation", async () => {
+    const OLD: StaticGitFacts = { ...FACTS, remoteUrl: "git@old:o/r.git" };
+    const NEW: StaticGitFacts = { ...FACTS, remoteUrl: "git@new:o/r.git" };
+    let release!: (f: StaticGitFacts) => void;
+    const h = harness({ evaluateAsync: () => new Promise<StaticGitFacts>((r) => (release = r)) });
+    h.tracker.evaluateFirst(h.bc, "/r");
+    h.tracker.refresh(); // in-flight async re-probe of the OLD session
+    await vi.advanceTimersByTimeAsync(0);
+    (h.evaluate as any).mockReturnValue(NEW);
+    h.tracker.evaluateFirst(h.bc, "/r"); // new session, same cwd: installs NEW synchronously
+    release(OLD); // the older probe settles afterwards
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.facts.get("/r")?.remoteUrl).toBe("git@new:o/r.git"); // the older probe did not overwrite it
     h.tracker.dispose();
   });
 });

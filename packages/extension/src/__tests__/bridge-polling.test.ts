@@ -13,10 +13,20 @@
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BridgeContext } from "../bridge-context.js";
-import { drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect } from "../bridge-polling.js";
+import {
+  createPollingHolder,
+  drainDisposables,
+  feedPollingEvent,
+  routeGitInfoRefresh,
+  scheduleModelRecheckOnSelect,
+  teardownPreviousIncarnation,
+} from "../bridge-polling.js";
+import { createGitTracker } from "../git-tracker.js";
 import { sendModelUpdateIfChanged } from "../model-tracker.js";
 import { __resetPollCostForTests, pollCost } from "../poll-cost.js";
+import { createProcessScanScheduler } from "../process-scan-scheduler.js";
 import { scanChildProcesses } from "../process-scanner.js";
+import { GitFactsCache } from "../vcs-info.js";
 
 const SRC = fs.readFileSync(new URL("../bridge.ts", import.meta.url), "utf8");
 
@@ -96,7 +106,7 @@ describe("git_info_refresh routing (B1)", () => {
   });
 
   it("the bridge routes inbound messages through the seam", () => {
-    expect(SRC).toContain("routeGitInfoRefresh(msg, { prStatus, gitTracker })");
+    expect(SRC).toContain("routeGitInfoRefresh(msg, { prStatus, gitTracker: polling.gitTracker })");
   });
 });
 
@@ -124,7 +134,7 @@ describe("lifecycle events feed the polling machinery", () => {
 
   it("the bridge feeds events AFTER the parked-text flush choke point", () => {
     const entry = region("if (flushesParkedText(eventType)) coalescer.flush();", "// Track agent streaming state");
-    expect(entry).toContain("feedPollingEvent(eventType, event, { processScan, gitTracker })");
+    expect(entry).toContain("feedPollingEvent(eventType, event, polling)");
   });
 });
 
@@ -170,30 +180,129 @@ describe("drainDisposables (X5/X7)", () => {
   });
 });
 
-describe("teardown and no stacking (X5–X7)", () => {
-  it("X7: disposables are drained AFTER the subagent re-entry return, so a subagent never disposes the parent's", () => {
-    const init = region("function initBridge(pi: ExtensionAPI) {", "// Bump generation");
-    expect(init.indexOf("isBridgeReentry(prev, pi)")).toBeGreaterThanOrEqual(0);
-    expect(init.indexOf("drainDisposables(prev)")).toBeGreaterThan(init.indexOf("isBridgeReentry(prev, pi)"));
-    expect(init.indexOf("drainDisposables(prev)")).toBeGreaterThan(init.indexOf("prev.timers = [];"));
+describe("polling lifecycle — the bridge's real seams (X5–X7)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const liveScan = () => {
+    const scan = vi.fn(async () => ({ changed: false }));
+    return { sched: createProcessScanScheduler({ scan, platform: "linux" }), scan };
+  };
+  const liveTracker = () => {
+    const bc = { sessionId: "s", connection: { send: vi.fn() } } as unknown as BridgeContext;
+    const statusProbe = vi.fn(async () => ({ ok: true as const, value: { dirtyCount: 0, staged: 0, unstaged: 0, untracked: 0, ahead: 0, behind: 0 } }));
+    const tracker = createGitTracker({
+      getBc: () => bc,
+      applyBc: () => {},
+      isActive: () => true,
+      facts: new GitFactsCache({
+        evaluate: () => ({ roots: null, gitDir: "/r/.git", dotGitStamp: "s" }),
+        evaluateAsync: async () => ({ roots: null, gitDir: "/r/.git", dotGitStamp: "s" }),
+        stamp: () => "s",
+      }),
+      statusProbe: statusProbe as any,
+      headReader: () => ({ read: () => "main", reset: () => {} }),
+      watch: (() => ({ close: () => {}, on: () => ({}) })) as any,
+    });
+    return { tracker, bc, statusProbe };
+  };
+
+  it("X6: replacing the scheduler/tracker (new, fork, resume, reload ×3) never stacks live instances", async () => {
+    const polling = createPollingHolder();
+    const scans: ReturnType<typeof liveScan>[] = [];
+    const trackers: ReturnType<typeof liveTracker>[] = [];
+    for (let i = 0; i < 4; i++) {
+      const s = liveScan();
+      scans.push(s);
+      polling.replaceProcessScan(s.sched);
+      s.sched.start();
+      const t = liveTracker();
+      trackers.push(t);
+      polling.replaceGitTracker(t.tracker).evaluateFirst(t.bc, "/r");
+    }
+    await vi.advanceTimersByTimeAsync(60_000);
+    // Only the last scheduler/tracker run; the three superseded ones are silent.
+    expect(scans.slice(0, 3).every((s) => s.scan.mock.calls.length === 0)).toBe(true);
+    expect(scans[3]!.scan.mock.calls.length).toBeGreaterThan(0);
+    expect(trackers.slice(0, 3).every((t) => t.statusProbe.mock.calls.length === 0)).toBe(true);
+    expect(trackers[3]!.statusProbe.mock.calls.length).toBeGreaterThan(0);
+    polling.disposeAll();
   });
 
-  it("X5: state.cleanup and session_shutdown both drain the disposables", () => {
+  it("X5: disposeAll with a scan and a probe still pending → no late send, nothing re-armed", async () => {
+    const polling = createPollingHolder();
+    let releaseScan!: () => void;
+    const scan = vi.fn(() => new Promise<{ changed: boolean }>((r) => (releaseScan = () => r({ changed: true }))));
+    const sched = createProcessScanScheduler({ scan, platform: "linux" });
+    polling.replaceProcessScan(sched);
+    sched.start();
+    let releaseProbe!: (v: unknown) => void;
+    const { tracker, bc } = liveTracker();
+    const slowTracker = createGitTracker({
+      getBc: () => bc,
+      applyBc: () => {},
+      isActive: () => true,
+      facts: new GitFactsCache({ evaluate: () => ({ roots: null, gitDir: "/r/.git", dotGitStamp: "s" }), evaluateAsync: async () => ({ roots: null, gitDir: "/r/.git", dotGitStamp: "s" }), stamp: () => "s" }),
+      statusProbe: (() => new Promise((r) => (releaseProbe = r))) as any,
+      headReader: () => ({ read: () => "main", reset: () => {} }),
+      watch: (() => ({ close: () => {}, on: () => ({}) })) as any,
+    });
+    tracker.dispose();
+    polling.replaceGitTracker(slowTracker).evaluateFirst(bc, "/r");
+    await vi.advanceTimersByTimeAsync(6_000); // scan + probe are in flight
+    const sendsBefore = (bc.connection.send as any).mock.calls.length;
+    polling.disposeAll();
+    releaseScan();
+    releaseProbe({ ok: true, value: { dirtyCount: 9, staged: 0, unstaged: 0, untracked: 9, ahead: 0, behind: 0 } });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect((bc.connection.send as any).mock.calls.length).toBe(sendsBefore);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(polling.processScan).toBeNull();
+    expect(polling.gitTracker).toBeNull();
+  });
+
+  it("X7: a subagent re-entry returns false and touches NOTHING of the parent's", () => {
+    const prev = {
+      cleanup: vi.fn(),
+      connections: [{ disconnect: vi.fn() }],
+      timers: [setInterval(() => {}, 1000)],
+      disposables: [vi.fn()],
+    };
+    const dispose = prev.disposables[0]!;
+    expect(teardownPreviousIncarnation(prev, () => true)).toBe(false);
+    expect(prev.cleanup).toHaveBeenCalledTimes(0);
+    expect(prev.connections[0]!.disconnect).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(prev.timers).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(1);
+    clearInterval(prev.timers[0]!);
+  });
+
+  it("a real re-init cleans the previous incarnation: cleanup, connections, timers and disposables", () => {
+    const order: string[] = [];
+    const prev: any = {
+      cleanup: () => order.push("cleanup"),
+      connections: [{ disconnect: () => order.push("disconnect") }],
+      timers: [setInterval(() => {}, 1000), setTimeout(() => {}, 5000)],
+      disposables: [() => order.push("dispose-a"), () => { throw new Error("x"); }, () => order.push("dispose-b")],
+    };
+    expect(teardownPreviousIncarnation(prev, () => false)).toBe(true);
+    expect(order).toEqual(["cleanup", "disconnect", "dispose-a", "dispose-b"]);
+    expect(prev.cleanup).toBeUndefined();
+    expect(prev.connections).toEqual([]);
+    expect(prev.timers).toEqual([]);
+    expect(prev.disposables).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bridge.ts uses these seams: holder for both schedulers, one disposeAll disposable, teardown helper, drain at shutdown/cleanup", () => {
+    expect(SRC).toContain("createPollingHolder()");
+    expect(SRC.match(/registerDisposable\(\(\) => polling\.disposeAll\(\)\)/g)).toHaveLength(1);
+    expect(SRC).toContain("teardownPreviousIncarnation(prev, () => isBridgeReentry(prev, pi))");
     expect(region("state.cleanup = () => {", "// Dev build & restart")).toContain("drainDisposables(s)");
     expect(region('pi.on("session_shutdown"', "sendShutdownUsageThenUnregister(")).toContain("drainDisposables(getBridgeState())");
-  });
-
-  it("X6: the scan scheduler and git tracker are disposed before being recreated", () => {
-    const scan = region("processScan?.dispose();", "scheduler.start();");
-    expect(scan.indexOf("processScan?.dispose()")).toBeLessThan(scan.indexOf("createProcessScanScheduler("));
-    expect(region("function renewGitTracker()", "return gitTracker;")).toContain("gitTracker?.dispose()");
-    // One registered disposable per kind, created once at init (not per session_start).
-    expect(SRC.match(/registerDisposable\(\(\) => \{ processScan\?\.dispose\(\)/g)).toHaveLength(1);
-    expect(SRC.match(/registerDisposable\(\(\) => \{ gitTracker\?\.dispose\(\)/g)).toHaveLength(1);
-  });
-
-  it("no setInterval remains for the process scan", () => {
+    expect(region("const scheduler = createProcessScanScheduler({", "scheduler.start();")).toContain("polling.replaceProcessScan(scheduler)");
     expect(SRC).not.toContain("processScanTimer");
-    expect(SRC).not.toContain("PROCESS_SCAN_INTERVAL");
   });
 });
