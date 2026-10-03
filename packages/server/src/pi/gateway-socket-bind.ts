@@ -28,17 +28,23 @@
  * indeterminate probe may unlink only when that pid is recorded and provably
  * dead. A `live` probe always wins over it.
  *
+ * The pidfile records `"<pid> <ownerStartMs>"`: a pid that is alive but whose
+ * start time differs names a DIFFERENT process (reboot / pid reuse, #744), so
+ * the previous owner is provably gone. A refusal alone never reclaims, and a
+ * path that is not a socket is never removed.
+ *
  * On mixed versions there is no competitor: a dashboard predating this change
  * binds a TCP port and never touches a socket path at all.
  *
  * See change: add-pi-gateway-transport-identity (D9, defect B3).
+ * See change: fix-gateway-socket-stale-owner (D1, D2, D4).
  */
 
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
-import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { isProcessAlive, processStartedAt } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import properLockfile from "proper-lockfile";
 
 /** Raised instead of capturing a path that may still be serving. */
@@ -47,6 +53,8 @@ export class GatewaySocketConflictError extends Error {
   constructor(
     readonly socketPath: string,
     readonly detail: string,
+    /** What the refusal rested on, for the server log (never for health). */
+    readonly info: { verdict?: string; ownerPid?: number | null } = {},
   ) {
     super(
       `gateway socket ${socketPath} is already in use (${detail}). ` +
@@ -107,7 +115,19 @@ export interface BindGatewaySocketOptions {
   /** Injected server factory (test seam). */
   createServer?: () => http.Server;
   probe?: (socketPath: string) => Promise<ProbeResult>;
+  /** Test seam for the owner start-time probe (D3). */
+  startedAt?: (pid: number) => number | null;
 }
+
+/** Slack when comparing process start times (D1): `ps`/`/proc` granularity. */
+const START_SLACK_MS = 2000;
+
+/**
+ * Sockets THIS process bound and still serves, keyed by path (D4). Makes a
+ * same-process re-bind (`/api/restart`) see its own dead path as free, and
+ * stops a stopping owner deleting a successor's socket.
+ */
+const owned = new Map<string, http.Server>();
 
 /**
  * Bind an `http.Server` on `socketPath`, `0600` in a `0700` directory.
@@ -128,32 +148,10 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
     /* best-effort (chmod is a documented no-op on Windows) */
   }
 
+  const startedAt = opts.startedAt ?? processStartedAt;
   const releaseLock = await acquireBindLock(socketPath);
   try {
-    if (fs.existsSync(socketPath)) {
-      const state = await probe(socketPath);
-      // `live` is unambiguous and always wins: a recycled or hand-edited
-      // pidfile must never authorise unlinking a path something answers on.
-      if (state === "live") {
-        throw new GatewaySocketConflictError(socketPath, "a live listener answered the probe");
-      }
-      // Only a REFUSAL may be reconsidered against the pidfile. A timeout is
-      // indistinguishable from a live listener whose backlog is full, so it
-      // never authorises an unlink no matter what the pidfile claims.
-      const reclaimable =
-        state === "no-listener" || (state === "refused" && ownerIsProvablyDead(socketPath));
-      if (!reclaimable) {
-        throw new GatewaySocketConflictError(
-          socketPath,
-          state === "timeout"
-            ? "the probe timed out — a live listener with a full backlog looks exactly like this"
-            : `the probe was ${state} and no dead owner pid is recorded`,
-        );
-      }
-      // Proven dead while holding the lock: no other participant can bind
-      // between here and our own bind.
-      fs.unlinkSync(socketPath);
-    }
+    await clearReclaimablePath(socketPath, probe, startedAt);
 
     const server = (opts.createServer ?? (() => http.createServer()))();
     await new Promise<void>((resolve, reject) => {
@@ -168,11 +166,61 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
     } catch {
       /* best-effort */
     }
-    writeOwnerPid(socketPath);
+    owned.set(socketPath, server);
+    writeOwnerPid(socketPath, startedAt);
     return server;
   } finally {
     await releaseLock();
   }
+}
+
+/**
+ * Remove whatever occupies `socketPath` iff it is provably a dead socket;
+ * otherwise throw {@link GatewaySocketConflictError}. A missing path is fine.
+ * Must run under the bind lock.
+ */
+async function clearReclaimablePath(
+  socketPath: string,
+  probe: (socketPath: string) => Promise<ProbeResult>,
+  startedAt: (pid: number) => number | null,
+): Promise<void> {
+  // `lstat`, not `existsSync`: a dangling symlink "does not exist" to the
+  // latter, and a symlink to a stale socket must not be unlinked either.
+  const st = lstatOrNull(socketPath);
+  if (!st) return;
+  const ownerPid = readOwnerRecord(socketPath).pid;
+  if (!st.isSocket()) {
+    throw new GatewaySocketConflictError(socketPath, "the path exists and is not a socket", {
+      verdict: "not-a-socket",
+      ownerPid,
+    });
+  }
+  const state = await probe(socketPath);
+  // `live` is unambiguous and always wins: a recycled or hand-edited
+  // pidfile must never authorise unlinking a path something answers on.
+  if (state === "live") {
+    throw new GatewaySocketConflictError(socketPath, "a live listener answered the probe", {
+      verdict: state,
+      ownerPid,
+    });
+  }
+  // Only a REFUSAL may be reconsidered against the pidfile. A timeout is
+  // indistinguishable from a live listener whose backlog is full, so it
+  // never authorises an unlink no matter what the pidfile claims.
+  const reclaimable =
+    state === "no-listener" || (state === "refused" && ownerIsProvablyGone(socketPath, startedAt));
+  if (!reclaimable) {
+    throw new GatewaySocketConflictError(
+      socketPath,
+      state === "timeout"
+        ? "the probe timed out — a live listener with a full backlog looks exactly like this"
+        : `the probe was ${state} and the previous owner is not provably gone`,
+      { verdict: state, ownerPid },
+    );
+  }
+  // Proven gone while holding the lock: no other participant can bind
+  // between here and our own bind.
+  fs.unlinkSync(socketPath);
 }
 
 /**
@@ -184,7 +232,7 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
  * only on `ENOENT`, which by definition cannot coincide with an existing file,
  * so the unlink branch is unreachable under the real probe (@review finding 1).
  */
-function writeOwnerPid(socketPath: string): void {
+function writeOwnerPid(socketPath: string, startedAt: (pid: number) => number | null): void {
   const p = `${socketPath}.pid`;
   try {
     // `writeFileSync` FOLLOWS a symlink and leaves a pre-existing file's mode
@@ -195,29 +243,73 @@ function writeOwnerPid(socketPath: string): void {
     } catch {
       /* nothing there */
     }
-    fs.writeFileSync(p, `${process.pid}\n`, { mode: 0o600, flag: "wx" });
-  } catch {
-    /* best-effort: absence only costs us the ability to reclaim */
+    const started = startedAt(process.pid);
+    fs.writeFileSync(p, started == null ? `${process.pid}\n` : `${process.pid} ${started}\n`, {
+      mode: 0o600,
+      flag: "wx",
+    });
+  } catch (err) {
+    // Not fatal, but the path becomes unreclaimable after a crash — say so.
+    console.warn(`[gateway] could not record the socket owner in ${p}: ${String(err)}`);
   }
 }
 
-/**
- * Whether the pid recorded next to `socketPath` is provably gone.
- *
- * Fail-closed in every uncertain case — a missing, empty or unparseable
- * pidfile proves nothing, and only a *recorded* pid that is not alive
- * authorises reclaiming the path.
- */
-function ownerIsProvablyDead(socketPath: string): boolean {
+function lstatOrNull(p: string): fs.Stats | null {
+  try {
+    return fs.lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
+interface OwnerRecord {
+  pid: number | null;
+  /** `undefined` = legacy bare pid; `null` = malformed second field. */
+  startMs: number | null | undefined;
+}
+
+/** Parse `<socketPath>.pid` — `"<pid>"` (legacy) or `"<pid> <ownerStartMs>"`. */
+function readOwnerRecord(socketPath: string): OwnerRecord {
   let raw: string;
   try {
     raw = fs.readFileSync(`${socketPath}.pid`, "utf8");
   } catch {
+    return { pid: null, startMs: null };
+  }
+  const [pidTok, startTok, ...rest] = raw.trim().split(/\s+/);
+  if (!/^\d+$/.test(pidTok ?? "") || Number(pidTok) <= 0) return { pid: null, startMs: null };
+  const pid = Number(pidTok);
+  if (startTok === undefined) return { pid, startMs: undefined };
+  if (rest.length > 0 || !/^\d+$/.test(startTok)) return { pid, startMs: null };
+  return { pid, startMs: Number(startTok) };
+}
+
+/**
+ * Whether the dashboard that last bound `socketPath` is provably gone (D1).
+ * Fail-closed in every uncertain case.
+ */
+function ownerIsProvablyGone(
+  socketPath: string,
+  startedAt: (pid: number) => number | null,
+): boolean {
+  const { pid, startMs } = readOwnerRecord(socketPath);
+  if (pid === null) return false;
+  // 1. Not alive.
+  if (!isProcessAlive(pid)) return true;
+  // 4. Our own pid: nothing in this process serves the path (#744's
+  //    deterministic self-collision), whatever the start-time probe says.
+  if (pid === process.pid) return !(owned.get(socketPath)?.listening ?? false);
+  if (startMs === null) return false; // malformed: not proven
+  const started = startedAt(pid);
+  if (started === null) return false;
+  // 2. Alive, but a different process than the one that recorded itself.
+  if (startMs !== undefined) return Math.abs(started - startMs) > START_SLACK_MS;
+  // 3. Legacy bare pid: the pid started after the pidfile was last written.
+  try {
+    return started > fs.statSync(`${socketPath}.pid`).mtimeMs + START_SLACK_MS;
+  } catch {
     return false;
   }
-  const pid = Number.parseInt(raw.trim(), 10);
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  return !isProcessAlive(pid);
 }
 
 /**
@@ -247,22 +339,40 @@ async function acquireBindLock(socketPath: string): Promise<() => Promise<void>>
 }
 
 /**
- * Close a socket listener and remove its path, plus the companion bind-lock
- * sentinel (which would otherwise accumulate forever). Idempotent with respect
- * to a missing file — a stop() after a crash-cleanup must not throw (task 2.5).
+ * Close a socket listener and remove its path and pidfile — but only while we
+ * still own them (D4). libuv already unlinks the path on `close()`; by the
+ * time we get the bind lock a successor may have bound the same path, so the
+ * follow-up removal happens only when nothing else in this process serves it
+ * AND the pidfile still names this process. The `.lock` sentinel is left in
+ * place (deleting it while a competitor holds it breaks mutual exclusion).
+ * Idempotent and never throws (task 2.5).
  */
 export async function unbindGatewaySocket(
   server: http.Server | null,
   socketPath: string,
 ): Promise<void> {
+  if (server && owned.get(socketPath) === server) owned.delete(socketPath);
   if (server) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  for (const p of [socketPath, `${socketPath}.pid`, `${socketPath}.lock`]) {
-    try {
-      fs.unlinkSync(p);
-    } catch {
-      /* already gone */
+  let release: (() => Promise<void>) | null = null;
+  try {
+    release = await acquireBindLock(socketPath);
+  } catch (err) {
+    console.warn(`[gateway] could not lock ${socketPath}.lock to clean up: ${String(err)}`);
+    return;
+  }
+  try {
+    if (!owned.has(socketPath) && readOwnerRecord(socketPath).pid === process.pid) {
+      for (const p of [socketPath, `${socketPath}.pid`]) {
+        try {
+          fs.unlinkSync(p);
+        } catch {
+          /* already gone */
+        }
+      }
     }
+  } finally {
+    await release().catch(() => undefined);
   }
 }

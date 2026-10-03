@@ -514,4 +514,14 @@ describe("GET /api/health — push.errors disclosure (test-plan #X18)", () => {
     const body = (await (await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`)).json()) as Record<string, unknown>;
     expect("push" in body).toBe(false);
   });
+
+  // (test-plan #E10) See change: fix-gateway-socket-stale-owner (D7).
+  it("reports the bridge listeners without the socket path or any pid", async () => {
+    pushHandle = await createTestServer();
+    const res = await fetch(`http://127.0.0.1:${pushHandle.httpPort}/api/health`);
+    const body = (await res.json()) as { gateway?: Record<string, unknown> };
+    expect(Array.isArray(body.gateway?.listeners)).toBe(true);
+    expect(Object.keys(body.gateway ?? {}).every((k) => k === "listeners" || k === "fallbackReason")).toBe(true);
+    expect(JSON.stringify(body.gateway)).not.toMatch(/\.sock|\d{3,}/);
+  });
 });
