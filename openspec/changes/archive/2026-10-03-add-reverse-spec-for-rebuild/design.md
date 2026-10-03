@@ -7,7 +7,7 @@ E3–E9, T1–T3, T5). The existing `reverse-spec-from-code` skill
 (capability clustering via kb tree), a blind generator, a code-grounded auditor emitting strict
 JSON, a step-6.5 `openspec validate` gate using throwaway ids, and a data-backed model routing
 (`@fast` generator + `@research` auditor). It forbids implementation detail and line numbers by
-design, because its output is indexed by kb. greenfield (MIT) supplies proven methodology for
+design, because its output is indexed by kb. greenfield (Apache-2.0) supplies proven methodology for
 provenance citations, confidence levels, state/edge/error templates and an entry-point
 completeness check, but runs as a Claude Code plugin and never verifies rebuildability.
 
@@ -62,14 +62,16 @@ Layout:
   completeness.md      entry-point → spec|gap map + verdict
   capabilities/<cap>/spec.md
   _fragments/<cap>.json  per-generator rule/entity/quirk/gap fragments (merge input)
+  _fragments/<cap>.spec.md  unmerged spec with local refs; every merge re-renders all capabilities/ specs from it
 ```
 Promotion moves the tree to a user-chosen path, refusing any path inside a protected root —
 default `openspec/`, `docs/`, `packages/`, `.pi/` (this repo's kb-indexed roots, where kb would
 index provenance-heavy duplicates), overridable per run for other repos.
 Scratch: `.reverse-spec-scratch/` at repo root; this repo already ignores it (`.gitignore:50`);
 elsewhere the skill checks `git check-ignore` and, on consent, appends it to `.git/info/exclude`.
-The check resolves the nearest existing ancestor's real path (the destination may not exist
-yet), so relative, `..` and symlinked paths cannot bypass it. *Alternative:* spec.md into `openspec/specs` + sidecars —
+The check resolves the destination component by component in kernel order (symlinks, even
+dangling ones, followed before a later `..`; the destination may not exist yet), so relative,
+`..` and symlinked paths cannot bypass it. *Alternative:* spec.md into `openspec/specs` + sidecars —
 rejected (user choice; kb pollution, and provenance comments conflict with the kb skill's
 no-line-number policy).
 
@@ -83,6 +85,7 @@ transient `_rsfr-val-<cap>` id. Citations are inline HTML comments
 (`<!-- cite: ref=path:L-L, confidence=confirmed -->`) adapted from greenfield's format (dropped
 `agent`/`source` fields: single source type in v1). Task 1.1 spikes that `openspec validate`
 tolerates these comments; `lint-spec` ignores them by construction.
+- 2026-10-02 spike (task 1.1): VALID — `openspec validate _rsfr-val-spike --type spec` (and `--strict`) accepts cite comments after a SHALL line, between `#### Scenario` and `- **WHEN**`, and after THEN/AND bullets; task 1.2 not needed.
 
 ### D4. Fragments + orchestrator merge for cross-cutting files
 Generators run in parallel, one per capability, and each emits `_fragments/<cap>.json`
@@ -91,8 +94,8 @@ dedupe rules by meaning, assign stable `BR-/QUIRK-/GAP-` ids in first-seen capab
 rewrite capability specs' local rule refs to global ids, then render the markdown files. A
 revise pass regenerates a spec with local refs again, so every revision re-runs the merge
 before the gates; the auditor checks every `BR-/QUIRK-/GAP-` ref resolves.
-Id carry-over: when a previous package is supplied, the merge first matches new items to the
-previous `rules.md`/`quirks.md`/`gaps.md` by meaning and reuses their ids; new items get ids above
+Id carry-over: when a previous package is supplied, it is snapshotted read-only before generation
+(before `PKG` is moved aside), and the merge first matches new items to the snapshot's `rules.md`/`quirks.md`/`gaps.md` by meaning and reuses their ids; new items get ids above
 the previous maximum; retired ids are never reused (tranche 2 golden vectors key on `BR-NNN`).
 *Alternative:* a dedicated consolidator subagent - deferred; start with the main session and
 promote to a subagent only if merges exceed context. *Alternative:* one generator for everything
@@ -132,10 +135,15 @@ design at toy scale.
 ### D9. Deterministic guards live in a helper script
 `reverse-spec-for-rebuild/scripts/guard.mjs` (Node ≥20, no deps) owns the filesystem and format
 guards so they are testable instead of agent prose:
-- `check-dest <path> [--protect <dir>]...` exits non-zero when the nearest existing ancestor's
-  real path is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
+- `check-dest <path> [--protect <dir>]...` exits non-zero when the path, resolved component by
+  component in kernel order (symlinks — even dangling — followed before `..`), is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
-- `sweep` removes only `openspec/specs/_rsfr-val-*` directories (no-op without `openspec/specs/`).
+- `lock`/`unlock <slug> <run-id>` serialize runs per target (exclusive-create lock file owned by the run id; never expires; a leftover lock is removed by `break-lock <slug> <owner>` only after the user confirms the owner is dead; acquisition, owner check and removal all run under one per-target mkdir mutex); the slug's readable part and capability names are capped at 60 chars.
+- `slug <target>` derives the scratch slug (canonical repo-relative path → kebab-case + hash; `root`; refuses targets outside the repo); `check-manifest` rejects unsafe or duplicate capability names before generators fan out.
+- `check-cap <name>` / `check-run <id>` reject any capability name or run id that is not a single safe path component (capability names come from untrusted discovery output and become paths).
+- `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.
+- `seed-ids <ids.json> <dir>...` / `next-id <ids.json> <BR|QUIRK|GAP>` keep a persisted per-kind high-water mark (`_ids.json`, shipped with the package) so retired ids — across runs and across revisions within a run — are never reused.
+- `sweep [--run <id>]` removes only this skill's `openspec/specs/_rsfr-val-*` directories: with `--run`, that run's `_rsfr-val-<id>-*`; without, only abandoned ones (`.owner` pid dead, or no owner and untouched 10 min) so a concurrent run's live dirs survive (no-op without `openspec/specs/`).
 - `lint-spec <file>` is the built-in structural check (D3); exit 1 and `file:line: reason` per
   violation.
 - Bad input → exit 2 + usage.

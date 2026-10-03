@@ -52,6 +52,9 @@ export default defineConfig({
       // music-production (change: add-music-production-skills): skill-text and
       // repo-wiring invariants. Its Python behaviour runs in ci.yml music-pytest.
       "packages/music-production",
+      // eng-disciplines (change: add-reverse-spec-for-rebuild): guard.mjs,
+      // package wiring, skill self-containment and eval-fixture consistency.
+      "packages/eng-disciplines",
       // deck3d: deterministic markdown → 3D deck engine. Browser-driving suites
       // self-skip without chromium, so the plain job stays green.
       "packages/deck3d",
