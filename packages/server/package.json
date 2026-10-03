@@ -66,6 +66,7 @@
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-document-converter": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-extension": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-mcp-client-plugin": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@earendil-works/pi-coding-agent": "^1.0.0",
     "@fastify/compress": "^9.2.0",

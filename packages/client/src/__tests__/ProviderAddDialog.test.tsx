@@ -168,6 +168,23 @@ describe("picker membership and the selectable count (E10)", () => {
   });
 });
 
+describe("Radius picker membership (F5, add-radius-provider-login)", () => {
+  const radiusRow = { id: "radius", name: "Radius", flowType: "auth_code", authenticated: false, configured: false, subscription: false };
+  const other = { id: "xai", name: "xAI", flowType: "device_code", authenticated: false, configured: false };
+
+  it("lists Radius when the server returns it", async () => {
+    await renderSection({ statuses: [radiusRow, other], calls: { put: 0, patch: 0, start: 0, status: 0 } });
+    await openPicker();
+    expect(dialog().getByText("Radius")).toBeTruthy();
+  });
+
+  it("shows no Radius OAuth entry when the server omits it (models.json override)", async () => {
+    await renderSection({ statuses: [other], calls: { put: 0, patch: 0, start: 0, status: 0 } });
+    await openPicker();
+    expect(dialog().queryByText("Radius")).toBeNull();
+  });
+});
+
 // ── 7.3 — the pane branches on flowType ──────────────────────────────────────
 
 describe("panes branch on flowType (7.3)", () => {

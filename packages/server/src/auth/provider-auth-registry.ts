@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OAuthLoginFlow, OAuthRegistryEntry } from "./pi-oauth-types.js";
+import { applyRadiusOverride, setAgentDirSource } from "./radius-override.js";
 
 /** Package the runtime comes from (version diagnostics only). */
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -45,14 +46,10 @@ export const FLOW_TYPE_HINT: Readonly<Record<string, "auth_code" | "device_code"
   openai: "auth_code",
   "openai-codex": "auth_code",
   openrouter: "auth_code",
+  // Radius login starts with a browser/device `select`, like Codex.
+  // See change: add-radius-provider-login.
+  radius: "auth_code",
 };
-
-/**
- * The only per-provider exclusion left in the dashboard. `radius` is bundled by
- * `builtinProviders()` but its OAuth targets a gateway URL taken from pi's own
- * settings, which the dashboard does not manage.
- */
-const EXCLUDED_PROVIDER_IDS: ReadonlySet<string> = new Set(["radius"]);
 
 /** The slice of pi-ai's `Provider` this module consumes. */
 interface PiProviderLike {
@@ -70,6 +67,8 @@ interface RuntimeHandleLike {
   /** Provider shapes are checked at runtime by {@link mapProviders}'s filter. */
   runtime: { getProviders(): readonly unknown[] };
   version?: string;
+  /** pi's `getAgentDir` (honours `PI_CODING_AGENT_DIR`); locates `models.json`. */
+  getAgentDir?: () => string;
 }
 
 export type RuntimeSource = () => Promise<RuntimeHandleLike>;
@@ -88,11 +87,11 @@ export function setOAuthRegistryRuntimeSource(source: RuntimeSource | undefined)
 type OAuthProvider = PiProviderLike & { auth: { oauth: OAuthLoginFlow } };
 
 const isOAuthProvider = (p: PiProviderLike): p is OAuthProvider =>
-  p?.auth?.oauth != null && !EXCLUDED_PROVIDER_IDS.has(p.id);
+  p?.auth?.oauth != null;
 
 /**
  * Project the runtime's provider list onto the registry. Pure and exported so
- * the id-set / flow-type-hint / exclusion rules are testable without the SDK.
+ * the id-set / flow-type-hint rules are testable without the SDK.
  */
 export function mapProviders(
   providers: readonly PiProviderLike[],
@@ -111,9 +110,14 @@ export function mapProviders(
 let snapshot: OAuthRegistryEntry[] = [];
 let snapshotError: string | null = null;
 
-/** Sync registry view. Empty until {@link oauthRegistryReady} settles. */
+/**
+ * Sync registry view. Empty until {@link oauthRegistryReady} settles. NOT a pure
+ * snapshot read: `radius` is dropped while `models.json` declares a custom
+ * Radius gateway (re-checked at most once a second).
+ * See change: add-radius-provider-login (D2).
+ */
 export function getOAuthRegistry(): OAuthRegistryEntry[] {
-  return snapshot;
+  return applyRadiusOverride(snapshot);
 }
 
 /**
@@ -194,6 +198,7 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
       throw err;
     }
     if (typeof handle?.version === "string" && handle.version) version = handle.version;
+    setAgentDirSource(typeof handle?.getAgentDir === "function" ? handle.getAgentDir : undefined);
     const runtime = handle?.runtime;
     if (typeof runtime?.getProviders !== "function") {
       throw new Error("ModelRuntime.getProviders is not a function");
@@ -206,6 +211,7 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const detail = `${message} (pi-coding-agent ${version})`;
+    setAgentDirSource(undefined);
     setRegistry([], detail);
     log(`[provider-auth] OAuth registry unavailable: ${detail}`);
   }

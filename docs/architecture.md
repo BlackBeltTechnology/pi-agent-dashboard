@@ -1744,13 +1744,14 @@ flowchart TD
     S --> DONE
 ```
 
-**Triggers** — six sources route through `dispatchReload`; pi-core update is the one exception:
+**Triggers** — seven sources route through `dispatchReload`; pi-core update is the one exception:
 1. Reload button / `/reload` in composer → browser `send_prompt` → `packages/server/src/browser-handlers/session-action-handler.ts` `handleSendPrompt`.
 2. `scripts/reload-all.sh` → same browser path.
 3. pi retry-policy settings save → `server.ts` `reloadConnectedSessions`.
 4. Package install/remove → `packageManagerWrapper.setReloadSessions`.
 5. pi-core update complete → `piCoreUpdater.onAllComplete` → `respawnForRuntimeSwap` (NOT `dispatchReload`).
 6. `POST /api/resources/reload` → `routes/resource-activation-routes.ts`.
+7. Radius MCP configure write (`POST /api/provider-auth/radius/mcp`) → `countReloads(reloadFanOutTargets(), dispatchReload)` in `server.ts`. See change: add-radius-provider-login (D5, D6).
 
 **Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
 
@@ -4452,7 +4453,31 @@ The dashboard supports browser-based authentication with pi's LLM providers, ena
 
 The dashboard supplies an `AuthInteraction` — not a flow. pi-ai's `login()` owns PKCE, the loopback callback listener, device-code polling, and the code-for-token exchange; the dashboard persists the returned credential through its existing locked, backed-up `writeCredential()`. No per-provider flow code remains. See change: delegate-provider-oauth-to-pi-ai.
 
-**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from the shared injected server runtime (`setOAuthRegistryRuntimeSource(getServerModelRuntime)`, wired by `server.ts`) — ONE `ModelRuntime` (D6), so a failed create degrades this listing AND the model proxy together. `mapProviders()` filters `auth?.oauth` and excludes `radius` by id, yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `1.0.0` that set is the eight ids `anthropic`, `openai`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`. `FLOW_TYPE_HINT` (`anthropic` / `openai` / `openai-codex` / `openrouter` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate. Registry entries and OAuth status rows carry `subscription` from pi's `isSubscription` (absent → `false`; `openrouter` is `false`). `login()` receives `{ getDeviceId }` from pi `SettingsManager.getOrCreateDeviceId()`, pre-loaded in `beginFlow` via `loadPiDeviceId` — pi 1.0.0 Sign in with ChatGPT (`openai`) rejects without it. Environment api-key rows carry `authLabel` (pi `getProviderAuthStatus().label`) and count as authenticated only when the row has no `envVar` and is not `ambient`. See change: update-pi-core-1-0-adopt-apis.
+**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from the shared injected server runtime (`setOAuthRegistryRuntimeSource(getServerModelRuntime)`, wired by `server.ts`) — ONE `ModelRuntime` (D6), so a failed create degrades this listing AND the model proxy together. `mapProviders()` filters `auth?.oauth` (no id exclusion), yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `1.0.0` that set is the nine ids `anthropic`, `openai`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`, `radius`. Built-in `radius` — name `Radius`, `flowType` hint `auth_code`, `subscription:false` → Account badge. `getOAuthRegistry()` applies the `models.json` override on read (below). `FLOW_TYPE_HINT` (`anthropic` / `openai` / `openai-codex` / `openrouter` / `radius` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate. Registry entries and OAuth status rows carry `subscription` from pi's `isSubscription` (absent → `false`; `openrouter` is `false`). `login()` receives `{ getDeviceId }` from pi `SettingsManager.getOrCreateDeviceId()`, pre-loaded in `beginFlow` via `loadPiDeviceId` — pi 1.0.0 Sign in with ChatGPT (`openai`) rejects without it. Environment api-key rows carry `authLabel` (pi `getProviderAuthStatus().label`) and count as authenticated only when the row has no `envVar` and is not `ambient`. See change: update-pi-core-1-0-adopt-apis.
+
+**Registry override** (`packages/server/src/auth/radius-override.ts`).
+
+`isRadiusOverridden()` true iff Pi-global `models.json` declares a custom-gateway `radius`. Path `join(getAgentDir(), "models.json")` — honours `PI_CODING_AGENT_DIR`. Shape required: `providers.radius` with `oauth:"radius"` and a non-default `baseUrl`. Default gateway `https://radius.pi.dev`; `/v1` suffix, trailing slash, missing scheme normalized before compare. File parsed as pi parses it — BOM + `//` comments + trailing commas stripped, NO schema validation — so a schema-invalid file carrying the override shape still hides Radius (fails toward hiding). Read error / missing file → no override. Result memoized ≤1 s → an edit applies without restart.
+
+`getOAuthRegistry()` wraps the snapshot in `applyRadiusOverride()`: overridden → drop entry `radius`, leaving eight ids. One reader feeds `/providers`, `/handlers`, `/start`, and `/status`. Out of scope: other custom `oauth:"radius"` ids (registry builds `modelsPath:null`); an extension-registered `radius` id is not detected. See change: add-radius-provider-login (D2).
+
+**Radius sign-in.** Built-in Radius has no bespoke flow — renders the generic select pane (browser | device-code), same as Codex. Browser method listens on server `127.0.0.1:1456`; remote browser cannot reach that loopback → use device code. `PI_RADIUS_GATEWAY` does not affect login.
+
+**Radius MCP follow-up.** Logic `packages/server/src/auth/radius-mcp.ts`; routes `packages/server/src/routes/provider-auth-routes.ts`; tier `operate`.
+
+- `GET /api/provider-auth/radius/mcp` → `{ configured, name, path }`.
+- `POST /api/provider-auth/radius/mcp` — refusals first, then no-op, then write. Order: runtime unavailable → `503`; no stored `radius` OAuth credential → `409`; `models.json` override → `409`; global `mcp.json` unparseable → `409`; already configured → no-op `200 { configured:true, written:false, name }`; else write.
+- Codes: `provider_auth.radius_mcp_runtime_unavailable`, `provider_auth.radius_mcp_no_credential`, `provider_auth.radius_mcp_overridden`, `provider_auth.radius_mcp_write_refused`. `_write_refused` carries `vars.reason` = writer refusal code.
+- Write = ONE global entry via mcp-client-plugin `./core` `saveServer` — server imports plugin core here first. Entry `{ url: "https://radius.pi.dev/mcp", auth: { provider: "radius" } }`; any `oauth` key dropped. Name = URL-matched entry, else `radius`, else `radius-mcp` on collision.
+- After write: `/reload` fans out via `dispatchReload` over `reloadFanOutTargets()` (reload trigger source 7). Response `{ configured, written, name, reloaded }` — `reloaded` counts only `respawn` | `forwarded` outcomes.
+
+See change: add-radius-provider-login (D5, D6).
+
+**Client.** After a completed `radius` flow, `ProviderAuthSection` shows inline `RadiusMcpOffer` (`packages/client/src/components/settings/RadiusMcpOffer.tsx`). Accept → one `POST`; decline → none. See change: add-radius-provider-login (D5).
+
+**API-key twin.** `RADIUS_API_KEY` environment row pairs with the OAuth row; on collision the api-key row becomes `radius-api` ("Radius (API Key)"), OAuth row keeps `radius` (`provider-auth-storage.ts` `${entry.id}-api`).
+
+**Non-goal.** Model proxy has no Radius OAuth refresh loader.
 
 **Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.0.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.0.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.0.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.0.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See change: update-pi-core-1-0-adopt-apis.
 
@@ -4517,7 +4542,10 @@ The endpoint resolves `$ENV_VAR` references and the `***` REDACTED sentinel (for
 | `src/server/auth/provider-auth-adapter.ts` | `AuthInteraction` adapter + flow store (`startFlow`, `pruneFlows`, `abortAllFlows`) |
 | `src/server/auth/provider-auth-storage.ts` | auth.json read/write with file locking |
 | `src/server/routes/provider-auth-routes.ts` | REST: start / flow status / flow input / cancel, plus API keys |
+| `src/server/auth/radius-override.ts` | Detects custom-gateway `radius` in Pi-global `models.json`; drops built-in `radius` from the registry |
+| `src/server/auth/radius-mcp.ts` | Radius MCP `GET`/`POST` logic — global `mcp.json` write + reload fan-out |
 | `src/client/components/settings/ProviderAuthSection.tsx` | Settings UI component |
+| `src/client/components/settings/RadiusMcpOffer.tsx` | Inline Radius MCP offer shown after a completed `radius` sign-in |
 
 ## Terminal Emulator
 

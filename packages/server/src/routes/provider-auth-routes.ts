@@ -33,10 +33,21 @@ import {
   getAuthStatus,
   getOAuthProvidersMeta,
   oauthIdSet,
+  readAuthJson,
   removeCredential,
   resolveAuthJsonKey,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
+import {
+  configureRadiusMcp,
+  type RadiusMcpService,
+  readRadiusMcpStatus,
+} from "../auth/radius-mcp.js";
+import {
+  applyRadiusOverride,
+  isRadiusOverridden,
+  isRadiusRuntimeAvailable,
+} from "../auth/radius-override.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
 import { getLatestCatalogue, isCatalogueReady } from "../package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
@@ -52,6 +63,15 @@ export interface ProviderAuthRouteDeps {
   oauthRegistry?: OAuthRegistryEntry[];
   /** Readiness-gate override paired with {@link oauthRegistry}. */
   oauthReady?: Promise<void>;
+  /**
+   * Radius MCP follow-up wiring: the (lazy) `mcp-client` config service and the
+   * reload fan-out. Absent → the Radius MCP routes answer 503 runtime-unavailable.
+   * See change: add-radius-provider-login (D5).
+   */
+  radiusMcp?: {
+    service: () => RadiusMcpService;
+    reload: () => Promise<number>;
+  };
 }
 
 // ── Route registration ───────────────────────────────────────────────────────
@@ -61,7 +81,10 @@ export function registerProviderAuthRoutes(
   deps: ProviderAuthRouteDeps,
 ) {
   const { piGateway } = deps;
-  const registry = (): OAuthRegistryEntry[] => deps.oauthRegistry ?? getOAuthRegistry();
+  // An injected registry gets the same Radius override filter `getOAuthRegistry()`
+  // applies. See change: add-radius-provider-login (D2).
+  const registry = (): OAuthRegistryEntry[] =>
+    deps.oauthRegistry ? applyRadiusOverride(deps.oauthRegistry) : getOAuthRegistry();
   // Resolved ONCE, at registration: production kicks the build off at boot (so
   // the first request rarely waits for the ~330 ms runtime import); tests inject
   // a settled promise and never touch the SDK.
@@ -110,6 +133,31 @@ export function registerProviderAuthRoutes(
   fastify.get("/api/provider-auth/handlers", async () => {
     await registryReady;
     return { ids: registry().map((e) => e.id) };
+  });
+
+  // Radius MCP follow-up (pi 1.0.0 `/login` parity): GET reports whether the
+  // Pi-global mcp.json already points the Radius MCP server at the Radius
+  // login; POST configures it and reloads sessions. Never logs the body or any
+  // credential. See change: add-radius-provider-login (D5).
+  const radiusMcpDeps = () => {
+    const wiring = deps.radiusMcp;
+    return {
+      runtimeAvailable: () => wiring !== undefined && isRadiusRuntimeAvailable(),
+      hasRadiusCredential: () => readAuthJson().radius?.type === "oauth",
+      isOverridden: isRadiusOverridden,
+      service: () => (wiring as NonNullable<typeof wiring>).service(),
+      reload: () => (wiring as NonNullable<typeof wiring>).reload(),
+    };
+  };
+  fastify.get("/api/provider-auth/radius/mcp", async (_request, reply) => {
+    await registryReady;
+    const out = readRadiusMcpStatus(radiusMcpDeps());
+    return reply.code(out.status).send(out.body);
+  });
+  fastify.post("/api/provider-auth/radius/mcp", async (_request, reply) => {
+    await registryReady;
+    const out = await configureRadiusMcp(radiusMcpDeps());
+    return reply.code(out.status).send(out.body);
   });
 
   // Full status (OAuth + API key)

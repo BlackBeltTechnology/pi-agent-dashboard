@@ -1209,6 +1209,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-extension':
         specifier: ^0.8.0
         version: link:../extension
+      '@blackbelt-technology/pi-dashboard-mcp-client-plugin':
+        specifier: ^0.8.0
+        version: link:../mcp-client-plugin
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.8.0
         version: link:../shared

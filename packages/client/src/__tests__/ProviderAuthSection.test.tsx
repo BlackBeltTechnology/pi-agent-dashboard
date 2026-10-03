@@ -779,4 +779,17 @@ describe("pi 1.0.0 provider rows (F2, F3)", () => {
       expect(within(byId(id) as HTMLElement).queryByRole("button", { name: /sign out/i }), id).not.toBeNull();
     }
   });
+  it("F5 (radius): a configured Radius row shows the Account badge with Sign out", async () => {
+    const script: FetchScript = {
+      statusGets: 0,
+      providersGets: 0,
+      statuses: [
+        { id: "radius", name: "Radius", flowType: "auth_code", authenticated: true, expires: Date.now() + 86_400_000, configured: true, source: "stored", subscription: false },
+      ],
+    };
+    const { c } = await renderSection(script);
+    await waitFor(() => expect(rows(c)).toHaveLength(1));
+    expect(badgeOf(rows(c)[0])).toBe("Account");
+    expect(within(rows(c)[0] as HTMLElement).queryByRole("button", { name: /sign out/i })).not.toBeNull();
+  });
 });
