@@ -224,7 +224,6 @@ describe("unknown providers (E8)", () => {
   it("400s every id outside the registry and creates no record", async () => {
     app = await buildApp(setRegistry({ anthropic: anthropicFlow }));
     const ids = [
-      "radius",
       "google-gemini-cli",
       "google-antigravity",
       "custom-llm",
@@ -418,7 +417,7 @@ describe("status retention (E9 via HTTP)", () => {
 // ── helpers exercised only through the routes ────────────────────────────────
 
 describe("provider list + handler ids", () => {
-  it("derives /providers and /handlers from the registry, excluding radius", async () => {
+  it("derives /providers and /handlers from the registry, from the injected registry", async () => {
     app = await buildApp(
       setRegistry({
         anthropic: anthropicFlow,

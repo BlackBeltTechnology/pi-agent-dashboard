@@ -27,6 +27,7 @@ const REGISTRY_OAUTH_IDS = [
   "openai",
   "openai-codex",
   "openrouter",
+  "radius",
   "xai",
 ];
 
@@ -99,7 +100,7 @@ describe("provider-auth-storage", () => {
     const statuses = getAuthStatus();
     const oauthIds = statuses.filter((s) => s.flowType !== "api_key").map((s) => s.id);
     expect([...oauthIds].sort()).toEqual([...REGISTRY_OAUTH_IDS]);
-    expect(oauthIds).not.toContain("radius");
+    expect(oauthIds).toContain("radius");
     expect(oauthIds).not.toContain("google-gemini-cli");
     expect(oauthIds).not.toContain("google-antigravity");
   });

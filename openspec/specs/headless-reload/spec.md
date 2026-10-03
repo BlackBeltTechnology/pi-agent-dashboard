@@ -104,9 +104,10 @@ because its bridge died before `agent_end`, and it remains respawnable.
 The reload trigger sources are: (1) the reload button / `/reload` in the composer, (2)
 `scripts/reload-all.sh`, (3) the pi retry-policy settings save (`server.ts`
 `reloadConnectedSessions`), (4) package install/remove (`setReloadSessions`), (5) pi-core update
-completion (`piCoreUpdater.onAllComplete`), and (6) `POST /api/resources/reload`. Sources 1–4 and 6
-SHALL route through `dispatchReload` and produce the same observable outcome. Source 5 is a runtime
-swap and is specified separately. A fan-out SHALL NOT restrict itself to
+completion (`piCoreUpdater.onAllComplete`), (6) `POST /api/resources/reload`, and (7) a writing
+`POST /api/provider-auth/radius/mcp` (Radius MCP server configured in the global `mcp.json`).
+Sources 1–4, 6 and 7 SHALL route through `dispatchReload` and produce the same observable outcome.
+Source 5 is a runtime swap and is specified separately. A fan-out SHALL NOT restrict itself to
 `piGateway.getConnectedSessionIds()`; a session with a headless PID but no bridge connection SHALL
 still be targeted.
 
@@ -122,6 +123,10 @@ still be targeted.
 #### Scenario: Package install fans out a reload
 - **WHEN** the post-package-operation reload runs
 - **THEN** each targeted session SHALL take the same path as a reload-button click
+
+#### Scenario: Radius MCP configure fans out a reload
+- **WHEN** `POST /api/provider-auth/radius/mcp` writes the global `mcp.json`
+- **THEN** each fan-out target SHALL be reloaded via `dispatchReload`, a busy session SHALL be handled by `dispatchReload`'s own busy rule, and a no-op POST (`written: false`) SHALL dispatch no reload
 
 ### Requirement: pi-core update requires a runtime swap
 A reload SHALL NOT be treated as sufficient for a pi-core binary update. When a pi-core update

@@ -65,12 +65,15 @@ export interface CreateRuntimeOptions {
 interface PiCodingAgentModule {
   ModelRuntime?: { create(options: CreateRuntimeOptions): Promise<ServerModelRuntime> };
   VERSION?: string;
+  getAgentDir?: () => string;
 }
 
 export interface ServerModelRuntimeHandle {
   runtime: ServerModelRuntime;
   /** Resolved pi-coding-agent version (diagnostics). */
   version: string | undefined;
+  /** pi's `getAgentDir`, for locating `models.json`. See change: add-radius-provider-login. */
+  getAgentDir?: () => string;
 }
 
 /** A failed `create()` carries the resolved version for diagnostics. */
@@ -108,7 +111,11 @@ async function createRuntime(): Promise<ServerModelRuntimeHandle> {
     if (typeof runtime?.getProviders !== "function") {
       throw new Error("ModelRuntime.getProviders is not a function");
     }
-    return { runtime, version };
+    return {
+      runtime,
+      version,
+      getAgentDir: typeof mod.getAgentDir === "function" ? mod.getAgentDir : undefined,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new ModelRuntimeUnavailableError(message, version, { cause: err });
