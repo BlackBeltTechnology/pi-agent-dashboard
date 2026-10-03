@@ -66,7 +66,7 @@ interface PiProviderLike {
  * runtime's credential store imports `provider-auth-storage.ts`, which imports
  * this module. See change: collapse-model-proxy-onto-modelruntime (D6).
  */
-export interface RuntimeHandleLike {
+interface RuntimeHandleLike {
   /** Provider shapes are checked at runtime by {@link mapProviders}'s filter. */
   runtime: { getProviders(): readonly unknown[] };
   version?: string;

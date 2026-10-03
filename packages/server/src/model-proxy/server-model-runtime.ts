@@ -18,16 +18,16 @@
 import { DashboardCredentialStore, type RuntimeCredentialStore } from "../auth/dashboard-credential-store.js";
 
 /** Package the runtime comes from — the only pi surface the server loads. */
-export const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
+const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 
 /** The slice of pi-ai's `Provider` the server reads. */
-export interface RuntimeProvider {
+interface RuntimeProvider {
   id: string;
   auth?: { oauth?: unknown; apiKey?: unknown };
 }
 
 /** pi-ai `AuthResult` slice. */
-export interface RuntimeAuthResult {
+interface RuntimeAuthResult {
   auth: { apiKey?: string; headers?: Record<string, string>; baseUrl?: string };
 }
 

@@ -58,14 +58,14 @@ export interface RuntimeCredentialStore {
  * predicate decides both "adopt what another writer stored" and "changed but
  * still expiring", so the store and pi cannot disagree.
  */
-export const OAUTH_REFRESH_WINDOW_MS = 5 * 60_000;
+const OAUTH_REFRESH_WINDOW_MS = 5 * 60_000;
 
-export function isFreshOAuth(cred: AuthCredential | undefined): cred is OAuthCredential {
+function isFreshOAuth(cred: AuthCredential | undefined): cred is OAuthCredential {
   return cred?.type === "oauth" && typeof cred.expires === "number" && cred.expires > Date.now() + OAUTH_REFRESH_WINDOW_MS;
 }
 
 /** Coordination outcome → error. Names the provider and the outcome only, never token material. */
-export function coordinationError(provider: string, outcome: "removed" | "replaced" | "changed" | "corrupt"): Error {
+function coordinationError(provider: string, outcome: "removed" | "replaced" | "changed" | "corrupt"): Error {
   switch (outcome) {
     case "removed":
       return new Error(`OAuth credential for "${provider}" was removed from auth.json during refresh`);
