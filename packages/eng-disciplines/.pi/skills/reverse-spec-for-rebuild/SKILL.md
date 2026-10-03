@@ -92,13 +92,6 @@ the repository. Never derive the slug by hand).
    message, with `prompts/generator-rebuild.md`. Each writes its unmerged spec
    (local `{r1}` refs) to `PKG/_fragments/<cap>.spec.md` (SPEC OUTPUT) and its
    fragment to `PKG/_fragments/<cap>.json`, nothing else.
-   **Citation check before each merge:** `G lint-cite PKG/_fragments/*.json PKG/_fragments/*.spec.md`.
-   Exit 1 lists every `confirmed` cite with more than one location and every
-   unterminated cite. For each finding this session may only LOWER the
-   confidence to `inferred` — the item in `<cap>.json` and the matching cite
-   comment in `<cap>.spec.md` together, mechanically (the one exception to step 5's
-   rule that only generators write fragments). Narrowing a cite to one location is the
-   generator's job: route it as `FINDINGS`. Re-run until exit 0.
 6. **Merge** (this session — design D4; fall back to a consolidator subagent
    only if the fragments exceed context):
    Catalog boundary: a rule is anything that decides a caller-visible outcome
@@ -112,6 +105,16 @@ the repository. Never derive the slug by hand).
    error map or fallback rule as plumbing. Keep rule statements verbatim:
    never rewrite config key names (the generator names the literal external
    key).
+   0. **Citation check first, on every merge** (initial and every re-merge from
+      a revise, completeness or cross-cutting loop):
+      `G lint-cite PKG/_fragments/*.json PKG/_fragments/*.spec.md`.
+      Exit 1 lists every `confirmed` cite with more than one location and every
+      unterminated cite. For each finding this session may only LOWER the
+      confidence to `inferred` — the item in `<cap>.json` and the matching cite
+      comment in `<cap>.spec.md` together, mechanically (the one exception to
+      step 5's rule that only generators write fragments). Narrowing a cite to
+      one location is the generator's job: route it as `FINDINGS`. Re-run until
+      exit 0; never merge while it fails.
    1. Load `rules.md`/`quirks.md`/`gaps.md` from the frozen `previous-$RUN_ID/`
       snapshot (step 3) when one exists — on every merge of the run, so ids the
       previous package retired stay retired even after this run rewrites `PKG`.

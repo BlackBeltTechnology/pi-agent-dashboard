@@ -176,6 +176,14 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     expect(text).toMatch(/Promote on confirm\..*citation check \(`G lint-cite`\) is clean/);
   });
 
+  it("E11 (review B1): the fragment citation check opens step 6, so every revise loop's re-merge runs it", () => {
+    const text = norm("SKILL.md");
+    const merge = text.slice(text.indexOf("6. **Merge**"), text.indexOf("7. **Audit in parallel.**"));
+    expect(merge).toContain("G lint-cite PKG/_fragments/*.json PKG/_fragments/*.spec.md");
+    const step5 = text.slice(text.indexOf("5. **Generate in parallel.**"), text.indexOf("6. **Merge**"));
+    expect(step5).not.toContain("lint-cite");
+  });
+
   it("E12: the fragment JSON example in package-templates.md passes lint-cite", () => {
     const md = read(join(SKILL, "references", "package-templates.md"));
     const section = md.slice(md.indexOf("## _fragments/<cap>.json"));
