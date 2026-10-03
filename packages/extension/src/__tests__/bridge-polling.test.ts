@@ -16,6 +16,7 @@ import type { BridgeContext } from "../bridge-context.js";
 import {
   createPollingHolder,
   drainDisposables,
+  ensureDisposable,
   feedPollingEvent,
   routeGitInfoRefresh,
   scheduleModelRecheckOnSelect,
@@ -153,6 +154,22 @@ describe("poll-cost counters ride the heartbeat (E41)", () => {
       ].sort(),
     );
     expect(region("metrics: {", "HEARTBEAT_INTERVAL")).toContain("...pollCost");
+  });
+});
+
+describe("ensureDisposable (shutdown → later session_start)", () => {
+  it("registers a stable reference once and re-registers it after a drain", () => {
+    const state: { disposables?: Array<() => void> } = {};
+    const fn = vi.fn();
+    ensureDisposable(state, fn);
+    ensureDisposable(state, fn);
+    expect(state.disposables).toHaveLength(1);
+    drainDisposables(state); // session_shutdown
+    expect(fn).toHaveBeenCalledTimes(1);
+    ensureDisposable(state, fn); // the next session_start in the same incarnation
+    expect(state.disposables).toHaveLength(1);
+    drainDisposables(state); // the next reload/cleanup still disposes
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -298,7 +315,8 @@ describe("polling lifecycle — the bridge's real seams (X5–X7)", () => {
 
   it("bridge.ts uses these seams: holder for both schedulers, one disposeAll disposable, teardown helper, drain at shutdown/cleanup", () => {
     expect(SRC).toContain("createPollingHolder()");
-    expect(SRC.match(/registerDisposable\(\(\) => polling\.disposeAll\(\)\)/g)).toHaveLength(1);
+    expect(SRC).toContain("const disposePolling = () => polling.disposeAll();");
+    expect(SRC.match(/ensurePollingDisposable\(\);/g)!.length).toBeGreaterThanOrEqual(3); // init + renewGitTracker + scan wiring
     expect(SRC).toContain("teardownPreviousIncarnation(prev, () => isBridgeReentry(prev, pi))");
     expect(region("state.cleanup = () => {", "// Dev build & restart")).toContain("drainDisposables(s)");
     expect(region('pi.on("session_shutdown"', "sendShutdownUsageThenUnregister(")).toContain("drainDisposables(getBridgeState())");

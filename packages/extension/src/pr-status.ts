@@ -117,6 +117,8 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
   let windowTimer: Timer | undefined;
   let branchTimer: Timer | undefined;
   let lastBranchStart = Number.NEGATIVE_INFINITY;
+  /** The next probe start opens the branch-change window (stamped at the ACTUAL start). */
+  let branchStartPending = false;
   let lastForcedStart = Number.NEGATIVE_INFINITY;
   let failures = 0;
   let failingLogged = false;
@@ -158,6 +160,17 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     const probeKey = key;
     inFlight = true;
     count += 1;
+    // A probe starting now already covers the LATEST branch, so a deferred
+    // branch-change probe is redundant (no duplicate), and the window opens at
+    // this actual start, not when a timer fired.
+    if (branchTimer) {
+      clearTimer(branchTimer);
+      branchTimer = undefined;
+    }
+    if (branchStartPending) {
+      lastBranchStart = now();
+      branchStartPending = false;
+    }
     let settled = false;
     const finish = (r: PrStatusProbe) => {
       if (settled) return;
@@ -284,16 +297,16 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
           // Throttled: the latest branch is probed at the window's edge.
           branchTimer = setTimer(() => {
             branchTimer = undefined;
-            lastBranchStart = now();
+            branchStartPending = true;
             pendingStart = true;
             pump();
           }, wait);
           return;
         }
-        lastBranchStart = now();
+        branchStartPending = true;
       } else {
         tuple = { ...UNKNOWN };
-        lastBranchStart = now(); // an unthrottled start also opens the branch-change window
+        branchStartPending = true; // an unthrottled start also opens the branch-change window
       }
       pendingStart = true;
       pump();

@@ -25,6 +25,12 @@ export function drainDisposables(state: { disposables?: Array<() => void> }): vo
   }
 }
 
+/** Register `fn` once: a stable reference is added only when absent (survives a drain). */
+export function ensureDisposable(state: { disposables?: Array<() => void> }, fn: () => void): void {
+  const list = (state.disposables ??= []);
+  if (!list.includes(fn)) list.push(fn);
+}
+
 /**
  * Feed the forwarded pi lifecycle events to the adaptive process-scan cadence
  * and to the git tracker (a non-read-only tool end requests a slow-lane probe).

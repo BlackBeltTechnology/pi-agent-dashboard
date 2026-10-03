@@ -431,6 +431,29 @@ describe("branch-change throttle (E32, optimize-polling-hot-paths)", () => {
     sched.dispose();
   });
 
+  it("CR: a deferred branch probe is cancelled when another probe already started for the latest branch", async () => {
+    let release!: () => void;
+    let first = true;
+    const probe = vi.fn(() => {
+      if (first) {
+        first = false;
+        return new Promise<PrStatusProbe>((r) => (release = () => r(ABSENT)));
+      }
+      return Promise.resolve(ABSENT);
+    });
+    const sched = createPrStatusScheduler({ probe, onChange: () => {}, log: () => {} });
+    sched.observe({ sessionId: "A", cwd: "/r", branch: "b1" }); // probe 1 in flight
+    await vi.advanceTimersByTimeAsync(5 * S);
+    sched.observe({ sessionId: "B", cwd: "/r", branch: "b1" }); // session change: pendingStart, deferred behind probe 1
+    await vi.advanceTimersByTimeAsync(1 * S);
+    sched.observe({ sessionId: "B", cwd: "/r", branch: "b2" }); // branch change inside the window: arms the deferred timer
+    release(); // probe 1 settles: pump() starts the probe for b2 through pendingStart
+    await vi.advanceTimersByTimeAsync(60 * S); // well past the deferred timer (cadence is 120 s)
+    // probe 1 + exactly ONE probe for the latest branch (the timer must not start a second)
+    expect(probe).toHaveBeenCalledTimes(2);
+    sched.dispose();
+  });
+
   it("a session change is never throttled", async () => {
     const probe = vi.fn(async () => ABSENT);
     const sched = createPrStatusScheduler({ probe, onChange: () => {}, log: () => {} });

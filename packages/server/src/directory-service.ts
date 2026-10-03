@@ -1533,6 +1533,7 @@ export function createDirectoryService(
         // release the watchers `touchPiResources` attached for it.
         if (!piResourcesCache.has(cwd)) {
           try { piResourcesWatcher.detach(cwd); } catch { /* best-effort */ }
+          piResourcesVersion.delete(cwd);
         }
         throw err;
       })

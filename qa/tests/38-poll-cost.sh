@@ -89,19 +89,26 @@ async function waitForSession(cwd) {
   await sleep(35_000); // settle past registration (first evaluation is not steady state)
   const i0 = await metricsOf(idleId), a0 = await metricsOf(activeId);
 
+  let promptFailures = 0;
   const end = Date.now() + WINDOW_MIN * 60_000;
   while (Date.now() < end) {
-    await fetch(`${BASE}/api/session/${activeId}/prompt`, {
+    const r = await fetch(`${BASE}/api/session/${activeId}/prompt`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "edit" }),
-    }).catch(() => {});
+    }).catch(() => null);
+    if (!r || r.status !== 200) promptFailures += 1;
     await sleep(4_000);
   }
   const i1 = await metricsOf(idleId), a1 = await metricsOf(activeId);
+  // A missing sample is a failure, never a zero: the session may have vanished.
+  if (a0.pollGitProbesTool === undefined || a1.pollGitProbesTool === undefined) done(1, "FAIL: the active session reported no poll counters at the start or end of the window");
+  if (i0.pollProcScanRuns === undefined || i1.pollProcScanRuns === undefined) done(1, "FAIL: the idle session reported no poll counters at the start or end of the window");
+  if (promptFailures > 0) done(1, "FAIL: " + promptFailures + " prompt POST(s) to the active session failed - the workload did not run");
   const d = (a, b, k) => (b[k] || 0) - (a[k] || 0);
   const idlePerMin = (d(i0, i1, "pollProcScanSpawns") + d(i0, i1, "pollGitSpawns")) / WINDOW_MIN;
   const toolPerMin = d(a0, a1, "pollGitProbesTool") / WINDOW_MIN;
   console.log(`idle spawns/min=${idlePerMin.toFixed(2)} (budget 5)  active tool probes/min=${toolPerMin.toFixed(2)} (budget 6)`);
-  if (i1.pollProcScanRuns === undefined) done(1, "FAIL: idle session reports no poll* counters (old bridge?)");
+  // The workload must have produced tool-triggered probes at all, else P3 measured nothing.
+  if (d(a0, a1, "pollGitProbesTool") <= 0) done(1, "FAIL: the active session produced no tool-triggered git probes - the workload did not exercise P3");
   if (idlePerMin > 5) done(1, "FAIL: idle poll cost over budget");
   if (toolPerMin > 6) done(1, "FAIL: active tool-triggered probes over budget");
   done(0, "OK: poll cost within budget");

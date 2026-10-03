@@ -67,7 +67,7 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { createPollingHolder, drainDisposables, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
+import { createPollingHolder, drainDisposables, ensureDisposable, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
 import { createGitPollState, runGitPollTick } from "./git-poll.js";
 import { createGitTracker, type GitTracker } from "./git-tracker.js";
 import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
@@ -377,9 +377,14 @@ function initBridge(pi: ExtensionAPI) {
   const registerDisposable = (fn: () => void): void => {
     (getBridgeState().disposables ??= []).push(fn);
   };
-  registerDisposable(() => polling.disposeAll());
+  // ONE stable disposer, (re-)ensured on every session_start: a shutdown drains
+  // and empties the list, and this incarnation may start a new session after it.
+  const disposePolling = () => polling.disposeAll();
+  const ensurePollingDisposable = () => ensureDisposable(getBridgeState(), disposePolling);
+  ensurePollingDisposable();
   /** Dispose the previous tracker and start a fresh one for the incoming session. */
   function renewGitTracker(): GitTracker {
+    ensurePollingDisposable();
     return polling.replaceGitTracker(createGitTracker({
       getBc: () => syncBc(),
       applyBc: (bc) => applyBc(bc),
@@ -3048,7 +3053,9 @@ function initBridge(pi: ExtensionAPI) {
     } catch (err) {
       console.error("[dashboard] usage baseline failed:", err);
     }
-    if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
+    const sessionChanged =
+      (reason === "new" || reason === "fork" || reason === "resume") && !!sessionId && sessionId !== newSessionId;
+    if (sessionChanged) {
       // Clear any latched abort for the OUTGOING session id. Otherwise a
       // latched old session that is resumed later would have its first
       // legitimate turn aborted by the agent_start/message_start latch hooks.
@@ -3811,8 +3818,10 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git info + the session's pi version
-    {
+    // Send initial git info + the session's pi version. A session change already
+    // ran the first evaluation (and renewed the tracker) in handleSessionChange;
+    // doing it again would double the synchronous git work.
+    if (!sessionChanged) {
       const gbc = syncBc();
       renewGitTracker().evaluateFirst(gbc, startCwd);
       applyBc(gbc);
@@ -3866,6 +3875,7 @@ function initBridge(pi: ExtensionAPI) {
     // One async `ps -A` per scan; fast while the agent/tools run, idle
     // otherwise. session_start re-runs: dispose the previous scheduler first so
     // schedules never stack. See change: optimize-polling-hot-paths.
+    ensurePollingDisposable();
     const scheduler = createProcessScanScheduler({
       platform: process.platform,
       setTimer: setRegisteredTimeout,
