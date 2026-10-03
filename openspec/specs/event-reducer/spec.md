@@ -1,7 +1,9 @@
 ## Purpose
 
 Client-side state machine that converts a stream of `DashboardEvent` objects into `SessionState` for rendering the chat view. Pure function: `(state, event) → newState`.
+
 ## Requirements
+
 ### Requirement: Session state structure
 The `SessionState` SHALL contain: `messages` (array of `ChatMessage`), `toolCalls` (Map of in-flight tool states), `streamingText` and `streamingThinking` (current assistant output), `isStreaming` (boolean), `model`, `thinkingLevel`, token counters (`tokensIn`, `tokensOut`, `cacheRead`, `cacheWrite`, `cost`), `currentTool`, `status`, `turnStats` (per-turn token breakdown array, max 50), `contextUsage`, and `pendingPrompt`.
 
@@ -143,15 +145,20 @@ A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status
 - **AND** it SHALL remain eligible for the stale running-tool reconcile
 
 ### Requirement: Stats accumulation
-A `stats_update` event SHALL add per-turn token usage to the running totals and append a `TurnStat` entry (capped at 50 entries). If `contextUsage` is present, it SHALL update the session's context usage.
+A `stats_update` event SHALL add its `tokensIn`, `tokensOut`, `cost`, and its `turnUsage` cache-read and cache-write tokens to the running totals, whatever its usage kind. Only a turn-kind `stats_update` (no usage kind, or kind `turn`) carrying `turnUsage` SHALL perform turn bookkeeping: assign a `turnIndex` to the last user message, increment `turnCount`, and append a `TurnStat` entry (capped at 50 entries). Non-turn usage (tool, compaction, branch summary, usage entries) SHALL NOT perform turn bookkeeping, so it neither appears as a chart bar, evicts real turns, nor shifts turn numbering. If `contextUsage` is present, it SHALL update the session's context usage.
 
 #### Scenario: Turn stats recorded
-- **WHEN** a `stats_update` event with `turnUsage` arrives
+- **WHEN** a `stats_update` event with `turnUsage` and no usage kind arrives
 - **THEN** a TurnStat SHALL be appended to `turnStats` and totals SHALL be incremented
 
 #### Scenario: Turn stats capped
 - **WHEN** `turnStats` exceeds 50 entries
 - **THEN** the oldest entry SHALL be removed
+
+#### Scenario: Non-turn usage adds to totals only
+- **WHEN** a `stats_update` with usage kind `usage:cache_warm` and `turnUsage.cacheRead: 50000` arrives
+- **THEN** `cacheRead` and the other totals SHALL increase
+- **AND** `turnStats`, `turnCount` and every message's `turnIndex` SHALL be unchanged
 
 ### Requirement: Session compact handling
 A `session_compact` event SHALL clear all messages and tool call state, resetting the chat view. This occurs when pi compacts the session history to reclaim context window space.
@@ -720,4 +727,3 @@ A tool call with status `elided` SHALL be rendered with a neutral affordance sta
 - **WHEN** the stale running-tool selector or the supersede-heal selector is given session state containing a tool call with status `elided`
 - **THEN** neither SHALL select it
 - **AND** no supersede-heal sentinel SHALL be written into that row
-
