@@ -162,6 +162,18 @@ STEP 6 — Write FRAGMENT OUTPUT as strict JSON (no code fence, no comments):
   "entry_points": [{ "category": "", "name": "", "cite": "" }]
 }
 
+STEP 7 — Self-check every cite BEFORE you reply (both files). For each cite
+comment and each fragment item, in order:
+1. Open the cited range. Every line must exist in the file (line count) and
+   hold code the claim relies on: a blank line, a lone brace or an unrelated
+   line is a wrong cite — fix the range.
+2. If the sentence it supports contains an absence word ("no", "not", "never",
+   "without", "only", "nothing", "silently", "unchanged"), or its outcome needs
+   a line in another file or a constant/helper outside the cited range, set the
+   confidence to `inferred` and add the missing location(s).
+3. Numbers you quote (totals, limits, messages) must be recomputed from the code
+   you read, not from memory.
+
 Every local id used in the spec exists in the fragment, and vice versa. If
 REVISION FINDINGS is not empty, fix every listed finding (remove or correct
 hallucinations, add missing behaviors, fix citations, classifications and

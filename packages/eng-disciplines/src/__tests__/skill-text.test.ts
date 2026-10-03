@@ -188,6 +188,7 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     expect(norm("prompts/generator-rebuild.md")).toContain("A `confirmed` cite must contain EVERY line its exact claim needs");
     expect(norm("prompts/auditor-rebuild.md")).toContain("merely omits a supporting line");
     expect(norm("prompts/auditor-rebuild.md")).toContain("never makes the verdict `revise` on its own");
+    expect(norm("prompts/generator-rebuild.md")).toContain("STEP 7 — Self-check every cite BEFORE you reply");
   });
 
   it("E12: the fragment JSON example in package-templates.md passes lint-cite", () => {
