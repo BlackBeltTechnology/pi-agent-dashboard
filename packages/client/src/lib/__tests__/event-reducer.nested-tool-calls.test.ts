@@ -152,6 +152,43 @@ describe("nested tool calls — record merge", () => {
   });
 });
 
+// Review r2 B1: pi carries the same record on toolResult message_start AND
+// message_end; a nested end landing between them must survive the re-merge.
+describe("nested tool calls — record re-merge never reverts a real end", () => {
+  it("a late real end between message_start and message_end stays complete", () => {
+    const record = {
+      calls: [{ id: "call_1/1", name: "bash", status: "unfinished" }],
+      complete: false,
+    };
+    const toolResultMsg = { role: "toolResult", toolCallId: "call_1", toolName: "codemode", nestedCalls: record };
+    const s = fold([
+      rootStart(),
+      nStart("call_1/1", "call_1"),
+      rootEnd(),
+      evt("message_start", { message: toolResultMsg }),
+      nEnd("call_1/1", "call_1", { result: { content: [{ type: "text", text: "late" }] } }, 6000),
+      evt("message_end", { message: toolResultMsg }),
+    ]);
+    expect(entry(s, "call_1/1")).toMatchObject({ status: "complete", result: "late" });
+  });
+
+  it("a late real error end is kept too", () => {
+    const toolResultMsg = {
+      role: "toolResult",
+      toolCallId: "call_1",
+      nestedCalls: { calls: [{ id: "call_1/1", name: "bash", status: "unfinished" }], complete: false },
+    };
+    const s = fold([
+      rootStart(),
+      nStart("call_1/1", "call_1"),
+      rootEnd(),
+      nEnd("call_1/1", "call_1", { isError: true }, 6000),
+      evt("message_end", { message: toolResultMsg }),
+    ]);
+    expect(entry(s, "call_1/1")?.status).toBe("error");
+  });
+});
+
 describe("nested tool calls — classification, orphans, fallback (E8)", () => {
   it("(a) a nested start with an unknown root is dropped without throwing", () => {
     let s!: SessionState;

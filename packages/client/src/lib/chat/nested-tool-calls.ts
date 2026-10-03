@@ -163,9 +163,14 @@ export function mergeNestedRecord(list: NestedCallState[], calls: unknown[]): Ne
     const error = typeof r.error === "string" ? r.error : undefined;
     const idx = out.findIndex((e) => e.id === r.id);
     if (idx !== -1) {
+      // pi re-sends the same record on toolResult message_start AND
+      // message_end; its `unfinished` is stale once a real end arrived in
+      // between. Never downgrade a live complete/error to `unfinished`.
+      const prev = out[idx];
+      const keepLive = status === "unfinished" && (prev.status === "complete" || prev.status === "error");
       out = replaceAt(out, idx, {
-        ...out[idx],
-        status,
+        ...prev,
+        status: keepLive ? prev.status : status,
         ...(durationMs !== undefined ? { durationMs } : {}),
         ...(error !== undefined ? { error } : {}),
       });
