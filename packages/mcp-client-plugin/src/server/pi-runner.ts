@@ -13,7 +13,8 @@
  */
 
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { buildSpawnEnvForArgv } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import type { PiMcpListRunner } from "../core/types.js";
 
@@ -30,27 +31,29 @@ export function createPiMcpListRunner(resolver = new ToolResolver({ processExecP
       }
       const [cmd, ...prefix] = argv;
       const env = buildSpawnEnvForArgv(cmd) ?? process.env;
-      const win = process.platform === "win32";
-      // POSIX: own process group, so a kill reaches the stdio MCP servers pi
-      // started (killing pi alone would orphan them).
+      // Own process group (POSIX), so the kill reaches the stdio MCP servers
+      // pi started — killing pi alone would orphan them.
       const child = spawn(cmd, [...prefix, "mcp", "list", "--json"], {
         cwd,
         env,
         stdio: ["ignore", "pipe", "ignore"],
-        ...(win ? {} : { detached: true }),
+        detached: true,
       });
       const chunks: Buffer[] = [];
       let size = 0;
       let killed = false;
       const kill = (): void => {
-        if (killed || child.pid === undefined) return;
+        const pid = child.pid;
+        if (killed || pid === undefined) return;
         killed = true;
+        // Shared platform primitives: group SIGKILL on POSIX; `taskkill /T`
+        // tree kill on Windows (killProcess). No platform branch here.
         try {
-          if (win) spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-          else process.kill(-child.pid, "SIGKILL");
+          killPidWithGroup(pid, "SIGKILL");
         } catch {
-          child.kill("SIGKILL");
+          /* already gone */
         }
+        void killProcess(pid, { timeoutMs: 0 }).catch(() => undefined);
       };
       signal.addEventListener("abort", kill, { once: true });
       child.stdout?.on("data", (b: Buffer) => {
