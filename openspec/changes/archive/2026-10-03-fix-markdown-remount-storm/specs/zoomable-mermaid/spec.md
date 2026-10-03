@@ -41,6 +41,12 @@ viewportHeight / intrinsicHeight)`, so the whole diagram is visible and residual
 space may remain on one axis. Cropping the diagram to fill the viewport is NOT
 permitted.
 
+The "diagram size" is the size the diagram is displayed at before any zoom
+transform: for a fixed-size SVG its markup size (`viewBox`, else absolute
+`width`/`height`), for a fluid (`width="100%"`) SVG its laid-out size, since the
+scale applies on top of that layout. When the laid-out size is not yet
+measurable the markup size is used.
+
 #### Scenario: Zoomed diagram clipping
 - **WHEN** the diagram is zoomed in beyond the viewport bounds
 - **THEN** portions outside the viewport SHALL be clipped (not visible)

@@ -31,7 +31,7 @@ function styleMaxWidth(tag: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** True when the root `<svg>` is container-relative (`width="100%"` / no width): a mounted measurement would be circular. */
+/** True when the root `<svg>` is container-relative (`width="100%"` / no width): it is laid out at the container's width, not its intrinsic one. */
 export function isFluidWidth(svg: string): boolean {
   const tag = /<svg\b[^>]*>/i.exec(svg)?.[0];
   return !tag || absLength(attr(tag, "width")) == null;
@@ -62,8 +62,12 @@ export function intrinsicSize(svg: string): Size | null {
 
 /** Contain scale `min(vw/w, vh/h)`; 1 when size or viewport is unknown. Unclamped. */
 export function computeFitScale(svg: string, viewportW: number, viewportH: number, measured?: Size | null): number {
-  // `measured` (mounted, untransformed size) is the last resort and is ignored for fluid-width SVGs.
-  const size = intrinsicSize(svg) ?? (measured && !isFluidWidth(svg) ? measured : null);
+  // A fluid (width="100%") SVG is already laid out at its rendered size, so the scale
+  // applies on top of THAT size: fit from the untransformed layout size (height still
+  // constrains tall diagrams) and fall back to markup when it is not yet measurable.
+  // Fixed-size SVGs use markup first, the measurement only as last resort.
+  // See change: fix-markdown-remount-storm (CodeRabbit, PR #795).
+  const size = measured && isFluidWidth(svg) ? measured : (intrinsicSize(svg) ?? measured ?? null);
   if (!size || !pos(viewportW) || !pos(viewportH)) return 1;
   const s = Math.min(viewportW / size.w, viewportH / size.h);
   return pos(s) ? s : 1;

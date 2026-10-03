@@ -27,11 +27,17 @@ describe("computeFitScale", () => {
   it("measured size is last resort for non-fluid SVG", () => {
     expect(computeFitScale(svg('width="1200px"'), 600, 420, { w: 1200, h: 600 })).toBeCloseTo(0.5);
   });
-  it("measured size is NEVER used for width=100% SVG", () => {
+  it("fluid width=100% SVG fits from its measured layout size, not the viewBox", () => {
     expect(isFluidWidth(svg('width="100%"'))).toBe(true);
-    expect(computeFitScale(svg('width="100%"'), 600, 420, { w: 600, h: 300 })).toBe(1);
+    // 800x400 viewBox laid out at 600x300 in a 600x420 viewport: already fits width -> 1, not 0.75.
+    expect(computeFitScale(svg('width="100%" viewBox="0 0 800 400"'), 600, 420, { w: 600, h: 300 })).toBeCloseTo(1);
+    // A tall laid-out diagram is still constrained by height.
+    expect(computeFitScale(svg('width="100%" viewBox="0 0 400 1200"'), 600, 420, { w: 600, h: 1800 })).toBeCloseTo(420 / 1800);
   });
-  it("viewBox wins over measured", () => {
-    expect(computeFitScale(svg('viewBox="0 0 800 400"'), 600, 420, { w: 10, h: 10 })).toBeCloseTo(0.75);
+  it("fluid SVG without a measurement falls back to the viewBox", () => {
+    expect(computeFitScale(svg('width="100%" viewBox="0 0 800 400"'), 600, 420)).toBeCloseTo(0.75);
+  });
+  it("fixed-size SVG: viewBox wins over measured", () => {
+    expect(computeFitScale(svg('width="800" height="400" viewBox="0 0 800 400"'), 600, 420, { w: 10, h: 10 })).toBeCloseTo(0.75);
   });
 });
