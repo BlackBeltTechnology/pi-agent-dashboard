@@ -14,7 +14,7 @@ import path from "node:path";
 import { getGatewaySocketPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mintSpawnToken, SPAWN_TOKEN_ENV_VAR } from "../auth/spawn-token.js";
-import { buildSpawnEnv, setSpawnDashboardPiPort } from "../spawn-process/process-manager.js";
+import { buildSpawnEnv, setSpawnDashboardPiPort, setSpawnGatewayTransport } from "../spawn-process/process-manager.js";
 
 describe("mintSpawnToken", () => {
 	it("returns a UUIDv4 string", () => {
@@ -111,22 +111,38 @@ describe("buildSpawnEnv: PI_DASHBOARD_SOCKET injection", () => {
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
-	const seedSocket = (piPort: number) => {
-		const p = getGatewaySocketPath({ homedir: home }, piPort);
-		fs.mkdirSync(path.dirname(p), { recursive: true });
-		fs.writeFileSync(p, "");
-		return p;
-	};
+	afterEach(() => setSpawnGatewayTransport(null));
 
+	// The pin follows the transport the gateway ACTUALLY serves (D6): a socket
+	// file merely existing on disk proves nothing about who serves it.
 	it.skipIf(process.platform === "win32")(
-		"pins the spawn to the gateway socket when one is being served",
+		"pins the spawn to the gateway socket when this server serves it",
 		() => {
 			setSpawnDashboardPiPort(9234);
-			const sock = seedSocket(9234);
+			setSpawnGatewayTransport(() => ({ transport: "unix", path: "/tmp/served/gateway-9234.sock" }));
 			const env = buildSpawnEnv({ HOME: home });
-			expect(env.PI_DASHBOARD_SOCKET).toBe(sock);
+			expect(env.PI_DASHBOARD_SOCKET).toBe("/tmp/served/gateway-9234.sock");
+			expect(env.PI_DASHBOARD_URL).toBe("ws://localhost:9234");
 		},
 	);
+
+	// (test-plan #E11)
+	it("after a loopback fallback: literal 127.0.0.1 URL and no socket pin, even if one is inherited", () => {
+		setSpawnDashboardPiPort(9234);
+		setSpawnGatewayTransport(() => ({ transport: "loopback-fallback" }));
+		const env = buildSpawnEnv({ HOME: home, PI_DASHBOARD_SOCKET: "/other.sock" });
+		expect(env.PI_DASHBOARD_SOCKET).toBeUndefined();
+		expect(env.PI_DASHBOARD_URL).toBe("ws://127.0.0.1:9234");
+	});
+
+	it("does not pin a socket that merely exists on disk when the transport is unset", () => {
+		setSpawnDashboardPiPort(9234);
+		const p = getGatewaySocketPath({ homedir: home }, 9234);
+		fs.mkdirSync(path.dirname(p), { recursive: true });
+		fs.writeFileSync(p, "");
+		const env = buildSpawnEnv({ HOME: home, PI_DASHBOARD_SOCKET: "/other.sock" });
+		expect(env.PI_DASHBOARD_SOCKET).toBeUndefined();
+	});
 
 	it("does not invent a socket pin when no socket is being served", () => {
 		setSpawnDashboardPiPort(9234);

@@ -12,6 +12,7 @@ import {
   isProcessAlive,
   killProcess,
   killPidWithGroup,
+  processStartedAt,
 } from "../platform/process.js";
 
 describe("parseNetstatListeners", () => {
@@ -156,5 +157,43 @@ describe("killPidWithGroup", () => {
     const kill = vi.fn();
     killPidWithGroup(99999, "SIGKILL", { platform: "darwin", kill });
     expect(kill).toHaveBeenCalledWith(-99999, "SIGKILL");
+  });
+});
+
+// (test-plan #E9) See change: fix-gateway-socket-stale-owner.
+describe("processStartedAt", () => {
+  const stat = (field22: number) =>
+    // comm `(a) b)` holds a space and a paren; fields 3..21 are filler.
+    `42 (a) b) S ${Array.from({ length: 18 }, () => "0").join(" ")} ${field22} 0 0`;
+  const reader = (files: Record<string, string>) => (p: string) => {
+    if (!(p in files)) throw new Error("ENOENT");
+    return files[p];
+  };
+
+  it("parses /proc field 22 after the last ')' plus btime", () => {
+    const readFile = reader({ "/proc/42/stat": stat(12345), "/proc/stat": "cpu 1 2\nbtime 1700000000\n" });
+    expect(processStartedAt(42, { platform: "linux", readFile })).toBe(1700000000 * 1000 + 123450);
+  });
+
+  it("returns null when /proc is unreadable", () => {
+    expect(processStartedAt(42, { platform: "linux", readFile: reader({}) })).toBeNull();
+  });
+
+  it("parses `ps -o lstart=` output off Linux", () => {
+    const exec = vi.fn((_cmd: string) => "Thu Oct  1 00:49:08 2026\n");
+    expect(processStartedAt(42, { platform: "darwin", exec })).toBe(Date.parse("Thu Oct  1 00:49:08 2026"));
+    expect(exec.mock.calls[0][0]).toContain("LC_ALL=C");
+  });
+
+  it("returns null when ps fails or prints garbage, and on win32", () => {
+    expect(processStartedAt(42, { platform: "darwin", exec: () => { throw new Error("x"); } })).toBeNull();
+    expect(processStartedAt(42, { platform: "darwin", exec: () => "nope" })).toBeNull();
+    expect(processStartedAt(42, { platform: "win32" })).toBeNull();
+  });
+
+  it("reports this process within 5s of now - uptime", () => {
+    const ms = processStartedAt(process.pid);
+    expect(ms).not.toBeNull();
+    expect(Math.abs((ms as number) - (Date.now() - process.uptime() * 1000))).toBeLessThan(5000);
   });
 });

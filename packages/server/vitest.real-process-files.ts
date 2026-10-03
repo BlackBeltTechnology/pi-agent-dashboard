@@ -27,6 +27,8 @@ export const REAL_PROCESS_TESTS: readonly string[] = [
   "src/__tests__/faux-session.integration.test.ts",
   // full-server — spawns a server child on process.execPath, observes the socket bind.
   "src/__tests__/gateway-socket-bind.test.ts",
+  // full-server — SIGKILLs a real child listener to leave a stale socket, then starts gateway listeners.
+  "src/__tests__/pi-gateway-socket-transport.test.ts",
   // signal — spawns a real detached child and kills it through the registry ladder.
   "src/__tests__/headless-shutdown-fallback.test.ts",
   // wrapper — spawns the published CLI bin entry to exercise jiti resolution.

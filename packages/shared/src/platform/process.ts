@@ -7,6 +7,7 @@
  * consolidate-platform-handlers.
  */
 
+import fs from "node:fs";
 import { execSync } from "./exec.js";
 
 export type ExecFn = (cmd: string, opts: { encoding: "utf-8" }) => string;
@@ -92,6 +93,56 @@ export function isProcessAlive(pid: number, opts: { kill?: KillFn } = {}): boole
     return true;
   } catch {
     return false;
+  }
+}
+
+// ── Process start time ───────────────────────────────────────────────────────
+
+/** Linux `USER_HZ`: clock ticks per second in `/proc/<pid>/stat` field 22. */
+const USER_HZ = 100;
+
+interface ProcessStartedAtOpts extends ProcessOpts {
+  /** Override file reads (for tests). */
+  readFile?: (path: string) => string;
+}
+
+/**
+ * Parse `/proc/<pid>/stat` + `/proc/stat` into an epoch-ms start time.
+ * Field 22 (starttime) counts ticks since boot; the comm field (2) may hold
+ * spaces and parens, so fields are counted from the LAST `)`. Pure, exported
+ * for testing. Returns null when either input is malformed.
+ */
+function parseProcStartMs(stat: string, procStat: string): number | null {
+  const close = stat.lastIndexOf(")");
+  if (close < 0) return null;
+  // After `) ` the next token is field 3 (state), so field 22 is index 19.
+  const ticks = Number(stat.slice(close + 1).trim().split(/\s+/)[19]);
+  const btime = Number(/^btime\s+(\d+)/m.exec(procStat)?.[1]);
+  if (!Number.isFinite(ticks) || !Number.isFinite(btime)) return null;
+  return btime * 1000 + Math.round((ticks / USER_HZ) * 1000);
+}
+
+/**
+ * Epoch-ms start time of `pid`, or null when it cannot be determined.
+ *
+ * Linux reads `/proc` (the docker image ships no `ps`); other POSIX platforms
+ * use `ps -o lstart=`. Windows is unsupported (null). Never throws.
+ * See change: fix-gateway-socket-stale-owner (D3).
+ */
+export function processStartedAt(pid: number, opts: ProcessStartedAtOpts = {}): number | null {
+  const platform = opts.platform ?? process.platform;
+  if (!Number.isInteger(pid) || pid <= 0 || platform === "win32") return null;
+  try {
+    if (platform === "linux") {
+      const read = opts.readFile ?? ((p: string) => fs.readFileSync(p, "utf8"));
+      return parseProcStartMs(read(`/proc/${pid}/stat`), read("/proc/stat"));
+    }
+    const exec = opts.exec ?? defaultExec;
+    const out = String(exec(`LC_ALL=C ps -o lstart= -p ${pid}`, { encoding: "utf-8" })).trim();
+    const ms = Date.parse(out);
+    return Number.isFinite(ms) ? ms : null;
+  } catch {
+    return null;
   }
 }
 
