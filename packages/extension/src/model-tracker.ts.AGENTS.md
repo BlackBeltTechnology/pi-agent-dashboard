@@ -9,3 +9,5 @@ Diff-and-send trackers for model / session name / git info / pi version / cwd-mi
 pi-version dedup key = `sessionId + version` (`lastPiVersionKey`); `resetReconnectCaches` clears it — server keeps `piVersion`/`piBelowFloor` in memory only. See change: update-pi-core-1-0-adopt-apis (review B1/B2).
 
 `readRunningPiVersion` match is scope-agnostic via shared `isPiCodingAgentName`; `PI_PKG_NAMES` removed. A running legacy fork reports its real version → server below-floor flag. Exact-name mode of `readPkgVersionByWalkUp` unchanged. See change: drop-mariozechner-pi-fork.
+
+`sendGitInfoIfChanged(bc, {info, status?})` is now a pure diff-and-send over CACHED state (no git spawn, no PR observe); `GitSnapshot` type. `sendPiVersionIfChanged` returns whether the read succeeded (drives the 10-tick cadence retry). See change: optimize-polling-hot-paths.

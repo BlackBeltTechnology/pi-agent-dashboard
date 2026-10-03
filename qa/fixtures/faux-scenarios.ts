@@ -854,6 +854,13 @@ export const SCENARIOS: Record<string, Scenario> = {
     content: `<!doctype html>\n<!-- ${"A".repeat(6000)} -->\n<h1>big out of cwd</h1>\n`,
   }),
   "tool-bash": toolScenario("bash", { command: "ls -la" }),
+  // A bash call that leaves a DETACHED long-lived process behind (stdio
+  // redirected so the tool returns at once). Drives the adaptive process-scan
+  // e2e: the backgrounded `sleep` must reach the process drawer within one fast
+  // scan tick. See change: optimize-polling-hot-paths (tests/e2e/poll-hot-paths.spec.ts F4).
+  "tool-bash-background": toolScenario("bash", {
+    command: "nohup sleep 120 >/dev/null 2>&1 &",
+  }),
   // Strategy B (reduce-session-replay-traffic): a bash result with > 200 LINES.
   // On a FULL replay the server pre-truncates it to the display form
   // (`«N earlier lines hidden»` + last 200 lines) to trim replay bytes; the

@@ -9,12 +9,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrStatusProbe } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 
-const { gatherGitInfo, gatherGitStatus } = vi.hoisted(() => ({
-  gatherGitInfo: vi.fn(),
-  gatherGitStatus: vi.fn(),
-}));
-vi.mock("../vcs-info.js", () => ({ gatherGitInfo, gatherGitStatus }));
-
 import type { BridgeContext } from "../bridge-context.js";
 import { resetReconnectCaches, sendGitInfoIfChanged } from "../model-tracker.js";
 import { createPrStatusScheduler, handleGitInfoRefresh, type PrGeneration, type PrStatusScheduler } from "../pr-status.js";
@@ -323,14 +317,19 @@ function makeBc(prStatus?: PrStatusScheduler) {
   return { bc, send };
 }
 
+/**
+ * The tracker observes the PR generation, then hands CACHED state to the one
+ * change-detector (no git spawn). Mirrors `git-tracker.ts`.
+ */
+function sendGit(bc: BridgeContext, cwd: string): void {
+  bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: "os/x" });
+  sendGitInfoIfChanged(bc, { info: { gitBranch: "os/x" } });
+}
+
 describe("sendGitInfoIfChanged + PR tuple", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
-    gatherGitInfo.mockReset();
-    gatherGitStatus.mockReset();
-    gatherGitInfo.mockReturnValue({ gitBranch: "os/x" });
-    gatherGitStatus.mockReturnValue(undefined);
   });
   afterEach(() => vi.useRealTimers());
 
@@ -339,13 +338,13 @@ describe("sendGitInfoIfChanged + PR tuple", () => {
     let bcRef: BridgeContext | undefined;
     const sched = createPrStatusScheduler({
       probe,
-      onChange: () => bcRef && sendGitInfoIfChanged(bcRef, "/r/.worktrees/x"),
+      onChange: () => bcRef && sendGit(bcRef, "/r/.worktrees/x"),
       log: () => {},
     });
     const { bc, send } = makeBc(sched);
     bcRef = bc;
     const t0 = Date.now();
-    sendGitInfoIfChanged(bc, "/r/.worktrees/x"); // synchronous — returns before the 10 s probe
+    sendGit(bc, "/r/.worktrees/x"); // synchronous — returns before the 10 s probe
     expect(Date.now()).toBe(t0);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]![0]).toMatchObject({ type: "git_info_update", gitBranch: "os/x" });
@@ -360,13 +359,13 @@ describe("sendGitInfoIfChanged + PR tuple", () => {
     const checksOnly: PrStatusProbe = { kind: "parsed", value: { ...(OPEN_747 as any).value, checks: "failing" } };
     const { probe } = scriptedProbe([OPEN_747, checksOnly]);
     let bcRef: BridgeContext | undefined;
-    const sched = createPrStatusScheduler({ probe, onChange: () => bcRef && sendGitInfoIfChanged(bcRef, "/r"), log: () => {}, now: () => 1 });
+    const sched = createPrStatusScheduler({ probe, onChange: () => bcRef && sendGit(bcRef, "/r"), log: () => {}, now: () => 1 });
     const { bc, send } = makeBc(sched);
     bcRef = bc;
-    sendGitInfoIfChanged(bc, "/r");
+    sendGit(bc, "/r");
     await vi.advanceTimersByTimeAsync(0);
     send.mockClear();
-    sendGitInfoIfChanged(bc, "/r"); // unchanged
+    sendGit(bc, "/r"); // unchanged
     expect(send).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(120 * S); // checks flip passing → failing
     expect(send).toHaveBeenCalledTimes(1);
@@ -378,11 +377,11 @@ describe("sendGitInfoIfChanged + PR tuple", () => {
     const { probe } = scriptedProbe([OPEN_747]);
     const sched = createPrStatusScheduler({ probe, onChange: () => {}, log: () => {} });
     const { bc, send } = makeBc(sched);
-    sendGitInfoIfChanged(bc, "/r");
+    sendGit(bc, "/r");
     await vi.advanceTimersByTimeAsync(0);
     send.mockClear();
     resetReconnectCaches(bc); // onReconnect → register → re-emit
-    sendGitInfoIfChanged(bc, "/r");
+    sendGit(bc, "/r");
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]![0]).toMatchObject({
       gitPrNumber: 747,
@@ -393,6 +392,53 @@ describe("sendGitInfoIfChanged + PR tuple", () => {
       gitPrCheckedAt: 0,
     });
     expect(probe).toHaveBeenCalledTimes(1); // no re-probe for the same generation
+    sched.dispose();
+  });
+});
+
+describe("branch-change throttle (E32, optimize-polling-hot-paths)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("E32: 5 branches in 60 s → at most 2 branch-change probes, the last for the final branch", async () => {
+    const probedCwds: string[] = [];
+    const probe = vi.fn(async (cwd: string) => {
+      probedCwds.push(cwd);
+      return ABSENT;
+    });
+    const sched = createPrStatusScheduler({ probe, onChange: () => {}, log: () => {} });
+    const branches = ["b1", "b2", "b3", "b4", "b5"];
+    const probedBranches: string[] = [];
+    // The probe has no branch parameter; record the generation's branch at start.
+    let current = "";
+    const origProbe = probe.getMockImplementation()!;
+    probe.mockImplementation(async (cwd: string) => {
+      probedBranches.push(current);
+      return origProbe(cwd);
+    });
+    for (let i = 0; i < branches.length; i++) {
+      current = branches[i]!;
+      sched.observe({ sessionId: "A", cwd: "/r", branch: current });
+      await vi.advanceTimersByTimeAsync(12 * S);
+    }
+    await vi.advanceTimersByTimeAsync(2 * S);
+    // First observation is free, then ≤ one branch-driven start per 30 s.
+    expect(probe.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(probedBranches.at(-1)).toBe("b5");
+    sched.dispose();
+  });
+
+  it("a session change is never throttled", async () => {
+    const probe = vi.fn(async () => ABSENT);
+    const sched = createPrStatusScheduler({ probe, onChange: () => {}, log: () => {} });
+    sched.observe({ sessionId: "A", cwd: "/r", branch: "b" });
+    await vi.advanceTimersByTimeAsync(0);
+    sched.observe({ sessionId: "B", cwd: "/r", branch: "b" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(probe).toHaveBeenCalledTimes(2);
     sched.dispose();
   });
 });

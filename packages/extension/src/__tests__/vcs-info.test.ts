@@ -31,7 +31,17 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/git.js", async (impo
   isGitRepo,
 }));
 
-import { detectBranch, detectIsGitRepo, detectRemoteUrl, detectWorktree, gatherGitInfo } from "../vcs-info.js";
+import {
+  createHeadBranchReader,
+  detectBranch,
+  detectIsGitRepo,
+  detectRemoteUrl,
+  detectWorktree,
+  gatherGitInfo,
+  GitFactsCache,
+  type StaticGitFacts,
+  worktreeFromRoots,
+} from "../vcs-info.js";
 
 describe("git-info", () => {
   beforeEach(() => {
@@ -288,5 +298,112 @@ describe("git-info", () => {
       expect(info?.gitBranchUrl).toBeDefined();
       expect(info?.gitWorktree).toBeUndefined();
     });
+  });
+});
+
+// ── optimize-polling-hot-paths: HEAD-file branch + static facts cache ─────────
+
+describe("createHeadBranchReader (D5)", () => {
+  const deps = (files: Record<string, string | Error>, fallback = vi.fn(async () => "abc1234")) => ({
+    readFile: (p: string) => {
+      const v = files[p];
+      if (v === undefined || v instanceof Error) throw v ?? Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      return v;
+    },
+    mtimeOf: () => 7,
+    fallback,
+  });
+
+  it("E15: symref HEAD (CRLF) → branch with zero spawns", () => {
+    const fallback = vi.fn(async () => "x");
+    const r = createHeadBranchReader(() => {}, deps({ "/g/HEAD": "ref: refs/heads/feature/x\r\n" }, fallback));
+    expect(r.read("/c", "/g")).toBe("feature/x");
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it("E16: detached HEAD → async fallback once per HEAD content; previous value kept meanwhile", async () => {
+    const fallback = vi.fn(async () => "abc1234");
+    const onResolved = vi.fn();
+    const r = createHeadBranchReader(onResolved, deps({ "/g/HEAD": "0123456789abcdef0123456789abcdef01234567\n" }, fallback));
+    expect(r.read("/c", "/g")).toBeUndefined(); // pending
+    expect(r.read("/c", "/g")).toBeUndefined(); // still one fallback
+    expect(fallback).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(r.read("/c", "/g")).toBe("abc1234");
+    expect(fallback).toHaveBeenCalledTimes(1); // memoised
+  });
+
+  it("E17: non-heads ref and unreadable HEAD use the fallback, once for the ENOENT pair, no throw", async () => {
+    const fallback = vi.fn(async () => "main");
+    const a = createHeadBranchReader(() => {}, deps({ "/g/HEAD": "ref: refs/remotes/origin/main" }, fallback));
+    a.read("/c", "/g");
+    expect(fallback).toHaveBeenCalledTimes(1);
+    const fb2 = vi.fn(async () => "main");
+    const b = createHeadBranchReader(() => {}, deps({}, fb2));
+    expect(() => b.read("/c", "/g")).not.toThrow();
+    b.read("/c", "/g");
+    expect(fb2).toHaveBeenCalledTimes(1);
+  });
+
+  it("reset forgets the previous value", () => {
+    const r = createHeadBranchReader(() => {}, deps({ "/g/HEAD": "ref: refs/heads/a" }));
+    expect(r.read("/c", "/g")).toBe("a");
+    r.reset();
+    const r2 = createHeadBranchReader(() => {}, deps({ "/g/HEAD": "garbage" }));
+    expect(r2.read("/c", "/g")).toBeUndefined();
+  });
+});
+
+describe("GitFactsCache (D4)", () => {
+  const facts = (over: Partial<StaticGitFacts> = {}): StaticGitFacts => ({
+    remoteUrl: "git@github.com:o/r.git",
+    roots: null,
+    gitDir: "/r/.git",
+    dotGitStamp: "s1",
+    ...over,
+  });
+
+  it("E18/E23: stable stamp → no probe between ticks; remote cached; async re-probe only on demand", async () => {
+    const evaluate = vi.fn(() => facts());
+    const evaluateAsync = vi.fn(async () => facts());
+    const c = new GitFactsCache({ evaluate, evaluateAsync, stamp: () => "s1" });
+    c.evaluate("/r");
+    for (let i = 0; i < 9; i++) expect(c.stampChanged("/r")).toBe(false);
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    expect(evaluateAsync).not.toHaveBeenCalled();
+    const out = await c.reprobe("/r");
+    expect(out.changed).toBe(false);
+    expect(evaluateAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it("E19: a stamp change is detected without spawning; re-probe reports the changed worktree", async () => {
+    let stamp = "s1";
+    const wtRoots = { thisCheckout: "/r/.worktrees/wt", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git", gitDir: "/r/.git/worktrees/wt" };
+    const evaluateAsync = vi.fn(async () => facts({ roots: wtRoots as any, dotGitStamp: "s2" }));
+    const c = new GitFactsCache({ evaluate: () => facts(), evaluateAsync, stamp: () => stamp });
+    c.evaluate("/r/.worktrees/wt");
+    stamp = "s2";
+    expect(c.stampChanged("/r/.worktrees/wt")).toBe(true);
+    const out = await c.reprobe("/r/.worktrees/wt");
+    expect(out.changed).toBe(true);
+    expect(worktreeFromRoots(out.facts.roots)).toEqual({ mainPath: "/r", name: "wt" });
+  });
+
+  it("E20: `git init` in a plain cwd — roots null → repo is a change", async () => {
+    const c = new GitFactsCache({
+      evaluate: () => facts({ roots: null, gitDir: undefined, dotGitStamp: "none:-" }),
+      evaluateAsync: async () => facts({ roots: { thisCheckout: "/p", isLinkedWorktree: false, mainCheckout: "/p", commonDir: "/p/.git", gitDir: "/p/.git" } as any }),
+      stamp: () => "none:d1",
+    });
+    c.evaluate("/p");
+    expect(c.stampChanged("/p")).toBe(true);
+    expect((await c.reprobe("/p")).changed).toBe(true);
+  });
+
+  it("E22: worktree name is the basename of the worktree ROOT, not the cwd subdirectory", () => {
+    const roots = { thisCheckout: "/r/.worktrees/os-x", isLinkedWorktree: true, mainCheckout: "/r", commonDir: "/r/.git" };
+    expect(worktreeFromRoots(roots as any)).toEqual({ mainPath: "/r", name: "os-x" });
   });
 });

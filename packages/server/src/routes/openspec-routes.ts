@@ -498,7 +498,13 @@ export function registerOpenSpecRoutes(
       // (task 3.5). pi/openspec/tsx ship as regular npm deps; pi-resources
       // endpoint is unconditionally available.
       const forceRefresh = request.query.refresh === "true" || request.query.refresh === "1";
-      let data = forceRefresh ? undefined : directoryService.getPiResources(cwd);
+      // Stale-while-revalidate: a cold miss (or `refresh=true`) scans and
+      // awaits; a stale entry is served at once while one background rescan
+      // runs (deduped per cwd, never an unhandled rejection). See change:
+      // optimize-polling-hot-paths (D9).
+      const cached = forceRefresh ? undefined : directoryService.getPiResources(cwd);
+      let data = cached?.data;
+      if (cached?.stale) void directoryService.refreshPiResources(cwd).catch(() => { /* next request retries */ });
       if (!data) {
         data = await directoryService.refreshPiResources(cwd);
       }

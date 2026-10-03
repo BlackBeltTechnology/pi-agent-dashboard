@@ -2111,10 +2111,34 @@ See change: add-roles-read-api.
 7. Client's event reducer stores `contextUsage` from `stats_update` events; `App.tsx` falls back to `session.contextTokens/contextWindow` for sessions without live reducer state
 8. When real data is unavailable (e.g., old sessions without persisted context data), `state-replay.ts` and `session-stats-reader.ts` use `inferContextWindow()` to estimate context window from the model name
 
+### Process Scan Cadence
+- One process-table snapshot per scan (`process-scanner.ts`): Unix `ps -A -o pid=,ppid=,pgid=,etime=,args=`; Windows `Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress`. Capture + check + dead-PGID reap all read that one snapshot.
+- Async `execFile`. Never blocks pi event loop.
+- Adaptive cadence (`process-scan-scheduler.ts`, self-rescheduling `setTimeout`): fast 5 s (Win 10 s) while agent/tool runs → +15 s after last activity → +30 s after scanned list change; idle 30 s (Win 60 s). Idle→fast re-arms immediately on `agent_start` / `tool_execution_start`.
+- Extra scan 1 s after a `bash` `tool_execution_end`.
+- Overlap skipped (`scanInFlight`), never queued.
+- Trade-off: process dying while idle leaves list ≤30 s later.
+
+### Poll-cost counters
+- Heartbeat `metrics` flat optional scalars on `ProcessMetrics`: `pollProcScan*`, `pollGitProbes*`, `pollGitSpawns`, `pollGitMs`, `pollGitWatchersAttached`. Cumulative per bridge.
+- `/api/health` `pollCost` SUMS them across live sessions.
+- `pollGitWatchersAttached` = 0/1 per session; summed = sessions with a watch. Counters reset on reload/end; before/after reads each session's own counters over a fixed window.
+
 ### VCS Polling (Git)
-1. Bridge polls VCS info every 30s (`vcs-info.ts`, was `git-info.ts`): branch, remote URL, PR number.
-2. `gatherGitInfo`: emits `git_info_update` only when branch/PR change.
-3. Server forwards update via `session_updated` to subscribed browsers.
+Two git lanes, one probe in flight, async spawns — pi event loop never blocks on git.
+
+- **Fast lane**: first evaluation, `HEAD` / `packed-refs` / `*_HEAD` watch events, `git_info_refresh`, reconnect. ≥2 s between probe starts.
+- **Slow lane**: 30 s tick, mutating tool end, `index` / `null` watch events. ≥10 s between probe starts. Tick always requests one → external edits seen ≤30 s; silently-dead watchers (Docker/WSL mounts) cost nothing extra.
+- 750 ms trailing debounce, 2 s max wait. Request inside a lane's window deferred, never dropped. Fast request upgrades pending slow one. One probe in flight + dirty bit → one follow-up max.
+- Probe: async `git --no-optional-locks status --porcelain=v2 --branch` via `gitStatusV2Async`. Branch read from `<gitDir>/HEAD`; non-`refs/heads/` value → async CLI fallback (`currentBranchOrAsync` + `headShaOrAsync`), memoised per HEAD content; previous branch kept while pending.
+- Files: `packages/extension/src/git-tracker.ts` (facts/status), `git-probe-scheduler.ts` (lanes, debounce, in-flight, `dispose()`), `git-dir-watcher.ts` (`fs.watch(gitDir, {persistent:false})` + `fs.watch(commonDir)` when different), `vcs-info.ts`.
+- Static facts cached per cwd (`StaticGitFacts`: `remoteUrl`, `roots`, `gitDir`, `dotGitStamp`). Async re-probe (`checkoutRootsAsync`, `remoteUrlOrAsync`) on `dotGitStamp` change, `git_info_refresh`, reconnect, every 10th tick (≈5 min). `dotGitStamp` = `fs.stat` of `<thisCheckout>/.git` + `gitDir`; non-repo stamp = existence of `<cwd>/.git`.
+- Sync first evaluation ONLY at registration, cwd change, session change, reconnect — handshake requires `git_info_update` carrying `gitWorktree` at once. Status omitted; immediate fast-lane probe sends it right after. `handleSessionChange` (`session-sync.ts`) also resets `lastGitStatusJson`.
+- Probe reads branch before start + at settle; mismatch or cwd change → discard + one more probe. Failed probe sends branch/facts with `gitStatus` omitted (inconclusive).
+- Send only from probe-result path (`sendGitInfoIfChanged`); tick/watcher never send directly. `pr-status.ts` `onChange` sends from cached state, no spawn.
+- PR: `prStatus.observe({branch})` on every resolved branch (first eval, tick, every settled probe incl. failed). Branch-change generation start throttled ≤1 per 30 s, latest branch wins; session/cwd change not throttled.
+- Read-only tool allow-list (`read`, `grep`, `find`, `ls`, `glob`, case-insensitive); unknown/MCP tools count mutating.
+- Rate bound: ≤6 slow + ≤30 fast probes/min worst case; idle 2/min async, 1 spawn.
 
 ### PR status
 PR detection moved OFF the 30 s git tick. `packages/extension/src/pr-status.ts` `createPrStatusScheduler` probes `gh pr view --json number,url,state,isDraft,statusCheckRollup` via `runAsync` (`GH_PR_STATUS`, 20 s timeout) in `packages/shared/src/platform/git.ts`; `classifyPrStatus` → parsed / absent (`no pull requests found`) / failure.
@@ -2125,7 +2149,7 @@ After successful `/api/git/worktree/push` or `/pr` server sends `git_info_refres
 `collapseCheckRollup` lives in `packages/shared/src/platform/check-rollup.ts` (shared by server `listPullRequests` + bridge). Client `packages/client/src/lib/git/merge-primary.ts` `isMergePrimary` decides Merge emphasis once per surface (composer strip, session card). See change: redesign-composer-session-strip.
 
 ### Working-tree status + commit from card
-1. Bridge gathers working-tree status on the SAME 30s VCS tick — no new polling loop. `gatherGitStatus(cwd)` runs `git status --porcelain=v2 --branch`, shared `parseGitStatusV2` parses into `GitStatus { dirtyCount, staged, unstaged, untracked, ahead, behind }`.
+1. Bridge gathers working-tree status via the async git probe scheduler (no `gatherGitStatus`, no sync spawn). `gitStatusV2Async` runs `git --no-optional-locks status --porcelain=v2 --branch`, shared `parseGitStatusV2` parses into `GitStatus { dirtyCount, staged, unstaged, untracked, ahead, behind }`.
 2. `sendGitInfoIfChanged` includes `gitStatus` in `git_info_update`; deduped via `lastGitStatusJson`. Inconclusive probe omits `gitStatus`, leaves last value.
 3. Server `event-wiring.ts` merges `gitStatus` from `git_info_update` onto session, broadcasts `session_updated`.
 4. Hybrid delivery, keyed by cwd (not session): passive broadcast above PLUS on-demand `GET /api/git/status?cwd=` (`getGitStatus`, reuses `parseGitStatusV2`) on card/folder focus + right after commit. Client `git-status-cache.ts` (`useGitStatus(cwd, fallback)`) keys by cwd — folder header + solo card at same path share one entry.
@@ -2138,9 +2162,7 @@ After successful `/api/git/worktree/push` or `/pr` server sends `git_info_refres
 See change: add-session-uncommitted-indicator-and-commit.
 
 ### Git Polling (legacy entry, see VCS Polling above)
-1. Bridge polls git info every 30s (`vcs-info.ts`): branch, remote URL, PR number
-2. Changes are sent to the server only when values differ from last poll
-3. Server broadcasts updates to subscribed browsers
+Superseded by `### VCS Polling (Git)`. No 30 s sync git poll; no `gatherGitStatus`. Lanes, cadence, async spawns documented there.
 
 ### Git worktree convention (`.worktrees/`)
 Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
@@ -2367,7 +2389,8 @@ The scheduler in `packages/server/src/directory-service.ts` applies four layers 
 1. **mtime gate** (`changeDetection: "mtime" | "always"`, default `mtime`) — skips `openspec list` and `openspec status --change X` when no tracked artifact changed since last successful poll. Uses **file-aware effective mtime** (max over fixed file set) rather than directory mtime alone, because POSIX directory mtime advances only on entry create/delete/rename + misses in-place file edits. List-step signal unions `<changes>/` with each known `<change>/tasks.md`; per-change signal unions `<change>/` with `tasks.md`, `proposal.md`, `design.md`, **plus entire `specs/**` subtree** (`specs/` itself, every immediate `specs/<cap>/`, every `specs/<cap>/spec.md`). Missing files/dirs (e.g. change with no `design.md` or no `specs/` yet) skipped, not zero — `readdirSync` on `specs/` try/catch-wrapped so absence yields empty fan-out. `stat` ~10 µs vs. ~500 ms per CLI spawn; steady state drops 67 spawns/tick to 0–2. **TOCTOU-safe**: each per-change iteration captures `preCallMtime` before awaiting `runOpenSpecStatus` + stamps THAT value into cache; if post-call effective mtime differs, entry racy + cache left untouched (next gated tick re-polls because post-write mtime no longer matches preserved cached value). Without guard, write landing during CLI call would stamp `{ mtimeMs: post-write, status: pre-write }` + latch stale status indefinitely — trivially triggered by `/opsx:ff` mid-poll. **Defense in depth**: `buildOpenSpecData` also accepts `SpecsProbeFactory` (parallel to existing `DesignProbeFactory`) that promotes `specs: ready → done` whenever any `specs/**/*.md` found locally — promote-only, never demote, never `blocked → done`. So even if future blind spot creeps in, dashboard cannot under-report `specs` as ready when ≥1 spec file exists. See changes: `fix-openspec-specs-mtime-gate-blind-spot`, `fix-openspec-mtime-gate-toctou`, `fix-openspec-mtime-gate-blind-spots`.
 2. **Concurrency cap** (`maxConcurrentSpawns`, default 3, range 1–16) — an in-repo semaphore (`packages/shared/src/semaphore.ts`) serializes CLI spawns across all directories. Burst-work spreads uniformly over the interval instead of pinning every core.
 3. **Per-cwd jitter** (`jitterSeconds`, default 5) — each known directory is assigned a deterministic phase offset `fnv1a32(cwd) % (jitterSeconds * 1000)` within the interval so polls don't all align on the same scheduling boundary.
-4. **Split pi-resources timer** — `scanPiResources(cwd)` no longer rides the openspec tick; it has its own interval at 5× the openspec cadence (pi extensions/skills change far less often than OpenSpec artifacts).
+4. **pi-resources stale-while-revalidate** — no timer. `GET /api/pi-resources` scans on demand. Cold miss awaits; entry stale (watch event or `now - scannedAt ≥ 5 min`) served at once + one deduped background rescan; `refresh=true` awaits. Per-cwd in-flight dedupe.
+   Watcher `packages/server/src/pi/pi-resources-watcher.ts`: per-cwd `<cwd>/.pi` + `skills|prompts|extensions|agents|themes`, plus one shared global `~/.pi/agent` set. Reconcile rides the OpenSpec poll tick before its gates (runs with OpenSpec disabled). Idle >10 min releases watchers, KEEPS data. Caps: 16 watched, 64 data.
 
 Cache shape (per cwd): `{ listMtimeMs, listResult, changes: Map<name, { mtimeMs, change }>, data }`. Cache is updated atomically per directory — a partial failure leaves the previous snapshot intact and the next tick retries.
 
