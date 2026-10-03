@@ -748,7 +748,9 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
   // probe now refuse too) but the `not_a_repo` code is preserved.
   const repoRoot = resolveMainPath(cwd);
   if (!repoRoot) {
-    return { ok: false, error: "not_a_repo", message: "not a git repository" };
+    return gitBinaryMissing()
+      ? { ok: false, error: "git_not_found", message: "git binary not found" }
+      : { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
   // Resolve the local branch name + commit-ish for checkout mode.
   //  - `base` is a local branch (`refs/heads/<base>` exists) → check it out

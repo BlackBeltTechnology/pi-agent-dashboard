@@ -1700,6 +1700,7 @@ describe("argv migration — caller values stay single argv elements", () => {
   // review r2 B3 — the dedicated code is a property of the BINARY, so every
   // migrated entry point must report it, not only addWorktree / createPullRequest.
   it.each([
+    ["addWorktree (entry probe)", () => addWorktree({ cwd: repo, base: "main", newBranch: "feat/nogit-entry" }), (r: any) => r.error],
     ["pushBranch", () => pushBranch({ cwd: repo }), (r: any) => r.code],
     ["mergeWorktree", () => mergeWorktree({ cwd: repo }), (r: any) => r.code],
     ["worktreeDiffStat", () => worktreeDiffStat({ cwd: repo }), (r: any) => r.code],
