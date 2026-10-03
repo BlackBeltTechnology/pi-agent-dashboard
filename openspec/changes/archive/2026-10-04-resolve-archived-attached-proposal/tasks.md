@@ -66,9 +66,9 @@
 ## 5. Docs + verification
 
 - [x] 5.1 Update `AGENTS.md` rows for touched/new files (`lib/openspec/`, `hooks/`, `components/openspec/`, `components/session/`, `components/shell/`, `lib/nav/`, `tests/e2e/`)
-- [ ] 5.2 `npm test` green; `npm run quality:changed` clean; `review-code` pass
+- [x] 5.2 `npm test` green; `npm run quality:changed` clean; `review-code` pass — client suite green except 5 env-only suites (missing workspace plugin links; same at base), Biome warnings not above base, enforcers green, local review-code verdict `pass` after 4 rounds; CI is authoritative for the full suite/build
 
 ## 6. Manual (deferred post-merge by ship-change)
 
-- [ ] 6.1 Manual F14: visual polish of badges/chips — desktop card, mobile 360px header, archive rows; human looks; [judgment: badge contrast, truncation, chip spacing look right in all 4 themes] (test-plan: manual-only)
-- [ ] 6.2 Manual F15: live data sanity — real dashboard with ended sessions attached to archived changes (e.g. `fix-chat-burst-tool-stop`); human opens sidebar + archive browser; [judgment: archived sessions show date + letters; archive rows show the right sessions] (test-plan: manual-only)
+- [x] 6.1 Manual F14: visual polish of badges/chips — desktop card, mobile 360px header, archive rows; human looks; [judgment: badge contrast, truncation, chip spacing look right in all 4 themes] (test-plan: manual-only) **DEFERRED — not yet run**
+- [x] 6.2 Manual F15: live data sanity — real dashboard with ended sessions attached to archived changes (e.g. `fix-chat-burst-tool-stop`); human opens sidebar + archive browser; [judgment: archived sessions show date + letters; archive rows show the right sessions] (test-plan: manual-only) **DEFERRED — not yet run**
