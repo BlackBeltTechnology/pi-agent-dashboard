@@ -184,10 +184,15 @@ describe("tuned prompt text (test-plan E9-E12) — See change: tune-reverse-spec
     expect(step5).not.toContain("lint-cite");
   });
 
-  it("D4 tuning: generator requires every needed line in a confirmed cite; auditor does not block on omitted supporting lines", () => {
+  it("D4 tuning: generator requires every needed line in a confirmed cite; auditor separates necessary omissions (confidence) from mere context (note)", () => {
     expect(norm("prompts/generator-rebuild.md")).toContain("A `confirmed` cite must contain EVERY line its exact claim needs");
-    expect(norm("prompts/auditor-rebuild.md")).toContain("merely omits a supporting line");
-    expect(norm("prompts/auditor-rebuild.md")).toContain("never makes the verdict `revise` on its own");
+    const aud = norm("prompts/auditor-rebuild.md");
+    // review B1: an omitted line that is NECESSARY for the exact claim is a confidence matter, mere context is a note
+    expect(aud).toContain("NECESSARY to verify the exact claim");
+    expect(aud).toMatch(/report it in `confidence_errors` when the claim is tagged `confirmed`/);
+    expect(aud).toContain("omits only context");
+    expect(aud).not.toContain("merely omits a supporting line");
+    expect(aud).not.toContain("never makes the verdict `revise` on its own");
     expect(norm("prompts/generator-rebuild.md")).toContain("STEP 7 — Self-check every cite BEFORE you reply");
   });
 

@@ -46,10 +46,14 @@ Checks:
 3. Citations — each cited range exists and implements the claim it is attached
    to. A claim with no citation is uncited.
    Report a citation in `bad_citations` only when the cited range does not
-   exist or does not implement the claim (wrong lines). A true claim whose cite
-   merely omits a supporting line (a constant, the line before or after) is not
-   a defect: mention it in `notes`, never in `bad_citations`, and it never makes
-   the verdict `revise` on its own.
+   exist or does not implement the claim (wrong lines). A cite that omits a
+   line that is NECESSARY to verify the exact claim as written (the constant
+   behind a quoted literal, the throw behind a stated error) is a confidence
+   matter: report it in `confidence_errors` when the claim is tagged
+   `confirmed` (it should be `inferred`, or the cite widened). A cite that
+   omits only context a reader does not need to verify the claim (a
+   neighbouring line, a type declaration) is not a defect: mention it in
+   `notes`.
 4. Classification — each rule's `explicit`/`implicit` tag. Explicit = stated by
    a guard, validation, table, formula or matching comment. Implicit = emerges
    from a default value, exception handler, fall-through, ordering or
