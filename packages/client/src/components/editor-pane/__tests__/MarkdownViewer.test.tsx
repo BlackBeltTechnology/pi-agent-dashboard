@@ -29,8 +29,12 @@ vi.mock("@monaco-editor/react", () => ({
   ),
 }));
 // Keep MarkdownContent light.
+const imageBases: unknown[] = [];
 vi.mock("../../preview/MarkdownContent.js", () => ({
-  MarkdownContent: ({ content }: { content: string }) => <div data-testid="md-preview">{content}</div>,
+  MarkdownContent: ({ content, imageBase }: { content: string; imageBase?: unknown }) => {
+    imageBases.push(imageBase);
+    return <div data-testid="md-preview">{content}</div>;
+  },
 }));
 
 import MarkdownViewer from "../MarkdownViewer.js";
@@ -117,5 +121,28 @@ describe("MarkdownViewer — Preview/Edit (#4)", () => {
     fireEvent.change(ta, { target: { value: "# edited" } });
     fireEvent.click(screen.getByTestId("md-save-btn"));
     expect(await screen.findByTestId("changed-on-disk-banner")).toBeTruthy();
+  });
+});
+
+// See change: fix-markdown-remount-storm (D3; test-plan F6, F7)
+describe("MarkdownViewer imageBase identity", () => {
+  const el = (path: string) => (
+    <ThemeProvider>
+      <MarkdownViewer cwd="/proj" path={path} kind="markdown" mimeType="text/markdown" size={0} />
+    </ThemeProvider>
+  );
+
+  it("passes a stable imageBase across re-renders and a new one when path changes", async () => {
+    imageBases.length = 0;
+    const { rerender } = render(el("docs/a.md"));
+    await screen.findByTestId("md-preview");
+    rerender(el("docs/a.md"));
+    const seen = imageBases.filter(Boolean);
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen).size).toBe(1);
+
+    imageBases.length = 0;
+    rerender(el("other/b.md"));
+    await waitFor(() => expect(imageBases.some((b) => b && (b as { dir: string }).dir.endsWith("other"))).toBe(true));
   });
 });

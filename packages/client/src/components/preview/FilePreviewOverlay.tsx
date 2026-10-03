@@ -1,7 +1,7 @@
 import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import { mdiClose, mdiLoading } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import React, { type ComponentType, useEffect, useRef, useState } from "react";
+import React, { type ComponentType, useEffect, useMemo, useRef, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
@@ -186,6 +186,8 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
   // above another dismissible surface peels only this overlay.
   // See change: fix-stacked-escape-closes-layers.
   useEscapeDismiss(true, onClose);
+  // Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
+  const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
 
   // Backdrop click dismiss. The backdrop element is the dim layer over the
   // message area only (see render): clicking it closes; clicks inside the panel
@@ -317,7 +319,7 @@ function FilePreviewOverlayBody({ cwd, path, line, onClose }: Omit<Props, "prove
               <MarkdownContent
                 content={content}
                 frontmatter="properties"
-                imageBase={{ cwd, dir: absOf(cwd, dirname(path)) }}
+                imageBase={imageBase}
               />
             )}
             {!error && !isImage && content !== null && !isMd && language && (

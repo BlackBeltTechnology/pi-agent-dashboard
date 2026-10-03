@@ -14,7 +14,7 @@
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { mdiContentSave, mdiEyeOutline, mdiPencilOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { eligibleFetch, usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { type DenialFailure, denialFetch } from "../preview/denial-fetch.js";
@@ -116,6 +116,9 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
   if (loadFailure) {
     return <DenialNotice result={loadFailure} url={url} path={path} onAsk={() => setAskedUrl(url)} asked={asked} />;
   }
+  // Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
+  const imageBase = useMemo(() => ({ cwd, dir: absOf(cwd, dirname(path)) }), [cwd, path]);
+
   if (error) return <div className="p-4 text-sm text-[var(--accent-red)]">{error}</div>;
   if (content === null) return <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("common.loading2", undefined, "Loading…")}</div>;
 
@@ -186,7 +189,7 @@ export default function MarkdownViewer({ cwd, path }: ViewerProps) {
             <MarkdownContent
               content={content}
               frontmatter="properties"
-              imageBase={{ cwd, dir: absOf(cwd, dirname(path)) }}
+              imageBase={imageBase}
             />
           </div>
         )}

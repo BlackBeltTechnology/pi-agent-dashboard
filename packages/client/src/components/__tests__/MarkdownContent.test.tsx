@@ -1054,3 +1054,33 @@ describe("MarkdownContent — DOM identity under context churn", () => {
     expect(container.querySelector("p")?.textContent).toBe("wrote /Users/me/app.ts to disk");
   });
 });
+
+// Regression guards: a fresh imageBase identity defeats React.memo (matching
+// production), so these only stay green while `components` identity is stable.
+// See change: fix-markdown-remount-storm (test-plan E23, F4, F5, F8).
+describe("MarkdownContent override identity under memo-defeating re-render", () => {
+  const md = "Para with `inline` code.\n\n- item with `code`\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+  function Harness({ ctx }: { ctx?: ToolContext }) {
+    const [, setTick] = useState(0);
+    return (
+      <ThemeProvider>
+        <MarkdownContent content={md} context={ctx} imageBase={{ cwd: "/w", dir: "/w" }} />
+        <button data-testid="tick" onClick={() => setTick((t) => t + 1)}>t</button>
+      </ThemeProvider>
+    );
+  }
+
+  for (const withCtx of [false, true]) {
+    it(`keeps table/p/li/inline-code DOM nodes (fileLink context: ${withCtx})`, () => {
+      const ctx = withCtx ? withDefaultFileLink(makeToolContext({ cwd: "/w" })) : undefined;
+      const { container, getByTestId } = render(<Harness ctx={ctx} />);
+      const sel = "table, p, li, code";
+      const before = [...container.querySelectorAll(sel)];
+      expect(before.length).toBeGreaterThan(3);
+      act(() => getByTestId("tick").click());
+      const after = [...container.querySelectorAll(sel)];
+      expect(after.length).toBe(before.length);
+      after.forEach((n, i) => expect(n).toBe(before[i]));
+    });
+  }
+});

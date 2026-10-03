@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from "react";
+import type React from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 export interface ZoomPanState {
   scale: number;
@@ -10,6 +11,13 @@ export interface UseZoomPanOptions {
   minScale?: number;
   maxScale?: number;
   zoomStep?: number;
+  /**
+   * Scale the surface starts at and that reset / double-click return to.
+   * Clamped into [minScale, maxScale]; defaults to 1. While the user has not
+   * interacted, a changed value re-seeds the view (fit may resolve async).
+   * See change: fix-markdown-remount-storm (D4).
+   */
+  initialScale?: number;
 }
 
 const DEFAULT_MIN = 0.5;
@@ -26,7 +34,23 @@ export function useZoomPan(options?: UseZoomPanOptions) {
   const maxScale = options?.maxScale ?? DEFAULT_MAX;
   const zoomStep = options?.zoomStep ?? DEFAULT_STEP;
 
-  const [state, setState] = useState<ZoomPanState>({ scale: 1, translateX: 0, translateY: 0 });
+  const initialScale = Math.min(maxScale, Math.max(minScale, options?.initialScale ?? 1));
+
+  const [state, rawSetState] = useState<ZoomPanState>({ scale: initialScale, translateX: 0, translateY: 0 });
+  // True once the user zoomed/panned; a late initialScale change must not override that.
+  const touched = useRef(false);
+  const setState = useCallback((u: React.SetStateAction<ZoomPanState>) => {
+    touched.current = true;
+    rawSetState(u);
+  }, []);
+  const resetToInitial = useCallback(() => {
+    touched.current = false;
+    rawSetState({ scale: initialScale, translateX: 0, translateY: 0 });
+  }, [initialScale]);
+
+  useLayoutEffect(() => {
+    if (!touched.current) rawSetState({ scale: initialScale, translateX: 0, translateY: 0 });
+  }, [initialScale]);
 
   // Refs for drag tracking (avoid re-renders during drag)
   const dragging = useRef(false);
@@ -142,9 +166,7 @@ export function useZoomPan(options?: UseZoomPanOptions) {
   }, []);
 
   // ── Double-click reset ─────────────────────────────────────────────
-  const onDoubleClick = useCallback(() => {
-    setState({ scale: 1, translateX: 0, translateY: 0 });
-  }, []);
+  const onDoubleClick = resetToInitial;
 
   // ── Button controls ────────────────────────────────────────────────
   const zoomIn = useCallback(() => {
@@ -161,9 +183,7 @@ export function useZoomPan(options?: UseZoomPanOptions) {
     });
   }, [clampScale, zoomStep]);
 
-  const reset = useCallback(() => {
-    setState({ scale: 1, translateX: 0, translateY: 0 });
-  }, []);
+  const reset = resetToInitial;
 
   const handlers = {
     onWheel,
@@ -175,5 +195,5 @@ export function useZoomPan(options?: UseZoomPanOptions) {
     onDoubleClick,
   };
 
-  return { state, handlers, zoomIn, zoomOut, reset };
+  return { state, handlers, zoomIn, zoomOut, reset, initialScale };
 }

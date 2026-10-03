@@ -2,7 +2,7 @@
  * Markdown preview. Fetches `/api/file` (text content) and renders via
  * the shared `<MarkdownContent>` component. See change: render-file-previews.
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { readTextUrl } from "./raw-url.js";
@@ -47,13 +47,16 @@ export function MarkdownPreview({ target }: Props) {
     };
   }, [target.cwd, target.path, previewFetch]);
 
+  // Stable identity keeps MarkdownContent's React.memo guard effective. See change: fix-markdown-remount-storm (D3).
+  const imageBase = useMemo(() => ({ cwd: target.cwd, dir: absOf(target.cwd, dirname(target.path)) }), [target.cwd, target.path]);
+
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (content == null) return <div className="text-[var(--text-muted)] text-sm p-2">{i18nT("common.loading2", undefined, "Loading…")}</div>;
   return (
     <MarkdownContent
       content={content}
       frontmatter="properties"
-      imageBase={{ cwd: target.cwd, dir: absOf(target.cwd, dirname(target.path)) }}
+      imageBase={imageBase}
     />
   );
 }

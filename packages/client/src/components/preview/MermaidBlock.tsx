@@ -1,8 +1,9 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useZoomPan } from "../../hooks/useZoomPan.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
 import { ZoomControls } from "./ZoomControls.js";
+import { computeFitScale, VIEWPORT_HEIGHT_CSS } from "./mermaid-fit.js";
 
 let mermaidIdCounter = 0;
 
@@ -261,7 +262,11 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
   const prevCodeRef = useRef<string | null>(null);
   const prevThemeRef = useRef<string | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const { state: zoom, handlers, zoomIn, zoomOut, reset } = useZoomPan();
+  // Contain-fit scale, measured against the fixed-height viewport once the SVG
+  // is known; the hook clamps it into [min,max] and re-seeds until user input.
+  // See change: fix-markdown-remount-storm (D4).
+  const [fit, setFit] = useState(1);
+  const { state: zoom, handlers, zoomIn, zoomOut, reset, initialScale } = useZoomPan({ initialScale: fit });
 
   useEffect(() => {
     // Defer rendering until the fenced block is closed. While streaming, `code`
@@ -318,6 +323,20 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
       cancelledRef.current = true;
     };
   }, [code, themeId, resolved, complete]);
+
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!svg || !el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setFit(computeFitScale(svg, r.width, r.height));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [svg]);
 
   // Attach non-passive wheel listener only when focused
   useEffect(() => {
@@ -381,8 +400,8 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
         className={`relative overflow-hidden rounded-md border ${borderColor} bg-[var(--bg-surface)] transition-colors`}
         style={{
           touchAction: focused ? "none" : "auto",
-          cursor: focused ? (zoom.scale > 1 ? "grab" : "default") : "pointer",
-          minHeight: 120,
+          cursor: focused ? (zoom.scale > initialScale ? "grab" : "default") : "pointer",
+          height: VIEWPORT_HEIGHT_CSS,
         }}
         onClick={() => { if (!focused) setFocused(true); }}
         onPointerDown={focused ? handlers.onPointerDown : undefined}
@@ -398,6 +417,7 @@ export const MermaidBlock = React.memo(function MermaidBlock({ code, complete = 
             onZoomOut={zoomOut}
             onReset={reset}
             scale={zoom.scale}
+            initialScale={initialScale}
           />
         )}
         {!focused && (
