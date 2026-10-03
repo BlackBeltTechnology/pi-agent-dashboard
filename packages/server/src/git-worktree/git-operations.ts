@@ -1285,10 +1285,15 @@ export function mergeWorktree(opts: {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
   }
   const base = resolveDefaultBase(mainPath, baseHint);
-  if (!base) return { ok: false, code: "base_not_found" };
+  if (!base) {
+    return gitBinaryMissing()
+      ? { ok: false, code: "git_not_found" }
+      : { ok: false, code: "base_not_found" };
+  }
 
   // 1. Main must be clean.
   const porcelain = tryRun(["git", "status", "--porcelain"], mainPath);
+  if (porcelain === undefined && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (porcelain && porcelain.length > 0) {
     return { ok: false, code: "dirty_main" as any, stderr: porcelain };
   }
@@ -1372,7 +1377,11 @@ export function worktreeDiffStat(opts: {
   if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
   const base = resolveDefaultBase(mainPath, baseHint);
-  if (!base) return { ok: false, code: "base_not_found" };
+  if (!base) {
+    return gitBinaryMissing()
+      ? { ok: false, code: "git_not_found" }
+      : { ok: false, code: "base_not_found" };
+  }
   let stat: string;
   try {
     stat = execFileSync(
@@ -1410,7 +1419,9 @@ export function pushBranch(opts: {
   }
   // Detect missing remote up-front for a clean error.
   const remoteExists = tryRun(["git", "remote", "get-url", "origin"], cwd);
-  if (!remoteExists) return { ok: false, code: "no_remote" };
+  if (!remoteExists) {
+    return gitBinaryMissing() ? { ok: false, code: "git_not_found" } : { ok: false, code: "no_remote" };
+  }
   const args = ["push"];
   if (setUpstream) args.push("-u");
   args.push("origin", branch);
@@ -1465,6 +1476,7 @@ export function createPullRequest(opts: {
   // validate the PR). Falls back to `origin/{develop,main,master}` when
   // the session's `gitWorktreeBase` hint is a local-only branch.
   const base = resolveRemoteBase(cwd, baseHint);
+  if (!base && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!base) return { ok: false, code: "base_not_found", stderr: `no base branch found on origin (tried hint=${baseHint ?? "<none>"} + ${BASE_FALLBACKS.join("|")})` };
   const args = [ghPath, "pr", "create", "--base", base, "--head", branch];
   // Derive an explicit title when none supplied. Using `--fill` requires

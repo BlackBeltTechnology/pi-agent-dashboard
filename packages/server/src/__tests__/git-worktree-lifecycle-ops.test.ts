@@ -1485,6 +1485,65 @@ describe("argv migration — caller values stay single argv elements", () => {
       } finally { s.restore(); }
     });
 
+    // review r4 B1 — git VANISHES after the entry probe succeeded: the trigger
+    // spawn fails with ENOENT and every later git spawn does too (including the
+    // `git --version` confirmation probe). A swallowed tryRun must not turn
+    // that into base_not_found / no_remote.
+    const vanishAt = (pred: (args: string[]) => boolean) => {
+      let gone = false;
+      return (file: string, args: string[]) => {
+        if (file !== "git") return undefined;
+        if (!gone && pred(args)) gone = true;
+        return gone ? spawnMissingError("git") : undefined;
+      };
+    };
+
+    it("mergeWorktree: git vanishes at the status probe", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/lv1" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({ fileThrow: vanishAt((a) => a[0] === "status" && a[1] === "--porcelain") });
+      try {
+        const r = mergeWorktree({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("mergeWorktree / worktreeDiffStat: git vanishes at the base probe", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/lv2" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      for (const run of [() => mergeWorktree({ cwd: wt.path }), () => worktreeDiffStat({ cwd: wt.path })]) {
+        const s = spyBothExecSurfaces({ fileThrow: vanishAt((a) => a[0] === "rev-parse" && a[1] === "--verify") });
+        try {
+          const r = run() as any;
+          expect(r.ok).toBe(false);
+          expect(r.code).toBe("git_not_found");
+        } finally { s.restore(); }
+      }
+    });
+
+    it("pushBranch: git vanishes at the remote probe", () => {
+      const wt = makeTrackingWorktree("feat/lv3");
+      const s = spyBothExecSurfaces({ fileThrow: vanishAt((a) => a[0] === "remote" && a[1] === "get-url") });
+      try {
+        const r = pushBranch({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("createPullRequest: git vanishes at the remote-base probe", () => {
+      const wt = makeTrackingWorktree("feat/lv4");
+      const s = spyBothExecSurfaces({ fileThrow: vanishAt((a) => a[0] === "rev-parse" && a.includes("--verify")) });
+      try {
+        const r = createPullRequest({ cwd: wt.path, ghPath: process.execPath, title: "t" }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
     it("addWorktreeFromPr: worktree-add spawn", () => {
       const s = spyBothExecSurfaces({
         fileFake: (file, args) => (file === "git" && args[0] === "fetch" ? "" : undefined),
