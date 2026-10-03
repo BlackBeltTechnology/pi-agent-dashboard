@@ -148,6 +148,24 @@ describe("readPkgVersionByWalkUp", () => {
     expect(v).toBe("0.80.2");
   });
 
+  // E18 — the scope-agnostic match is opt-in: the exact-name (by-name) mode
+  // does not broaden to other scopes. `defaultReadPiVersion` was removed by
+  // update-pi-core-1-0-adopt-apis; this pins the walk-up contract it relied on.
+  // See change: drop-mariozechner-pi-fork (test-plan #E18).
+  it("E18: exact-name mode ignores an @other/pi-coding-agent manifest", () => {
+    const root = "/r/node_modules/@other/pi-coding-agent";
+    const files: Record<string, string> = {
+      [`${root}/package.json`]: JSON.stringify({ name: "@other/pi-coding-agent", version: "0.73.1" }),
+    };
+    const v = readPkgVersionByWalkUp(
+      "@earendil-works/pi-coding-agent",
+      () => `${root}/dist/index.js`,
+      (p) => files[p] ?? (() => { throw new Error(`ENOENT ${p}`); })(),
+      (p) => p in files,
+    );
+    expect(v).toBeUndefined();
+  });
+
   it("returns undefined (no throw) when no matching manifest is found", () => {
     const v = readPkgVersionByWalkUp(
       PKG,
@@ -202,14 +220,14 @@ describe("readRunningPiVersion", () => {
   });
 
   it("a failing realpath falls back to the literal argv[1] (no throw)", () => {
-    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+    const root = "/x/node_modules/@earendil-works/pi-coding-agent";
     const v = readRunningPiVersion(`${root}/dist/cli.js`, {
       realpath: () => {
         throw new Error("ENOENT");
       },
       ...fsStub({
         [`${root}/package.json`]: JSON.stringify({
-          name: "@mariozechner/pi-coding-agent",
+          name: "@earendil-works/pi-coding-agent",
           version: "0.73.1",
         }),
       }),
@@ -217,18 +235,64 @@ describe("readRunningPiVersion", () => {
     expect(v).toBe("0.73.1");
   });
 
-  it("E8: reads the @mariozechner build the process actually runs inside", () => {
-    const root = "/x/node_modules/@mariozechner/pi-coding-agent";
+  // E17 — the running-version walk-up is scope-agnostic (isPiCodingAgentName).
+  // See change: drop-mariozechner-pi-fork (test-plan #E17, #X2).
+  it("E17a: reads a pi-coding-agent build under any scope", () => {
+    const root = "/x/node_modules/@other/pi-coding-agent";
     const v = readRunningPiVersion(
       `${root}/dist/cli.js`,
       fsStub({
         [`${root}/package.json`]: JSON.stringify({
-          name: "@mariozechner/pi-coding-agent",
+          name: "@other/pi-coding-agent",
           version: "0.73.1",
         }),
       }),
     );
     expect(v).toBe("0.73.1");
+  });
+
+  it("E17b: skips a nested non-pi manifest and returns the outer pi version", () => {
+    const root = "/x/node_modules/@other/pi-coding-agent";
+    const nested = `${root}/node_modules/some-dep`;
+    const v = readRunningPiVersion(
+      `${nested}/dist/index.js`,
+      fsStub({
+        [`${nested}/package.json`]: JSON.stringify({ name: "some-dep", version: "9.9.9" }),
+        [`${root}/package.json`]: JSON.stringify({
+          name: "@other/pi-coding-agent",
+          version: "0.73.1",
+        }),
+      }),
+    );
+    expect(v).toBe("0.73.1");
+  });
+
+  it("E17c: no pi manifest within the walk → undefined", () => {
+    const v = readRunningPiVersion(
+      "/x/node_modules/pi-coding-agent-x/dist/cli.js",
+      fsStub({
+        "/x/node_modules/pi-coding-agent-x/package.json": JSON.stringify({
+          name: "pi-coding-agent-x",
+          version: "1.0.0",
+        }),
+      }),
+    );
+    expect(v).toBeUndefined();
+  });
+
+  it("X2: a read error on the first manifest returns undefined without throwing", () => {
+    const root = "/x/node_modules/@earendil-works/pi-coding-agent";
+    let v: string | undefined = "sentinel";
+    expect(() => {
+      v = readRunningPiVersion(`${root}/dist/cli.js`, {
+        realpath: (p) => p,
+        fileExists: () => true,
+        readFile: () => {
+          throw new Error("EACCES");
+        },
+      });
+    }).not.toThrow();
+    expect(v).toBeUndefined();
   });
 
   it("E9: argv anchor wins over a hoisted newer by-name copy", () => {

@@ -125,10 +125,10 @@ describe("checkPiPinCoherence — six governed pins", () => {
     expect(err).toContain("packages/b/package.json devDependencies.@earendil-works/pi-tui");
   });
 
-  it("@mariozechner ranges are not governed here", () => {
+  it("ungoverned pi-coding-agent scopes are not governed here", () => {
     const pkg = {
       ...peerPkg(`>=${V}`),
-      devDependencies: { "@mariozechner/pi-coding-agent": ">=0.80.10" },
+      devDependencies: { "@other/pi-coding-agent": ">=0.80.10" },
     };
     const manifests = [manifest("packages/c/package.json", pkg)];
     expect(check(serverPkg(`^${V}`, V), dockerfile(V), workspace(V), V, manifests)).toBeNull();

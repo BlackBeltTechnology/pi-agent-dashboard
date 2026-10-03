@@ -99,6 +99,7 @@ import { launchServer } from "./server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "./server-pin-store.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
+import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, sendShutdownUsageThenUnregister } from "./usage-drain.js";
 import { detectSessionSource } from "./source-detector.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
@@ -266,6 +267,15 @@ function initBridge(pi: ExtensionAPI) {
   let sessionId: string = prev.sessionId ?? crypto.randomUUID();
   let attachedChange: string | null = prev.attachedChange ?? null;
   let sessionReady = false; // true after session_start has run
+  // Non-message usage drain cursor (usage / compaction / branch_summary
+  // entries → `usage_recorded`). Baselined at every session_start (init,
+  // reload, new/fork/resume) from the same snapshot as `usageSeed`; a
+  // reconnect never touches it. See change: count-non-message-usage.
+  const usageDrain = new UsageDrain();
+  function drainUsage(ctx: any): void {
+    if (!sessionReady) return;
+    drainUsageAndSend(usageDrain, (ctx ?? cachedCtx)?.sessionManager, (m) => connection.send(m));
+  }
   let lastSessionFile: string | undefined;
   let lastSessionDir: string | undefined;
   let lastFirstMessage: string | undefined;
@@ -2299,6 +2309,8 @@ function initBridge(pi: ExtensionAPI) {
   // - `session_start`: dedicated handler → session_register protocol message
   // - session change (new/fork/resume): handled inside session_start via event.reason
   // - `session_shutdown`: dedicated handler → disconnect/cleanup
+  // - `cache_warming_decision`: dedicated observe-only handler → usage drain
+  //   (`usage_recorded`), never `event_forward`. See change: count-non-message-usage.
 
   // Unified EventBus rename map for the emit intercept (flow + subagent events)
   const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
@@ -2353,6 +2365,8 @@ function initBridge(pi: ExtensionAPI) {
         // (A.1), retry-forever-with-stop-control, update-pi-core-0-85-adopt-apis.
         getBridgeState().isAgentStreaming = false;
         abortLatch.clear(sessionId);
+        // Drain point. See change: count-non-message-usage.
+        drainUsage(ctx);
         const retryEnd = retryTracker.observeAgentSettled(sessionId);
         if (retryEnd) {
           sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
@@ -2998,13 +3012,23 @@ function initBridge(pi: ExtensionAPI) {
     // emitted after `replay_complete` below.
     // See change: fix-terminal-session-dashboard-reload (D4).
     const reloadDelivered = consumePendingReloadOnSessionStart(reason, newSessionId);
+    // Baseline + seed from ONE snapshot, before any register goes out: the
+    // drain forwards only entries appended after this point, and the register
+    // carries this snapshot's full totals. Undefined on a failed read.
+    // See change: count-non-message-usage.
+    let usageSeed: ReturnType<UsageDrain["baseline"]> | undefined;
+    try {
+      usageSeed = usageDrain.baseline(ctx.sessionManager);
+    } catch (err) {
+      console.error("[dashboard] usage baseline failed:", err);
+    }
     if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
       // Clear any latched abort for the OUTGOING session id. Otherwise a
       // latched old session that is resumed later would have its first
       // legitimate turn aborted by the agent_start/message_start latch hooks.
       // See change: unify-error-retry-lifecycle.
       abortLatch.clear(sessionId);
-      handleSessionChange(ctx);
+      handleSessionChange(ctx, usageSeed);
     }
 
     cachedHasUI = ctx.hasUI;
@@ -3515,6 +3539,9 @@ function initBridge(pi: ExtensionAPI) {
       // Fact-forwarding: server decides auto-hide. See change:
       // auto-hide-headless-worker-sessions.
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),
+      // Applied server-side only for an id it has no record of.
+      // See change: count-non-message-usage.
+      ...(usageSeed ? { usageSeed } : {}),
     });
 
     // The register above just went out (live socket, or buffered for the
@@ -3836,7 +3863,7 @@ function initBridge(pi: ExtensionAPI) {
   }));
 
   // Shared handler for session changes (new/fork/resume)
-  function handleSessionChange(ctx: any) {
+  function handleSessionChange(ctx: any, usageSeed?: ReturnType<UsageDrain["baseline"]>) {
     // Clear attachedChange on a real session switch (new/fork/resume): it is
     // persisted globally + restored at activate, so without this the previous
     // session's attached change would leak into the new session's prompt until
@@ -3880,7 +3907,7 @@ function initBridge(pi: ExtensionAPI) {
       emitQueueUpdate();
     }
     const bc = syncBc();
-    _handleSessionChange(bc, ctx, getFlowsList);
+    _handleSessionChange(bc, ctx, getFlowsList, usageSeed);
     applyBc(bc);
     // A new session id needs its own `pi_version_update` (below-floor flag).
     // After applyBc, so syncBc() carries the NEW session id.
@@ -3919,6 +3946,9 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     cachedCtx = ctx;
     if (!sessionReady) return;
+    // Drain point: compaction / usage entries recorded during the turn.
+    // See change: count-non-message-usage.
+    drainUsage(ctx);
 
     // Send firstMessage update after first turn if not previously sent
     if (!lastFirstMessage) {
@@ -3935,7 +3965,17 @@ function initBridge(pi: ExtensionAPI) {
 
   }));
 
-  pi.on("session_shutdown", safe(async (event: any) => {
+  // Control event (never `event_forward`): an idle cache refresh's usage
+  // entry lands before the NEXT decision, so each decision is a drain point.
+  // Observe-only — returns no override and never throws (pi falls back to
+  // its own decision on a handler failure, but we never give it one).
+  // See change: count-non-message-usage.
+  pi.on("cache_warming_decision", makeCacheWarmingDecisionHandler((ctx: any) => {
+    if (!isActive()) return;
+    drainUsage(ctx);
+  }) as any);
+
+  pi.on("session_shutdown", safe(async (event: any, ctx: any) => {
     if (!isActive()) return;
     // Let the reloaded instance (fresh ExtensionAPI) pass the re-entry guard.
     // See change: fix-terminal-session-dashboard-reload (D4).
@@ -3953,10 +3993,16 @@ function initBridge(pi: ExtensionAPI) {
       clearInterval(gitPollTimer);
       gitPollTimer = null;
     }
-    connection.send({
-      type: "session_unregister",
-      sessionId,
-    });
+    // Flush undrained entry usage BEFORE session_unregister (which ends the
+    // session server-side), on every shutdown reason: quit, reload and
+    // session replacement (new/resume/fork). See change: count-non-message-usage.
+    sendShutdownUsageThenUnregister(
+      () => drainUsage(ctx),
+      () => connection.send({
+        type: "session_unregister",
+        sessionId,
+      }),
+    );
 
     // Drop retained subagent frames/snapshots on shutdown.
     // See change: fix-subagent-live-detail-reliability.

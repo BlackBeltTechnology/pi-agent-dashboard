@@ -25,3 +25,5 @@ Server→browser: `PairPendingChangedMessage` (`pair_pending_changed`, NO fields
 ## electron-runtime-overlay-updates
 
 `RuntimeUpdateMessage` = `runtime_update_progress` (version, phase fetch/install/verify/materialize/done/error, message) \| `runtime_update_staged` \| `runtime_update_failed`. See change: electron-runtime-overlay-updates.
+
+Fork-named `legacyPiInstalls?` bootstrap field removed (no producer/consumer). See change: drop-mariozechner-pi-fork.

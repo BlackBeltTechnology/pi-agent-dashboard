@@ -79,12 +79,9 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
   try {
     const req = createRequire(import.meta.url);
     let pkgJson: string | undefined;
-    for (const name of ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]) {
-      try {
-        pkgJson = req.resolve(`${name}/package.json`);
-        break;
-      } catch { /* try next alias */ }
-    }
+    try {
+      pkgJson = req.resolve("@earendil-works/pi-coding-agent/package.json");
+    } catch { /* not resolvable by name — fall through to the registry */ }
     if (pkgJson) {
       const raw = fs.readFileSync(pkgJson, "utf8");
       const parsed = JSON.parse(raw) as { version?: string };
@@ -95,8 +92,8 @@ export function readCurrentPiVersion(registry: ToolRegistry = getDefaultRegistry
   }
   // Fall back to the registry's resolved path + ../package.json.
   // `where` / `which` strategies typically return a symlinked npm bin
-  // launcher (e.g. ~/.nvm/.../bin/pi → ../lib/node_modules/@mariozechner/
-  // pi-coding-agent/dist/cli.js). Realpath the result first so the
+  // launcher (e.g. ~/.nvm/.../bin/pi → ../lib/node_modules/@earendil-works/
+  // pi-coding-agent/dist/cli.js). The manifest is read whatever its scope. Realpath the result first so the
   // dirname math lands on the real pi module directory, not the
   // bin-containing Node install prefix. See change: warn-pi-version-skew-in-cli.
   try {

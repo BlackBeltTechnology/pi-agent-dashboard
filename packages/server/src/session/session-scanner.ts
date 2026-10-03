@@ -14,6 +14,7 @@ import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shar
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { readJsonlMtime } from "./derive-ended-at.js";
 import { projectPluginRefs, sanitizePersistedBags } from "./plugin-refs.js";
+import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
@@ -199,6 +200,7 @@ export function sessionFromMeta(
     cacheRead: meta.cacheRead,
     cacheWrite: meta.cacheWrite,
     cost: meta.cost ?? 0,
+    statsExtractorVersion: meta.statsExtractorVersion,
     contextTokens: meta.contextTokens,
     contextWindow: meta.contextWindow,
     sessionFile,
@@ -404,8 +406,12 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
           }
         }
 
-        // Check cache freshness: if .jsonl is newer than cachedAt, re-extract
-        let needsReExtract = false;
+        // Check cache freshness: if .jsonl is newer than cachedAt, re-extract.
+        // A sidecar whose totals predate the current extractor rules also
+        // re-extracts, regardless of mtime, through the same merge (so the
+        // persisted-contextWindow rule covers both triggers).
+        // See change: count-non-message-usage.
+        let needsReExtract = (meta.statsExtractorVersion ?? 0) < STATS_EXTRACTOR_VERSION;
         if (meta.cachedAt) {
           try {
             const jsonlMtime = statSync(sessionFile).mtimeMs;
@@ -442,6 +448,7 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
             cacheRead: stats.cacheRead,
             cacheWrite: stats.cacheWrite,
             cost: stats.cost,
+            statsExtractorVersion: STATS_EXTRACTOR_VERSION,
             contextTokens: stats.lastTotalTokens,
             contextWindow: preserveContextWindow ? meta.contextWindow : stats.contextWindow,
             cachedAt: Date.now(),
@@ -479,6 +486,7 @@ export function scanAllSessions(sessionsDir?: string, opts: ScanOptions = {}): S
           cacheRead: stats.cacheRead,
           cacheWrite: stats.cacheWrite,
           cost: stats.cost,
+          statsExtractorVersion: STATS_EXTRACTOR_VERSION,
           contextTokens: stats.lastTotalTokens,
           contextWindow: stats.contextWindow,
         } : {}),

@@ -30,12 +30,12 @@ When an `agent_end` event is received, the server SHALL clear `openspecPhase` an
 - **THEN** the server SHALL auto-attach the proposal and optionally rename the session (same logic as current `openspec_activity_update` handler)
 
 ### Requirement: Server-side stats extraction from forwarded turn_end events
-The server SHALL extract token/cost stats from `event_forward` messages with `eventType: "turn_end"`. It SHALL call `extractTurnStats()` (from `src/shared/stats-extractor.ts`) with the event data.
+The server SHALL extract token/cost stats from `event_forward` messages with `eventType: "turn_end"`. It SHALL call `extractTurnStats()` (from `src/shared/stats-extractor.ts`) with the event data. It SHALL likewise extract usage from a forwarded `message_end` whose `message.role` is `"toolResult"` and from a forwarded `usage_recorded` event (see `token-stats-pipeline`).
 
 When stats are extracted, the server SHALL:
-1. Accumulate stats into the session (add to `tokensIn`, `tokensOut`, `cacheRead`, `cacheWrite`, `cost`; update `contextTokens`, `contextWindow`)
+1. Accumulate stats into the session (add to `tokensIn`, `tokensOut`, `cacheRead`, `cacheWrite`, `cost`; update `contextTokens`, `contextWindow` only for `turn_end`)
 2. Broadcast `session_updated` with the accumulated totals to browsers
-3. Synthesize a `stats_update` DashboardEvent and insert it into the event store (for client replay compatibility)
+3. Synthesize a `stats_update` DashboardEvent and insert it into the event store (for client replay compatibility); a non-`turn_end` source marks it with its usage kind
 4. Broadcast the synthesized `stats_update` event to browser subscribers
 
 #### Scenario: Turn end with usage data triggers stats accumulation
@@ -49,6 +49,10 @@ When stats are extracted, the server SHALL:
 #### Scenario: Synthesized stats_update event stored for replay
 - **WHEN** stats are extracted from a `turn_end` event
 - **THEN** the server SHALL insert a `stats_update` DashboardEvent into the event store so browser replays include stats
+
+#### Scenario: Non-turn usage synthesizes a kind-marked event
+- **WHEN** usage is extracted from a tool-result `message_end` or a `usage_recorded` event
+- **THEN** the synthesized `stats_update` SHALL carry its usage kind and no `contextUsage`
 
 ### Requirement: Shared utility location
 `openspec-activity-detector.ts` and `stats-extractor.ts` SHALL be located in `src/shared/` so both the server and any future bridge usage can import them.

@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { packageQueue } from "../package/package-queue.js";
 
-const PI = "@mariozechner/pi-coding-agent";
+const PI = "@earendil-works/pi-coding-agent";
 const PI_SRC = `pi-core:${PI}`;
 
 function jsonResponse(payload: any, status = 200): Response {
@@ -353,8 +353,8 @@ describe("package-queue pi-core dispatch", () => {
   });
 
   it("surfaces an unknown-package 400 verbatim and does not retry", async () => {
-    // Reachable via the @mariozechner -> @earendil-works core rename: a
-    // stale client can POST a name the server no longer resolves.
+    // Reachable when a stale client POSTs a name the server no longer
+    // lists as core (e.g. a removed package).
     const fetchMock = makeFetchMock(() =>
       jsonResponse({ success: false, error: `Unknown package(s): ${PI}` }, 400),
     );

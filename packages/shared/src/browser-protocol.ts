@@ -889,18 +889,6 @@ export interface BootstrapStateSnapshot {
     upgradeDashboard?: boolean;
   };
   bridgeRegistrationError?: string;
-  /**
-   * Legacy `@mariozechner/pi-coding-agent` installs detected on disk.
-   * Surfaced by the client as a one-click cleanup banner. Empty array
-   * means no legacy installs found. Pi was renamed to
-   * `@earendil-works/pi-coding-agent` at v0.74 — the legacy scope can
-   * collide with the new scope's `bin/pi` symlink.
-   */
-  legacyPiInstalls?: Array<{
-    scope: "npm-global" | "npx-cache" | "managed";
-    path: string;
-    version: string | null;
-  }>;
 }
 
 /**

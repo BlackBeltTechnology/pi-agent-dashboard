@@ -1,7 +1,7 @@
 /**
  * Pure parser for Keep-a-Changelog-style markdown files.
  *
- * Pi (`@earendil-works/pi-coding-agent` (formerly `@mariozechner/pi-coding-agent`)) ships a `CHANGELOG.md` whose
+ * Pi (`@earendil-works/pi-coding-agent`) ships a `CHANGELOG.md` whose
  * format is mechanically reliable:
  *   - H2 release headers: `## [<version>] - <date>`
  *   - H3 sub-section headers: `### Breaking Changes`, `### New Features`,

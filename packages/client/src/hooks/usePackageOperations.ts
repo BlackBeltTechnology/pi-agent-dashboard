@@ -135,7 +135,7 @@ export function usePackageOperations(
 
   /**
    * Enqueue a pi-core package update. `name` is the full scoped npm name
-   * from `PiCorePackage.name` (e.g. `@mariozechner/pi-coding-agent`), NOT
+   * from `PiCorePackage.name` (e.g. `@earendil-works/pi-coding-agent`), NOT
    * a `npm:`-prefixed source. `scope: "global"` is a non-meaningful
    * placeholder — `/api/pi-core/update` ignores it and resolves the
    * install location per-package from `PiCorePackage.installSource`.

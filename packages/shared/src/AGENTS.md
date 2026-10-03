@@ -94,3 +94,4 @@ Files in this directory. One row per source file.
 | `zrok-env.ts` | Pure `readZrokEnvironment({homedir,fs})` returning `{found, kind: v2\|v1\|null, path, env, reason}`. → see `zrok-env.ts.AGENTS.md` |
 | `route-tiers.ts` | `ROUTE_TIERS`, `routeTier(method, pattern)`, `hasRouteTier`… → see `route-tiers.ts.AGENTS.md` |
 | `tiers.ts` | `TIERS`, `Tier`, `isTier`, `rank`, `minTier`, `defaultTierForSource`. Ordered `observe < control < operate`; per-source mint defaults (`pairing`→operate, `manual`→observe). Shared by server + MCP plugin. See change: expand-mcp-tiered-surface. |
+| `usage-totals.ts` | Pure usage summing (seed / JSONL reader / replay agree). → see `usage-totals.ts.AGENTS.md` |

@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change pi-image-fit-extension. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Pi extension package distribution
 
 The system SHALL ship a standalone pi extension package at `packages/image-fit-extension/` in this monorepo, published to npm as `@blackbelt-technology/pi-image-fit`, that declares a single pi extension entry point via the `pi.extensions` field in its `package.json` and is installable via `pi install @blackbelt-technology/pi-image-fit` without requiring any other monorepo package or the dashboard.
@@ -196,20 +198,6 @@ The extension SHALL be active when installed, with no opt-in flag required. The 
 - **WHEN** a user installs the extension and starts a new pi session with no environment-variable overrides
 - **THEN** the next image Read that exceeds default thresholds is resized
 
-### Requirement: Pi peer-dependency compatibility
-
-The package SHALL declare `@earendil-works/pi-coding-agent` and `@mariozechner/pi-coding-agent` as optional peer dependencies (mirroring the bridge extension's dual-org pattern) and SHALL function with either dual-org pi runtime that exposes the documented `tool_call` event with mutable `event.input`.
-
-#### Scenario: Earendil-org pi runtime
-
-- **WHEN** the package is installed alongside `@earendil-works/pi-coding-agent`
-- **THEN** the extension loads and the `tool_call` handler fires
-
-#### Scenario: Mariozechner-org pi runtime
-
-- **WHEN** the package is installed alongside `@mariozechner/pi-coding-agent`
-- **THEN** the extension loads and the `tool_call` handler fires
-
 ### Requirement: Documentation updates
 
 The change SHALL update the following monorepo documentation surfaces to reflect the new package:
@@ -365,3 +353,16 @@ Any failure while fitting an image content block (undecodable data, resize error
 - **WHEN** a turn contains one undecodable oversize block and one valid oversize block
 - **THEN** the valid block is still resized while the undecodable block passes through unchanged
 
+### Requirement: Pi peer-dependency on the earendil package
+
+The package SHALL declare `@earendil-works/pi-coding-agent` as an optional peer dependency (mirroring the bridge extension) and SHALL NOT declare `@mariozechner/pi-coding-agent`. It SHALL function with a pi runtime that exposes the documented `tool_call` event with mutable `event.input`.
+
+#### Scenario: Earendil-org pi runtime
+
+- **WHEN** the package is installed alongside `@earendil-works/pi-coding-agent`
+- **THEN** the extension loads and the `tool_call` handler fires
+
+#### Scenario: No legacy fork peer
+
+- **WHEN** the package manifest is inspected
+- **THEN** `peerDependencies` SHALL NOT contain `@mariozechner/pi-coding-agent`

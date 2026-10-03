@@ -38,7 +38,7 @@ describe("classifySource", () => {
 	});
 
 	it("falls back to global for unrecognized shapes", () => {
-		expect(classifySource("@mariozechner/pi-coding-agent")).toBe("global");
+		expect(classifySource("@earendil-works/pi-coding-agent")).toBe("global");
 		expect(classifySource("pi-coding-agent")).toBe("global");
 	});
 });
@@ -89,7 +89,7 @@ describe("isSourceOverride", () => {
 
 describe("groupInstalledPackages", () => {
 	const CORE_NAMES = [
-		"@mariozechner/pi-coding-agent",
+		"@earendil-works/pi-coding-agent",
 		"@blackbelt-technology/pi-agent-dashboard",
 	];
 
@@ -109,7 +109,7 @@ describe("groupInstalledPackages", () => {
 
 	it("drops Core whitelist members from Other (Core wins)", () => {
 		const installed = [
-			row("npm:@mariozechner/pi-coding-agent", false),
+			row("npm:@earendil-works/pi-coding-agent", false),
 			row("npm:@blackbelt-technology/pi-agent-dashboard", false),
 			row("/dev/extra", false),
 		];
@@ -120,7 +120,7 @@ describe("groupInstalledPackages", () => {
 
 	it("drops Core whitelist members from Recommended too", () => {
 		// Defensive: even if Core somehow flagged isRecommended, it's dropped.
-		const installed = [row("npm:@mariozechner/pi-coding-agent", true)];
+		const installed = [row("npm:@earendil-works/pi-coding-agent", true)];
 		const out = groupInstalledPackages(installed, CORE_NAMES);
 		expect(out.recommended).toEqual([]);
 		expect(out.other).toEqual([]);

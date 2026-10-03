@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { metaPath, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
+import { STATS_EXTRACTOR_VERSION } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scanAllSessions } from "../session/session-scanner.js";
 import { extractSessionStats } from "../session/session-stats-reader.js";
@@ -73,6 +74,9 @@ describe("session-scanner", () => {
       tokensIn: 100,
       tokensOut: 200,
       cachedAt: Date.now() + 10000, // far future = fresh cache
+      // Current extractor version: the cache is not pre-upgrade.
+      // See change: count-non-message-usage.
+      statsExtractorVersion: STATS_EXTRACTOR_VERSION,
     });
 
     const result = scanAllSessions(tmpDir);
@@ -417,7 +421,10 @@ describe("boot archive decision table (E10, E20)", () => {
       file,
       `${JSON.stringify({ type: "session", id, cwd: "/repo" })}\n`,
     );
-    writeSessionMeta(file, { cwd: "/repo", ...meta } as never);
+    // Seeds model CURRENT caches (a versionless sidecar is re-extracted on
+    // discovery), so these cases test the archive rules alone.
+    // See change: count-non-message-usage.
+    writeSessionMeta(file, { cwd: "/repo", statsExtractorVersion: STATS_EXTRACTOR_VERSION, ...meta } as never);
     if (mtimeMs !== undefined) {
       const t = new Date(mtimeMs);
       fs.utimesSync(file, t, t);

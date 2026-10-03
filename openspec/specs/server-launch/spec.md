@@ -119,41 +119,6 @@ The absolute log-file path is **caller-owned**. Conventions in the migrated tree
 - **THEN** the log file contains the header line for this launch on the first byte after the previous run's content (append mode preserves history)
 - **AND** the parent process closes its copy of the fd after `spawn`
 
-### Requirement: Unified jiti resolution via `ToolResolver`
-
-`ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for each entry of `["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]`, primary then legacy) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, legacy fallback). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the same `JitiResolver` test-injection seam currently exposed by `pickJitiRegisterUrl` / `pickJitiFromAnchor`, carried over so existing tests port without rewrite.
-
-#### Scenario: Managed pi present (upstream)
-
-- **WHEN** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` exists and resolves `jiti/package.json`
-- **THEN** `resolveJiti()` returns a `file://` URL pointing at the upstream `jiti/lib/jiti-register.mjs`
-
-#### Scenario: Managed pi present (legacy fork)
-
-- **WHEN** managed pi is the legacy `@mariozechner/pi-coding-agent` shipping `@mariozechner/jiti`
-- **THEN** `resolveJiti()` falls through to the legacy package and returns its register URL
-
-#### Scenario: System pi only
-
-- **WHEN** managed pi is absent but `which("pi")` resolves and pi's tree contains jiti
-- **THEN** `resolveJiti()` returns the system pi's `jiti-register.mjs` as a `file://` URL
-
-#### Scenario: Anchor walk-up (Electron packaged)
-
-- **WHEN** `process.argv[1]` is empty or a flag (packaged Electron) and `opts.anchor` is a valid `cliPath` inside a `node_modules` tree containing jiti
-- **THEN** `resolveJiti({ anchor: cliPath })` returns the jiti URL resolved from that tree
-
-#### Scenario: Windows drive-letter wrapping
-
-- **WHEN** the resolved jiti path begins with `B:\` or any other URL-scheme-colliding drive letter
-- **THEN** `resolveJiti()` returns `file:///B:/.../jiti-register.mjs` (drive letter URL-wrapped, backslashes normalised to forward slashes)
-
-#### Scenario: All sources missing
-
-- **WHEN** none of managed, system, anchor, or argv yield a jiti path
-- **THEN** `resolveJiti()` returns null
-- **AND** `launchDashboardServer` raises `JitiNotFoundError` when its caller did not supply a usable anchor
-
 ### Requirement: Removed predecessors
 
 The following symbols SHALL be removed once all call sites are migrated:
@@ -404,3 +369,39 @@ The respawn SHALL read the ceiling from configuration at restart time, so a
 #### Scenario: Restart does not duplicate an existing pin
 - **WHEN** the restart respawn would re-apply a ceiling the environment already pins
 - **THEN** the operator's pin SHALL remain in effect and SHALL NOT be shadowed by the re-stamp
+
+### Requirement: Unified jiti resolution via `ToolResolver` anchored at earendil pi
+
+`ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for `@earendil-works/pi-coding-agent` only) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, namespaced-jiti fallback; `@mariozechner/jiti` is a loader package, unrelated to the dropped pi fork). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the `JitiResolver` test-injection seam.
+
+#### Scenario: Managed pi present (upstream)
+
+- **WHEN** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` exists and resolves `jiti/package.json`
+- **THEN** `resolveJiti()` returns a `file://` URL pointing at the upstream `jiti/lib/jiti-register.mjs`
+
+#### Scenario: Managed legacy fork is not an anchor
+
+- **WHEN** `~/.pi-dashboard/node_modules/` contains only `@mariozechner/pi-coding-agent`
+- **THEN** `resolveJiti()` SHALL NOT anchor at it
+- **AND** resolution SHALL continue with system pi, `opts.anchor`, then `process.argv[1]`
+
+#### Scenario: System pi only
+
+- **WHEN** managed pi is absent but `which("pi")` resolves and pi's tree contains jiti
+- **THEN** `resolveJiti()` returns the system pi's `jiti-register.mjs` as a `file://` URL
+
+#### Scenario: Anchor walk-up (Electron packaged)
+
+- **WHEN** `process.argv[1]` is empty or a flag (packaged Electron) and `opts.anchor` is a valid `cliPath` inside a `node_modules` tree containing jiti
+- **THEN** `resolveJiti({ anchor: cliPath })` returns the jiti URL resolved from that tree
+
+#### Scenario: Windows drive-letter wrapping
+
+- **WHEN** the resolved jiti path begins with `B:\` or any other URL-scheme-colliding drive letter
+- **THEN** `resolveJiti()` returns `file:///B:/.../jiti-register.mjs` (drive letter URL-wrapped, backslashes normalised to forward slashes)
+
+#### Scenario: All sources missing
+
+- **WHEN** none of managed, system, anchor, or argv yield a jiti path
+- **THEN** `resolveJiti()` returns null
+- **AND** `launchDashboardServer` raises `JitiNotFoundError` when its caller did not supply a usable anchor
