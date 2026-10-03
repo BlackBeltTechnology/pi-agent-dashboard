@@ -85,8 +85,7 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
   let branch: string | undefined;
   let status: GitStatus | undefined;
   let reprobing = false;
-  let reprobeAgain = false;
-  let reprobeAgainStamp = false;
+  let queuedReprobe: { stamp: boolean } | undefined;
   let logged = false;
 
   const watcher: GitDirWatcher = createGitDirWatcher({
@@ -173,19 +172,17 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
   async function reprobeFacts(forCwd: string, stampTriggered = false): Promise<void> {
     if (disposed) return;
     if (reprobing) {
-      reprobeAgain = true;
-      reprobeAgainStamp ||= stampTriggered;
+      queuedReprobe = { stamp: (queuedReprobe?.stamp ?? false) || stampTriggered };
       return;
     }
     reprobing = true;
-    let stamp = stampTriggered;
+    let next: { cwd: string; stamp: boolean } | undefined = { cwd: forCwd, stamp: stampTriggered };
     try {
-      do {
-        reprobeAgain = false;
-        if (!(await probeFactsOnce(forCwd, stamp))) return;
-        stamp = reprobeAgainStamp;
-        reprobeAgainStamp = false;
-      } while (reprobeAgain);
+      while (next && !disposed) {
+        queuedReprobe = undefined;
+        const applied = await probeFactsOnce(next.cwd, next.stamp);
+        next = followUpReprobe(next.cwd, applied);
+      }
     } catch (err) {
       if (!logged) {
         logged = true;
@@ -193,9 +190,19 @@ export function createGitTracker(deps: GitTrackerDeps): GitTracker {
       }
     } finally {
       reprobing = false;
-      reprobeAgain = false;
-      reprobeAgainStamp = false;
+      queuedReprobe = undefined;
     }
+  }
+
+  /**
+   * The follow-up for a request that arrived mid-flight, aimed at the CURRENT
+   * cwd (a rejected stale probe may belong to a previous session). Nothing is
+   * queued, or a rejected probe with no queued request, ends the loop.
+   */
+  function followUpReprobe(probedCwd: string, applied: boolean): { cwd: string; stamp: boolean } | undefined {
+    const queued = queuedReprobe;
+    if (!queued || (!applied && !cwd)) return undefined;
+    return { cwd: cwd ?? probedCwd, stamp: queued.stamp };
   }
 
   /** One async facts probe; false when a newer evaluation owns the cache (nothing applied). */

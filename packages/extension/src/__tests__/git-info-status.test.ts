@@ -308,4 +308,24 @@ describe("git tracker — first evaluation and probe path", () => {
     expect(h.facts.get("/r")?.remoteUrl).toBe("git@new:o/r.git"); // the older probe did not overwrite it
     h.tracker.dispose();
   });
+
+  it("B1(r3): a refresh queued by the NEW session behind the OLD session's stale probe is still serviced, for the new cwd", async () => {
+    const calls: string[] = [];
+    let releaseA!: (f: StaticGitFacts) => void;
+    const h = harness({
+      evaluateAsync: ((cwd: string) => {
+        calls.push(cwd);
+        return calls.length === 1 ? new Promise<StaticGitFacts>((r) => (releaseA = r)) : Promise.resolve(FACTS);
+      }) as any,
+    });
+    h.tracker.evaluateFirst(h.bc, "/a");
+    h.tracker.refresh(); // probe for session A hangs
+    await vi.advanceTimersByTimeAsync(0);
+    h.tracker.evaluateFirst(h.bc, "/b"); // session B (new generation)
+    h.tracker.refresh(); // B's refresh queues behind A's in-flight probe
+    releaseA(FACTS); // A settles: its commit is rejected as stale
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toEqual(["/a", "/b"]);
+    h.tracker.dispose();
+  });
 });
