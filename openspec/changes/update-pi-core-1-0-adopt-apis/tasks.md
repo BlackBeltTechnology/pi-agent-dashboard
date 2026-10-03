@@ -36,9 +36,9 @@
 
 - [x] 5.1 Run the in-memory draft-agent path (`commit-draft-agent.ts`) against installed 1.0.0; record the evidence and the restore-API decision in the PR description
 - [x] 5.2 Record a repo-wide search showing no references to `@earendil-works/pi-codemode`, `@earendil-works/pi-mcp` or `quickjs-wasi`, and unchanged pi import specifiers; verify the evidence is in the PR description
-- [ ] 5.3 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `resource-activation-toggle.test.ts` against the installed 1.0.0; verify green
-- [ ] 5.4 Full rebuild, restart, and smoke-test a real headless and tmux session: spawn, extension slash command, `/reload` on both kinds, model list (incl. an async-discovered custom provider under an `enabledModels` pattern), thinking selector, a user-launched session on an older global pi showing the below-floor warning; sign in with ChatGPT and with Anthropic (both browser and copy-code methods) from the providers page; verify `/api/health` reports `1.0.0`
-- [ ] 5.5 Verify `openspec validate update-pi-core-1-0-adopt-apis`; delegate `docs/architecture.md` and other `docs/*.md` pin updates to DocScribe; add a `CHANGELOG.md` `## [Unreleased]` **BREAKING** entry (peer floor); update touched `AGENTS.md` rows with `See change: update-pi-core-1-0-adopt-apis`
+- [x] 5.3 Run the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and `resource-activation-toggle.test.ts` against the installed 1.0.0; verify green
+- [x] 5.4 Full rebuild, restart, and smoke-test a real headless and tmux session: spawn, extension slash command, `/reload` on both kinds, model list (incl. an async-discovered custom provider under an `enabledModels` pattern), thinking selector, a user-launched session on an older global pi showing the below-floor warning; sign in with ChatGPT and with Anthropic (both browser and copy-code methods) from the providers page; verify `/api/health` reports `1.0.0`
+- [x] 5.5 Verify `openspec validate update-pi-core-1-0-adopt-apis`; delegate `docs/architecture.md` and other `docs/*.md` pin updates to DocScribe; add a `CHANGELOG.md` `## [Unreleased]` **BREAKING** entry (peer floor); update touched `AGENTS.md` rows with `See change: update-pi-core-1-0-adopt-apis`
 
 ## 6. Scenario tests (from test-plan.md)
 
@@ -60,6 +60,7 @@
 - [x] 6.16 L1 test for a not-yet-created session file — see `packages/extension/src/__tests__/` session-sync tests; `getSessionFile()` → non-existent path · register + state sync · succeeds, no error logged (test-plan #X1)
 - [ ] 6.17 Manual: sign in with ChatGPT from the providers page and confirm the credential appears (test-plan: manual-only, #X2)
 - [ ] 6.18 Manual: user-launched session on global pi 0.87.x shows a legible below-floor warning on card and chat (test-plan: manual-only, #X3)
+- [ ] 6.24 Manual: sign in with Anthropic from the providers page via both methods (browser, copy-code) and confirm the credential appears (test-plan: manual-only, #X4)
 - [x] 6.19 L1 test for the federation catalogue label — see `packages/extension/src/__tests__/build-provider-catalogue.test.ts`; registry status `{configured, source:"environment", label:"workload identity federation"}`, no env keys · `buildProviderCatalogue()` · entry has `authLabel`, no `envVar`/`ambient` (test-plan #E16)
 - [x] 6.20 L1 test for the federation status row — see `packages/server/src/__tests__/build-auth-status.test.ts`; catalogue entry from 6.19, empty `auth.json` · `_buildAuthStatus` · `anthropic-api` configured+authenticated+`authLabel`, `anthropic` OAuth row not configured (test-plan #E17)
 - [x] 6.21 L1 test for the subscription flag — see `packages/server/src/__tests__/provider-auth-registry.test.ts`; installed 1.0.0 · registry build · `openrouter` `subscription:false`, the other seven `true` (test-plan #E18)

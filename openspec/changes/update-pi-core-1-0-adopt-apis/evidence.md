@@ -77,3 +77,29 @@ Run via `PI_E2E_SEED=1` + a `docker exec … node` loopback forwarder (host traf
 - `/api/provider-auth/providers`: 8 ids incl. `openai`; `openrouter` `subscription:false`, others `true`.
 - e2e (`extension-slash-inprocess`, `dashboard-slash`, `headless-reload-dispatch`, `delegate-provider-oauth-flow`, `resource-activation-trust`, `mcp-session-token`, `mcp-client-harness-integration`): all pass; 2 skips = pre-existing `test.fixme` quarantine (#683).
 - First run found design D7b (built-in MCP "pi-dashboard: needs sign-in"); after the fix the bundled adapter is 5.0.0, Pi's `mcp.json` holds no `pi-dashboard` key, #F1 passes.
+
+## Full suite on the final tree (after review round 4)
+
+`npm test`: 2222 files passed, 4 failed — none attributable to this change:
+- `test-selection-data` (`ENOBUFS`) and system-one `supervisor` X12 — pre-existing, as above.
+- `client SessionCard.test.tsx` "notifyLog invariance" — the two renders differ only in the `Started …` tooltip second (`Date.now()` crossed a second boundary under load); 145/145 in isolation.
+- `server host-gate-upgrade.test.ts` #X7 — bootstrap frame index 9 vs 10 under load; untouched file; 4/4 in isolation.
+
+## Local review (step 4.5)
+
+`@review` = `openai-codex/gpt-6-sol:medium`, isolated `CodeReviewer`. Rounds: r1 block (B1 pre-release below floor, B2 version dedup across reconnect/switch) → r2 block (malformed prefix, health advisory pre-release) → human-approved r3 block (SemVer identifiers, pre-release ordering) → human-approved r4 **pass** (floor checks on `semver.valid`/`semver.lt`). Remaining non-blocking: `computeCompatibility` recommended-hint branch keeps the triplet comparator (only matters for synthetic pre-release `recommended`; shipped min = rec = `1.0.0`).
+
+## 5.4 live smoke — isolated instance (not docker)
+
+This worktree's server on `:8100`/`:9100`, isolated `HOME` (`/private/tmp/pi-smoke-*`), inherited `PI_*` env cleared; the live `:8000` instance untouched. Real pi 1.0.0 spawns (worktree `node_modules`), real global pi 0.99.1 for the user-launched case.
+
+- `/api/health`: `current 1.0.0`, `minimum 1.0.0`, no error; bridge registered from the worktree `packages/extension`; agent dir got `mcp-adapter.json` (D7b path on a real start).
+- headless spawn: registered `piVersion 1.0.0`, `piBelowFloor null`; `/dashboard-where` accepted (HTTP 200), tokens unchanged; `/reload` → same session id alive afterwards.
+- tmux spawn (`spawnStrategy: tmux` at boot): ran in tmux, `piVersion 1.0.0`; `/dashboard-where` accepted; `/reload` → in-process reload, session re-registered (2 `session registered` lines, same id) — the ungated `/__dashboard_reload` self-dispatch.
+- user-launched **pi 0.99.1** (tmux, worktree bridge): `piVersion 0.99.1`, `piBelowFloor {"minimum":"1.0.0"}` — the argv-anchored below-floor signal end to end (X3 data path; visual legibility stays manual, task 6.18).
+- Not covered here: model list (isolated `HOME` has no credentials → empty list; E13/E14 unit-covered), and real-account sign-ins (tasks 6.17, 6.24).
+- Cleanup verified: no smoke tmux windows or processes left.
+
+## Incident during 5.4 prep (disclosed)
+
+`node packages/server/bin/pi-dashboard.mjs --help` is not a help flag: it started a server from this worktree against the real `HOME` (inherited `PI_DASHBOARD_*` env from the Electron-spawned session). It exited on its own (gateway socket held by the live instance). Before exiting it ran startup side effects: `registerBridgeExtension` wrote `~/.pi/agent/settings.json` with the same Electron bridge path the live server registers (server.log line 288055 vs 316567), and the archive pass migrated 1 entry using develop's code (untouched by this change). Live `:8000` stayed healthy throughout. No pre-run copy of `settings.json` exists, so "no net change" is inferred, not proven.
