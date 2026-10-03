@@ -119,7 +119,21 @@ function NestedCallRow({ entry, depth, sessionId }: { entry: NestedCallState; de
 
 export function NestedToolCallList({ rootId, nested, complete, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
-  if (nested.length === 0) return null;
+  const incompleteNotice =
+    complete === false ? (
+      <div className="mt-0.5 italic text-[var(--text-muted)]" data-testid="nested-call-incomplete">
+        {i18nT("chat.tool.nested.incomplete", undefined, "nested-call record incomplete")}
+      </div>
+    ) : null;
+  // An empty record can still be incomplete (pi dropped every call): the
+  // notice is then the only signal. See change: render-nested-tool-calls.
+  if (nested.length === 0) {
+    return incompleteNotice ? (
+      <div className="ml-4 mt-0.5 text-xs" data-testid="nested-call-list">
+        {incompleteNotice}
+      </div>
+    ) : null;
+  }
   return (
     <div className="ml-4 mt-0.5 text-xs" data-testid="nested-call-list">
       <button
@@ -146,11 +160,7 @@ export function NestedToolCallList({ rootId, nested, complete, sessionId }: Prop
               />
             ))}
           </ul>
-          {complete === false && (
-            <div className="mt-0.5 italic text-[var(--text-muted)]" data-testid="nested-call-incomplete">
-              {i18nT("chat.tool.nested.incomplete", undefined, "nested-call record incomplete")}
-            </div>
-          )}
+          {incompleteNotice}
         </>
       )}
     </div>

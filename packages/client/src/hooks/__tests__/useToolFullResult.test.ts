@@ -34,4 +34,22 @@ describe("useToolFullResult (E20)", () => {
     });
     expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/sessions\/s1\/tool-result\/toolu_01$/);
   });
+
+  // Review B1: the route returns the STORED end's `result`, which for a live
+  // (nested or top-level) end is pi's structured `{ content: [...] }` object.
+  it("formats a route-shaped structured result as text, not [object Object]", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        result: { content: [{ type: "text", text: "line 1\nline 2" }], details: { exitCode: 0 } },
+        isError: false,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useToolFullResult("s1", "call_1/1"));
+    await act(async () => {
+      await result.current.fetchFull();
+    });
+    expect(result.current.result).toBe("line 1\nline 2");
+  });
 });

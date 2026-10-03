@@ -5,3 +5,4 @@ Session-scoped stale running-tool heal (survives transcript virtualization). `se
 Per-tick bookkeeping prune (fix-long-session-ux-degradation, D3): `selectActiveToolKeys(states)` yields `running`-status keys ONLY (NOT present-in-`toolCalls` rows — the reducer never evicts, so a presence-keyed prune would be a no-op), and `pruneInactiveKeys(map, active)` drops `lastAttemptRef`/`count404Ref` keys outside that set BEFORE each scan. Bounds bookkeeping to running rows; a running row keeps its backoff/404 count; `inFlightRef` untouched (self-clears in `finally`).
 
 Never probes nested calls by construction (they never enter `toolCalls`); pinned by E17 test. See change: render-nested-tool-calls.
+`synthesizeToolEndEvent` formats structured stored results via `toDisplayString`. See change: render-nested-tool-calls.

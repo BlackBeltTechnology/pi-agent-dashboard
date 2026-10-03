@@ -113,6 +113,13 @@ describe("synthesizeToolEndEvent", () => {
     const e = synthesizeToolEndEvent("t1", {}, 1);
     expect(e.data.result).toBe("");
   });
+
+  // render-nested-tool-calls review B1 sibling: a live end stores pi's
+  // structured `{ content: [...] }` result; never coerce it to `[object Object]`.
+  it("formats a structured stored result as its text", () => {
+    const e = synthesizeToolEndEvent("t1", { result: { content: [{ type: "text", text: "healed" }] } }, 1);
+    expect(e.data.result).toBe("healed");
+  });
 });
 
 /**

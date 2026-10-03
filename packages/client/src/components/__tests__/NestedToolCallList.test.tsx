@@ -31,7 +31,7 @@ const NESTED: NestedCallState[] = [
   { id: "call_1/2", parentId: "call_1", name: "write", status: "unfinished", argumentsBytes: 9000 },
 ];
 
-function renderCard(nested: NestedCallState[] = NESTED, nestedComplete: boolean | undefined = false) {
+function renderCard(nested: NestedCallState[], nestedComplete: boolean | undefined) {
   return render(
     <ToolCallStep
       toolName="codemode"
@@ -47,13 +47,13 @@ function renderCard(nested: NestedCallState[] = NESTED, nestedComplete: boolean 
 
 describe("ToolCallStep nested list (F1)", () => {
   it("is collapsed by default, showing the count", () => {
-    const { getByTestId, queryAllByTestId } = renderCard();
+    const { getByTestId, queryAllByTestId } = renderCard(NESTED, false);
     expect(getByTestId("nested-call-count").textContent).toContain("3");
     expect(queryAllByTestId("nested-call")).toHaveLength(0);
   });
 
   it("expanded: indents the grandchild, renders unfinished neutral, shows the incomplete notice", () => {
-    const { getByTestId, getAllByTestId } = renderCard();
+    const { getByTestId, getAllByTestId } = renderCard(NESTED, false);
     fireEvent.click(getByTestId("nested-call-toggle"));
     const rows = getAllByTestId("nested-call");
     expect(rows).toHaveLength(3);
@@ -82,5 +82,12 @@ describe("ToolCallStep nested list (F1)", () => {
   it("renders no list when there are no nested calls", () => {
     const { queryByTestId } = renderCard([], undefined);
     expect(queryByTestId("nested-call-list")).toBeNull();
+  });
+
+  // Review B2: an empty record with `complete:false` still signals incompleteness.
+  it("shows the incomplete notice for an empty incomplete record", () => {
+    const { getByTestId, queryByTestId } = renderCard([], false);
+    expect(getByTestId("nested-call-incomplete").textContent).toContain("nested-call record incomplete");
+    expect(queryByTestId("nested-call-toggle")).toBeNull();
   });
 });

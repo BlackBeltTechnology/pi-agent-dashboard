@@ -9,6 +9,7 @@
  */
 import { useCallback, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
+import { toDisplayString } from "../lib/chat/event-reducer.js";
 import { t } from "../lib/i18n/i18n.js";
 
 interface ToolFullResult {
@@ -42,7 +43,10 @@ export function useToolFullResult(sessionId: string | undefined, toolCallId: str
         return;
       }
       const body = await res.json();
-      setResult(typeof body.result === "string" ? body.result : String(body.result ?? ""));
+      // A live end stores pi's structured `{ content: [...] }` result; format
+      // it like the reducer does, never `String(obj)`. See change:
+      // render-nested-tool-calls (review B1).
+      setResult(toDisplayString(body.result));
     } catch {
       setError(t("tool.loadFullOutputFailed", undefined, "failed to load full output"));
     } finally {

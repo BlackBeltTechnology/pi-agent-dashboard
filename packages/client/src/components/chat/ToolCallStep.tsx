@@ -203,8 +203,8 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
       </button>
       {status === "running" && <ToolStopControl controller={stop} testIdPrefix="tool" />}
       </div>
-      {nested && nested.length > 0 && (
-        <NestedToolCallList rootId={toolCallId} nested={nested} complete={nestedComplete} sessionId={context.sessionId} />
+      {((nested && nested.length > 0) || nestedComplete === false) && (
+        <NestedToolCallList rootId={toolCallId} nested={nested ?? []} complete={nestedComplete} sessionId={context.sessionId} />
       )}
       {expanded && showResultBody && (
         <div className="mt-1 ml-4 p-2 bg-[var(--bg-secondary)] rounded-xl shadow-md border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] overflow-x-auto">
