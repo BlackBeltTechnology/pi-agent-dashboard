@@ -92,6 +92,7 @@ import {
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
+import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
@@ -160,6 +161,7 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
@@ -2367,6 +2369,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
   registerLiveServerProxy(fastify, liveServerManager);
 
+  // ONE model runtime for the provider-auth flow listing AND the model proxy,
+  // injected so auth/ never imports model-proxy/.
+  // See change: collapse-model-proxy-onto-modelruntime (D6).
+  setOAuthRegistryRuntimeSource(getServerModelRuntime);
   registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
   // Ungated model-introspection surface for in-session agents (GET /api/models).
   // Registered unconditionally (not behind modelProxy.enabled), subject only to

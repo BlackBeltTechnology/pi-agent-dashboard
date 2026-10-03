@@ -1,195 +1,253 @@
 /**
- * `registry-singleton` × compatibility seam wiring.
+ * Custom-provider projection onto the single model runtime (test-plan #E7, #E8)
+ * and the `registry-singleton` ↔ runtime wiring.
  *
- * Covers task 2.1 (the ADAPTED surface is what gets cached, so
- * `getStreamSimpleFn()` is defined on a factory runtime), test-plan #X1
- * (unrecognized module → degraded WITH a reason, which is what makes
- * `/api/models` answer 503 `MODEL_PROXY_RUNTIME_MISSING`), #X4 (per-provider
- * `proxy.oauthProviders`, with `proxy.status` staying `ready`) and #E10
- * (catalogue composition is not perturbed by the adapted surface).
+ * The merged non-built-in providers are registered on the runtime so its
+ * `streamSimple` can route them. A changed provider is UNREGISTERED before it
+ * is re-registered (`registerProvider` merges, so a plain re-register keeps a
+ * removed `apiKey`); a removed provider is unregistered; a provider whose key
+ * does not resolve is never registered and its key never logged.
  *
- * The pi-ai module is stubbed at the tool-registry boundary, so these run on
- * either pin.
+ * Supersedes the former pi-ai compatibility seam-wiring suite (the seam is gone).
  *
- * See change: adopt-piai-factory-api-registry.
+ * See change: collapse-model-proxy-onto-modelruntime (D3, D6).
  */
-import { sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const resolveModule = vi.fn();
-/** Filesystem seam the fixture injects; production passes none. */
-let seamDeps: { importPath: (p: string) => Promise<any>; exists: (p: string) => boolean } | undefined;
-
-vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", async (orig) => {
-  const actual = (await orig()) as Record<string, unknown>;
-  return { ...actual, getDefaultRegistry: () => ({ resolveModule }) };
-});
-// The singleton calls `adaptPiAi` with the REAL fs/import deps. Redirect only
-// those at the in-memory fixture — the seam's own logic still runs verbatim.
-vi.mock("@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js", async (orig) => {
-  const actual = (await orig()) as Record<string, any>;
-  return {
-    ...actual,
-    adaptPiAi: (mod: unknown, path?: string, deps?: unknown) =>
-      actual.adaptPiAi(mod, path, deps ?? seamDeps ?? {}),
-  };
-});
-vi.mock("../../auth/provider-auth-storage.js", () => ({
-  readAuthJson: () => ({}),
-  writeCredential: async () => {},
-}));
-vi.mock("../custom-provider-discovery.js", () => ({ discoverAllCustomProviders: async () => [] }));
-
-import { adaptPiAi } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js";
-import { InternalRegistry } from "../internal-registry.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  disposeModelRegistry,
-  getModelProxyStatus,
-  getModelRegistry,
-  getStreamSimpleFn,
-} from "../registry-singleton.js";
-import { FIXTURE_PATH, makeFactoryFixture } from "@blackbelt-technology/pi-dashboard-shared/test-support/piai-factory-fixture.js";
+  type CustomModelEntry,
+  type CustomProviderEntry,
+  InternalRegistry,
+  literalConfigValue,
+} from "../internal-registry.js";
+import type { RuntimeProviderConfig } from "../server-model-runtime.js";
 
-/** Route the seam's filesystem access at the in-memory fixture. */
-function stubResolution(fixture: ReturnType<typeof makeFactoryFixture> | null, module?: unknown) {
-  seamDeps = fixture?.deps;
-  resolveModule.mockResolvedValue({
-    resolution: { path: FIXTURE_PATH },
-    module: fixture ? fixture.module : module,
-  });
+interface Call {
+  op: "register" | "unregister";
+  id: string;
+  config?: RuntimeProviderConfig;
 }
 
-describe("registry-singleton — seam wiring", () => {
-  beforeEach(() => {
-    disposeModelRegistry();
-    seamDeps = undefined;
-    vi.clearAllMocks();
+/** A catalogue-only runtime fake that records projection calls. */
+function fakeRuntime(builtins: Record<string, any[]> = { anthropic: [] }) {
+  const calls: Call[] = [];
+  const registered = new Map<string, RuntimeProviderConfig>();
+  const runtime = {
+    getProviders: () => Object.keys(builtins).map((id) => ({ id })),
+    getModels: (provider?: string) => (provider ? (builtins[provider] ?? []) : Object.values(builtins).flat()),
+    registerProvider: (id: string, config: RuntimeProviderConfig) => {
+      calls.push({ op: "register", id, config });
+      registered.set(id, { ...(registered.get(id) ?? {}), ...config });
+    },
+    unregisterProvider: (id: string) => {
+      calls.push({ op: "unregister", id });
+      registered.delete(id);
+    },
+  };
+  return { runtime, calls, registered };
+}
+
+function makeRegistry(state: {
+  providers: Record<string, CustomProviderEntry>;
+  auth: Record<string, any>;
+  discovered: CustomModelEntry[];
+}) {
+  const fx = fakeRuntime();
+  const registry = new InternalRegistry(fx.runtime, {} as never, {
+    readProviders: () => state.providers,
+    readModels: () => [],
+    readAuth: () => state.auth,
+    discoverCustomProviders: async () => state.discovered,
   });
-  afterEach(() => {
-    disposeModelRegistry();
-    seamDeps = undefined;
+  return { ...fx, registry };
+}
+
+const acmeModels = (): CustomModelEntry[] => [
+  { id: "a1", provider: "acme", api: "openai-completions", baseUrl: "https://acme.example/v1" },
+  { id: "a2", provider: "acme", api: "openai-completions", baseUrl: "https://acme.example/v1" },
+];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("custom providers are projected onto the runtime", () => {
+  it("registers a custom provider with its resolved key and both models", async () => {
+    const { registry, registered } = makeRegistry({
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-acme" } },
+      auth: { acme: { type: "api_key", key: "sk-acme" } },
+      discovered: acmeModels(),
+    });
+    await registry.refresh();
+
+    const config = registered.get("acme");
+    expect(config).toMatchObject({ baseUrl: "https://acme.example/v1", api: "openai-completions", apiKey: "sk-acme" });
+    expect((config?.models as Array<{ id: string }>).map((m) => m.id)).toEqual(["a1", "a2"]);
   });
 
-  // Task 2.1 — caching the RAW module would leave this undefined on a factory
-  // runtime, and the proxy would 503 with a perfectly healthy registry.
-  it("caches the ADAPTED surface, so getStreamSimpleFn() is defined", async () => {
-    const fx = makeFactoryFixture();
-    // The raw factory module has no `streamSimple` at all.
-    expect((fx.module as Record<string, unknown>).streamSimple).toBeUndefined();
-
-    stubResolution(fx);
-    await getModelRegistry();
-
-    expect(typeof getStreamSimpleFn()).toBe("function");
+  it("never projects a built-in provider", async () => {
+    const { registry, calls } = makeRegistry({
+      providers: {},
+      auth: { anthropic: { type: "api_key", key: "sk" } },
+      discovered: [{ id: "x", provider: "anthropic", api: "anthropic-messages" }],
+    });
+    await registry.refresh();
+    expect(calls.filter((c) => c.id === "anthropic")).toEqual([]);
   });
 
-  it("reports the adapted generation once initialized", async () => {
-    stubResolution(makeFactoryFixture());
-    await getModelRegistry();
-    expect(getModelProxyStatus()).toMatchObject({ status: "ready", piAiGeneration: "factory" });
+  it("E7a: a removed provider is unregistered and leaves the catalogue", async () => {
+    const state = {
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-acme" } } as Record<string, CustomProviderEntry>,
+      auth: { acme: { type: "api_key", key: "sk-acme" } } as Record<string, any>,
+      discovered: acmeModels(),
+    };
+    const { registry, registered, calls } = makeRegistry(state);
+    await registry.refresh();
+    expect(registered.has("acme")).toBe(true);
+
+    state.providers = {};
+    state.auth = {};
+    state.discovered = [];
+    await registry.refresh();
+
+    expect(calls.at(-1)).toEqual({ op: "unregister", id: "acme" });
+    expect(registered.has("acme")).toBe(false);
+    expect(registry.getAll().some((m: any) => m.provider === "acme")).toBe(false);
+    expect((await registry.getAvailable()).some((m: any) => m.provider === "acme")).toBe(false);
   });
 
-  // test-plan #X1 — an unrecognized module must be a DIAGNOSABLE failure, not
-  // a silently empty catalogue. The rejection is what makes `/api/models`
-  // answer 503 MODEL_PROXY_RUNTIME_MISSING, and the reason is what makes
-  // /api/health actionable.
-  it("X1: an unrecognized module rejects and degrades WITH a reason", async () => {
-    stubResolution(null, { somethingElse: () => {} });
+  it("E7b: a changed provider is unregistered BEFORE it is re-registered, so a removed field is not kept", async () => {
+    const state = {
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-old" } } as Record<string, CustomProviderEntry>,
+      auth: { acme: { type: "api_key", key: "sk-old" } } as Record<string, any>,
+      discovered: acmeModels(),
+    };
+    const { registry, calls, registered } = makeRegistry(state);
+    await registry.refresh();
 
-    await expect(getModelRegistry()).rejects.toThrow(/compatibility seam/);
+    // The key changes (the old one is removed from providers.json).
+    state.providers = { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-new" } };
+    state.auth = { acme: { type: "api_key", key: "sk-new" } };
+    calls.length = 0;
+    await registry.refresh();
 
-    const status = getModelProxyStatus();
-    expect(status.status).toBe("degraded");
-    expect(status.reason).toMatch(/neither the legacy global API|factory API/);
+    expect(calls.map((c) => c.op)).toEqual(["unregister", "register"]);
+    expect(registered.get("acme")?.apiKey).toBe("sk-new");
+    expect(JSON.stringify(registered.get("acme"))).not.toContain("sk-old");
   });
 
-  // test-plan #X4 — OAuth unavailability is reported PER PROVIDER and does
-  // NOT flip `proxy.status`, which stays reserved for a dead registry
-  // (clarification C2). api-key models keep routing.
-  it("X4: surfaces per-provider oauthProviders while status stays ready", async () => {
-    const fx = makeFactoryFixture({
-      oauthLoaders: {
-        loadAnthropicOAuth: async () => ({ refresh: async () => ({ access: "a" }) }),
+  it("E7b: an `apiKey` removed from providers.json is no longer used — the provider is unregistered", async () => {
+    const state = {
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-old" } } as Record<string, CustomProviderEntry>,
+      auth: { acme: { type: "api_key", key: "sk-old" } } as Record<string, any>,
+      discovered: acmeModels(),
+    };
+    const { registry, registered } = makeRegistry(state);
+    await registry.refresh();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    state.providers = { acme: { baseUrl: "https://acme.example/v1", apiKey: "" } };
+    state.auth = {};
+    await registry.refresh();
+
+    expect(registered.has("acme")).toBe(false);
+  });
+
+  it("an unchanged provider is not re-registered on refresh", async () => {
+    const { registry, calls } = makeRegistry({
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-acme" } },
+      auth: { acme: { type: "api_key", key: "sk-acme" } },
+      discovered: acmeModels(),
+    });
+    await registry.refresh();
+    calls.length = 0;
+    await registry.refresh();
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("E8: an unresolved $ENV custom key", () => {
+  it("does not throw, is not registered, other providers are, and no secret is logged", async () => {
+    const lines: string[] = [];
+    for (const m of ["warn", "error", "log", "info"] as const) {
+      vi.spyOn(console, m).mockImplementation((...a: unknown[]) => {
+        lines.push(a.map(String).join(" "));
+      });
+    }
+    // `$UNSET_VAR` does not resolve → registry-singleton's custom-cred reader
+    // yields no key for `ghost`; `acme` resolved.
+    const { registry, registered } = makeRegistry({
+      providers: {
+        ghost: { baseUrl: "https://ghost.example/v1", apiKey: "$UNSET_VAR" },
+        acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-SENTINEL-acme" },
       },
+      auth: { acme: { type: "api_key", key: "sk-SENTINEL-acme" } },
+      discovered: [
+        ...acmeModels(),
+        { id: "g1", provider: "ghost", api: "openai-completions", baseUrl: "https://ghost.example/v1" },
+      ],
     });
-    stubResolution(fx);
-    await getModelRegistry();
 
-    const status = getModelProxyStatus();
-    expect(status.status).toBe("ready");
-    expect(status.oauthProviders).toBeTruthy();
-    expect(status.oauthProviders!.anthropic).toBe(true);
-    expect(status.oauthProviders!["openai-codex"]).toBe(false);
-    expect(status.oauthProviders!["github-copilot"]).toBe(false);
-    // Every value is a boolean — never undefined, never a string.
-    for (const v of Object.values(status.oauthProviders!)) expect(typeof v).toBe("boolean");
+    await expect(registry.refresh()).resolves.toBeUndefined();
+    expect(registered.has("ghost")).toBe(false);
+    expect(registered.has("acme")).toBe(true);
+    expect(lines.some((l) => l.includes('"ghost"'))).toBe(true);
+    for (const l of lines) {
+      expect(l).not.toContain("SENTINEL");
+      expect(l).not.toContain("UNSET_VAR");
+    }
   });
 
-  it("clears the cached generation and capability map on dispose", async () => {
-    stubResolution(makeFactoryFixture());
-    await getModelRegistry();
-    disposeModelRegistry();
+  it("a registration the runtime rejects is logged without the key and does not break the others", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      lines.push(a.map(String).join(" "));
+    });
+    const { registry, runtime, registered } = makeRegistry({
+      providers: {},
+      auth: { acme: { type: "api_key", key: "sk-SENTINEL" }, bad: { type: "api_key", key: "sk-SENTINEL-bad" } },
+      discovered: [...acmeModels(), { id: "b1", provider: "bad", api: "openai-completions" }],
+    });
+    const original = runtime.registerProvider;
+    runtime.registerProvider = (id: string, config: RuntimeProviderConfig) => {
+      if (id === "bad") throw new Error('Provider bad: "api" is required');
+      original(id, config);
+    };
 
-    const status = getModelProxyStatus();
-    expect(status.status).toBe("degraded");
-    expect(status.oauthProviders).toBeUndefined();
-    expect(status.piAiGeneration).toBeUndefined();
+    await expect(registry.refresh()).resolves.toBeUndefined();
+    expect(registered.has("acme")).toBe(true);
+    expect(registered.has("bad")).toBe(false);
+    expect(lines.some((l) => l.includes('"bad"'))).toBe(true);
+    for (const l of lines) expect(l).not.toContain("SENTINEL");
   });
 });
 
-// ── test-plan #E10 — composition is not perturbed by the adapted surface ────
-
-describe("InternalRegistry over the adapted factory surface", () => {
-  it("E10: a custom entry under a built-in provider/id does not override the built-in", async () => {
-    const fx = makeFactoryFixture({
-      providers: ["anthropic"],
-      models: [
-        {
-          provider: "anthropic",
-          id: "claude-opus-5",
-          api: "anthropic-messages",
-          contextWindow: 200_000,
-          maxTokens: 64_000,
-        },
-      ],
-    });
-    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
-
-    const registry = new InternalRegistry(module, {} as never, {
-      readProviders: () => ({}),
-      // Same provider/id as the built-in, with DIFFERENT capabilities.
-      readModels: () => [
-        { provider: "anthropic", id: "claude-opus-5", contextWindow: 1, maxTokens: 1 } as never,
-      ],
-      readAuth: () => ({ anthropic: { type: "api_key", key: "sk" } }),
-    });
-
-    const all = registry.getAll();
-    const hits = all.filter((m: any) => m.provider === "anthropic" && m.id === "claude-opus-5");
-    expect(hits).toHaveLength(1);
-    // The built-in survived: the custom entry's capability floors did not win.
-    expect(hits[0].contextWindow).toBe(200_000);
+describe("a projected key is a literal, never a pi config template (audit)", () => {
+  it("escapes `$` and a leading `!` with pi's `$$` / `$!` escapes", () => {
+    expect(literalConfigValue("plain-key")).toBe("plain-key");
+    expect(literalConfigValue("a$b")).toBe("a$$b");
+    expect(literalConfigValue("$HOME")).toBe("$$HOME");
+    expect(literalConfigValue("!echo pwned")).toBe("$!echo pwned");
   });
 
-  it("sources a non-empty catalogue through the projected provider ids", async () => {
-    const fx = makeFactoryFixture({ providers: ["anthropic", "openai-codex"] });
-    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
-
-    // The regression guard: unprojected `Provider` OBJECTS make getModels()
-    // return zero with no error — a 200 with an empty catalogue.
-    expect(module.getProviders().every((p) => typeof p === "string")).toBe(true);
-
-    const registry = new InternalRegistry(module, {} as never, {
-      readProviders: () => ({}),
+  it("the real runtime sends `!cmd` / `$VAR` keys verbatim and runs nothing", async () => {
+    const { createRealRuntime, captureProviderStreams } = await import("../../__tests__/helpers/pi-models-fixture.js");
+    const { InternalAuthStorage } = await import("../internal-auth-storage.js");
+    const runtime = await createRealRuntime();
+    const hostile = "!echo PWNED-$HOME";
+    const auth = { evil: { type: "api_key" as const, key: hostile } };
+    const reg = new InternalRegistry(runtime, new InternalAuthStorage(runtime, () => auth), {
+      readProviders: () => ({ evil: { baseUrl: "https://evil.example/v1", apiKey: hostile } }),
       readModels: () => [],
-      readAuth: () => ({ anthropic: { type: "api_key", key: "sk" } }),
+      readAuth: () => auth,
+      discoverCustomProviders: async () => [{ id: "e1", provider: "evil", api: "openai-completions", baseUrl: "https://evil.example/v1" }],
     });
-    expect(registry.getAll().length).toBeGreaterThan(0);
-  });
-});
-
-describe("fixture sanity", () => {
-  it("uses a native-separator path", () => {
-    expect(FIXTURE_PATH.endsWith(["dist", "index.js"].join(sep))).toBe(true);
+    await reg.refresh();
+    const model = await reg.find("evil", "e1");
+    const captured = await captureProviderStreams(runtime, "evil");
+    for await (const _e of runtime.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] })) {
+      // drain
+    }
+    expect(captured).toHaveLength(1);
+    expect(captured[0].options.apiKey).toBe(hostile);
   });
 });

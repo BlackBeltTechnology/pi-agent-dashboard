@@ -1473,17 +1473,9 @@ Compatibility skew helpers in `pi-version-skew.ts` (`readPiCompatibility`, `read
 
 **Below-floor session signal.** Replaces per-feature pi version gates. Bridge `sendPiVersionIfChanged` (`packages/extension/src/model-tracker.ts`) reads the running pi argv-anchored via `readRunningPiVersion` and sends `pi_version_update`; server runs `computePiBelowFloor(version, serverPiMinimum())` (`packages/server/src/pi/pi-version-skew.ts`) → sets `DashboardSession.piBelowFloor: { minimum } | null`; client `PiBelowFloorWarning` renders on `SessionCard` + `SessionHeader`. Unknown or unparseable version → no flag. `minimum` sourced from `piCompatibility.minimum`. See change: update-pi-core-1-0-adopt-apis.
 
-**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (factory API, pi >= 1.0.0) through ONE declared seam: `packages/shared/src/piai-compat/` (`adaptPiAi(module, resolvedPath)`). Supported range `>=1.0.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.0.0`. Seam absorbs THREE boundaries, all in sibling entry points:
+**pi-ai generation window.** Legacy generation REMOVED — the dashboard supports ONE **pi-ai** generation (pi >= 1.0.0). Supported range `>=1.0.0` (root `package.json` + `packages/extension/package.json` peerDependencies). Root devDependency pin `^1.0.0`. The server streams through pi-coding-agent's own **`ModelRuntime`** (ONE server runtime — see `### Single model runtime`), which owns module shape (factory API only), transcript normalization (`normalizeContext` before dispatch, else systemPrompt + tools drop silently) and OAuth relocation (`dist/oauth.js` is a TYPE-ONLY stub, never consulted; real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map). `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple`. The `packages/shared/src/piai-compat/` seam (`adaptPiAi`), its `api-table.ts` / `NON_TEXT_LAZY_FILES` helpers and `packages/shared/src/test-support/piai-factory-fixture.ts` are DELETED.
 
-- **Module shape.** Factory API (`createModels`, `createProvider`) ONLY. A complete global-registry module (the seven legacy members) is rejected as `unrecognized`, naming it an unsupported legacy pi-ai below the 1.0.0 floor; a partial shape is rejected with its missing members.
-- **Transcript normalization.** Factory-path api implementations read only `context.messages`; seam calls the resolved runtime's own `normalizeContext` before dispatch, else systemPrompt + tools drop silently.
-- **OAuth relocation.** `dist/oauth.js` is a TYPE-ONLY stub (`export {};`) and is NEVER consulted. Real loaders at `dist/auth/oauth/*.js`, a path NOT in the package `exports` map.
-
-`NON_TEXT_LAZY_FILES` (`api-table.ts`) excludes factories with no `streamSimple` so the api-table drift test does not false-fail: `openrouter-images.lazy.js` (`{ generateImages }`) plus the three 1.0.0 classifier factories `cloudflare-workers-ai-system-one`, `llama-cpp-classify`, `typesafe-system-one` (`{ classify }`, no `streamSimple`). See change: update-pi-core-1-0-adopt-apis.
-
-Conditional code CONFINED to that seam. `InternalRegistry`, `InternalAuthStorage` and every route handler stay generation-agnostic. `packages/extension/src/bridge.ts` streams through pi's own `ctx.modelRegistry.streamSimple` — removes a compat surface rather than adding one.
-
-See change: adopt-piai-factory-api-registry.
+See change: collapse-model-proxy-onto-modelruntime.
 
 #### Legacy `~/.pi-dashboard/` advisory
 
@@ -4454,7 +4446,7 @@ The dashboard supports browser-based authentication with pi's LLM providers, ena
 
 The dashboard supplies an `AuthInteraction` — not a flow. pi-ai's `login()` owns PKCE, the loopback callback listener, device-code polling, and the code-for-token exchange; the dashboard persists the returned credential through its existing locked, backed-up `writeCredential()`. No per-provider flow code remains. See change: delegate-provider-oauth-to-pi-ai.
 
-**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from `ModelRuntime.create({ modelsPath: null, credentials: EMPTY_READONLY_STORE })` — the empty read-only store keeps pi away from the dashboard's `auth.json`. `mapProviders()` filters `auth?.oauth` and excludes `radius` by id, yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `1.0.0` that set is the eight ids `anthropic`, `openai`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`. `FLOW_TYPE_HINT` (`anthropic` / `openai` / `openai-codex` / `openrouter` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate. Registry entries and OAuth status rows carry `subscription` from pi's `isSubscription` (absent → `false`; `openrouter` is `false`). `login()` receives `{ getDeviceId }` from pi `SettingsManager.getOrCreateDeviceId()`, pre-loaded in `beginFlow` via `loadPiDeviceId` — pi 1.0.0 Sign in with ChatGPT (`openai`) rejects without it. Environment api-key rows carry `authLabel` (pi `getProviderAuthStatus().label`) and count as authenticated only when the row has no `envVar` and is not `ambient`. See change: update-pi-core-1-0-adopt-apis.
+**Registry.** Built once, lazily, off the request path (`oauthRegistryReady()`), from the shared injected server runtime (`setOAuthRegistryRuntimeSource(getServerModelRuntime)`, wired by `server.ts`) — ONE `ModelRuntime` (D6), so a failed create degrades this listing AND the model proxy together. `mapProviders()` filters `auth?.oauth` and excludes `radius` by id, yielding one `OAuthRegistryEntry { id, name, flowType, auth }` per sign-in-able provider. On pi-coding-agent `1.0.0` that set is the eight ids `anthropic`, `openai`, `openai-codex`, `github-copilot`, `openrouter`, `kimi-coding`, `meta`, `xai`. `FLOW_TYPE_HINT` (`anthropic` / `openai` / `openai-codex` / `openrouter` → `auth_code`, else `device_code`) is a UI hint only: it picks the Add-provider dialog's opening pane. The pane follows whatever the flow emits, so a wrong hint is cosmetic — `flowType` is never a gate. Registry entries and OAuth status rows carry `subscription` from pi's `isSubscription` (absent → `false`; `openrouter` is `false`). `login()` receives `{ getDeviceId }` from pi `SettingsManager.getOrCreateDeviceId()`, pre-loaded in `beginFlow` via `loadPiDeviceId` — pi 1.0.0 Sign in with ChatGPT (`openai`) rejects without it. Environment api-key rows carry `authLabel` (pi `getProviderAuthStatus().label`) and count as authenticated only when the row has no `envVar` and is not `ambient`. See change: update-pi-core-1-0-adopt-apis.
 
 **Dependency pin.** The server imports only `@earendil-works/pi-coding-agent` (`await import(...)`, public index `ModelRuntime`), never `@earendil-works/pi-ai` and never either package's `dist/` (both unreachable — export maps / hoisted `1.0.0`). Binding to the pi-ai copy pi-coding-agent was built against gives version parity by construction. Six governed pins move together: `packages/server/package.json` dep `^1.0.0`, `piCompatibility.minimum`, `piCompatibility.recommended`, the `pnpm-workspace.yaml` override, `docker/Dockerfile`, and `scripts/verify-release-deps.mjs` `minVersion` (`checkPiPinCoherence`). Every `@earendil-works` peer is `>=1.0.0` (optional, no upper bound); every `@earendil-works` devDependency is `^1.0.0`; `pnpm-workspace.yaml` overrides pin `pi-coding-agent`, `pi-ai`, `pi-tui`. See change: update-pi-core-1-0-adopt-apis.
 
@@ -5314,7 +5306,9 @@ Dashboard-resident LLM proxy: `GET /v1/models`, `POST /v1/chat/completions`, `PO
 sequenceDiagram
     participant C as External client<br/>(LangChain, curl)
     participant D as Dashboard :8000/v1/*
-    participant R as InternalRegistry
+    participant R as InternalRegistry /<br/>InternalAuthStorage (facades)
+    participant RT as Server ModelRuntime<br/>(pi-coding-agent)
+    participant S as DashboardCredentialStore
     participant P as Upstream provider<br/>(Anthropic, OpenAI, Google…)
 
     C->>D: Authorization: Bearer pi-proxy-*
@@ -5322,11 +5316,40 @@ sequenceDiagram
     D->>R: getAvailable() / find(provider, model)
     R->>R: auth.json + providers.json + models.json
     D->>R: getApiKeyAndHeaders(model)
+    R->>RT: getAuth(model) — single-flight, named errors
+    RT->>S: read / modify (refresh)
+    S->>S: auth.json — locked, CAS persist
     R->>D: { apiKey, headers }
-    D->>P: streamSimple(model, context, opts)
+    D->>RT: streamSimple(model, context, opts) — apiKey DROPPED
+    RT->>P: provider's own auth path (OAuth or api-key)
     P-->>D: SSE stream
     D-->>C: SSE stream (OpenAI or Anthropic shape)
 ```
+
+### Single model runtime
+
+ONE server pi `ModelRuntime` (`packages/server/src/model-proxy/server-model-runtime.ts`). `getServerModelRuntime()` memoizes `ModelRuntime.create({ credentials: new DashboardCredentialStore(), modelsPath: null, refreshOnCreate: false, allowModelNetwork: false })` → `{ runtime, version }`. A failed `create()` is memoized as `ModelRuntimeUnavailableError` — one failure domain (D6): provider-auth listing returns `{ ids: [] }` and the proxy / `/api/models` report the same registry error together. `modelsPath: null` = built-in catalogue only; the dashboard keeps composing `models.json` + `providers.json` itself (D3).
+
+```mermaid
+flowchart LR
+    RT["Server ModelRuntime<br/>(pi-coding-agent)"]
+    P["Model proxy /v1/* · /api/models"] --> IR["InternalRegistry (facade)"]
+    P --> IAS["InternalAuthStorage (facade)"]
+    IR --> RT
+    IAS --> RT
+    IR -->|registerProvider / unregisterProvider| RT
+    PA["Provider auth flow listing"] --> RT
+    PGM["Plugin model runtime"] -->|streamSimple| RT
+    RT --> S["DashboardCredentialStore"]
+    S --> A["~/.pi/agent/auth.json"]
+```
+
+- `InternalRegistry` stays a facade. Built-ins come from the runtime; custom composition unchanged (`providers.json` discovery ⨝ `models.json`). Non-built-in providers with a resolvable key are projected onto the runtime with `registerProvider` (changed → `unregisterProvider` first; removed → unregister; unresolved key → skipped, secret-free log), re-checked on every `getAvailable()`. Key/header values escaped with `literalConfigValue` (pi config-template syntax: leading `!` = shell, `$VAR` = env). Listing stays auth.json-based + `oauth-compat.ts`.
+- `InternalAuthStorage` stays a facade. Presence/kind from auth.json (+ custom-provider keys; ambient env never routes). `MissingOAuthCapabilityError` when a stored OAuth credential's runtime provider has no `auth.oauth`, then `runtime.getAuth` single-flighted per provider, bounded 40 s. `unwrapRuntimeAuthError` unwraps `ModelsError("auth").cause` so named store errors surface. Own refresh/coordination code deleted.
+- `getStreamSimpleFn()` wraps `runtime.streamSimple` and DROPS `options.apiKey`: the facade already resolved (and refreshed) the credential, the runtime re-reads it through the store and applies the provider's own auth path (an OAuth token sent as an api-key override would hit the wrong header). Proxy streams with headers, no api-key override.
+- `getModelProxyStatus()` → `{ status, reason? }` (fields `piAiGeneration`, `oauthProviders` removed).
+
+See change: collapse-model-proxy-onto-modelruntime.
 
 ### Completion request pipeline
 
@@ -5385,9 +5408,9 @@ Override table: `packages/server/src/model-proxy/oauth-compat.ts` → `OAUTH_INC
 
 Codex OAuth stored under `auth.json` key `openai-codex`. pi 0.85.1 catalog publishes `gpt-6-astra` as FOUR first-class entries, one per channel, each carrying its own `provider`: `openai` (api `openai-responses`), `openai-codex` (api `openai-codex-responses`), `github-copilot`, `azure-openai-responses`. Registry matches credential key to `model.provider` by EQUALITY. An `openai-codex` credential lists the `openai-codex` entry and NOT the `openai` / `github-copilot` / `azure-openai-responses` entries of the same model id. NO provider-key remap needed. Do NOT add one: remap makes a Codex subscription credential appear to route every `openai`-provider model, widening credential scope. See change: `update-pi-core-0-85-adopt-apis`.
 
-`GET /api/model-proxy/diagnostics` (JWT-gated, main instance only, `routes/model-proxy-diagnostics-routes.ts`): `getAllAnnotated()` → `{id, provider, excludedReason}` per model. `excludedReason` ∈ `null` (included) | `"no-credential"` | `"oauth-incompatible"`. Feeds future Settings UI. 503 when pi-ai unresolved.
+`GET /api/model-proxy/diagnostics` (JWT-gated, main instance only, `routes/model-proxy-diagnostics-routes.ts`): `getAllAnnotated()` → `{id, provider, excludedReason}` per model. `excludedReason` ∈ `null` (included) | `"no-credential"` | `"oauth-incompatible"`. Response also carries `missingOAuth: string[]` — providers holding an OAuth credential whose runtime provider has no `auth.oauth`. Feeds future Settings UI. 503 (`MODEL_PROXY_RUNTIME_MISSING`) when the runtime is unresolved.
 
-See change: `filter-oauth-incompatible-models`.
+See change: `filter-oauth-incompatible-models`, `collapse-model-proxy-onto-modelruntime`.
 
 ### Refresh trigger map
 
@@ -5403,12 +5426,14 @@ See change: `filter-oauth-incompatible-models`.
 
 Two writer processes for `~/.pi/agent/auth.json`:
 
-- **Dashboard**: `provider-auth-storage.ts#writeCredential` (mkdir-based lock). Used by OAuth-flow completion routes AND `InternalAuthStorage` OAuth-refresh-on-expiry.
+- **Dashboard**: `provider-auth-storage.ts#writeCredential` (mkdir-based lock). Used by OAuth-flow completion routes. OAuth-refresh-on-expiry now writes through `DashboardCredentialStore.modify` → `writeRefreshedOAuth` CAS — pi's refresh callback runs with the file lock RELEASED, persist is compare-and-swap; NOT `InternalAuthStorage`.
 - **Pi sessions**: `pi-coding-agent`'s `AuthStorage` (proper-lockfile). Runs in each connected pi session.
 
 Last-writer-wins on overlapping provider keys; non-overlapping providers preserved by merge. Acceptable — both writers re-read before writing; churn only occurs during concurrent OAuth refreshes (rare in practice).
 
-See change: `add-dashboard-model-proxy`.
+Refresh window: pi refreshes at 5 min remaining (`OAUTH_REFRESH_WINDOW_MS`) with a 15 s abort — was dashboard 30 s / 30 s.
+
+See change: `add-dashboard-model-proxy`, `collapse-model-proxy-onto-modelruntime`.
 
 ## Test execution & isolation
 

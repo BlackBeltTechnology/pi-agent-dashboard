@@ -10,6 +10,16 @@
 - The dashboard's `provider-auth-storage.ts` already has the primitives: `LOCK_OPTIONS` (`stale 30s`, `realpath:false`, pinned to pi's), `readCredentialLocked` (bounded locked read that waits out a pi refresh), `writeRefreshedOAuth` (CAS persist), `writeCredential` / `removeCredential` (type-conflict refusal), and atomic write + quarantine in `locked-json-file.ts`.
 - Today's consumers of `getModelRegistry()` / `InternalRegistry` use `find`, `getAvailable`, `firstAvailable`, `getApiKeyAndHeaders`, `getAll`, `getAllAnnotated`, `refresh`, `discover` (`internal-registry.ts:93-174`): `system-one-plugin/src/server/llm-caller.ts:104-115`, `grammar-plugin/src/server/backends/llm.ts:301,308`, `quota-plugin/src/server/index.ts:118`, `server/src/models-introspection-routes.ts:81`, `server/src/model-proxy-diagnostics-routes.ts:17`. `ModelRuntime` exposes none of `find` / `getApiKeyAndHeaders` / `getAllAnnotated`.
 
+### Re-verification against the installed pi 1.0.0 dist (task 0.1)
+
+Every citation above holds on 1.0.0. Deviations / additions:
+- `getAuth(model, overrides)` gains `minOAuthValidityMs` (default window stays 5 min, 15 s refresh abort). Unused by the server.
+- `.modify(` callers unchanged: `pi-ai/dist/auth/resolve.js:61` (request-path refresh), `pi-ai/dist/models.js:239` (catalogue refresh — runs ONLY under `refresh({ allowNetwork: true })`, never issued by the server), `models.js:371` (login, never called). `pi-coding-agent/dist/core/runtime-credentials.js` wraps the injected store and passes `modify` through unchanged.
+- `registerProvider` / `unregisterProvider` each start a background `refresh({ allowNetwork: false })`: recompose + availability check, store `read` only, no write.
+- `FLOW_TYPE_HINT` vs the 1.0.0 OAuth set: 8 ids (radius excluded), unchanged.
+- pi-ai's published `index.d.ts` re-exports with `.ts` specifiers the repo's `tsc` does not follow; tests that drive `createModels` cast the namespace.
+- `provider-catalogue-cache.ts` (D4): NOT redundant — it carries bridge-pushed `displayName` / `envVar` / `ambient` / `authLabel` the runtime does not expose. Kept; follow-up only if the bridge stops pushing it.
+
 ## Goals / Non-Goals
 
 **Goals:** one runtime; delete `piai-compat` and the registry/refresh re-implementation; keep every existing `model-proxy-credential-routing`, `custom-provider-model-registry`, `agent-model-introspection` and `provider-quota-surfacing` guarantee.

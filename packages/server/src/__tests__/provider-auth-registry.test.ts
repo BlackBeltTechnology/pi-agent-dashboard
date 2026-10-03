@@ -10,7 +10,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import os from "node:os";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   FLOW_TYPE_HINT,
   getOAuthRegistry,
@@ -19,7 +21,20 @@ import {
   mapProviders,
   oauthRegistryReady,
   resolveVersionFallback,
+  setOAuthRegistryRuntimeSource,
 } from "../auth/provider-auth-registry.js";
+import { DashboardCredentialStore } from "../auth/dashboard-credential-store.js";
+import {
+  disposeModelRegistry,
+  getModelProxyStatus,
+  getModelRegistry,
+  getStreamSimpleFn,
+} from "../model-proxy/registry-singleton.js";
+import {
+  _setRuntimeModuleLoaderForTests,
+  getServerModelRuntime,
+  ModelRuntimeUnavailableError,
+} from "../model-proxy/server-model-runtime.js";
 
 /**
  * The eight OAuth providers pi 1.0.0 bundles, minus the excluded `radius`.
@@ -38,6 +53,9 @@ const EXPECTED_IDS = [
 ] as const;
 
 beforeAll(async () => {
+  // server.ts wires the single runtime in at boot.
+  // See change: collapse-model-proxy-onto-modelruntime (D6).
+  setOAuthRegistryRuntimeSource(getServerModelRuntime);
   await oauthRegistryReady();
 });
 
@@ -241,12 +259,14 @@ describe("real-runtime first-interaction drift (design D1 table)", () => {
 });
 
 describe("failure degradation (X10 support)", () => {
-  it("absorbs a throwing import() into an empty registry with a versioned error", async () => {
+  const rejecting = (message: string, version?: string) => async () => {
+    throw new ModelRuntimeUnavailableError(message, version);
+  };
+
+  it("absorbs a failing runtime into an empty registry with a versioned error", async () => {
     const logs: string[] = [];
     await initOAuthRegistry({
-      loadModule: async () => {
-        throw new Error("module not found");
-      },
+      getRuntime: rejecting("module not found"),
       readVersion: () => "0.0.0-test",
       log: (m) => logs.push(m),
     });
@@ -259,10 +279,7 @@ describe("failure degradation (X10 support)", () => {
 
   it("absorbs a runtime with no OAuth providers", async () => {
     await initOAuthRegistry({
-      loadModule: async () => ({
-        VERSION: "9.9.9",
-        ModelRuntime: { create: async () => ({ getProviders: () => [] }) },
-      }),
+      getRuntime: async () => ({ version: "9.9.9", runtime: { getProviders: () => [] } }),
       log: () => {},
     });
 
@@ -270,20 +287,130 @@ describe("failure degradation (X10 support)", () => {
     expect(getRegistryError()).toContain("9.9.9");
   });
 
-  it("absorbs a module missing ModelRuntime entirely", async () => {
-    await initOAuthRegistry({ loadModule: async () => ({}), log: () => {} });
-    expect(getOAuthRegistry()).toEqual([]);
-    expect(getRegistryError()).toContain("ModelRuntime.create");
+  it("absorbs an unwired runtime source", async () => {
+    setOAuthRegistryRuntimeSource(undefined);
+    try {
+      await initOAuthRegistry({ log: () => {} });
+      expect(getOAuthRegistry()).toEqual([]);
+      expect(getRegistryError()).toContain("not wired");
+    } finally {
+      setOAuthRegistryRuntimeSource(getServerModelRuntime);
+    }
   });
 
   it("falls back to `unknown` when no version can be resolved", async () => {
     await initOAuthRegistry({
-      loadModule: async () => {
-        throw new Error("boom");
-      },
+      getRuntime: rejecting("boom"),
       readVersion: () => "unknown",
       log: () => {},
     });
     expect(getRegistryError()).toContain("unknown");
+  });
+});
+
+/**
+ * ONE runtime behind every surface (test-plan #E1, #X9, #X12).
+ * See change: collapse-model-proxy-onto-modelruntime (D4, D6).
+ */
+describe("the single server model runtime", () => {
+  afterEach(async () => {
+    _setRuntimeModuleLoaderForTests(null);
+    disposeModelRegistry();
+    setOAuthRegistryRuntimeSource(getServerModelRuntime);
+    await initOAuthRegistry({ log: () => {} });
+  });
+
+  /** The real pi-coding-agent module with `ModelRuntime.create` spied. */
+  async function spiedRealModule() {
+    const real = (await import("@earendil-works/pi-coding-agent")) as unknown as {
+      VERSION: string;
+      ModelRuntime: { create(options: unknown): Promise<unknown> };
+    };
+    const create = vi.fn((options: unknown) => real.ModelRuntime.create(options as never));
+    _setRuntimeModuleLoaderForTests(async () => ({ VERSION: real.VERSION, ModelRuntime: { create } }));
+    return create;
+  }
+
+  it("E1: proxy, /api/models, plugin runtime and provider-auth listing share exactly one create()", async () => {
+    disposeModelRegistry();
+    const create = await spiedRealModule();
+
+    // Model proxy + /api/models + plugin runtime all read getModelRegistry().
+    const proxyRegistry = await getModelRegistry();
+    const introspectionRegistry = await getModelRegistry();
+    const pluginRegistry = await getModelRegistry();
+    expect(typeof getStreamSimpleFn()).toBe("function");
+    // Provider-auth listing.
+    await initOAuthRegistry({ log: () => {} });
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0]).toMatchObject({
+      modelsPath: null,
+      refreshOnCreate: false,
+      allowModelNetwork: false,
+    });
+    expect((create.mock.calls[0][0] as { credentials: { constructor: { name: string } } }).credentials.constructor.name).toBe(
+      "DashboardCredentialStore",
+    );
+    expect(introspectionRegistry).toBe(proxyRegistry);
+    expect(pluginRegistry).toBe(proxyRegistry);
+    expect(getRegistryError()).toBeNull();
+    // Listing and catalogue come from the same runtime: every OAuth id is a catalogue provider.
+    const { runtime } = await getServerModelRuntime();
+    const ids = new Set(runtime.getProviders().map((p) => p.id));
+    for (const entry of getOAuthRegistry()) expect(ids.has(entry.id), entry.id).toBe(true);
+  });
+
+  it("X9: a rejected ModelRuntime.create degrades the listing and the proxy together, with the same error", async () => {
+    _setRuntimeModuleLoaderForTests(async () => ({
+      VERSION: "1.0.0-test",
+      ModelRuntime: {
+        create: async () => {
+          throw new Error("runtime exploded");
+        },
+      },
+    }));
+    disposeModelRegistry();
+
+    await initOAuthRegistry({ log: () => {} });
+    expect(getOAuthRegistry()).toEqual([]);
+    expect(getRegistryError()).toContain("runtime exploded");
+    expect(getRegistryError()).toContain("1.0.0-test");
+
+    await expect(getModelRegistry()).rejects.toThrow("runtime exploded");
+    const status = getModelProxyStatus();
+    expect(status.status).toBe("degraded");
+    expect(status.reason).toBe("runtime exploded");
+    expect(getStreamSimpleFn()).toBeNull();
+  });
+
+  it("X12: creating the runtime with a near-expiry OAuth credential calls no refresh and leaves auth.json byte-identical", async () => {
+    const dir = path.join(os.homedir(), ".pi", "agent");
+    fs.mkdirSync(dir, { recursive: true });
+    const authPath = path.join(dir, "auth.json");
+    fs.writeFileSync(
+      authPath,
+      JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + 60_000 } }),
+      { mode: 0o600 },
+    );
+    const sha = () => createHash("sha256").update(fs.readFileSync(authPath)).digest("hex");
+    const before = sha();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const modifySpy = vi.spyOn(DashboardCredentialStore.prototype, "modify");
+    try {
+      disposeModelRegistry();
+      await spiedRealModule();
+      await getServerModelRuntime();
+      await initOAuthRegistry({ log: () => {} });
+      // Let any background availability pass settle.
+      await new Promise((r) => setTimeout(r, 200));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(modifySpy).not.toHaveBeenCalled();
+      expect(sha()).toBe(before);
+    } finally {
+      fetchSpy.mockRestore();
+      modifySpy.mockRestore();
+      fs.rmSync(authPath, { force: true });
+    }
   });
 });

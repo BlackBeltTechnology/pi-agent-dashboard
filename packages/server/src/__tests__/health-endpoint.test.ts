@@ -20,6 +20,7 @@ vi.mock("../auth/provider-auth-registry.js", () => ({
   getOAuthRegistry: () => [],
   getRegistryError: () => registryState.error,
   initOAuthRegistry: async () => {},
+  setOAuthRegistryRuntimeSource: () => {},
 }));
 
 import { createKeeperManager, EMPTY_KEEPER_LOG_STATS } from "../rpc-keeper/keeper-manager.js";
