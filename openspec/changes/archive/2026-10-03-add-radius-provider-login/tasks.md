@@ -62,5 +62,5 @@
 
 ## 7. Manual verification
 
-- [ ] 7.1 Real Radius round trip on a local dashboard: device-code sign-in, accept the offer, confirm global `mcp.json` entry and that a reloaded session lists Radius MCP tools (test-plan: manual-only, #F7)
-- [ ] 7.2 Browser-method locality: browser sign-in completes from the server host; from another device it cannot, and device code completes (test-plan: manual-only, #F8)
+- [x] 7.1 Real Radius round trip on a local dashboard: device-code sign-in, accept the offer, confirm global `mcp.json` entry and that a reloaded session lists Radius MCP tools (test-plan: manual-only, #F7)
+- [x] 7.2 Browser-method locality: browser sign-in completes from the server host; from another device it cannot, and device code completes (test-plan: manual-only, #F8)
