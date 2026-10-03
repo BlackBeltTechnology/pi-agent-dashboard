@@ -1544,6 +1544,74 @@ describe("argv migration — caller values stay single argv elements", () => {
       } finally { s.restore(); }
     });
 
+    // review r5 B1 — ONE-SHOT failure: only the trigger spawn fails with ENOENT;
+    // every later spawn (including `git --version`) succeeds. The probe's own
+    // error must be classified, not re-derived from a later healthy probe.
+    const oneShotAt = (pred: (args: string[]) => boolean) => {
+      let fired = false;
+      return (file: string, args: string[]) => {
+        if (file !== "git" || fired || !pred(args)) return undefined;
+        fired = true;
+        return spawnMissingError("git");
+      };
+    };
+
+    it("mergeWorktree: one-shot ENOENT at the status probe is not read as a clean checkout", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/os1" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({ fileThrow: oneShotAt((a) => a[0] === "status" && a[1] === "--porcelain") });
+      try {
+        const r = mergeWorktree({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+        // Never proceeded to checkout / merge on an unverified checkout.
+        expect(s.argvCalls.some((c) => c.args[0] === "checkout" || c.args[0] === "merge")).toBe(false);
+      } finally { s.restore(); }
+    });
+
+    it("mergeWorktree / worktreeDiffStat: one-shot ENOENT at the base probe", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/os2" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      for (const run of [() => mergeWorktree({ cwd: wt.path }), () => worktreeDiffStat({ cwd: wt.path })]) {
+        const s = spyBothExecSurfaces({ fileThrow: oneShotAt((a) => a[0] === "rev-parse" && a[1] === "--verify") });
+        try {
+          const r = run() as any;
+          expect(r.ok).toBe(false);
+          expect(r.code).toBe("git_not_found");
+        } finally { s.restore(); }
+      }
+    });
+
+    it("pushBranch: one-shot ENOENT at the remote probe is not read as no_remote", () => {
+      const wt = makeTrackingWorktree("feat/os3");
+      const s = spyBothExecSurfaces({ fileThrow: oneShotAt((a) => a[0] === "remote" && a[1] === "get-url") });
+      try {
+        const r = pushBranch({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("createPullRequest: one-shot ENOENT at the remote-base probe is not read as base_not_found", () => {
+      const wt = makeTrackingWorktree("feat/os4");
+      const s = spyBothExecSurfaces({ fileThrow: oneShotAt((a) => a[0] === "rev-parse" && a.includes("--verify")) });
+      try {
+        const r = createPullRequest({ cwd: wt.path, ghPath: process.execPath, title: "t" }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("an ordinary absent ref is still base_not_found (strict probe only escalates a missing binary)", () => {
+      // No origin refs in this plain repo and no develop/main/master base for a
+      // fabricated hint: resolveRemoteBase finds nothing and PR creation refuses.
+      const wt = makeTrackingWorktree("feat/os5");
+      const r = createPullRequest({ cwd: wt.path, ghPath: process.execPath, title: "t", baseHint: "no-such-base" }) as any;
+      expect(r.code).not.toBe("git_not_found");
+    });
+
     it("addWorktreeFromPr: worktree-add spawn", () => {
       const s = spyBothExecSurfaces({
         fileFake: (file, args) => (file === "git" && args[0] === "fetch" ? "" : undefined),
@@ -1584,12 +1652,17 @@ describe("argv migration — caller values stay single argv elements", () => {
     ["listPullRequests", (c: string) => listPullRequests({ cwd: c, ghPath: process.execPath }), (r: any) => r.code],
     ["addWorktree", (c: string) => addWorktree({ cwd: c, base: "main", newBranch: "feat/file-cwd" }), (r: any) => r.error],
   ])("%s with a regular file as cwd is not git_not_found", (_n, run, pick) => {
-    const file = join(mkdtempSync(join(tmpdir(), "file-cwd-")), "not-a-dir");
-    writeFileSync(file, "x");
-    const r = run(file) as any;
-    expect(r.ok).toBe(false);
-    expect(pick(r)).not.toBe("git_not_found");
-    expect(pick(r)).not.toBe("gh_not_found");
+    const dir = mkdtempSync(join(tmpdir(), "file-cwd-"));
+    try {
+      const file = join(dir, "not-a-dir");
+      writeFileSync(file, "x");
+      const r = run(file) as any;
+      expect(r.ok).toBe(false);
+      expect(pick(r)).not.toBe("git_not_found");
+      expect(pick(r)).not.toBe("gh_not_found");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // review r2 B3 — the dedicated code is a property of the BINARY, so every

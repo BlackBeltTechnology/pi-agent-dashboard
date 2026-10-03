@@ -121,6 +121,40 @@ function gitBinaryMissing(): boolean {
   }
 }
 
+/** Thrown by `tryRunStrict` when a probe could not even start `git`. */
+class GitMissingError extends Error {
+  constructor() {
+    super("git binary not found");
+  }
+}
+
+/**
+ * Like `tryRun`, but a spawn that failed because the `git` binary itself is
+ * missing THROWS `GitMissingError` instead of collapsing into `undefined`.
+ * An ordinary non-zero exit (ref absent, no remote, ...) still returns
+ * `undefined`. Lifecycle entry points convert the throw via `guardMissing`, so
+ * a missing binary can never be misread as `base_not_found` / `no_remote` /
+ * "clean checkout", even on a one-shot failure.
+ */
+function tryRunStrict(argv: string[], cwd: string): string | undefined {
+  try {
+    return run(argv, cwd);
+  } catch (err) {
+    if (binaryMissingAt(err, cwd)) throw new GitMissingError();
+    return undefined;
+  }
+}
+
+/** Run a lifecycle body; map `GitMissingError` to the stable `git_not_found`. */
+function guardMissing<R>(fn: () => R): R | { ok: false; code: "git_not_found" } {
+  try {
+    return fn();
+  } catch (err) {
+    if (err instanceof GitMissingError) return { ok: false, code: "git_not_found" };
+    throw err;
+  }
+}
+
 /** Check if cwd is inside a git work tree. */
 export function isGitRepo(cwd: string): boolean {
   return tryRun(["git", "rev-parse", "--is-inside-work-tree"], cwd) === "true";
@@ -1213,12 +1247,22 @@ export function resolveDefaultBase(
   cwd: string,
   hint?: string,
 ): string | null {
-  if (hint && tryRun(["git", "rev-parse", "--verify", hint], cwd)) return hint;
+  try {
+    return resolveDefaultBaseStrict(cwd, hint);
+  } catch (err) {
+    if (err instanceof GitMissingError) return null;
+    throw err;
+  }
+}
+
+/** `resolveDefaultBase` that throws `GitMissingError` instead of swallowing a missing binary. */
+function resolveDefaultBaseStrict(cwd: string, hint?: string): string | null {
+  if (hint && tryRunStrict(["git", "rev-parse", "--verify", hint], cwd)) return hint;
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(["git", "rev-parse", "--verify", `refs/heads/${name}`], cwd)) return name;
+    if (tryRunStrict(["git", "rev-parse", "--verify", `refs/heads/${name}`], cwd)) return name;
   }
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
+    if (tryRunStrict(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
       return `origin/${name}`;
     }
   }
@@ -1242,13 +1286,23 @@ export function resolveRemoteBase(
   cwd: string,
   hint?: string,
 ): string | null {
+  try {
+    return resolveRemoteBaseStrict(cwd, hint);
+  } catch (err) {
+    if (err instanceof GitMissingError) return null;
+    throw err;
+  }
+}
+
+/** `resolveRemoteBase` that throws `GitMissingError` instead of swallowing a missing binary. */
+function resolveRemoteBaseStrict(cwd: string, hint?: string): string | null {
   const stripOrigin = (n: string) => n.replace(/^origin\//, "");
   const hintBare = hint ? stripOrigin(hint) : undefined;
-  if (hintBare && tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${hintBare}`], cwd)) {
+  if (hintBare && tryRunStrict(["git", "rev-parse", "--verify", `refs/remotes/origin/${hintBare}`], cwd)) {
     return hintBare;
   }
   for (const name of BASE_FALLBACKS) {
-    if (tryRun(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
+    if (tryRunStrict(["git", "rev-parse", "--verify", `refs/remotes/origin/${name}`], cwd)) {
       return name;
     }
   }
@@ -1265,7 +1319,7 @@ export function resolveRemoteBase(
  *   3. `git merge --no-ff <branch>`
  *   4. Optional `git branch -d <branch>`
  */
-export function mergeWorktree(opts: {
+function mergeWorktreeImpl(opts: {
   cwd: string;
   baseHint?: string;
   deleteBranch?: boolean;
@@ -1279,21 +1333,15 @@ export function mergeWorktree(opts: {
       ? { ok: false, code: "git_not_found" }
       : { ok: false, code: "not_a_worktree" };
   }
-  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const branch = tryRunStrict(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
   }
-  const base = resolveDefaultBase(mainPath, baseHint);
-  if (!base) {
-    return gitBinaryMissing()
-      ? { ok: false, code: "git_not_found" }
-      : { ok: false, code: "base_not_found" };
-  }
+  const base = resolveDefaultBaseStrict(mainPath, baseHint);
+  if (!base) return { ok: false, code: "base_not_found" };
 
   // 1. Main must be clean.
-  const porcelain = tryRun(["git", "status", "--porcelain"], mainPath);
-  if (porcelain === undefined && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const porcelain = tryRunStrict(["git", "status", "--porcelain"], mainPath);
   if (porcelain && porcelain.length > 0) {
     return { ok: false, code: "dirty_main" as any, stderr: porcelain };
   }
@@ -1362,7 +1410,7 @@ export function mergeWorktree(opts: {
  * Five-line `git diff --stat <base>..<branch>` plus shortstat numbers,
  * for the merge confirm dialog.
  */
-export function worktreeDiffStat(opts: {
+function worktreeDiffStatImpl(opts: {
   cwd: string;
   baseHint?: string;
 }): LifecycleSuccess<{ summary: string; filesChanged: number; insertions: number; deletions: number; base: string; branch: string }> | LifecycleFailure<MergeCode> {
@@ -1373,15 +1421,10 @@ export function worktreeDiffStat(opts: {
       ? { ok: false, code: "git_not_found" }
       : { ok: false, code: "not_a_worktree" };
   }
-  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const branch = tryRunStrict(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
-  const base = resolveDefaultBase(mainPath, baseHint);
-  if (!base) {
-    return gitBinaryMissing()
-      ? { ok: false, code: "git_not_found" }
-      : { ok: false, code: "base_not_found" };
-  }
+  const base = resolveDefaultBaseStrict(mainPath, baseHint);
+  if (!base) return { ok: false, code: "base_not_found" };
   let stat: string;
   try {
     stat = execFileSync(
@@ -1407,21 +1450,18 @@ export function worktreeDiffStat(opts: {
 /**
  * `git push [-u] origin <branch>` from the worktree.
  */
-export function pushBranch(opts: {
+function pushBranchImpl(opts: {
   cwd: string;
   setUpstream?: boolean;
 }): LifecycleSuccess<{ pushed: true }> | LifecycleFailure<PushCode> {
   const { cwd, setUpstream = true } = opts;
-  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const branch = tryRunStrict(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
   // Detect missing remote up-front for a clean error.
-  const remoteExists = tryRun(["git", "remote", "get-url", "origin"], cwd);
-  if (!remoteExists) {
-    return gitBinaryMissing() ? { ok: false, code: "git_not_found" } : { ok: false, code: "no_remote" };
-  }
+  const remoteExists = tryRunStrict(["git", "remote", "get-url", "origin"], cwd);
+  if (!remoteExists) return { ok: false, code: "no_remote" };
   const args = ["push"];
   if (setUpstream) args.push("-u");
   args.push("origin", branch);
@@ -1446,7 +1486,7 @@ export function pushBranch(opts: {
  * no upstream, push first. Caller is expected to have resolved `gh`
  * via the tool registry (we accept the path here).
  */
-export function createPullRequest(opts: {
+function createPullRequestImpl(opts: {
   cwd: string;
   ghPath: string;
   title?: string;
@@ -1454,12 +1494,11 @@ export function createPullRequest(opts: {
   baseHint?: string;
 }): LifecycleSuccess<{ url: string; pushed: boolean }> | LifecycleFailure<PrCode | PushCode | "pushed_but_pr_failed" | "gh_not_found"> {
   const { cwd, ghPath, title, body, baseHint } = opts;
-  const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const branch = tryRunStrict(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
-  const upstream = tryRun(["git", "rev-parse", "--abbrev-ref", `${branch}@{upstream}`], cwd);
+  const upstream = tryRunStrict(["git", "rev-parse", "--abbrev-ref", `${branch}@{upstream}`], cwd);
   let pushed = false;
   if (!upstream) {
     const pushResult = pushBranch({ cwd, setUpstream: true });
@@ -1475,8 +1514,7 @@ export function createPullRequest(opts: {
   // branch (it diffs origin/<base>..<head> to populate --fill or to
   // validate the PR). Falls back to `origin/{develop,main,master}` when
   // the session's `gitWorktreeBase` hint is a local-only branch.
-  const base = resolveRemoteBase(cwd, baseHint);
-  if (!base && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
+  const base = resolveRemoteBaseStrict(cwd, baseHint);
   if (!base) return { ok: false, code: "base_not_found", stderr: `no base branch found on origin (tried hint=${baseHint ?? "<none>"} + ${BASE_FALLBACKS.join("|")})` };
   const args = [ghPath, "pr", "create", "--base", base, "--head", branch];
   // Derive an explicit title when none supplied. Using `--fill` requires
@@ -1997,4 +2035,34 @@ export function addWorktreeFromPr(opts: {
   rewriteWorktreePiSettings(worktreePath, repoRoot);
 
   return { ok: true, path: worktreePath, branch: localBranch, prNumber };
+}
+
+// ── Public lifecycle entry points ────────────────────────────────────
+// Each wraps its `*Impl` body (documented above) in `guardMissing`, so a
+// missing `git` binary surfaces as the stable `git_not_found` code from ANY
+// probe or spawn inside the operation — never as `base_not_found`,
+// `no_remote` or a "clean checkout". See change: harden-server-request-surfaces.
+
+export function mergeWorktree(
+  opts: Parameters<typeof mergeWorktreeImpl>[0],
+): ReturnType<typeof mergeWorktreeImpl> {
+  return guardMissing(() => mergeWorktreeImpl(opts));
+}
+
+export function worktreeDiffStat(
+  opts: Parameters<typeof worktreeDiffStatImpl>[0],
+): ReturnType<typeof worktreeDiffStatImpl> {
+  return guardMissing(() => worktreeDiffStatImpl(opts));
+}
+
+export function pushBranch(
+  opts: Parameters<typeof pushBranchImpl>[0],
+): ReturnType<typeof pushBranchImpl> {
+  return guardMissing(() => pushBranchImpl(opts));
+}
+
+export function createPullRequest(
+  opts: Parameters<typeof createPullRequestImpl>[0],
+): ReturnType<typeof createPullRequestImpl> {
+  return guardMissing(() => createPullRequestImpl(opts));
 }
