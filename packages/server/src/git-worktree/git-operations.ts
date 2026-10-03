@@ -91,14 +91,24 @@ function isBinaryMissing(err: unknown): boolean {
 }
 
 /**
- * Probe for a missing `git` binary. `tryRun` collapses every failure to
- * `undefined`, so an entry point whose first probe came back empty calls this
- * BEFORE returning a generic code: a missing binary is a property of the
- * environment, not of the repo, and must surface as `git_not_found`.
+ * A spawn failure is a MISSING BINARY only when the directory we asked it to
+ * run in exists: Node reports the same `ENOENT` / no-status error for a
+ * nonexistent `cwd` even though the executable is fine. Use this at every
+ * catch site that holds the `cwd` the spawn ran in.
  */
-function gitBinaryMissing(cwd: string): boolean {
+function binaryMissingAt(err: unknown, cwd: string): boolean {
+  return isBinaryMissing(err) && fs.existsSync(cwd);
+}
+
+/**
+ * Probe for a missing `git` binary, independent of any caller-supplied `cwd`
+ * (so a nonexistent `cwd` cannot masquerade as a missing binary). `tryRun`
+ * collapses every failure to `undefined`, so an entry point whose first probe
+ * came back empty calls this BEFORE returning a generic code.
+ */
+function gitBinaryMissing(): boolean {
   try {
-    run(["git", "--version"], cwd);
+    run(["git", "--version"], process.cwd());
     return false;
   } catch (err) {
     return isBinaryMissing(err);
@@ -759,7 +769,7 @@ export function addWorktree(opts: AddWorktreeOptions): AddWorktreeSuccess | AddW
       timeout: GIT_TIMEOUT,
     });
   } catch (err: any) {
-    if (isBinaryMissing(err)) {
+    if (binaryMissingAt(err, cwd)) {
       // The resolved git binary could not be executed at all.
       return { ok: false, error: "git_not_found", message: "git binary not found", stderr: String(err?.message ?? "") };
     }
@@ -1259,12 +1269,12 @@ export function mergeWorktree(opts: {
   // D2: an unresolvable checkout is a REFUSAL (4xx), not a server error —
   // the old `git_failed` mapped to HTTP 500.
   if (!mainPath) {
-    return gitBinaryMissing(cwd)
+    return gitBinaryMissing()
       ? { ok: false, code: "git_not_found" }
       : { ok: false, code: "not_a_worktree" };
   }
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
+  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "worktree is in a detached HEAD state" };
   }
@@ -1286,6 +1296,7 @@ export function mergeWorktree(opts: {
       timeout: GIT_TIMEOUT,
     });
   } catch (err: any) {
+    if (binaryMissingAt(err, mainPath)) return { ok: false, code: "git_not_found", stderr: String(err?.message ?? "") };
     const stderr = String(err?.stderr ?? err?.message ?? "");
     return { ok: false, code: mapMergeStderr(stderr), stderr };
   }
@@ -1299,6 +1310,7 @@ export function mergeWorktree(opts: {
       timeout: GIT_TIMEOUT,
     });
   } catch (err: any) {
+    if (binaryMissingAt(err, mainPath)) return { ok: false, code: "git_not_found", stderr: String(err?.message ?? "") };
     // git writes conflict notices to BOTH stdout ("CONFLICT (content)...")
     // AND stderr ("Automatic merge failed..."). Concatenate so the mapper
     // sees all of it; empty strings are harmless.
@@ -1346,12 +1358,12 @@ export function worktreeDiffStat(opts: {
   const { cwd, baseHint } = opts;
   const mainPath = resolveMainPath(cwd);
   if (!mainPath) {
-    return gitBinaryMissing(cwd)
+    return gitBinaryMissing()
       ? { ok: false, code: "git_not_found" }
       : { ok: false, code: "not_a_worktree" };
   }
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
+  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") return { ok: false, code: "git_failed" };
   const base = resolveDefaultBase(mainPath, baseHint);
   if (!base) return { ok: false, code: "base_not_found" };
@@ -1363,6 +1375,7 @@ export function worktreeDiffStat(opts: {
       { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"], timeout: GIT_TIMEOUT },
     );
   } catch (err: any) {
+    if (binaryMissingAt(err, cwd)) return { ok: false, code: "git_not_found", stderr: String(err?.message ?? "") };
     const stderr = String(err?.stderr ?? err?.message ?? "");
     return { ok: false, code: mapMergeStderr(stderr), stderr };
   }
@@ -1385,7 +1398,7 @@ export function pushBranch(opts: {
 }): LifecycleSuccess<{ pushed: true }> | LifecycleFailure<PushCode> {
   const { cwd, setUpstream = true } = opts;
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
-  if (!branch && gitBinaryMissing(cwd)) return { ok: false, code: "git_not_found" };
+  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
@@ -1404,6 +1417,7 @@ export function pushBranch(opts: {
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
   } catch (err: any) {
+    if (binaryMissingAt(err, cwd)) return { ok: false, code: "git_not_found", stderr: String(err?.message ?? "") };
     const stderr = String(err?.stderr ?? err?.message ?? "");
     return { ok: false, code: mapPushStderr(stderr), stderr };
   }
@@ -1424,6 +1438,7 @@ export function createPullRequest(opts: {
 }): LifecycleSuccess<{ url: string; pushed: boolean }> | LifecycleFailure<PrCode | PushCode | "pushed_but_pr_failed" | "gh_not_found"> {
   const { cwd, ghPath, title, body, baseHint } = opts;
   const branch = tryRun(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  if (!branch && gitBinaryMissing()) return { ok: false, code: "git_not_found" };
   if (!branch || branch === "HEAD") {
     return { ok: false, code: "git_failed", stderr: "detached HEAD" };
   }
@@ -1467,7 +1482,7 @@ export function createPullRequest(opts: {
       env: { ...process.env, GH_PROMPT_DISABLED: "1" },
     });
   } catch (err: any) {
-    if (isBinaryMissing(err)) {
+    if (binaryMissingAt(err, cwd)) {
       // The resolved gh binary could not be executed at all — the dedicated
       // code beats the stderr mapper (specific cause wins).
       return { ok: false, code: "gh_not_found", stderr: String(err?.message ?? "") };
@@ -1744,7 +1759,7 @@ export function orphanCleanup(
 
 import type { PullRequestInfo } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 
-export type ListPrCode = "gh_not_authed" | "no_remote" | "git_failed";
+export type ListPrCode = "gh_not_authed" | "no_remote" | "gh_not_found" | "git_failed";
 
 export interface ListPrSuccess {
   ok: true;
@@ -1783,6 +1798,7 @@ export function listPullRequests(opts: {
       env: { ...process.env, GH_PROMPT_DISABLED: "1" },
     });
   } catch (err: any) {
+    if (binaryMissingAt(err, cwd)) return { ok: false, code: "gh_not_found", stderr: String(err?.message ?? "") };
     const stderr = [err?.stderr, err?.stdout, err?.message]
       .map((v) => (v == null ? "" : String(v)))
       .filter((s) => s.length > 0)
@@ -1866,7 +1882,7 @@ export function addWorktreeFromPr(opts: {
   // touches the network.
   const repoRoot = resolveMainPath(cwd);
   if (!repoRoot) {
-    return gitBinaryMissing(cwd)
+    return gitBinaryMissing()
       ? { ok: false, error: "git_not_found", message: "git binary not found" }
       : { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
@@ -1886,7 +1902,7 @@ export function addWorktreeFromPr(opts: {
     });
   } catch (err: any) {
     const stderr = String(err?.stderr ?? err?.message ?? "");
-    if (isBinaryMissing(err)) {
+    if (binaryMissingAt(err, cwd)) {
       return { ok: false, error: "git_not_found", message: "git binary not found", stderr };
     }
     if (/couldn.t find remote ref|no such ref/i.test(stderr)) {
@@ -1924,6 +1940,9 @@ export function addWorktreeFromPr(opts: {
       timeout: GIT_TIMEOUT,
     });
   } catch (err: any) {
+    if (binaryMissingAt(err, cwd)) {
+      return { ok: false, error: "git_not_found", message: "git binary not found", stderr: String(err?.message ?? "") };
+    }
     const stderr = String(err?.stderr ?? err?.message ?? "");
     if (/already used by worktree at|is already checked out at/i.test(stderr)) {
       return { ok: false, error: "branch_in_use", message: `branch pr-${prNumber} is already checked out in another worktree`, stderr };

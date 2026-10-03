@@ -1413,6 +1413,107 @@ describe("argv migration — caller values stay single argv elements", () => {
     } finally { s.restore(); }
   });
 
+  // review r3 B1 — missing binary at a LATER spawn (initial probes succeeded).
+  describe("missing binary at a later spawn reports the dedicated code", () => {
+    const missingOn = (pred: (args: string[]) => boolean) => (file: string, args: string[]) =>
+      file === "git" && pred(args) ? spawnMissingError("git") : undefined;
+
+    it("mergeWorktree: checkout spawn", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/lm1" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({ fileThrow: missingOn((a) => a[0] === "checkout") });
+      try {
+        const r = mergeWorktree({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("mergeWorktree: merge spawn", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/lm2" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({ fileThrow: missingOn((a) => a[0] === "merge" && a[1] === "--no-ff") });
+      try {
+        const r = mergeWorktree({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("worktreeDiffStat: diff spawn", () => {
+      const wt = addWorktree({ cwd: repo, base: "main", newBranch: "feat/lm3" });
+      expect(wt.ok).toBe(true);
+      if (!wt.ok) return;
+      const s = spyBothExecSurfaces({ fileThrow: missingOn((a) => a[0] === "diff") });
+      try {
+        const r = worktreeDiffStat({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("pushBranch: push spawn", () => {
+      const wt = makeTrackingWorktree("feat/lm4");
+      const s = spyBothExecSurfaces({ fileThrow: missingOn((a) => a[0] === "push") });
+      try {
+        const r = pushBranch({ cwd: wt.path }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("createPullRequest: entry probe reports git_not_found, not detached HEAD", () => {
+      const wt = makeTrackingWorktree("feat/lm5");
+      const s = spyBothExecSurfaces({ fileThrow: missingOn(() => true) });
+      try {
+        const r = createPullRequest({ cwd: wt.path, ghPath: process.execPath, title: "t" }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("listPullRequests: missing gh reports gh_not_found, not git_failed", () => {
+      const s = spyBothExecSurfaces({
+        fileThrow: (file) => (file === "/nonexistent/gh" ? spawnMissingError("gh") : undefined),
+      });
+      try {
+        const r = listPullRequests({ cwd: repo, ghPath: "/nonexistent/gh" }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.code).toBe("gh_not_found");
+      } finally { s.restore(); }
+    });
+
+    it("addWorktreeFromPr: worktree-add spawn", () => {
+      const s = spyBothExecSurfaces({
+        fileFake: (file, args) => (file === "git" && args[0] === "fetch" ? "" : undefined),
+        fileThrow: missingOn((a) => a[0] === "worktree" && a[1] === "add"),
+      });
+      try {
+        const r = addWorktreeFromPr({ cwd: repo, prNumber: 9 }) as any;
+        expect(r.ok).toBe(false);
+        expect(r.error).toBe("git_not_found");
+      } finally { s.restore(); }
+    });
+  });
+
+  // review r3 B2 — a nonexistent cwd makes Node report ENOENT with no status
+  // even though git is installed; that is NOT a missing binary.
+  it.each([
+    ["mergeWorktree", (c: string) => mergeWorktree({ cwd: c }), (r: any) => r.code],
+    ["worktreeDiffStat", (c: string) => worktreeDiffStat({ cwd: c }), (r: any) => r.code],
+    ["pushBranch", (c: string) => pushBranch({ cwd: c }), (r: any) => r.code],
+    ["addWorktreeFromPr", (c: string) => addWorktreeFromPr({ cwd: c, prNumber: 7 }), (r: any) => r.error],
+    ["createPullRequest", (c: string) => createPullRequest({ cwd: c, ghPath: process.execPath, title: "t" }), (r: any) => r.code],
+    ["listPullRequests", (c: string) => listPullRequests({ cwd: c, ghPath: process.execPath }), (r: any) => r.code],
+  ])("%s on a nonexistent cwd with git present is not git_not_found", (_n, run, pick) => {
+    const r = run(join(tmpdir(), "definitely-not-here-" + Date.now())) as any;
+    expect(r.ok).toBe(false);
+    expect(pick(r)).not.toBe("git_not_found");
+    expect(pick(r)).not.toBe("gh_not_found");
+  });
+
   // review r2 B3 — the dedicated code is a property of the BINARY, so every
   // migrated entry point must report it, not only addWorktree / createPullRequest.
   it.each([
