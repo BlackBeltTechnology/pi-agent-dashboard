@@ -135,14 +135,12 @@ export class InternalRegistry {
    * Models with valid auth (api_key or oauth) in auth.json.
    */
   async getAvailable(): Promise<any[]> {
-    if (this.cachedModels) {
-      // Re-project on every lookup (fingerprint-checked, so a no-op when
-      // unchanged): an edited or removed custom key takes effect on the next
-      // request, as when the key was read per request.
-      // See change: collapse-model-proxy-onto-modelruntime (D3).
-      this.projectCustomProviders(this.getAllModels());
-      return this.cachedModels;
-    }
+    // Re-project on every lookup (fingerprint-checked, so a no-op when
+    // unchanged): an edited or removed custom key takes effect on the next
+    // request, as when the key was read per request — for routing AND, by
+    // dropping the filtered cache on any projection change, for listing.
+    // See change: collapse-model-proxy-onto-modelruntime (D3).
+    if (this.cachedModels && !this.projectCustomProviders(this.getAllModels())) return this.cachedModels;
     const all = this.getAllModels();
     const auth = this.deps.readAuth();
     const filtered = all.filter((m: any) => this.canRouteModel(m, auth[m.provider]));
@@ -353,19 +351,27 @@ export class InternalRegistry {
    * registration — still listed per the auth rules, not routable.
    * See change: collapse-model-proxy-onto-modelruntime (D3).
    */
-  private projectCustomProviders(models: any[]): void {
+  /** Returns whether the projected provider set changed. */
+  private projectCustomProviders(models: any[]): boolean {
     const { registerProvider, unregisterProvider } = this.runtime;
-    if (!registerProvider || !unregisterProvider) return;
+    if (!registerProvider || !unregisterProvider) return false;
     const desired = this.desiredProjection(models);
+    let changed = false;
 
     for (const id of [...this.registered.keys()]) {
       if (desired.has(id)) continue;
-      unregisterProvider.call(this.runtime, id);
+      changed = true;
       this.registered.delete(id);
+      try {
+        unregisterProvider.call(this.runtime, id);
+      } catch (err) {
+        console.warn(`[model-proxy] custom provider "${id}" unregister failed: ${(err as Error)?.message ?? "unknown error"}`);
+      }
     }
     for (const [id, config] of desired) {
       const fingerprint = JSON.stringify(config);
       if (this.registered.get(id) === fingerprint) continue;
+      changed = true;
       try {
         if (this.registered.has(id)) unregisterProvider.call(this.runtime, id);
         this.registered.delete(id);
@@ -375,6 +381,7 @@ export class InternalRegistry {
         console.warn(`[model-proxy] custom provider "${id}" registration failed: ${(err as Error)?.message ?? "unknown error"}`);
       }
     }
+    return changed;
   }
 
   /** Non-built-in providers of the merged catalogue that hold a resolvable api key → their runtime config. */

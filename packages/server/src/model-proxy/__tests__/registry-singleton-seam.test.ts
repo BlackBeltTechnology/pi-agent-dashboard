@@ -251,3 +251,46 @@ describe("a projected key is a literal, never a pi config template (audit)", () 
     expect(captured[0].options.apiKey).toBe(hostile);
   });
 });
+
+describe("projection changes reach the cached listing (CodeRabbit)", () => {
+  it("a key removed between lookups drops the provider from the cached getAvailable()", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const state = {
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-acme" } } as Record<string, CustomProviderEntry>,
+      auth: { acme: { type: "api_key", key: "sk-acme" } } as Record<string, any>,
+      discovered: acmeModels(),
+    };
+    const { registry, registered } = makeRegistry(state);
+    await registry.refresh();
+    expect((await registry.getAvailable()).some((m: any) => m.provider === "acme")).toBe(true);
+
+    state.auth = {}; // key removed externally, no refresh
+    expect((await registry.getAvailable()).some((m: any) => m.provider === "acme")).toBe(false);
+    expect(registered.has("acme")).toBe(false);
+  });
+
+  it("an unregisterProvider failure is logged, never breaks listing", async () => {
+    const lines: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
+      lines.push(a.map(String).join(" "));
+    });
+    const state = {
+      providers: { acme: { baseUrl: "https://acme.example/v1", apiKey: "sk-SENTINEL" } } as Record<string, CustomProviderEntry>,
+      auth: { acme: { type: "api_key", key: "sk-SENTINEL" } } as Record<string, any>,
+      discovered: acmeModels(),
+    };
+    const { registry, runtime } = makeRegistry(state);
+    await registry.refresh();
+    runtime.unregisterProvider = () => {
+      throw new Error("unregister exploded");
+    };
+    state.providers = {};
+    state.auth = {};
+    state.discovered = [];
+
+    await expect(registry.refresh()).resolves.toBeUndefined();
+    await expect(registry.getAvailable()).resolves.toEqual([]);
+    expect(lines.some((l) => l.includes('"acme"') && l.includes("unregister"))).toBe(true);
+    for (const l of lines) expect(l).not.toContain("SENTINEL");
+  });
+});
