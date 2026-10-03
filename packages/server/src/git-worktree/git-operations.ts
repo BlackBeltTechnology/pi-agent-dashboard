@@ -98,11 +98,16 @@ function isBinaryMissing(err: unknown): boolean {
  */
 function binaryMissingAt(err: unknown, cwd: string): boolean {
   if (!isBinaryMissing(err)) return false;
+  // Ask git itself whether it can enter `cwd` (no filesystem call on the
+  // caller-supplied path). Run from the server's own cwd so the probe is
+  // independent of `cwd`: a bad directory (nonexistent, or a regular file ->
+  // ENOTDIR) makes git exit with a STATUS ("cannot change to ..."); a missing
+  // binary has no status at all.
   try {
-    // A regular file used as cwd yields ENOTDIR with no status too.
-    return fs.statSync(cwd).isDirectory();
-  } catch {
-    return false;
+    run(["git", "-C", cwd, "--version"], process.cwd());
+    return true; // git ran and entered cwd: the earlier failure was the binary
+  } catch (probeErr) {
+    return isBinaryMissing(probeErr);
   }
 }
 
@@ -1947,13 +1952,19 @@ export function addWorktreeFromPr(opts: {
       : { ok: false, error: "not_a_repo", message: "not a git repository" };
   }
 
-  const localRef = `refs/pr/${prNumber}`;
-  const localBranch = `pr-${prNumber}`;
-  const worktreePath = opts.path ?? path.join(repoRoot, ".worktrees", `pr-${prNumber}`);
+  // Defence in depth: the route validates, but this function is exported and
+  // the value reaches `git fetch`, which honours option-like arguments.
+  if (!Number.isSafeInteger(prNumber) || prNumber <= 0) {
+    return { ok: false, error: "git_failed", message: "prNumber must be a positive integer" };
+  }
+  const pr = Number(prNumber);
+  const localRef = `refs/pr/${pr}`;
+  const localBranch = `pr-${pr}`;
+  const worktreePath = opts.path ?? path.join(repoRoot, ".worktrees", `pr-${pr}`);
 
   // Step 1: Fetch the PR head ref. ARGV form — no shell; env suppresses prompts.
   try {
-    execFileSync("git", ["fetch", "origin", `refs/pull/${prNumber}/head:${localRef}`], {
+    execFileSync("git", ["fetch", "--", "origin", `refs/pull/${pr}/head:${localRef}`], {
       cwd,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],

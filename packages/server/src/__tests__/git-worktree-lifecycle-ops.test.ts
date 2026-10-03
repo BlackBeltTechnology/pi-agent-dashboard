@@ -1219,7 +1219,8 @@ describe("argv migration — caller values stay single argv elements", () => {
     } finally { s.restore(); }
     const fetchCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "fetch");
     expect(fetchCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
-    expect(fetchCall!.args).toEqual(["fetch", "origin", "refs/pull/7/head:refs/pr/7"]);
+    // `--` ends option parsing so no later value can be read as e.g. --upload-pack.
+    expect(fetchCall!.args).toEqual(["fetch", "--", "origin", "refs/pull/7/head:refs/pr/7"]);
     const addCall = s.argvCalls.find((c) => c.file === "git" && c.args[0] === "worktree" && c.args[1] === "add");
     expect(addCall, `argv calls: ${JSON.stringify(s.argvCalls)}`).toBeDefined();
     expect(addCall!.args).toEqual(["worktree", "add", "-b", "pr-7", join(repo, ".worktrees", "pr-7"), "refs/pr/7"]);
@@ -1643,6 +1644,18 @@ describe("argv migration — caller values stay single argv elements", () => {
       } finally { s.restore(); }
     });
   });
+
+  it.each([[0], [-1], [1.5], [Number.NaN], [Number.MAX_SAFE_INTEGER + 1]])(
+    "addWorktreeFromPr rejects a non-positive-integer prNumber (%s) before any fetch",
+    (n) => {
+      const s = spyBothExecSurfaces();
+      try {
+        const r = addWorktreeFromPr({ cwd: repo, prNumber: n as number }) as any;
+        expect(r.ok).toBe(false);
+        expect(s.argvCalls.some((c) => c.file === "git" && c.args[0] === "fetch")).toBe(false);
+      } finally { s.restore(); }
+    },
+  );
 
   // review r3 B2 — a nonexistent cwd makes Node report ENOENT with no status
   // even though git is installed; that is NOT a missing binary.
