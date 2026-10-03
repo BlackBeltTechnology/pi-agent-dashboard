@@ -211,6 +211,56 @@ describe("check-run", () => {
   });
 });
 
+describe("slug", () => {
+  const slug = (cwd: string, t: string) => guard(cwd, "slug", t);
+
+  it("is `root` for the repository root, however it is spelled", () => {
+    expect(slug(repo, ".").stdout.trim()).toBe("root");
+    mkdirSync(join(repo, "a"));
+    expect(slug(join(repo, "a"), "..").stdout.trim()).toBe("root");
+  });
+
+  it("refuses a target outside the repository (e.g. `..` from the root)", () => {
+    const r = slug(repo, "..");
+    expect(r.code).toBe(2);
+    expect(r.stdout).toBe("");
+  });
+
+  it("is a single safe path component and distinguishes colliding spellings", () => {
+    for (const d of ["a/b", "a-b", "a--b", "A B"]) mkdirSync(join(repo, d), { recursive: true });
+    const out = ["a/b", "a-b", "a--b", "A B", "./a/../a/b"].map((t) => slug(repo, t).stdout.trim());
+    for (const o of out) expect(o).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+    expect(new Set(out.slice(0, 4)).size).toBe(4);
+    expect(out[4]).toBe(out[0]); // same directory, same slug
+  });
+});
+
+describe("check-manifest", () => {
+  const write = (caps: string[]) => {
+    const p = join(repo, "manifest.json");
+    writeFileSync(p, JSON.stringify({ capabilities: caps.map((capability) => ({ capability, files: [] })) }));
+    return p;
+  };
+
+  it("accepts unique kebab-case names", () => {
+    expect(guard(repo, "check-manifest", write(["orders", "order-pricing"])).code).toBe(0);
+  });
+
+  it("rejects duplicate names (parallel generators would share outputs)", () => {
+    const r = guard(repo, "check-manifest", write(["orders", "pricing", "orders"]));
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/duplicate.*orders/i);
+  });
+
+  it("rejects unsafe names and an empty or malformed manifest", () => {
+    expect(guard(repo, "check-manifest", write(["x/../../victim"])).code).toBe(2);
+    expect(guard(repo, "check-manifest", write([])).code).toBe(2);
+    writeFileSync(join(repo, "bad.json"), "{");
+    expect(guard(repo, "check-manifest", join(repo, "bad.json")).code).toBe(2);
+    expect(guard(repo, "check-manifest").code).toBe(2);
+  });
+});
+
 describe("bad input", () => {
   it("X1: check-dest without a path, or an empty path", () => {
     const before = snapshot(repo);

@@ -1,6 +1,6 @@
 # Rebuild package templates
 
-Layout under `.reverse-spec-scratch/<target-slug>/rebuild/`:
+Layout under `.reverse-spec-scratch/<target-slug>/rebuild/` (`<target-slug>` from `guard.mjs slug <target>`):
 
 ```
 README.md              index: target, commit SHA, capabilities, counts, gate verdicts

@@ -138,6 +138,7 @@ guards so they are testable instead of agent prose:
 - `check-dest <path> [--protect <dir>]...` exits non-zero when the path, resolved component by
   component in kernel order (symlinks — even dangling — followed before `..`), is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
+- `slug <target>` derives the scratch slug (canonical repo-relative path → kebab-case + hash; `root`; refuses targets outside the repo); `check-manifest` rejects unsafe or duplicate capability names before generators fan out.
 - `check-cap <name>` / `check-run <id>` reject any capability name or run id that is not a single safe path component (capability names come from untrusted discovery output and become paths).
 - `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.
 - `seed-ids <ids.json> <dir>...` / `next-id <ids.json> <BR|QUIRK|GAP>` keep a persisted per-kind high-water mark (`_ids.json`, shipped with the package) so retired ids — across runs and across revisions within a run — are never reused.

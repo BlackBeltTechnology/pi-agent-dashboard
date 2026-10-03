@@ -10,6 +10,12 @@
 //       else exit 2 — capability names become file names and validation ids.
 //   node guard.mjs check-run <id>
 //       exit 0 when <id> is a safe run id ([A-Za-z0-9][A-Za-z0-9-]*), else exit 2.
+//   node guard.mjs slug <target>
+//       print the scratch slug of <target>: `root` for the repository root, else a
+//       kebab-case form of its canonical repo-relative path plus an 8-hex hash of that
+//       path (collision-free, never `.`/`..`); exit 2 when <target> is outside the repo.
+//   node guard.mjs check-manifest <manifest.json>
+//       exit 2 unless `capabilities[].capability` is non-empty, kebab-case and unique.
 //   node guard.mjs new-run
 //       print a collision-resistant run id: <UTC yyyymmddThhmmssZ>-<8 random hex>.
 //   node guard.mjs seed-ids <ids.json> <dir>...
@@ -31,7 +37,7 @@
 // `git rev-parse --show-toplevel`, falling back to the current directory.
 
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -53,6 +59,8 @@ const USAGE = `usage:
   node guard.mjs check-dest <path> [--protect <dir>]...
   node guard.mjs check-cap <name>
   node guard.mjs check-run <id>
+  node guard.mjs slug <target>
+  node guard.mjs check-manifest <manifest.json>
   node guard.mjs new-run
   node guard.mjs seed-ids <ids.json> <dir>...
   node guard.mjs next-id <ids.json> <BR|QUIRK|GAP>
@@ -161,6 +169,49 @@ function checkName(args, re, what) {
   if (value === undefined || extra !== undefined) usage(`check-${what}: needs exactly one ${what} name`);
   if (!re.test(value)) {
     process.stderr.write(`invalid ${what === "cap" ? "capability" : "run"} name: ${JSON.stringify(value)}\n`);
+    process.exit(2);
+  }
+}
+
+function slug(args) {
+  const [target, extra] = args;
+  if (!target || extra !== undefined) usage("slug: needs exactly one target path");
+  const root = repoRoot();
+  const real = realPathOf(target);
+  if (!inside(real, root)) {
+    process.stderr.write(`slug: ${target} resolves to ${real}, outside the repository ${root}\n`);
+    process.exit(2);
+  }
+  const rel = relative(root, real).split(sep).join("/");
+  if (rel === "") {
+    process.stdout.write("root\n");
+    return;
+  }
+  const readable = rel.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "t";
+  const hash = createHash("sha256").update(rel).digest("hex").slice(0, 8);
+  process.stdout.write(`${readable}-${hash}\n`);
+}
+
+function checkManifest(args) {
+  const [file, extra] = args;
+  if (!file || extra !== undefined) usage("check-manifest: needs exactly one manifest file");
+  let caps;
+  try {
+    caps = JSON.parse(readFileSync(file, "utf8")).capabilities.map((c) => c.capability);
+  } catch {
+    process.stderr.write(`check-manifest: cannot read capabilities[].capability from ${file}\n`);
+    process.exit(2);
+  }
+  const problems = [];
+  if (caps.length === 0) problems.push("no capabilities");
+  const seen = new Set();
+  for (const cap of caps) {
+    if (typeof cap !== "string" || !CAP_RE.test(cap)) problems.push(`invalid capability name ${JSON.stringify(cap)}`);
+    else if (seen.has(cap)) problems.push(`duplicate capability name ${cap}`);
+    seen.add(cap);
+  }
+  if (problems.length) {
+    process.stderr.write(`${problems.join("\n")}\n`);
     process.exit(2);
   }
 }
@@ -424,6 +475,12 @@ switch (cmd) {
     break;
   case "check-run":
     checkName(rest, RUN_RE, "run");
+    break;
+  case "slug":
+    slug(rest);
+    break;
+  case "check-manifest":
+    checkManifest(rest);
     break;
   case "seed-ids":
     seedIds(rest);

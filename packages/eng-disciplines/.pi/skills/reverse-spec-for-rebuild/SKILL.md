@@ -39,7 +39,10 @@ Skip for a single trivial file, or when you only want searchable docs.
 `G` below is `node <this skill dir>/scripts/guard.mjs` (the deterministic guards in
 `scripts/guard.mjs`: `check-dest`, `sweep`, `lint-spec`), run from the
 repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
-(`<target-slug>` = target path, `/` -> `-`, `.` -> `root`).
+(`<target-slug>` = output of `G slug <target>`: `root` for the repository root,
+else a kebab-case form of the canonical repo-relative path plus a short hash —
+never `.`/`..`, never shared by two targets; it exits 2 for a target outside
+the repository. Never derive the slug by hand).
 
 1. **Scratch must be ignored.** `git check-ignore -q .reverse-spec-scratch/`
    (keep the trailing slash: a `dir/` ignore pattern does not match a
@@ -70,10 +73,12 @@ repository root. `PKG` is `.reverse-spec-scratch/<target-slug>/rebuild/`
       including ids the previous package already retired.
 4. **Discover.** One subagent with `prompts/discovery.md` (`KB_AVAILABLE` =
    `kb` tooling or `AGENTS.md` files present). It returns a capability manifest.
-   Run `G check-cap <name>` on every capability name; reject (re-run
-   discovery, or rename by hand) any that exits 2 — names become file paths and
-   validation ids, and target code is untrusted. Check `unassigned_files` is empty; otherwise add them to a capability or ask
-   the subagent to re-cluster. For a single-capability target you may write the
+   Save it as `PKG/_manifest.json` and run `G check-manifest PKG/_manifest.json`;
+   on exit 2 (an unsafe or duplicate capability name) re-run discovery or
+   rename/merge the entries by hand, then re-check — names become file paths and
+   validation ids, target code is untrusted, and two capabilities with one name
+   would overwrite each other's outputs. Check `unassigned_files` is empty;
+   otherwise add them to a capability or ask the subagent to re-cluster. For a single-capability target you may write the
    manifest by hand.
 5. **Generate in parallel.** One subagent per capability, all in a SINGLE
    message, with `prompts/generator-rebuild.md`. Each writes its unmerged spec
@@ -180,6 +185,7 @@ format gate. Pass the prompt text with placeholders filled, plus exact paths.
 ```
 PKG/README.md  model.md  rules.md  quirks.md  gaps.md  completeness.md
 PKG/_ids.json                      BR/QUIRK/GAP high-water marks (never lowered)
+PKG/_manifest.json                 discovery manifest (checked by `G check-manifest`)
 PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments (rendered by the merge)
 PKG/_fragments/<cap>.spec.md       unmerged spec with local refs (merge input)
 PKG/_fragments/<cap>.json          merge input, kept for re-runs

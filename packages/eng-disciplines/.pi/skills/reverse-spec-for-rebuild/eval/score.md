@@ -16,7 +16,7 @@ and the rebuild package under test. It never reads the skill prompts.
    put a directory without `openspec` first on `PATH` (or `PATH=/usr/bin:/bin`
    plus node) so the OpenSpec CLI is absent.
 2. Run the skill on `$T` (target = repo root). Package lands in
-   `$T/.reverse-spec-scratch/<slug>/rebuild/`.
+   `$T/.reverse-spec-scratch/root/rebuild/` (`guard.mjs slug .` prints `root`).
 3. Re-run (M5): run again, supplying the first package as the previous package.
 
 ## 2. Judge procedure
