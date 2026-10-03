@@ -1,2 +1,6 @@
 schema: spec-driven
+# Removes EVERY requirement of `bootstrap-install` and `dependency-installer`
+# (their code was deleted by eliminate-electron-runtime-install), so archiving
+# retires both capabilities and deletes their specs. Required by `openspec archive`.
+retire_capabilities: true
 created: 2026-10-03
