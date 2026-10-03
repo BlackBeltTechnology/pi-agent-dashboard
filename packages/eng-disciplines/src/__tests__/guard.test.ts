@@ -8,7 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { guard } from "./files";
+import { guard, SKILL as SKILL_DIR } from "./files";
 
 let repo: string;
 
@@ -201,6 +201,24 @@ describe("check-cap", () => {
   });
 });
 
+describe("capability length (B1 r8)", () => {
+  it("accepts 60 chars and the longest validation dir is creatable", () => {
+    const cap = `a${"-b".repeat(29)}c`.slice(0, 60);
+    expect(cap.length).toBe(60);
+    expect(guard(repo, "check-cap", cap).code).toBe(0);
+    const run = guard(repo, "new-run").stdout.trim();
+    mkdirSync(join(repo, "openspec", "specs", `_rsfr-val-${run}-${cap}`));
+  });
+
+  it("rejects 61 chars in check-cap and check-manifest", () => {
+    const cap = "a".repeat(61);
+    expect(guard(repo, "check-cap", cap).code).toBe(2);
+    const p = join(repo, "m.json");
+    writeFileSync(p, JSON.stringify({ capabilities: [{ capability: cap }] }));
+    expect(guard(repo, "check-manifest", p).code).toBe(2);
+  });
+});
+
 describe("check-run", () => {
   it.each(["20261003T052255Z-a93a5a57", "r1"])("accepts %s", (id) => {
     expect(guard(repo, "check-run", id).code).toBe(0);
@@ -266,13 +284,36 @@ describe("lock (B2 r7)", () => {
     expect(existsSync(lockFile("root"))).toBe(false);
   });
 
-  it("a lock not refreshed for over 2 hours is taken over", () => {
+  it("an old lock never expires: the next run is refused until a human breaks it", () => {
     guard(repo, "lock", "root", "run1");
-    const t = new Date(Date.now() - 3 * 3600_000);
+    const t = new Date(Date.now() - 30 * 24 * 3600_000);
     utimesSync(lockFile("root"), t, t);
     const r = guard(repo, "lock", "root", "run2");
-    expect(r.code).toBe(0);
-    expect(r.stderr).toMatch(/stale/i);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("break-lock root run1");
+  });
+
+  it("break-lock removes the lock only for the named owner, then acquisition is exclusive", () => {
+    guard(repo, "lock", "root", "run1");
+    expect(guard(repo, "break-lock", "root", "run9").code).toBe(1);
+    expect(existsSync(lockFile("root"))).toBe(true);
+    expect(guard(repo, "break-lock", "root", "run1").code).toBe(0);
+    expect(existsSync(lockFile("root"))).toBe(false);
+    expect(guard(repo, "lock", "root", "run2").code).toBe(0);
+  });
+
+  it("concurrent acquisitions: exactly one run wins", async () => {
+    const { spawn } = await import("node:child_process");
+    const GUARD = join(SKILL_DIR, "scripts", "guard.mjs");
+    const codes = await Promise.all(
+      Array.from({ length: 6 }, (_, i) =>
+        new Promise<number | null>((done) => {
+          spawn(process.execPath, [GUARD, "lock", "root", `run${i}`], { cwd: repo }).on("exit", (c) => done(c));
+        }),
+      ),
+    );
+    expect(codes.filter((c) => c === 0)).toHaveLength(1);
+    expect(codes.filter((c) => c === 1)).toHaveLength(5);
   });
 
   it("rejects unsafe slug or run id", () => {

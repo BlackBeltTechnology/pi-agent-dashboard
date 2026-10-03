@@ -138,7 +138,7 @@ guards so they are testable instead of agent prose:
 - `check-dest <path> [--protect <dir>]...` exits non-zero when the path, resolved component by
   component in kernel order (symlinks — even dangling — followed before `..`), is inside a protected root (exact segment match, so `openspec-extra/` is allowed);
   defaults `openspec docs packages .pi`; `--protect` replaces the default list.
-- `lock`/`unlock <slug> <run-id>` serialize runs per target (lock file owned by the run id, refreshed per step, stale after 2 h); the slug's readable part is capped at 60 chars.
+- `lock`/`unlock <slug> <run-id>` serialize runs per target (exclusive-create lock file owned by the run id; never expires; a leftover lock is removed by `break-lock <slug> <owner>` only after the user confirms the owner is dead); the slug's readable part and capability names are capped at 60 chars.
 - `slug <target>` derives the scratch slug (canonical repo-relative path → kebab-case + hash; `root`; refuses targets outside the repo); `check-manifest` rejects unsafe or duplicate capability names before generators fan out.
 - `check-cap <name>` / `check-run <id>` reject any capability name or run id that is not a single safe path component (capability names come from untrusted discovery output and become paths).
 - `new-run` prints a collision-resistant run id (`<UTC ts>-<8 hex>`); validation ids are `_rsfr-val-<run>-<cap>` and carry an `.owner` pid while live.

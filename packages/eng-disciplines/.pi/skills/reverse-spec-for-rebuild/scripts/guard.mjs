@@ -6,19 +6,20 @@
 //       exit 1 when its resolved real path lies inside a protected root
 //       (default roots: openspec docs packages .pi; --protect replaces them).
 //   node guard.mjs check-cap <name>
-//       exit 0 when <name> is a single kebab-case path component ([a-z0-9]+(-[a-z0-9]+)*),
-//       else exit 2 — capability names become file names and validation ids.
+//       exit 0 when <name> is a single kebab-case path component ([a-z0-9]+(-[a-z0-9]+)*)
+//       of at most CAP_MAX chars (keeps `_rsfr-val-<run>-<cap>` under 255), else exit 2 — capability names become file names and validation ids.
 //   node guard.mjs check-run <id>
 //       exit 0 when <id> is a safe run id ([A-Za-z0-9][A-Za-z0-9-]*), else exit 2.
 //   node guard.mjs slug <target>
 //       print the scratch slug of <target>: `root` for the repository root, else a
 //       kebab-case form of its canonical repo-relative path plus an 8-hex hash of that
 //       path (collision-free, never `.`/`..`); exit 2 when <target> is outside the repo.
-//   node guard.mjs lock <slug> <run-id> / unlock <slug> <run-id>
+//   node guard.mjs lock <slug> <run-id> / unlock <slug> <run-id> / break-lock <slug> <owner>
 //       one run per target: `.reverse-spec-scratch/<slug>.lock` holds the owning run id.
-//       lock: create it, or refresh it when this run owns it; exit 1 when another run
-//       holds it and refreshed it within LOCK_STALE_MS (a staler lock is taken over).
+//       lock: create it exclusively (O_EXCL), or succeed when this run already owns it;
+//       exit 1 when any other run holds it. Locks never expire on their own.
 //       unlock: remove it only when this run owns it (exit 1 otherwise).
+//       break-lock: human-confirmed removal of a leftover lock, only when <owner> owns it.
 //   node guard.mjs check-manifest <manifest.json>
 //       exit 2 unless `capabilities[].capability` is non-empty, kebab-case and unique.
 //   node guard.mjs new-run
@@ -53,7 +54,6 @@ import {
   realpathSync,
   rmSync,
   statSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
@@ -69,6 +69,7 @@ const USAGE = `usage:
   node guard.mjs slug <target>
   node guard.mjs lock <slug> <run-id>
   node guard.mjs unlock <slug> <run-id>
+  node guard.mjs break-lock <slug> <owner-run-id>
   node guard.mjs check-manifest <manifest.json>
   node guard.mjs new-run
   node guard.mjs seed-ids <ids.json> <dir>...
@@ -171,14 +172,14 @@ function newRun(args) {
 }
 
 const SLUG_READABLE_MAX = 60;
-const LOCK_STALE_MS = 2 * 60 * 60 * 1000;
+const CAP_MAX = 60;
 const CAP_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const RUN_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
 
 function checkName(args, re, what) {
   const [value, extra] = args;
   if (value === undefined || extra !== undefined) usage(`check-${what}: needs exactly one ${what} name`);
-  if (!re.test(value)) {
+  if (!re.test(value) || (what === "cap" && value.length > CAP_MAX)) {
     process.stderr.write(`invalid ${what === "cap" ? "capability" : "run"} name: ${JSON.stringify(value)}\n`);
     process.exit(2);
   }
@@ -226,17 +227,25 @@ function lock(args) {
     if (err.code !== "EEXIST") throw err;
   }
   const owner = readFileSync(file, "utf8").trim();
-  if (owner === run) {
-    const now = new Date();
-    utimesSync(file, now, now);
-    return;
-  }
-  if (Date.now() - statSync(file).mtimeMs <= LOCK_STALE_MS) {
-    process.stderr.write(`locked: target is in use by run ${owner} (${file})\n`);
+  if (owner === run) return;
+  const slugArg = args[0];
+  process.stderr.write(
+    `locked: target is held by run ${owner} (${file}). If that run is no longer active, ` +
+      `ask the user, then: node guard.mjs break-lock ${slugArg} ${owner}\n`,
+  );
+  process.exit(1);
+}
+
+function breakLock(args) {
+  const { file, run: owner } = lockArgs(args, "break-lock");
+  if (!existsSync(file)) return;
+  const current = readFileSync(file, "utf8").trim();
+  if (current !== owner) {
+    process.stderr.write(`not breaking: lock is held by run ${current}, not ${owner}\n`);
     process.exit(1);
   }
-  process.stderr.write(`taking over stale lock of run ${owner} (${file})\n`);
-  writeFileSync(file, `${run}\n`);
+  rmSync(file, { force: true });
+  process.stdout.write(`broke lock of run ${owner}\n`);
 }
 
 function unlock(args) {
@@ -264,7 +273,9 @@ function checkManifest(args) {
   if (caps.length === 0) problems.push("no capabilities");
   const seen = new Set();
   for (const cap of caps) {
-    if (typeof cap !== "string" || !CAP_RE.test(cap)) problems.push(`invalid capability name ${JSON.stringify(cap)}`);
+    if (typeof cap !== "string" || !CAP_RE.test(cap) || cap.length > CAP_MAX) {
+      problems.push(`invalid capability name ${JSON.stringify(cap)} (kebab-case, at most ${CAP_MAX} chars)`);
+    }
     else if (seen.has(cap)) problems.push(`duplicate capability name ${cap}`);
     seen.add(cap);
   }
@@ -542,6 +553,9 @@ switch (cmd) {
     break;
   case "unlock":
     unlock(rest);
+    break;
+  case "break-lock":
+    breakLock(rest);
     break;
   case "check-manifest":
     checkManifest(rest);

@@ -59,12 +59,13 @@ the repository. Never derive the slug by hand).
 3. **Resolve the target.** Confirm the path exists; record
    `git rev-parse HEAD` for `PKG/README.md`. In this order:
    0. **Lock the target.** `SLUG=$(G slug <target>)`, then
-      `G lock "$SLUG" "$RUN_ID"`. Exit 1 = another run is working on this
-      target: stop and tell the user (never share a `PKG`). Re-run the same
-      `G lock` at every later step boundary — it refreshes the lock; a lock not
-      refreshed for 2 hours counts as abandoned and is taken over. Release it
-      with `G unlock "$SLUG" "$RUN_ID"` at step 14, and whenever the run stops
-      early.
+      `G lock "$SLUG" "$RUN_ID"`. Exit 1 = another run holds this target
+      (never share a `PKG`): `ask_user` whether that run is still active. Only
+      when the user confirms it is dead, run the `G break-lock "$SLUG" <owner>`
+      command the error names, then `G lock` again (acquisition is exclusive,
+      so a racing run cannot also win). Locks never expire on their own, so a
+      long step never loses ownership. Release with `G unlock "$SLUG" "$RUN_ID"`
+      at step 14, and whenever the run stops early.
    1. **Snapshot first.** When a previous package is supplied (possibly `PKG`
       itself), copy its `rules.md`, `quirks.md`, `gaps.md`, `README.md` and
       `_ids.json` (when present) into
@@ -217,7 +218,10 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   data; step 12 checks that nothing was written outside the scratch dir.
 - **One run per target** — `G lock` serializes runs on the same target (two
   runs would move aside or overwrite each other's `PKG`); different targets run
-  concurrently. An interrupted run's lock expires after 2 hours without a refresh.
+  concurrently. An interrupted run leaves its lock behind; the next run asks the
+  user before `G break-lock` removes it.
+- **Capability names** are kebab-case and at most 60 characters, so every
+  generated name (`_rsfr-val-<run>-<cap>`) stays under the 255-byte limit.
 - **Interrupted runs** leave `openspec/specs/_rsfr-val-*`; the sweep at start
   and end removes stale ones (only this skill's prefix — never `_rsfc-val-*`),
   and `sweep --run` removes this run's own. Ids carry a random run id and each
