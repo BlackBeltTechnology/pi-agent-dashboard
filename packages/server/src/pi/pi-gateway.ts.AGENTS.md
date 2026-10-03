@@ -8,3 +8,10 @@ See change: fix-spawn-correlation-ttl-coupling (D3/D4). The register-time watchd
 Owns the host-pressure signal. `PiGatewayOptions.onHostPressure(sessionId, pressure|null)` + `hostPressureDegradedMs`/`hostPressureUnresponsiveMs` seams; `createHostPressureTracker` fed from `ws.on("message")` (any frame proves the bridge's event loop runs), `handleRegister`, and cleared on EVERY session-exit path — `session_unregister`, any `ws.on("close")` (an OPEN bridge socket is a PRECONDITION of the signal: carrier loss belongs to the heartbeat/status machinery, not to host pressure), the three heartbeat-timeout / reconnect-grace / sleep-retry expiries, and the `/reload` placeholder swap; a missed site leaks a map entry plus its two timers. `hostPressureTrackedCount()` is the leak oracle. `stop()` cancels it. `server.ts` turns each transition into `sessionManager.update({hostPressure})` + a `session_updated` broadcast — the browser cannot see silence itself, because `processMetrics` reaches it only in the connect snapshot. See change: fix-false-unresponsive-badge.
 
 Forwards `session_register.usageSeed` to `register` via `normalizeUsageSeed` (finite non-negative numbers, else dropped). See change: count-non-message-usage.
+
+## Loopback fallback (fix-gateway-socket-stale-owner)
+
+- `startLoopbackFallback(port, reason)` binds `127.0.0.1:<port>`, requires local token or ticket (no tokenless grace, per-listener `requireLocalCredential`), awaits `listening`/`error`; needs `bridgeAuth`.
+- `start(port, host, {kind})` → `kind` `tcp|loopback` recorded in `tcpKind`; `bridgeListeners()` → `{listeners:["unix"|"tcp"|"loopback"|"loopback-fallback"], fallbackReason?}` feeds `/api/health` `gateway`.
+- Failed `startOnSocket` tears down the `wss` it created; `transport()` is guarded against `noServer`.
+- See change: fix-gateway-socket-stale-owner.
