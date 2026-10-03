@@ -1,40 +1,40 @@
 /**
- * mcp-client-plugin · schema-driven server editor (tasks 7.4 + 7.5).
+ * mcp-client-plugin · schema-driven server editor.
  *
  * A modal dialog rendering every `ServerEntry` field from the published
  * schema (`schema.ts` owns widget selection; anything unmapped falls back to a
- * validated JSON editor, so no field is ever hidden). One transport at a time
- * (tabs), rarely-used fields behind an Advanced disclosure, one primary Save
- * that commits a `{ set, unset }` patch computed against the effective
- * baseline — untouched fields (including unknown ones) are never sent.
+ * validated JSON editor, so no field is ever hidden). ONE transport at a time
+ * (tabs; switching clears the other transport's keys). Saving writes the
+ * COMPLETE entry (`buildEntry`: unknown fields preserved, redaction sentinels
+ * never sent, the inactive transport's keys and project-scope `auth` dropped).
  *
- * Secrets: schema `x-secret` fields and credential-named record keys render
- * masked with a per-field reveal that resets on reopen; inherited secrets
- * arrive as `{ redacted: true }` sentinels (server-side redaction), render the
- * redaction placeholder with NO reveal, and are excluded from every patch
- * unless the operator types a new value. Inherited `x-atomic` records are
- * replaced wholesale, so overriding one is an explicit per-field action that
- * starts from `{}` and states how many inherited keys / secrets stop applying.
+ * The exposure alias `codemode-deferred` displays as `codemode` but is kept
+ * unless the operator changes the select. Secret values (schema `x-secret`
+ * fields and credential-named env/header keys) render masked with a per-field
+ * reveal — except `${NAME}` references and `!` commands, shown as written.
+ * A folder override pre-fill arrives with secrets + `auth` already removed and
+ * lists them as `omitted` warnings. Renaming or changing the URL of an OAuth
+ * HTTP server warns that a new sign-in is needed (pi keys credentials by
+ * name + URL). Closing with unsaved changes asks for confirmation.
  *
- * See change: extract-mcp-client-plugin (tasks 7.4, 7.5).
+ * See change: migrate-mcp-to-pi-builtin.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import { authModeOf, isValidServerName, transportOf } from "../core/pi-rules.js";
 import type { Scope } from "../core/types.js";
-import { ApiError, fetchSchema, patchServer, scopeToWire } from "./api.js";
+import { ApiError, fetchSchema, saveServer, scopeToWire } from "./api.js";
 import { invalidateEffective } from "./hooks.js";
-import { transportOf } from "./ServerList.js";
 import {
-  atomicCounts,
+  buildEntry,
   clone,
-  computePatch,
+  deepEqual,
   type FieldSchema,
   fieldsOf,
   getPath,
-  isRedacted,
-  isSecretKeyName,
-  redactedKeys,
+  isMaskedValue,
+  type RawText,
   setPath,
   TRANSPORT_FIELDS,
   type Transport,
@@ -42,7 +42,7 @@ import {
   visibleUnderTransport,
 } from "./schema.js";
 
-/** Rarely-used fields live behind the Advanced disclosure; everything else is common. */
+/** Common fields render at the top; the rest sit behind the Advanced disclosure. */
 const COMMON_FIELDS = new Set([
   "command",
   "args",
@@ -51,16 +51,18 @@ const COMMON_FIELDS = new Set([
   "url",
   "headers",
   "auth",
-  "bearerToken",
-  "socket",
-  "disabled",
-  "lifecycle",
-  "idleTimeout",
+  "oauth",
+  "description",
+  "exposure",
+  "enabled",
 ]);
-const TABS: Transport[] = ["command", "url", "socket"];
-const EMPTY_FIELDS: ReadonlySet<string> = new Set();
+const TABS: Transport[] = ["command", "url"];
 
-const MASK = "••••••••";
+/** The editor tab an entry opens on: the transport pi picks, as a tab. */
+function initialTab(entry: Record<string, unknown>): Transport {
+  return typeof entry.url === "string" && entry.type !== "stdio" ? "url" : "command";
+}
+
 const INPUT_CLS =
   "w-full min-h-11 sm:min-h-0 text-xs bg-transparent border border-[var(--border-secondary)] rounded px-1.5 py-1 text-[var(--text-primary)] outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-primary,#60a5fa)]";
 const BTN_CLS =
@@ -69,22 +71,17 @@ const PRIMARY_BTN_CLS = `${BTN_CLS} border-[var(--accent-primary,#60a5fa)] text-
 const ERROR_CLS = "text-[11px] text-[var(--status-error,#f87171)] m-0";
 
 export interface ServerEditorProps {
-  /** `null` → add a new server (the editor asks for the name). */
+  /** `null` → add a new server (the name input starts empty). */
   name: string | null;
-  /** Baseline: the merged effective entry, redaction sentinels included. `{}` for add. */
+  /**
+   * The pre-fill: an own-layer entry verbatim for an edit, the global entry
+   * minus secrets + `auth` for a folder override, `{}` for add.
+   */
   entry: Record<string, unknown>;
-  /** The scope's writable Pi layer defines the server (edit); `false` → View + Override. */
-  editable: boolean;
-  /** Page-wide read-only (adapter not ok): fields render as text, Save disabled. */
-  readOnly: boolean;
-  /** Write scope (default global). Folder page passes `{ kind: "project", cwd }`. */
+  /** Dotted fields an override pre-fill dropped — each renders a warning. */
+  omitted?: readonly string[];
+  /** Write scope (default global). The folder page passes `{ kind: "project", cwd }`. */
   scope?: Scope;
-  /** Force the initial mode; the folder page's "Override…" opens straight in edit. */
-  initialMode?: "view" | "edit";
-  /** Folder page: per-field inherited hints (omitted when unknowable). */
-  inherited?: { fields: ReadonlySet<string>; layer: string };
-  /** Folder page: render "Remove override" (deletes the folder-layer key). */
-  onRemoveOverride?: () => void;
   /** Folder page: use `mcp-folder-editor` as the dialog testid. */
   dialogTestId?: string;
   onClose: () => void;
@@ -92,51 +89,11 @@ export interface ServerEditorProps {
   onChanged: () => void;
 }
 
-interface EditorCtx {
-  draft: Record<string, unknown>;
-  baseline: Record<string, unknown>;
-  write: (path: string[], value: unknown) => void;
-  revealed: ReadonlySet<string>;
-  toggleReveal: (key: string) => void;
-  raw: Record<string, string>;
-  setRawText: (key: string, value: string) => void;
-  /** Fields render as text, not inputs (View variant, or page-wide read-only). */
-  viewOnly: boolean;
-  /** Overriding a server the scope's Pi layer does not define. */
-  overrideMode: boolean;
-  atomicNotes: ReadonlySet<string>;
-  onAtomicOverride: (field: FieldSchema) => void;
-  errors: Record<string, string>;
-  /** Folder page only: fields the folder entry does not define, with their layer. */
-  inheritedFields: ReadonlySet<string>;
-  inheritedLayer: string | null;
-  /** Folder page only: the `<server>.<field>` hint testid prefix. */
-  hintServer: string;
-  folderPage: boolean;
-}
-
 type Translate = ReturnType<typeof useT>;
 
-function computeTarget(name: string | null, serverName: string): string {
-  return name ?? serverName.trim();
-}
-
-/**
- * When the draft is invalid, the errors + summary to surface; `null` means
- * writable. An empty name wins over the field errors, as before.
- */
-function validationIssue(
-  t: Translate,
-  target: string,
-  fieldErrors: Record<string, string>,
-): { errors: Record<string, string>; summary: string } | null {
-  const nameError =
-    target === "" ? t("mcpEditorNameRequired", undefined, "Server name is required.") : null;
-  if (!nameError && Object.keys(fieldErrors).length === 0) return null;
-  return {
-    errors: nameError ? { name: nameError } : fieldErrors,
-    summary: t("mcpEditorInvalidSummary", undefined, "Fix the errors before saving."),
-  };
+function editorTitle(t: Translate, name: string | null): string {
+  if (name === null) return t("mcpEditorAddTitle", undefined, "Add server");
+  return t("mcpEditorEditTitle", { name }, `Edit server ${name}`);
 }
 
 /** Map a save rejection onto the error state (`ApiError.fields` win over field errors). */
@@ -152,23 +109,37 @@ function failureState(
   return { summary: String(e) };
 }
 
-function editorTitle(t: Translate, mode: "view" | "edit", name: string | null): string {
-  if (mode === "view") {
-    return t("mcpEditorViewTitle", { name: name ?? "" }, `View server ${name ?? ""}`);
+/** Client-side save blockers: the visible fields' widgets, unknown-field JSON, the name. */
+function collectSaveErrors(
+  target: string,
+  nameErrorEmpty: string,
+  nameErrorInvalid: string,
+  fields: FieldSchema[],
+  draft: Record<string, unknown>,
+  tab: Transport,
+  raw: RawText,
+  unknownKeys: string[],
+): Record<string, string> {
+  const errors = validateDraft(fields, draft, tab, raw);
+  for (const key of unknownKeys) {
+    const text = raw[key] ?? JSON.stringify(draft[key]);
+    if (text.trim() === "") continue;
+    try {
+      JSON.parse(text);
+    } catch {
+      errors[key] = "Invalid JSON";
+    }
   }
-  if (name === null) return t("mcpEditorAddTitle", undefined, "Add server");
-  return t("mcpEditorEditTitle", { name }, `Edit server ${name}`);
+  if (target === "") errors.name = nameErrorEmpty;
+  else if (!isValidServerName(target)) errors.name = nameErrorInvalid;
+  return errors;
 }
 
 export function ServerEditor({
   name,
   entry,
-  editable,
-  readOnly,
+  omitted,
   scope = { kind: "global" },
-  initialMode,
-  inherited,
-  onRemoveOverride,
   dialogTestId,
   onClose,
   onChanged,
@@ -177,15 +148,16 @@ export function ServerEditor({
   const [schema, setSchema] = useState<Record<string, unknown> | null>(null);
   const [schemaError, setSchemaError] = useState<Error | null>(null);
   const [draft, setDraft] = useState<Record<string, unknown>>(() => clone(entry));
-  const [tab, setTab] = useState<Transport>(() => transportOf(entry) ?? "command");
-  const [mode, setMode] = useState<"view" | "edit">(initialMode ?? (editable ? "edit" : "view"));
+  const [tab, setTab] = useState<Transport>(() => initialTab(entry));
   const [revealed, setRevealed] = useState<ReadonlySet<string>>(() => new Set());
-  const [raw, setRaw] = useState<Record<string, string>>({});
-  const [atomicNotes, setAtomicNotes] = useState<ReadonlySet<string>>(() => new Set());
+  const [raw, setRaw] = useState<RawText>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [summary, setSummary] = useState<string | null>(null);
   const [serverName, setServerName] = useState(name ?? "");
   const [saving, setSaving] = useState(false);
+  // Dirty tracking for the discard guard: against the INITIAL pre-fill.
+  const initialDraft = useRef(clone(entry));
+  const initialName = name ?? "";
 
   useEffect(() => {
     fetchSchema().then(setSchema, (e: unknown) =>
@@ -204,9 +176,12 @@ export function ServerEditor({
     };
   }, []);
 
-  const viewOnly = mode === "view" || readOnly;
   const fields = schema ? fieldsOf(schema) : [];
+  const schemaFieldNames = new Set(fields.map((f) => f.name));
   const visible = fields.filter((f) => visibleUnderTransport(f.name, tab));
+  const unknownKeys = Object.keys(draft).filter(
+    (k) => !schemaFieldNames.has(k) && getPath(draft, [k]) !== undefined,
+  );
 
   const write = (path: string[], value: unknown) => setDraft((d) => setPath(d, path, value));
   const toggleReveal = (key: string) =>
@@ -219,7 +194,7 @@ export function ServerEditor({
   const setRawText = (key: string, value: string) => setRaw((r) => ({ ...r, [key]: value }));
 
   function switchTab(next: Transport): void {
-    if (next === tab || viewOnly) return;
+    if (next === tab) return;
     setDraft((d) => {
       let next0 = d;
       for (const other of TABS) {
@@ -231,29 +206,49 @@ export function ServerEditor({
     setTab(next);
   }
 
-  function activateAtomicOverride(field: FieldSchema): void {
-    write(field.path, {});
-    setAtomicNotes((prev) => new Set(prev).add(field.name));
+  const dirty = !deepEqual(draft, initialDraft.current) || serverName !== initialName;
+
+  function attemptClose(): void {
+    if (dirty && !window.confirm(t("mcpDiscardConfirm", undefined, "Discard unsaved changes?"))) return;
+    onClose();
   }
 
+  // Renaming or re-pointing an OAuth HTTP server needs a fresh sign-in.
+  const oauthWarning =
+    name !== null &&
+    transportOf(entry) === "http" &&
+    authModeOf(entry)?.kind === "oauth" &&
+    (serverName.trim() !== name || draft.url !== entry.url);
+
   async function save(): Promise<void> {
-    const target = computeTarget(name, serverName);
-    const fieldErrors = validateDraft(visible, draft, tab, raw);
-    const issue = validationIssue(t, target, fieldErrors);
-    if (issue) {
-      setErrors(issue.errors);
-      setSummary(issue.summary);
+    const target = serverName.trim();
+    const allErrors = collectSaveErrors(
+      target,
+      t("mcpEditorNameRequired", undefined, "Server name is required."),
+      t("mcpEditorNameInvalid", undefined, 'Invalid server name (use letters, digits, "_" and "-").'),
+      visible,
+      draft,
+      tab,
+      raw,
+      unknownKeys,
+    );
+    if (Object.keys(allErrors).length > 0) {
+      setErrors(allErrors);
+      setSummary(t("mcpEditorInvalidSummary", undefined, "Fix the errors before saving."));
       return;
     }
-    const { set, unset } = computePatch(draft, entry);
     setSaving(true);
     try {
-      await patchServer(target, { ...scopeToWire(scope), set, unset });
+      await saveServer(target, {
+        ...scopeToWire(scope),
+        entry: buildEntry(draft, tab, scope),
+        ...(name !== null && target !== name ? { previousName: name } : {}),
+      });
       invalidateEffective(scope.kind === "project" ? scope.cwd : undefined);
       onChanged();
       onClose();
     } catch (e) {
-      const failure = failureState(e, fieldErrors);
+      const failure = failureState(e, {});
       if (failure.errors) setErrors(failure.errors);
       setSummary(failure.summary);
     } finally {
@@ -261,35 +256,19 @@ export function ServerEditor({
     }
   }
 
-  const schemaMessage = schemaError
-    ? t(
-        "mcpEditorSchemaError",
-        undefined,
-        `Could not load the field schema: ${schemaError.message}`,
-      )
-    : null;
-  const summaryText = summary ?? schemaMessage;
-
-  const title = editorTitle(t, mode, name);
-  const folderPage = scope.kind === "project";
+  const summaryText = summary ?? (schemaError ? `Could not load the field schema: ${schemaError.message}` : null);
+  const title = editorTitle(t, name);
+  const projectScope = scope.kind === "project";
 
   const ctx: EditorCtx = {
     draft,
-    baseline: entry,
     write,
     revealed,
     toggleReveal,
     raw,
     setRawText,
-    viewOnly,
-    overrideMode: !editable && mode === "edit",
-    atomicNotes,
-    onAtomicOverride: activateAtomicOverride,
     errors,
-    inheritedFields: inherited?.fields ?? EMPTY_FIELDS,
-    inheritedLayer: inherited?.layer ?? null,
-    hintServer: name ?? serverName,
-    folderPage,
+    projectScope,
   };
 
   return (
@@ -297,7 +276,7 @@ export function ServerEditor({
       <button
         type="button"
         aria-label={t("mcpEditorClose", undefined, "Close")}
-        onClick={onClose}
+        onClick={attemptClose}
         data-testid="mcp-editor-backdrop"
         className="absolute inset-0 bg-black/40 cursor-default"
       />
@@ -309,87 +288,76 @@ export function ServerEditor({
         tabIndex={-1}
         data-testid={dialogTestId ?? "mcp-editor-dialog"}
         onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
+          if (e.key === "Escape") attemptClose();
         }}
         className="relative w-full sm:max-w-lg max-h-[85vh] overflow-y-auto bg-[var(--bg-primary)] border border-[var(--border-secondary)] rounded-t-lg sm:rounded-lg p-3 space-y-2 outline-none"
       >
         <h2 className="text-sm font-semibold m-0 text-[var(--text-primary)]">{title}</h2>
 
-        <EditorDialogBody
-          title={title}
-          name={name}
-          viewOnly={viewOnly}
-          serverName={serverName}
-          onServerName={setServerName}
-          errors={errors}
-          summaryText={summaryText}
-          schema={schema}
-          tab={tab}
-          onTab={switchTab}
-          visible={visible}
-          ctx={ctx}
-          mode={mode}
-          readOnly={readOnly}
-          saving={saving}
-          onSave={save}
-          onOverride={() => setMode("edit")}
-          onRemoveOverride={onRemoveOverride}
-          onClose={onClose}
-        />
+        <EditorNameField value={serverName} onChange={setServerName} error={errors.name} />
+        {summaryText && <EditorSummary text={summaryText} errors={errors} />}
+        {!schema && <EditorSkeleton />}
+        {schema && (
+          <>
+            {omitted && omitted.length > 0 && <OmittedWarnings omitted={omitted} />}
+            {oauthWarning && (
+              <p
+                data-testid="mcp-oauth-warning"
+                role="alert"
+                className="text-[11px] text-amber-500 border border-amber-500 rounded px-2 py-1.5 m-0"
+              >
+                {t(
+                  "mcpOauthReloginWarning",
+                  { name: serverName.trim() },
+                  "Changing the name or URL requires a new sign-in: pi keys OAuth credentials by server name + URL. Run /mcp login after saving.",
+                )}
+              </p>
+            )}
+            <TransportTabs tab={tab} onSelect={switchTab} />
+            <div className="space-y-2">
+              <FieldRows fields={visible.filter((f) => COMMON_FIELDS.has(f.name))} ctx={ctx} />
+            </div>
+            <AdvancedFields visible={visible} ctx={ctx} />
+            {unknownKeys.length > 0 && <UnknownFields keys={unknownKeys} ctx={ctx} />}
+          </>
+        )}
+        <EditorFooter saving={saving} onSave={save} onClose={attemptClose} />
       </div>
     </div>
   );
 }
 
-interface EditorDialogBodyProps {
-  title: string;
-  name: string | null;
-  viewOnly: boolean;
-  serverName: string;
-  onServerName: (value: string) => void;
+interface EditorCtx {
+  draft: Record<string, unknown>;
+  write: (path: string[], value: unknown) => void;
+  revealed: ReadonlySet<string>;
+  toggleReveal: (key: string) => void;
+  raw: RawText;
+  setRawText: (key: string, value: string) => void;
   errors: Record<string, string>;
-  summaryText: string | null;
-  schema: Record<string, unknown> | null;
-  tab: Transport;
-  onTab: (next: Transport) => void;
-  visible: FieldSchema[];
-  ctx: EditorCtx;
-  mode: "view" | "edit";
-  readOnly: boolean;
-  saving: boolean;
-  onSave: () => Promise<void>;
-  onOverride: () => void;
-  onRemoveOverride?: () => void;
-  onClose: () => void;
+  projectScope: boolean;
 }
 
-function EditorDialogBody(props: EditorDialogBodyProps): React.ReactElement {
+function OmittedWarnings({ omitted }: { omitted: readonly string[] }): React.ReactElement {
+  const t = useT();
   return (
-    <>
-      {props.name === null && !props.viewOnly && (
-        <EditorNameField value={props.serverName} onChange={props.onServerName} error={props.errors.name} />
-      )}
-      {props.summaryText && <EditorSummary text={props.summaryText} errors={props.errors} />}
-      {!props.schema && <EditorSkeleton />}
-      {props.schema && (
-        <>
-          <TransportTabs tab={props.tab} viewOnly={props.viewOnly} onSelect={props.onTab} />
-          <div className="space-y-2">
-            <FieldRows fields={props.visible.filter((f) => COMMON_FIELDS.has(f.name))} ctx={props.ctx} />
-          </div>
-          <AdvancedFields visible={props.visible} ctx={props.ctx} />
-        </>
-      )}
-      <EditorFooter
-        mode={props.mode}
-        readOnly={props.readOnly}
-        saving={props.saving}
-        onSave={props.onSave}
-        onOverride={props.onOverride}
-        onRemoveOverride={props.onRemoveOverride}
-        onClose={props.onClose}
-      />
-    </>
+    <div
+      data-testid="mcp-omitted-warnings"
+      role="alert"
+      className="text-[11px] text-amber-500 border border-amber-500 rounded px-2 py-1.5 space-y-0.5"
+    >
+      <p className="m-0 font-medium">
+        {t("mcpOmittedHeading", undefined, "Not inherited — re-enter or the folder entry will lack them:")}
+      </p>
+      {omitted.map((dotted) => (
+        <p key={dotted} data-testid={`mcp-omitted-${dotted}`} className="m-0">
+          {dotted}
+          {dotted === "auth"
+            ? t("mcpOmittedAuth", undefined, " — provider auth is global-only; a folder entry cannot carry it.")
+            : t("mcpOmittedField", undefined, " — will be absent unless re-entered.")}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -464,11 +432,9 @@ function EditorSkeleton(): React.ReactElement {
 
 function TransportTabs({
   tab,
-  viewOnly,
   onSelect,
 }: {
   tab: Transport;
-  viewOnly: boolean;
   onSelect: (next: Transport) => void;
 }): React.ReactElement {
   const t = useT();
@@ -480,7 +446,6 @@ function TransportTabs({
           type="button"
           role="tab"
           aria-selected={tab === tr}
-          disabled={viewOnly}
           data-testid={`mcp-tab-${tr}`}
           onClick={() => onSelect(tr)}
           className={`${BTN_CLS} ${tab === tr ? "border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]" : ""}`}
@@ -492,6 +457,36 @@ function TransportTabs({
   );
 }
 
+function EditorFooter({
+  saving,
+  onSave,
+  onClose,
+}: {
+  saving: boolean;
+  onSave: () => Promise<void>;
+  onClose: () => void;
+}): React.ReactElement {
+  const t = useT();
+  return (
+    <div data-testid="mcp-editor-footer" className="flex items-center justify-end gap-2 pt-1">
+      <button
+        type="button"
+        onClick={() => void onSave()}
+        disabled={saving}
+        data-testid="mcp-save"
+        className={PRIMARY_BTN_CLS}
+      >
+        {t("mcpEditorSave", undefined, "Save")}
+      </button>
+      <button type="button" onClick={onClose} data-testid="mcp-editor-close" className={BTN_CLS}>
+        {t("mcpEditorCloseLabel", undefined, "Close")}
+      </button>
+    </div>
+  );
+}
+
+// ─── field rendering ─────────────────────────────────────────────────────────
+
 function FieldRows({ fields, ctx }: { fields: FieldSchema[]; ctx: EditorCtx }): React.ReactElement {
   return (
     <>
@@ -502,13 +497,7 @@ function FieldRows({ fields, ctx }: { fields: FieldSchema[]; ctx: EditorCtx }): 
   );
 }
 
-function AdvancedFields({
-  visible,
-  ctx,
-}: {
-  visible: FieldSchema[];
-  ctx: EditorCtx;
-}): React.ReactElement {
+function AdvancedFields({ visible, ctx }: { visible: FieldSchema[]; ctx: EditorCtx }): React.ReactElement {
   const t = useT();
   return (
     <details data-testid="mcp-advanced" className="border border-[var(--border-secondary)] rounded p-1.5">
@@ -522,105 +511,24 @@ function AdvancedFields({
   );
 }
 
-function EditorFooter({
-  mode,
-  readOnly,
-  saving,
-  onSave,
-  onOverride,
-  onRemoveOverride,
-  onClose,
-}: {
-  mode: "view" | "edit";
-  readOnly: boolean;
-  saving: boolean;
-  onSave: () => Promise<void>;
-  onOverride: () => void;
-  onRemoveOverride?: () => void;
-  onClose: () => void;
-}): React.ReactElement {
-  const t = useT();
-  return (
-    <div data-testid="mcp-editor-footer" className="flex items-center justify-end gap-2 pt-1">
-      {onRemoveOverride && (
-        <button
-          type="button"
-          onClick={onRemoveOverride}
-          disabled={readOnly}
-          data-testid="mcp-folder-remove-override"
-          className={`${BTN_CLS} mr-auto border-[var(--status-error,#f87171)] text-[var(--status-error,#f87171)]`}
-        >
-          {t("mcpFolderRemoveOverride", undefined, "Remove override")}
-        </button>
-      )}
-      {mode === "view" ? (
-        <button
-          type="button"
-          onClick={onOverride}
-          disabled={readOnly}
-          data-testid="mcp-editor-override"
-          className={PRIMARY_BTN_CLS}
-        >
-          {t("mcpEditorOverrideAt", undefined, "Override at Pi global")}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => void onSave()}
-          disabled={readOnly || saving}
-          data-testid="mcp-save"
-          className={PRIMARY_BTN_CLS}
-        >
-          {t("mcpEditorSave", undefined, "Save")}
-        </button>
-      )}
-      <button type="button" onClick={onClose} data-testid="mcp-editor-close" className={BTN_CLS}>
-        {t("mcpEditorCloseLabel", undefined, "Close")}
-      </button>
-    </div>
-  );
-}
-
-// ─── field rendering ─────────────────────────────────────────────────────────
-
 function FieldRow({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
-  const t = useT();
-  const error = ctx.errors[field.name];
-  const inheritedLayer = ctx.inheritedLayer;
-  const inherited = ctx.folderPage && inheritedLayer !== null && ctx.inheritedFields.has(field.name);
   return (
     <div data-testid={`mcp-field-${field.name}`} className="space-y-1">
       <span className="block text-[11px] text-[var(--text-secondary)]">{field.name}</span>
-      {inherited && (
-        <span
-          data-testid={`mcp-folder-inherited-${ctx.hintServer}.${field.name}`}
-          className="block text-[10px] text-[var(--text-tertiary)]"
-        >
-          {t("mcpFolderInherited", { layer: inheritedLayer }, `inherited from ${inheritedLayer}`)}
-        </span>
+      {field.globalOnly && ctx.projectScope ? (
+        <p data-testid="mcp-global-only-auth" className="text-[11px] text-[var(--text-secondary)] m-0">
+          provider auth is global-only: pi reads auth only from ~/.pi/agent/mcp.json, so a folder
+          entry cannot set it.
+        </p>
+      ) : (
+        <FieldControl field={field} ctx={ctx} />
       )}
-      <FieldControl field={field} ctx={ctx} />
-      {ctx.atomicNotes.has(field.name) && <AtomicNote field={field} ctx={ctx} />}
-      {error && (
+      {ctx.errors[field.name] && (
         <p data-testid={`mcp-field-error-${field.name}`} role="alert" className={ERROR_CLS}>
-          {error}
+          {ctx.errors[field.name]}
         </p>
       )}
     </div>
-  );
-}
-
-function AtomicNote({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
-  const t = useT();
-  const counts = atomicCounts(getPath(ctx.baseline, field.path));
-  return (
-    <p data-testid={`mcp-override-note-${field.name}`} className="text-[11px] text-[var(--text-secondary)] m-0">
-      {t(
-        "mcpAtomicOverrideNote",
-        { count: counts.count, secrets: counts.secrets },
-        `${counts.count} inherited keys incl. ${counts.secrets} secrets will no longer apply`,
-      )}
-    </p>
   );
 }
 
@@ -636,8 +544,6 @@ function FieldControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): R
       return <EnumControl field={field} ctx={ctx} />;
     case "string-list": {
       const rows = asStrings(getPath(ctx.draft, field.path));
-      if (ctx.viewOnly)
-        return <span className="text-xs text-[var(--text-primary)]">{rows.join(", ")}</span>;
       return (
         <StringListEditor
           field={field}
@@ -646,12 +552,16 @@ function FieldControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): R
         />
       );
     }
-    case "toggle-list":
-      return <ToggleListControl field={field} ctx={ctx} />;
     case "record":
       return <RecordControl field={field} ctx={ctx} />;
     case "nested-group":
-      return <NestedGroupControl field={field} ctx={ctx} />;
+      return (
+        <div className="space-y-2 border-l border-[var(--border-secondary)] pl-2">
+          {(field.children ?? []).map((child) => (
+            <FieldRow key={child.name} field={child} ctx={ctx} />
+          ))}
+        </div>
+      );
     default:
       return <JsonControl field={field} ctx={ctx} />;
   }
@@ -677,18 +587,8 @@ function RevealButton({ name, shown, ctx }: { name: string; shown: boolean; ctx:
   );
 }
 
-function Placeholder({ field }: { field: FieldSchema }): React.ReactElement {
-  const t = useT();
-  return (
-    <span data-testid={`mcp-redacted-${field.name}`} className="text-xs text-[var(--text-tertiary)]">
-      {t("mcpSecretInherited", undefined, "•••••• (inherited)")}
-    </span>
-  );
-}
-
 function TextControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const value = getPath(ctx.draft, field.path);
-  if (ctx.viewOnly) return <ViewOnlyText field={field} ctx={ctx} value={value} />;
   if (field.secret) return <SecretTextControl field={field} ctx={ctx} value={value} />;
   return (
     <input
@@ -702,28 +602,6 @@ function TextControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): Re
   );
 }
 
-function ViewOnlyText({
-  field,
-  ctx,
-  value,
-}: {
-  field: FieldSchema;
-  ctx: EditorCtx;
-  value: unknown;
-}): React.ReactElement {
-  if (isRedacted(value)) return <Placeholder field={field} />;
-  if (!field.secret) {
-    return <span className="text-xs text-[var(--text-primary)]">{String(value ?? "")}</span>;
-  }
-  const shown = ctx.revealed.has(field.name);
-  return (
-    <span className="inline-flex items-center gap-1 text-xs">
-      <span data-testid={`mcp-field-value-${field.name}`}>{shown ? String(value ?? "") : MASK}</span>
-      <RevealButton name={field.name} shown={shown} ctx={ctx} />
-    </span>
-  );
-}
-
 function SecretTextControl({
   field,
   ctx,
@@ -733,28 +611,13 @@ function SecretTextControl({
   ctx: EditorCtx;
   value: unknown;
 }): React.ReactElement {
-  const t = useT();
-  if (isRedacted(value)) {
-    return (
-      <span className="flex items-center gap-2">
-        <Placeholder field={field} />
-        <input
-          type="text"
-          aria-label={`${field.name} ${t("mcpSecretNewValue", undefined, "(new value)")}`}
-          placeholder={t("mcpSecretNewValue", undefined, "New value")}
-          data-testid={`mcp-field-input-${field.name}`}
-          value=""
-          onChange={(e) => ctx.write(field.path, e.target.value)}
-          className={INPUT_CLS}
-        />
-      </span>
-    );
-  }
   const shown = ctx.revealed.has(field.name);
+  // A ${NAME} reference or !command is a pointer, not a secret: show as written.
+  const inputType = shown || !isMaskedValue(true, field.name, value) ? "text" : "password";
   return (
     <span className="flex items-center gap-1">
       <input
-        type={shown ? "text" : "password"}
+        type={inputType}
         aria-label={field.name}
         data-testid={`mcp-field-input-${field.name}`}
         value={typeof value === "string" ? value : ""}
@@ -769,7 +632,6 @@ function SecretTextControl({
 function NumberControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const value = getPath(ctx.draft, field.path);
   const text = ctx.raw[field.name] ?? (typeof value === "number" ? String(value) : "");
-  if (ctx.viewOnly) return <span className="text-xs text-[var(--text-primary)]">{String(value ?? "")}</span>;
   return (
     <input
       type="number"
@@ -791,8 +653,6 @@ function NumberControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): 
 
 function BooleanControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const value = getPath(ctx.draft, field.path);
-  if (ctx.viewOnly)
-    return <span className="text-xs text-[var(--text-primary)]">{String(value === true)}</span>;
   return (
     // The label is the hit area: a 16px box cannot meet the 44px mobile floor.
     <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
@@ -811,26 +671,22 @@ function BooleanControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }):
 function EnumControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const t = useT();
   const value = getPath(ctx.draft, field.path);
-  if (ctx.viewOnly)
-    return <span className="text-xs text-[var(--text-primary)]">{String(value ?? "")}</span>;
-  const numeric = (field.enumValues ?? []).some((v) => typeof v === "number");
+  // The stored alias displays resolved (`codemode-deferred` → `codemode`) but
+  // is kept unless the operator picks another option.
+  const display =
+    value !== undefined && field.displayResolver ? field.displayResolver(value) : value;
   return (
     <select
       aria-label={field.name}
       data-testid={`mcp-field-input-${field.name}`}
-      value={value === undefined ? "" : String(value)}
-      onChange={(e) =>
-        ctx.write(
-          field.path,
-          e.target.value === "" ? undefined : numeric ? Number(e.target.value) : e.target.value,
-        )
-      }
+      value={value === undefined ? "" : String(display)}
+      onChange={(e) => ctx.write(field.path, e.target.value === "" ? undefined : e.target.value)}
       className={INPUT_CLS}
     >
       <option value="">{t("mcpEnumInherit", undefined, "(inherit)")}</option>
       {(field.enumValues ?? []).map((option) => (
-        <option key={String(option)} value={String(option)}>
-          {String(option)}
+        <option key={option} value={option}>
+          {option}
         </option>
       ))}
     </select>
@@ -882,105 +738,9 @@ function StringListEditor({
   );
 }
 
-function ToggleListControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
-  const t = useT();
-  const value = getPath(ctx.draft, field.path);
-  const checked = value === true || Array.isArray(value);
-
-  if (ctx.viewOnly) {
-    const text = Array.isArray(value) ? value.join(", ") : String(value ?? "false");
-    return <span className="text-xs text-[var(--text-primary)]">{text}</span>;
-  }
-
-  return (
-    <div className="space-y-1">
-      <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
-        <input
-          type="checkbox"
-          aria-label={field.name}
-          data-testid={`mcp-field-input-${field.name}`}
-          checked={checked}
-          onChange={(e) =>
-            ctx.write(field.path, e.target.checked ? (Array.isArray(value) ? value : []) : false)
-          }
-          className="w-4 h-4 flex-none"
-        />
-        {t("mcpUseList", undefined, "Use a tool list")}
-      </label>
-      {checked && (
-        <StringListEditor
-          field={field}
-          rows={Array.isArray(value) ? value.map(String) : []}
-          onRows={(rows) => ctx.write(field.path, rows)}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Read-only rows of a record: redacted keys (placeholder per `secret` flag) or verbatim values. */
-function RecordViewRows({ field, value, ctx }: { field: FieldSchema; value: unknown; ctx: EditorCtx }): React.ReactElement {
-  const t = useT();
-  if (isRedacted(value)) {
-    const keys = redactedKeys(value);
-    return (
-      <div className="space-y-0.5" data-testid={`mcp-record-${field.name}`}>
-        {keys.map((k) => (
-          <div key={k.name} data-testid={`mcp-record-row-${field.name}.${k.name}`} className="flex items-center gap-2 text-xs">
-            <span className="text-[var(--text-primary)]">{k.name}</span>
-            <span className="text-[var(--text-tertiary)]">
-              {k.secret ? MASK : t("mcpValueInherited", undefined, "(value not shown)")}
-            </span>
-          </div>
-        ))}
-        {keys.length === 0 && <span className="text-xs text-[var(--text-tertiary)]">—</span>}
-      </div>
-    );
-  }
-  const entries =
-    value !== null && typeof value === "object" && !Array.isArray(value)
-      ? Object.entries(value as Record<string, unknown>)
-      : [];
-  return (
-    <div className="space-y-0.5" data-testid={`mcp-record-${field.name}`}>
-      {entries.map(([key, entry]) => (
-        <div key={key} data-testid={`mcp-record-row-${field.name}.${key}`} className="flex items-center gap-2 text-xs">
-          <span className="text-[var(--text-primary)]">{key}</span>
-          <span className="text-[var(--text-tertiary)]">
-            {field.secret || isSecretKeyName(key) ? MASK : String(entry)}
-          </span>
-        </div>
-      ))}
-      {entries.length === 0 && <span className="text-xs text-[var(--text-tertiary)]">—</span>}
-    </div>
-  );
-}
-
 function RecordControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const t = useT();
   const value = getPath(ctx.draft, field.path);
-  const pending =
-    !ctx.viewOnly && field.atomic && !ctx.atomicNotes.has(field.name) && (isRedacted(value) || ctx.overrideMode);
-
-  if (ctx.viewOnly || pending) {
-    return (
-      <div className="space-y-1">
-        <RecordViewRows field={field} value={value} ctx={ctx} />
-        {pending && (
-          <button
-            type="button"
-            data-testid={`mcp-override-${field.name}`}
-            aria-label={t("mcpOverrideField", { name: field.name }, `Override ${field.name}`)}
-            onClick={() => ctx.onAtomicOverride(field)}
-            className={BTN_CLS}
-          >
-            {t("mcpOverrideFieldLabel", undefined, "Override…")}
-          </button>
-        )}
-      </div>
-    );
-  }
-
   const rows =
     value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
@@ -991,7 +751,7 @@ function RecordControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): 
     <div className="space-y-1" data-testid={`mcp-record-${field.name}`}>
       {Object.entries(rows).map(([key, entry]) => {
         const rowName = `${field.name}.${key}`;
-        const masked = field.secret || isSecretKeyName(key);
+        const masked = isMaskedValue(field.secret, key, entry);
         const shown = ctx.revealed.has(rowName);
         return (
           <div key={key} data-testid={`mcp-record-row-${rowName}`} className="flex items-center gap-1">
@@ -1007,7 +767,27 @@ function RecordControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): 
               }}
               className={`${INPUT_CLS} w-1/3`}
             />
-            {typeof entry === "string" ? (
+            {field.valueEnum ? (
+              <select
+                aria-label={`${rowName} exposure`}
+                data-testid={`mcp-record-value-${rowName}`}
+                value={field.displayResolver ? field.displayResolver(entry) : String(entry)}
+                onChange={(e) => {
+                  const next = { ...rows };
+                  if (e.target.value === "") delete next[key];
+                  else next[key] = e.target.value;
+                  writeRecord(next);
+                }}
+                className={`${INPUT_CLS}`}
+              >
+                <option value="">{t("mcpEnumInherit", undefined, "(inherit)")}</option>
+                {field.valueEnum.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : typeof entry === "string" ? (
               <>
                 <input
                   type={masked && !shown ? "password" : "text"}
@@ -1056,7 +836,7 @@ function RecordControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): 
         type="button"
         aria-label={t("mcpAddEntry", { name: field.name }, `Add ${field.name} entry`)}
         data-testid={`mcp-record-add-${field.name}`}
-        onClick={() => writeRecord({ ...rows, "": "" })}
+        onClick={() => writeRecord({ ...rows, "": field.valueEnum ? "" : "" })}
         className={BTN_CLS}
       >
         + {t("mcpAddRowLabel", undefined, "Add")}
@@ -1065,68 +845,8 @@ function RecordControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): 
   );
 }
 
-function NestedGroupControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
-  const t = useT();
-  const value = getPath(ctx.draft, field.path);
-  const pending =
-    !ctx.viewOnly && field.atomic && !ctx.atomicNotes.has(field.name) && (isRedacted(value) || ctx.overrideMode);
-
-  if (ctx.viewOnly || pending) {
-    return (
-      <div className="space-y-1">
-        {isRedacted(value) ? (
-          <Placeholder field={field} />
-        ) : (
-          <div className="space-y-2 border-l border-[var(--border-secondary)] pl-2">
-            {(field.children ?? []).map((child) => (
-              <FieldRow key={child.name} field={child} ctx={{ ...ctx, viewOnly: true }} />
-            ))}
-          </div>
-        )}
-        {pending && (
-          <button
-            type="button"
-            data-testid={`mcp-override-${field.name}`}
-            aria-label={t("mcpOverrideField", { name: field.name }, `Override ${field.name}`)}
-            onClick={() => ctx.onAtomicOverride(field)}
-            className={BTN_CLS}
-          >
-            {t("mcpOverrideFieldLabel", undefined, "Override…")}
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2 border-l border-[var(--border-secondary)] pl-2">
-      {field.unionFalse && value === false && (
-        <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] min-h-11 min-w-11 sm:min-h-0 sm:min-w-0">
-          <input
-            type="checkbox"
-            aria-label={t("mcpEnableField", { name: field.name }, `Enable ${field.name}`)}
-            data-testid={`mcp-field-input-${field.name}`}
-            checked={false}
-            onChange={() => ctx.write(field.path, {})}
-            className="w-4 h-4 flex-none"
-          />
-          {t("mcpEnableField", { name: field.name }, `Enable ${field.name}`)}
-        </label>
-      )}
-      {!(field.unionFalse && value === false) &&
-        (field.children ?? []).map((child) => <FieldRow key={child.name} field={child} ctx={ctx} />)}
-    </div>
-  );
-}
-
 function JsonControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): React.ReactElement {
   const value = getPath(ctx.draft, field.path);
-  if (ctx.viewOnly)
-    return (
-      <span className="text-xs text-[var(--text-primary)] break-all">
-        {value === undefined ? "" : JSON.stringify(value)}
-      </span>
-    );
   const text = ctx.raw[field.name] ?? (value === undefined ? "" : JSON.stringify(value, null, 2));
   return (
     <textarea
@@ -1147,5 +867,49 @@ function JsonControl({ field, ctx }: { field: FieldSchema; ctx: EditorCtx }): Re
       }}
       className={`${INPUT_CLS} font-mono`}
     />
+  );
+}
+
+/** Top-level keys with no schema field: a validated JSON editor each, preserved on save. */
+function UnknownFields({ keys, ctx }: { keys: string[]; ctx: EditorCtx }): React.ReactElement {
+  const t = useT();
+  return (
+    <div data-testid="mcp-unknown-fields" className="space-y-2 border border-[var(--border-secondary)] rounded p-1.5">
+      <span className="block text-[11px] text-[var(--text-secondary)]">
+        {t("mcpUnknownFields", undefined, "Other fields (JSON)")}
+      </span>
+      {keys.map((key) => {
+        const value = ctx.draft[key];
+        const text = ctx.raw[key] ?? (value === undefined ? "" : JSON.stringify(value, null, 2));
+        return (
+          <div key={key} className="space-y-1">
+            <span className="block text-[11px] text-[var(--text-secondary)]">{key}</span>
+            <textarea
+              aria-label={key}
+              data-testid={`mcp-unknown-field-input-${key}`}
+              rows={3}
+              value={text}
+              onChange={(e) => {
+                ctx.setRawText(key, e.target.value);
+                if (e.target.value.trim() === "") ctx.write([key], undefined);
+                else {
+                  try {
+                    ctx.write([key], JSON.parse(e.target.value));
+                  } catch {
+                    /* keep the last parsed value; save validation flags the raw text */
+                  }
+                }
+              }}
+              className={`${INPUT_CLS} font-mono`}
+            />
+            {ctx.errors[key] && (
+              <p data-testid={`mcp-unknown-field-error-${key}`} role="alert" className={ERROR_CLS}>
+                {ctx.errors[key]}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

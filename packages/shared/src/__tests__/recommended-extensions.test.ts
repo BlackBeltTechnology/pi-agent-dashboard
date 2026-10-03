@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	BUNDLED_EXTENSION_IDS,
@@ -14,7 +16,6 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 			[
 				"@blackbelt-technology/pi-dashboard-cost-estimator",
 				"@blackbelt-technology/pi-dashboard-mcp-client-plugin",
-				"pi-mcp-adapter",
 				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
@@ -178,7 +179,6 @@ describe("getRecommendedByStatus", () => {
 				"pi-flows",
 				"pi-web-access",
 				"context-mode",
-				"pi-mcp-adapter",
 				"@blackbelt-technology/pi-dashboard-kb-extension",
 			].sort(),
 		);
@@ -264,5 +264,36 @@ describe("BUNDLED_EXTENSION_IDS manifest", () => {
 			expect(isGit, `${id} source is not git-based: ${source}`).toBe(true);
 			expect(source.startsWith("npm:"), `${id} must not be an npm source`).toBe(false);
 		}
+	});
+});
+
+// migrate-mcp-to-pi-builtin test-plan E17: an installed pi-mcp-adapter
+// disables pi's built-in MCP, so nothing first-party may require it.
+describe("E17 — no adapter requirement", () => {
+	it("no recommended entry is or requires pi-mcp-adapter", () => {
+		for (const e of RECOMMENDED_EXTENSIONS) {
+			expect(e.id).not.toBe("pi-mcp-adapter");
+			expect(e.source).not.toContain("pi-mcp-adapter");
+			expect(e.requires?.piExtensions ?? []).not.toContain("pi-mcp-adapter");
+		}
+	});
+
+	it("no first-party plugin manifest or package dependency lists pi-mcp-adapter", () => {
+		const root = resolve(import.meta.dirname, "../../..");
+		const offenders: string[] = [];
+		for (const dir of readdirSync(root)) {
+			let pkg: Record<string, unknown>;
+			try {
+				pkg = JSON.parse(readFileSync(join(root, dir, "package.json"), "utf8"));
+			} catch {
+				continue;
+			}
+			const manifest = (pkg["pi-dashboard-plugin"] ?? {}) as { requires?: { piExtensions?: string[] } };
+			const deps = { ...(pkg.dependencies as object), ...(pkg.peerDependencies as object) } as Record<string, string>;
+			if (manifest.requires?.piExtensions?.includes("pi-mcp-adapter") || "pi-mcp-adapter" in deps) {
+				offenders.push(dir);
+			}
+		}
+		expect(offenders).toEqual([]);
 	});
 });

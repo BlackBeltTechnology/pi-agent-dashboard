@@ -1,29 +1,28 @@
 /**
- * Schema model tests (change extract-mcp-client-plugin, tasks 7.4 + 7.5):
- * every `ServerEntry`/`McpSettings` property maps to a concrete widget or the
- * JSON fallback (a silently-dropped field fails here), atomic fields derive
- * from the schema markers, the credential pattern matches, redaction sentinels
- * are stripped from patches, and save validation flags the spec'd cases.
+ * Schema model tests (change migrate-mcp-to-pi-builtin): every `ServerEntry`
+ * property maps to a concrete widget or the JSON fallback (a silently-dropped
+ * field fails here), the exposure alias resolves for display, secret masking
+ * spares ${REF}/! literals, transport visibility, whole-entry `buildEntry`,
+ * redaction-sentinel stripping, and save validation.
  */
 import { describe, expect, it } from "vitest";
 import schemaDoc from "../../../schema/mcp-config.schema.json";
 import {
-  atomicCounts,
-  atomicFieldsOf,
+  buildEntry,
   clone,
-  computePatch,
   deepEqual,
   defsOf,
-  fieldsForDef,
   fieldsOf,
   getPath,
+  isLiteralValue,
+  isMaskedValue,
   isRedacted,
   isSecretKeyName,
   setPath,
   stripRedacted,
   type Transport,
   validateDraft,
-  validateFields,
+  visibleUnderTransport,
   widgetFor,
 } from "../schema.js";
 
@@ -43,14 +42,6 @@ describe("widgetFor covers every schema property (no field is ever dropped)", ()
     }
   });
 
-  it("maps every McpSettings property to a concrete widget", () => {
-    const defs = defsOf(DOC);
-    for (const [name, prop] of Object.entries(propertiesOf("McpSettings"))) {
-      const widget = widgetFor(prop as never, defs);
-      expect(widget, `widgetFor(${name})`).toBeTruthy();
-    }
-  });
-
   it("maps the notable fields to the required widgets", () => {
     const defs = defsOf(DOC);
     const expectWidget = (name: string, widget: string): void => {
@@ -58,82 +49,92 @@ describe("widgetFor covers every schema property (no field is ever dropped)", ()
       expect(widgetFor(prop as never, defs), name).toBe(widget);
     };
     expectWidget("command", "text");
+    expectWidget("url", "text");
+    expectWidget("description", "text");
+    expectWidget("cwd", "text");
     expectWidget("args", "string-list");
-    expectWidget("includeTools", "string-list");
     expectWidget("env", "record");
     expectWidget("headers", "record");
-    expectWidget("searchKeywords", "record");
     expectWidget("oauth", "nested-group");
-    expectWidget("requestHeadersCommand", "nested-group");
-    expectWidget("auth", "json");
-    expectWidget("bearerTokenStore", "json");
-    expectWidget("directTools", "toggle-list");
-    expectWidget("approveTools", "toggle-list");
-    expectWidget("lifecycle", "enum");
-    expectWidget("toolPrefix", "enum");
-    expectWidget("protocolVersion", "enum");
-    expectWidget("disabled", "boolean");
-    expectWidget("trace", "boolean");
-    expectWidget("exposeResources", "boolean");
-    expectWidget("idleTimeout", "number");
-    expectWidget("requestTimeoutMs", "number");
-    expectWidget("bearerToken", "text");
-    expectWidget("bearerTokenEnv", "text");
-    expectWidget("socket", "text");
-    expectWidget("url", "text");
-    expectWidget("cwd", "text");
-    expectWidget("pluginDataDir", "text");
-    expectWidget("httpTransport", "enum");
+    expectWidget("auth", "nested-group");
+    expectWidget("exposure", "enum");
+    expectWidget("toolExposure", "record");
+    expectWidget("type", "enum");
+    expectWidget("timeout", "number");
+    expectWidget("enabled", "boolean");
   });
+});
 
-  it("derives fieldsOf with transports and nested children", () => {
+describe("fieldsOf", () => {
+  it("derives transports, secrets, markers, children and the exposure alias resolver", () => {
     const fields = fieldsOf(DOC);
     const byName = new Map(fields.map((f) => [f.name, f]));
     expect(fields.length).toBe(Object.keys(propertiesOf("ServerEntry")).length);
     expect(byName.get("command")?.transport).toBe("command");
     expect(byName.get("url")?.transport).toBe("url");
-    expect(byName.get("socket")?.transport).toBe("socket");
     expect(byName.get("args")?.transport).toBeNull();
+    expect(byName.get("env")?.secret).toBe(true);
+    expect(byName.get("headers")?.secret).toBe(true);
+    expect(byName.get("auth")?.globalOnly).toBe(true);
+
     const oauth = byName.get("oauth");
     expect(oauth?.children?.map((c) => c.name)).toContain("oauth.clientSecret");
     expect(oauth?.children?.find((c) => c.name === "oauth.clientSecret")?.secret).toBe(true);
-    const rhc = byName.get("requestHeadersCommand");
-    expect(rhc?.children?.map((c) => c.name)).toContain("requestHeadersCommand.env");
-  });
 
-  it("derives the atomic field list from the schema markers", () => {
-    expect([...atomicFieldsOf(DOC)].sort()).toEqual(
-      ["env", "headers", "oauth", "requestHeadersCommand", "searchKeywords"].sort(),
-    );
-  });
-});
+    const exposure = byName.get("exposure");
+    expect(exposure?.enumValues).toEqual(["codemode", "deferred", "direct", "hidden"]);
+    expect(exposure?.displayResolver?.("codemode-deferred")).toBe("codemode");
+    expect(exposure?.displayResolver?.("direct")).toBe("direct");
 
-describe("fieldsForDef / validateFields", () => {
-  it("delegates fieldsOf to the ServerEntry definition", () => {
-    expect(fieldsForDef(DOC, "ServerEntry").map((f) => f.name)).toEqual(
-      fieldsOf(DOC).map((f) => f.name),
-    );
-  });
-
-  it("derives another definition's fields and validates them without a transport", () => {
-    const settings = fieldsForDef(DOC, "McpSettings");
-    expect(settings).toHaveLength(Object.keys(propertiesOf("McpSettings")).length);
-    expect(settings.map((f) => f.name)).toContain("toolPrefix");
-    expect(validateFields(settings, {}, {})).toEqual({});
-    expect(validateFields(settings, {}, { idleTimeout: "abc" })).toEqual({
-      idleTimeout: "Must be a number",
-    });
+    const toolExposure = byName.get("toolExposure");
+    expect(toolExposure?.valueEnum).toEqual(["codemode", "deferred", "direct", "hidden"]);
   });
 });
 
-describe("masking pattern", () => {
+describe("transport visibility", () => {
+  it("shows one transport at a time; shared fields render on both tabs", () => {
+    expect(visibleUnderTransport("command", "url")).toBe(false);
+    expect(visibleUnderTransport("args", "url")).toBe(false);
+    expect(visibleUnderTransport("env", "url")).toBe(false);
+    expect(visibleUnderTransport("url", "command")).toBe(false);
+    expect(visibleUnderTransport("headers", "command")).toBe(false);
+    expect(visibleUnderTransport("oauth", "command")).toBe(false);
+    expect(visibleUnderTransport("url", "url")).toBe(true);
+    expect(visibleUnderTransport("headers", "url")).toBe(true);
+    // shared fields
+    expect(visibleUnderTransport("description", "command")).toBe(true);
+    expect(visibleUnderTransport("description", "url")).toBe(true);
+    expect(visibleUnderTransport("exposure", "url")).toBe(true);
+    expect(visibleUnderTransport("type", "url")).toBe(true);
+  });
+});
+
+describe("masking", () => {
   it("matches credential key names only", () => {
     expect(isSecretKeyName("Authorization")).toBe(true);
     expect(isSecretKeyName("API_TOKEN")).toBe(true);
-    expect(isSecretKeyName("CLIENT_KEY")).toBe(true);
+    expect(isSecretKeyName("X-Api-Key")).toBe(true);
     expect(isSecretKeyName("CLIENT_SECRET")).toBe(true);
     expect(isSecretKeyName("PATH")).toBe(false);
-    expect(isSecretKeyName("HOME")).toBe(false);
+    expect(isSecretKeyName("Accept")).toBe(false);
+  });
+
+  it("treats ${NAME} references and !commands as literal values", () => {
+    expect(isLiteralValue("Bearer ${GITHUB_TOKEN}")).toBe(true);
+    expect(isLiteralValue("!op read x")).toBe(true);
+    expect(isLiteralValue("Bearer abc123")).toBe(false);
+    expect(isLiteralValue("lit")).toBe(false);
+  });
+
+  it("isMaskedValue combines the field marker, key name and literal exception", () => {
+    // x-secret record: every literal value masks…
+    expect(isMaskedValue(true, "Accept", "json")).toBe(true);
+    // …unless the value is a reference or a command
+    expect(isMaskedValue(true, "Accept", "!cmd")).toBe(false);
+    expect(isMaskedValue(true, "Accept", "${V}")).toBe(false);
+    // non-secret record: only credential-named keys mask
+    expect(isMaskedValue(false, "API_KEY", "lit")).toBe(true);
+    expect(isMaskedValue(false, "PATH", "/bin")).toBe(false);
   });
 });
 
@@ -157,68 +158,51 @@ describe("deepEqual / clone / setPath", () => {
 });
 
 describe("redaction sentinels", () => {
-  it("recognizes scalar and record sentinels", () => {
+  it("recognizes sentinels and strips them recursively", () => {
     expect(isRedacted({ redacted: true })).toBe(true);
     expect(isRedacted({ redacted: true, keys: [{ name: "A", secret: true }] })).toBe(true);
     expect(isRedacted({ command: "/bin/x" })).toBe(false);
     expect(isRedacted(undefined)).toBe(false);
-  });
 
-  it("counts inherited keys and secrets for the override note", () => {
-    const redacted = {
-      redacted: true,
-      keys: [
-        { name: "A", secret: false },
-        { name: "API_TOKEN", secret: true },
-        { name: "CLIENT_SECRET", secret: true },
-      ],
-    };
-    expect(atomicCounts(redacted)).toEqual({ count: 3, secrets: 2 });
-    expect(atomicCounts({ PATH: "/bin", API_KEY: "x" })).toEqual({ count: 2, secrets: 1 });
-    expect(atomicCounts(undefined)).toEqual({ count: 0, secrets: 0 });
-  });
-
-  it("strips sentinels recursively, including inside nested objects", () => {
     const draft = {
       oauth: { clientId: "a", clientSecret: { redacted: true } },
-      env: { redacted: true, keys: [] },
+      headers: { redacted: true, keys: [] },
       url: "https://u",
     };
     expect(stripRedacted(draft)).toEqual({ oauth: { clientId: "a" }, url: "https://u" });
   });
 });
 
-describe("computePatch", () => {
-  it("sends only changed keys and unsets only removed keys", () => {
-    const baseline = { command: "/bin/a", args: ["--x"], futureThing: { x: 1 } };
-    const draft = { ...clone(baseline), command: "/bin/b" };
-    expect(computePatch(draft, baseline)).toEqual({ set: { command: "/bin/b" }, unset: [] });
-
-    const removed: Record<string, unknown> = { ...clone(baseline) };
-    delete removed.args;
-    expect(computePatch(removed, baseline)).toEqual({ set: {}, unset: ["args"] });
-  });
-
-  it("never includes a redaction sentinel in set", () => {
-    const baseline = {
+describe("buildEntry (whole-entry save body)", () => {
+  it("keeps every field, drops the inactive transport's keys", () => {
+    const draft = clone({
       command: "/bin/a",
-      bearerToken: { redacted: true },
-      env: { redacted: true, keys: [{ name: "A", secret: true }] },
-    };
-    const untouched = computePatch(clone(baseline), baseline);
-    expect(untouched).toEqual({ set: {}, unset: [] });
-
-    const typed = { ...clone(baseline), bearerToken: "new-tok" };
-    expect(computePatch(typed, baseline)).toEqual({ set: { bearerToken: "new-tok" }, unset: [] });
-
-    const overridden = { ...clone(baseline), env: {} };
-    expect(computePatch(overridden, baseline)).toEqual({ set: { env: {} }, unset: [] });
+      args: ["--x"],
+      env: { A: "1" },
+      description: "d",
+    });
+    expect(buildEntry(draft, "url", { kind: "global" })).toEqual({ description: "d" });
+    expect(buildEntry(clone({ url: "https://u", headers: { A: "b" } }), "url", { kind: "global" })).toEqual({
+      url: "https://u",
+      headers: { A: "b" },
+    });
   });
 
-  it("strips nested sentinels from a partially-edited atomic object", () => {
-    const baseline = { oauth: { clientId: "a", clientSecret: { redacted: true } } };
-    const draft = { oauth: { clientId: "b", clientSecret: { redacted: true } } };
-    expect(computePatch(draft, baseline)).toEqual({ set: { oauth: { clientId: "b" } }, unset: [] });
+  it("strips redaction sentinels and drops auth at project scope", () => {
+    const draft = {
+      url: "https://u/mcp",
+      oauth: { clientId: "a", clientSecret: { redacted: true } },
+      headers: { redacted: true, keys: [{ name: "Authorization", secret: true }] },
+      auth: { provider: "radius" },
+      futureThing: { x: 1 },
+    };
+    expect(buildEntry(clone(draft), "url", { kind: "project", cwd: "/w" })).toEqual({
+      url: "https://u/mcp",
+      oauth: { clientId: "a" },
+      futureThing: { x: 1 },
+    });
+    // global scope keeps auth
+    expect(buildEntry(clone(draft), "url", { kind: "global" }).auth).toEqual({ provider: "radius" });
   });
 });
 
@@ -229,20 +213,19 @@ describe("validateDraft", () => {
     const errors = validateDraft(fields, { url: "https://u" }, "command", {});
     expect(errors.command).toBe("Required");
     expect(validateDraft(fields, { command: "/bin/a" }, "command", {}).command).toBeUndefined();
+    expect(validateDraft(fields, { command: "/bin/a" }, "url", {}).url).toBe("Required");
   });
 
   it("flags empty string-list rows and invalid JSON", () => {
     const errors = validateDraft(fields, { command: "/bin/a", args: [""] }, "command", {});
     expect(errors.args).toBeTruthy();
 
-    const jsonErrors = validateDraft(fields, { command: "/bin/a", auth: "bearer" }, "command", {
-      auth: "{not json",
-    });
-    expect(jsonErrors.auth).toBe("Invalid JSON");
+    const jsonErrors = validateDraft(fields, { command: "/bin/a" }, "command", {});
+    expect(jsonErrors).toEqual({});
   });
 
   it("accepts a valid draft", () => {
-    const draft = { command: "/bin/a", args: ["--x"], lifecycle: "eager", idleTimeout: 30 };
+    const draft = { command: "/bin/a", args: ["--x"], exposure: "direct", timeout: 30 };
     const transport: Transport = "command";
     expect(validateDraft(fields, draft, transport, {})).toEqual({});
   });

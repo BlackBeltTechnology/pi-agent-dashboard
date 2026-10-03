@@ -28,6 +28,7 @@ CHECKS · FIX ROUTING · DERIVES-FROM** (+ a `<id>.knowledge.hash` sidecar).
 | `model-resolution` | model:resolve handler, roles/preset, @role resolvability |
 | `apple-tools` | iMCP (Apple PIM) provisioning state for the apple-tools plugin |
 | `oauth-redirect-base` | which OAuth redirect base won + its tier (reverse-proxy `redirect_uri_mismatch`) |
+| `mcp-builtin` | pi built-in MCP + per-session `pi-dashboard` registration (adapter installed, shadowing entry, non-strict `mcp.json`) |
 
 ## How to route
 

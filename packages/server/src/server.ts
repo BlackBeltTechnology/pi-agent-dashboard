@@ -183,6 +183,7 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
+import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
@@ -1329,6 +1330,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
+  // pi's project-trust rule as a SESSION applies it (recorded decision, else
+  // `defaultProjectTrust`), consumed by mcp-client to decide whether a
+  // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
+  // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
+  pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
   // Host services consumed by mcp-server-plugin. Registered HERE because the
   // plugin must verify a device bearer WITHOUT going through the global
   // `onRequest` hook — `/mcp` deliberately does not trust

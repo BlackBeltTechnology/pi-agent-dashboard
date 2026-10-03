@@ -1,39 +1,38 @@
 /**
- * mcp-client-plugin · CORE merge-only config writer.
+ * mcp-client-plugin · CORE config writer over pi's built-in MCP layers.
  *
- * Writes only the two Pi-owned layers, resolved through the adapter port's path
- * helpers: `getPiGlobalConfigPath()` (global) and `getProjectPiConfigPath(cwd)`
- * (project). Every write is a patch (`set` + `unset`) that preserves sibling
- * servers and unrecognised keys. Parses JSONC exactly as `pi-mcp-adapter` does
- * (`strip-json-comments` with `trailingCommas: true`) and writes back under
- * whichever of `mcpServers` / `mcp-servers` the file already uses, never both.
+ * Every write targets exactly one layer (`global` → the Pi-global `mcp.json`,
+ * `project` → `<cwd>/.pi/mcp.json`), replaces or deletes exactly one
+ * `mcpServers.<name>` entry, preserves every other entry and top-level key,
+ * writes atomically, and refuses to write over a file pi cannot parse
+ * (strict JSON). Before any byte is written the resulting entry is checked
+ * against the mirrored pi rules (`pi-rules.ts`), the dashboard's transport
+ * rule, project-scope `auth`, and `-`/`_` namespace collisions, so the
+ * writer never persists an entry pi would reject or drop.
  *
- * Refusals are the closed {@link ConfigRefusalCode} set and come from the same
- * validation function `checkConfigFiles` uses, so check mode can never report a
- * healthy file that write mode would refuse.
+ * Refusals are the closed {@link ConfigRefusalCode} set, shared with
+ * `checkConfigFiles` (same `planEnsure` function), so check mode can never
+ * report a healthy file that write mode would refuse.
  *
- * See change: extract-mcp-client-plugin (design D1).
+ * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin.
  */
 
-import { dirname } from "node:path";
 import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
-import { sourcesMatch } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
-import stripJsonComments from "strip-json-comments";
+import { type LayerPaths, type LayerRead, nullProto, readLayer } from "./layers.js";
 import { isPlainObject } from "./path-utils.js";
+import { ADAPTER_ONLY_KEYS, isValidServerName, mcpNamespace, transportOf, validatePiEntry } from "./pi-rules.js";
 import type {
-  AdapterPort,
   ConfigIO,
   ConfigRefusal,
   ConfigWriteResult,
-  McpSettings,
   ParseStatus,
-  ReadResult,
   RemoveResult,
   Scope,
   ServerEntry,
+  SetEnabledResult,
 } from "./types.js";
 
-/** Thrown when a project-scope write names a cwd outside the known-folder set. */
+/** Thrown when a project scope names a cwd outside the known-folder set. */
 export class NotAllowedCwdError extends Error {
   constructor(public readonly cwd: string) {
     super(`cwd not allowed: ${cwd}`);
@@ -41,532 +40,344 @@ export class NotAllowedCwdError extends Error {
   }
 }
 
-/** The npm source string appended to settings.json `packages[]` for the adapter. */
-export const ADAPTER_PACKAGE_SOURCE = "npm:pi-mcp-adapter";
-
-/** The three mutually exclusive transport fields. */
-export const TRANSPORT_FIELDS = ["command", "url", "socket"] as const;
-
-/** Server names that must never be used as object keys (prototype pollution). */
-const FORBIDDEN_NAMES = new Set(["__proto__", "constructor", "prototype"]);
-
-/** 1–128 chars, no `/`, `\` or control chars, not `.`/`..`, not a prototype key. */
-export function isValidServerName(name: string): boolean {
-  if (name.length < 1 || name.length > 128) return false;
-  if (name === "." || name === "..") return false;
-  if (FORBIDDEN_NAMES.has(name)) return false;
-  // eslint-disable-next-line no-control-regex
-  if (/[/\\\u0000-\u001f\u007f]/.test(name)) return false;
-  return true;
-}
-
-/** Parse a JSONC config file exactly as the adapter does. Throws on failure. */
-export function parseJsonc(raw: string): unknown {
-  return JSON.parse(stripJsonComments(raw, { trailingCommas: true }));
-}
-
-/** A null-prototype shallow copy, so a `__proto__` own key can never pollute. */
-function nullProto<T extends object>(obj: T): T {
-  return Object.assign(Object.create(null), obj) as T;
-}
-
-function ok(): ConfigWriteResult {
-  return { ok: true };
-}
-
-/**
- * The one validation function shared by every write path and by
- * `checkConfigFiles`: given the layer entry a write would leave in the target
- * file, enforce transport exclusivity (at most one of command/url/socket).
- * The ">= 1 transport when nothing lower defines the server" rule needs the
- * adapter merge and is enforced by the HTTP layer.
- */
-export function validateResultingEntry(entry: Record<string, unknown>): ConfigRefusal | null {
-  const present = TRANSPORT_FIELDS.filter((f) => entry[f] !== undefined);
-  if (present.length > 1) {
-    return {
-      code: "transport-conflict",
-      message: `entry carries more than one transport: ${present.join(", ")}`,
-      fields: [...present],
-    };
-  }
-  return null;
-}
-
-/**
- * The "at least one transport when nothing lower defines the server" rule.
- * `hasLowerDefinition` is the adapter-merge result for the scope, computed by
- * the HTTP layer (the only caller that can reach the adapter port for it).
- */
-export function validateTransportPresence(
-  resultingEntry: Record<string, unknown>,
-  hasLowerDefinition: boolean,
-): ConfigRefusal | null {
-  if (hasLowerDefinition) return null;
-  const present = TRANSPORT_FIELDS.filter((f) => resultingEntry[f] !== undefined);
-  if (present.length === 0) {
-    return {
-      code: "missing-transport",
-      message: "server has no transport; set one of command, url, socket",
-      fields: [...TRANSPORT_FIELDS],
-    };
-  }
-  return null;
-}
-
-export interface ConfigWriter {
-  /** Resolve the Pi-owned target path for a scope (enforces admission). */
-  targetPath(scope: Scope): string;
-  readServerEntry(name: string, scope: Scope): ReadResult;
-  ensureServerEntry(
-    name: string,
-    fields: Partial<ServerEntry>,
-    scope: Scope,
-  ): ConfigWriteResult;
-  /** A patch of `set` fields + `unset` keys over one server entry. */
-  applyServerPatch(
-    name: string,
-    set: Partial<ServerEntry>,
-    unset: string[],
-    scope: Scope,
-    opts?: { hasLowerDefinition?: boolean },
-  ): ConfigWriteResult;
-  removeServer(name: string, scope: Scope): RemoveResult;
-  setDirectTools(name: string, tools: string[] | undefined, scope: Scope): ConfigWriteResult;
-  setServerDisabled(
-    name: string,
-    disabled: boolean,
-    scope: Scope,
-    opts?: { timeoutMs?: number },
-  ): Promise<ConfigWriteResult>;
-  patchSettings(set: Partial<McpSettings>, unset: string[]): ConfigWriteResult;
-  ensureAdapterPackage(): ConfigWriteResult;
-  /** Dry run: the refusal `ensureServerEntry` would return, or null when it would write. */
-  previewEnsure(
-    name: string,
-    fields: Partial<ServerEntry>,
-    scope: Scope,
-  ): ConfigRefusal | null;
-  /** Dry run of `ensureAdapterPackage` — refuses a non-array `packages`, no write. */
-  previewAdapterPackage(): ConfigRefusal | null;
-  readParseStatus(path: string): ParseStatus;
-  /** The settings.json path that sits beside the Pi-global mcp.json. */
-  settingsJsonPath(): string;
-}
+/** Secret-bearing fields never copied silently from the global entry into a folder copy. */
+export const FOLDER_COPY_OMITTED = ["headers", "env", "oauth.clientSecret", "auth"] as const;
 
 export interface ConfigWriterDeps {
   configIO: ConfigIO;
-  adapter: AdapterPort;
+  paths: LayerPaths;
   knownCwds: () => string[];
-  /** Always-empty scratch dir used for global-scope adapter merges. */
-  scratchCwd: string;
-  defaultTimeoutMs?: number;
+  /** pi's project-trust rule. Absent → every project is untrusted. */
+  isProjectTrusted?: (cwd: string) => boolean;
 }
 
-type ReadConfig =
-  | { ok: true; config: Record<string, unknown> }
+export interface ConfigWriter {
+  targetPath(scope: Scope): string;
+  readServerEntry(name: string, scope: Scope): ServerEntry | undefined;
+  ensureServerEntry(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigWriteResult;
+  saveServer(name: string, entry: ServerEntry, scope: Scope, opts?: { previousName?: string }): ConfigWriteResult;
+  removeServer(name: string, scope: Scope): RemoveResult;
+  setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult;
+  convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult;
+  /** Dry run of `ensureServerEntry`: the refusal it would return, or null. */
+  previewEnsure(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigRefusal | null;
+  readParseStatus(path: string): ParseStatus;
+}
+
+type Prepared =
+  | { ok: true; path: string; layer: Extract<LayerRead, { ok: true }> }
   | { ok: false; refusal: ConfigRefusal };
 
-/** Read + parse a config file. A missing/blank file reads as `{}`. */
-function readConfigFile(io: ConfigIO, path: string): ReadConfig {
-  const raw = io.readFile(path);
-  if (raw === null || raw.trim() === "") return { ok: true, config: nullProto({}) };
-  try {
-    const parsed = parseJsonc(raw);
-    if (!isPlainObject(parsed)) {
-      return { ok: false, refusal: { code: "unparseable", message: `${path} is not a JSON object`, path } };
+/** A copy of a global entry for a folder layer, without secret values or `auth`. */
+export function folderCopyOf(entry: Record<string, unknown>): { copy: Record<string, unknown>; omitted: string[] } {
+  const copy = nullProto({ ...entry });
+  const omitted: string[] = [];
+  for (const k of ["headers", "env", "auth"] as const) {
+    if (copy[k] !== undefined) {
+      delete copy[k];
+      omitted.push(k);
     }
-    return { ok: true, config: nullProto(parsed) };
-  } catch (e) {
-    return {
-      ok: false,
-      refusal: {
-        code: "unparseable",
-        message: `${path} contains invalid JSON: ${(e as Error).message}`,
-        path,
-      },
-    };
   }
-}
-
-/** The servers key the adapter reads first, and the map it holds (null if mistyped). */
-function resolveServersKey(config: Record<string, unknown>): {
-  key: "mcpServers" | "mcp-servers";
-  servers: Record<string, unknown> | null;
-} {
-  if (config.mcpServers !== undefined) {
-    return {
-      key: "mcpServers",
-      servers: isPlainObject(config.mcpServers) ? nullProto(config.mcpServers) : null,
-    };
+  if (isPlainObject(copy.oauth) && copy.oauth.clientSecret !== undefined) {
+    const { clientSecret: _drop, ...rest } = copy.oauth;
+    copy.oauth = rest;
+    omitted.push("oauth.clientSecret");
   }
-  if (config["mcp-servers"] !== undefined) {
-    return {
-      key: "mcp-servers",
-      servers: isPlainObject(config["mcp-servers"]) ? nullProto(config["mcp-servers"]) : null,
-    };
-  }
-  return { key: "mcpServers", servers: nullProto({}) };
-}
-
-function writeOrRefuse(io: ConfigIO, path: string, obj: unknown): ConfigWriteResult {
-  try {
-    io.writeFileAtomic(path, `${JSON.stringify(obj, null, 2)}\n`);
-    return ok();
-  } catch (e) {
-    const err = e as NodeJS.ErrnoException;
-    return {
-      ok: false,
-      refusal: {
-        code: "write-failed",
-        message: `failed to write ${path}: ${err.message}`,
-        path,
-        ...(err.code ? { ioCode: err.code } : {}),
-      },
-    };
-  }
+  return { copy, omitted };
 }
 
 export function createConfigWriter(deps: ConfigWriterDeps): ConfigWriter {
-  const { configIO, adapter, knownCwds, scratchCwd, defaultTimeoutMs = 10_000 } = deps;
+  const { configIO, paths, knownCwds } = deps;
+  const trusted = (cwd: string): boolean => deps.isProjectTrusted?.(cwd) === true;
 
   function targetPath(scope: Scope): string {
-    if (scope.kind === "global") return adapter.getPiGlobalConfigPath();
+    if (scope.kind === "global") return paths.globalPath();
     if (!isAllowedCwd(scope.cwd, knownCwds)) throw new NotAllowedCwdError(scope.cwd);
-    return adapter.getProjectPiConfigPath(scope.cwd);
+    return paths.projectPath(scope.cwd);
   }
 
-  function settingsJsonPath(): string {
-    return `${dirname(adapter.getPiGlobalConfigPath())}/settings.json`;
+  function nameRefusal(name: string): ConfigRefusal | null {
+    if (isValidServerName(name)) return null;
+    return {
+      code: "invalid-name",
+      message: `invalid server name ${JSON.stringify(name)} (use letters, digits, "_" and "-")`,
+    };
   }
 
-  function checkName(name: string): ConfigRefusal | null {
-    if (!isValidServerName(name)) {
-      return { code: "invalid-name", message: `invalid server name: ${JSON.stringify(name)}` };
+  function prepare(name: string, scope: Scope): Prepared {
+    const bad = nameRefusal(name);
+    if (bad) return { ok: false, refusal: bad };
+    const path = targetPath(scope);
+    const layer = readLayer(configIO, path);
+    if (!layer.ok) {
+      return {
+        ok: false,
+        refusal: { code: "unparseable", message: `${layer.message} (pi skips this file; fix it by hand)`, path },
+      };
+    }
+    return { ok: true, path, layer };
+  }
+
+  /** Names a write must not collide with (excluding `exclude`), with where they live. */
+  function collisionCandidates(scope: Scope): Array<{ name: string; path: string }> {
+    const out: Array<{ name: string; path: string }> = [];
+    const add = (path: string): void => {
+      const l = readLayer(configIO, path);
+      if (l.ok) for (const n of Object.keys(l.servers)) out.push({ name: n, path });
+    };
+    add(paths.globalPath());
+    if (scope.kind === "project") {
+      add(paths.projectPath(scope.cwd));
+    } else {
+      // pi loads the global layer first, then the trusted project layer, and
+      // DROPS the project entry on a collision — so a global write must not
+      // collide with any known trusted folder's entry.
+      for (const cwd of knownCwds()) if (trusted(cwd)) add(paths.projectPath(cwd));
+    }
+    return out;
+  }
+
+  /** Validation shared by every write that sets an entry's content. */
+  function validateEntry(
+    name: string,
+    entry: Record<string, unknown>,
+    scope: Scope,
+    exclude: ReadonlySet<string>,
+  ): ConfigRefusal | null {
+    if (typeof entry.command === "string" && typeof entry.url === "string") {
+      return {
+        code: "transport-conflict",
+        message: `server "${name}" carries both command and url; keep exactly one transport`,
+        fields: ["command", "url"],
+      };
+    }
+    const piError = validatePiEntry(name, entry);
+    if (piError) return { code: "invalid-entry", message: piError };
+    if (scope.kind === "project" && entry.auth !== undefined && transportOf(entry) === "http") {
+      return {
+        code: "invalid-entry",
+        message: `server "${name}": auth is only allowed in the global mcp.json (provider auth is global-only)`,
+      };
+    }
+    const ns = mcpNamespace(name);
+    const clash = collisionCandidates(scope).find((c) => c.name !== name && !exclude.has(c.name) && mcpNamespace(c.name) === ns);
+    if (clash) {
+      return {
+        code: "name-collision",
+        message: `server "${name}" conflicts with "${clash.name}" in ${clash.path} (pi maps "-" and "_" to one namespace)`,
+        conflict: { name: clash.name, path: clash.path },
+      };
     }
     return null;
   }
 
-  function resolveTarget(scope: Scope): { ok: true; path: string } | { ok: false; refusal: ConfigRefusal } {
+  function write(path: string, config: Record<string, unknown>, servers: Record<string, unknown>): ConfigWriteResult {
+    const next = nullProto({ ...config });
+    next.mcpServers = servers;
+    if (JSON.stringify(next) === JSON.stringify(config)) return { ok: true };
     try {
-      return { ok: true, path: targetPath(scope) };
+      configIO.writeFileAtomic(path, `${JSON.stringify(next, null, 2)}\n`);
+      return { ok: true };
     } catch (e) {
-      if (e instanceof NotAllowedCwdError) {
-        return { ok: false, refusal: { code: "not-allowed", message: e.message } };
-      }
-      throw e;
-    }
-  }
-
-  function readServerEntry(name: string, scope: Scope): ReadResult {
-    const nameRefusal = checkName(name);
-    if (nameRefusal) return { ok: false, refusal: nameRefusal };
-    const target = resolveTarget(scope);
-    if (!target.ok) return target;
-    const read = readConfigFile(configIO, target.path);
-    if (!read.ok) return { ok: false, refusal: read.refusal };
-    const { servers } = resolveServersKey(read.config);
-    if (servers === null) {
-      return { ok: false, refusal: { code: "unparseable", message: `${target.path}: servers value must be an object`, path: target.path } };
-    }
-    return { ok: true, entry: servers[name] as ServerEntry | undefined };
-  }
-
-  interface PatchOpts {
-    /** Always delete the key, regardless of the resulting entry content. */
-    deleteEntry?: boolean;
-    /** Delete the key when the patched entry has no remaining keys. */
-    deleteWhenEmpty?: boolean;
-    /**
-     * Enforce the ">= 1 transport when nothing lower defines the server" rule.
-     * Set only by the HTTP patch route (the caller that resolves the adapter
-     * merge for the scope); writer-internal callers rely on the existing entry.
-     */
-    enforceTransport?: boolean;
-    /** The adapter merge for the scope defines this server (below the target). */
-    hasLowerDefinition?: boolean;
-  }
-
-  type PatchResult =
-    | { ok: true; entry: Record<string, unknown> | undefined; removed: Record<string, unknown> | undefined }
-    | { ok: false; refusal: ConfigRefusal };
-
-  type Prepared =
-    | {
-        ok: true;
-        path: string;
-        config: Record<string, unknown>;
-        key: "mcpServers" | "mcp-servers";
-        servers: Record<string, unknown>;
-      }
-    | { ok: false; refusal: ConfigRefusal };
-
-  /** Name + target + parse + servers map, or the refusal that stops the write. */
-  function prepareWrite(name: string, scope: Scope): Prepared {
-    const nameRefusal = checkName(name);
-    if (nameRefusal) return { ok: false, refusal: nameRefusal };
-    const target = resolveTarget(scope);
-    if (!target.ok) return target;
-    const read = readConfigFile(configIO, target.path);
-    if (!read.ok) return { ok: false, refusal: read.refusal };
-    const resolved = resolveServersKey(read.config);
-    if (resolved.servers === null) {
+      const err = e as NodeJS.ErrnoException;
       return {
         ok: false,
-        refusal: { code: "unparseable", message: `${target.path}: servers value must be an object`, path: target.path },
+        refusal: {
+          code: "write-failed",
+          message: `failed to write ${path}: ${err.message}`,
+          path,
+          ...(err.code ? { ioCode: err.code } : {}),
+        },
       };
     }
-    return { ok: true, path: target.path, config: read.config, key: resolved.key, servers: resolved.servers };
   }
 
-  function buildEntry(
-    existing: Record<string, unknown>,
-    set: Record<string, unknown>,
-    unset: string[],
-  ): Record<string, unknown> {
-    const next = nullProto({ ...existing });
-    for (const [k, v] of Object.entries(set)) {
+  function existingObject(
+    p: Extract<Prepared, { ok: true }>,
+    name: string,
+  ): { ok: true; entry: Record<string, unknown> | undefined } | { ok: false; refusal: ConfigRefusal } {
+    const raw = p.layer.servers[name];
+    if (raw === undefined) return { ok: true, entry: undefined };
+    if (!isPlainObject(raw)) {
+      return {
+        ok: false,
+        refusal: { code: "entry-not-object", message: `${p.path}: server "${name}" is not an object`, path: p.path },
+      };
+    }
+    return { ok: true, entry: nullProto({ ...raw }) };
+  }
+
+  function planEnsure(
+    name: string,
+    fields: Partial<ServerEntry>,
+    scope: Scope,
+  ): { ok: true; p: Extract<Prepared, { ok: true }>; next: Record<string, unknown> } | { ok: false; refusal: ConfigRefusal } {
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const existing = existingObject(p, name);
+    if (!existing.ok) return existing;
+    const next = nullProto({ ...(existing.entry ?? {}) });
+    for (const [k, v] of Object.entries(fields)) {
       if (v === undefined) delete next[k];
       else next[k] = v;
     }
-    for (const k of unset) delete next[k];
-    return next;
-  }
-
-  function applyEntry(
-    servers: Record<string, unknown>,
-    name: string,
-    next: Record<string, unknown>,
-    opts: PatchOpts,
-  ): Record<string, unknown> {
-    const nextServers = nullProto({ ...servers });
-    if (opts.deleteEntry || (opts.deleteWhenEmpty && Object.keys(next).length === 0)) {
-      delete nextServers[name];
-    } else {
-      nextServers[name] = next;
-    }
-    return nextServers;
-  }
-
-  /** The existing entry (object) or the `entry-not-object` refusal. */
-  function resolveExistingEntry(
-    servers: Record<string, unknown>,
-    name: string,
-    path: string,
-  ):
-    | { ok: true; entry: Record<string, unknown>; raw: Record<string, unknown> | undefined }
-    | { ok: false; refusal: ConfigRefusal } {
-    const raw = servers[name];
-    if (raw !== undefined && !isPlainObject(raw)) {
-      return {
-        ok: false,
-        refusal: { code: "entry-not-object", message: `${path}: server "${name}" is not an object`, path },
-      };
-    }
-    return {
-      ok: true,
-      entry: raw === undefined ? nullProto<Record<string, unknown>>({}) : nullProto(raw),
-      raw: raw === undefined ? undefined : raw,
-    };
-  }
-
-  /** Skip the write when the patch is a semantic no-op (leaves mtime intact). */
-  function writeIfChanged(
-    path: string,
-    nextConfig: Record<string, unknown>,
-    config: Record<string, unknown>,
-  ): ConfigWriteResult {
-    if (JSON.stringify(nextConfig) === JSON.stringify(config)) return ok();
-    return writeOrRefuse(configIO, path, nextConfig);
-  }
-
-  function patchEntry(
-    name: string,
-    set: Record<string, unknown>,
-    unset: string[],
-    scope: Scope,
-    opts: PatchOpts = {},
-  ): PatchResult {
-    const prepared = prepareWrite(name, scope);
-    if (!prepared.ok) return prepared;
-    const { path, config, key, servers } = prepared;
-    const existing = resolveExistingEntry(servers, name, path);
-    if (!existing.ok) return existing;
-    const next = buildEntry(existing.entry, set, unset);
-
-    const refusal = validateResultingEntry(next);
+    const refusal = validateEntry(name, next, scope, new Set());
     if (refusal) return { ok: false, refusal };
-    if (opts.enforceTransport) {
-      const presence = validateTransportPresence(next, opts.hasLowerDefinition === true);
-      if (presence) return { ok: false, refusal: presence };
-    }
-
-    const nextServers = applyEntry(servers, name, next, opts);
-    const nextConfig = nullProto({ ...config });
-    nextConfig[key] = nextServers;
-    const write = writeIfChanged(path, nextConfig, config);
-    if (!write.ok) return write;
-
-    const stored = nextServers[name];
-    return {
-      ok: true,
-      entry: isPlainObject(stored) ? stored : undefined,
-      removed: existing.raw,
-    };
+    return { ok: true, p, next };
   }
 
-  async function setServerDisabled(
-    name: string,
-    disabled: boolean,
-    scope: Scope,
-    opts?: { timeoutMs?: number },
-  ): Promise<ConfigWriteResult> {
-    const timeoutMs = opts?.timeoutMs ?? defaultTimeoutMs;
-    if (disabled) {
-      const patch = patchEntry(name, { disabled: true }, [], scope);
-      return patch.ok ? ok() : patch;
-    }
-    // Enable: remove `disabled`; delete the entry if it empties. The removal
-    // write has landed before the merge is evaluated, so a merge timeout leaves
-    // the removal in place and the caller sees the adapter-timeout error.
-    const patch = patchEntry(name, {}, ["disabled"], scope, { deleteWhenEmpty: true });
-    if (!patch.ok) return patch;
-
-    // Re-evaluate the adapter's full merge EXCLUDING this Pi-owned layer:
-    //   - project: the just-written `<cwd>/.pi/mcp.json` no longer disables it.
-    //   - global: `overridePath` replaces the Pi-global file — pass a path in the
-    //     empty scratch dir (nonexistent) to read every source below it.
-    const lowerMerge =
-      scope.kind === "project"
-        ? await adapter.loadMcpConfig(undefined, scope.cwd, { timeoutMs })
-        : await adapter.loadMcpConfig(`${scratchCwd}/mcp.json`, scratchCwd, { timeoutMs });
-    const merged = lowerMerge.mcpServers?.[name] as { disabled?: boolean } | undefined;
-    if (merged?.disabled === true) {
-      const second = patchEntry(name, { disabled: false }, [], scope);
-      if (!second.ok) return second;
-    }
-    return ok();
+  function ensureServerEntry(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigWriteResult {
+    const plan = planEnsure(name, fields, scope);
+    if (!plan.ok) return plan;
+    const servers = nullProto({ ...plan.p.layer.servers });
+    servers[name] = plan.next;
+    return write(plan.p.path, plan.p.layer.config, servers);
   }
 
-  function ensureServerEntry(
+  function previewEnsure(name: string, fields: Partial<ServerEntry>, scope: Scope): ConfigRefusal | null {
+    const plan = planEnsure(name, fields, scope);
+    return plan.ok ? null : plan.refusal;
+  }
+
+  function saveServer(
     name: string,
-    fields: Partial<ServerEntry>,
+    entry: ServerEntry,
     scope: Scope,
+    opts?: { previousName?: string },
   ): ConfigWriteResult {
-    const result = patchEntry(name, fields as Record<string, unknown>, [], scope);
-    return result.ok ? ok() : result;
-  }
-
-  function applyServerPatch(
-    name: string,
-    set: Partial<ServerEntry>,
-    unset: string[],
-    scope: Scope,
-    opts?: { hasLowerDefinition?: boolean },
-  ): ConfigWriteResult {
-    const result = patchEntry(name, set as Record<string, unknown>, unset, scope, {
-      enforceTransport: true,
-      hasLowerDefinition: opts?.hasLowerDefinition === true,
-    });
-    return result.ok ? ok() : result;
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    if (!isPlainObject(entry)) {
+      return { ok: false, refusal: { code: "invalid-entry", message: `server "${name}" must be an object` } };
+    }
+    const prev = opts?.previousName;
+    if (prev !== undefined && prev !== name) {
+      const bad = nameRefusal(prev);
+      if (bad) return { ok: false, refusal: bad };
+    }
+    const exclude = new Set(prev !== undefined ? [prev] : []);
+    const next = nullProto({ ...(entry as Record<string, unknown>) });
+    const refusal = validateEntry(name, next, scope, exclude);
+    if (refusal) return { ok: false, refusal };
+    const servers = nullProto({ ...p.layer.servers });
+    if (prev !== undefined && prev !== name) delete servers[prev];
+    servers[name] = next;
+    return write(p.path, p.layer.config, servers);
   }
 
   function removeServer(name: string, scope: Scope): RemoveResult {
-    const result = patchEntry(name, {}, [], scope, { deleteEntry: true });
-    if (!result.ok) return result;
-    return { ok: true, removed: result.removed as ServerEntry | undefined };
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const removed = p.layer.servers[name] as ServerEntry | undefined;
+    if (removed === undefined) return { ok: true, removed: undefined };
+    const servers = nullProto({ ...p.layer.servers });
+    delete servers[name];
+    const w = write(p.path, p.layer.config, servers);
+    return w.ok ? { ok: true, removed } : w;
   }
 
-  function setDirectTools(name: string, tools: string[] | undefined, scope: Scope): ConfigWriteResult {
-    const hasTools = tools !== undefined && tools.length > 0;
-    const result = patchEntry(name, hasTools ? { directTools: tools } : {}, hasTools ? [] : ["directTools"], scope);
-    return result.ok ? ok() : result;
+  function setEnabled(name: string, enabled: boolean, scope: Scope): SetEnabledResult {
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const existing = existingObject(p, name);
+    if (!existing.ok) return existing;
+
+    // The global entry a folder entry replaces (project scope only).
+    let globalEntry: Record<string, unknown> | undefined;
+    if (scope.kind === "project") {
+      const g = readLayer(configIO, paths.globalPath());
+      const raw = g.ok ? g.servers[name] : undefined;
+      globalEntry = isPlainObject(raw) ? raw : undefined;
+    }
+
+    if (existing.entry !== undefined) {
+      const next = existing.entry;
+      if (enabled) {
+        // Enabling a folder copy that lacks the global entry's secrets would
+        // connect without credentials: let the caller choose instead.
+        if (globalEntry !== undefined && next.enabled === false) {
+          const missing = folderCopyOf(globalEntry).omitted.filter((f) => !hasPath(next, f));
+          if (missing.length > 0) return { ok: true, action: "needs-choice", omitted: missing };
+        }
+        delete next.enabled;
+      } else {
+        next.enabled = false;
+      }
+      const servers = nullProto({ ...p.layer.servers });
+      servers[name] = next;
+      const w = write(p.path, p.layer.config, servers);
+      return w.ok ? { ok: true, action: "written" } : w;
+    }
+
+    if (scope.kind === "project" && globalEntry !== undefined) {
+      if (enabled) return { ok: true, action: "written" }; // the global entry already applies
+      // pi replaces entries as a whole: disabling here needs a complete copy.
+      const { copy, omitted } = folderCopyOf(globalEntry);
+      copy.enabled = false;
+      const servers = nullProto({ ...p.layer.servers });
+      servers[name] = copy;
+      const w = write(p.path, p.layer.config, servers);
+      return w.ok ? { ok: true, action: "written", ...(omitted.length ? { omitted } : {}) } : w;
+    }
+
+    return {
+      ok: false,
+      refusal: { code: "invalid-entry", message: `no MCP server named "${name}" in ${p.path}`, path: p.path },
+    };
   }
 
-  function patchSettings(set: Partial<McpSettings>, unset: string[]): ConfigWriteResult {
-    const path = adapter.getPiGlobalConfigPath();
-    const read = readConfigFile(configIO, path);
-    if (!read.ok) return { ok: false, refusal: read.refusal };
-    const config = read.config;
-    if (config.settings !== undefined && !isPlainObject(config.settings)) {
-      return { ok: false, refusal: { code: "unparseable", message: `${path}: "settings" must be an object`, path } };
+  function convertAdapterLeftovers(name: string, scope: Scope): ConfigWriteResult {
+    const p = prepare(name, scope);
+    if (!p.ok) return p;
+    const existing = existingObject(p, name);
+    if (!existing.ok) return existing;
+    const next = existing.entry;
+    if (next === undefined) {
+      return {
+        ok: false,
+        refusal: { code: "invalid-entry", message: `no MCP server named "${name}" in ${p.path}`, path: p.path },
+      };
     }
-    const settings = config.settings === undefined ? nullProto<Record<string, unknown>>({}) : nullProto(config.settings);
-    for (const [k, v] of Object.entries(set)) {
-      if (v === undefined) delete settings[k];
-      else settings[k] = v;
-    }
-    for (const k of unset) delete settings[k];
-    const nextConfig = nullProto({ ...config });
-    nextConfig.settings = settings;
-    if (JSON.stringify(nextConfig) === JSON.stringify(config)) return ok();
-    return writeOrRefuse(configIO, path, nextConfig);
+    if (next.disabled === true && next.enabled === undefined) next.enabled = false;
+    for (const k of ADAPTER_ONLY_KEYS) delete next[k];
+    if (next.auth !== undefined && !isPlainObject(next.auth)) delete next.auth;
+    if (next.oauth === false) delete next.oauth;
+    const servers = nullProto({ ...p.layer.servers });
+    servers[name] = next;
+    return write(p.path, p.layer.config, servers);
   }
 
-  function ensureAdapterPackage(): ConfigWriteResult {
-    const path = settingsJsonPath();
-    const read = readConfigFile(configIO, path);
-    if (!read.ok) return { ok: false, refusal: read.refusal };
-    const config = read.config;
-    if (config.packages !== undefined && !Array.isArray(config.packages)) {
-      return { ok: false, refusal: { code: "unparseable", message: `${path}: "packages" must be an array`, path } };
-    }
-    const packages = Array.isArray(config.packages) ? (config.packages as unknown[]) : [];
-    const already = packages.some((p) => typeof p === "string" && sourcesMatch(p, ADAPTER_PACKAGE_SOURCE));
-    if (already) return ok();
-    const nextConfig = nullProto({ ...config });
-    nextConfig.packages = [...packages, ADAPTER_PACKAGE_SOURCE];
-    return writeOrRefuse(configIO, path, nextConfig);
-  }
-
-  function previewAdapterPackage(): ConfigRefusal | null {
-    const path = settingsJsonPath();
-    const read = readConfigFile(configIO, path);
-    if (!read.ok) return read.refusal;
-    if (read.config.packages !== undefined && !Array.isArray(read.config.packages)) {
-      return { code: "unparseable", message: `${path}: "packages" must be an array`, path };
-    }
-    return null;
+  function readServerEntry(name: string, scope: Scope): ServerEntry | undefined {
+    if (!isValidServerName(name)) return undefined;
+    const l = readLayer(configIO, targetPath(scope));
+    if (!l.ok) return undefined;
+    const raw = l.servers[name];
+    return raw === undefined ? undefined : (raw as ServerEntry);
   }
 
   function readParseStatus(path: string): ParseStatus {
-    const raw = configIO.readFile(path);
-    if (raw === null || raw.trim() === "") return { path, ok: true };
-    try {
-      const parsed = parseJsonc(raw);
-      if (!isPlainObject(parsed)) return { path, ok: false, message: `${path} is not a JSON object` };
-      return { path, ok: true };
-    } catch (e) {
-      return { path, ok: false, message: (e as Error).message };
-    }
-  }
-
-  function previewEnsure(
-    name: string,
-    fields: Partial<ServerEntry>,
-    scope: Scope,
-  ): ConfigRefusal | null {
-    const prepared = prepareWrite(name, scope);
-    if (!prepared.ok) return prepared.refusal;
-    const existing = resolveExistingEntry(prepared.servers, name, prepared.path);
-    if (!existing.ok) return existing.refusal;
-    const next = buildEntry(existing.entry, fields as Record<string, unknown>, []);
-    return validateResultingEntry(next);
+    const l = readLayer(configIO, path);
+    return l.ok ? { path, ok: true } : { path, ok: false, message: l.message };
   }
 
   return {
     targetPath,
     readServerEntry,
     ensureServerEntry,
-    applyServerPatch,
+    saveServer,
     removeServer,
-    setDirectTools,
-    setServerDisabled,
-    patchSettings,
-    ensureAdapterPackage,
+    setEnabled,
+    convertAdapterLeftovers,
     previewEnsure,
-    previewAdapterPackage,
     readParseStatus,
-    settingsJsonPath,
   };
 }
+
+function hasPath(entry: Record<string, unknown>, dotted: string): boolean {
+  const [head, tail] = dotted.split(".");
+  const v = entry[head];
+  if (tail === undefined) return v !== undefined;
+  return isPlainObject(v) && v[tail] !== undefined;
+}
+
+export { isValidServerName };

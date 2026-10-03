@@ -14,7 +14,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `push-webhook-settings.spec.ts` | L3 #F9 push webhook. → see `push-webhook-settings.spec.ts.AGENTS.md` |
 | `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx… → see `README.md.AGENTS.md` |
 | `helpers/computed-contrast.ts` | In-page probes ported from `mockups/ux-probe.cjs`: `measureText` (canvas-resolved fg over composited bg… → see `helpers/computed-contrast.ts.AGENTS.md` |
-| `fixtures/severity-baseline.json` | Computed `--severity-{success,warning,info,error}-{bg,fg}` for all 18 theme×mode combos, captured BEFORE the… → see `fixtures/severity-baseline.json.AGENTS.md` |
+| `fixtures/severity-baseline.json` | Severity theme-token baseline. → see `fixtures/severity-baseline.json.AGENTS.md` |
 | `access-grants-revoke.spec.ts` | L3 access-grant remedy journey: denial → grant → admitted… → see `access-grants-revoke.spec.ts.AGENTS.md` |
 | `access-grant-dialog.spec.ts` | L3 for the access-grant prompt dialog + YOLO UI (change… → see `access-grant-dialog.spec.ts.AGENTS.md` |
 | `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
@@ -210,6 +210,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `worktree-grouping-survives-remove.spec.ts` | L3 fix-worktree-grouping-lost-on-remove. → see `worktree-grouping-survives-remove.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |
-| `mcp-session-token.spec.ts` | L3 (change: wire-mcp-session-token, test-plan #F1, #F5… → see `mcp-session-token.spec.ts.AGENTS.md` |
+| `mcp-session-token.spec.ts` | L3 MCP session token (wire-mcp-session-token). → see `mcp-session-token.spec.ts.AGENTS.md` |
+| `mcp-builtin-registration.spec.ts` | L3 built-in MCP registration. → see `mcp-builtin-registration.spec.ts.AGENTS.md` |
+| `apple-tools-activation.spec.ts` | L3 apple-tools activation. → see `apple-tools-activation.spec.ts.AGENTS.md` |
 | `mcp-tiered-token.spec.ts` | F6/F7 (expand-mcp-tiered-surface): observe token's… → see `mcp-tiered-token.spec.ts.AGENTS.md` |
 | `identity-matrix/` | L3 D21 identity setup matrix. → see `identity-matrix.AGENTS.md` |

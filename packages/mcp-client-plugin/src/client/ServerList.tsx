@@ -1,159 +1,94 @@
 /**
- * mcp-client · global server list (settings section).
+ * mcp-client · server list (settings section + folder page).
  *
- * Renders every server from the global effective view, sorted by name, with a
- * provenance badge per defining layer (Pi global / Shared 🔒 / Other), the
- * transport, an enable switch, and a View-or-Edit action. Layer parse errors
- * render as their own rows; an empty or still-loading list gets an empty state
- * / skeleton.
+ * Rows render pi's own vocabulary: name, description, transport, exposure,
+ * the enabled switch, live state + tool count from `/live` ("state unknown"
+ * when absent), the auth mode for HTTP rows, provenance badges (Pi global /
+ * Pi folder, "overrides Pi global" for a whole-entry folder override), the
+ * "ignored by pi" flag with a one-click convert for adapter leftovers, pi's
+ * rejection message, and inactive reasons. Layer parse errors render as their
+ * own rows (pi skips the whole file).
  *
- * The switch writes the `disabled` flag at global scope, leaving the previous
- * value on screen until the write lands, and reverts with an inline error when
- * it fails (task 7.3).
+ * The switch writes `enabled` at the row's scope (pending until the write
+ * completes, reverting with an inline error on failure). A folder-scope enable
+ * that needs re-entered secrets surfaces the needs-choice result; a disable
+ * that omitted secrets surfaces the omitted list.
  *
- * See change: extract-mcp-client-plugin (tasks 7.2, 7.3).
+ * Folder-page rows are keyed `${provenance}:${name}` — two rows can share a
+ * name (the folder entry replaces the global one only when pi trusts it).
+ *
+ * See change: migrate-mcp-to-pi-builtin.
  */
 import { useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
 import { useEffect, useState } from "react";
-import type { EffectiveServerView, LayerParseError, ProvenanceLayer } from "../core/effective-view.js";
-import type { Scope } from "../core/types.js";
-import { ApiError, scopeToWire, setServerDisabled } from "./api.js";
-import { overrideFieldsOf } from "./folder-view.js";
+import { authModeOf } from "../core/pi-rules.js";
+import type { EffectiveServerView, LayerStatus, LiveState, Scope } from "../core/types.js";
+import { ApiError, convertServer, scopeToWire, setEnabled } from "./api.js";
+import { provenanceLabel } from "./folder-view.js";
 import { invalidateEffective } from "./hooks.js";
-import type { Transport } from "./schema.js";
-
-export type { Transport };
 
 const GLOBAL_SCOPE: Scope = { kind: "global" };
 
-/** The transport a `ServerEntry` declares, or null when it declares none. */
-export function transportOf(entry: Record<string, unknown>): Transport | null {
-  if (typeof entry.command === "string") return "command";
-  if (typeof entry.url === "string") return "url";
-  if (typeof entry.socket === "string") return "socket";
-  return null;
-}
-
-interface Badge {
-  text: string;
-  locked: boolean;
-  /** True for a layer this scope can write (Pi global). */
-  writable: boolean;
-}
-
-function badgeFor(p: ProvenanceLayer): Badge {
-  if (p.layer === "pi-global") return { text: "Pi global", locked: false, writable: true };
-  if (p.layer === "pi-folder") return { text: "Pi folder", locked: false, writable: true };
-  if (p.layer === "shared") return { text: "Shared", locked: true, writable: false };
-  // `other` names its source kind (a package/agent-plugin source has no file).
-  return { text: `Other: ${p.importKind ?? p.label}`, locked: true, writable: false };
-}
-
-/** One badge per defining layer, Pi-owned layers first. */
-function provenanceBadges(provenance: ProvenanceLayer[]): Badge[] {
-  return [...provenance].sort((a, b) => rank(a.layer) - rank(b.layer)).map(badgeFor);
-}
-
-function rank(layer: ProvenanceLayer["layer"]): number {
-  if (layer === "pi-global") return 0;
-  if (layer === "pi-folder") return 1;
-  if (layer === "shared") return 2;
-  return 3;
-}
-
-/** A server is editable at a scope iff that scope's writable Pi layer defines it. */
-export function isEditable(server: EffectiveServerView, scope: Scope = GLOBAL_SCOPE): boolean {
-  const layer = scope.kind === "project" ? "pi-folder" : "pi-global";
-  return server.provenance.some((p) => p.layer === layer);
-}
-
-function LockIcon(): React.ReactElement {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      width="10"
-      height="10"
-      fill="currentColor"
-      style={{ flex: "none" }}
-    >
-      <path d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5m-3 8V7a3 3 0 0 1 6 0v3z" />
-    </svg>
-  );
-}
-
-/** The folder page's mutating row action is locked by the adapter gate; global View stays reachable. */
-function actionDisabled(folder: boolean, readOnly: boolean): boolean {
-  return folder && readOnly;
-}
-
-/** The folder page's removable override chip (display-only when `removable` is false). */
-function OverrideChip({
-  name,
-  fields,
-  removable,
-  onRemove,
-}: {
+/** Identifies one row to the page: rows can share a name across provenance. */
+export interface RowRef {
+  key: string;
   name: string;
-  fields: string[];
-  removable: boolean;
-  onRemove?: (name: string) => void;
-}): React.ReactElement | null {
-  if (fields.length === 0) return null;
-  const canRemove = removable && onRemove !== undefined;
-  return (
-    <span
-      data-testid={`mcp-folder-override-chip-${name}`}
-      className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
-    >
-      {`folder: ${fields.join(", ")}`}
-      {canRemove && (
-        <button
-          type="button"
-          aria-label={`Remove folder override for ${name}`}
-          data-testid={`mcp-folder-chip-remove-${name}`}
-          onClick={() => onRemove?.(name)}
-          className="px-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
-        >
-          ✕
-        </button>
-      )}
-    </span>
-  );
+  provenance: EffectiveServerView["provenance"];
+}
+
+/** Row testid key: folder rows can share a name across provenance. */
+function keyOf(server: EffectiveServerView, folder: boolean): string {
+  return folder ? `${server.provenance}:${server.name}` : server.name;
+}
+
+/** The human phrase for an inactive row that the switch cannot explain. */
+function inactiveText(reason: string | undefined): string | null {
+  switch (reason) {
+    case "project-not-trusted":
+      return "project not trusted";
+    case "global-only-auth":
+      return "auth is global-only";
+    case "name-collision":
+      return "name collision";
+    default:
+      return null;
+  }
 }
 
 interface ServerRowProps {
   server: EffectiveServerView;
-  /** Page-wide adapter read-only flag (below-floor / absent / unknown). */
-  readOnly: boolean;
   /** Write scope for the enable switch (default global). */
   scope?: Scope;
-  /** Folder page: chips are display-only on narrow viewports. */
-  chipsRemovable?: boolean;
+  live: LiveState | null;
+  liveLoading: boolean;
   onOpen: (name: string) => void;
-  /** Folder page: remove the whole folder override for this server. */
-  onRemoveOverride?: (name: string) => void;
-  /** Called after a successful write so the view re-fetches. */
   onChanged: () => void;
+  onNeedsChoice?: (row: RowRef, omitted: string[]) => void;
+  onOmitted?: (row: RowRef, omitted: string[]) => void;
+  /** Folder page: remove the whole folder entry for this server. */
+  onRemoveOverride?: (name: string) => void;
+  /** Folder page: the chip's inline remove control hides below 640px. */
+  chipsRemovable?: boolean;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one row = write state + pi vocabulary (live, auth, leftovers, inactive reasons)
 function ServerRow({
   server,
-  readOnly,
   scope = GLOBAL_SCOPE,
-  chipsRemovable = true,
+  live,
+  liveLoading,
   onOpen,
-  onRemoveOverride,
   onChanged,
+  onNeedsChoice,
+  onOmitted,
+  onRemoveOverride,
+  chipsRemovable = true,
 }: ServerRowProps): React.ReactElement {
-  const { name, entry, provenance } = server;
+  const { name, entry } = server;
   const folder = scope.kind === "project";
-  const badges = provenanceBadges(provenance);
-  const editable = isEditable(server, scope);
-  const transport = transportOf(entry);
-  const persistedEnabled = entry.disabled !== true;
-  const overrideFields = folder ? overrideFieldsOf(server) : [];
+  const key = keyOf(server, folder);
+  const persistedEnabled = server.enabled;
 
   const [optimistic, setOptimistic] = useState<boolean | null>(null);
   const [pending, setPending] = useState(false);
@@ -162,16 +97,30 @@ function ServerRow({
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the persisted value only
   useEffect(() => setOptimistic(null), [persistedEnabled]);
   const enabled = optimistic ?? persistedEnabled;
-  // Global: a non-Pi-global server cannot be toggled. Folder: every server can
-  // gain a folder-layer `disabled` override, so only the adapter gate locks it.
-  const locked = readOnly || (!folder && !editable);
+
+  const liveRow = live?.ok ? live.servers[name] : undefined;
+  const authMode = server.transport === "http" ? authModeOf(entry) : undefined;
+  const needsAuth = liveRow?.state === "needs-auth" && authMode?.kind === "oauth";
 
   async function toggle(next: boolean): Promise<void> {
     setOptimistic(next);
     setPending(true);
     setError(null);
     try {
-      await setServerDisabled(name, !next, scopeToWire(scope));
+      const result = await setEnabled(name, next, scopeToWire(scope));
+      if (!result.ok) {
+        setOptimistic(null);
+        setError(result.refusal.message);
+        return;
+      }
+      if (result.action === "needs-choice") {
+        setOptimistic(null);
+        onNeedsChoice?.({ key, name, provenance: server.provenance }, result.omitted);
+        return;
+      }
+      if (result.omitted && result.omitted.length > 0) {
+        onOmitted?.({ key, name, provenance: server.provenance }, result.omitted);
+      }
       invalidateEffective(folder ? scope.cwd : undefined);
       onChanged();
     } catch (e) {
@@ -182,15 +131,31 @@ function ServerRow({
     }
   }
 
-  const actionLabel = folder ? (editable ? "Edit" : "Override…") : editable ? "Edit" : "View";
-  const actionTestId = folder ? `mcp-folder-action-${name}` : `mcp-server-action-${name}`;
+  async function convert(): Promise<void> {
+    setPending(true);
+    setError(null);
+    try {
+      await convertServer(name, scopeToWire(scope));
+      invalidateEffective(folder ? scope.cwd : undefined);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const actionLabel = folder && server.provenance !== "pi-folder" ? "Override…" : "Edit";
+  const actionTestId = folder ? `mcp-folder-action-${key}` : `mcp-server-action-${name}`;
+  const description = typeof entry.description === "string" ? entry.description : null;
+  const inactiveReason = inactiveText(server.inactiveReason);
 
   return (
     <li
-      data-testid={folder ? `mcp-folder-row-${name}` : `mcp-server-row-${name}`}
+      data-testid={folder ? `mcp-folder-row-${key}` : `mcp-server-row-${name}`}
       className="flex flex-col gap-1 py-1.5 border-b border-[var(--border-secondary)] last:border-b-0"
     >
-      <div className="flex items-center gap-2 min-h-11 sm:min-h-0">
+      <div className="flex items-center gap-2 min-h-11 sm:min-h-0 flex-wrap">
         <label className="inline-flex items-center justify-center min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 flex-none">
           <input
             type="checkbox"
@@ -198,50 +163,129 @@ function ServerRow({
             aria-label={`Enable ${name}`}
             aria-busy={pending}
             checked={enabled}
-            disabled={locked || pending}
+            disabled={pending}
             onChange={(e) => void toggle(e.target.checked)}
-            data-testid={`mcp-server-toggle-${name}`}
+            data-testid={`mcp-server-toggle-${key}`}
             className="w-4 h-4"
           />
         </label>
         <span className="text-xs font-medium text-[var(--text-primary)] truncate">{name}</span>
-        {transport && (
-          <code className="text-[10px] text-[var(--text-tertiary)] flex-none">{transport}</code>
+        {description && (
+          <span data-testid={`mcp-server-description-${key}`} className="text-[11px] text-[var(--text-secondary)] truncate">
+            {description}
+          </span>
+        )}
+        <code data-testid={`mcp-transport-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
+          {typeof entry.command === "string" ? "command" : "url"}
+        </code>
+        <span data-testid={`mcp-exposure-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
+          {server.exposure}
+        </span>
+        {authMode && (
+          <span data-testid={`mcp-authmode-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
+            {authMode.kind === "provider"
+              ? `auth: ${authMode.provider}`
+              : authMode.kind === "header"
+                ? "header"
+                : "OAuth"}
+          </span>
         )}
         <span className="flex items-center gap-1 flex-wrap">
-          {badges.map((b) => (
+          <span
+            data-testid={`mcp-badge-${key}-${provenanceLabel(server.provenance)}`}
+            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+          >
+            {provenanceLabel(server.provenance)}
+          </span>
+          {server.overridesGlobal && (
             <span
-              key={b.text}
-              data-testid={`mcp-badge-${name}-${b.text}`}
-              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+              data-testid={`mcp-badge-${key}-overrides Pi global`}
+              className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
             >
-              {b.locked && <LockIcon />}
-              {b.text}
+              overrides Pi global
             </span>
-          ))}
-          {overrideFields.length > 0 && (
-            <OverrideChip
-              name={name}
-              fields={overrideFields}
-              removable={chipsRemovable}
-              onRemove={onRemoveOverride}
-            />
+          )}
+          {folder && server.provenance === "pi-folder" && (
+            <span
+              data-testid={`mcp-folder-override-chip-${key}`}
+              className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border border-[var(--accent-primary,#60a5fa)] text-[var(--accent-primary,#60a5fa)]"
+            >
+              folder entry
+              {chipsRemovable && onRemoveOverride && (
+                <button
+                  type="button"
+                  aria-label={`Remove folder override for ${name}`}
+                  data-testid={`mcp-folder-chip-remove-${key}`}
+                  onClick={() => onRemoveOverride(name)}
+                  className="px-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0"
+                >
+                  ✕
+                </button>
+              )}
+            </span>
           )}
         </span>
+        {live !== undefined && !(liveLoading && live === null) && (
+          <span data-testid={`mcp-live-${key}`} className="text-[10px] text-[var(--text-tertiary)] flex-none">
+            {liveRow ? `${liveRow.state} · ${liveRow.tools} tools` : "state unknown"}
+          </span>
+        )}
+        {needsAuth && (
+          <span
+            data-testid={`mcp-signin-hint-${key}`}
+            className="text-[10px] text-[var(--text-secondary)] flex-none"
+          >
+            sign in: /mcp login {name}
+          </span>
+        )}
+        {server.adapterLeftovers.length > 0 && (
+          <span className="inline-flex items-center gap-1 flex-none">
+            <span
+              data-testid={`mcp-leftovers-${key}`}
+              className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border border-amber-500 text-amber-500"
+              title={`pi ignores: ${server.adapterLeftovers.join(", ")}`}
+            >
+              ignored by pi: {server.adapterLeftovers.join(", ")}
+            </span>
+            <button
+              type="button"
+              aria-label={`Convert ${name} to pi's entry shape`}
+              data-testid={`mcp-convert-${key}`}
+              disabled={pending}
+              onClick={() => void convert()}
+              className="text-[10px] px-1.5 py-0.5 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+            >
+              Convert
+            </button>
+          </span>
+        )}
         <button
           type="button"
           onClick={() => onOpen(name)}
-          disabled={actionDisabled(folder, readOnly)}
           data-testid={actionTestId}
           className="ml-auto text-[11px] px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
         >
           {actionLabel}
         </button>
       </div>
+      {server.piError && (
+        <p
+          data-testid={`mcp-pi-error-${key}`}
+          role="alert"
+          className="text-[11px] text-[var(--status-error,#f87171)] m-0"
+        >
+          {server.piError}
+        </p>
+      )}
+      {inactiveReason && (
+        <p data-testid={`mcp-inactive-${key}`} className="text-[11px] text-[var(--text-secondary)] m-0">
+          {inactiveReason}
+        </p>
+      )}
       {error && (
         <p
           role="alert"
-          data-testid={`mcp-server-error-${name}`}
+          data-testid={`mcp-server-error-${key}`}
           className="text-[11px] text-[var(--status-error,#f87171)]"
         >
           {error}
@@ -267,60 +311,77 @@ function SkeletonRows(): React.ReactElement {
 
 export interface ServerListProps {
   servers: EffectiveServerView[];
-  layerErrors: LayerParseError[];
+  /** Parse status per layer: a failed layer renders a "pi skips the file" row. */
+  layers: LayerStatus[];
   /** True until the first effective view arrives. */
   loading: boolean;
-  readOnly: boolean;
   /** Write scope for every row (default global). */
   scope?: Scope;
-  /** Folder page: chips are display-only on narrow viewports. */
-  chipsRemovable?: boolean;
+  /** Live state from `/live`; `null` while absent → rows read "state unknown". */
+  live?: LiveState | null;
+  liveLoading?: boolean;
   onOpen: (name: string) => void;
   onAdd: () => void;
-  onRemoveOverride?: (name: string) => void;
   onChanged: () => void;
+  /** Folder page: a folder enable that needs re-entered secrets. */
+  onNeedsChoice?: (row: RowRef, omitted: string[]) => void;
+  /** Folder page: a folder disable that wrote a copy omitting secrets. */
+  onOmitted?: (row: RowRef, omitted: string[]) => void;
+  /** Folder page: remove the whole folder entry for this server. */
+  onRemoveOverride?: (name: string) => void;
+  /** Folder page: the chip's inline remove control hides below 640px. */
+  chipsRemovable?: boolean;
 }
 
 export function ServerList({
   servers,
-  layerErrors,
+  layers,
   loading,
-  readOnly,
   scope,
-  chipsRemovable,
+  live,
+  liveLoading = false,
   onOpen,
   onAdd,
-  onRemoveOverride,
   onChanged,
+  onNeedsChoice,
+  onOmitted,
+  onRemoveOverride,
+  chipsRemovable,
 }: ServerListProps): React.ReactElement {
   const t = useT();
-  if (loading && servers.length === 0 && layerErrors.length === 0) return <SkeletonRows />;
+  if (loading && servers.length === 0 && layers.every((l) => l.ok)) return <SkeletonRows />;
 
-  const sorted = [...servers].sort((a, b) => a.name.localeCompare(b.name));
-  const empty = sorted.length === 0 && layerErrors.length === 0;
+  const sorted = [...servers].sort(
+    (a, b) => (a.name === b.name ? a.provenance.localeCompare(b.provenance) : a.name.localeCompare(b.name)),
+  );
+  const brokenLayers = layers.filter((l) => !l.ok);
+  const empty = sorted.length === 0 && brokenLayers.length === 0;
 
   return (
     <ul data-testid="mcp-server-list" className="list-none m-0 p-0">
-      {layerErrors.map((e) => (
+      {brokenLayers.map((l) => (
         <li
-          key={e.path}
+          key={l.path}
           data-testid="mcp-layer-error"
           role="alert"
           className="text-[11px] py-1.5 border-b border-[var(--border-secondary)] text-[var(--status-error,#f87171)]"
         >
-          <code>{e.path}</code>: {e.message}
+          <code>{l.path}</code>: {l.message} — pi skips this file.
         </li>
       ))}
       {sorted.map((s) => (
         <ServerRow
-          key={s.name}
+          key={`${s.provenance}:${s.name}`}
           server={s}
-          readOnly={readOnly}
           scope={scope}
-          chipsRemovable={chipsRemovable}
+          live={live ?? null}
+          liveLoading={liveLoading}
           onOpen={onOpen}
-          onRemoveOverride={onRemoveOverride}
           onChanged={onChanged}
+          onNeedsChoice={onNeedsChoice}
+          onOmitted={onOmitted}
+          onRemoveOverride={onRemoveOverride}
+          chipsRemovable={chipsRemovable}
         />
       ))}
       {empty && (
@@ -332,14 +393,13 @@ export function ServerList({
             <button
               type="button"
               onClick={onAdd}
-              disabled={readOnly}
               data-testid="mcp-empty-add"
-              className="px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              className="px-2 py-1 min-h-11 min-w-11 sm:min-h-0 sm:min-w-0 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
               Add server
             </button>
             <a
-              href="https://github.com/earendil-works/pi-mcp-adapter#configuration"
+              href="https://github.com/earendil-works/pi/blob/main/docs/mcp.md"
               target="_blank"
               rel="noreferrer"
               data-testid="mcp-docs-link"

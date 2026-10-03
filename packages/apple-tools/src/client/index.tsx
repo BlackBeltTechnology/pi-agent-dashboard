@@ -6,7 +6,7 @@
  * only under the owning plugin's row). A provisioning surface, NOT a service
  * switchboard: it shows the shared checker's terminal state, offers
  * [Run installer] and a path override, and links to the mcp-client plugin for
- * server enable/disable + directTools (which moved there). No per-Apple-service
+ * server enable/disable + exposure (which live there). No per-Apple-service
  * toggles (TCC is menu-bar only, no API).
  *
  * A missing `dependsOn: ["mcp-client"]` requirement renders a banner that hides
@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 
 const PLUGIN_ID = "apple-tools";
 const DEFAULT_PATH = "/Applications/iMCP.app/Contents/MacOS/imcp-server";
-/** The generic MCP server manager — where enable/disable + directTools now live. */
+/** The generic MCP server manager — where enable/disable + exposure live. */
 const MANAGE_MCP_PATH = "/settings/plugins/mcp-client";
 /** Plugins index — the missing-dependency banner's Enable affordance. */
 const PLUGINS_INDEX_PATH = "/settings/plugins";

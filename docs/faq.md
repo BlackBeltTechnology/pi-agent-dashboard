@@ -2987,18 +2987,18 @@ Cross-refs:
 
 ## How do I reach Apple Calendar / Contacts / Reminders from pi?
 
-macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+macOS ≥ 15.3. iMCP menu-bar app + pi's BUILT-IN MCP (pi ≥ 1.0.0).
 
 Steps:
 1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
-2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+2. `pi-apple-tools-install` — writes ONE file: `~/.pi/agent/mcp.json` key `mcpServers.iMCP`.
 3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
 
 Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
 
-Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+`READY` = live round trip through pi's built-in MCP. iMCP tools reached as `mcp__iMCP__*`; `codemode` by default, `deferred` via `tool_search`. NO `pi-mcp-adapter`. NO `settings.json` write. Operator-set `enabled`/`exposure`/`toolExposure` + unknown keys preserved.
 
-See change: add-apple-tools-imcp-plugin.
+See change: migrate-mcp-to-pi-builtin.
 
 Cross-refs:
 - packages/apple-tools/README.md
@@ -3184,6 +3184,39 @@ See change: expand-mcp-tiered-surface.
 Cross-refs:
 - docs/architecture.md
 - packages/server/src/routes/pairing-routes.ts
+
+## Why are the dashboard MCP tools missing in a pi session?
+
+Cause order (check in order):
+
+1. `pi-mcp-adapter` installed → disables pi's built-in MCP (adapter takes `/mcp`). Fix: remove `pi-mcp-adapter` from `~/.pi/agent/settings.json#packages`, reload sessions.
+2. Operator `pi-dashboard` entry in `~/.pi/agent/mcp.json` → SHADOWS the per-session registration. Fix: delete that entry (startup migration removes only the provisioned signature, keeps an operator entry).
+3. Registration refused → log `mcp.dashboard_registration_unavailable session=<id> reason=<api-missing|register-failed|no-url>`; doctor `mcp-builtin` row names it.
+4. `tool_search` disabled (`-builtin:`) → `deferred` server unreachable.
+
+pi ≥ 1.0.0 required. pi sessions reach `/mcp` in the LEGACY era: request/response tools work, `subscriptions/listen` streaming does NOT.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Endpoint
+- packages/mcp-server-plugin/src/server/legacy-entry-migration.ts
+- packages/extension/src/mcp-token-delivery.ts
+
+## Why is my mcp.json server ignored?
+
+pi parses `mcp.json` with strict `JSON.parse`; ONE syntax error (comment, trailing comma) skips the WHOLE file. Check:
+
+- Comments / trailing commas anywhere → rewrite as strict JSON. Doctor names it.
+- Project `<cwd>/.pi/mcp.json` in an UNTRUSTED folder → project layer not loaded. Trust the folder in the session.
+- Adapter `disabled: true` key → pi ignores unknown keys, so the server stays ACTIVE. Convert to `enabled: false` (one click, Settings → MCP).
+- Two names differing only `-`/`_` → pi rejects the second.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Client Plugin
+- packages/mcp-client-plugin/src/core/pi-rules.ts
 
 ## Why is a subagent or tool card stuck `running` after the session ended?
 

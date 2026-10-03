@@ -120,12 +120,35 @@ see [`docs/release-process.md`](docs/release-process.md).
   `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
   install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
   gate and the legacy (global-registry) pi-ai generation are removed.
-- **pi-mcp-adapter 5.0.0; dashboard MCP entry moves to `mcp-adapter.json`.** pi
-  1.0.0's built-in MCP reads `~/.pi/agent/mcp.json`; the dashboard's entry there
-  (adapter-only auth) made every session warn "pi-dashboard: needs sign-in".
-  With adapter >= 3 the entry is now written to `~/.pi/agent/mcp-adapter.json`
-  and the dashboard's own stale `mcp.json` entry is removed (a user-authored
-  entry under that key is left alone). Adapter 2.x installs are unchanged.
+- **BREAKING: `pi-mcp-adapter` is dropped; the dashboard uses pi's built-in
+  MCP.** The bridge now registers the dashboard server per session with
+  `pi.registerMcpServer("pi-dashboard", …)` once the session token arrives (the
+  server sends the `/mcp` URL with the mint reply) and unregisters it on
+  `session_shutdown`; the token lives only in that in-memory registration, so it
+  no longer reaches `process.env` and every subprocess. No `mcp.json` write, no
+  header command. On server start the previously provisioned `pi-dashboard`
+  entry is removed from `~/.pi/agent/mcp.json` (an operator-authored entry under
+  that key is kept and warned about — it shadows the registration). **Migration,
+  in order:** (1) remove `pi-mcp-adapter` from `~/.pi/agent/settings.json`
+  `packages[]` — while it is installed it takes `/mcp` and disables the
+  built-in, so the dashboard's MCP tools stop until it is gone; (2) convert
+  servers turned off with the adapter's `disabled: true` to `enabled: false` —
+  pi ignores the unknown key, so such a server becomes ACTIVE (one-click
+  **Convert** in Settings → MCP); (3) fix any `mcp.json` with comments or
+  trailing commas — pi parses strict JSON and skips the whole file (the doctor
+  names it); (4) reload sessions. Adapter users lose adapter-only features
+  (host-config discovery, rmux, lifecycle modes, `approveTools`, output guard,
+  trace, sampling, elicitation, MCP Prompts, MCP Apps UI). Requires pi ≥ 1.0.0.
+  pi sessions reach `/mcp` in the legacy protocol era, so request/response tools
+  work but `subscriptions/listen` streaming does not. **BREAKING (`mcp-client`
+  plugin):** rebuilt on pi's two `mcp.json` layers (global + trusted folder;
+  project entry replaces global whole); the adapter worker, version floor,
+  global-settings form, `adapterLoadTimeoutMs` and the shared/import layers are
+  removed. `strip-json-comments` and `pi-mcp-adapter` are dropped. **BREAKING
+  (`apple-tools`):** writes the `iMCP` entry with `exposure`/`toolExposure`
+  instead of `directTools` and no longer adds `pi-mcp-adapter` to
+  `settings.json#packages` (it writes only `mcp.json`). See change:
+  migrate-mcp-to-pi-builtin.
 
 - **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
   such as Quota, Status) is now one labelled `role="group"` container, spaced

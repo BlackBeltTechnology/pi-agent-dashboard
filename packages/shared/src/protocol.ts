@@ -1201,6 +1201,13 @@ export interface McpTokenMintedExtensionMessage {
   type: "mcp_token_minted";
   /** Plaintext `mcp_`-prefixed bearer. Held in memory only — never logged. */
   token: string;
+  /**
+   * The `/mcp` URL the bridge registers with pi's built-in MCP
+   * (`http://127.0.0.1:<port>/mcp`). Optional: an older server omits it, and
+   * the bridge then reports registration unavailable.
+   * See change: migrate-mcp-to-pi-builtin (D1).
+   */
+  url?: string;
 }
 
 export interface FlowManagementExtensionMessage {

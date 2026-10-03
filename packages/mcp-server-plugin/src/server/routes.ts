@@ -67,12 +67,6 @@ export interface McpRouteDeps extends AuthDeps, DispatchDeps {
   streaming?: { registry: SubscriptionRegistry; source: EventSource };
   /** Injectable for tests; a default instance is created when absent. */
   throttle?: AuthFailureThrottle;
-  /**
-   * Fired at the top of every POST /mcp request. The plugin wires a
-   * once-guarded lazy adapter-version diagnostic here, so the check runs on
-   * first use rather than at registration.
-   */
-  onMcpRequest?: () => void;
 }
 
 /**
@@ -231,9 +225,6 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   const postHandler =
     (cap?: Tier) =>
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-      // Lazy, once-per-process diagnostics (e.g. the adapter-version floor)
-      // belong to first use, not registration.
-      deps.onMcpRequest?.();
       // Throttle BEFORE the comparison, so a locked-out source cannot keep
       // spending server CPU on `timingSafeEqual` scans. Keyed on
       // `(ip, credential fingerprint)` — every local session shares `request.ip`,

@@ -1,130 +1,217 @@
 /**
- * Bridge-side delivery of the minted MCP session token
- * (wire-mcp-session-token, test-plan F2/F3/F4).
+ * Bridge-side registration of the dashboard MCP server
+ * (migrate-mcp-to-pi-builtin D1; test-plan E1–E5, E16).
  *
  * The module under test is the ENTIRE in-session surface of credential
- * delivery: `handleMcpTokenMinted` assigns the plaintext to process.env
- * (D2 step 2) and triggers the D6 recovery seam — and does NOTHING else.
- * Every test here guards one of the three invariants the design stakes on
- * that narrowness:
- *
- * - F2: the env write strictly PRECEDES the recovery trigger (reconnecting
- *   before the fresh value is in the env presents the stale credential —
- *   spike Q3 step 4 measured the misleading failure that causes).
- * - F3: no recovery decision consults `connection.status` (measured to read
- *   `connected` while every request 401s — spike Q3). The module's deps have
- *   no status input at all; the mint reply is the sole trigger.
- * - F4: the plaintext never reaches `pi.events` (measured broadcast leak,
- *   spike Q4b) — the module takes no event bus, so there is nothing to leak
- *   through; the tests pin that with a poisoned emit spy.
+ * delivery: on `mcp_token_minted` it registers `pi-dashboard` with pi's
+ * built-in MCP (`pi.registerMcpServer`), carrying the bearer as an
+ * `Authorization` header and the server-delivered `/mcp` URL. It never
+ * writes `process.env`, never writes a file, never emits on `pi.events`.
  */
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  handleMcpTokenMinted,
-  MCP_TOKEN_ENV_VAR,
-  type McpTokenDeliveryDeps,
+  createMcpDashboardRegistrar,
+  DASHBOARD_MCP_SERVER_NAME,
+  type McpDashboardRegistrarDeps,
 } from "../mcp-token-delivery.js";
 
-function makeDeps() {
-  const calls: string[] = [];
-  const deps: McpTokenDeliveryDeps & { events: { emit: ReturnType<typeof vi.fn> } } = {
-    assignEnv: (token) => {
-      calls.push(`env:${token}`);
-    },
-    reconnect: () => {
-      calls.push("reconnect");
-    },
-    log: { info: () => {}, warn: () => {}, error: () => {} },
-    // Poisoned bus: if the module EVER found a way to emit, these catch it.
+const URL_ = "http://127.0.0.1:8000/mcp";
+
+function makeDeps(overrides: Partial<McpDashboardRegistrarDeps> = {}) {
+  const lines: string[] = [];
+  const reports: string[] = [];
+  const pi = {
+    registerMcpServer: vi.fn(),
+    unregisterMcpServer: vi.fn(),
     events: { emit: vi.fn() },
   };
-  return { deps, calls };
-}
-
-const minted = (token: string) => ({ type: "mcp_token_minted" as const, token });
-
-describe("F2 — the env write precedes the reconnect trigger", () => {
-  it("assigns the env var, and only then calls reconnect, exactly once", () => {
-    const { deps, calls } = makeDeps();
-    handleMcpTokenMinted(minted("mcp_token-1"), deps);
-    expect(calls).toEqual(["env:mcp_token-1", "reconnect"]);
-  });
-
-  it("a rejected reconnect promise is swallowed (logged), never thrown into the dispatcher", async () => {
-    const { deps, calls } = makeDeps();
-    deps.reconnect = () => Promise.reject(new Error("adapter gone"));
-    expect(() => handleMcpTokenMinted(minted("mcp_token-2"), deps)).not.toThrow();
-    // The env assignment still happened first.
-    expect(calls).toEqual(["env:mcp_token-2"]);
-    await Promise.resolve(); // flush the rejection into the catch
-    expect(calls).toEqual(["env:mcp_token-2"]);
-  });
-
-  it("a malformed mint reply writes nothing and triggers nothing", () => {
-    const { deps, calls } = makeDeps();
-    for (const bad of [
-      { type: "mcp_token_minted" },
-      { type: "mcp_token_minted", token: "" },
-      { type: "mcp_token_minted", token: 42 },
-      { type: "mcp_token_minted", token: null },
-    ]) {
-      handleMcpTokenMinted(bad as { type: "mcp_token_minted"; token?: unknown }, deps);
-    }
-    expect(calls).toEqual([]);
-  });
-});
-
-describe("F3 — connection.status is never a health signal; the mint reply is the sole trigger", () => {
-  it("recovery fires identically no matter what status-like state a caller carries", () => {
-    // The deps carry NO status input — structurally, there is nothing to
-    // branch on. Demonstrate it behaviourally: the same payload produces the
-    // same env+reconnect sequence regardless of any ambient status fiction.
-    for (const fiction of ["connected", "failed", "needs-auth", "idle"]) {
-      const { deps, calls } = makeDeps();
-      (
-        deps as unknown as { connection: { status: string } }
-      ).connection = { status: fiction };
-      handleMcpTokenMinted(minted("mcp_token-3"), deps);
-      expect(calls).toEqual(["env:mcp_token-3", "reconnect"]);
-    }
-  });
-
-  it("reconnect is never called without a mint reply (no timer, no poll, no probe)", () => {
-    const { deps, calls } = makeDeps();
-    // Nothing but handleMcpTokenMinted exists to trigger recovery.
-    expect(calls).toEqual([]);
-    handleMcpTokenMinted(minted("mcp_token-4"), deps);
-    expect(calls.filter((c) => c === "reconnect")).toHaveLength(1);
-  });
-});
-
-describe("F4 — the plaintext never rides pi.events", () => {
-  it("the poisoned emit spy receives nothing while the env assignment happens", () => {
-    const { deps, calls } = makeDeps();
-    handleMcpTokenMinted(minted("mcp_secret-value"), deps);
-    expect(deps.events.emit).not.toHaveBeenCalled();
-    expect(calls).toContain("env:mcp_secret-value");
-  });
-
-  it("log lines carry the delivery fact, never the credential", () => {
-    const lines: string[] = [];
-    const log = {
+  const deps: McpDashboardRegistrarDeps = {
+    pi,
+    sessionId: () => "sess-1",
+    reportUnavailable: (reason) => reports.push(reason),
+    log: {
       info: (m: string) => lines.push(m),
       warn: (m: string) => lines.push(m),
       error: (m: string) => lines.push(m),
-    };
-    handleMcpTokenMinted(minted("mcp_secret-value-2"), { ...makeDeps().deps, log });
-    for (const line of lines) {
-      expect(line).not.toContain("mcp_secret-value-2");
-      expect(line).not.toMatch(/mcp_[A-Za-z0-9_-]{20,}/);
-    }
-    expect(lines.length).toBeGreaterThan(0);
+    },
+    ...overrides,
+  };
+  return { deps, pi, lines, reports };
+}
+
+const minted = (token: unknown, url: unknown = URL_) => ({ type: "mcp_token_minted" as const, token, url });
+
+describe("E1 — register after delivery", () => {
+  it("registers pi-dashboard once with the delivered url, deferred exposure and a Bearer header", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    expect(pi.registerMcpServer).toHaveBeenCalledTimes(1);
+    expect(pi.registerMcpServer).toHaveBeenCalledWith(DASHBOARD_MCP_SERVER_NAME, {
+      url: URL_,
+      headers: { Authorization: "Bearer mcp_tok-A" },
+      exposure: "deferred",
+    });
+    expect(DASHBOARD_MCP_SERVER_NAME).toBe("pi-dashboard");
   });
 
-  it("the env var name the provisioned entry re-declares is the one this module writes", () => {
-    // The provisioning side writes `env: { PI_DASHBOARD_MCP_TOKEN:
-    // "${PI_DASHBOARD_MCP_TOKEN}" }`; the header command reads that same
-    // name. This constant is the contract linking all three.
-    expect(MCP_TOKEN_ENV_VAR).toBe("PI_DASHBOARD_MCP_TOKEN");
+  it("a malformed token registers nothing", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    for (const bad of [undefined, "", 42, null]) r.onMinted(minted(bad));
+    expect(pi.registerMcpServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("E2 — re-mint replaces", () => {
+  it("re-registers with the new token and never unregisters in between", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    r.onMinted(minted("mcp_tok-B"));
+    expect(pi.registerMcpServer).toHaveBeenCalledTimes(2);
+    expect(pi.registerMcpServer.mock.calls[1][1].headers.Authorization).toBe("Bearer mcp_tok-B");
+    expect(pi.unregisterMcpServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("E3 — session end unregisters", () => {
+  it("unregisters exactly once on shutdown and ignores later deliveries", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    r.onSessionShutdown();
+    r.onSessionShutdown();
+    expect(pi.unregisterMcpServer).toHaveBeenCalledTimes(1);
+    expect(pi.unregisterMcpServer).toHaveBeenCalledWith("pi-dashboard");
+    r.onMinted(minted("mcp_tok-C"));
+    expect(pi.registerMcpServer).toHaveBeenCalledTimes(1);
+  });
+
+  it("a replacement session (session_start after shutdown) registers its own mint again", () => {
+    const { deps, pi } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    r.onSessionShutdown();
+    r.onSessionStart();
+    r.onMinted(minted("mcp_tok-N"));
+    expect(pi.registerMcpServer).toHaveBeenCalledTimes(2);
+    expect(pi.registerMcpServer.mock.calls[1][1].headers.Authorization).toBe("Bearer mcp_tok-N");
+  });
+
+  it("shutdown before any registration does not unregister", () => {
+    const { deps, pi } = makeDeps();
+    createMcpDashboardRegistrar(deps).onSessionShutdown();
+    expect(pi.unregisterMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("a throwing unregister (stale runtime) is swallowed", () => {
+    const { deps, pi } = makeDeps();
+    pi.unregisterMcpServer.mockImplementation(() => {
+      throw new Error("stale");
+    });
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    expect(() => r.onSessionShutdown()).not.toThrow();
+  });
+});
+
+describe("E4 — token never reaches process.env", () => {
+  it("no env key named PI_DASHBOARD_MCP_TOKEN and no env value equals the token", () => {
+    const before = process.env.PI_DASHBOARD_MCP_TOKEN;
+    delete process.env.PI_DASHBOARD_MCP_TOKEN;
+    try {
+      const { deps } = makeDeps();
+      createMcpDashboardRegistrar(deps).onMinted(minted("mcp_secret-env-probe"));
+      expect(process.env.PI_DASHBOARD_MCP_TOKEN).toBeUndefined();
+      expect(Object.values(process.env)).not.toContain("mcp_secret-env-probe");
+    } finally {
+      if (before !== undefined) process.env.PI_DASHBOARD_MCP_TOKEN = before;
+    }
+  });
+
+  it("log lines and pi.events never carry the credential", () => {
+    const { deps, pi, lines } = makeDeps();
+    createMcpDashboardRegistrar(deps).onMinted(minted("mcp_secret-value-2"));
+    expect(pi.events.emit).not.toHaveBeenCalled();
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l).not.toContain("mcp_secret-value-2");
+  });
+});
+
+describe("E5 — no mcp.json write on registration", () => {
+  let dir: string | undefined;
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("leaves an absent mcp.json absent", () => {
+    dir = mkdtempSync(join(tmpdir(), "mcp-reg-"));
+    process.env.PI_CODING_AGENT_DIR = dir;
+    const { deps } = makeDeps();
+    createMcpDashboardRegistrar(deps).onMinted(minted("mcp_tok-A"));
+    expect(existsSync(join(dir, "mcp.json"))).toBe(false);
+  });
+
+  it("leaves an existing mcp.json byte-identical", () => {
+    dir = mkdtempSync(join(tmpdir(), "mcp-reg-"));
+    process.env.PI_CODING_AGENT_DIR = dir;
+    const file = join(dir, "mcp.json");
+    const body = '{\n  "mcpServers": { "docs": { "url": "https://x" } }\n}\n';
+    writeFileSync(file, body);
+    const { deps } = makeDeps();
+    createMcpDashboardRegistrar(deps).onMinted(minted("mcp_tok-A"));
+    expect(readFileSync(file, "utf8")).toBe(body);
+  });
+});
+
+describe("E16 — registration guard", () => {
+  it("missing registerMcpServer: no throw, one log line naming the session, one report", () => {
+    const { deps, lines, reports } = makeDeps({ pi: {} });
+    const r = createMcpDashboardRegistrar(deps);
+    expect(() => {
+      r.onMinted(minted("mcp_tok-A"));
+      r.onMinted(minted("mcp_tok-B"));
+    }).not.toThrow();
+    expect(reports).toEqual(["api-missing"]);
+    const warn = lines.filter((l) => l.includes("unavailable"));
+    expect(warn).toHaveLength(1);
+    expect(warn[0]).toContain("sess-1");
+  });
+
+  it("throwing registerMcpServer: no throw, one report", () => {
+    const { deps, pi, reports, lines } = makeDeps();
+    pi.registerMcpServer.mockImplementation(() => {
+      throw new Error("name taken");
+    });
+    const r = createMcpDashboardRegistrar(deps);
+    expect(() => r.onMinted(minted("mcp_tok-A"))).not.toThrow();
+    expect(reports).toEqual(["register-failed"]);
+    expect(lines.filter((l) => l.includes("unavailable"))).toHaveLength(1);
+  });
+
+  it("a replacement session (session_start) reports its own unavailability", () => {
+    const { deps, reports } = makeDeps({ pi: {} });
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted(minted("mcp_tok-A"));
+    r.onSessionShutdown();
+    r.onSessionStart();
+    r.onMinted(minted("mcp_tok-N"));
+    expect(reports).toEqual(["api-missing", "api-missing"]);
+  });
+
+  it("delivery without a url (older server): no registration, one report", () => {
+    const { deps, pi, reports } = makeDeps();
+    const r = createMcpDashboardRegistrar(deps);
+    r.onMinted({ type: "mcp_token_minted", token: "mcp_tok-A" });
+    r.onMinted(minted("mcp_tok-A", ""));
+    expect(pi.registerMcpServer).not.toHaveBeenCalled();
+    expect(reports).toEqual(["no-url"]);
   });
 });

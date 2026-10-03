@@ -3,3 +3,5 @@
 Session register/replay/switch lifecycle. Exports `sendStateSync`, `replaySessionEntries`, `handleSessionChange`, `consumeSpawnToken` (read+scrub `PI_DASHBOARD_SPAWN_TOKEN`, single-use; shared with `bridge.ts`'s `session_start` register, which used to omit both the token and `pid` — see change: fix-tmux-session-shutdown-leak). First register tagged `registerReason:"spawn"` (scrubs single-use `PI_DASHBOARD_SPAWN_TOKEN`); reconnects tagged `"reattach"`. Sends commands_list, flows_list, models_list, providers_list, git_info_update. Delegates to `detectSessionSource`, `gatherGitInfo`, `buildProviderCatalogue`.
 
 `handleSessionChange` observes the new PR generation and sends the cached tuple on its `git_info_update`; resets `lastGitPrJson`. See change: redesign-composer-session-strip.
+
+Re-mint comment updated: the `mcp_token_minted` reply now re-registers `pi-dashboard` with pi's built-in MCP (not `process.env`). See change: migrate-mcp-to-pi-builtin.

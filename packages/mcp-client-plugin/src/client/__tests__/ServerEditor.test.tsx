@@ -1,12 +1,12 @@
 /**
- * Server editor tests (change extract-mcp-client-plugin, tasks 7.4 + 7.5):
- * schema-driven rendering with full type coverage, transport tabs, invalid
- * save, the read-only View + "Override at Pi global" flow, patch minimality
- * (changed keys only, unknown fields preserved), atomic-override notes,
- * secret masking with per-field reveal that resets on reopen, and the
- * `boolean | string[]` toggle-with-list.
+ * Server editor tests (change migrate-mcp-to-pi-builtin): schema-driven
+ * rendering for pi's entry shape, ONE transport at a time (tabs clear the
+ * other transport's keys), WHOLE-entry save with rename, the exposure alias
+ * shown resolved but preserved unchanged (E20), secret masking vs ${REF}/!
+ * literal values (E13), unknown fields in a validated JSON fallback, the
+ * discard guard, and the OAuth rename/URL warning.
  */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import schemaDoc from "../../../schema/mcp-config.schema.json";
 import { invalidateEffective } from "../hooks.js";
@@ -31,14 +31,6 @@ interface RecordedPut {
   body: Record<string, unknown>;
 }
 
-/** The last recorded PUT's `set` object — waitFor guarantees it exists. */
-function lastSet(puts: RecordedPut[]): Record<string, unknown> {
-  const body = puts[puts.length - 1]?.body;
-  if (body === undefined) throw new Error("no PUT recorded");
-  return body.set as Record<string, unknown>;
-}
-
-/** The last recorded PUT's body. */
 function lastBody(puts: RecordedPut[]): Record<string, unknown> {
   const body = puts[puts.length - 1]?.body;
   if (body === undefined) throw new Error("no PUT recorded");
@@ -67,8 +59,6 @@ function renderEditor(over: Partial<ServerEditorProps> = {}) {
   const props: ServerEditorProps = {
     name: "srv",
     entry: { command: "/bin/a" },
-    editable: true,
-    readOnly: false,
     onClose: vi.fn(),
     onChanged: vi.fn(),
     ...over,
@@ -76,17 +66,12 @@ function renderEditor(over: Partial<ServerEditorProps> = {}) {
   return { props, ...render(<ServerEditor {...props} />) };
 }
 
-/** Every field row testid visible in the container, minus input/error/value suffixes. */
+/** Every field row testid visible in the container, minus input/error suffixes. */
 function visibleFieldNames(container: HTMLElement): Set<string> {
   const names = new Set<string>();
   for (const el of container.querySelectorAll("[data-testid]")) {
     const testid = el.getAttribute("data-testid") ?? "";
-    if (
-      testid.startsWith("mcp-field-") &&
-      !testid.startsWith("mcp-field-input-") &&
-      !testid.startsWith("mcp-field-error-") &&
-      !testid.startsWith("mcp-field-value-")
-    ) {
+    if (testid.startsWith("mcp-field-") && !testid.startsWith("mcp-field-input-") && !testid.startsWith("mcp-field-error-")) {
       names.add(testid.slice("mcp-field-".length));
     }
   }
@@ -100,14 +85,14 @@ afterEach(() => {
   invalidateEffective();
 });
 
-describe("type coverage (task 7.4)", () => {
+describe("type coverage", () => {
   it("renders a field row for EVERY ServerEntry property across tabs", async () => {
     stubFetch();
     const { container } = renderEditor({ name: null, entry: {} });
     await screen.findByTestId("mcp-editor-footer");
 
     const seen = new Set<string>();
-    for (const tab of ["command", "url", "socket"]) {
+    for (const tab of ["command", "url"]) {
       fireEvent.click(screen.getByTestId(`mcp-tab-${tab}`));
       for (const name of visibleFieldNames(container)) seen.add(name);
     }
@@ -119,28 +104,13 @@ describe("type coverage (task 7.4)", () => {
   });
 });
 
-describe("transport tabs (task 7.4)", () => {
-  it("initial tab comes from the entry's transport; other transports' fields are hidden", async () => {
-    stubFetch();
+describe("transport tabs", () => {
+  it("initial tab comes from the entry; switching clears the other transport's keys from the saved entry", async () => {
+    const { puts } = stubFetch();
     renderEditor({ entry: { command: "/bin/a", args: ["--x"], env: { A: "1" } } });
     await screen.findByTestId("mcp-field-command");
     expect(screen.getByTestId("mcp-tab-command").getAttribute("aria-selected")).toBe("true");
     expect(screen.queryByTestId("mcp-field-url")).toBeNull();
-    expect(screen.queryByTestId("mcp-field-socket")).toBeNull();
-  });
-
-  it("a url entry opens on the url tab", async () => {
-    stubFetch();
-    renderEditor({ entry: { url: "https://u/mcp" } });
-    await screen.findByTestId("mcp-field-url");
-    expect(screen.getByTestId("mcp-tab-url").getAttribute("aria-selected")).toBe("true");
-    expect(screen.queryByTestId("mcp-field-command")).toBeNull();
-  });
-
-  it("switching tab hides the other transport's fields and clears its keys from the patch", async () => {
-    const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/a", args: ["--x"], env: { A: "1" } } });
-    await screen.findByTestId("mcp-field-command");
 
     fireEvent.click(screen.getByTestId("mcp-tab-url"));
     expect(screen.queryByTestId("mcp-field-command")).toBeNull();
@@ -150,227 +120,261 @@ describe("transport tabs (task 7.4)", () => {
     fireEvent.change(screen.getByTestId("mcp-field-input-url"), { target: { value: "https://u/mcp" } });
     fireEvent.click(screen.getByTestId("mcp-save"));
 
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastSet(puts)).toEqual({ url: "https://u/mcp" });
-    expect(lastBody(puts).unset).toEqual(["command", "args", "env"]);
+    await waitFor(() => expect(puts.length).toBe(1));
+    // WHOLE-entry save: complete entry, other transport's keys gone.
     expect(lastBody(puts).scope).toBe("global");
+    expect(lastBody(puts).entry).toEqual({ url: "https://u/mcp" });
   });
 });
 
-describe("invalid save (task 7.4)", () => {
-  it("shows an inline error + summary and issues no write", async () => {
+describe("whole-entry save + rename", () => {
+  it("sends the complete entry with unknown fields preserved", async () => {
     const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/a" } });
-    const command = await screen.findByTestId("mcp-field-input-command");
-    fireEvent.change(command, { target: { value: "" } });
-
-    fireEvent.click(screen.getByTestId("mcp-save"));
-    expect(await screen.findByTestId("mcp-field-error-command")).toBeTruthy();
-    const summary = screen.getByTestId("mcp-summary-error");
-    expect(summary.textContent).toContain("command");
-    expect(puts.length).toBe(0);
-  });
-});
-
-describe("read-only View for shared servers (task 7.4)", () => {
-  it("renders fields as text and offers Override at Pi global instead of Save", async () => {
-    stubFetch();
-    renderEditor({ entry: { command: "/bin/s", lifecycle: "eager" }, editable: false });
-    await screen.findByTestId("mcp-editor-footer");
-
-    const dialog = screen.getByTestId("mcp-editor-dialog");
-    expect(dialog.querySelectorAll("input,select,textarea").length).toBe(0);
-    expect(dialog.textContent).toContain("/bin/s");
-    expect(screen.queryByTestId("mcp-save")).toBeNull();
-    expect(screen.getByTestId("mcp-editor-override").textContent).toBe("Override at Pi global");
-  });
-
-  it("page-wide read-only disables Save even for an editable server", async () => {
-    stubFetch();
-    renderEditor({ readOnly: true });
-    await screen.findByTestId("mcp-editor-footer");
-    expect((screen.getByTestId("mcp-save") as HTMLButtonElement).disabled).toBe(true);
-  });
-});
-
-describe("override + patch minimality (task 7.4)", () => {
-  it("override writes only changed fields", async () => {
-    const { puts } = stubFetch();
-    renderEditor({
-      entry: { command: "/bin/s", lifecycle: "lazy", env: { redacted: true, keys: [] } },
-      editable: false,
-    });
-    await screen.findByTestId("mcp-editor-override");
-    fireEvent.click(screen.getByTestId("mcp-editor-override"));
-
-    fireEvent.change(screen.getByTestId("mcp-field-input-lifecycle"), { target: { value: "eager" } });
-    fireEvent.click(screen.getByTestId("mcp-save"));
-
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastBody(puts)).toEqual({ scope: "global", set: { lifecycle: "eager" }, unset: [] });
-  });
-
-  it("unknown fields survive editing", async () => {
-    const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/a", futureThing: { x: 1 } } });
+    renderEditor({ entry: { command: "/bin/a", description: "d", futureThing: { x: 1 } } });
     await screen.findByTestId("mcp-field-input-command");
     fireEvent.change(screen.getByTestId("mcp-field-input-command"), { target: { value: "/bin/b" } });
     fireEvent.click(screen.getByTestId("mcp-save"));
 
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastSet(puts)).toEqual({ command: "/bin/b" });
-    expect(lastBody(puts).unset).toEqual([]);
-    expect("futureThing" in lastSet(puts)).toBe(false);
-    expect((lastBody(puts).unset as string[]).includes("futureThing")).toBe(false);
+    await waitFor(() => expect(puts.length).toBe(1));
+    expect(lastBody(puts).entry).toEqual({ command: "/bin/b", description: "d", futureThing: { x: 1 } });
+    expect(lastBody(puts).previousName).toBeUndefined();
   });
-});
 
-describe("atomic override (task 7.4)", () => {
-  const REDACTED_ENV = {
-    redacted: true,
-    keys: [
-      { name: "PATH", secret: false },
-      { name: "API_TOKEN", secret: true },
-      { name: "CLIENT_SECRET", secret: true },
-    ],
-  };
-
-  it("starts empty and states how many inherited keys/secrets stop applying", async () => {
+  it("a renamed server PUTs the new name with previousName", async () => {
     const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/s", env: REDACTED_ENV }, editable: false });
-    await screen.findByTestId("mcp-editor-override");
-    fireEvent.click(screen.getByTestId("mcp-editor-override"));
-
-    const overrideBtn = screen.getByTestId("mcp-override-env");
-    expect(screen.queryByTestId("mcp-override-note-env")).toBeNull();
-    fireEvent.click(overrideBtn);
-
-    const note = screen.getByTestId("mcp-override-note-env");
-    expect(note.textContent).toMatch(/3 inherited keys incl\. 2 secrets will no longer apply/);
-    expect(screen.getByTestId("mcp-record-add-env")).toBeTruthy(); // editable, starts empty
-
+    renderEditor({ name: "old", entry: { command: "/bin/a" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(screen.getByTestId("mcp-editor-name"), { target: { value: "new" } });
     fireEvent.click(screen.getByTestId("mcp-save"));
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastBody(puts)).toEqual({ scope: "global", set: { env: {} }, unset: [] });
+
+    await waitFor(() => expect(puts.length).toBe(1));
+    expect(puts[0]?.url).toContain("/servers/new");
+    expect(lastBody(puts).previousName).toBe("old");
   });
 
-  it("shows the inherited key names read-only before overriding", async () => {
-    stubFetch();
-    renderEditor({ entry: { command: "/bin/s", env: REDACTED_ENV }, editable: false });
-    await screen.findByTestId("mcp-record-row-env.API_TOKEN");
-    expect(screen.queryByTestId("mcp-override-env")).toBeNull(); // view mode: no mutating action
+  it("an invalid server name blocks the save client-side", async () => {
+    const { puts } = stubFetch();
+    renderEditor({ name: null, entry: { command: "/bin/a" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(screen.getByTestId("mcp-editor-name"), { target: { value: "bad name!" } });
+    fireEvent.click(screen.getByTestId("mcp-save"));
+
+    await screen.findByTestId("mcp-editor-name-error");
+    expect(puts.length).toBe(0);
+  });
+
+  it("an empty command shows a field error and issues no write", async () => {
+    const { puts } = stubFetch();
+    renderEditor({ entry: { command: "/bin/a" } });
+    const command = await screen.findByTestId("mcp-field-input-command");
+    fireEvent.change(command, { target: { value: "" } });
+    fireEvent.click(screen.getByTestId("mcp-save"));
+
+    expect(await screen.findByTestId("mcp-field-error-command")).toBeTruthy();
+    expect(screen.getByTestId("mcp-summary-error")).toBeTruthy();
+    expect(puts.length).toBe(0);
   });
 });
 
-describe("secret masking (task 7.5)", () => {
-  it("masks an own bearerToken with a reveal toggle that resets on reopen", async () => {
+describe("exposure alias (test-plan E20)", () => {
+  it("shows codemode for codemode-deferred and preserves the alias unless changed", async () => {
+    const { puts } = stubFetch();
+    const first = renderEditor({ entry: { command: "/bin/a", exposure: "codemode-deferred" } });
+    const select = (await screen.findByTestId("mcp-field-input-exposure")) as HTMLSelectElement;
+    expect(select.value).toBe("codemode");
+
+    // edit ONLY the description → the alias survives the save
+    fireEvent.change(screen.getByTestId("mcp-field-input-description"), { target: { value: "edited" } });
+    fireEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(puts.length).toBe(1));
+    expect((lastBody(puts).entry as Record<string, unknown>).exposure).toBe("codemode-deferred");
+
+    // changing the exposure writes the picked canonical value
+    first.unmount();
+    const second = stubFetch();
+    renderEditor({ entry: { command: "/bin/a", exposure: "codemode-deferred", description: "edited" } });
+    const reopened = (await screen.findByTestId("mcp-field-input-exposure")) as HTMLSelectElement;
+    expect(reopened.value).toBe("codemode");
+    fireEvent.change(reopened, { target: { value: "direct" } });
+    fireEvent.click(screen.getByTestId("mcp-save"));
+    await waitFor(() => expect(second.puts.length).toBe(1));
+    expect((lastBody(second.puts).entry as Record<string, unknown>).exposure).toBe("direct");
+  });
+});
+
+describe("secret masking (test-plan E13)", () => {
+  it("shows ${REF} and !command values as written; masks literals with a reveal toggle", async () => {
     stubFetch();
-    const first = renderEditor({ entry: { url: "https://u/mcp", bearerToken: "tok-123" } });
-    const input = (await screen.findByTestId("mcp-field-input-bearerToken")) as HTMLInputElement;
-    expect(input.type).toBe("password");
-    expect(input.value).toBe("tok-123");
+    const first = renderEditor({
+      entry: {
+        url: "https://u/mcp",
+        headers: {
+          Authorization: "Bearer ${GITHUB_TOKEN}",
+          "X-Cmd": "!op read x",
+          "X-Token": "Bearer abc123",
+        },
+      },
+    });
 
-    fireEvent.click(screen.getByTestId("mcp-reveal-bearerToken"));
-    expect((screen.getByTestId("mcp-field-input-bearerToken") as HTMLInputElement).type).toBe("text");
+    const ref = (await screen.findByTestId("mcp-record-value-headers.Authorization")) as HTMLInputElement;
+    expect(ref.type).toBe("text"); // ${NAME} reference → visible as written
+    expect(ref.value).toBe("Bearer ${GITHUB_TOKEN}");
 
+    const cmd = screen.getByTestId("mcp-record-value-headers.X-Cmd") as HTMLInputElement;
+    expect(cmd.type).toBe("text"); // leading ! (a command) → visible as written
+    expect(cmd.value).toBe("!op read x");
+
+    const lit = screen.getByTestId("mcp-record-value-headers.X-Token") as HTMLInputElement;
+    expect(lit.type).toBe("password"); // literal secret → masked
+    expect(lit.value).toBe("Bearer abc123");
+    expect(screen.getByTestId("mcp-reveal-headers.X-Token")).toBeTruthy();
+
+    // reveal unmasks just that row
+    fireEvent.click(screen.getByTestId("mcp-reveal-headers.X-Token"));
+    expect((screen.getByTestId("mcp-record-value-headers.X-Token") as HTMLInputElement).type).toBe("text");
+
+    // env rows on a stdio entry mask the same way (env is schema x-secret)
     first.unmount();
     stubFetch();
-    renderEditor({ entry: { url: "https://u/mcp", bearerToken: "tok-123" } });
-    const reopened = (await screen.findByTestId("mcp-field-input-bearerToken")) as HTMLInputElement;
-    expect(reopened.type).toBe("password");
+    renderEditor({ entry: { command: "/bin/a", env: { API_KEY: "lit" } } });
+    const envLit = (await screen.findByTestId("mcp-record-value-env.API_KEY")) as HTMLInputElement;
+    expect(envLit.type).toBe("password");
+    expect(envLit.value).toBe("lit");
+    expect(screen.getByTestId("mcp-reveal-env.API_KEY")).toBeTruthy();
   });
 
-  it("masks every headers row (field x-secret) with a per-row reveal", async () => {
-    stubFetch();
-    renderEditor({ entry: { url: "https://u", headers: { Authorization: "Bearer x", Accept: "json" } } });
-    const auth = (await screen.findByTestId("mcp-record-value-headers.Authorization")) as HTMLInputElement;
-    expect(auth.type).toBe("password");
-    // `headers` is schema-marked x-secret: every row masks, key name aside.
-    const accept = screen.getByTestId("mcp-record-value-headers.Accept") as HTMLInputElement;
-    expect(accept.type).toBe("password");
-
-    fireEvent.click(screen.getByTestId("mcp-reveal-headers.Authorization"));
-    expect((screen.getByTestId("mcp-record-value-headers.Authorization") as HTMLInputElement).type).toBe("text");
-  });
-
-  it("an inherited secret renders the placeholder with no reveal and stays out of the patch", async () => {
-    const { puts } = stubFetch();
-    renderEditor({
-      entry: { url: "https://u/mcp", bearerToken: { redacted: true } },
-      editable: false,
-    });
-    await screen.findByTestId("mcp-redacted-bearerToken");
-    expect(screen.queryByTestId("mcp-reveal-bearerToken")).toBeNull();
-
-    // Override and save without typing: the sentinel is NOT sent.
-    fireEvent.click(screen.getByTestId("mcp-editor-override"));
-    fireEvent.click(screen.getByTestId("mcp-save"));
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect("bearerToken" in lastSet(puts)).toBe(false);
-  });
-
-  it("typing a new value sends it", async () => {
-    const { puts } = stubFetch();
-    renderEditor({
-      entry: { url: "https://u/mcp", bearerToken: { redacted: true } },
-      editable: false,
-    });
-    await screen.findByTestId("mcp-editor-override");
-    fireEvent.click(screen.getByTestId("mcp-editor-override"));
-    fireEvent.change(screen.getByTestId("mcp-field-input-bearerToken"), { target: { value: "new-tok" } });
-    fireEvent.click(screen.getByTestId("mcp-save"));
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastSet(puts).bearerToken).toBe("new-tok");
-  });
-
-  it("a redacted record renders its known key names", async () => {
+  it("masks a plain oauth.clientSecret but shows a ${REF} one as written", async () => {
     stubFetch();
     renderEditor({
       entry: {
-        command: "/bin/s",
-        env: { redacted: true, keys: [{ name: "API_TOKEN", secret: true }, { name: "PATH", secret: false }] },
+        url: "https://u/mcp",
+        oauth: { clientId: "app", clientSecret: "s3cret" },
       },
-      editable: false,
     });
-    await screen.findByTestId("mcp-record-row-env.API_TOKEN");
-    expect(screen.getByTestId("mcp-record-row-env.PATH")).toBeTruthy();
-    expect(screen.getByTestId("mcp-record-row-env.API_TOKEN").textContent).toContain("••••••••");
+    await screen.findByTestId("mcp-field-oauth");
+    fireEvent.click(screen.getByTestId("mcp-advanced").querySelector("summary") as HTMLElement);
+    const secret = (await screen.findByTestId("mcp-field-input-oauth.clientSecret")) as HTMLInputElement;
+    expect(secret.type).toBe("password");
+    expect(screen.getByTestId("mcp-reveal-oauth.clientSecret")).toBeTruthy();
+
+    cleanup();
+    stubFetch();
+    renderEditor({
+      entry: { url: "https://u/mcp", oauth: { clientId: "app", clientSecret: "${VAULT_SECRET}" } },
+    });
+    await screen.findByTestId("mcp-field-oauth");
+    fireEvent.click(screen.getByTestId("mcp-advanced").querySelector("summary") as HTMLElement);
+    const ref = (await screen.findByTestId("mcp-field-input-oauth.clientSecret")) as HTMLInputElement;
+    expect(ref.type).toBe("text");
+    expect(ref.value).toBe("${VAULT_SECRET}");
   });
 });
 
-describe("union boolean | string[] (task 7.4)", () => {
-  it("checking reveals the list and the patch carries an array", async () => {
+describe("unknown fields: validated JSON fallback", () => {
+  it("renders unknown keys as JSON textareas and preserves them on save", async () => {
     const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/a" } });
-    await screen.findByTestId("mcp-field-directTools");
-    expect(screen.queryByTestId("mcp-list-add-directTools")).toBeNull();
+    renderEditor({ entry: { command: "/bin/a", futureThing: { x: 1 } } });
+    const box = (await screen.findByTestId("mcp-unknown-field-input-futureThing")) as HTMLTextAreaElement;
+    expect(JSON.parse(box.value)).toEqual({ x: 1 });
 
-    fireEvent.click(screen.getByTestId("mcp-advanced").querySelector("summary") as HTMLElement);
-    fireEvent.click(screen.getByTestId("mcp-field-input-directTools"));
-    fireEvent.click(screen.getByTestId("mcp-list-add-directTools"));
-    fireEvent.change(screen.getByTestId("mcp-list-input-directTools-0"), { target: { value: "fetch" } });
     fireEvent.click(screen.getByTestId("mcp-save"));
-
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastSet(puts).directTools).toEqual(["fetch"]);
+    await waitFor(() => expect(puts.length).toBe(1));
+    expect((lastBody(puts).entry as Record<string, unknown>).futureThing).toEqual({ x: 1 });
   });
 
-  it("unchecking hides the list and the patch carries a boolean", async () => {
+  it("invalid JSON in an unknown field blocks the save", async () => {
     const { puts } = stubFetch();
-    renderEditor({ entry: { command: "/bin/a" } });
-    await screen.findByTestId("mcp-field-input-directTools");
-    fireEvent.click(screen.getByTestId("mcp-field-input-directTools"));
-    fireEvent.click(screen.getByTestId("mcp-field-input-directTools")); // uncheck again
-    expect(screen.queryByTestId("mcp-list-add-directTools")).toBeNull();
-
+    renderEditor({ entry: { command: "/bin/a", futureThing: { x: 1 } } });
+    const box = await screen.findByTestId("mcp-unknown-field-input-futureThing");
+    fireEvent.change(box, { target: { value: "{not json" } });
     fireEvent.click(screen.getByTestId("mcp-save"));
-    await vi.waitFor(() => expect(puts.length).toBe(1));
-    expect(lastSet(puts).directTools).toBe(false);
+
+    await screen.findByTestId("mcp-unknown-field-error-futureThing");
+    expect(puts.length).toBe(0);
+  });
+});
+
+describe("discard guard", () => {
+  it("asks for confirmation before discarding unsaved edits; an untouched close does not", async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    const onClose = vi.fn();
+    stubFetch();
+    const { props } = renderEditor({ entry: { command: "/bin/a", description: "d" }, onClose });
+    await screen.findByTestId("mcp-editor-name");
+    await screen.findByTestId("mcp-field-input-description");
+
+    // untouched close: no confirmation
+    fireEvent.click(screen.getByTestId("mcp-editor-close"));
+    expect(confirm).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // edit, then close → confirmation; declining keeps the editor open
+    onClose.mockClear();
+    fireEvent.change(screen.getByTestId("mcp-field-input-description"), { target: { value: "changed" } });
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    fireEvent.click(screen.getByTestId("mcp-editor-close"));
+    expect(screen.getByTestId("mcp-editor-dialog")).toBeTruthy();
+    expect(props.onClose).not.toHaveBeenCalled();
+
+    // confirming discards
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    fireEvent.click(screen.getByTestId("mcp-editor-close"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Escape runs the same guard", async () => {
+    const confirm = vi.fn(() => true);
+    vi.stubGlobal("confirm", confirm);
+    const onClose = vi.fn();
+    stubFetch();
+    renderEditor({ entry: { command: "/bin/a", description: "d" }, onClose });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(await screen.findByTestId("mcp-field-input-description"), { target: { value: "changed" } });
+    fireEvent.keyDown(screen.getByTestId("mcp-editor-dialog"), { key: "Escape" });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("OAuth rename/URL warning", () => {
+  it("warns when the name or URL of an OAuth HTTP server changes; not for provider-auth or stdio", async () => {
+    stubFetch();
+    const first = renderEditor({ name: "srv", entry: { url: "https://u/mcp" } });
+    await screen.findByTestId("mcp-field-url");
+    expect(screen.queryByTestId("mcp-oauth-warning")).toBeNull();
+
+    fireEvent.change(screen.getByTestId("mcp-field-input-url"), { target: { value: "https://v/mcp" } });
+    expect(screen.getByTestId("mcp-oauth-warning").textContent).toContain("sign-in");
+    first.unmount();
+
+    // a renamed OAuth server warns too
+    stubFetch();
+    renderEditor({ name: "srv", entry: { url: "https://u/mcp" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(screen.getByTestId("mcp-editor-name"), { target: { value: "srv2" } });
+    expect(screen.getByTestId("mcp-oauth-warning")).toBeTruthy();
+
+    // provider-auth HTTP server: no warning
+    cleanup();
+    stubFetch();
+    renderEditor({ name: "srv", entry: { url: "https://u/mcp", auth: { provider: "radius" } } });
+    await screen.findByTestId("mcp-field-url");
+    fireEvent.change(screen.getByTestId("mcp-field-input-url"), { target: { value: "https://v/mcp" } });
+    expect(screen.queryByTestId("mcp-oauth-warning")).toBeNull();
+
+    // stdio server: no warning
+    cleanup();
+    stubFetch();
+    renderEditor({ name: "srv", entry: { command: "/bin/a" } });
+    await screen.findByTestId("mcp-editor-name");
+    fireEvent.change(screen.getByTestId("mcp-editor-name"), { target: { value: "srv2" } });
+    expect(screen.queryByTestId("mcp-oauth-warning")).toBeNull();
   });
 });
 
 describe("dialog accessibility shell", () => {
-  it("is a named modal and Escape closes it", async () => {
+  it("is a named modal and focuses on open", async () => {
     stubFetch();
     const onClose = vi.fn();
     renderEditor({ onClose });
@@ -378,8 +382,5 @@ describe("dialog accessibility shell", () => {
     expect(dialog.getAttribute("role")).toBe("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(dialog.getAttribute("aria-label")).toContain("srv");
-
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

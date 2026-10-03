@@ -5,19 +5,14 @@
  * `hooks.ts` owns dedupe + cache. Types are imported TYPE-ONLY from `../core`
  * so this browser bundle never pulls the core's `node:*` imports.
  *
- * Wire shapes mirror `core/effective-view.ts` + the route handlers in
- * `../server/routes.ts`.
- * See change: extract-mcp-client-plugin (task 7.1).
+ * Wire shapes mirror the route handlers in `../server/routes.ts`.
+ * See change: migrate-mcp-to-pi-builtin.
  */
-import type { EffectiveView } from "../core/effective-view.js";
-import type { AdapterVerdict, Scope, ServerEntry } from "../core/types.js";
+import type { EffectiveView, LiveState, Scope, SetEnabledResult } from "../core/types.js";
 
 const API_BASE = "/api/mcp-client";
 
-/** `GET /effective` = the effective view plus the adapter verdict. */
-export type EffectiveResponse = EffectiveView & { adapter: AdapterVerdict };
-
-/** The wire body of `PUT /servers/:name` / `PUT /servers/:name/disabled`. */
+/** The wire body of every scoped write. */
 export interface ScopeWire {
   scope: "global" | "project";
   cwd?: string;
@@ -32,26 +27,13 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly fields: string[];
-  readonly timeoutMs: number | undefined;
 
-  constructor(
-    status: number,
-    code: string,
-    message: string,
-    fields?: string[],
-    timeoutMs?: number,
-  ) {
+  constructor(status: number, code: string, message: string, fields?: string[]) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.fields = fields ?? [];
-    this.timeoutMs = timeoutMs;
-  }
-
-  /** The effective-view / disabled-toggle load deadline (504 `adapter-timeout`). */
-  get isAdapterTimeout(): boolean {
-    return this.status === 504 && this.code === "adapter-timeout";
   }
 
   /** A cwd outside the dashboard's known-folder set (403 `not-allowed`). */
@@ -64,7 +46,6 @@ interface ErrorBody {
   error?: unknown;
   message?: unknown;
   fields?: unknown;
-  timeoutMs?: unknown;
 }
 
 async function failure(res: Response): Promise<ApiError> {
@@ -79,7 +60,6 @@ async function failure(res: Response): Promise<ApiError> {
     typeof body.error === "string" ? body.error : `http-${res.status}`,
     typeof body.message === "string" ? body.message : `request failed (${res.status})`,
     Array.isArray(body.fields) ? body.fields.filter((f): f is string => typeof f === "string") : [],
-    typeof body.timeoutMs === "number" ? body.timeoutMs : undefined,
   );
 }
 
@@ -88,61 +68,78 @@ async function readJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-function put(body: unknown): RequestInit {
+function methodWith(method: string, body: unknown): RequestInit {
   return {
-    method: "PUT",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   };
 }
 
 /** `GET /effective` — the effective view for a cwd, or global when omitted. */
-export async function fetchEffective(cwd?: string): Promise<EffectiveResponse> {
+export async function fetchEffective(cwd?: string): Promise<EffectiveView> {
   const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
-  return readJson<EffectiveResponse>(await fetch(`${API_BASE}/effective${qs}`));
+  return readJson<EffectiveView>(await fetch(`${API_BASE}/effective${qs}`));
 }
 
-/** `GET /schema` — the published JSON Schema for `ServerEntry` + `McpSettings`. */
+/**
+ * `GET /live` — live state from `pi mcp list --json`. SLOW (up to 30 s):
+ * call on page view and on an explicit refresh only; render from `/effective`
+ * first.
+ */
+export async function fetchLive(cwd?: string): Promise<LiveState> {
+  const params = new URLSearchParams();
+  if (cwd) params.set("cwd", cwd);
+  const qs = params.toString();
+  return readJson<LiveState>(await fetch(`${API_BASE}/live${qs ? `?${qs}` : ""}`));
+}
+
+/** `GET /schema` — the published JSON Schema for `ServerEntry`. */
 export async function fetchSchema(): Promise<Record<string, unknown>> {
   return readJson<Record<string, unknown>>(await fetch(`${API_BASE}/schema`));
 }
 
-/** `PUT /servers/:name` — merge a patch (and unset keys) at one scope. */
-export async function patchServer(
-  name: string,
-  body: ScopeWire & { set: Record<string, unknown>; unset?: string[] },
-): Promise<void> {
+/** The body of `PUT /servers/:name` — a WHOLE-entry save; `previousName` renames. */
+export interface SaveServerBody extends ScopeWire {
+  entry: Record<string, unknown>;
+  previousName?: string;
+}
+
+/** `PUT /servers/:name` — replace the entry at one scope. */
+export async function saveServer(name: string, body: SaveServerBody): Promise<void> {
   await readJson<unknown>(
-    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}`, put(body)),
+    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}`, methodWith("PUT", body)),
   );
 }
 
-/** `DELETE /servers/:name` — returns the removed entry (the undo payload). */
+/** `DELETE /servers/:name` — returns the removed raw entry (the undo payload). */
 export async function removeServer(
   name: string,
-  body: ScopeWire,
-): Promise<{ removed?: ServerEntry }> {
+  wire: ScopeWire,
+): Promise<{ removed?: Record<string, unknown> }> {
   const params = new URLSearchParams();
-  params.set("scope", body.scope);
-  if (body.cwd !== undefined) params.set("cwd", body.cwd);
-  const qs = params.toString();
-  return readJson<{ removed?: ServerEntry }>(
-    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}?${qs}`, { method: "DELETE" }),
+  params.set("scope", wire.scope);
+  if (wire.cwd !== undefined) params.set("cwd", wire.cwd);
+  return readJson<{ removed?: Record<string, unknown> }>(
+    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}?${params.toString()}`, { method: "DELETE" }),
   );
 }
 
-/** `PUT /servers/:name/disabled` — the row switch write. */
-export async function setServerDisabled(
+/** `PUT /servers/:name/enabled` — the row switch write. */
+export async function setEnabled(
   name: string,
-  disabled: boolean,
-  body: ScopeWire,
-): Promise<void> {
-  await readJson<unknown>(
-    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}/disabled`, put({ ...body, disabled })),
+  enabled: boolean,
+  wire: ScopeWire,
+): Promise<SetEnabledResult> {
+  return readJson<SetEnabledResult>(
+    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}/enabled`, methodWith("PUT", { ...wire, enabled })),
   );
 }
 
-/** `PUT /settings` — the adapter's global settings patch. */
-export async function patchSettings(set: Record<string, unknown>, unset: string[] = []): Promise<void> {
-  await readJson<unknown>(await fetch(`${API_BASE}/settings`, put({ set, unset })));
+/** `POST /servers/:name/convert` — adapter leftovers → pi's entry shape. */
+export async function convertServer(name: string, wire: ScopeWire): Promise<void> {
+  await readJson<unknown>(
+    await fetch(`${API_BASE}/servers/${encodeURIComponent(name)}/convert`, methodWith("POST", wire)),
+  );
 }
+

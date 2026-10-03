@@ -1218,3 +1218,63 @@ describe("X10 — revocation is checked per request", () => {
     expect(call.statusCode).toBe(401);
   });
 });
+
+// ── migrate-mcp-to-pi-builtin E31 ───────────────────────────────────────────
+// pi 1.0.0's built-in MCP client offers revisions 2024-11-05…2025-11-25 and
+// sends 2025-11-25; `registerMcpServer` has no protocol-version field. The
+// dashboard's dual-era endpoint must serve that whole request/response
+// sequence, attributed to the session the bearer was minted for, and refuse
+// the modern-only `subscriptions/listen`.
+describe("E31 — a legacy-era pi client is served", () => {
+  it("initialize + tools/list + one call succeed for the session; subscriptions/listen is refused", async () => {
+    const { app, tokens, invokeTool } = await harness();
+    const t = tokens.mintForSession("session-pi");
+    const headers = {
+      authorization: `Bearer ${t}`,
+      "mcp-protocol-version": "2025-11-25",
+      "content-type": "application/json",
+    };
+    const init = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${t}`, "content-type": "application/json" },
+      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "pi", version: "1.0.0" } } },
+    });
+    expect(init.statusCode).toBe(200);
+    expect(init.json().result.protocolVersion).toBe("2025-11-25");
+    const sid = init.headers["mcp-session-id"];
+    const withSid = sid ? { ...headers, "mcp-session-id": String(sid) } : headers;
+
+    const list = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(Array.isArray(list.json().result.tools)).toBe(true);
+
+    const call = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_sessions", arguments: {} } },
+    });
+    expect(call.statusCode).toBe(200);
+    expect(call.json().error).toBeUndefined();
+    expect(invokeTool).toHaveBeenCalledTimes(1);
+    expect((invokeTool.mock.calls[0] as unknown as [{ caller: unknown }])[0].caller).toMatchObject({
+      kind: "session",
+      sessionId: "session-pi",
+    });
+
+    const listen = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: withSid,
+      payload: { jsonrpc: "2.0", id: 4, method: "subscriptions/listen", params: { sessionIds: ["x"] } },
+    });
+    expect(listen.statusCode).toBe(404);
+    expect(listen.json().error.code).toBe(-32601);
+  });
+});

@@ -74,7 +74,7 @@ import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { createMcpDashboardRegistrar, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
@@ -439,6 +439,24 @@ function initBridge(pi: ExtensionAPI) {
   // latest snapshot of each running subagent for the resync responder (D2).
   // See change: fix-subagent-live-detail-reliability.
   const subagentFrameBuffer = new SubagentFrameBuffer();
+
+  // Dashboard MCP server registration with pi's built-in MCP. The bearer lives
+  // only in this registrar and pi's registration — never in process.env.
+  // See change: migrate-mcp-to-pi-builtin (D1).
+  const mcpRegistrar = createMcpDashboardRegistrar({
+    pi: pi as unknown as import("./mcp-token-delivery.js").McpRegistrationApi,
+    sessionId: () => sessionId,
+    reportUnavailable: (reason) => {
+      connection.send({
+        type: "plugin_pi_message",
+        sessionId,
+        pluginId: "mcp-server",
+        messageType: "mcp/registration-unavailable",
+        payload: { reason },
+      });
+    },
+    log: console,
+  });
 
   // Bound the Agent-tick rate on the `tool_execution_update` carrier. That
   // carrier has no throttle anywhere on its path, so its rate is the
@@ -1263,23 +1281,11 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       if (msg.type === "mcp_token_minted") {
-        // D5: the minted MCP bearer arrives on the session-private lane. The
-        // delivery module assigns it to this process's env and triggers the
-        // D6 recovery seam; it has NO pi dependency, so the plaintext can
-        // never reach pi.events (F4) or a log line (X5).
-        handleMcpTokenMinted(msg as { type: "mcp_token_minted"; token?: unknown }, {
-          assignEnv: (token) => {
-            process.env[MCP_TOKEN_ENV_VAR] = token;
-          },
-          reconnect: () => {
-            // D6 recovery trigger. Shipped pi-mcp-adapter (≤ 2.31) exposes no
-            // programmatic reconnect for a config-defined entry; recovery
-            // completes via the adapter's lazyConnect on the entry's next
-            // use, presenting the fresh env per request. See
-            // mcp-token-delivery.ts and the change's design record.
-          },
-          log: console,
-        });
+        // The minted MCP bearer (+ /mcp url) arrives on the session-private
+        // lane and is registered with pi's built-in MCP — never placed in
+        // process.env, a log line, or pi.events.
+        // See change: migrate-mcp-to-pi-builtin (D1).
+        mcpRegistrar.onMinted(msg as McpTokenMintedPayload);
         return;
       }
       // Reload auth credentials when dashboard notifies of changes
@@ -2980,6 +2986,9 @@ function initBridge(pi: ExtensionAPI) {
     // Bail out if a newer bridge instance has taken over
     if (!isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
+    // Re-arm MCP registration for the (replacement) session; its mint below
+    // registers pi-dashboard again. See change: migrate-mcp-to-pi-builtin (D1).
+    mcpRegistrar.onSessionStart();
 
     // On session switch/fork (0.65.0+: event.reason replaces session_switch/session_fork events),
     // unregister the old session before re-registering the new one.
@@ -3519,8 +3528,8 @@ function initBridge(pi: ExtensionAPI) {
 
     // D3: mint-on-registration. Ask the mcp-server plugin for this session's
     // /mcp credential now that the socket is (re)registered — the reply
-    // arrives on the session-private lane (mcp_token_minted) and lands in
-    // process.env before the first MCP use, and re-lands after every
+    // arrives on the session-private lane (mcp_token_minted) and registers
+    // pi-dashboard with pi's built-in MCP, and re-registers after every
     // reconnect, which is what makes a dashboard restart self-heal. Ordered
     // after session_register on the SAME socket, so the server's
     // connection-key attribution is already established when it arrives.
@@ -3931,6 +3940,9 @@ function initBridge(pi: ExtensionAPI) {
     // Let the reloaded instance (fresh ExtensionAPI) pass the re-entry guard.
     // See change: fix-terminal-session-dashboard-reload (D4).
     releaseBridgeOwnerOnShutdown(getBridgeState(), event?.reason);
+    // Remove this session's pi-dashboard MCP registration (a reloaded
+    // instance re-registers on its own mint). See change: migrate-mcp-to-pi-builtin (D1).
+    mcpRegistrar.onSessionShutdown();
     getBridgeState().isAgentStreaming = false;
     stopMetricsMonitor();
     if (heartbeatTimer) {

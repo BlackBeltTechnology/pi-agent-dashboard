@@ -2,12 +2,12 @@
 /**
  * `pi-apple-tools-install [--check]` — opt-in CLI entry for iMCP provisioning.
  *
- * Never runs implicitly (no postinstall). Writes exactly two files in write
- * mode (`~/.pi/agent/mcp.json`, `~/.pi/agent/settings.json`) and NEVER touches
- * the server-owned plugin config store. `--check` reports the terminal state
+ * Never runs implicitly (no postinstall). Writes exactly one file in write
+ * mode (`~/.pi/agent/mcp.json` — pi's built-in MCP config; never
+ * `settings.json`) and NEVER touches the server-owned plugin config store. `--check` reports the terminal state
  * without mutating anything.
  *
- * See change: add-apple-tools-imcp-plugin.
+ * See changes: add-apple-tools-imcp-plugin, migrate-mcp-to-pi-builtin.
  */
 import { createInstallerEnv } from "../env.js";
 import { runInstaller } from "../install.js";
