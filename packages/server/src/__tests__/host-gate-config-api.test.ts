@@ -49,6 +49,17 @@ describe("#E11 writeConfigPartial hostGate", () => {
   });
 });
 
+// test-plan #E35 (harden-server-request-surfaces): the boot-line `source` is
+// `default` only while the file carries no hostGate key, so an unrelated write
+// must never seed one.
+describe("#E35 unrelated write does not seed hostGate", () => {
+  it("leaves the file without a hostGate key", () => {
+    write({ allowedHosts: ["a"] });
+    writeConfigPartial({ auth: { bypassUrls: ["/x"] } });
+    expect(read().hostGate).toBeUndefined();
+  });
+});
+
 describe("#E12 allowedHosts preservation / replacement", () => {
   it("an unrelated write preserves it; an explicit write replaces it whole", () => {
     write({ allowedHosts: ["a"] });

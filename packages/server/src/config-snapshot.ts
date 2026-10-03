@@ -123,8 +123,18 @@ export function livePublicBaseUrls(fallback: string[] = []): string[] {
 }
 
 /** Resolved `hostGate.mode` from config alone (env override is applied by the gate). */
-export function liveHostGateMode(fallback: HostGateMode = "report"): HostGateMode {
+export function liveHostGateMode(fallback: HostGateMode = "enforce"): HostGateMode {
   return getConfigSnapshot().hostGate?.mode ?? fallback;
+}
+
+/** True when the RAW config file carries a `hostGate.mode` key (boot-line source). */
+export function rawConfigHasHostGateMode(): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configFile(), "utf-8")) as { hostGate?: { mode?: unknown } };
+    return parsed?.hostGate?.mode !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 /** Drop the cache (tests, and any explicit re-read after a known write). */

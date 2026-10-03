@@ -4,7 +4,7 @@
  * One `onRequest` hook on the dashboard listener that refuses a `Host` header
  * the dashboard cannot justify answering on — including requests with NO
  * `Origin`, which is the half `fix-ws-origin-cswsh` could not reach. A
- * report-only rollout (default) logs `would-refuse`; `enforce` refuses with a
+ * report-only mode (opt-out) logs `would-refuse`; `enforce` refuses with a
  * self-describing 403. Also holds the refusal ring + the rate-limited log line
  * the operator UI reads.
  *
@@ -41,17 +41,36 @@ export interface ResolvedHostGateMode {
   envOverridden: boolean;
 }
 
+type HostGateModeSource = "env" | "config" | "default";
+
+/**
+ * One boot line naming the resolved mode and where it came from, so an operator
+ * locked out by the enforce default can see why in `server.log`. `source` is
+ * `env` for a recognised env value, `config` when the RAW config file carried
+ * `hostGate.mode` (`loadConfig` erases that distinction), else `default`.
+ * See change: harden-server-request-surfaces.
+ */
+export function hostGateBootLine(
+  env: string | undefined,
+  rawConfigHasMode: boolean,
+  mode: HostGateMode,
+): string {
+  const source: HostGateModeSource =
+    env === "report" || env === "enforce" ? "env" : rawConfigHasMode ? "config" : "default";
+  return `[host-gate] mode=${mode} source=${source}`;
+}
+
 /**
  * Resolve the mode: a recognised env value wins; an unrecognised one
  * contributes nothing (and is warned about once at boot); else the live config
- * value; else `report`.
+ * value; else `enforce`.
  */
 export function resolveHostGateMode(
   env: string | undefined,
   configMode: HostGateMode | undefined,
 ): ResolvedHostGateMode {
   if (env === "report" || env === "enforce") return { mode: env, envOverridden: true };
-  return { mode: configMode ?? "report", envOverridden: false };
+  return { mode: configMode ?? "enforce", envOverridden: false };
 }
 
 /**

@@ -380,8 +380,8 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   if (JSON.stringify(config.allowedHosts ?? []) !== JSON.stringify(original.allowedHosts ?? [])) {
     partial.allowedHosts = config.allowedHosts ?? [];
   }
-  if ((config.hostGate?.mode ?? "report") !== (original.hostGate?.mode ?? "report")) {
-    partial.hostGate = { mode: config.hostGate?.mode ?? "report" };
+  if ((config.hostGate?.mode ?? "enforce") !== (original.hostGate?.mode ?? "enforce")) {
+    partial.hostGate = { mode: config.hostGate?.mode ?? "enforce" };
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -2308,7 +2308,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     panel draft; the section itself never writes.
                     See change: add-host-allowlist-admission. */}
                 <AllowedHostsSection
-                  mode={config.hostGate?.mode ?? "report"}
+                  mode={config.hostGate?.mode ?? "enforce"}
                   allowedHosts={config.allowedHosts ?? []}
                   onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
                   onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}

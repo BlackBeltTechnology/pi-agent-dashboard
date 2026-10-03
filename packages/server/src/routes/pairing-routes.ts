@@ -7,9 +7,11 @@
  *    short-lived one-time code, rate-limiting, and the operator approval step —
  *    the code is NOT itself the credential (D6).
  *  - Dashboard routes (`/payload`, `/approve`, paired-device list/revoke)
- *    require an authenticated browser session (networkGuard). Approval (D12)
- *    additionally must not honor the loopback/tunnel exemption — realized fully
- *    once the D10 IPC allowlist lands (Phase C).
+ *    require an OPERATOR credential (`operatorGuard`): a login session, a
+ *    valid `X-Pi-Local-Token`, or a genuinely-local caller. A paired-device
+ *    bearer is refused outright (401) regardless of network position — a
+ *    device must never mint, approve, or revoke (harden-server-request-surfaces
+ *    D2).
  */
 
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -41,8 +43,8 @@ export const PUBLIC_PAIRING_PREFIXES = [
 ];
 
 /**
- * Mint-label cap, in UTF-8 BYTES (not characters — `é` counts twice). The mint
- * route is the only caller that validates; `approve` is left as is (D4).
+ * Device-label cap, in UTF-8 BYTES (not characters — `é` counts twice).
+ * Validated by the mint route AND the approve route (harden D2).
  */
 export const MAX_DEVICE_LABEL_BYTES = 64;
 
@@ -70,12 +72,15 @@ function headerString(v: unknown): string | undefined {
 }
 
 /**
- * Operator guard for the token-mint route (D5).
+ * Operator guard for the credential-bearing pairing routes (D5): mint,
+ * approve, pending list, deny, revoke.
  *
  * `networkGuard` is NOT enough here: it admits any paired-device bearer (so a
  * phone paired over a tunnel could mint unrevocable credentials past its own
- * revocation) and any trusted-network address with no credential at all. The
- * mint route admits exactly:
+ * revocation) and any trusted-network address with no credential at all. A
+ * request whose ONLY credential is a paired-device bearer (`authVia ===
+ * "device"`) is refused 401 BEFORE any admission clause — independent of the
+ * caller's network position (harden D2). Otherwise the guard admits exactly:
  *
  * 1. a dashboard login session (`authVia === "session"`), or
  * 2. a valid `X-Pi-Local-Token`, or
@@ -94,6 +99,13 @@ export function createOperatorGuard(deps: {
 }) {
   return async function operatorGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const via = (request as any).authVia;
+    // A paired-device bearer is NEVER an operator credential — refuse it on
+    // the strength of the credential alone, before the loopback exemption
+    // could admit it (harden D2).
+    if (via === "device") {
+      reply.code(401).send({ success: false, error: "operator credential required" });
+      return;
+    }
     const headers = request.headers as Record<string, unknown>;
     const isOperator =
       via === "session" ||
@@ -210,7 +222,7 @@ export function registerPairingRoutes(
     "/api/pair/approve",
     { preHandler: operatorGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView>> => {
-      const { code, confirmCode, label, tier } = request.body ?? {};
+      const { code, confirmCode, tier } = request.body ?? {};
       if (typeof code !== "string" || typeof confirmCode !== "string") {
         reply.code(400);
         return { success: false, error: "code and confirmCode required" };
@@ -219,12 +231,26 @@ export function registerPairingRoutes(
         reply.code(400);
         return { success: false, error: "invalid tier" };
       }
-      const result = pairing.approve(
-        code,
-        confirmCode,
-        typeof label === "string" ? label : undefined,
-        isTier(tier) ? tier : undefined,
-      );
+      // Label bound, mirroring the mint route (harden D2): a SUPPLIED
+      // non-string label is 400 — never silently treated as absent — and a
+      // string is trimmed, refused when empty or over MAX_DEVICE_LABEL_BYTES
+      // UTF-8 bytes. Only a genuinely absent key keeps the pending label.
+      // Validated HERE, not in PairingManager: the bound is transport-level.
+      const body = request.body as Record<string, unknown> | null | undefined;
+      let label: string | undefined;
+      if (body !== null && typeof body === "object" && "label" in body) {
+        if (typeof body.label !== "string") {
+          reply.code(400);
+          return { success: false, error: "label must be a string" };
+        }
+        const trimmed = validLabel(body.label);
+        if (trimmed === null) {
+          reply.code(400);
+          return { success: false, error: `label must be 1..${MAX_DEVICE_LABEL_BYTES} UTF-8 bytes` };
+        }
+        label = trimmed;
+      }
+      const result = pairing.approve(code, confirmCode, label, isTier(tier) ? tier : undefined);
       if (!result.ok) {
         // Status codes unchanged for this route (no_pending stays 400); a
         // mismatch additionally carries `attemptsLeft` (additive, D2).
@@ -314,9 +340,11 @@ export function registerPairingRoutes(
     },
   );
 
+  // Revoke is operator-only (harden D2): a paired-device bearer must not
+  // revoke — not even its own row — so the operator guard, never networkGuard.
   fastify.delete<{ Params: { id: string } }>(
     "/api/paired-devices/:id",
-    { preHandler: networkGuard },
+    { preHandler: operatorGuard },
     async (request, reply): Promise<ApiResponse> => {
       const removed = registry.revoke(request.params.id);
       if (!removed) {

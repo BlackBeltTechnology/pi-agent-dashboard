@@ -360,7 +360,7 @@ Common keys:
 - `devBuildOnReload` (default `false`)
 - `askUserPromptTimeoutSeconds` (default `300`; `≤0` = wait indefinitely)
 - `allowedHosts` (default `[]`) — bare hostnames the dashboard may answer on (e.g. reverse-proxy name). No scheme/port. Applies live.
-- `hostGate.mode` (default `"report"`) — `"report"` logs `[host-gate] would-refuse` + proceeds; `"enforce"` refuses unlisted hosts. Applies live.
+- `hostGate.mode` (default `"enforce"`) — `"enforce"` refuses unlisted hosts; `"report"` logs `[host-gate] would-refuse` + proceeds. Absent → `"enforce"`; unrecognised value → `"report"` (typo cannot lock out). Opt out: `hostGate.mode: "report"` or `PI_DASHBOARD_HOST_GATE=report`. Applies live. Boot line `[host-gate] mode=<m> source=env|config|default` names resolved mode.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
 Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once).
@@ -419,16 +419,18 @@ See change: warn-unreachable-trusted-networks.
 
 ## I got 'This address is not allowed'?
 
-Host-admission gate refused the request's `Host` header (issue #637; `hostGate.mode: "enforce"` or `PI_DASHBOARD_HOST_GATE=enforce`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
+Host-admission gate refused the request's `Host` header (issue #637; default `hostGate.mode: "enforce"`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
 
-Three ways in (the 403 page lists all):
+Locked out? Check `server.log` for boot line `[host-gate] mode=<m> source=env|config|default`, then add the host to `allowedHosts`/`publicBaseUrls`, or opt out (`hostGate.mode: "report"` / `PI_DASHBOARD_HOST_GATE=report`).
+
+Ways in (the 403 page lists all):
 - open `http://localhost:<port>` from the host machine
 - add the bare name to `allowedHosts` in `~/.pi/dashboard/config.json` (applies live)
 - add the full URL to `publicBaseUrls`
 
-Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep -F '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
+`report` mode logs every `[host-gate] would-refuse` name + proceeds. Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals also lists refused names.
 
-See change: add-host-allowlist-admission.
+See change: add-host-allowlist-admission, harden-server-request-surfaces.
 
 ## Plugin pages 403 `network_not_allowed` after upgrade?
 

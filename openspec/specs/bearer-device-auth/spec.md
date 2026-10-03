@@ -23,6 +23,14 @@ require revoking it and issuing a new token. Registry rows written before
 SHALL read as `"operate"` (the access they were issued with). Rewriting the
 registry SHALL preserve fields it does not understand.
 
+Revocation SHALL accept only an **operator** credential — the same admission
+rule as direct token issuance: an authenticated dashboard login session, a
+valid `X-Pi-Local-Token`, or a genuinely local (loopback, non-forwarded)
+caller. A request authenticated only by a paired-device bearer SHALL NOT
+revoke any registry row, including its own, regardless of the caller's network
+position — a device bearer arriving over loopback SHALL be refused on the
+strength of the credential alone.
+
 #### Scenario: Token issued and recorded
 - **WHEN** a device successfully redeems a pairing code
 - **THEN** an opaque bearer token is returned and a registry entry with `source: "pairing"` and the chosen tier is created for the device
@@ -61,6 +69,24 @@ registry SHALL preserve fields it does not understand.
 #### Scenario: Tier visible in the device list
 - **WHEN** paired devices are listed
 - **THEN** each row SHALL include its `tier`
+
+#### Scenario: Paired device cannot revoke a sibling
+- **GIVEN** two paired devices A and B exist in the registry
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>`
+- **THEN** the server SHALL respond `401`
+- **AND** device B's registry row SHALL remain and its token SHALL continue to verify
+
+#### Scenario: Paired device cannot revoke itself
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of A>`
+- **THEN** the server SHALL respond `401` and device A's row SHALL remain
+
+#### Scenario: Loopback device bearer cannot revoke
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>` from `127.0.0.1` with no forwarding headers
+- **THEN** the server SHALL respond `401` and device B's row SHALL remain
+
+#### Scenario: Operator revokes over a tunnel
+- **WHEN** a request carrying an authenticated dashboard login session sends `DELETE /api/paired-devices/<id>` from a non-local address
+- **THEN** the server SHALL revoke the row and respond `200`
 
 ### Requirement: Bearer auth branch for REST
 The server SHALL accept a valid bearer token via `Authorization: Bearer` as an

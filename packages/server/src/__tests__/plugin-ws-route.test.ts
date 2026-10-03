@@ -243,6 +243,11 @@ describe("#E7 loopback Host header", () => {
     ["127.0.0.1.evil"],
     ["192.168.1.5:8000"],
   ])("rejects non-loopback Host %s with 403 + [ws-gate] log", async (host) => {
+    // The host-admission gate now defaults to enforce and would refuse these
+    // names FIRST; report mode isolates the plugin scope's own [ws-gate] check.
+    // See change: harden-server-request-surfaces.
+    const prevGate = process.env.PI_DASHBOARD_HOST_GATE;
+    process.env.PI_DASHBOARD_HOST_GATE = "report";
     const errors: string[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       errors.push(args.map((a) => String(a)).join(" "));
@@ -261,6 +266,8 @@ describe("#E7 loopback Host header", () => {
       expect(line).toContain("peer=127.0.0.1");
     } finally {
       spy.mockRestore();
+      if (prevGate === undefined) delete process.env.PI_DASHBOARD_HOST_GATE;
+      else process.env.PI_DASHBOARD_HOST_GATE = prevGate;
     }
   }, 30000);
 });

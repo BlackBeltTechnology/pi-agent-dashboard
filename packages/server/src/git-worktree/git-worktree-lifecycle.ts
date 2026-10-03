@@ -65,6 +65,8 @@ export type MergeCode =
   | "nothing_to_merge"
   /** The main checkout could not be resolved (worktree of a bare hub, dead probe) — a 4xx refusal, not a server error. See change: apply-checkout-root-to-worktree-ops (D2). */
   | "not_a_worktree"
+  /** The resolved `git` binary is missing (ENOENT, no exit status). See change: harden-server-request-surfaces. */
+  | "git_not_found"
   | "git_failed";
 
 export type PushCode =
@@ -72,6 +74,8 @@ export type PushCode =
   | "no_remote"
   | "auth_failed"
   | "non_fast_forward"
+  /** The resolved `git` binary is missing (ENOENT, no exit status). See change: harden-server-request-surfaces. */
+  | "git_not_found"
   | "git_failed";
 
 export type PrCode =

@@ -308,6 +308,29 @@ describe("AllowedHostsSection — Security page integration", () => {
     ).toHaveLength(0);
   });
 
+  // test-plan #F1 (harden-server-request-surfaces): absent hostGate.mode shows enforce.
+  it("shows enforce when hostGate.mode is absent from the config payload", async () => {
+    global.fetch = mockPanelFetch({ hostGate: undefined });
+    setPath("/settings/security");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Allowed hostnames"));
+    expect(screen.getByRole("radio", { name: "Enforce", checked: true })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Report only", checked: true })).toBeNull();
+  });
+
+  // test-plan #F2: copy names enforce as the default and report as the opt-out.
+  it("copy describes enforce as the default and names the report opt-out", async () => {
+    global.fetch = mockPanelFetch({ hostGate: undefined });
+    setPath("/settings/security");
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Allowed hostnames"));
+    const html = document.body.textContent ?? "";
+    expect(html).toMatch(/default/i);
+    expect(html).toMatch(/Report only/);
+    expect(html).not.toMatch(/default is report/i);
+    expect(html).not.toMatch(/report-only default/i);
+  });
+
   // test-plan #F3 — env override disables both options and names the variable.
   it("disables the mode control with the PI_DASHBOARD_HOST_GATE reason", async () => {
     gateFixture = { ...GATE_DEFAULT, envOverridden: true, mode: "report" };

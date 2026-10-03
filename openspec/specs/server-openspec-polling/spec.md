@@ -15,6 +15,8 @@ The set of **known directories** SHALL be the union of:
 
 Ended sessions — including hidden ones — SHALL NOT contribute their cwd to the known-directory set. A directory whose sessions have all ended and that is not pinned SHALL stop being polled until a new session registers in it or it is pinned.
 
+A browser-initiated `openspec_refresh` SHALL be subject to the same admission gates as the on-demand `openspec_get` fetch: OpenSpec globally enabled, the cwd not opted out, the cwd present in the session registry (any status) or pinned, and `<cwd>/openspec/` present. A refresh that fails any gate SHALL spawn no process, SHALL NOT probe the filesystem below the cwd before the tracked-cwd gate has passed, and SHALL NOT broadcast.
+
 #### Scenario: Periodic poll for a known directory
 - **WHEN** one poll interval has elapsed since the last poll for a directory
 - **THEN** the server SHALL evaluate the directory for re-polling (subject to change detection, see below) and broadcast an `openspec_update` message with `cwd` and `data` fields if the data has changed
@@ -59,8 +61,25 @@ Ended sessions — including hidden ones — SHALL NOT contribute their cwd to t
 - **THEN** the server SHALL cache `{ initialized: false, pending: false, changes: [] }` for that directory
 
 #### Scenario: Browser requests immediate refresh
-- **WHEN** a browser sends `openspec_refresh` with a `cwd` field
+- **WHEN** a browser sends `openspec_refresh` with a `cwd` that is pinned or present in the session registry, is not opted out, and contains `openspec/`
 - **THEN** the server SHALL immediately re-poll the openspec CLI for that directory, **bypassing change detection** but still respecting the concurrency cap, and broadcast the result
+
+#### Scenario: Refresh for an untracked directory does not spawn
+- **GIVEN** `/tmp/anywhere` is neither pinned nor present in the session registry
+- **WHEN** a paired browser sends `openspec_refresh { cwd: "/tmp/anywhere" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
+- **AND** no `openspec_update` SHALL be broadcast for that cwd
+- **AND** the server SHALL NOT stat any path below `/tmp/anywhere`
+
+#### Scenario: Refresh for an opted-out directory does not spawn
+- **GIVEN** `/repo/a` is tracked and its cwd is opted out of OpenSpec polling
+- **WHEN** a browser sends `openspec_refresh { cwd: "/repo/a" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
+
+#### Scenario: Refresh for a tracked directory without an openspec root does not spawn
+- **GIVEN** `/repo/c` is tracked but has no `openspec/` directory
+- **WHEN** a browser sends `openspec_refresh { cwd: "/repo/c" }`
+- **THEN** no OpenSpec CLI process SHALL be spawned
 
 ### Requirement: Change-detection gate to avoid redundant CLI invocations
 
@@ -363,7 +382,7 @@ The server SHALL poll each directory at most once per polling interval, regardle
 ### Requirement: Server skips OpenSpec polling when `openspec.enabled` is false
 The server SHALL gate ALL OpenSpec polling on `DashboardConfig.openspec.enabled`. When `enabled === false`:
 - the per-directory poll loop SHALL not invoke `openspec list --json` or `openspec status --change <name> --json` for any directory;
-- on-demand `openspec_refresh` requests from browsers SHALL be acknowledged but SHALL NOT trigger CLI invocations (the server SHALL respond as if the directory has no `openspec/` directory);
+- on-demand `openspec_refresh` requests from browsers SHALL NOT trigger CLI invocations and SHALL NOT broadcast (the refresh admission gate rejects them);
 - the in-memory `OpenSpecData` cache for every known cwd SHALL be cleared (set to `{ initialized: false, pending: false, changes: [] }`) the first time the disabled state is observed by the polling loop, and the corresponding `openspec_update` SHALL be broadcast to all connected browsers so existing UIs converge to the disabled-state shape.
 
 When `enabled` flips back to `true` via `PUT /api/config` and `directoryService.reconfigurePolling`, the server SHALL resume normal polling on the next tick (no immediate burst-poll required).
@@ -383,7 +402,7 @@ When `enabled` flips back to `true` via `PUT /api/config` and `directoryService.
 - **WHEN** `openspec.enabled` is `false`
 - **AND** a browser sends `openspec_refresh` with `cwd: "C"`
 - **THEN** the server SHALL NOT spawn any `openspec` CLI process
-- **AND** SHALL broadcast `openspec_update` with `{ initialized: false, pending: false, changes: [] }` for cwd `C`
+- **AND** SHALL NOT broadcast `openspec_update` for cwd `C`
 
 #### Scenario: Polling resumes on re-enable
 - **WHEN** `openspec.enabled` flips from `false` to `true` via `PUT /api/config`

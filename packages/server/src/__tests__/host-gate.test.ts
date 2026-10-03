@@ -20,10 +20,11 @@ function collect(): { lines: string[]; sink: (l: string) => void } {
 
 describe("#E9 resolveHostGateMode + boot warning", () => {
   it("env wins when recognised; unrecognised falls through to config", () => {
-    expect(resolveHostGateMode(undefined, undefined)).toEqual({ mode: "report", envOverridden: false });
+    expect(resolveHostGateMode(undefined, undefined)).toEqual({ mode: "enforce", envOverridden: false });
     expect(resolveHostGateMode("enforce", undefined)).toEqual({ mode: "enforce", envOverridden: true });
     expect(resolveHostGateMode("report", "enforce")).toEqual({ mode: "report", envOverridden: true });
-    expect(resolveHostGateMode("yes", undefined)).toEqual({ mode: "report", envOverridden: false });
+    expect(resolveHostGateMode("yes", undefined)).toEqual({ mode: "enforce", envOverridden: false });
+    expect(resolveHostGateMode("yes", "report")).toEqual({ mode: "report", envOverridden: false });
     expect(resolveHostGateMode("yes", "enforce")).toEqual({ mode: "enforce", envOverridden: false });
   });
 
