@@ -2650,7 +2650,15 @@ export function reduceEvent(
 
       // Extract per-turn usage and accumulate cache stats
       const turnUsage = data.turnUsage as Record<string, number> | undefined;
-      if (turnUsage) {
+      // Non-turn usage (tool result, compaction, branch summary, `usage:*`
+      // entries) adds to totals only: no TurnStat, turnIndex or turnCount, so
+      // it never becomes a chart bar, evicts real turns or shifts numbering.
+      // See change: count-non-message-usage.
+      const usageKind = data.usageKind as string | undefined;
+      if (turnUsage && usageKind !== undefined && usageKind !== "turn") {
+        next.cacheRead += turnUsage.cacheRead ?? 0;
+        next.cacheWrite += turnUsage.cacheWrite ?? 0;
+      } else if (turnUsage) {
         // Assign turnIndex to the last user message for scroll-to-turn navigation
         const lastUserIdx = next.messages.findLastIndex((m) => m.role === "user");
         let assignedTurnIndex = -1;

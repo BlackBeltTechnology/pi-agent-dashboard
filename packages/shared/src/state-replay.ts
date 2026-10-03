@@ -3,6 +3,7 @@
  * so the browser can rebuild the chat view after a reconnect or DB reset.
  */
 import type { EventForwardMessage } from "./protocol.js";
+import { drainableEntryUsage, usageToTotals, type EntryUsage } from "./usage-totals.js";
 
 /**
  * Convert pi session entries (from ctx.sessionManager.getBranch())
@@ -130,17 +131,19 @@ export function replayEntriesAsEvents(
         // Emit stats_update if usage data is present
         const usage = msg.usage as Record<string, unknown> | undefined;
         if (usage) {
-          const cost = usage.cost as Record<string, number> | undefined;
           const totalTokens = usage.totalTokens as number | undefined;
+          // Same normalization as the JSONL reader, so replayed and derived
+          // totals agree. See change: count-non-message-usage.
+          const t = usageToTotals(usage);
           const statsData: Record<string, unknown> = {
-            tokensIn: (usage.input as number) ?? 0,
-            tokensOut: (usage.output as number) ?? 0,
-            cost: cost?.total ?? 0,
+            tokensIn: t.tokensIn,
+            tokensOut: t.tokensOut,
+            cost: t.cost,
             turnUsage: {
-              input: (usage.input as number) ?? 0,
-              output: (usage.output as number) ?? 0,
-              cacheRead: (usage.cacheRead as number) ?? 0,
-              cacheWrite: (usage.cacheWrite as number) ?? 0,
+              input: t.tokensIn,
+              output: t.tokensOut,
+              cacheRead: t.cacheRead,
+              cacheWrite: t.cacheWrite,
             },
           };
           // Include context usage estimate from totalTokens
@@ -189,7 +192,22 @@ export function replayEntriesAsEvents(
         messages.push(makeEvent(sessionId, "tool_execution_end", ts, eventData));
         openToolCalls.delete(msg.toolCallId);
       }
+
+      // Tool-result usage (codemode models.classify()/generateImages()):
+      // kind-marked stats only. Tool results NEVER emit `message_end` here —
+      // that invariant keeps the bridge's register-time replay from
+      // re-counting tool-result usage on the server, whose live source is the
+      // forwarded tool-result `message_end`. See change: count-non-message-usage.
+      if (msg.role === "toolResult" && msg.usage && typeof msg.usage === "object") {
+        messages.push(makeNonTurnStats(sessionId, ts, { kind: "tool", usage: msg.usage }));
+      }
     }
+
+    // Non-message usage (`usage` entries, compaction / branch-summary usage):
+    // kind-marked stats_update WITHOUT contextUsage, so hydration totals
+    // include every kind while the gauge stays assistant-driven.
+    // See change: count-non-message-usage.
+    const entryUsage = drainableEntryUsage(entry);
 
     // Persisted compaction entry — change: replay-compaction-boundary.
     // Synthesizes the same `session_compact` event the bridge forwards live, so
@@ -201,6 +219,9 @@ export function replayEntriesAsEvents(
     // the branch), like every other arm.
     if (entry.type === "compaction") {
       messages.push(makeEvent(sessionId, "session_compact", ts, {}));
+    }
+    if (entryUsage) {
+      messages.push(makeNonTurnStats(sessionId, ts, entryUsage));
     }
 
     if (entry.type === "model_change") {
@@ -281,6 +302,18 @@ function makeEvent(
       data: { type: eventType, ...data },
     },
   };
+}
+
+/** Kind-marked `stats_update` for non-assistant usage — never carries `contextUsage`. */
+function makeNonTurnStats(sessionId: string, ts: number, u: EntryUsage): EventForwardMessage {
+  const t = usageToTotals(u.usage);
+  return makeEvent(sessionId, "stats_update", ts, {
+    usageKind: u.kind,
+    tokensIn: t.tokensIn,
+    tokensOut: t.tokensOut,
+    cost: t.cost,
+    turnUsage: { input: t.tokensIn, output: t.tokensOut, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite },
+  });
 }
 
 function tryParseJson(s: string): Record<string, unknown> {

@@ -9,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import * as minimatchNS from "minimatch";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
@@ -235,6 +236,12 @@ export function handleSessionChange(
   bc: BridgeContext,
   ctx: any,
   getFlowsList: () => FlowInfo[],
+  /**
+   * Full usage totals of the incoming session's baseline snapshot — the same
+   * snapshot the bridge's usage drain cursor was set from (`UsageDrain.baseline`).
+   * See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals,
 ): void {
   bc.connection.send({ type: "session_unregister", sessionId: bc.sessionId });
 
@@ -288,6 +295,7 @@ export function handleSessionChange(
     registerReason: "spawn",
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: detectIsGitRepo(cwd),
+    ...(usageSeed ? { usageSeed } : {}),
   });
 
   replaySessionEntries(bc);
