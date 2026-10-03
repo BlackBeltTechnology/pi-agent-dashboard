@@ -1436,9 +1436,8 @@ export function SessionCard({
         const attachedTrace = !!session.attachedProposal && readiness?.state !== "GLOBAL_OFF" && readiness?.state !== "OPTED_OUT";
         if (!open && !disabled && !attachedTrace) return null;
         // BROKEN / STALE normally swaps in the inert panel, but an attachment that
-        // resolved to archived / missing / main-checkout must stay traceable (+ Detach).
-        const showAttachmentTrace =
-          attachedTrace && !!attachmentResolution && attachmentResolution.kind !== "unresolved" && !isLiveActive(attachmentResolution, session.cwd);
+        // is not live-active in this cwd (archived / missing / main-checkout / still resolving) must stay reachable (+ Detach).
+        const showAttachmentTrace = attachedTrace && !isLiveActive(attachmentResolution, session.cwd);
         return (
           <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")} menu={menuFor("openspec")}>
             {disabled && readiness && !showAttachmentTrace ? (

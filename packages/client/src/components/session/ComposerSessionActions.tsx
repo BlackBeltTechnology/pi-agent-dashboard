@@ -158,10 +158,13 @@ function ChangeChip({
   name,
   onOpenProposal,
   onDetach,
+  showOpenProposal = true,
 }: {
   name: string;
   onOpenProposal?: () => void;
   onDetach?: () => void;
+  /** False for an archived / main-checkout attachment: the active-preview route would not find it. */
+  showOpenProposal?: boolean;
 }) {
   const [anchorEl, setAnchorEl] = useState<HTMLButtonElement | null>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
@@ -221,7 +224,7 @@ function ChangeChip({
             onPointerDown={stop}
             className="min-w-[160px] p-1 rounded-md border border-[var(--border-strong)] bg-[var(--bg-secondary)] shadow-lg flex flex-col"
           >
-            {item("composer-change-open-proposal", mdiFileDocumentOutline, i18nT("openspec.openProposal", undefined, "Open proposal"), onOpenProposal)}
+            {showOpenProposal && item("composer-change-open-proposal", mdiFileDocumentOutline, i18nT("openspec.openProposal", undefined, "Open proposal"), onOpenProposal)}
             {item("composer-change-detach", mdiLinkOff, i18nT("common.detach", undefined, "Detach"), onDetach)}
           </div>
         </Popover>
@@ -428,6 +431,7 @@ export function ComposerSessionActions({
         name={attached}
         onOpenProposal={onReadArtifact ? () => onReadArtifact(attached, "proposal") : undefined}
         onDetach={onDetach}
+        showOpenProposal={!showTrace}
       />
       {showTrace && <AttachmentTrace resolution={resolution} sessionCwd={session.cwd} />}
       {change && (

@@ -1,7 +1,7 @@
 import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { DISPLAY_PRESETS } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -2058,6 +2058,31 @@ describe("SessionCard attachment resolution", () => {
     expect(screen.getAllByTestId("artifact-letter").length).toBe(3);
     fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
     expect(screen.getByTestId("detach-btn")).toBeTruthy();
+  });
+
+  it.each([
+    ["loading", {}, {}],
+    ["error", { "/home/user/project": { initialized: false, changes: [], readiness: { state: "BROKEN", reason: "cli-failed" } } }, { "/home/user/project": "error" as const }],
+  ])("B3/r2 BROKEN + unresolved (%s): bare attached name + Detach stay reachable", async (_n, map, archives) => {
+    stubArchiveApi(archives as never);
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          map as never,
+          <SessionCard
+            session={makeSession({ status: "ended", attachedProposal: "add-auth" })}
+            {...defaultProps}
+            openspecChanges={[]}
+            openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+            {...cardProps}
+          />,
+        )}
+      </Router>,
+    );
+    await waitFor(() => expect(screen.getByText(/add-auth/)).toBeTruthy());
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    expect(screen.getByTestId("detach-btn")).toBeTruthy();
+    expect(screen.queryByTestId("attachment-not-found-badge")).toBeNull();
   });
 
   it("B3 BROKEN with no attachment still renders the disabled panel", () => {
