@@ -558,7 +558,7 @@ The dashboard Settings panel SHALL persist changes to `modelProxy` configuration
 
 ### Requirement: Proxy completions SHALL behave identically across runtime generations
 
-A completion served by the proxy SHALL produce the same upstream request regardless of which supported pi-ai generation is resolved. Changing the resolved runtime SHALL NOT alter which request fields reach the provider.
+A completion served by the proxy SHALL produce the same upstream request after the server moves onto the single pi model runtime as it did before. Replacing the dashboard's own registry and dispatch with the runtime SHALL NOT alter which request fields reach the provider.
 
 #### Scenario: Built-in model completion is unchanged end to end
 
@@ -570,23 +570,23 @@ A completion served by the proxy SHALL produce the same upstream request regardl
 
 - **WHEN** a client streams a chat completion for a custom-provider model
 - **THEN** the request SHALL be dispatched using the model's declared `api` and effective base URL
-- **AND** the upstream request SHALL carry the dashboard-resolved credential for that provider
+- **AND** the upstream request SHALL carry the credential configured for that provider
 
 #### Scenario: Tool definitions survive the runtime change
 
 - **WHEN** a client sends a completion request carrying tool definitions
-- **THEN** those tools SHALL be present in the upstream request under either runtime generation
+- **THEN** those tools SHALL be present in the upstream request
 
 #### Scenario: Existing system-prompt handling is not altered
 
 - **WHEN** a client sends a system prompt (an OpenAI `system` message or the Anthropic `system` field)
-- **THEN** the proxy SHALL hand it to pi-ai as `Context.systemPrompt` under either runtime generation, so it reaches the provider
-- **AND** SHALL NOT pass it under any other key (the former `system` key was silently dropped by pi-ai; that mismatch is now repaired, not preserved)
+- **THEN** the proxy SHALL hand it to the runtime as the context's system prompt, so it reaches the provider
+- **AND** SHALL NOT pass it under any other key
 
 #### Scenario: Abort still propagates
 
 - **WHEN** a client aborts an in-flight completion
-- **THEN** the abort SHALL propagate to the upstream request under either supported runtime generation
+- **THEN** the abort SHALL propagate to the upstream request
 
 ### Requirement: Mid-stream upstream failure terminates the stream
 

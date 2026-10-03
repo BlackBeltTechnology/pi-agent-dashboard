@@ -25,7 +25,13 @@ import {
   removeCredential,
   writeCredential,
 } from "../auth/provider-auth-storage.js";
+import { setOAuthRegistryRuntimeSource } from "../auth/provider-auth-registry.js";
+import { getServerModelRuntime } from "../model-proxy/server-model-runtime.js";
 import { registerProviderAuthRoutes } from "../routes/provider-auth-routes.js";
+
+// server.ts wires the single model runtime in before registering these routes.
+// See change: collapse-model-proxy-onto-modelruntime (D6).
+setOAuthRegistryRuntimeSource(getServerModelRuntime);
 
 const authDir = path.join(os.homedir(), ".pi", "agent");
 const authPath = path.join(authDir, "auth.json");

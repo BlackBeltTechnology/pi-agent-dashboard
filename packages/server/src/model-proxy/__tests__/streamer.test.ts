@@ -27,7 +27,7 @@ async function* fakeStream(events: any[]): AsyncIterable<any> {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("streamCompletion", () => {
-  it("calls streamSimple with resolved credentials", async () => {
+  it("resolves auth first, then streams with the headers and NO apiKey override (E4)", async () => {
     const model = makeModel();
     const registry = makeRegistry("sk-abc", { "x-foo": "bar" });
     const streamSimple = vi.fn().mockReturnValue(fakeStream([{ type: "start" }]));
@@ -37,7 +37,10 @@ describe("streamCompletion", () => {
     expect(registry.getApiKeyAndHeaders).toHaveBeenCalledWith(model);
     expect(streamSimple).toHaveBeenCalledOnce();
     const [, , optionsArg] = streamSimple.mock.calls[0];
-    expect(optionsArg.apiKey).toBe("sk-abc");
+    // The runtime applies the provider's own auth path; an OAuth access token
+    // passed as an api-key override would be sent as the wrong header.
+    // See change: collapse-model-proxy-onto-modelruntime (D5).
+    expect(optionsArg).not.toHaveProperty("apiKey");
     expect(optionsArg.headers).toEqual({ "x-foo": "bar" });
   });
 
@@ -164,30 +167,6 @@ describe("deferral guard — the system:/systemPrompt: mismatch stays as-is", ()
     expect(ctx).not.toHaveProperty("systemPrompt");
   });
 
-  it("X11: the seam does not remap `system:` into the transcript", async () => {
-    const { adaptPiAi } = await import(
-      "@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js"
-    );
-    const { FIXTURE_PATH, makeFactoryFixture } = await import(
-      "@blackbelt-technology/pi-dashboard-shared/test-support/piai-factory-fixture.js"
-    );
-    const fx = makeFactoryFixture();
-    const { module } = await adaptPiAi(fx.module, FIXTURE_PATH, fx.deps);
-
-    const stream = module.streamSimple(
-      { provider: "anthropic", id: "claude-opus-5", api: "anthropic-messages" },
-      routeContext({ messages: [{ role: "user", content: "hi" }], system: "ROUTE PROMPT" }),
-      {},
-    );
-    for await (const _ of stream) {
-      // drain
-    }
-
-    // Unchanged from pre-change behaviour: the prompt does NOT reach the
-    // provider, because normalizeContext reads `systemPrompt`, not `system`.
-    expect(JSON.stringify(fx.dispatches[0].context)).not.toContain("ROUTE PROMPT");
-  });
-
   // The OTHER caller is unaffected: `streamCompletion` already maps
   // `system` -> `systemPrompt`, so only the direct route path drops it.
   it("X11: streamCompletion still maps opts.system to systemPrompt, unchanged", async () => {
@@ -237,5 +216,99 @@ describe("callPiAiStreamSimple", () => {
     const tools = [{ name: "t", description: "d", parameters: {} }];
     callPiAiStreamSimple(fn, routeOpts({ tools }));
     expect(fn.mock.calls[0][1].tools).toBe(tools);
+  });
+});
+
+// ── The real runtime path (test-plan #E4, #E10) ─────────────────────────────
+
+/**
+ * Drives the server's REAL single runtime through `registry-singleton`'s
+ * `getStreamSimpleFn()` and the route adapter, with the dispatched provider
+ * intercepted (nothing reaches the network). Proves what reaches the provider:
+ * the dashboard-stored credential (the route's `apiKey` override is dropped),
+ * per-model custom headers, tools, and the system prompt as the context's
+ * system prompt. See change: collapse-model-proxy-onto-modelruntime (D5).
+ */
+describe("proxy completion through the real model runtime", () => {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const os = require("node:os") as typeof import("node:os");
+  const path = require("node:path") as typeof import("node:path");
+  const authPath = path.join(os.homedir(), ".pi", "agent", "auth.json");
+
+  async function setup(auth: Record<string, unknown>) {
+    fs.mkdirSync(path.dirname(authPath), { recursive: true });
+    fs.writeFileSync(authPath, JSON.stringify(auth), { mode: 0o600 });
+    const singleton = await import("../registry-singleton.js");
+    singleton.disposeModelRegistry();
+    const registry = await singleton.getModelRegistry();
+    const { getServerModelRuntime } = await import("../server-model-runtime.js");
+    const { runtime } = await getServerModelRuntime();
+    const fn = singleton.getStreamSimpleFn();
+    if (!fn) throw new Error("streamSimple not available");
+    return { registry, runtime, fn, dispose: singleton.disposeModelRegistry };
+  }
+
+  async function drain(events: AsyncIterable<unknown>) {
+    for await (const _e of events) {
+      // drain
+    }
+  }
+
+  it("E4: built-in model — tools, system prompt and the stored credential reach the provider; no override", async () => {
+    const { registry, runtime, fn, dispose } = await setup({ anthropic: { type: "api_key", key: "sk-ant-stored" } });
+    try {
+      const { captureProviderStreams } = await import("../../__tests__/helpers/pi-models-fixture.js");
+      const captured = await captureProviderStreams(runtime, "anthropic");
+      const model = runtime.getModels("anthropic")[0];
+      const { headers } = await registry.getApiKeyAndHeaders(model);
+      const tools = [{ name: "lookup_weather", description: "d", parameters: { type: "object", properties: {} } }];
+
+      await drain(
+        callPiAiStreamSimple(fn, {
+          model,
+          messages: [{ role: "user", content: "hi", timestamp: 0 }],
+          system: "SYSTEM-PROMPT-MARK",
+          tools,
+          signal: new AbortController().signal,
+          apiKey: "sk-ROUTE-OVERRIDE",
+          headers,
+        } as never),
+      );
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].options.apiKey).toBe("sk-ant-stored");
+      const context = JSON.stringify(captured[0].context);
+      expect(context).toContain("SYSTEM-PROMPT-MARK");
+      expect(context).toContain("lookup_weather");
+      expect(JSON.stringify(captured[0].options)).not.toContain("sk-ROUTE-OVERRIDE");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("E10: a custom model's per-model headers reach the provider", async () => {
+    const { registry, runtime, fn, dispose } = await setup({ acme: { type: "api_key", key: "sk-acme" } });
+    try {
+      const { registerCapturingProvider } = await import("../../__tests__/helpers/pi-models-fixture.js");
+      const captured = registerCapturingProvider(runtime, "acme", { apiKey: "sk-acme", modelHeaders: { "X-Org": "a" } });
+      const model = { ...runtime.getModels("acme")[0], headers: { "X-Org": "a" } };
+      const { headers } = await registry.getApiKeyAndHeaders(model);
+
+      await drain(
+        callPiAiStreamSimple(fn, {
+          model,
+          messages: [{ role: "user", content: "hi", timestamp: 0 }],
+          signal: new AbortController().signal,
+          apiKey: "unused",
+          headers,
+        } as never),
+      );
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].options.headers).toMatchObject({ "X-Org": "a" });
+      expect(captured[0].options.apiKey).toBe("sk-acme");
+    } finally {
+      dispose();
+    }
   });
 });

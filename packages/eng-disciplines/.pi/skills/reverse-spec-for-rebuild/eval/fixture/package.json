@@ -1,0 +1,11 @@
+{
+  "name": "rsfr-fixture-orders",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Seeded evaluation fixture for reverse-spec-for-rebuild: a tiny order service.",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "orders": "src/cli.ts"
+  }
+}

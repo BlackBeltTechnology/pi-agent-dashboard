@@ -17,7 +17,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DashboardCredentialStore } from "../../auth/dashboard-credential-store.js";
 import { readAuthJson, writeCredential } from "../../auth/provider-auth-storage.js";
 
 const AUTH_DIR = path.join(os.homedir(), ".pi", "agent");
@@ -96,5 +97,46 @@ describe("auth.json single-writer contract (task 2.12)", () => {
     expect((data["anthropic"] as any).refresh).toBe("r1");
     // gemini unchanged
     expect((data["gemini"] as any).key).toBe("gk-original");
+  });
+});
+
+/**
+ * test-plan #X3 — a runtime-triggered persist killed between the temp write
+ * and the rename leaves auth.json holding the previous complete JSON (the
+ * persist is an atomic tmp+rename, never an in-place rewrite).
+ * See change: collapse-model-proxy-onto-modelruntime (D1).
+ */
+describe("runtime-triggered persist is atomic (X3)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("X3: a crash between temp write and rename leaves the previous complete auth.json", async () => {
+    const previous = {
+      anthropic: { type: "oauth", access: "a0", refresh: "r0", expires: Date.now() - 1 },
+      openai: { type: "api_key", key: "sk-keep" },
+    };
+    fs.writeFileSync(AUTH_PATH, `${JSON.stringify(previous, null, 2)}\n`, { mode: 0o600 });
+    const before = fs.readFileSync(AUTH_PATH, "utf-8");
+
+    // "Process killed" at the rename: the temp file is fully written, the
+    // rename never happens.
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => {
+      throw Object.assign(new Error("simulated kill before rename"), { code: "EKILLED" });
+    });
+    const store = new DashboardCredentialStore();
+    await expect(
+      store.modify("anthropic", async () => ({ type: "oauth", access: "a1", refresh: "r1", expires: Date.now() + 3_600_000 })),
+    ).rejects.toThrow(/simulated kill/);
+    expect(rename).toHaveBeenCalled();
+
+    const after = fs.readFileSync(AUTH_PATH, "utf-8");
+    expect(after).toBe(before);
+    expect(() => JSON.parse(after)).not.toThrow();
+    rename.mockRestore();
+
+    // The next persist completes: the file holds the NEW complete JSON.
+    await store.modify("anthropic", async () => ({ type: "oauth", access: "a2", refresh: "r2", expires: Date.now() + 3_600_000 }));
+    expect(readAuthJson()).toMatchObject({ anthropic: { access: "a2" }, openai: { key: "sk-keep" } });
   });
 });

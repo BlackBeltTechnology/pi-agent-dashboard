@@ -1,37 +1,29 @@
 /**
  * Singleton accessor for the server-resident model registry.
  *
- * Lazy initialization: on first call, resolves pi-ai via ToolRegistry,
- * constructs InternalAuthStorage + InternalRegistry, and caches the instance.
+ * Lazy initialization: on first call, obtains the server's single pi
+ * `ModelRuntime` (`server-model-runtime.ts`), wraps it in the
+ * `InternalAuthStorage` + `InternalRegistry` facades, and caches the instance.
  *
- * See change: add-dashboard-model-proxy, design §1.
+ * See changes: add-dashboard-model-proxy (design §1), collapse-model-proxy-onto-modelruntime (D5, D6).
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { flattenModelsJson } from "@blackbelt-technology/pi-dashboard-shared/models-json-reader.js";
-import {
-  adaptPiAi,
-  OAUTH_LOADER_EXPORTS,
-  type PiAiGeneration,
-} from "@blackbelt-technology/pi-dashboard-shared/piai-compat/index.js";
-import { getDefaultRegistry, ModuleResolutionError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { readAuthJson } from "../auth/provider-auth-storage.js";
 import { readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
 import { discoverAllCustomProviders } from "./custom-provider-discovery.js";
-import { InternalAuthStorage, type PiAiOAuthModule } from "./internal-auth-storage.js";
-import { type CustomModelEntry, type CustomProviderEntry, InternalRegistry, type PiAiModule } from "./internal-registry.js";
+import { InternalAuthStorage } from "./internal-auth-storage.js";
+import { type CustomModelEntry, type CustomProviderEntry, InternalRegistry } from "./internal-registry.js";
+import {
+  disposeServerModelRuntime,
+  getServerModelRuntime,
+  type ServerModelRuntime,
+} from "./server-model-runtime.js";
 
 let cachedRegistry: InternalRegistry | null = null;
-/**
- * The ADAPTED surface, never the raw module. Caching the raw module leaves
- * `getStreamSimpleFn()` undefined on a factory runtime, and the proxy then
- * 503s with a perfectly healthy registry. See change:
- * adopt-piai-factory-api-registry (design D1).
- */
-let cachedPiAi: PiAiModule | null = null;
-let cachedGeneration: PiAiGeneration | null = null;
-let cachedOAuthAvailability: Record<string, boolean> | null = null;
+let cachedRuntime: ServerModelRuntime | null = null;
 let lastError: string | null = null;
 
 // ── Disk readers ──────────────────────────────────────────────────────────────
@@ -90,28 +82,23 @@ function readAugmentedAuth(): Record<string, any> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function getModelRegistry(): Promise<InternalRegistry> {
-  if (cachedRegistry) return cachedRegistry;
+/** In-flight first initialization: concurrent first callers share ONE registry (one projection owner). */
+let pendingRegistry: Promise<InternalRegistry> | null = null;
 
+export function getModelRegistry(): Promise<InternalRegistry> {
+  if (cachedRegistry) return Promise.resolve(cachedRegistry);
+  pendingRegistry ??= initModelRegistry().finally(() => {
+    pendingRegistry = null;
+  });
+  return pendingRegistry;
+}
+
+async function initModelRegistry(): Promise<InternalRegistry> {
   try {
-    const { resolution, module: rawPiAi } = await getDefaultRegistry().resolveModule<unknown>("pi-ai");
-
-    // ONE seam absorbs all three pi-ai boundary breaks: module shape,
-    // transcript normalization, and the relocated OAuth entry points. It also
-    // owns the oauth subpath load the singleton used to do inline with a
-    // POSIX-only regex. See change: adopt-piai-factory-api-registry (D1/D5/D7).
-    const adapted = await adaptPiAi(rawPiAi, resolution.path ?? undefined);
-    const piAi = adapted.module;
-    const oauthModule: PiAiOAuthModule = adapted.oauth;
-
-    const authStorage = new InternalAuthStorage(oauthModule, readCustomProviderCreds);
-    // The ADAPTED surface, not the raw module.
-    cachedPiAi = piAi;
-    cachedGeneration = adapted.generation;
-    cachedOAuthAvailability = Object.fromEntries(
-      Object.keys(OAUTH_LOADER_EXPORTS).map((id) => [id, oauthModule.isAvailable(id)]),
-    );
-    cachedRegistry = new InternalRegistry(piAi, authStorage, {
+    const { runtime } = await getServerModelRuntime();
+    const authStorage = new InternalAuthStorage(runtime, readCustomProviderCreds);
+    cachedRuntime = runtime;
+    cachedRegistry = new InternalRegistry(runtime, authStorage, {
       readProviders,
       readModels,
       readAuth: readAugmentedAuth,
@@ -119,14 +106,11 @@ export async function getModelRegistry(): Promise<InternalRegistry> {
     });
     // Fire-and-forget initial custom-provider discovery so /api/models reflects
     // providers.json without waiting on the first request. Non-fatal on error.
-    void cachedRegistry.discover().catch(() => {});
+    cachedRegistry.discover().catch(() => {});
     lastError = null;
     return cachedRegistry;
   } catch (err) {
-    const msg = err instanceof ModuleResolutionError
-      ? err.message
-      : (err as Error).message;
-    lastError = msg;
+    lastError = (err as Error).message;
     throw err;
   }
 }
@@ -138,42 +122,55 @@ export async function refreshModelRegistry(): Promise<void> {
 
 export function disposeModelRegistry(): void {
   cachedRegistry = null;
-  cachedPiAi = null;
-  cachedGeneration = null;
-  cachedOAuthAvailability = null;
+  pendingRegistry = null;
+  cachedRuntime = null;
   lastError = null;
+  disposeServerModelRuntime();
 }
 
+export interface StreamSimpleOptions {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+  maxTokens?: number;
+  temperature?: number;
+  /** Accepted for caller compatibility; never forwarded (see `getStreamSimpleFn`). */
+  apiKey?: unknown;
+}
+
+export type RuntimeStreamSimpleFn = (model: any, context: any, options?: StreamSimpleOptions) => AsyncIterable<any>;
+
 /**
- * Returns pi-ai's streamSimple after registry is initialized.
- * Throws if registry has not been initialized.
+ * The runtime's `streamSimple`, once the registry is initialized; `null`
+ * before. Only the request OPTIONS the runtime understands are forwarded
+ * (`headers`, `maxTokens`, `temperature`, `signal`): callers hand over their
+ * whole route/plugin opts object, which also carries `apiKey` (an OAuth access
+ * token passed as an api-key override would be sent as the wrong header — the
+ * runtime re-reads the credential and applies the provider's own auth path)
+ * and the transcript (`system`, `messages`, `tools`, `model`), which belongs
+ * in the Context, never under another key.
+ * See change: collapse-model-proxy-onto-modelruntime (D5).
  */
-export function getStreamSimpleFn(): PiAiModule["streamSimple"] | null {
-  return cachedPiAi?.streamSimple ?? null;
+export function getStreamSimpleFn(): RuntimeStreamSimpleFn | null {
+  const runtime = cachedRuntime;
+  if (!runtime) return null;
+  return (model, context, options = {}) => {
+    const { headers, maxTokens, temperature, signal } = options;
+    return runtime.streamSimple(model, context, {
+      ...(headers ? { headers } : {}),
+      ...(maxTokens != null ? { maxTokens } : {}),
+      ...(temperature != null ? { temperature } : {}),
+      ...(signal ? { signal } : {}),
+    });
+  };
 }
 
 export interface ModelProxyStatus {
   status: "ready" | "degraded";
   reason?: string;
-  /** Which pi-ai generation the seam adapted. Null before initialization. */
-  piAiGeneration?: PiAiGeneration;
-  /**
-   * PER-PROVIDER OAuth capability (clarification C2). OAuth being unreachable
-   * does NOT flip `status` to `degraded` — that stays reserved for a dead
-   * registry — because api-key models keep routing. Null before init.
-   * See change: adopt-piai-factory-api-registry.
-   */
-  oauthProviders?: Record<string, boolean>;
 }
 
 export function getModelProxyStatus(): ModelProxyStatus {
-  if (cachedRegistry) {
-    return {
-      status: "ready",
-      ...(cachedGeneration ? { piAiGeneration: cachedGeneration } : {}),
-      ...(cachedOAuthAvailability ? { oauthProviders: cachedOAuthAvailability } : {}),
-    };
-  }
+  if (cachedRegistry) return { status: "ready" };
   if (lastError) return { status: "degraded", reason: lastError };
   return { status: "degraded", reason: "Model registry not yet initialized" };
 }
