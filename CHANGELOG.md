@@ -25,6 +25,8 @@ see [`docs/release-process.md`](docs/release-process.md).
     https/ssh/`git@` URLs with transport, redirect and submodule hardening.
     **Compatibility:** `http://`/`ssh://` refs in the https resolver now fail;
     git sources relying on redirects (renamed repos) fail with a clear error.
+    A cached git clone whose configured `origin` differs from the source URL is
+    refused on refresh (remove the cache entry and retry) instead of being fetched.
   - KB archive extraction lists and validates entries first (no `..`, absolute or
     link entries), extracts into a stage dir and swaps atomically, so a failed
     refresh keeps the previous cache. Also fixes `.tar.bz2` extraction.

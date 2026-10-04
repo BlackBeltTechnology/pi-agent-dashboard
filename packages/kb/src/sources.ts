@@ -216,27 +216,22 @@ export const gitResolver: SourceResolver = {
     }
 
     const cloneDir = join(ctx.cacheDir, cacheKey(spec));
-    recoverBackups(cloneDir);
-    let hasGit = existsSync(join(cloneDir, ".git"));
+    const hasGit = existsSync(join(cloneDir, ".git"));
     const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
     if (hasGit && shouldPull) {
-      // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
+      // A poisoned/stale `origin` must never be contacted. Compare the RAW config value
+      // (`remote get-url` applies the user's url.*.insteadOf rewriting — their config is trusted,
+      // so a rewrite is not a mismatch). On a mismatch refuse WITHOUT mutating the cache: nothing
+      // is deleted or replaced, so a concurrent resolver using this clone can never lose it.
       let origin = "";
-      try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
-      if (origin !== url) hasGit = false; // replaced below by a staged, atomically published clone
+      try { origin = git(["-C", cloneDir, "config", "--get", "remote.origin.url"]).trim(); } catch { /* treated as a mismatch */ }
+      if (origin !== url) {
+        throw new Error(`git cache entry ${cloneDir} was cloned from a different origin (${origin || "unknown"}) than the checked URL (${url}); remove it and retry`);
+      }
     }
     if (!hasGit) {
-      // Stage the clone and publish it with the same unique-backup swap as https: `cloneDir` is
-      // never absent or half-deleted, and a failed clone leaves the previous one intact.
       mkdirSync(ctx.cacheDir, { recursive: true });
-      const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
-      try {
-        const out = join(stage, "clone");
-        git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, out]);
-        swapInto(cloneDir, out, hooks.rename ?? renameSync);
-      } finally {
-        rmSync(stage, { recursive: true, force: true });
-      }
+      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
     } else if (shouldPull) {
       if (ref) {
         git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);

@@ -105,12 +105,12 @@ Existing code this design relies on (all claims cited):
   are unique per writer, and concurrent writers are last-writer-wins — a loser
   errors out, but `dest` always holds one writer's complete content. The git
   path keeps its single-writer assumption for in-place `fetch`/`pull` on a
-  matching clone (git's own index lock is the only guard); the one NEW mutation
-  this change adds — replacing a clone on an origin mismatch — is staged and
-  atomically published, so it never deletes a clone another resolver is using. A hand-rolled cross-process lock was tried and removed: every round
+  matching clone (git's own index lock is the only guard); this change adds no
+  git cache mutation beyond that — an origin mismatch refuses instead of
+  replacing the clone (D3). A hand-rolled cross-process lock was tried and removed: every round
   found a narrower ownership/ABA hole in it, and it guarded a case outside this
   change's threat model (hostile content, not concurrent cooperative runs).
-  Follow-up if it ever matters: stage-and-atomically-publish git clones.
+  Follow-up if it ever matters: immutable generation dirs + an atomic pointer.
 
 ## Decisions
 
@@ -293,12 +293,14 @@ Before any git network command (`clone`, `fetch`, `pull`):
 1. **Scheme allowlist.** Allow `https://`, `ssh://` (via `git:ssh://…` or
    `kind: git`), and scp-style `git@host:path`. Reject `file:`, `git://`,
    `http://`, `ext::`, and anything else, without running git.
-2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read
-   `git -C <clone> remote get-url origin`. If it differs from the effective URL,
-   the clone is replaced by a fresh clone through the guarded path — staged in
-   a `.stage-*` dir and published with the same unique-backup swap as D4, so
-   the cache dir is never absent or half-deleted and a failed clone leaves the
-   previous one intact. A poisoned or stale `origin` is never contacted.
+2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read the raw
+   config value `git -C <clone> config --get remote.origin.url` (not `remote
+   get-url`, which applies the user's `url.*.insteadOf` rewriting — their config
+   is trusted, so a rewrite must not read as a mismatch). If it differs from the
+   effective URL, **refuse**: throw an error naming the cache entry and telling
+   the user to remove it and retry. Nothing is deleted or replaced, so a
+   concurrent resolver using that clone can never lose it, and a poisoned or
+   stale `origin` is never contacted.
 3. **Host check.** Resolve the host with `dns.lookup({all:true})` and run every
    address through kb's `isNonPublicAddress` (D2), never the server's
    permissive `isBlockedAddress`. IP-literal hosts are checked directly.

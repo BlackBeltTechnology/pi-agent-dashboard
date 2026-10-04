@@ -8,13 +8,15 @@ import { cacheKey, gitResolver } from "../sources.js";
 import { recordTrust } from "../trust.js";
 
 /** Fake `git`: records argv; fakes version / remote get-url / rev-parse / clone. */
-function fakeGit(opts: { version?: string; origin?: string; onClone?: () => void } = {}) {
+function fakeGit(opts: { version?: string; origin?: string; rewrittenOrigin?: string; onClone?: () => void } = {}) {
   const calls: string[][] = [];
   const git = (args: string[]): string => {
     calls.push(args);
     const sub = args.filter((a) => !a.startsWith("-") && a !== "-c")[0];
     if (args.includes("version")) return `git version ${opts.version ?? "2.50.1"}\n`;
-    if (args.includes("get-url")) return `${opts.origin ?? ""}\n`;
+    // raw config value (what the resolver compares) vs `remote get-url` (applies the user's url.*.insteadOf rewriting)
+    if (args.includes("config") && args.includes("remote.origin.url")) return `${opts.origin ?? ""}\n`;
+    if (args.includes("get-url")) return `${opts.rewrittenOrigin ?? opts.origin ?? ""}\n`;
     const ci = args.indexOf("clone");
     if (ci >= 0) { opts.onClone?.(); mkdirSync(join(args[args.length - 1], ".git"), { recursive: true }); }
     if (args.includes("rev-parse")) return "abc1234\n";
@@ -122,40 +124,24 @@ describe("git resolver guard (D3)", () => {
       return dir;
     };
 
-    it("E46 origin mismatch on refresh → fresh guarded clone replaces the old one; nothing fetched from origin", async () => {
+    it("E46 origin mismatch on refresh → refuses with an actionable error; cache untouched; no network git command", async () => {
       const ref = "git:https://github.com/o/r";
       const dir = seedClone(ref);
       writeFileSync(join(dir, "OLD"), "old clone");
       const { git, calls } = fakeGit({ origin: "https://evil.internal/r" });
-      await run(ref, { git, lookup: pub("140.82.112.3") }, { refresh: true });
-      expect(existsSync(join(dir, "OLD"))).toBe(false); // old clone replaced
-      expect(existsSync(join(dir, ".git"))).toBe(true); // by the fresh one
-      const net = network(calls);
-      expect(net).toHaveLength(1);
-      expect(net[0]).toContain("clone");
-      expect(net[0]).toContain("https://github.com/o/r");
-      expect(calls.some((c) => c.includes("fetch") || c.includes("pull"))).toBe(false);
+      await expect(run(ref, { git, lookup: pub("140.82.112.3") }, { refresh: true })).rejects.toThrow(/different origin.*remove .* and retry/s);
+      expect(existsSync(join(dir, "OLD"))).toBe(true); // nothing deleted, nothing replaced (no mutation → nothing for a concurrent reader to lose)
+      expect(existsSync(join(dir, ".git"))).toBe(true);
+      expect(network(calls)).toHaveLength(0); // the poisoned origin is never contacted
       expect(readdirSync(cacheDir).filter((n) => n.includes("stage-") || n.includes(".old-"))).toEqual([]);
     });
 
-    // review r6 B2: the replacement is STAGED and swapped in atomically — the old clone is never
-    // absent or half-deleted, so a concurrent resolver always sees one complete clone.
-    it("origin mismatch: the old clone stays fully in place while the replacement is cloned, and survives a failed clone", async () => {
-      const ref = "git:https://github.com/o/r";
-      const dir = seedClone(ref);
-      writeFileSync(join(dir, "OLD"), "old clone");
-      let sawOld = false;
-      const ok = fakeGit({ origin: "https://evil.internal/r", onClone: () => { sawOld = existsSync(join(dir, "OLD")) && existsSync(join(dir, ".git")); } });
-      await run(ref, { git: ok.git, lookup: pub("140.82.112.3") }, { refresh: true });
-      expect(sawOld).toBe(true);
-
-      // a failing clone leaves the previous clone intact
-      const dir2 = seedClone("git:https://github.com/o/r2");
-      writeFileSync(join(dir2, "OLD"), "old clone 2");
-      const bad = fakeGit({ origin: "https://evil.internal/r2", onClone: () => { throw new Error("clone failed"); } });
-      await expect(run("git:https://github.com/o/r2", { git: bad.git, lookup: pub("140.82.112.3") }, { refresh: true })).rejects.toThrow(/clone failed/);
-      expect(existsSync(join(dir2, "OLD"))).toBe(true);
-      expect(readdirSync(cacheDir).filter((n) => n.includes("stage-"))).toEqual([]);
+    it("origin compare uses the RAW config value: a user's url.*.insteadOf rewrite (get-url differs) is not a mismatch", async () => {
+      const ref = "git:https://github.com/o/mirror";
+      seedClone(ref);
+      const { git, calls } = fakeGit({ origin: "https://github.com/o/mirror", rewrittenOrigin: "git@internal-mirror:o/mirror" });
+      await run(ref, { git, lookup: pub("140.82.112.3") }, { refresh: true });
+      expect(network(calls)[0]).toContain("pull"); // proceeded to the guarded refresh
     });
 
     it("E48 matching origin: fetch/pull carry --no-recurse-submodules + -c flags before the subcommand", async () => {

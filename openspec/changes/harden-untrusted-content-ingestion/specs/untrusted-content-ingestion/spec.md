@@ -106,8 +106,11 @@ Before any git network command, the KB git resolver SHALL accept only `https://`
 `ssh://`, and scp-style `git@host:path` effective URLs (the URL derived from the
 source ref and passed to git), SHALL reject a source whose host is or resolves to
 a non-public address, SHALL reject a ref or pin beginning with `-`, and, before
-refreshing an existing clone, SHALL re-clone through the guarded path when the
-clone's `origin` differs from the effective URL. It SHALL pass, as global
+refreshing an existing clone, SHALL refuse — without contacting that origin and
+without modifying the cache entry — when the clone's configured `origin` URL
+differs from the effective URL, naming the entry and how to recover (the
+comparison uses the raw `remote.origin.url` config value, so a user's
+`url.*.insteadOf` rewrite is not a mismatch). It SHALL pass, as global
 options before the subcommand, a transport allowlist of https and ssh, disabled
 HTTP redirects, disabled submodule recursion, and (for https, when supported by
 the installed git) a curl resolve pin to the checked address. The user's own git
