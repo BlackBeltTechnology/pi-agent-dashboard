@@ -11,17 +11,34 @@
  *   DOC_ENGINE_PPTX=/abs/deck.pptx         a real .pptx deck (pptx→PDF case)
  * Never runs in the default `npm test`.
  *
+ * Confinement (change: harden-untrusted-content-ingestion): every path lives
+ * under the per-run `work` root (`workspaceRoot`) or an explicit `mounts` dir.
+ * The `:ro` case uses the committed `fixtures/sample.{md,docx}` (M2).
+ *
  *   DOC_ENGINE_IMAGE=pi-doc-engine:0.1.0 DOC_ENGINE_PDF=… DOC_ENGINE_TEMPLATES=… \
  *     npx vitest run integration
  */
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDocumentConverter } from "../index.js";
 
 const IMAGE = process.env.DOC_ENGINE_IMAGE;
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+
+/** name → size+mtime listing, to prove a `:ro` input dir is untouched. */
+async function listing(dir: string): Promise<string[]> {
+  const names = (await readdir(dir)).sort();
+  return Promise.all(
+    names.map(async (n) => {
+      const s = await stat(join(dir, n));
+      return `${n}:${s.size}:${s.mtimeMs}`;
+    }),
+  );
+}
 
 function dockerOk(): boolean {
   if (!IMAGE) return false;
@@ -46,7 +63,13 @@ afterAll(async () => {
 
 describe.skipIf(!ENABLED)("pi-doc-engine integration", () => {
   it("ingest: PDF -> Markdown with provenance, indexable by kb", async () => {
-    const dc = createDocumentConverter({ image: IMAGE!, stagingDir: join(work, "staging") });
+    const pdf0 = process.env.DOC_ENGINE_PDF;
+    const dc = createDocumentConverter({
+      image: IMAGE!,
+      stagingDir: join(work, "staging"),
+      workspaceRoot: work,
+      mounts: pdf0 ? [dirname(pdf0)] : [],
+    });
     // A trivial single-page PDF fixture must exist; integration fixtures are
     // provided alongside the built image. Point at it via DOC_ENGINE_PDF.
     const pdf = process.env.DOC_ENGINE_PDF;
@@ -68,6 +91,7 @@ describe.skipIf(!ENABLED)("pi-doc-engine integration", () => {
     const dc = createDocumentConverter({
       image: IMAGE!,
       stagingDir: join(work, "staging"),
+      workspaceRoot: work,
       mounts: [templatesDir!],
     });
     const md = join(work, "spec.md");
@@ -110,6 +134,7 @@ describe.skipIf(!ENABLED)("pi-doc-engine integration", () => {
     const dc = createDocumentConverter({
       image: IMAGE!,
       stagingDir: join(work, "staging"),
+      workspaceRoot: work,
       mounts: [join(pptx!, "..")],
     });
     const out = join(work, "deck.pdf");
@@ -118,5 +143,22 @@ describe.skipIf(!ENABLED)("pi-doc-engine integration", () => {
     const bytes = await readFile(out);
     expect(bytes.subarray(0, 5).toString()).toBe("%PDF-"); // valid PDF header
     expect(bytes.byteLength).toBeGreaterThan(1000);
+  }, 180_000);
+
+  it("M2: renderPdf + convertToMarkdown leave a `:ro` input dir byte-identical", async () => {
+    const dc = createDocumentConverter({
+      image: IMAGE!,
+      stagingDir: join(work, "staging"),
+      workspaceRoot: work,
+      mounts: [FIXTURES],
+    });
+    const before = await listing(FIXTURES);
+    const out = join(work, "sample.pdf");
+    const res = await dc.renderPdf(join(FIXTURES, "sample.md"), { output: out });
+    expect(res.output).toBe(out);
+    expect((await readFile(out)).subarray(0, 5).toString()).toBe("%PDF-");
+    const md = await dc.convertToMarkdown(join(FIXTURES, "sample.docx"));
+    expect(await readFile(md.output, "utf-8")).toContain("provenance:");
+    expect(await listing(FIXTURES)).toEqual(before);
   }, 180_000);
 });

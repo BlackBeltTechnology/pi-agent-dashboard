@@ -512,3 +512,31 @@ asserted by a test instead (spec: "patched parser in use").
   - D2–D4 — the kb package;
   - D5 — one dependency line + the lockfile;
   - D6 — a shared constant + 4 client files.
+
+## Audit triage
+
+`pnpm audit --prod` run after D5 (pnpm 11.15.1, lockfile with `xlsx` 0.20.3):
+**69 advisories across 26 packages** (1 critical, 27 high, 36 moderate, 5 low).
+`xlsx` is absent from the output (URL tarball: registry data does not cover it;
+its version is pinned by the E71 test instead). The audit reports the whole tree
+and almost none of it is touched by this change, so the decision per package is
+**fix / accept (reason) / not reachable**, with follow-ups named for the
+reachable ones. Nothing below was changed by this change.
+
+| Package (advisories) | Pulled in by | Decision | Reason |
+|---|---|---|---|
+| `fastify` 5.12.1 (5: auth bypass via malformed URLs to encapsulated not-found, request/header/boolean-schema validation bypass, HTTP/2 trailer DoS) | server + 9 plugin packages | **Fix — follow-up, high priority** | Reachable (the dashboard HTTP surface). Not fixed here: a workspace-wide bump is orthogonal to this change and needs its own full-suite run. The fix versions (≥ 5.12.5) look in-range for the current specifiers. |
+| `fast-uri` 3.1.6 / 4.1.3 (7) | fastify ajv-compiler, pi-coding-agent ajv | **Fix with the fastify bump** | Parses schema `$id`/`$ref` URIs, not request URLs; low reachability. |
+| `undici` 6.28.0 / 7.29.0 (13: WebSocket DoS, unbounded decompression, retry/cache issues, TLS option drop in BalancedPool) | `@fastify/reply-from`, `discord.js`, `isomorphic-dompurify`/jsdom | **Accept short-term; fix in follow-up** | The proxy talks to configured upstreams (trusted); `discord.js` is the chat-gateway client. No untrusted peer drives the affected WebSocket/cache/BalancedPool paths. Bump with the fastify change. |
+| `nodemailer` 9.0.3 (7) + `deepmerge-ts` 7.1.6 (1) | `mailparser` (`.eml` preview, `lib/eml.ts`) | **Accept (DoS only); fix in follow-up** | Only `addressparser` parsing is exercised, so the send-side advisories (file access, SMTP/TLS servername, DNS cache, domain allow-list) are **not reachable**: no mail is sent. The quadratic/stack-exhaustion advisories are reachable by previewing a hostile `.eml`; impact is a DoS bounded by the existing hard size cap in `eml.ts`. |
+| `hono` 4.12.34 (4) | `@modelcontextprotocol/sdk` via pi-coding-agent / pi-ai | **Not reachable** | No `hono` import in this repo (`toSSG`, `parseBody`, `hono/jsx` unused). |
+| `ip-address` 10.5.0 (4) | pi-ai / pi-coding-agent transitive | **Not reachable** | Not used by dashboard code; SSRF classification here uses kb `net-guard.ts` and server `webhook-url.ts`. |
+| `qs` 6.15.3 / 6.5.5 (3) | express (MCP SDK), electron-icon-builder | **Not reachable** | The dashboard does not run express; icon-builder is build-time. |
+| `brace-expansion` (9), `braces` (1) | `minimatch`/`micromatch` in openspec CLI, eslint plugin, pi-coding-agent, electron-icon-builder | **Accept** | Patterns come from trusted config/globs, not from untrusted content; stack-exhaustion needs adversarial pattern input. |
+| `linkify-it` 3.0.3 (2, quadratic scan) | `ansi-to-react` (client terminal) | **Accept; fix in follow-up** | Client-side only; worst case is the viewer's own tab stalling on a pathological output line. |
+| `dompurify` 3.4.14 (1, low: `IN_PLACE` + node-removing hook) | client, mermaid, isomorphic-dompurify | **Not reachable** | No `IN_PLACE` use anywhere in `packages/*/src`. |
+| `electron-icon-builder` chain: `extract-zip`, `file-type`, `form-data`, `phin`, `request`, `svg2png`, `tough-cookie`, `uuid`, `yargs-parser` (12) | `packages/electron` `optionalDependencies` | **Not reachable** | Build-time icon generation from a repo-committed PNG; never part of the runtime bundle and never fed untrusted input. |
+| `image-size` 0.7.5 (1, ICNS DoS) | `appdmg` (root `optionalDependencies`) | **Not reachable** | macOS DMG packaging tool, build-time only. |
+
+**Escalation:** the `fastify` row is the only high-severity, runtime-reachable
+finding. It is recorded for an immediate separate change, not silently accepted.

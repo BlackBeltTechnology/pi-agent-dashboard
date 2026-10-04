@@ -59,4 +59,27 @@ describe("PptxPreview", () => {
       expect(link?.getAttribute("href")).toContain("/api/file/raw");
     });
   });
+
+  it("F3: render request → HTTP 413 → loading, then TooLargePreview with the 100 MB pptx cap", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      status: 413,
+      json: async () => ({ success: false, error: "file too large to preview" }),
+    }) as any;
+    render(<PptxPreview target={target} />);
+    fireEvent.click(screen.getByTestId("pptx-render-slides"));
+    await waitFor(() => expect(screen.getByTestId("too-large-preview")).toBeTruthy());
+    expect(screen.getByTestId("too-large-preview").textContent).toContain("limit 100 MB");
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("F4b: engine-unavailable 200 {success:false} still → FallbackPreview, no too-large notice", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      status: 200,
+      json: async () => ({ success: false, error: "engine unavailable" }),
+    }) as any;
+    render(<PptxPreview target={target} />);
+    fireEvent.click(screen.getByTestId("pptx-render-slides"));
+    await waitFor(() => expect(document.querySelector("a[download]")).toBeTruthy());
+    expect(screen.queryByTestId("too-large-preview")).toBeNull();
+  });
 });

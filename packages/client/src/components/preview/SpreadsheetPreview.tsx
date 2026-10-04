@@ -6,13 +6,16 @@
  * of k" + decoded charset pill for csv). `{success:false}` degrades to
  * FallbackPreview (design D5). See change: render-office-previews.
  */
+
+import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import React, { useEffect, useState } from "react";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import { TooLargePreview } from "../editor-pane/TooLargePreview.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, sheetUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
-import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -40,6 +43,7 @@ export function SpreadsheetPreview({ target }: Props) {
   const [data, setData] = useState<SheetPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [tooLarge, setTooLarge] = useState(false);
   const [active, setActive] = useState(0);
 
   useEffect(() => {
@@ -47,11 +51,17 @@ export function SpreadsheetPreview({ target }: Props) {
     setData(null);
     setError(null);
     setFailed(false);
+    setTooLarge(false);
     setActive(0);
     // Discarded with a stated handler. See change: cleanup-client-plugin-promises.
     void (async () => {
       try {
         const res = await previewFetch(sheetUrl(target));
+        // Size-gate 413 → name the real office limit (D6), before the generic failure branch.
+        if (res.status === 413) {
+          if (!cancelled) setTooLarge(true);
+          return;
+        }
         const body = await res.json();
         if (cancelled) return;
         if (body.success && Array.isArray(body.data?.sheets)) {
@@ -69,6 +79,7 @@ export function SpreadsheetPreview({ target }: Props) {
     };
   }, [target.cwd, target.path, previewFetch]);
 
+  if (tooLarge) return <TooLargePreview cwd={target.cwd} path={target.path} cap={OFFICE_SIZE_CAPS.sheet} />;
   if (failed) return <FallbackPreview target={target} />;
   if (error) return <div className="text-red-400 text-sm p-2">{error}</div>;
   if (data == null)

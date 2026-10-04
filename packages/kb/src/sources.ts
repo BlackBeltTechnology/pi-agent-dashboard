@@ -6,12 +6,16 @@
 // Source classification mirrors `packages/server/src/package-source-helpers.ts`
 // (`parseSourceKind`/`computeIdentity`) — reimplemented here to keep this
 // publishable package self-contained (no kb→server dependency).
-import { createHash } from "node:crypto";
+
 import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { homedir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import { type ArchiveKind, extractArchiveSafely } from "./archive-guard.js";
 import type { SourceConfig } from "./config.js";
+import { assertPublicHost, guardedFetch, type LookupAll } from "./net-guard.js";
 import { isTrusted, recordTrust } from "./trust.js";
 
 export type KbSourceKind = "filesystem" | "npm" | "git" | "https";
@@ -29,6 +33,17 @@ export interface ResolveCtx {
   cacheDir: string; // absolute, for remote clones/fetches
   refresh?: boolean; // --refresh: re-pull refreshable remote sources
   promptTrust?: (s: SourceConfig) => Promise<boolean>;
+  /** Test seams only (change: harden-untrusted-content-ingestion). Never set in production. */
+  testHooks?: {
+    /** Replaces `guardedFetch` for the https resolver. */
+    fetch?: (url: string) => Promise<Buffer>;
+    /** Replaces the `git` binary: receives argv, returns stdout. */
+    git?: (args: string[]) => string;
+    /** Replaces `dns.lookup` for the git host check. */
+    lookup?: LookupAll;
+    /** Replaces `renameSync` in the stage→dest swap. */
+    rename?: (from: string, to: string) => void;
+  };
 }
 
 export interface SourceResolver {
@@ -74,7 +89,7 @@ export function sourceIdentity(spec: SourceConfig, cwd = "."): string {
 function shortHash(s: string): string {
   return createHash("sha256").update(s).digest("hex").slice(0, 16);
 }
-function cacheKey(spec: SourceConfig): string {
+export function cacheKey(spec: SourceConfig): string {
   return shortHash(`${spec.kind ?? classifyRef(spec.ref)}:${spec.ref}:${spec.pin ?? ""}`);
 }
 
@@ -145,56 +160,158 @@ function gitRefOf(spec: SourceConfig): string | undefined {
   return undefined;
 }
 
+// Option-like refs/pins are passed positionally to fetch/checkout — reject `-` prefixes.
+function assertSafeGitRef(label: string, v: string | undefined): void {
+  if (v !== undefined && (v.startsWith("-") || /[\x00-\x1f]/.test(v))) throw new Error(`git ${label} ${JSON.stringify(v)} is not allowed (option-like)`);
+}
+
+interface GitTarget { scheme: "https" | "ssh"; host: string; port: string }
+
+/** Allowlist https / ssh / scp-style git@host:path on the URL git actually receives. */
+function parseGitTarget(url: string): GitTarget {
+  const scp = /^git@([^:/]+):/.exec(url);
+  if (scp) return { scheme: "ssh", host: scp[1], port: "" };
+  let u: URL;
+  try { u = new URL(url); } catch { throw new Error(`git source URL is not valid: ${url}`); }
+  if (u.protocol !== "https:" && u.protocol !== "ssh:") {
+    throw new Error(`git source scheme ${u.protocol}// is not allowed (only https, ssh, git@host:path)`);
+  }
+  return { scheme: u.protocol === "https:" ? "https" : "ssh", host: u.hostname, port: u.port };
+}
+
+let warnedOldGit = false;
+
 export const gitResolver: SourceResolver = {
   kind: "git",
   async resolve(spec, ctx) {
     await ensureTrusted(spec, ctx);
-    const cloneDir = join(ctx.cacheDir, cacheKey(spec));
+    const hooks = ctx.testHooks ?? {};
+    // execFile (argv array, no shell) — never interpolate url/ref/pin into a
+    // shell string (command-injection-safe even with hostile refs).
+    const git = hooks.git ?? ((args: string[]) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+    const rawRef = spec.ref.startsWith("git:") ? spec.ref.slice(4) : spec.ref;
+    if (/^[a-z][a-z0-9+.-]*::/i.test(rawRef)) throw new Error(`git transport helper refs are not allowed: ${rawRef}`);
     const url = gitUrlOf(spec);
     const ref = gitRefOf(spec);
-    const hasGit = existsSync(join(cloneDir, ".git"));
+    assertSafeGitRef("pin", spec.pin);
+    assertSafeGitRef("ref", ref);
+    const target = parseGitTarget(url);
+    const addrs = await assertPublicHost(target.host, { lookup: hooks.lookup });
+
+    // Hardening as GLOBAL options before the subcommand (`git clone -c` would only
+    // write the new repo's config). Pin curl to the address we just checked (git >= 2.37).
+    const hardening = [
+      "-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "-c", "protocol.ssh.allow=always",
+      "-c", "http.followRedirects=false", "-c", "submodule.recurse=false", "-c", "fetch.recurseSubmodules=false",
+    ];
+    if (target.scheme === "https" && !isIPLiteral(target.host)) {
+      const m = /git version (\d+)\.(\d+)/.exec(git(["version"]));
+      if (m && (Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2]) >= 37))) {
+        const ip = addrs[0].family === 6 ? `[${addrs[0].address}]` : addrs[0].address;
+        hardening.push("-c", `http.curloptResolve=${target.host}:${target.port || "443"}:${ip}`);
+      } else if (!warnedOldGit) {
+        warnedOldGit = true;
+        console.warn("[kb] git < 2.37: http.curloptResolve unavailable — host is checked but not pinned");
+      }
+    }
+
+    const cloneDir = join(ctx.cacheDir, cacheKey(spec));
+    let hasGit = existsSync(join(cloneDir, ".git"));
     const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
-    // execFileSync (argv array, no shell) — never interpolate url/ref/pin into a
-    // shell string (command-injection-safe even with hostile refs).
-    const git = (args: string[]) => execFileSync("git", args, { stdio: "pipe" });
+    if (hasGit && shouldPull) {
+      // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
+      let origin = "";
+      try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
+      if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
+    }
     if (!hasGit) {
       mkdirSync(ctx.cacheDir, { recursive: true });
-      git(["clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
+      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
     } else if (shouldPull) {
-      if (ref) { git(["-C", cloneDir, "fetch", "--depth", "1", "origin", ref]); git(["-C", cloneDir, "checkout", ref]); }
-      else git(["-C", cloneDir, "pull", "--ff-only"]);
+      if (ref) {
+        git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
+        git(["-C", cloneDir, "checkout", ref]);
+      } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
     }
-    const rev = execFileSync("git", ["-C", cloneDir, "rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+    const rev = git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
     const dir = spec.subdir ? join(cloneDir, spec.subdir) : cloneDir;
     return { id: spec.ref, dir, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd), revision: rev };
   },
 };
 
+function isIPLiteral(host: string): boolean {
+  return isIP(host.startsWith("[") ? host.slice(1, -1) : host) !== 0;
+}
+
 // --- https ---
+
+/** Archive kind from the URL *path* (query strings must not defeat detection). */
+function archiveKindOf(pathname: string): ArchiveKind | undefined {
+  if (/\.zip$/i.test(pathname)) return "zip";
+  if (/\.(tar\.gz|tgz|tar\.bz2)$/i.test(pathname)) return "tar";
+  return undefined;
+}
+
+/** Plain-file name: `basename(pathname)`, sanitised, falling back to `index.md`. */
+function plainFileName(pathname: string): string {
+  let name = pathname.endsWith("/") ? "" : basename(pathname);
+  try { name = decodeURIComponent(name); } catch { /* keep raw */ }
+  // eslint-disable-next-line no-control-regex
+  name = name.replace(/[\x00-\x1f\x7f\\/:]/g, "_");
+  return name === "" || name === "." || name === ".." ? "index.md" : name;
+}
+
+/** stage/out → dest, keeping the previous good cache until the new one is in place. */
+function swapInto(dest: string, fresh: string, rename: (a: string, b: string) => void): void {
+  const old = `${dest}.old`;
+  const hadDest = existsSync(dest);
+  if (hadDest) rename(dest, old);
+  try {
+    rename(fresh, dest);
+  } catch (e) {
+    if (hadDest) rename(old, dest);
+    throw e;
+  }
+  if (hadDest) rmSync(old, { recursive: true, force: true });
+}
 
 export const httpsResolver: SourceResolver = {
   kind: "https",
   async resolve(spec, ctx) {
     await ensureTrusted(spec, ctx);
+    const hooks = ctx.testHooks ?? {};
     const dest = join(ctx.cacheDir, cacheKey(spec));
-    const url = spec.ref;
     const marker = join(dest, ".fetched");
-    const isArchive = /\.(tar\.gz|tgz|tar\.bz2|zip)$/.test(url);
+    let url: URL;
+    try { url = new URL(spec.ref); } catch { throw new Error(`invalid source URL: ${spec.ref}`); }
+    if (url.protocol !== "https:") throw new Error(`only https:// sources are allowed (got ${url.protocol}//): ${spec.ref}`);
+
+    // Crash recovery from a previous interrupted swap.
+    const old = `${dest}.old`;
+    if (!existsSync(dest) && existsSync(old)) renameSync(old, dest);
+    else if (existsSync(old)) rmSync(old, { recursive: true, force: true });
+
     const shouldFetch = ctx.refresh || spec.refresh === "on-index" || isStale(spec, marker);
     if (shouldFetch) {
-      if (existsSync(dest)) rmSync(dest, { recursive: true, force: true });
-      mkdirSync(dest, { recursive: true });
-      if (isArchive) {
-        const buf = Buffer.from(await (await fetch(url)).arrayBuffer());
-        const archivePath = join(dest, "archive" + (url.endsWith(".zip") ? ".zip" : ".tar.gz"));
-        writeFileSync(archivePath, buf);
-        if (url.endsWith(".zip")) execFileSync("unzip", ["-o", archivePath, "-d", dest], { stdio: "pipe" });
-        else execFileSync("tar", ["xzf", archivePath, "-C", dest], { stdio: "pipe" });
-      } else {
-        const text = await (await fetch(url)).text();
-        writeFileSync(join(dest, url.split("/").pop() || "index.md"), text);
+      mkdirSync(ctx.cacheDir, { recursive: true });
+      const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
+      try {
+        const out = join(stage, "out");
+        mkdirSync(out);
+        const body = await (hooks.fetch ?? ((u: string) => guardedFetch(u)))(spec.ref);
+        const kind = archiveKindOf(url.pathname);
+        if (kind) {
+          const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
+          writeFileSync(archive, body);
+          extractArchiveSafely(kind, archive, out);
+        } else {
+          writeFileSync(join(out, plainFileName(url.pathname)), body);
+        }
+        writeFileSync(join(out, ".fetched"), String(Date.now()));
+        swapInto(dest, out, hooks.rename ?? renameSync);
+      } finally {
+        rmSync(stage, { recursive: true, force: true });
       }
-      writeFileSync(marker, String(Date.now()));
     }
     return { id: spec.ref, dir: dest, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd) };
   },

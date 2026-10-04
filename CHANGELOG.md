@@ -12,6 +12,28 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Untrusted-content ingestion hardened** (B11/B12/B13/B26).
+  - `document-converter`: every absolute request path must lie under a configured
+    root (`stagingDir`, `mounts`, or the new optional `workspaceRoot`, default
+    `cwd`), outside a sensitive-directory denylist (`/etc`, `/root`, `~/.ssh`,
+    `~/.pi`, …); violations reject with the new `PATH_NOT_ALLOWED` code before
+    docker runs. Read-only inputs mount `:ro`. **Compatibility:** callers
+    converting files outside `cwd` must pass `mounts: [dir]` or `workspaceRoot`.
+  - KB remote sources: https fetches are https-only with a connect-time
+    non-public-address check (incl. IPv6-embedded IPv4, rebinding, per-hop
+    redirect re-validation), size/time caps and 2xx-only; git sources allow only
+    https/ssh/`git@` URLs with transport, redirect and submodule hardening.
+    **Compatibility:** `http://`/`ssh://` refs in the https resolver now fail;
+    git sources relying on redirects (renamed repos) fail with a clear error.
+  - KB archive extraction lists and validates entries first (no `..`, absolute or
+    link entries), extracts into a stage dir and swaps atomically, so a failed
+    refresh keeps the previous cache. Also fixes `.tar.bz2` extraction.
+  - Spreadsheet preview: `xlsx` moves from npm `0.18.5` (prototype pollution,
+    ReDoS) to the official SheetJS build `0.20.3`. **The server package now
+    depends on a `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` tarball —
+    air-gapped or mirror-only installs must allowlist `cdn.sheetjs.com`.**
+- Oversized office previews (docx/pptx/xlsx, HTTP 413) now show the real size
+  limit with an "Open raw" link instead of the generic "can't preview" fallback.
 - **BREAKING: the host-admission gate now defaults to `enforce`.** With no
   `PI_DASHBOARD_HOST_GATE` and no `hostGate.mode`, a request whose `Host` is not
   loopback, an IP literal, `*.local`, a `publicBaseUrls` / `cors.allowedOrigins` /

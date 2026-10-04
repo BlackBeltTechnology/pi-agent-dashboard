@@ -6,13 +6,18 @@
  * via document-converter and caches it), shows progress, then mounts the
  * existing `PdfPreview` (lazy pdfjs) against `/api/file/rendered-pdf`. Any
  * `{success:false}` (incl. engine-absent — there is no in-process fallback for
- * pptx) degrades to `FallbackPreview` (download). See change: render-pptx-preview.
+ * pptx) degrades to `FallbackPreview` (download); an HTTP 413 size-gate renders
+ * `TooLargePreview` naming the pptx cap. See change: render-pptx-preview,
+ * harden-untrusted-content-ingestion.
  */
+
+import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import React, { lazy, Suspense, useState } from "react";
+import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { TooLargePreview } from "../editor-pane/TooLargePreview.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { renderedPdfUrl, renderUrl } from "./raw-url.js";
-import { usePreviewFetch } from "../../lib/access-grants/preview-provenance.js";
 
 const PdfPreview = lazy(() => import("./PdfPreview.js"));
 
@@ -20,7 +25,7 @@ interface Props {
   target: { kind: "file"; cwd: string; path: string };
 }
 
-type State = "idle" | "loading" | "pdf" | "failed";
+type State = "idle" | "loading" | "pdf" | "failed" | "tooLarge";
 
 export function PptxPreview({ target }: Props) {
   // Opted out of the access-grant dialog unless a provider declares operator
@@ -34,6 +39,11 @@ export function PptxPreview({ target }: Props) {
     setError(null);
     try {
       const res = await previewFetch(renderUrl(target));
+      // Size-gate 413 → name the real office limit (D6), before the generic failure branch.
+      if (res.status === 413) {
+        setState("tooLarge");
+        return;
+      }
       const body = await res.json();
       if (body.success && body.data?.mode === "pdf") {
         setState("pdf");
@@ -47,6 +57,7 @@ export function PptxPreview({ target }: Props) {
     }
   }
 
+  if (state === "tooLarge") return <TooLargePreview cwd={target.cwd} path={target.path} cap={OFFICE_SIZE_CAPS.pptx} />;
   if (state === "failed") return <FallbackPreview target={target} />;
 
   if (state === "pdf") {

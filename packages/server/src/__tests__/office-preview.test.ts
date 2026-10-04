@@ -3,6 +3,7 @@
  * See change: render-office-previews.
  */
 
+import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import iconv from "iconv-lite";
 import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
@@ -194,5 +195,21 @@ describe("parseSheet — csv encoding (design D6, test-plan #16)", () => {
     // A Central-European (Latin-2 family) charset is reported, not UTF-8.
     expect(res.encoding).toBeDefined();
     expect(/8859-2|1250/.test(res.encoding ?? "")).toBe(true);
+  });
+});
+
+describe("untrusted-content-ingestion: spreadsheet parser + caps (change: harden-untrusted-content-ingestion)", () => {
+  it("E71 patched parser in use: resolved xlsx >= 0.20.2 (CVE-2023-30533, CVE-2024-22363)", () => {
+    // `xlsx` 0.20.x does not export ./package.json; the loaded module reports its own version.
+    const version = XLSX.version;
+    const [maj, min, pat] = version.split(".").map(Number);
+    const ok = maj > 0 || min > 20 || (min === 20 && pat >= 2);
+    expect(ok, `xlsx ${version}`).toBe(true);
+  });
+
+  it("E72 server OFFICE_CAPS size fields read from the shared OFFICE_SIZE_CAPS", () => {
+    expect(OFFICE_CAPS.docxSizeCap).toBe(OFFICE_SIZE_CAPS.docx);
+    expect(OFFICE_CAPS.pptxSizeCap).toBe(OFFICE_SIZE_CAPS.pptx);
+    expect(OFFICE_CAPS.sheetSizeCap).toBe(OFFICE_SIZE_CAPS.sheet);
   });
 });

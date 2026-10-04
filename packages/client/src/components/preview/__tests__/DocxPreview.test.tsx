@@ -86,6 +86,24 @@ describe("asciidoc-body typography scope", () => {
     return el as HTMLElement;
   };
 
+  it("F2: HTTP 413 → TooLargePreview with the 40 MB docx cap; no FallbackPreview", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      status: 413,
+      json: async () => ({ success: false, error: "file too large to preview" }),
+    }) as any;
+    render(<DocxPreview target={target} />);
+    await waitFor(() => expect(screen.getByTestId("too-large-preview")).toBeTruthy());
+    expect(screen.getByTestId("too-large-preview").textContent).toContain("limit 40 MB");
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  it("F4c: 200 {success:false} still → FallbackPreview, no too-large notice", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ success: false, error: "corrupt" }) }) as any;
+    render(<DocxPreview target={target} />);
+    await waitFor(() => expect(document.querySelector("a[download]")).toBeTruthy());
+    expect(screen.queryByTestId("too-large-preview")).toBeNull();
+  });
+
   it("F8: DocxPreview html-mode wraps output in .asciidoc-body without prose classes", async () => {
     mockFetch({ success: true, data: { mode: "html", html: "<p>docx scope probe</p>", truncated: false, imageCount: 0 } });
     render(<DocxPreview target={target} />);
