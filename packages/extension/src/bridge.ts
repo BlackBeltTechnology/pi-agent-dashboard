@@ -85,6 +85,7 @@ import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
 import { provisionOpenspecCli } from "./openspec-cli-shim.js";
 import { createPathGate } from "./path-gate/index.js";
+import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
@@ -158,6 +159,8 @@ interface BridgeState {
   hasUI?: boolean;
   /** Monotonic generation counter — stale listeners bail out when mismatched */
   generation?: number;
+  /** Path-gate denial map; process-global so a /reload keeps the 120 s suppression. */
+  pathGateSuppression?: Suppression;
   /** The pi instance that owns the bridge (used to detect subagent re-entry) */
   pi?: ExtensionAPI;
   /** All connection instances from any bridge incarnation (for cleanup) */
@@ -1189,6 +1192,7 @@ function initBridge(pi: ExtensionAPI) {
   // roots. Created before the connection so the close handler can reset it.
   // See change: ask-agent-file-access-in-chat.
   const pathGate = createPathGate({
+    suppression: (getBridgeState().pathGateSuppression ??= new Suppression()),
     getSessionId: () => sessionId,
     getPromptBus: () => promptBus,
     send: (m) => connection.sendIfOpen(m),

@@ -34,6 +34,8 @@ export interface PathGateOptions {
   getSessionDir: () => string | undefined;
   log: (line: string) => void;
   notify?: (message: string) => void;
+  /** Denial map owned by the caller so it outlives a /reload (new bridge instance, same session). */
+  suppression?: Suppression;
 }
 
 export function createPathGate(opts: PathGateOptions) {
@@ -94,9 +96,9 @@ export function createPathGate(opts: PathGateOptions) {
     cancel: (id) => opts.getPromptBus()?.cancel(id),
   };
 
-  // One suppression map per bridge; entries are keyed by session id (handler.ts), so a
-  // denial never leaks to another session and survives a same-session reload.
-  const suppression = new Suppression();
+  // Entries are keyed by session id (handler.ts), so a denial never leaks to another
+  // session; the caller passes a process-global map so it also survives a /reload.
+  const suppression = opts.suppression ?? new Suppression();
   const handler = createPathGateHandler({
     getConfig,
     getRoots: (g, needsCheckout, cwd) => roots.roots(g, needsCheckout, cwd),

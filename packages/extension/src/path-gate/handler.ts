@@ -89,9 +89,9 @@ export function createPathGateHandler(deps: PathGateDeps) {
   // Every dynamic field of an audit line is agent- or error-controlled: strip control
   // characters from the WHOLE line at the single emission point so no site can forge a record.
   const emit = (line: string): void => deps.log(line.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?"));
-  const log = (outcome: GateOutcome, tool: string, access: PathAccess, canonical: string, sensitive: boolean): void => {
+  const log = (outcome: GateOutcome, tool: string, access: PathAccess, canonical: string, sensitive: boolean, sid: string): void => {
     emit(
-      `[path-gate] ${outcome} tool=${tool} access=${access === "read" ? "r" : "w"} path=${canonical} session=${deps.sessionId()} sensitive=${sensitive}`,
+      `[path-gate] ${outcome} tool=${tool} access=${access === "read" ? "r" : "w"} path=${canonical} session=${sid} sensitive=${sensitive}`,
     );
   };
 
@@ -109,7 +109,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
     const supKey = `${sid}\u0000${d.suppressionKey}`;
     // Re-check inside the mutex: an earlier sibling may have been denied meanwhile.
     if (suppression.isSuppressed(supKey)) {
-      log("recently-denied", tool, access, d.canonical, d.sensitive);
+      log("recently-denied", tool, access, d.canonical, d.sensitive, sid);
       return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
     }
     const timeoutMs = Math.max(1, deps.getConfig().timeoutSeconds) * 1000;
@@ -126,12 +126,12 @@ export function createPathGateHandler(deps: PathGateDeps) {
     }, timeoutMs);
     const settleDeny = (): GateResult => {
       suppression.deny(supKey);
-      log("denied", tool, access, d.canonical, d.sensitive);
+      log("denied", tool, access, d.canonical, d.sensitive, sid);
       return block("denied", `operator declined ${access} access to ${d.canonical}`);
     };
     const settleTimeout = (): GateResult => {
       suppression.deny(supKey);
-      log("timeout", tool, access, d.canonical, d.sensitive);
+      log("timeout", tool, access, d.canonical, d.sensitive, sid);
       return block("timeout", `no answer within ${Math.round(timeoutMs / 1000)}s`);
     };
     try {
@@ -170,7 +170,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       const id1 = newId();
       openId = id1;
       deps.counters && deps.counters.asked++;
-      log("asked", tool, access, d.canonical, d.sensitive);
+      log("asked", tool, access, d.canonical, d.sensitive, sid);
       const answer = await Promise.race([
         deps.prompter.select({
           id: id1,
@@ -196,7 +196,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       if (answer === "expired" || expired) return settleTimeout();
       if (answer === undefined || answer === OPT_DENY) return settleDeny();
       if (answer === OPT_ALLOW_ONCE) {
-        log("allowed-once", tool, access, d.canonical, d.sensitive);
+        log("allowed-once", tool, access, d.canonical, d.sensitive, sid);
         return undefined;
       }
       if (answer !== offer.alwaysLabel) return settleDeny(); // unknown answer fails closed
@@ -225,7 +225,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       } catch (err) {
         result = { ok: false, error: err instanceof Error ? err.message : "error" };
       }
-      log("allowed-always", tool, access, d.canonical, d.sensitive);
+      log("allowed-always", tool, access, d.canonical, d.sensitive, sid);
       if (!result.ok) {
         emit(`[path-gate] grant-not-saved error=${result.error ?? "unknown"} path=${d.canonical}`);
         deps.notify?.(`Path access allowed once — not saved: ${result.error ?? "unknown error"}`);
@@ -269,12 +269,12 @@ export function createPathGateHandler(deps: PathGateDeps) {
       const d = decision;
       const sid = deps.sessionId();
       if (!ctx.hasUI) {
-        log("no-ui", tool, access, d.canonical, d.sensitive);
+        log("no-ui", tool, access, d.canonical, d.sensitive, sid);
         if (deps.counters) deps.counters.blocked++;
         return block("no-ui", "no interactive UI is attached to approve out-of-workspace access");
       }
       if (suppression.isSuppressed(`${sid}\u0000${d.suppressionKey}`)) {
-        log("recently-denied", tool, access, d.canonical, d.sensitive);
+        log("recently-denied", tool, access, d.canonical, d.sensitive, sid);
         if (deps.counters) deps.counters.blocked++;
         return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
       }

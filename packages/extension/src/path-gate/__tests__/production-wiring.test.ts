@@ -9,8 +9,9 @@ import { describe, expect, it } from "vitest";
 import { createTuiPromptAdapter } from "../../tui-prompt-adapter.js";
 import { PromptBus } from "../../prompt-bus.js";
 import { createPathGate } from "../index.js";
+import { Suppression } from "../suppression.js";
 
-function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any; sid?: { v: string } } = {}) {
+function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any; sid?: { v: string }; suppression?: Suppression; logs?: string[] } = {}) {
   const sid = opts.sid ?? { v: "S1" };
   const cwd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-wire-")));
   const bus = new PromptBus({ timeoutMs: -1 });
@@ -30,7 +31,8 @@ function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolea
     configFile: opts.configFile,
     getCwd: () => cwd,
     getSessionDir: () => undefined,
-    log: () => {},
+    log: (l) => { opts.logs?.push(l); },
+    suppression: opts.suppression,
   });
   return { gate, cwd, asked, ctx: { hasUI: true, cwd } };
 }
@@ -77,11 +79,16 @@ describe("denial suppression is scoped to the session that was asked (review r8/
     expect(asked).toHaveLength(2);
   });
 
-  it("a same-session reload (session_start, same id) keeps the denial until it expires", async () => {
-    const { asked, call, t } = mk();
-    await call();
-    t.gate.onSessionStart(); // reload of the SAME session
-    expect((await call())?.reason).toContain("recently-denied");
+  it("a real /reload (NEW gate instance, same session, shared process-global map) keeps the denial", async () => {
+    const shared = new Suppression();
+    const asked: string[] = [];
+    const ui = { select: async (q: string) => { asked.push(q); return "Deny"; } };
+    const first = setup({ ui, suppression: shared });
+    const req = { toolName: "read", toolCallId: "tc", input: { path: "/etc/hosts" } };
+    expect((await first.gate.handler(req, first.ctx))?.reason).toContain("denied");
+    // pi /reload re-runs initBridge: a brand-new createPathGate, same session id
+    const second = setup({ ui, suppression: shared });
+    expect((await second.gate.handler(req, second.ctx))?.reason).toContain("recently-denied");
     expect(asked).toHaveLength(1);
   });
 
@@ -89,8 +96,10 @@ describe("denial suppression is scoped to the session that was asked (review r8/
     const sid = { v: "S" };
     const resolvers: Array<(v: string) => void> = [];
     const asked: string[] = [];
+    const logs: string[] = [];
     const t = setup({
       sid,
+      logs,
       ui: {
         select: (q: string) => new Promise<string>((res) => { asked.push(q); resolvers.push(res); }),
       },
@@ -105,6 +114,14 @@ describe("denial suppression is scoped to the session that was asked (review r8/
     expect(asked).toHaveLength(2); // both prompts open concurrently, one per session
     resolvers[0]("Deny"); // S settles late → denial recorded under S
     expect((await sCall)?.reason).toContain("denied");
+    // audit line names the session that was ASKED, not the live one
+    expect(logs.some((l) => l.startsWith("[path-gate] denied") && l.includes("session=S "))).toBe(true);
+    expect(logs.some((l) => l.startsWith("[path-gate] denied") && l.includes("session=T "))).toBe(false);
+    // and the denial is recorded under S
+    sid.v = "S";
+    const sAgain = await call();
+    expect(sAgain?.reason).toContain("recently-denied");
+    sid.v = "T";
     resolvers[1]("Allow once"); // T's own prompt answered normally
     expect(await tCall).toBeUndefined();
     // and T is not suppressed by S's late denial
