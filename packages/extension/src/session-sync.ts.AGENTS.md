@@ -7,3 +7,5 @@ Session register/replay/switch lifecycle. Exports `sendStateSync`, `replaySessio
 Re-mint comment updated: the `mcp_token_minted` reply now re-registers `pi-dashboard` with pi's built-in MCP (not `process.env`). See change: migrate-mcp-to-pi-builtin.
 
 `handleSessionChange(bc, ctx, getFlowsList, usageSeed?)` sends `usageSeed` on the new session's register; `sendStateSync` (reconnect) never does. See change: count-non-message-usage.
+
+`handleSessionChange` git info now goes through `bc.gitTracker.evaluateFirst(bc, cwd)` (cached facts + HEAD branch, status omitted, fast-lane probe queued) and resets `lastGitStatusJson` too. See change: optimize-polling-hot-paths.

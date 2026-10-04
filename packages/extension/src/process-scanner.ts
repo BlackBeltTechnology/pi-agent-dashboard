@@ -2,19 +2,16 @@
  * Process scanner for detecting child processes of a pi session.
  * Supports Unix (macOS + Linux) via ps/PGID and Windows via PowerShell Get-CimInstance.
  *
- * Two-phase approach (Unix):
- * 1. CAPTURE: During active bash tool calls, `ps -eo pid=,ppid=` finds children
- *    of the pi process (pgrep is not used — it misses detached children on macOS).
- *    Grandchildren are found by recursing one level. PGIDs are stored in a tracked set.
- * 2. CHECK: On every scan, verify which tracked PGIDs are still alive via ps.
- *    Dead ones are removed from the set.
- *
- * This handles the reparenting problem: children get reparented to PID 1
- * when the bash wrapper exits, but we captured their PGIDs while alive.
+ * ONE snapshot per scan (Unix `ps -A`, Windows one Get-CimInstance); the child
+ * tree, tracked-PGID liveness and exclusion reaping are all derived in memory
+ * (`scanFromSnapshot` / `scanWindowsFromSnapshot`). Tracked PGIDs survive the
+ * reparenting of children to PID 1 when their bash wrapper exits.
+ * See change: optimize-polling-hot-paths.
  */
-import { spawnSync as defaultSpawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { spawnSync as defaultSpawnSync, execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { SpawnSyncReturns } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { incPollCost } from "./poll-cost.js";
 import { killPidWithGroup } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 /**
@@ -119,210 +116,215 @@ import { parseEtime } from "@blackbelt-technology/pi-dashboard-shared/platform/p
 const DEFAULT_MIN_ELAPSED_MS = 30_000;
 
 export type SpawnSyncFn = (cmd: string, args: string[], opts: any) => SpawnSyncReturns<string>;
+/** Async exec seam (tests inject; prod uses shared `execFileAsync`). */
+type ExecFileAsyncFn = (
+  file: string,
+  args: readonly string[],
+  opts: any,
+) => Promise<{ stdout: string | Buffer; stderr?: string | Buffer }>;
 
-/** Get direct child PIDs of a parent using ps (pgrep misses detached children on macOS). */
-function getChildPids(parentPid: number, spawnSync: SpawnSyncFn): number[] {
-  try {
-    const result = spawnSync("ps", ["-eo", "pid=,ppid="], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    if (result.status !== 0 || !result.stdout) return [];
-    const pids: number[] = [];
-    for (const line of result.stdout.split("\n")) {
-      const parts = line.trim().split(/\s+/);
-      if (parts.length === 2) {
-        const pid = parseInt(parts[0], 10);
-        const ppid = parseInt(parts[1], 10);
-        if (ppid === parentPid && !isNaN(pid)) pids.push(pid);
-      }
-    }
-    return pids;
-  } catch {
-    return [];
-  }
-}
-
-/** Parse one line of ps output: "  PID  PGID ETIME ARGS..." */
-function parsePsLine(line: string): ChildProcessInfo | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-
-  const match = trimmed.match(/^(\d+)\s+(\d+)\s+(\S+)\s+(.+)$/);
-  if (!match) return null;
-
-  return {
-    pid: parseInt(match[1], 10),
-    pgid: parseInt(match[2], 10),
-    elapsedMs: parseEtime(match[3]),
-    command: match[4],
-  };
+/** One row of a whole-machine process snapshot. On Windows `pgid === pid`. */
+export interface ProcRow {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  elapsedMs: number;
+  args: string;
 }
 
 export interface ScanOptions {
   _spawnSync?: SpawnSyncFn;
+  _execFile?: ExecFileAsyncFn;
+  _platform?: string;
+  /** Test seam for the Windows `CreationDate` → elapsed computation. */
+  _now?: () => number;
   /**
-   * PGIDs that the caller has already identified as its own self-spawned
-   * infrastructure (e.g. dashboard server, RPC keeper) and does NOT want
-   * surfaced in the scanner's output.
-   *
-   * Two enforcement points (defense-in-depth against spawn→register race):
-   *  1. Capture-time refusal in `captureChildPgids` — excluded PGIDs are
-   *     never added to `trackedPgids`.
-   *  2. Filter-time skip in `scanTrackedProcesses` — any alive process
-   *     whose PGID is in this set is dropped from the output even if it
-   *     somehow made it into `trackedPgids`.
-   *
-   * Also acts as a self-pruning registry: dead PGIDs in this set are
-   * dropped on each scan tick (same `alivePgids` sweep that prunes
-   * `trackedPgids`).
-   *
-   * See change: tighten-process-list-ux.
+   * PGIDs (PIDs on Windows) the caller has identified as its own self-spawned
+   * infrastructure (dashboard server, RPC keeper); never surfaced in the
+   * output nor tracked. Dead entries are reaped on each scan so the set does
+   * not leak across long-lived bridges.
+   * See changes: tighten-process-list-ux, optimize-polling-hot-paths.
    */
   excludedPgids?: Set<number>;
 }
 
+const UNIX_PS_ARGS = ["-A", "-o", "pid=,ppid=,pgid=,etime=,args="];
+const WIN_PS_COMMAND =
+  "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress";
+
 /**
- * Captures new child PIDs of the pi process and adds their PGIDs to the tracked set.
- * Call this during active bash tool calls when children are still in the process tree.
+ * Parse `ps -A -o pid=,ppid=,pgid=,etime=,args=`: four leading numeric/etime
+ * fields, the remainder is the command line (may contain spaces, may be empty
+ * for a zombie — the row still carries its tree edge).
  */
-export function captureChildPgids(
+export function parseProcessSnapshot(stdout: string): ProcRow[] {
+  const rows: ProcRow[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)(?:\s+(.*?))?\s*$/);
+    if (!m) continue;
+    rows.push({
+      pid: parseInt(m[1], 10),
+      ppid: parseInt(m[2], 10),
+      pgid: parseInt(m[3], 10),
+      elapsedMs: parseEtime(m[4]),
+      args: m[5] ?? "",
+    });
+  }
+  return rows;
+}
+
+function groupByParent(rows: ProcRow[]): Map<number, ProcRow[]> {
+  const byParent = new Map<number, ProcRow[]>();
+  for (const r of rows) {
+    const list = byParent.get(r.ppid);
+    if (list) list.push(r);
+    else byParent.set(r.ppid, [r]);
+  }
+  return byParent;
+}
+
+/** Leaf-only targets under `parentPid`: a child with children is replaced by them. */
+function leafTargets(byParent: Map<number, ProcRow[]>, parentPid: number, skip?: (r: ProcRow) => boolean): ProcRow[] {
+  const out: ProcRow[] = [];
+  for (const child of byParent.get(parentPid) ?? []) {
+    if (skip?.(child)) continue;
+    const grandchildren = (byParent.get(child.pid) ?? []).filter((g) => !skip?.(g));
+    if (grandchildren.length > 0) out.push(...grandchildren);
+    else out.push(child);
+  }
+  return out;
+}
+
+/**
+ * Pure Unix scan over ONE snapshot: capture the PGIDs of the pi process's
+ * leaf descendants into `trackedPgids` (children reparent to PID 1 when their
+ * bash wrapper exits, hence the tracked set), then list every live process of
+ * a tracked PGID. Dead tracked PGIDs and dead excluded PGIDs are reaped.
+ */
+export function scanFromSnapshot(
+  rows: ProcRow[],
   parentPid: number,
   trackedPgids: Set<number>,
-  options?: ScanOptions,
-): void {
-  const platform = (options as any)?._platform ?? process.platform;
-  if (platform === "win32") return;
-
-  const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
-
-  const directChildren = getChildPids(parentPid, spawnSync);
-  if (directChildren.length === 0) return;
-
-  // Collect all PIDs (children + grandchildren)
-  const allPids: number[] = [];
-  for (const childPid of directChildren) {
-    const grandchildren = getChildPids(childPid, spawnSync);
-    if (grandchildren.length > 0) {
-      allPids.push(...grandchildren);
-    } else {
-      allPids.push(childPid);
-    }
-  }
-
-  if (allPids.length === 0) return;
-
-  // Get PGIDs for all discovered PIDs
-  try {
-    const result = spawnSync("ps", ["-p", allPids.join(","), "-o", "pgid="], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    if (result.status !== 0 || !result.stdout) return;
-
-    const excluded = options?.excludedPgids;
-    for (const line of result.stdout.split("\n")) {
-      const pgid = parseInt(line.trim(), 10);
-      if (!isNaN(pgid) && pgid > 0) {
-        if (excluded?.has(pgid)) continue; // see change: tighten-process-list-ux
-        trackedPgids.add(pgid);
-      }
-    }
-  } catch {
-    // ignore
-  }
-}
-
-/**
- * Scans tracked PGIDs to find which are still alive.
- * Returns live processes, removes dead PGIDs from the set.
- */
-export function scanTrackedProcesses(
-  trackedPgids: Set<number>,
   minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
-  options?: ScanOptions,
+  excludedPgids?: Set<number>,
 ): ChildProcessInfo[] {
-  const platform = (options as any)?._platform ?? process.platform;
-  if (platform === "win32") return [];
-  // Allow the function to run when only `excludedPgids` is non-empty
-  // so dead self-spawned PGIDs get reaped even with no tracked entries.
-  // See change: tighten-process-list-ux.
-  if (trackedPgids.size === 0 && !(options?.excludedPgids && options.excludedPgids.size > 0)) {
-    return [];
+  // Capture
+  for (const t of leafTargets(groupByParent(rows), parentPid)) {
+    if (t.pgid > 0 && !excludedPgids?.has(t.pgid)) trackedPgids.add(t.pgid);
   }
 
-  const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
+  const alivePgidsAll = new Set<number>();
+  const aliveTracked = new Set<number>();
+  const processes: ChildProcessInfo[] = [];
+  for (const r of rows) {
+    alivePgidsAll.add(r.pgid);
+    if (!trackedPgids.has(r.pgid)) continue;
+    aliveTracked.add(r.pgid);
+    // Skip bash/sh wrappers (show the actual commands, not the shell)
+    const binary = r.args.split(/\s/)[0]?.split("/").pop() ?? "";
+    if (binary === "bash" || binary === "sh") continue;
+    if (excludedPgids?.has(r.pgid)) continue;
+    if (r.elapsedMs >= minElapsedMs) {
+      processes.push({ pid: r.pid, pgid: r.pgid, command: r.args, elapsedMs: r.elapsedMs });
+    }
+  }
+  for (const pgid of [...trackedPgids]) if (!aliveTracked.has(pgid)) trackedPgids.delete(pgid);
+  if (excludedPgids) {
+    for (const pgid of [...excludedPgids]) if (!alivePgidsAll.has(pgid)) excludedPgids.delete(pgid);
+  }
+  return processes;
+}
 
-  // Find all processes belonging to tracked PGIDs
-  // Use ps to find processes by PGID — we check all at once
-  const pgidList = Array.from(trackedPgids);
+function creationMs(value: unknown): number | undefined {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const legacy = value.match(/\/Date\((-?\d+)/);
+    if (legacy) return parseInt(legacy[1], 10);
+    const t = new Date(value).getTime();
+    return Number.isNaN(t) ? undefined : t;
+  }
+  if (value && typeof value === "object") return creationMs((value as any).value ?? (value as any).DateTime);
+  return undefined;
+}
 
-  try {
-    // Get all processes, then filter by PGID
-    const result = spawnSync("ps", ["-eo", "pid=,pgid=,etime=,args="], {
-      encoding: "utf-8",
-      timeout: 5000,
-      stdio: ["pipe", "pipe", "pipe"],
+/** Parse the Windows CIM JSON (array, or a single object) into snapshot rows. */
+function parseWindowsSnapshot(stdout: string, now: number = Date.now()): ProcRow[] {
+  const data = JSON.parse(stdout);
+  const items = Array.isArray(data) ? data : [data];
+  const rows: ProcRow[] = [];
+  for (const item of items) {
+    if (!item?.ProcessId) continue;
+    const created = creationMs(item.CreationDate);
+    rows.push({
+      pid: item.ProcessId,
+      ppid: item.ParentProcessId ?? 0,
+      pgid: item.ProcessId,
+      elapsedMs: created === undefined ? 0 : Math.max(0, now - created),
+      args: item.CommandLine || "",
     });
-    if (result.status !== 0 || !result.stdout) return [];
-
-    const pgidSet = new Set(pgidList);
-    const excluded = options?.excludedPgids;
-    const alivePgidsAll = new Set<number>(); // every alive PGID seen this scan
-    const alivePgids = new Set<number>();    // tracked PGIDs still alive
-    const processes: ChildProcessInfo[] = [];
-
-    for (const line of result.stdout.split("\n")) {
-      const info = parsePsLine(line);
-      if (!info) continue;
-      alivePgidsAll.add(info.pgid);
-      if (!pgidSet.has(info.pgid)) continue;
-
-      alivePgids.add(info.pgid);
-
-      // Skip bash/sh wrappers (show the actual commands, not the shell)
-      const binary = info.command.split(/\s/)[0]?.split("/").pop() ?? "";
-      if (binary === "bash" || binary === "sh") continue;
-
-      // Defense-in-depth: skip processes whose PGID is excluded, in case a
-      // self-spawned PID raced into `trackedPgids` before registration.
-      // See change: tighten-process-list-ux.
-      if (excluded?.has(info.pgid)) continue;
-
-      if (info.elapsedMs >= minElapsedMs) {
-        processes.push(info);
-      }
-    }
-
-    // Remove dead PGIDs from tracked set
-    for (const pgid of pgidList) {
-      if (!alivePgids.has(pgid)) {
-        trackedPgids.delete(pgid);
-      }
-    }
-
-    // Reap dead PGIDs from the caller's exclusion set so it doesn't leak
-    // across long-lived bridges (e.g. server restart re-spawns with fresh
-    // PIDs). See change: tighten-process-list-ux.
-    if (excluded) {
-      for (const pgid of excluded) {
-        if (!alivePgidsAll.has(pgid)) {
-          excluded.delete(pgid);
-        }
-      }
-    }
-
-    return processes;
-  } catch {
-    return [];
   }
+  return rows;
 }
 
 /**
- * Combined scan: capture new children + check tracked PGIDs.
- * Convenience wrapper for the bridge timer.
+ * Pure Windows scan over one snapshot. No PGID/tracked set (PID based): leaf
+ * descendants of `parentPid` minus `excludedPgids` (matched by PID, subtree
+ * skipped); dead excluded PIDs are reaped. No shell-wrapper name filter.
+ */
+function scanWindowsFromSnapshot(
+  rows: ProcRow[],
+  parentPid: number,
+  minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
+  excludedPgids?: Set<number>,
+): ChildProcessInfo[] {
+  const targets = leafTargets(groupByParent(rows), parentPid, (r) => excludedPgids?.has(r.pid) === true);
+  if (excludedPgids) {
+    const alive = new Set(rows.map((r) => r.pid));
+    for (const pid of [...excludedPgids]) if (!alive.has(pid)) excludedPgids.delete(pid);
+  }
+  return targets
+    .filter((r) => r.elapsedMs >= minElapsedMs)
+    .map((r) => ({ pid: r.pid, pgid: r.pgid, command: r.args, elapsedMs: r.elapsedMs }));
+}
+
+interface SnapshotPlan {
+  cmd: string;
+  args: string[];
+  timeout: number;
+  parse: (stdout: string) => ProcRow[];
+  scan: (rows: ProcRow[]) => ChildProcessInfo[];
+}
+
+function planFor(
+  parentPid: number,
+  trackedPgids: Set<number>,
+  minElapsedMs: number,
+  options?: ScanOptions,
+): SnapshotPlan {
+  const platform = options?._platform ?? process.platform;
+  const excluded = options?.excludedPgids;
+  if (platform === "win32") {
+    const now = options?._now ?? Date.now;
+    return {
+      cmd: resolveSystemTool("powershell"),
+      args: ["-NoProfile", "-NonInteractive", "-Command", WIN_PS_COMMAND],
+      timeout: 10_000,
+      parse: (out) => parseWindowsSnapshot(out, now()),
+      scan: (rows) => scanWindowsFromSnapshot(rows, parentPid, minElapsedMs, excluded),
+    };
+  }
+  return {
+    cmd: "ps",
+    args: UNIX_PS_ARGS,
+    timeout: 5_000,
+    parse: parseProcessSnapshot,
+    scan: (rows) => scanFromSnapshot(rows, parentPid, trackedPgids, minElapsedMs, excluded),
+  };
+}
+
+/**
+ * One scan = ONE `ps -A` (Unix) / ONE Get-CimInstance (Windows) spawn. Any
+ * failure returns `[]` and leaves `trackedPgids` untouched.
  */
 export function scanChildProcesses(
   parentPid: number,
@@ -330,16 +332,54 @@ export function scanChildProcesses(
   minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
   options?: ScanOptions,
 ): ChildProcessInfo[] {
-  const platform = (options as any)?._platform ?? process.platform;
-  if (platform === "win32") {
-    return scanWindowsProcesses(parentPid, minElapsedMs, options);
+  const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
+  const plan = planFor(parentPid, trackedPgids, minElapsedMs, options);
+  const t0 = Date.now();
+  incPollCost("pollProcScanRuns");
+  incPollCost("pollProcScanSpawns");
+  try {
+    const result = spawnSync(plan.cmd, plan.args, {
+      encoding: "utf-8",
+      timeout: plan.timeout,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    if (result.status !== 0 || !result.stdout) return [];
+    return plan.scan(plan.parse(result.stdout));
+  } catch {
+    return [];
+  } finally {
+    incPollCost("pollProcScanMs", Date.now() - t0);
   }
+}
 
-  // Phase 1: Capture any new children (during active bash calls)
-  captureChildPgids(parentPid, trackedPgids, options);
-
-  // Phase 2: Check which tracked PGIDs are still alive
-  return scanTrackedProcesses(trackedPgids, minElapsedMs, options);
+/** Async twin of `scanChildProcesses` (same parser/decision code). Never rejects. */
+export async function scanChildProcessesAsync(
+  parentPid: number,
+  trackedPgids: Set<number>,
+  minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
+  options?: ScanOptions,
+): Promise<ChildProcessInfo[]> {
+  const execFile: ExecFileAsyncFn = options?._execFile ?? execFileAsync;
+  const plan = planFor(parentPid, trackedPgids, minElapsedMs, options);
+  const t0 = Date.now();
+  incPollCost("pollProcScanRuns");
+  incPollCost("pollProcScanSpawns");
+  try {
+    const { stdout } = await execFile(plan.cmd, plan.args, {
+      encoding: "utf8",
+      timeout: plan.timeout,
+      windowsHide: true,
+      maxBuffer: 32 * 1024 * 1024,
+    });
+    const text = typeof stdout === "string" ? stdout : stdout.toString("utf8");
+    if (!text) return [];
+    return plan.scan(plan.parse(text));
+  } catch {
+    return [];
+  } finally {
+    incPollCost("pollProcScanMs", Date.now() - t0);
+  }
 }
 
 /**
@@ -362,67 +402,6 @@ export function killProcessByPgid(pgid: number, options?: ScanOptions): boolean 
 }
 
 // ---- Windows support ----
-
-/**
- * Find all descendant PIDs of a parent on Windows via PowerShell
- * Get-CimInstance. Primary (and only) path — wmic was removed by default
- * on Win 11 22H2+. `resolveSystemTool` returns the full powershell.exe path
- * so windowsHide is honored end-to-end (no console flash).
- */
-function getWindowsDescendantsCim(parentPid: number, spawnSync: SpawnSyncFn): ChildProcessInfo[] {
-  try {
-    const result = spawnSync(
-      resolveSystemTool("powershell"),
-      ["-NoProfile", "-NonInteractive", "-Command", `Get-CimInstance Win32_Process -Filter "ParentProcessId=${parentPid}" | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json`],
-      {
-        encoding: "utf-8",
-        timeout: 10000,
-        stdio: ["pipe", "pipe", "pipe"],
-        // Suppress console flash; -NonInteractive prevents a prompt hang on
-        // this 10 s-cadence primary path. `resolveSystemTool` returns the
-        // full .exe path when registry is available.
-        windowsHide: true,
-      },
-    );
-    if (result.status !== 0 || !result.stdout) return [];
-
-    const data = JSON.parse(result.stdout);
-    const items = Array.isArray(data) ? data : [data];
-    return items
-      .filter((item: any) => item?.ProcessId)
-      .map((item: any) => ({
-        pid: item.ProcessId,
-        pgid: item.ProcessId,
-        command: item.CommandLine || "",
-        elapsedMs: item.CreationDate ? Math.max(0, Date.now() - new Date(item.CreationDate).getTime()) : 0,
-      }));
-  } catch {
-    return [];
-  }
-}
-
-/** Scan child processes on Windows using PowerShell Get-CimInstance. */
-export function scanWindowsProcesses(
-  parentPid: number,
-  minElapsedMs: number = DEFAULT_MIN_ELAPSED_MS,
-  options?: ScanOptions,
-): ChildProcessInfo[] {
-  const spawnSync: SpawnSyncFn = options?._spawnSync ?? defaultSpawnSync;
-  const children = getWindowsDescendantsCim(parentPid, spawnSync);
-
-  // Recurse one level for grandchildren
-  const all: ChildProcessInfo[] = [];
-  for (const child of children) {
-    const grandchildren = getWindowsDescendantsCim(child.pid, spawnSync);
-    if (grandchildren.length > 0) {
-      all.push(...grandchildren);
-    } else {
-      all.push(child);
-    }
-  }
-
-  return all.filter(p => p.elapsedMs >= minElapsedMs);
-}
 
 /** Kill a process tree on Windows using taskkill. */
 export function killWindowsProcess(pid: number, options?: ScanOptions): boolean {

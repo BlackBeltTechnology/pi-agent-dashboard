@@ -10,7 +10,9 @@ import {
 import { Icon } from "@mdi/react";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
+import { AttachmentTrace, isLiveActive } from "./AttachmentTrace.js";
 import { LazyAttachChangePicker, LazyExploreDialog, LazyNewChangeDialog, LazyProposeDialog, LazyTasksPopover } from "./lazy-openspec-dialogs.js";
 import { OpenSpecStepper } from "./OpenSpecStepper.js";
 // ArtifactLettersButton removed — stepper P/D/S nodes are now clickable
@@ -280,6 +282,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
 
   const attached = session.attachedProposal;
   const isEnded = session.status === "ended";
+  // active (own cwd) | archived | missing | unresolved. See change: resolve-archived-attached-proposal.
+  const resolution = useAttachmentResolution(session, changes);
 
   // Replace-proposal dialog: gated on both attached + pending so the dialog's
   // lazy committed-target init captures the first suggestion. Keyed by session
@@ -424,8 +428,11 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     );
   }
 
-  // Attached: find the change
-  const change = changes.find((c) => c.name === attached);
+  // Attached: only a live-active attachment in the session's own cwd gets the
+  // lifecycle UI; archived / missing / in-main-checkout / unresolved render a
+  // read-only trace + Detach. A change active only in the main checkout is
+  // NOT driven from here (its workflow actions would target a missing cwd).
+  const change = isLiveActive(resolution, session.cwd) && resolution?.kind === "active" ? resolution.change : undefined;
   const toItem = (a: ActionSpec, onSelect: () => void): OverflowItem => ({
     testId: a.testId,
     label: label(a),
@@ -436,7 +443,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
     dividerBefore: a.dividerBefore,
   });
 
-  // Attached but change not found in data → Detach only.
+  // Attached but no live change → read-only trace + Detach only.
   if (!change) {
     const { overflow } = deriveOpenSpecActions({
       attached: true, found: false, wf, isEnded, working, showArchiveAnyway: false, includeDetach: true, idPrefix: "",
@@ -445,6 +452,7 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
       <div className="mt-1" data-testid="session-openspec-actions">
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-[var(--text-tertiary)]"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
+          <AttachmentTrace resolution={resolution} sessionCwd={session.cwd} />
           <span className="flex-1" />
           <OverflowMenu items={overflow.map((a) => toItem(a, onDetach))} />
         </div>

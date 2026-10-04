@@ -221,6 +221,8 @@ export interface UiZoomControlsProps {
   onZoomOut: () => void;
   onReset: () => void;
   scale: number;
+  /** Scale the surface starts/resets at (default 1); % readout hidden at this scale. */
+  initialScale?: number;
 }
 
 /** A single entry in an action-list primitive. */

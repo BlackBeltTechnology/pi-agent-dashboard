@@ -330,9 +330,15 @@ export function handleOpenSpecRefresh(
 ): void {
   if (ctx.directoryService) {
     ctx.directoryService
-      .refreshOpenSpec(msg.cwd)
+      // Gated entry point (D1): same admission chain as `openspec_get` —
+      // enabled → opted out → tracked → `<cwd>/openspec/` root. `null` means
+      // a gated cwd: silence, never a broadcast (the client only renders
+      // folders for tracked cwds, and a gated refresh must spawn nothing and
+      // leave no cache residue).
+      // See change: harden-server-request-surfaces (D1).
+      .refreshOpenSpecGated(msg.cwd)
       .then((data) => {
-        ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
+        if (data) ctx.broadcast({ type: "openspec_update", cwd: msg.cwd, data });
       })
       // Fire-and-forget from a sync dispatch handler: a rejected refresh must
       // not float. The gateway stays responsive; the client simply gets no

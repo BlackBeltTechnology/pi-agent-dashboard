@@ -111,6 +111,22 @@ describe("sendStateSync", () => {
 });
 
 describe("handleSessionChange", () => {
+  it("E21/E34: git info goes through the tracker's first evaluation, after register, with the status diff cache reset", () => {
+    const order: string[] = [];
+    const evaluateFirst = vi.fn((_bc: any, cwd: string) => order.push(`git:${cwd}`));
+    const bc = createMockBridgeContext({ gitTracker: { evaluateFirst } as any, lastGitStatusJson: '{"stale":1}' } as any);
+    const origSend = (bc as any).connection.send;
+    (bc as any).connection.send = (m: any) => { order.push(m.type); origSend(m); };
+    handleSessionChange(bc, {
+      cwd: "/proj",
+      sessionManager: { getSessionId: () => "sess-new", getSessionFile: () => "/f", getSessionDir: () => "/d", getBranch: () => [], getEntries: () => [] },
+    } as any, () => []);
+    expect(evaluateFirst).toHaveBeenCalledWith(bc, "/proj");
+    expect(order.indexOf("git:/proj")).toBeGreaterThan(order.indexOf("session_register"));
+    expect(order.indexOf("git:/proj")).toBeLessThan(order.indexOf("commands_list"));
+    expect(bc.lastGitStatusJson).toBeUndefined();
+  });
+
   it("always tags registerReason: spawn even after reattach", () => {
     const bc = createMockBridgeContext({ hasRegisteredOnce: true } as any);
 

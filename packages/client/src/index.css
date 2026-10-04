@@ -121,6 +121,14 @@
   --accent-red: #ef4444;
   --accent-purple: #a855f7;
   --accent-orange: #f97316;
+  /* Accent-text role: same hue, AA 4.5:1 on surface/tertiary/primary/card fill.
+     --accent-<hue> stays the fill role. See change: remediate-accent-text-contrast. */
+  --accent-purple-text: #b56ff8;
+  --accent-blue-text: #508ff7;
+  --accent-green-text: #22c55e;
+  --accent-orange-text: #f97316;
+  --accent-red-text: #f26262;
+  --accent-yellow-text: #eab308;
   --accent-primary: #3b82f6;
   /* Stronger primary for white-text fills: white on #3b82f6 is 3.68:1 (under
      the 4.5:1 text floor); white on #2563eb is 5.17:1. Component code
@@ -293,6 +301,14 @@
   --accent-soft: #dbeafe;   /* fill behind --text-primary — 14.27:1 */
   --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
   --accent-text: #1d4ed8;   /* link text on --bg-primary — 6.70:1 */
+  /* Accent-text role, light values — declared explicitly: the dark :root values
+     must NOT be inherited. See change: remediate-accent-text-contrast. */
+  --accent-purple-text: #8919f4;
+  --accent-blue-text: #0a5ade;
+  --accent-green-text: #147237;
+  --accent-orange-text: #a64704;
+  --accent-red-text: #c61111;
+  --accent-yellow-text: #7c5f04;
   --focus-ring: var(--accent-primary);
 
   /* Shadows */

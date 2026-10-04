@@ -126,3 +126,58 @@ describe("useZoomPan click-vs-drag threshold", () => {
     expect(result.current.state.translateX).toBe(0);
   });
 });
+
+// See change: fix-markdown-remount-storm (D4) — optional initialScale.
+describe("useZoomPan initialScale", () => {
+  const zero = { translateX: 0, translateY: 0 };
+  const init = (o?: Parameters<typeof useZoomPan>[0]) => renderHook(() => useZoomPan(o)).result;
+
+  it.each([
+    ["in default band", { initialScale: 2.5 }, 2.5],
+    ["min boundary", { initialScale: 0.5 }, 0.5],
+    ["below min clamps", { initialScale: 0.4 }, 0.5],
+    ["max boundary", { initialScale: 4 }, 4],
+    ["above max clamps", { initialScale: 4.5 }, 4],
+    ["custom band honoured", { initialScale: 0.4, minScale: 0.25, maxScale: 10 }, 0.4],
+  ])("seeds scale: %s", (_n, opts, expected) => {
+    expect(init(opts).current.state).toEqual({ scale: expected, ...zero });
+  });
+
+  it("clamped seed does not widen the bounds", () => {
+    const r = init({ initialScale: 0.4 });
+    act(() => r.current.zoomOut());
+    expect(r.current.state.scale).toBe(0.5);
+    const r2 = init({ initialScale: 4.5 });
+    act(() => r2.current.zoomIn());
+    expect(r2.current.state.scale).toBe(4);
+  });
+
+  it("reset and double-click return to initialScale", () => {
+    const r = init({ initialScale: 2.5 });
+    act(() => { r.current.zoomIn(); r.current.zoomIn(); });
+    act(() => r.current.reset());
+    expect(r.current.state).toEqual({ scale: 2.5, ...zero });
+    act(() => r.current.zoomIn());
+    act(() => r.current.handlers.onDoubleClick());
+    expect(r.current.state).toEqual({ scale: 2.5, ...zero });
+  });
+
+  it("omitted option keeps legacy reset-to-1", () => {
+    const r = init();
+    act(() => { r.current.zoomIn(); r.current.zoomIn(); });
+    act(() => r.current.reset());
+    expect(r.current.state).toEqual({ scale: 1, ...zero });
+  });
+
+  it("follows a changing initialScale until the user interacts", () => {
+    const { result, rerender } = renderHook(({ s }) => useZoomPan({ initialScale: s }), { initialProps: { s: 1 } });
+    rerender({ s: 0.7 });
+    expect(result.current.state.scale).toBe(0.7);
+    act(() => result.current.zoomIn());
+    const zoomed = result.current.state.scale;
+    rerender({ s: 0.6 });
+    expect(result.current.state.scale).toBe(zoomed);
+    act(() => result.current.reset());
+    expect(result.current.state.scale).toBe(0.6);
+  });
+});

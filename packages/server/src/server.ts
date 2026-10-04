@@ -79,6 +79,7 @@ import {
   evaluateHostGate,
   type HostGateContext,
   HostGateState,
+  hostGateBootLine,
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
@@ -126,6 +127,7 @@ import {
   liveHostGateMode,
   livePublicBaseUrls,
   liveTrustedNetworks,
+  rawConfigHasHostGateMode,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -1606,6 +1608,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const wsUpgradeRejectLog = createWsUpgradeRejectLogger();
   const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
   if (hostGateBootWarning) console.error(hostGateBootWarning);
+  console.log(
+    hostGateBootLine(
+      process.env.PI_DASHBOARD_HOST_GATE,
+      rawConfigHasHostGateMode(),
+      resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    ),
+  );
   const getHostGateCtx = (): HostGateContext => ({
     admission: {
       allowedHosts: liveAllowedHosts(),
@@ -2792,6 +2801,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       {
         const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
         setSpawnDashboardPiPort(config.piPort);
+        // Pin spawned sessions to the transport actually served (read lazily,
+        // after the gateway starts) — never to another instance's socket.
+        // See change: fix-gateway-socket-stale-owner (D6).
+        const { setSpawnGatewayTransport } = await import("./spawn-process/process-manager.js");
+        setSpawnGatewayTransport(() => {
+          const { listeners } = piGateway.bridgeListeners();
+          const t = piGateway.transport();
+          if (listeners.includes("unix") && t?.transport === "unix") return { transport: "unix", path: t.path };
+          if (listeners.includes("loopback-fallback")) return { transport: "loopback-fallback" };
+          return { transport: "tcp" };
+        });
       }
 
       // Claim (or attach to) this HOME's rendezvous BEFORE the gateway starts
@@ -2843,23 +2863,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
         });
         console.log(`[pi-gateway] ${policy.reason}`);
-        // TCP first: `startOnSocket` installs the shared WebSocketServer, and
-        // `start()` refuses to run after it rather than orphan the listener.
-        if (policy.tcp) piGateway.start(policy.tcp.port, policy.tcp.host);
-        if (policy.socketPath) {
-          try {
-            await piGateway.startOnSocket(policy.socketPath);
-          } catch (err) {
-            // A refused socket bind (a live incumbent — D9) must not leave the
-            // gateway with no listener at all. Fall back to loopback, never to
-            // discovery.
-            console.error(`[pi-gateway] socket bind refused: ${err}`);
-            if (!policy.tcp) {
-              console.warn(`[pi-gateway] falling back to 127.0.0.1:${config.piPort}`);
-              piGateway.start(config.piPort, "127.0.0.1");
-            }
-          }
-        }
+        const { startGatewayListeners } = await import("./pi/gateway-listeners.js");
+        await startGatewayListeners(piGateway, policy, { piPort: config.piPort });
       }
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can

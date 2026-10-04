@@ -14,9 +14,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
+import net from "node:net";
+import properLockfile from "proper-lockfile";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { WsTicketStore } from "../auth/ws-ticket.js";
+import { startGatewayListeners } from "../pi/gateway-listeners.js";
+import { probeSocket } from "../pi/gateway-socket-bind.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
+import { buildSpawnEnv, setSpawnDashboardPiPort, setSpawnGatewayTransport } from "../spawn-process/process-manager.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 let tmp: string;
@@ -137,12 +144,14 @@ describe("pi-gateway over a unix socket", () => {
     gateway.stop();
     // stop() is synchronous by contract and hands the teardown off, so poll.
     for (let i = 0; i < 100; i++) {
-      if (!fs.existsSync(sockPath) && !fs.existsSync(`${sockPath}.lock`)) break;
+      if (!fs.existsSync(sockPath) && !fs.existsSync(`${sockPath}.pid`)) break;
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(fs.existsSync(sockPath)).toBe(false);
-    // The companion bind-lock sentinel goes too, or it accumulates forever.
-    expect(fs.existsSync(`${sockPath}.lock`)).toBe(false);
+    expect(fs.existsSync(`${sockPath}.pid`)).toBe(false);
+    // The bind-lock sentinel is deliberately LEFT: deleting it while a
+    // competitor holds it would break mutual exclusion (D4, test-plan #X10).
+    expect(fs.existsSync(`${sockPath}.lock`)).toBe(true);
     expect(() => gateway?.stop()).not.toThrow();
   });
 });
@@ -368,5 +377,294 @@ describe("unix socket transport alongside an authenticated TCP listener", () => 
     const ws = new WebSocket(`ws://127.0.0.1:${tcpPort}`);
     sockets.push(ws);
     await expect(opened(ws)).rejects.toThrow(/401|Unexpected server response/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// fix-gateway-socket-stale-owner: a refused / unusable socket degrades to an
+// AUTHENTICATED loopback listener instead of aborting (D5, D6).
+// (test-plan #X1–#X9, #X14)
+// ──────────────────────────────────────────────────────────────────────────
+describe("loopback fallback (fix-gateway-socket-stale-owner)", () => {
+  const TOKEN = "test-local-token";
+  const gateways: Array<ReturnType<typeof createPiGateway>> = [];
+  const servers: net.Server[] = [];
+  const clients: WebSocket[] = [];
+  const tickets = new WsTicketStore();
+  const log = { warn: vi.fn(), error: vi.fn() };
+
+  const mk = (over: { requireTicketOnLoopback?: boolean } = {}) => {
+    const g = createPiGateway(createMemorySessionManager(), {
+      pingInterval: 0,
+      bridgeAuth: {
+        consumeTicket: (t) => tickets.consumeDetailed(t, "bridge"),
+        requireTicketOnLoopback: over.requireTicketOnLoopback ?? false,
+        verifyLocalToken: (h) => h?.["x-pi-local-token"] === TOKEN,
+        log: () => {},
+      },
+    });
+    gateways.push(g);
+    return g;
+  };
+
+  const freePort = () =>
+    new Promise<number>((resolve) => {
+      const srv = net.createServer().listen(0, "127.0.0.1", () => {
+        const port = (srv.address() as net.AddressInfo).port;
+        srv.close(() => resolve(port));
+      });
+    });
+
+  const hold = (target: string | number, host?: string) =>
+    new Promise<net.Server>((resolve, reject) => {
+      const srv = net.createServer((c) => c.destroy());
+      servers.push(srv);
+      srv.once("error", reject);
+      if (typeof target === "number") srv.listen(target, host, () => resolve(srv));
+      else srv.listen(target, () => resolve(srv));
+    });
+
+  async function staleSocket(p: string): Promise<void> {
+    const child = spawn(process.execPath, [
+      "-e",
+      `require('net').createServer().listen(${JSON.stringify(p)},()=>console.log('up'))`,
+    ]);
+    await new Promise<void>((r, j) => {
+      child.stdout.once("data", () => r());
+      child.once("error", j);
+    });
+    child.kill("SIGKILL");
+    await new Promise<void>((r) => child.once("exit", () => r()));
+  }
+
+  const dialTcp = (port: number, headers: Record<string, string> = {}) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers });
+    clients.push(ws);
+    return ws;
+  };
+  const outcome = (ws: WebSocket) =>
+    new Promise<"open" | "refused">((resolve) => {
+      ws.once("open", () => resolve("open"));
+      ws.once("error", () => resolve("refused"));
+      ws.once("unexpected-response", () => resolve("refused"));
+    });
+  const register = async (ws: WebSocket, id: string) => {
+    ws.send(JSON.stringify({ type: "session_register", sessionId: id, cwd: tmp, pid: process.pid }));
+  };
+  const waitConnected = async (g: ReturnType<typeof createPiGateway>, id: string) => {
+    for (let i = 0; i < 100 && !g.isSessionConnected(id); i++) await new Promise((r) => setTimeout(r, 10));
+    return g.isSessionConnected(id);
+  };
+
+  afterEach(async () => {
+    for (const c of clients.splice(0)) c.terminate();
+    for (const g of gateways.splice(0)) g.stop();
+    for (const sv of servers.splice(0)) await new Promise<void>((r) => sv.close(() => r()));
+    setSpawnDashboardPiPort(null);
+    setSpawnGatewayTransport(null);
+    log.warn.mockClear();
+    log.error.mockClear();
+  });
+
+  const socketOnly = () => ({ socketPath: sockPath, reason: "test" });
+
+  // X1
+  it("a live incumbent keeps serving while we serve an authenticated loopback listener", async () => {
+    await hold(sockPath);
+    fs.writeFileSync(`${sockPath}.pid`, "4242\n");
+    const port = await freePort();
+    const g = mk();
+    await startGatewayListeners(g, socketOnly(), { piPort: port, log });
+
+    expect(g.bridgeListeners()).toEqual({ listeners: ["loopback-fallback"], fallbackReason: "occupied" });
+    const ws = dialTcp(port, { "x-pi-local-token": TOKEN });
+    expect(await outcome(ws)).toBe("open");
+    await expect(probeSocket(sockPath)).resolves.toBe("live");
+    const logged = log.error.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(logged).toContain(sockPath);
+    expect(logged).toContain("verdict=live");
+    expect(logged).toContain("4242");
+  });
+
+  // X2 — the #744 repro end to end
+  it("reclaims a stale socket whose pidfile names this very process", async () => {
+    await staleSocket(sockPath);
+    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
+    const port = await freePort();
+    const g = mk();
+    await startGatewayListeners(g, socketOnly(), { piPort: port, log });
+    expect(g.transport()).toEqual({ transport: "unix", path: sockPath });
+    const ws = new WebSocket(`ws+unix://${sockPath}:/`);
+    clients.push(ws);
+    expect(await outcome(ws)).toBe("open");
+    expect(await new Promise<boolean>((r) => net.connect(port, "127.0.0.1").once("connect", () => r(true)).once("error", () => r(false)))).toBe(false);
+  });
+
+  // X3
+  it("aborts naming the socket path and the port when the fallback port is taken", async () => {
+    await hold(sockPath);
+    const port = await freePort();
+    await hold(port, "127.0.0.1");
+    const g = mk();
+    const err = await startGatewayListeners(g, socketOnly(), { piPort: port, log }).catch((e) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect(String(err)).toContain(sockPath);
+    expect(String(err)).toContain(String(port));
+    expect(g.bridgeListeners().listeners).toEqual([]);
+  });
+
+  // X4
+  it.skipIf(process.getuid?.() === 0)("aborts without a fallback on a permission error", async () => {
+    const ro = path.join(tmp, "ro");
+    fs.mkdirSync(ro, { mode: 0o500 });
+    const port = await freePort();
+    const g = mk();
+    try {
+      const err = await startGatewayListeners(
+        g,
+        { socketPath: path.join(ro, "sub", "gw.sock"), reason: "t" },
+        { piPort: port, log },
+      ).catch((e) => e as Error);
+      expect(String(err)).toMatch(/EACCES/);
+      expect(String(err)).toContain(path.join(ro, "sub", "gw.sock"));
+      expect(g.bridgeListeners().listeners).toEqual([]);
+    } finally {
+      fs.chmodSync(ro, 0o700);
+    }
+  });
+  it("aborts without a fallback when the bind lock cannot be taken", async () => {
+    fs.writeFileSync(`${sockPath}.lock`, "x");
+    const release = await properLockfile.lock(`${sockPath}.lock`, { stale: 60_000 });
+    try {
+      const port = await freePort();
+      const g = mk();
+      const err = await startGatewayListeners(g, socketOnly(), { piPort: port, log }).catch((e) => e as Error);
+      expect(String(err)).toMatch(/lock/i);
+      expect(g.bridgeListeners().listeners).toEqual([]);
+    } finally {
+      await release();
+    }
+  }, 20_000);
+
+  // X5
+  it("falls back as 'unsupported' when the filesystem cannot host a unix socket", async () => {
+    const port = await freePort();
+    const g = mk();
+    vi.spyOn(g, "startOnSocket").mockRejectedValue(Object.assign(new Error("nope"), { code: "EOPNOTSUPP" }));
+    await startGatewayListeners(g, socketOnly(), { piPort: port, log });
+    expect(g.bridgeListeners()).toEqual({ listeners: ["loopback-fallback"], fallbackReason: "unsupported" });
+  });
+
+  // X6
+  it("with the TCP opt-in a socket failure keeps TCP serving", async () => {
+    await hold(sockPath);
+    const port = await freePort();
+    const g = mk();
+    await startGatewayListeners(g, { socketPath: sockPath, tcp: { host: "127.0.0.1", port }, reason: "t" }, { piPort: port, log });
+    expect(g.bridgeListeners().listeners).toEqual(["tcp"]);
+    expect(await outcome(dialTcp(port, { "x-pi-local-token": TOKEN }))).toBe("open");
+    expect(log.error.mock.calls.map((c) => String(c[0])).join()).toContain(sockPath);
+
+    const g2 = mk();
+    const port2 = await freePort();
+    vi.spyOn(g2, "startOnSocket").mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
+    await startGatewayListeners(g2, { socketPath: sockPath, tcp: { host: "127.0.0.1", port: port2 }, reason: "t" }, { piPort: port2, log });
+    expect(await outcome(dialTcp(port2, { "x-pi-local-token": TOKEN }))).toBe("open");
+  });
+
+  // E10 — what /api/health reports, per gateway state
+  it("bridgeListeners() names every active listener", async () => {
+    const a = mk();
+    await a.startOnSocket(sockPath);
+    expect(a.bridgeListeners()).toEqual({ listeners: ["unix"] });
+
+    const b = mk();
+    const bSock = path.join(tmp, "b.sock");
+    await startGatewayListeners(b, { socketPath: bSock, tcp: { host: "127.0.0.1", port: await freePort() }, reason: "t" }, { piPort: 1, log });
+    expect(b.bridgeListeners()).toEqual({ listeners: ["unix", "tcp"] });
+
+    const c = mk();
+    c.start(await freePort(), "127.0.0.1", { kind: "loopback" });
+    expect(c.bridgeListeners()).toEqual({ listeners: ["loopback"] });
+  });
+
+  // X7
+  it("transport() and address() never throw after a failed socket bind", async () => {
+    await hold(sockPath);
+    const g = mk();
+    await expect(g.startOnSocket(sockPath)).rejects.toBeTruthy();
+    expect(() => g.transport()).not.toThrow();
+    expect(() => g.address()).not.toThrow();
+    expect(g.transport()).toBeNull();
+  });
+
+  // X8
+  it("the fallback refuses a bridge without the local token or a ticket", async () => {
+    const port = await freePort();
+    const g = mk();
+    await g.startLoopbackFallback(port, "occupied");
+
+    const none = dialTcp(port);
+    expect(await outcome(none)).toBe("refused");
+    const wrong = dialTcp(port, { "x-pi-local-token": "wrong" });
+    expect(await outcome(wrong)).toBe("refused");
+    expect(g.connectionCount()).toBe(0);
+
+    const good = dialTcp(port, { "x-pi-local-token": TOKEN });
+    expect(await outcome(good)).toBe("open");
+    await register(good, "fb-token");
+    expect(await waitConnected(g, "fb-token")).toBe(true);
+
+    const ticketed = new WebSocket(`ws://127.0.0.1:${port}/?ticket=${tickets.mint("bridge")}`);
+    clients.push(ticketed);
+    expect(await outcome(ticketed)).toBe("open");
+    await register(ticketed, "fb-ticket");
+    expect(await waitConnected(g, "fb-ticket")).toBe(true);
+  });
+
+  // X9
+  it("the no-grace rule is per listener: opt-in TCP keeps its tokenless grace", async () => {
+    const optInPort = await freePort();
+    const opt = mk({ requireTicketOnLoopback: false });
+    opt.start(optInPort, "127.0.0.1");
+    expect(await outcome(dialTcp(optInPort))).toBe("open");
+
+    const fbPort = await freePort();
+    const fb = mk({ requireTicketOnLoopback: false });
+    await fb.startLoopbackFallback(fbPort, "occupied");
+    expect(await outcome(dialTcp(fbPort))).toBe("refused");
+  });
+
+  it("the fallback refuses to start without a bridge-auth gate", async () => {
+    const g = createPiGateway(createMemorySessionManager(), { pingInterval: 0 });
+    gateways.push(g);
+    await expect(g.startLoopbackFallback(await freePort(), "occupied")).rejects.toThrow(/bridge auth/);
+  });
+
+  // X14
+  it("a session spawned after a fallback registers with the fallback gateway, not the incumbent", async () => {
+    const incumbent = mk();
+    await incumbent.startOnSocket(sockPath);
+    const port = await freePort();
+    const fb = mk();
+    await startGatewayListeners(fb, socketOnly(), { piPort: port, log });
+
+    setSpawnDashboardPiPort(port);
+    setSpawnGatewayTransport(() => {
+      const t = fb.transport();
+      return fb.bridgeListeners().listeners.includes("loopback-fallback") || t?.transport !== "unix"
+        ? { transport: "loopback-fallback" }
+        : { transport: "unix", path: t.path };
+    });
+    const env = buildSpawnEnv({ PATH: "/usr/bin", PI_DASHBOARD_SOCKET: sockPath });
+    expect(env.PI_DASHBOARD_SOCKET).toBeUndefined();
+    expect(env.PI_DASHBOARD_URL).toBe(`ws://127.0.0.1:${port}`);
+
+    const ws = new WebSocket(env.PI_DASHBOARD_URL as string, { headers: { "x-pi-local-token": TOKEN } });
+    clients.push(ws);
+    expect(await outcome(ws)).toBe("open");
+    await register(ws, "spawned-1");
+    expect(await waitConnected(fb, "spawned-1")).toBe(true);
+    expect(incumbent.isSessionConnected("spawned-1")).toBe(false);
   });
 });

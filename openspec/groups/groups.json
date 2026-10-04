@@ -8,46 +8,63 @@
       "order": 0
     },
     {
+      "id": "pi-update",
+      "name": "Pi Update",
+      "color": "#3b82f6",
+      "order": 1
+    },
+    {
+      "id": "copilot-assistant",
+      "name": "Copilot / Assistant",
+      "order": 2
+    },
+    {
+      "id": "ai-team",
+      "name": "AI Team",
+      "color": "#a855f7",
+      "order": 3
+    },
+    {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 1
+      "order": 4
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 2
+      "order": 5
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 3
+      "order": 6
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 4
+      "order": 7
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 5
+      "order": 8
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 6
+      "order": 9
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
-      "order": 7
+      "order": 10
     }
   ],
   "assignments": {
@@ -220,32 +237,64 @@
     "persist-folder-collapse-server-side": "ui",
     "guard-server-heap-and-store-coupling": "ui",
     "add-deck3d-presentation-package": "ui",
-    "add-discord-bridge-plugin": "ui"
+    "add-discord-bridge-plugin": "ui",
+    "fix-session-diff-heap-retention": "ui",
+    "fix-windows-path-env-key-casing": "ui",
+    "harden-ios-safari-memory-and-ws-diagnostics": "ui",
+    "fix-ship-tsconfig-base": "ui",
+    "surface-denial-remedy-in-previews": "ui",
+    "collapse-and-order-notify-rows": "ui",
+    "add-acp-session-driver": "ui",
+    "fix-browser-live-view-subscribe-and-reopen": "ui",
+    "fix-editor-mtime-token-precision": "ui",
+    "fix-terminal-session-dashboard-reload": "ui",
+    "context-manager-kernel": "ui",
+    "add-pi-video-gen-export": "ui",
+    "add-music-production-skills": "ui",
+    "add-gmail-plugin": "ui",
+    "check-root-package-imports": "ui",
+    "add-system-one-registry": "ui",
+    "electron-runtime-overlay-updates": "ui",
+    "session-list-group-by": "ui",
+    "compact-openspec-lifecycle-bar": "ui",
+    "align-ui-with-theme-tokens": "ui",
+    "delegate-provider-oauth-to-pi-ai": "ui",
+    "fix-provider-auth-lock-contention": "ui",
+    "expose-plugin-credential-and-oauth-seams": "ui",
+    "add-untrusted-content-guard": "ui",
+    "harden-auth-json-lock-coordination": "ui",
+    "redesign-composer-session-strip": "ui",
+    "fix-chat-burst-tool-stop": "ui",
+    "promote-model-roles-settings": "ui",
+    "adopt-explore-mockups-into-changes": "ui",
+    "show-session-history-load-state": "ui",
+    "add-pairing-approval-dialog": "ui",
+    "update-pi-core-1-0-adopt-apis": "pi-update",
+    "add-radius-provider-login": "pi-update",
+    "add-pi-runtime-image-generation": "pi-update",
+    "migrate-mcp-to-pi-builtin": "pi-update",
+    "fix-selected-card-light-wash": "ui",
+    "electron-runtime-release-pipeline": "ui",
+    "render-nested-tool-calls": "pi-update",
+    "collapse-model-proxy-onto-modelruntime": "pi-update",
+    "count-non-message-usage": "pi-update",
+    "drop-mariozechner-pi-fork": "pi-update",
+    "harden-review-and-fix-loop": "ui",
+    "add-spec-collateral-scan": "ui",
+    "cleanup-stale-fork-specs": "pi-update",
+    "tune-reverse-spec-for-rebuild-eval": "ui",
+    "fix-gateway-socket-stale-owner": "ui",
+    "fix-markdown-remount-storm": "ui",
+    "optimize-polling-hot-paths": "ui",
+    "resolve-archived-attached-proposal": "ui",
+    "speed-up-ci-affected-tests": "ui",
+    "extract-standalone-app-kit": "ai-team",
+    "add-team-plugin": "ai-team",
+    "add-voice-wall-plugin": "copilot-assistant",
+    "add-voice-assistant-dashboard-plugin": "copilot-assistant"
   },
   "changeOrder": {
-    "__ungrouped__": [
-      "ab-test-rlm-delegation-claim",
-      "add-custom-entry-renderer-slot",
-      "add-lazy-terminal-diff-bootstrap",
-      "add-microservice-pattern-selection-skill",
-      "add-native-pi-tui-view",
-      "add-served-build-coherence-and-hash-parity",
-      "add-session-step-table",
-      "add-voice-assistant-dashboard-plugin",
-      "bound-event-store-by-bytes",
-      "bound-session-heap-and-gc-telemetry",
-      "coalesce-bridge-message-update-snapshots",
-      "fix-automation-identity-persistence",
-      "fix-long-session-ux-degradation",
-      "fix-settings-overlay-header-peek",
-      "guard-server-heap-and-store-coupling",
-      "implement-it",
-      "investigate-auto-name-provenance-relabel",
-      "offload-retained-transcript-replay",
-      "portal-composer-action-popovers",
-      "retest-plain-language-hard-battery",
-      "test-trust-audit"
-    ],
+    "__ungrouped__": [],
     "kowledge-base": [
       "consolidate-retrieval-planes",
       "add-lora-dataset-export-skill",
@@ -255,17 +304,7 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "add-discord-bridge-plugin",
-      "add-deck3d-presentation-package",
-      "close-registry-frame-shed-gaps",
-      "bound-event-store-by-bytes",
-      "guard-server-heap-and-store-coupling",
-      "stabilize-browser-e2e",
-      "persist-folder-collapse-server-side",
-      "harden-server-request-surfaces",
-      "fix-terminals-action-opens-terminal",
-      "fix-ci-pipeline-followups",
-      "isolate-real-process-tests"
+      "speed-up-ci-affected-tests"
     ],
     "next-phase": [
       "add-session-trajectory-view",
@@ -300,6 +339,13 @@
       "add-universal-network-guard",
       "harden-electron-renderer-boundary",
       "sanitize-untrusted-rendered-content"
+    ],
+    "pi-update": [
+      "cleanup-stale-fork-specs"
+    ],
+    "copilot-assistant": [
+      "add-voice-wall-plugin",
+      "add-voice-assistant-dashboard-plugin"
     ]
   }
 }

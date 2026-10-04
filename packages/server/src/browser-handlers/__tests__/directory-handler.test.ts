@@ -20,9 +20,44 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/openspec.js", () => 
   archiveCompleted: vi.fn(),
 }));
 
+// The openspec_refresh admission-gate tests (harden-server-request-surfaces)
+// drive a REAL DirectoryService, so the OpenSpec CLI entry points are mocked
+// the same way `src/__tests__/directory-service.test.ts` mocks them: these
+// three mocks ARE the spawn spies the gate tests assert on.
+vi.mock("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-shared/openspec-poller.js")>();
+  return {
+    ...actual,
+    pollOpenSpecAsync: vi.fn(async () => ({ initialized: false, changes: [] })),
+    runOpenSpecList: vi.fn(async () => ({ changes: [] })),
+    runOpenSpecStatus: vi.fn(async () => ({ artifacts: [], isComplete: false })),
+  };
+});
+
+// E6 (tracked gate precedes the filesystem probe) needs a statSync spy that
+// reaches the `import * as fs from "node:fs"` namespaces INSIDE
+// directory-service.ts / openspec-poll-fs-helpers.ts. A plain
+// `vi.spyOn(fs, "statSync")` from the test does not intercept those calls, so
+// the module itself is wrapped: the spy records and calls through, and every
+// other fs function stays the real implementation.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    statSync: vi.fn((...args: Parameters<typeof actual.statSync>) => actual.statSync(...args)),
+  };
+});
+
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import type { OpenSpecGetResultMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { pollOpenSpecAsync, runOpenSpecList, runOpenSpecStatus } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
+import { createDirectoryService, type DirectoryService } from "../../directory-service.js";
+import type { PreferencesStore } from "../../persistence/preferences-store.js";
+import type { SessionManager } from "../../session/memory-session-manager.js";
 import { handleOpenSpecBulkArchive, handleOpenSpecGet, handleOpenSpecRefresh } from "../directory-handler.js";
 
 async function flush() {
@@ -222,12 +257,14 @@ describe("openspec directory handlers — rejection is owned", () => {
   }
 
   it("X6 a rejected openspec_refresh is logged and absorbed; the gateway handles the next message", async () => {
-    const refreshOpenSpec = vi
+    // D1: the handler enters through the GATED service method; a rejection
+    // (e.g. the delegated force-poll failing) is still owned by the handler.
+    const refreshOpenSpecGated = vi
       .fn()
       .mockRejectedValueOnce(new Error("refresh boom"))
       .mockResolvedValueOnce({ initialized: true, changes: [] });
     const broadcast = vi.fn();
-    const ctx = { directoryService: { refreshOpenSpec }, broadcast } as unknown as BrowserHandlerContext;
+    const ctx = { directoryService: { refreshOpenSpecGated }, broadcast } as unknown as BrowserHandlerContext;
 
     handleOpenSpecRefresh({ type: "openspec_refresh", cwd: "/repo" } as any, ctx);
     await flush();
@@ -266,5 +303,225 @@ describe("openspec directory handlers — rejection is owned", () => {
     expect(broadcast).toHaveBeenCalledWith(
       expect.objectContaining({ type: "openspec_update", cwd: "/repo" }),
     );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// openspec_refresh admission gates — harden-server-request-surfaces (D1).
+//
+// The browser-initiated refresh must pass the SAME admission chain as
+// `openspec_get` (enabled → opted-out → tracked → `<cwd>/openspec/` root,
+// fs probe LAST), spawn no CLI process and write no cache entry on a gate
+// failure, and must NOT broadcast. Driven through the REAL service so the
+// gate chain itself is under test; the mocked openspec-poller entry points
+// above are the spawn spies.
+// See change: harden-server-request-surfaces (test-plan #E1–#E8, #X7, #P1).
+// ────────────────────────────────────────────────────────────────────────
+describe("openspec_refresh admission gates — harden-server-request-surfaces", () => {
+  const spawnSpies = () => ({
+    list: vi.mocked(runOpenSpecList),
+    status: vi.mocked(runOpenSpecStatus),
+    legacy: vi.mocked(pollOpenSpecAsync),
+  });
+
+  const totalSpawns = (...spies: Array<ReturnType<typeof vi.fn>>) =>
+    spies.reduce((n, spy) => n + spy.mock.calls.length, 0);
+
+  interface GateHarness {
+    service: DirectoryService;
+    ctx: BrowserHandlerContext;
+    broadcast: ReturnType<typeof vi.fn>;
+    tmp: string;
+  }
+
+  function gateHarness(opts: {
+    /** Session rows seeded into the registry; cwd may reference the created tmp. */
+    sessions?: (tmp: string) => Array<{ id: string; cwd: string; status?: "active" | "ended" }>;
+    pins?: (tmp: string) => string[];
+    /** Partial `OpenSpecPollConfig` overrides (enabled / optOutDirectories). */
+    config?: (tmp: string) => { enabled?: boolean; optOutDirectories?: string[] };
+    /** Create `<tmp>/openspec/changes/` (no change subdirs). */
+    withRoot?: boolean;
+  }): GateHarness {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dh-gate-"));
+    created.push(tmp);
+    if (opts.withRoot) fs.mkdirSync(path.join(tmp, "openspec", "changes"), { recursive: true });
+    const preferencesStore = {
+      getPinnedDirectories: () => (opts.pins ? opts.pins(tmp) : []),
+      getOpenSpecUpdateSignature: () => undefined,
+    } as unknown as PreferencesStore;
+    const rows = (opts.sessions ? opts.sessions(tmp) : []).map((s) => ({
+      id: s.id,
+      cwd: s.cwd,
+      source: "tui" as const,
+      status: s.status ?? ("active" as const),
+      startedAt: 1,
+    }));
+    const sessionManager = { listAll: () => rows } as unknown as SessionManager;
+    const service = createDirectoryService(preferencesStore, sessionManager, opts.config ? opts.config(tmp) : {});
+    services.push(service);
+    const broadcast = vi.fn();
+    const ctx = { broadcast, directoryService: service } as unknown as BrowserHandlerContext;
+    return { service, ctx, broadcast, tmp };
+  }
+
+  const created: string[] = [];
+  const services: DirectoryService[] = [];
+
+  afterEach(() => {
+    for (const s of services) s.stopPolling();
+    services.length = 0;
+    for (const dir of created) fs.rmSync(dir, { recursive: true, force: true });
+    created.length = 0;
+    // The openspec-poller mocks (and the fs.statSync spy) are module-level
+    // singletons — drop their call records so each test asserts only its own
+    // spawns. Implementations from the module factory survive mockClear.
+    vi.clearAllMocks();
+  });
+
+  /** A cwd that is neither pinned nor present in any session registry. */
+  const untrackedCwd = (label: string) => path.join(os.tmpdir(), `dh-untracked-${label}`);
+
+  const openspecUpdatesTo = (broadcast: ReturnType<typeof vi.fn>, cwd: string) =>
+    broadcast.mock.calls.filter(
+      (c) => (c[0] as { type?: string; cwd?: string })?.type === "openspec_update" && (c[0] as { cwd?: string }).cwd === cwd,
+    );
+
+  it("E1 untracked cwd does not spawn and does not broadcast", async () => {
+    const cwd = untrackedCwd("e1");
+    const h = gateHarness({}); // empty registry, no pins
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd } as any, h.ctx);
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("E2 opted-out cwd does not spawn and does not broadcast", async () => {
+    const h = gateHarness({
+      sessions: (tmp) => [{ id: "s1", cwd: tmp }],
+      config: (tmp) => ({ optOutDirectories: [tmp] }),
+      withRoot: true, // only the opt-out gate may stop it
+    });
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("E3 tracked cwd without an openspec root does not spawn and does not broadcast", async () => {
+    const h = gateHarness({ sessions: (tmp) => [{ id: "s1", cwd: tmp }] }); // no root
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("E4 global disable still wins", async () => {
+    const h = gateHarness({
+      sessions: (tmp) => [{ id: "s1", cwd: tmp }],
+      config: () => ({ enabled: false }),
+      withRoot: true, // tracked AND holding a root — the master gate decides
+    });
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("E5 tracked cwd still force-polls — over-gating guard", async () => {
+    const h = gateHarness({ sessions: (tmp) => [{ id: "s1", cwd: tmp }], withRoot: true });
+    // Warm the cache so a gated poll would skip on unchanged mtimes.
+    await h.service.refreshOpenSpec(h.tmp);
+    const spawns = spawnSpies();
+    spawns.list.mockClear();
+    spawns.status.mockClear();
+    spawns.legacy.mockClear();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
+    await flush();
+
+    // Force path bypasses the mtime gate: exactly one list spawn; the
+    // changeless root means no per-change status spawn.
+    expect(spawns.list).toHaveBeenCalledTimes(1);
+    expect(spawns.status).toHaveBeenCalledTimes(0);
+    expect(spawns.legacy).not.toHaveBeenCalled();
+    expect(openspecUpdatesTo(h.broadcast, h.tmp)).toHaveLength(1);
+  });
+
+  it("E6 tracked gate precedes the filesystem probe", async () => {
+    const cwd = untrackedCwd("e6");
+    const h = gateHarness({});
+    const statSpy = vi.mocked(fs.statSync);
+    statSpy.mockClear();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd } as any, h.ctx);
+    await flush();
+
+    const probed = statSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((p) => p === cwd || p.startsWith(cwd + path.sep));
+    expect(probed).toEqual([]);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("E7 ended session's cwd is still refreshable — parity with openspec_get", async () => {
+    const h = gateHarness({
+      sessions: (tmp) => [{ id: "s1", cwd: tmp, status: "ended" }],
+      withRoot: true,
+    });
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp } as any, h.ctx);
+    await flush();
+
+    expect(spawns.list).toHaveBeenCalledTimes(1);
+    expect(openspecUpdatesTo(h.broadcast, h.tmp)).toHaveLength(1);
+  });
+
+  it("E8 non-canonical cwd gates — pins the strict-equality trade-off", async () => {
+    const h = gateHarness({ sessions: (tmp) => [{ id: "s1", cwd: tmp }], withRoot: true });
+    const spawns = spawnSpies();
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd: h.tmp + "/" } as any, h.ctx);
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
+  });
+
+  it("X7 gated refresh leaves no cache residue", async () => {
+    const cwd = untrackedCwd("x7");
+    const h = gateHarness({});
+
+    handleOpenSpecRefresh({ type: "openspec_refresh", cwd } as any, h.ctx);
+    await flush();
+
+    expect(h.service.getOpenSpecData(cwd)).toBeUndefined();
+  });
+
+  it("P1 100 untracked refreshes back-to-back cannot force a single spawn", async () => {
+    const h = gateHarness({});
+    const spawns = spawnSpies();
+    const cwds = Array.from({ length: 100 }, (_, i) => untrackedCwd(`p1-${i}`));
+
+    for (const cwd of cwds) {
+      handleOpenSpecRefresh({ type: "openspec_refresh", cwd } as any, h.ctx);
+    }
+    await flush();
+
+    expect(totalSpawns(spawns.list, spawns.status, spawns.legacy)).toBe(0);
+    expect(h.broadcast).not.toHaveBeenCalled();
   });
 });

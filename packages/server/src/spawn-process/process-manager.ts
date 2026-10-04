@@ -28,7 +28,6 @@ import {
   mergeHeapIntoNodeOptions,
   stripDashboardHeapFlag,
 } from "@blackbelt-technology/pi-dashboard-shared/heap-flags.js";
-import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
@@ -97,6 +96,20 @@ let spawnDashboardPiPort: number | null = null;
 /** Set the owning server's piPort so spawned sessions connect back here. */
 export function setSpawnDashboardPiPort(piPort: number | null): void {
   spawnDashboardPiPort = piPort;
+}
+
+/** The bridge transport this server actually serves, for spawn pinning (D6). */
+type SpawnGatewayTransport =
+  | { transport: "unix"; path: string }
+  | { transport: "loopback-fallback" }
+  | { transport: "tcp" };
+
+// Read lazily on every spawn: the gateway starts after this module loads and
+// may fall back to loopback. Unset = never pin a socket.
+let spawnGatewayTransport: (() => SpawnGatewayTransport | null) | null = null;
+
+export function setSpawnGatewayTransport(get: (() => SpawnGatewayTransport | null) | null): void {
+  spawnGatewayTransport = get;
 }
 
 // ── Cwd-policy registry seam (Part B — host-cwd-policy) ──────────────────────
@@ -321,17 +334,18 @@ export function buildSpawnEnv(
   // server that spawned them, not the config-default piPort. Overrides any
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
   if (spawnDashboardPiPort != null) {
-    env.PI_DASHBOARD_URL = `ws://localhost:${spawnDashboardPiPort}`;
+    const served = spawnGatewayTransport?.() ?? null;
+    // After a fallback the URL is a literal so a bridge never lands on a
+    // `[::1]` squatter. See change: fix-gateway-socket-stale-owner (D6).
+    env.PI_DASHBOARD_URL = `ws://${served?.transport === "loopback-fallback" ? "127.0.0.1" : "localhost"}:${spawnDashboardPiPort}`;
     // Pin over the socket too when this instance is serving one. The URL pin
     // alone stops working the moment the default TCP listener goes away (task
     // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
     // outrank our URL in the bridge's precedence ladder — the same
     // cross-instance capture, via a different variable (task 2.0f).
     delete env.PI_DASHBOARD_SOCKET;
-    const local = resolveLocalGatewayEndpoint({ homedir: env.HOME }, spawnDashboardPiPort);
-    if (local.transport === "unix" && existsSync(local.path)) {
-      env.PI_DASHBOARD_SOCKET = local.path;
-    }
+    // Only when THIS server serves a unix socket at that path.
+    if (served?.transport === "unix") env.PI_DASHBOARD_SOCKET = served.path;
   }
   if (opts?.spawnToken) {
     // Inject the correlation token so the bridge inside the spawned pi
@@ -485,6 +499,7 @@ export function buildTmuxCommand(
   options?: SessionOptions,
   piInvocation: string[] = ["pi"],
   heapNodeOptions = "",
+  endpoint?: { url?: string; socket?: string },
 ): string[] {
   const paneCommand = [
     ...piInvocation.map(shellEscape),
@@ -507,10 +522,28 @@ export function buildTmuxCommand(
   // it is inherited by descendants, which is the accepted cost of reaching the
   // pane at all (design D3).
   const heapEnv: string[] = heapNodeOptions ? ["-e", `NODE_OPTIONS=${heapNodeOptions}`] : [];
+  // The dashboard endpoint pin rides `-e` too: a pane inherits the long-lived
+  // tmux SERVER's env, so the spawn env never reaches it. An empty
+  // PI_DASHBOARD_SOCKET reads as unset in the bridge, which cancels a stale
+  // value from the server's env. See change: fix-gateway-socket-stale-owner (D6).
+  const endpointEnv: string[] = endpoint
+    ? [
+        ...(endpoint.url ? ["-e", `PI_DASHBOARD_URL=${endpoint.url}`] : []),
+        "-e",
+        `PI_DASHBOARD_SOCKET=${endpoint.socket ?? ""}`,
+      ]
+    : [];
+  const envArgs = [...tokenEnv, ...endpointEnv, ...heapEnv];
   if (sessionExists) {
-    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
+    return ["tmux", "new-window", "-t", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
   }
-  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, ...heapEnv, "-c", cwd, paneCommand];
+  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...envArgs, "-c", cwd, paneCommand];
+}
+
+/** The endpoint pin `buildSpawnEnv` set, for the tmux `-e` path (D6). */
+function tmuxEndpoint(env: NodeJS.ProcessEnv): { url?: string; socket?: string } | undefined {
+  if (spawnDashboardPiPort == null) return undefined;
+  return { url: env.PI_DASHBOARD_URL, socket: env.PI_DASHBOARD_SOCKET };
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -772,7 +805,7 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // Built AFTER `env` so the per-window value merges over the ALREADY-STRIPPED
   // child environment — unrelated operator options survive into the pane, and
   // the dashboard's own flag is already gone.
-  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env));
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd, tmuxHeapNodeOptions(env), tmuxEndpoint(env));
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });

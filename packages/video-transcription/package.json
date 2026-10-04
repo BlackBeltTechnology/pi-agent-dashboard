@@ -27,7 +27,8 @@
   "pi": {
     "skills": [
       ".pi/skills/video-transcription",
-      ".pi/skills/speaker-id"
+      ".pi/skills/speaker-id",
+      ".pi/skills/youtube-srt"
     ],
     "tools": [
       {

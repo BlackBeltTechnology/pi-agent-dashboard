@@ -368,8 +368,54 @@ describe("REST host gate — real server wiring", () => {
     expect(status).toBe("403");
   }, 30000);
 
-  it("#E15 report default: served normally, one would-refuse line", async () => {
+  it("#E37 enforce default refuses: 403 host_not_allowed, one log line, no ACAO", async () => {
     fs.writeFileSync(configFile, JSON.stringify({}));
+    watchLogs();
+    handle = await createTestServer();
+
+    const res = await get("rebind.example");
+    expect(res.status).toBe(403);
+    expect(res.text).toContain("host_not_allowed");
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(errors.filter((l) => l.includes("[host-gate] refused host=rebind.example"))).toHaveLength(1);
+  }, 30000);
+
+  it("#E38 enforce default admits the loopback / IP-literal population", async () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    handle = await createTestServer();
+    const port = handle.httpPort;
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`, `192.168.1.20:${port}`]) {
+      expect((await get(host)).status, host).toBe(200);
+    }
+  }, 30000);
+
+  it("#E40 boot line names mode and source", async () => {
+    const bootLine = async (): Promise<string | undefined> => {
+      const logs: string[] = [];
+      const l = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+        logs.push(a.map(String).join(" "));
+      });
+      handle = await createTestServer();
+      l.mockRestore();
+      await handle.stop();
+      handle = undefined;
+      const lines = logs.filter((x) => x.startsWith("[host-gate] mode="));
+      expect(lines).toHaveLength(1);
+      return lines[0];
+    };
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    expect(await bootLine()).toBe("[host-gate] mode=enforce source=default");
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
+    expect(await bootLine()).toBe("[host-gate] mode=report source=config");
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    setGateEnv("report");
+    expect(await bootLine()).toBe("[host-gate] mode=report source=env");
+    setGateEnv("yes");
+    expect(await bootLine()).toBe("[host-gate] mode=enforce source=default");
+  }, 60000);
+
+  it("#E39 report opt-out: served normally, one would-refuse line", async () => {
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
     watchLogs();
     handle = await createTestServer();
 
@@ -378,10 +424,10 @@ describe("REST host gate — real server wiring", () => {
     expect(errors.filter((l) => l.includes("[host-gate] would-refuse host=rebind.example"))).toHaveLength(1);
   }, 30000);
   it("#E16 mode + allowedHosts + publicBaseUrls apply live, no restart", async () => {
-    fs.writeFileSync(configFile, JSON.stringify({ publicBaseUrls: ["https://pi.example.com"] }));
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" }, publicBaseUrls: ["https://pi.example.com"] }));
     handle = await createTestServer();
 
-    expect((await get("rebind.example")).status).toBe(200); // report default
+    expect((await get("rebind.example")).status).toBe(200); // report opt-out
 
     fs.writeFileSync(configFile, JSON.stringify({
       hostGate: { mode: "enforce" },
@@ -444,7 +490,7 @@ describe("REST host gate — real server wiring", () => {
   }, 30000);
 
   it("#E23 the ring counts every refusal, port-stripped, and evicts least-recently-seen at 50", async () => {
-    fs.writeFileSync(configFile, JSON.stringify({}));
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
     handle = await createTestServer();
     const recent = async () =>
       (await (await fetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
@@ -475,14 +521,14 @@ describe("REST host gate — real server wiring", () => {
   }, 30000);
 
   it("#E24 absent Host keys (malformed); admitting a host stops its counter", async () => {
-    fs.writeFileSync(configFile, JSON.stringify({}));
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } }));
     handle = await createTestServer();
     const recent = async () =>
       (await (await fetch(`http://127.0.0.1:${handle!.httpPort}/api/host-gate`)).json()).recent;
     // HTTP/1.0 so the Host-less request reaches the handler at all (see #E13).
     const noHost = "GET /api/health HTTP/1.0\r\nConnection: close\r\n\r\n";
 
-    // Report default: served, but counted under the shared (malformed) key.
+    // Report opt-out: served, but counted under the shared (malformed) key.
     expect(await rawGet(handle.httpPort, noHost)).toBe("200");
     expect(await rawGet(handle.httpPort, noHost)).toBe("200");
     await get("rebind.example");
@@ -490,7 +536,7 @@ describe("REST host gate — real server wiring", () => {
     expect(ring.find((e: { host: string }) => e.host === "(malformed)")).toMatchObject({ count: 2 });
     expect(ring.find((e: { host: string }) => e.host === "rebind.example")).toMatchObject({ count: 1 });
 
-    fs.writeFileSync(configFile, JSON.stringify({ allowedHosts: ["rebind.example"] }));
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" }, allowedHosts: ["rebind.example"] }));
     expect((await get("rebind.example")).status).toBe(200);
     ring = await recent();
     expect(ring.find((e: { host: string }) => e.host === "rebind.example")).toMatchObject({ count: 1 });

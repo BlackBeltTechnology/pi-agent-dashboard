@@ -126,6 +126,24 @@ describe("selectLaunchSource — bundled", () => {
     });
   });
 
+  // NSIS install location is irrelevant: any resourcesPath resolves to the
+  // bundled source (test-plan #E11). See change: cleanup-stale-fork-specs.
+  it.each([
+    "D:\\MyApps\\PI Dashboard\\resources",
+    "C:\\Users\\u\\AppData\\Local\\Programs\\PI Dashboard\\resources",
+  ])("resolves bundled for NSIS-style resourcesPath %s", async (resourcesPath) => {
+    const cliPath = getBundledCliPath(resourcesPath);
+    expect(cliPath.startsWith(resourcesPath)).toBe(true);
+    expect(cliPath.replace(/\\/g, "/")).toMatch(
+      /\/server\/node_modules\/@blackbelt-technology\/pi-dashboard-server\/src\/cli\.ts$/,
+    );
+    const probes = makeProbes({
+      existsSync: vi.fn().mockImplementation((p: string) => p === cliPath),
+    });
+    const result = await selectLaunchSource(baseOpts({ resourcesPath, probes }));
+    expect(result).toMatchObject({ kind: "bundled", cliPath });
+  });
+
   it("throws BundledServerMissingError when no source resolves", async () => {
     const probes = makeProbes(); // existsSync always false
     await expect(selectLaunchSource(baseOpts({ probes }))).rejects.toBeInstanceOf(

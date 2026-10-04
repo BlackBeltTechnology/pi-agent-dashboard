@@ -76,6 +76,13 @@ import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
+
+/** Heartbeat poll-cost counters summed on /api/health. See change: optimize-polling-hot-paths. */
+const POLL_COST_KEYS = [
+  "pollProcScanRuns", "pollProcScanSpawns", "pollProcScanMs",
+  "pollGitProbesTick", "pollGitProbesTool", "pollGitProbesWatch", "pollGitProbesRefresh",
+  "pollGitSpawns", "pollGitMs", "pollGitWatchersAttached",
+] as const;
 import type { NetworkGuard } from "./route-deps.js";
 import { createRuntimeHealthProvider, redactRuntimeHealth } from "../runtime-overlay/runtime-health.js";
 import {
@@ -1076,6 +1083,10 @@ export function registerSystemRoutes(
       // the port the gateway actually bound, which is not the file-config
       // value when it was allocated dynamically.
       piGatewayPort: piGateway?.address() ?? null,
+      // Which bridge listeners are active; the loopback fallback is visible
+      // here without reading the log. No path, no pid: /api/health is
+      // unauthenticated. See change: fix-gateway-socket-stale-owner (D7).
+      gateway: piGateway?.bridgeListeners?.() ?? { listeners: [] },
       // Derived label: promotes a stale `bridge` (no live session, past the
       // 30 s grace window) to `bridge-orphaned`. Static `launchSource` above
       // is left untouched for the `decideShutdownOnQuit` back-compat rule.
@@ -1213,6 +1224,16 @@ export function registerSystemRoutes(
           return acc;
         },
         { tickForwarded: 0, tickCoalesced: 0, tickDiscardedAtTerminal: 0, tickDroppedNotReady: 0 },
+      ),
+      // Poll-cost counters (SUM across live sessions, not max).
+      // See change: optimize-polling-hot-paths.
+      pollCost: activeSessions.reduce(
+        (acc, s) => {
+          const m = s.processMetrics as Record<string, number | undefined> | undefined;
+          for (const k of POLL_COST_KEYS) acc[k] += m?.[k] ?? 0;
+          return acc;
+        },
+        Object.fromEntries(POLL_COST_KEYS.map((k) => [k, 0])) as Record<(typeof POLL_COST_KEYS)[number], number>,
       ),
       // Notify-log cap evictions (silent transcript loss on a chatty emitter),
       // surfaced beside the other silent-loss counters.

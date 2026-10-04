@@ -2,7 +2,7 @@
  * Tests for the cross-platform restart orchestrator.
  * See change: fix-windows-server-parity.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
@@ -329,20 +329,55 @@ describe("buildRestartEnv — ceiling survives /api/restart", () => {
   });
 });
 
+/** Run `fn` with `~/.pi/dashboard/config.json` set to `config`, restoring the prior file after. */
+function withDashboardConfig<T>(config: unknown, fn: () => T): T {
+  const dir = path.join(os.homedir(), ".pi", "dashboard");
+  const configFile = path.join(dir, "config.json");
+  const prior = existsSync(configFile) ? readFileSync(configFile, "utf-8") : null;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(configFile, JSON.stringify(config));
+  try {
+    return fn();
+  } finally {
+    if (prior === null) rmSync(configFile, { force: true });
+    else writeFileSync(configFile, prior);
+  }
+}
+
 describe("spawnRestart re-reads config.json at restart time", () => {
   it("E12: the orchestrator env carries the ceiling from the CURRENT config file", () => {
-    const dir = path.join(os.homedir(), ".pi", "dashboard");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(path.join(dir, "config.json"), JSON.stringify({ serverHeap: { maxOldSpaceMb: 3072 } }));
     vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=1536");
     vi.stubEnv(MARKER, "--max-old-space-size=1536");
     try {
-      spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" });
+      withDashboardConfig({ serverHeap: { maxOldSpaceMb: 3072 } }, () =>
+        spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" }),
+      );
     } finally {
       vi.unstubAllEnvs();
     }
     const opts = (execSpawn.mock.calls.at(-1) as unknown[])[2] as { env: Record<string, string> };
     expect(opts.env.NODE_OPTIONS).toBe("--max-old-space-size=3072");
     expect(opts.env[MARKER]).toBe("--max-old-space-size=3072");
+  });
+
+  // Orchestrator env = buildRestartEnv(process.env, ceiling): the ceiling replaces
+  // a stale NODE_OPTIONS pin of ours and other keys are copied (test-plan #E17).
+  // See change: cleanup-stale-fork-specs.
+  it("E17: the spawn env equals buildRestartEnv(process.env, configured ceiling)", () => {
+    vi.stubEnv("NODE_OPTIONS", "--max-old-space-size=1024");
+    vi.stubEnv(MARKER, "--max-old-space-size=1024");
+    let expected: Record<string, string | undefined>;
+    try {
+      expected = buildRestartEnv(process.env, 4096);
+      withDashboardConfig({ serverHeap: { maxOldSpaceMb: 4096 } }, () =>
+        spawnRestart({ cliPath: "/tmp/cli.ts", loader: "", port: 8000, extraArgs: [], execPath: "/usr/bin/node" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const opts = (execSpawn.mock.calls.at(-1) as unknown[])[2] as { env: Record<string, string> };
+    expect(opts.env).toEqual(expected);
+    expect(opts.env.NODE_OPTIONS).toContain("--max-old-space-size=4096");
+    expect(opts.env.NODE_OPTIONS).not.toContain("1024");
   });
 });
