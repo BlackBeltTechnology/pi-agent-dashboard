@@ -39,10 +39,18 @@ function quiet(): boolean {
  * context exists. Cheap and idempotent: one property read once a sink is held.
  */
 export function useUiSink(ctx: unknown): void {
-  if (uiNotify) return;
-  const notify = (ctx as { ui?: { notify?: unknown } } | undefined)?.ui?.notify;
+  let ui: { notify?: unknown } | undefined;
+  try {
+    // pi's noOpUIContext (print/JSON) has a no-op notify: only adopt a real UI.
+    const c = ctx as { hasUI?: unknown; ui?: { notify?: unknown } } | undefined;
+    if (c?.hasUI !== true) return;
+    ui = c.ui;
+  } catch {
+    return; // stale ctx (pi >=0.84 throws after invalidate)
+  }
+  const notify = ui?.notify;
   if (typeof notify !== "function") return;
-  const ui = (ctx as { ui: object }).ui;
+  // Latest wins: a replacement session's ctx supersedes the previous one.
   uiNotify = (msg: string, level: NotifyLevel = "info") => {
     (notify as Notify).call(ui, msg, level);
   };

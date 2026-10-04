@@ -28,7 +28,7 @@ describe("log sink", () => {
 
   it("prefers the host UI channel once a context offers one", () => {
     const notify = vi.fn();
-    log.useUiSink({ ui: { notify } });
+    log.useUiSink({ hasUI: true, ui: { notify } });
 
     log.info("telemetry");
     log.warn("trouble");
@@ -43,27 +43,28 @@ describe("log sink", () => {
   it("ignores a context without a usable ui.notify", () => {
     log.useUiSink(undefined);
     log.useUiSink({});
-    log.useUiSink({ ui: {} });
-    log.useUiSink({ ui: { notify: "nope" } });
+    log.useUiSink({ hasUI: true, ui: {} });
+    log.useUiSink({ hasUI: true, ui: { notify: "nope" } });
 
     log.info("telemetry");
     expect(logSpy).toHaveBeenCalledWith("telemetry");
   });
 
-  it("keeps the first UI channel it was given", () => {
+  it("switches to the newest UI channel it was given", () => {
     const first = vi.fn();
     const second = vi.fn();
-    log.useUiSink({ ui: { notify: first } });
-    log.useUiSink({ ui: { notify: second } });
+    log.useUiSink({ hasUI: true, ui: { notify: first } });
+    log.useUiSink({ hasUI: true, ui: { notify: second } });
 
     log.info("telemetry");
 
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).not.toHaveBeenCalled();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to console when the UI channel throws", () => {
     log.useUiSink({
+      hasUI: true,
       ui: {
         notify: () => {
           throw new Error("ui gone");
@@ -78,7 +79,7 @@ describe("log sink", () => {
 
   it("drops everything when PI_IMAGE_FIT_QUIET is truthy", () => {
     const notify = vi.fn();
-    log.useUiSink({ ui: { notify } });
+    log.useUiSink({ hasUI: true, ui: { notify } });
     for (const value of ["1", "true", "YES"]) {
       process.env.PI_IMAGE_FIT_QUIET = value;
       log.info("telemetry");
