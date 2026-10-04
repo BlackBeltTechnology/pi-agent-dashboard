@@ -100,6 +100,8 @@ describe("awaitingFileAccess (integration)", () => {
     await boot();
     const bridge = await openBridge();
     await registerLive(bridge, "s1");
+    send(bridge, { type: "event_forward", sessionId: "s1", event: { eventType: "tool_execution_start", timestamp: Date.now(), data: { type: "tool_execution_start", toolName: "read" } } });
+    await wait(60);
     const browser = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
     sockets.push(browser);
     const frames: any[] = [];
@@ -128,6 +130,8 @@ describe("awaitingFileAccess (integration)", () => {
     send(again, { type: "replay_complete", sessionId: "s1" });
     await wait(300);
     expect((await session("s1"))?.awaitingFileAccess).toBe(true);
+    // review r5/B1: replay reconciliation must NOT fold a file-access prompt into currentTool.
+    expect((await session("s1"))?.currentTool).not.toBe("ask_user");
     expect(frames.some((f) => f.type === "session_updated" && f.sessionId === "s1" && f.updates?.awaitingFileAccess === true)).toBe(true);
     const replayed = frames.find((f) => f.type === "prompt_request" && f.promptId === "p1");
     expect(replayed?.prompt?.metadata?.kind).toBe("agent-path-gate");
@@ -136,6 +140,26 @@ describe("awaitingFileAccess (integration)", () => {
     browser.send(JSON.stringify({ type: "prompt_response", sessionId: "s1", promptId: "p1", answer: "Allow once" }));
     await wait(200);
     expect(answers.some((m) => m.type === "prompt_response" && m.promptId === "p1" && m.answer === "Allow once")).toBe(true);
+  });
+
+  it("review r5/B1: a gate prompt arriving with NO tool in flight does not fold currentTool to ask_user (live or after replay); an ordinary prompt still does", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    gatePrompt(bridge, "s1", "p1");
+    await wait(150);
+    let s = await session("s1");
+    expect(s?.awaitingFileAccess).toBe(true);
+    expect(s?.currentTool ?? null).toBeNull();
+    // still pending after the answer of a DIFFERENT, ordinary prompt: that one folds and clears alone
+    send(bridge, { type: "prompt_request", sessionId: "s1", promptId: "q1", prompt: { question: "q", type: "select", options: ["a"] }, component: { type: "generic-dialog", props: {} }, placement: "inline" });
+    await wait(150);
+    expect((await session("s1"))?.currentTool).toBe("ask_user");
+    send(bridge, { type: "prompt_dismiss", sessionId: "s1", promptId: "q1" });
+    await wait(150);
+    s = await session("s1");
+    expect(s?.currentTool ?? null).toBeNull(); // cleared although the gate prompt is still pending
+    expect(s?.awaitingFileAccess).toBe(true);
   });
 
   it("a non-gate prompt never sets the flag", async () => {

@@ -414,6 +414,14 @@ export interface BrowserGateway {
    */
   hasPendingPromptKind(sessionId: string, kinds: readonly string[]): boolean;
   /**
+   * True when any tracked pending prompt of the session is NOT of `excludeKinds`.
+   * Drives the `currentTool: "ask_user"` fold: a file-access prompt must not be
+   * folded into the tool display (it routes attention via `awaitingFileAccess`).
+   * `hasPendingPromptRequests` stays the raw "any pending ask" signal (reaper).
+   * See change: ask-agent-file-access-in-chat (D7).
+   */
+  hasPendingPromptOtherThan(sessionId: string, excludeKinds: readonly string[]): boolean;
+  /**
    * Snapshot setter over the PromptBus registry: drop every tracked prompt for
    * the session whose id is not in `promptIds`. Used at each replay exit, where
    * the bridge's re-sent prompt burst is the authoritative pending set — this is
@@ -2449,6 +2457,16 @@ export function createBrowserGateway(
       for (const msg of sessionMap.values()) {
         const kind = (msg as { prompt?: { metadata?: { kind?: unknown } } }).prompt?.metadata?.kind;
         if (typeof kind === "string" && kinds.includes(kind)) return true;
+      }
+      return false;
+    },
+
+    hasPendingPromptOtherThan(sessionId: string, excludeKinds: readonly string[]): boolean {
+      const sessionMap = pendingPromptRequests.get(sessionId);
+      if (!sessionMap) return false;
+      for (const msg of sessionMap.values()) {
+        const kind = (msg as { prompt?: { metadata?: { kind?: unknown } } }).prompt?.metadata?.kind;
+        if (!(typeof kind === "string" && excludeKinds.includes(kind))) return true;
       }
       return false;
     },

@@ -20,3 +20,5 @@ Card sections: routes `set_card_section_visibility` / `reset_folder_card_section
 `replayNotifyLog` forwards `entry.ts` when present; pre-change entries replay without `ts`. See change: collapse-and-order-notify-rows.
 
 `hasPendingPromptKind(sessionId, kinds)` — true when a tracked pending prompt's `prompt.metadata.kind` is in `kinds` (drives `awaitingFileAccess`). See change: ask-agent-file-access-in-chat.
+
+`hasPendingPromptOtherThan(sessionId, excludeKinds)` — any pending prompt not of the given kinds; drives the `ask_user` fold so a file-access prompt never overwrites the in-flight tool. `hasPendingPromptRequests` unchanged (reaper). See change: ask-agent-file-access-in-chat.

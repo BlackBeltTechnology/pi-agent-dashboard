@@ -832,7 +832,9 @@ export function wireEvents(deps: EventWiringDeps): void {
   function reconcileAndRecomputeOnReplayExit(sessionId: string): void {
     const collected = replayPromptIds.get(sessionId);
     browserGateway.reconcilePromptRequests(sessionId, [...(collected ?? [])]);
-    if (browserGateway.hasPendingPromptRequests(sessionId)) {
+    // File-access prompts are excluded from the fold: they must never overwrite the
+    // in-flight tool (`awaitingFileAccess` carries them). See change: ask-agent-file-access-in-chat.
+    if (browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)) {
       sessionManager.update(sessionId, { currentTool: "ask_user" });
     }
     // Re-derive from the reconciled registry (flag only; `currentTool` keeps its
@@ -1087,7 +1089,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
       const hasPendingPrompt =
         !replayingSessions.has(sessionId) &&
-        browserGateway.hasPendingPromptRequests(sessionId);
+        browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS);
       const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
@@ -1374,7 +1376,7 @@ export function wireEvents(deps: EventWiringDeps): void {
             // the same gate `extractSessionUpdates` applies via
             // `hasPendingPrompt` (design D10).
             const applied =
-              updates.currentTool === null && browserGateway.hasPendingPromptRequests(sessionId)
+              updates.currentTool === null && browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)
                 ? { status: updates.status }
                 : updates;
             // `streaming`/`idle` disagreements mean a run-boundary event was
@@ -2294,7 +2296,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         };
         // Precedence (D3): a genuine in-flight tool wins; only an empty field
         // is folded to "ask_user".
-        if (sessionBefore && !sessionBefore.currentTool) {
+        const promptKind = (msg as any).prompt?.metadata?.kind;
+        const isFileAccessPrompt = typeof promptKind === "string" && (FILE_ACCESS_KINDS as readonly string[]).includes(promptKind);
+        if (sessionBefore && !sessionBefore.currentTool && !isFileAccessPrompt) {
           sessionManager.update(sessionId, { currentTool: "ask_user" });
           browserGateway.broadcastSessionUpdated(sessionId, { currentTool: "ask_user" });
         }
@@ -2358,7 +2362,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // derived value — a real tool that started meanwhile must not be stomped.
       if (
         !replayingSessions.has(sessionId) &&
-        !browserGateway.hasPendingPromptRequests(sessionId) &&
+        !browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS) &&
         sessionManager.get(sessionId)?.currentTool === "ask_user"
       ) {
         sessionManager.update(sessionId, { currentTool: null });
