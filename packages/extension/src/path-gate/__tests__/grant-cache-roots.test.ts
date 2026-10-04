@@ -83,6 +83,33 @@ describe("RootsProvider", () => {
     expect(r.readWrite).toContain("/h/.pi/agent/sessions/s");
   });
 
+  it("review r4/B1: a superseded checkout probe never publishes its result for the new cwd (out-of-order resolution)", async () => {
+    let cwd = "/w/a/pkg";
+    const pending = new Map<string, (r: string[]) => void>();
+    const p = new RootsProvider({
+      getCwd: () => cwd,
+      getSessionDir: () => undefined,
+      getPiResources: () => res,
+      probe: (c) => new Promise<string[]>((resolve) => pending.set(c, resolve)),
+      probeBoundMs: 10_000,
+    });
+    // cwd A: probe starts and stays pending.
+    p.startProbe();
+    // cwd changes to B: a new probe starts; A's is now superseded.
+    cwd = "/w/b/pkg";
+    const rootsB = p.roots([], true, "/w/b/pkg");
+    // A's probe resolves LATE, while B's is still pending — it must not leak A's checkout root.
+    pending.get("/w/a/pkg")?.(["/w/a"]);
+    await new Promise((r) => setTimeout(r, 0));
+    const early = await p.roots([], false, "/w/b/pkg");
+    expect(early.workspace).toEqual(["/w/b/pkg"]);
+    // B's own probe resolves: only now does B get ITS checkout root, never A's.
+    pending.get("/w/b/pkg")?.(["/w/b"]);
+    const done = await rootsB;
+    expect(done.workspace).toEqual(["/w/b/pkg", "/w/b"]);
+    expect((await p.roots([], false, "/w/b/pkg")).workspace).toEqual(["/w/b/pkg", "/w/b"]);
+  });
+
   it("withBound resolves the fallback on timeout and on rejection", async () => {
     expect(await withBound(new Promise<number>(() => {}), 5, 7)).toBe(7);
     expect(await withBound(Promise.reject(new Error("x")), 50, 8)).toBe(8);

@@ -77,6 +77,7 @@ export class RootsProvider {
   private probePromise: Promise<string[]> | null = null;
   private probeCwd: string | null = null;
   private settled: string[] | null = null;
+  private probeGen = 0;
   private cachedKey = "";
   private cachedStatic: Omit<GateRoots, "grants" | "workspace"> | null = null;
 
@@ -86,11 +87,14 @@ export class RootsProvider {
   startProbe(cwdArg?: string): void {
     const cwd = cwdArg ?? this.opts.getCwd();
     if (this.probeCwd === cwd && this.probePromise !== null) return;
+    // Generation: a superseded probe (cwd changed while it ran) may still resolve
+    // later — it must never publish its checkout root for the NEW cwd.
+    const gen = ++this.probeGen;
     this.probeCwd = cwd;
     this.settled = null;
     const probe = this.opts.probe ?? probeCheckoutRoots;
     this.probePromise = withBound(probe(cwd), this.opts.probeBoundMs ?? PROBE_BOUND_MS, [] as string[]).then((r) => {
-      this.settled = r;
+      if (gen === this.probeGen) this.settled = r;
       return r;
     });
   }
@@ -99,8 +103,15 @@ export class RootsProvider {
   async roots(grants: readonly string[], needsCheckout: boolean, cwdArg?: string): Promise<GateRoots> {
     const cwd = cwdArg ?? this.opts.getCwd();
     this.startProbe(cwd);
+    // The probe in flight belongs to `cwd` (startProbe above). Use only a result that
+    // was published for THIS cwd's generation; anything else means "not known yet".
+    const mine = this.probePromise as Promise<string[]>;
+    const gen = this.probeGen;
     let checkout: string[] = this.settled ?? [];
-    if (this.settled === null && needsCheckout) checkout = await (this.probePromise as Promise<string[]>);
+    if (this.settled === null && needsCheckout) {
+      const r = await mine;
+      checkout = gen === this.probeGen && this.probeCwd === cwd ? r : [];
+    }
     const workspace = [realpathOr(cwd), ...checkout];
     return { workspace, grants, ...this.staticRoots() };
   }
