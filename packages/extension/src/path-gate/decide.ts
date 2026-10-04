@@ -4,6 +4,8 @@
  * which options the card may offer. No I/O beyond the injected resolve env.
  * See change: ask-agent-file-access-in-chat.
  */
+import nodePath from "node:path";
+import { volumeCaseInsensitive } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
 import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveToolPath } from "./resolve.js";
 
 export type PathAccess = "read" | "write";
@@ -29,8 +31,10 @@ export interface DecideInput {
   /** Whether granting `subject` is refused (forbidden or subsumes a forbidden dir). */
   isUngrantable: (subject: string) => boolean;
   env?: ResolveEnv;
-  /** Volume case sensitivity; default: win32/darwin fold, else exact. */
+  /** Force volume case sensitivity (tests). Default: probed from the volume. */
   caseInsensitive?: boolean;
+  /** Injectable volume probe (path → folds case?). Default: the shared probe on a real host. */
+  volumeCaseProbe?: (existingPathOrAncestor: string) => boolean;
 }
 
 export type Decision =
@@ -52,6 +56,17 @@ function fold(s: string, ci: boolean): string {
   return ci ? nfc.toLowerCase() : nfc;
 }
 
+/**
+ * Whether the volume holding `canonical` compares case-insensitively. PROBED from
+ * the volume on a real host (a case-sensitive APFS volume on macOS must not fold);
+ * on an injected foreign flavour (tests) the platform default stands.
+ */
+function defaultVolumeProbe(canonical: string, env: ResolveEnv): boolean {
+  const realHost = env.path === nodePath && env.platform === process.platform;
+  if (realHost) return volumeCaseInsensitive(canonical);
+  return env.platform === "win32" || env.platform === "darwin";
+}
+
 /** Component-wise containment on already-canonical paths (never a string prefix). */
 function isWithin(candidate: string, root: string, env: ResolveEnv, ci: boolean): boolean {
   const p = env.path;
@@ -64,7 +79,6 @@ function isWithin(candidate: string, root: string, env: ResolveEnv, ci: boolean)
 
 export function decidePathAccess(input: DecideInput): Decision {
   const env = input.env ?? defaultResolveEnv();
-  const ci = input.caseInsensitive ?? (env.platform === "win32" || env.platform === "darwin");
   const abs = resolveToolPath(input.rawPath, input.cwd, env);
   const canonical = canonicalizeTarget(abs, env);
   const r = input.roots;
@@ -74,9 +88,18 @@ export function decidePathAccess(input: DecideInput): Decision {
     [...r.grants],
     ...(input.access === "read" ? [[...r.readOnly]] : []),
   ];
-  for (const set of rooted) {
-    if (set.some((root) => isWithin(canonical, root, env, ci))) return { verdict: "in-root", canonical };
+  const containedBy = (ci: boolean): boolean =>
+    rooted.some((set) => set.some((root) => isWithin(canonical, root, env, ci)));
+  // Exact (case-sensitive) match is valid on every volume: the in-root hot path
+  // never probes. Only when it fails is the volume asked whether case folds.
+  let inRoot = containedBy(false);
+  if (!inRoot) {
+    const ci =
+      input.caseInsensitive ??
+      (input.volumeCaseProbe ? input.volumeCaseProbe(canonical) : defaultVolumeProbe(canonical, env));
+    if (ci) inRoot = containedBy(true);
   }
+  if (inRoot) return { verdict: "in-root", canonical };
   const p = env.path;
   const suppressionKey = p.dirname(canonical);
   // A grant names the containing directory (the file's directory), never an ancestor.
@@ -84,7 +107,8 @@ export function decidePathAccess(input: DecideInput): Decision {
   return {
     verdict: "ask",
     canonical,
-    sensitive: input.sensitiveDirs.some((d) => isWithin(canonical, d, env, ci)),
+    // Flagging errs toward flagging (case-folded): a false flag only adds a warning.
+    sensitive: input.sensitiveDirs.some((d) => isWithin(canonical, d, env, true)),
     subject,
     grantable: !input.isUngrantable(subject),
     suppressionKey,

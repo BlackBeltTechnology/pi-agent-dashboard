@@ -4,10 +4,12 @@
  * (`onSessionStart`, `onBeforeAgentStart`, `onServerMessage`, `reset`).
  * See change: ask-agent-file-access-in-chat.
  */
+import * as fs from "node:fs";
 import os from "node:os";
 import nodePath from "node:path";
 import {
   type AgentPathGateConfig,
+  CONFIG_FILE,
   DEFAULT_AGENT_PATH_GATE,
   resolveAgentPathGate,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -25,13 +27,13 @@ export interface PathGateOptions {
   send: (msg: unknown) => boolean;
   /** Raw config read (e.g. `loadConfig().agentPathGate`); env override applied here. */
   readConfig: () => AgentPathGateConfig;
+  /** Config file whose change signature gates re-reads (default: the dashboard `config.json`). */
+  configFile?: string;
   getCwd: () => string;
   getSessionDir: () => string | undefined;
   log: (line: string) => void;
   notify?: (message: string) => void;
 }
-
-const CONFIG_TTL_MS = 1_000;
 
 export function createPathGate(opts: PathGateOptions) {
   const counters = { inRoot: 0, asked: 0, blocked: 0 };
@@ -48,21 +50,31 @@ export function createPathGate(opts: PathGateOptions) {
   const grants = new GrantCache();
   const link = createGrantLink({ send: opts.send, sessionId: opts.getSessionId });
 
-  // Config is re-read at most once per CONFIG_TTL_MS so a toggle applies from the
-  // next tool call without a per-call file read.
+  // Config is re-parsed only when the file's change signature moves (a stat per
+  // call, no parse), so a Settings toggle applies from the very next tool call.
+  // The env override is applied on every call.
+  const configFile = opts.configFile ?? CONFIG_FILE;
+  let cfgSig = "\u0000never";
   let cfg: AgentPathGateConfig = DEFAULT_AGENT_PATH_GATE;
-  let cfgAt = 0;
+  const configSignature = (): string => {
+    try {
+      const st = fs.statSync(configFile);
+      return `${st.mtimeMs}:${st.size}:${st.ino}:${st.ctimeMs}`;
+    } catch {
+      return "missing";
+    }
+  };
   const getConfig = (): AgentPathGateConfig => {
-    const t = Date.now();
-    if (t - cfgAt > CONFIG_TTL_MS || cfgAt === 0) {
-      cfgAt = t;
+    const sig = configSignature();
+    if (sig !== cfgSig) {
+      cfgSig = sig;
       try {
-        cfg = resolveAgentPathGate(opts.readConfig());
+        cfg = opts.readConfig();
       } catch {
-        cfg = resolveAgentPathGate(DEFAULT_AGENT_PATH_GATE);
+        cfg = DEFAULT_AGENT_PATH_GATE;
       }
     }
-    return cfg;
+    return resolveAgentPathGate(cfg);
   };
 
   const prompter: GatePrompter = {

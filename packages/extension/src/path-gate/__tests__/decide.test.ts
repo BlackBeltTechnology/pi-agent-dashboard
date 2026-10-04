@@ -94,6 +94,33 @@ describe("decidePathAccess — resolution and containment (E1–E7, E11, E13–E
   });
 });
 
+describe("case sensitivity is probed from the volume (review B1)", () => {
+  const darwin = (over: Partial<ResolveEnv> = {}) => posixEnv({ platform: "darwin", ...over });
+  const run = (probe: (p: string) => boolean, raw: string) =>
+    decidePathAccess({
+      ...base(darwin()),
+      caseInsensitive: undefined,
+      volumeCaseProbe: probe,
+      rawPath: raw,
+    } as never);
+
+  it("a case-SENSITIVE volume (darwin host, APFS-cs) never folds: a case-variant path asks", () => {
+    expect(run(() => false, "/W/Repo/a.txt").verdict).toBe("ask");
+    expect(run(() => false, "/w/repo/a.txt").verdict).toBe("in-root"); // exact match unaffected
+  });
+
+  it("a case-INSENSITIVE volume folds: the case-variant path is in-root", () => {
+    expect(run(() => true, "/W/Repo/a.txt").verdict).toBe("in-root");
+  });
+
+  it("the probe is consulted only after the exact check fails (hot path stays probe-free)", () => {
+    let calls = 0;
+    const d = decidePathAccess({ ...base(posixEnv()), rawPath: "src/a.ts", volumeCaseProbe: () => { calls++; return true; } } as never);
+    expect(d.verdict).toBe("in-root");
+    expect(calls).toBe(0);
+  });
+});
+
 describe("symlink escape (E6) — real filesystem", () => {
   it("canonical path follows the link; asks", () => {
     const tmp = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-")));

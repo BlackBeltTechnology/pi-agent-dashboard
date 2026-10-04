@@ -10,7 +10,7 @@ import nodePath from "node:path";
 
 export interface GrantCacheOptions {
   file?: string;
-  statSync?: (p: string) => { mtimeMs: number; size: number };
+  statSync?: (p: string) => { mtimeMs: number; size: number; ino?: number; ctimeMs?: number };
   readFileSync?: (p: string) => string;
 }
 
@@ -19,8 +19,7 @@ function defaultGrantsFile(): string {
 }
 
 export class GrantCache {
-  private mtime = -1;
-  private size = -1;
+  private sig = "";
   private subjects: string[] = [];
   private readonly file: string;
   constructor(private readonly opts: GrantCacheOptions = {}) {
@@ -30,18 +29,19 @@ export class GrantCache {
   /** Project-scope grant subjects; re-read only when mtime/size changed. */
   get(): readonly string[] {
     const stat = this.opts.statSync ?? ((p: string) => fs.statSync(p));
-    let st: { mtimeMs: number; size: number };
+    let st: { mtimeMs: number; size: number; ino?: number; ctimeMs?: number };
     try {
       st = stat(this.file);
     } catch {
-      this.mtime = -1;
-      this.size = -1;
+      this.sig = "";
       this.subjects = [];
       return this.subjects;
     }
-    if (st.mtimeMs === this.mtime && st.size === this.size) return this.subjects;
-    this.mtime = st.mtimeMs;
-    this.size = st.size;
+    // mtime+size alone can repeat across an atomic same-size rewrite on a coarse
+    // clock; the store replaces the file by rename, which changes ino/ctime.
+    const sig = `${st.mtimeMs}:${st.size}:${st.ino ?? 0}:${st.ctimeMs ?? 0}`;
+    if (sig === this.sig) return this.subjects;
+    this.sig = sig;
     this.subjects = this.parse();
     return this.subjects;
   }

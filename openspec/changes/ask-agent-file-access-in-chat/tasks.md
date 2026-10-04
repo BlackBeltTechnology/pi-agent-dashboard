@@ -100,7 +100,7 @@
 - [x] 9.3 E2E always allow persists — exemplar `tests/e2e/access-grants-revoke.spec.ts`; faux `tool-read-outside-grantable` · Always allow + confirm · Access lists "Agent prompt" grant; sibling read shows no card (test-plan #F3)
 - [x] 9.4 E2E cancelled confirm denies — exemplar `tests/e2e/access-grants-revoke.spec.ts`; as F3 · Always allow then cancel · tool result `denied`, Access list unchanged (test-plan #F4)
 - [x] 9.5 E2E needs-you rollup — exemplar `tests/e2e/faux-ask.spec.ts`; A blocked on F1 card, viewing B · observe folder header · rollup "1", A still shows `read` (test-plan #F5)
-- [x] 9.6 E2E rollup survives reconnect — exemplar `tests/e2e/optimistic-prompt.spec.ts` (`page.routeWebSocket`); as F5 · drop + restore bridge link · rollup "1", card answerable (test-plan #F6)
+- [x] 9.6 E2E rollup survives reconnect — exemplar `tests/e2e/optimistic-prompt.spec.ts` (`page.routeWebSocket`); as F5 · drop + restore bridge link · rollup "1", card answerable (test-plan #F6) — e2e drops the BROWSER link; the BRIDGE disconnect/re-register/replay is covered at integration level (`path-gate-attention.integration.test.ts`, bridge socket + subscribed browser + answer routed to the new bridge socket)
 - [x] 9.7 E2E toast for other session — exemplar `tests/e2e/faux-ask.spec.ts`; viewing B, A raises gate prompt · — · toast names A with Open, Open selects A, toast gone after answer (test-plan #F7)
 - [x] 9.8 E2E no toast when in view — exemplar `tests/e2e/faux-ask.spec.ts`; viewing A · A raises gate prompt · no toast (test-plan #F8)
 - [x] 9.9 E2E gate off — exemplar `tests/e2e/blackhole-settings.spec.ts`; Settings ▸ Security toggle off · rerun F1 faux · no card, read succeeds (test-plan #F9)

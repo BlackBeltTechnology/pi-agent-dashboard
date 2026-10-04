@@ -96,6 +96,48 @@ describe("awaitingFileAccess (integration)", () => {
     expect(s?.awaitingFileAccess ?? false).toBe(false);
   });
 
+  it("review B5: bridge disconnect + re-register + replay restores the flag, re-delivers the SAME prompt to a subscribed browser, and its answer reaches the new bridge socket", async () => {
+    await boot();
+    const bridge = await openBridge();
+    await registerLive(bridge, "s1");
+    const browser = new WebSocket(`ws://127.0.0.1:${browserPort}/ws`);
+    sockets.push(browser);
+    const frames: any[] = [];
+    browser.on("message", (raw) => { try { frames.push(JSON.parse(String(raw))); } catch { /* ignore */ } });
+    await new Promise<void>((resolve) => browser.on("open", () => resolve()));
+    browser.send(JSON.stringify({ type: "subscribe", sessionId: "s1" }));
+    await wait(100);
+
+    gatePrompt(bridge, "s1", "p1");
+    await wait(150);
+    expect(frames.some((f) => f.type === "session_updated" && f.sessionId === "s1" && f.updates?.awaitingFileAccess === true)).toBe(true);
+
+    // Bridge link drops: the flag clears (the prompt cannot be answered through a closed bridge).
+    frames.length = 0;
+    bridge.close();
+    await wait(300);
+    expect(frames.some((f) => f.type === "session_updated" && f.updates?.awaitingFileAccess === false)).toBe(true);
+
+    // The bridge re-registers and replays the still-pending prompt.
+    frames.length = 0;
+    const again = await openBridge();
+    const answers: any[] = [];
+    again.on("message", (raw) => { try { answers.push(JSON.parse(String(raw))); } catch { /* ignore */ } });
+    send(again, { type: "session_register", sessionId: "s1", cwd: "/tmp", source: "cli" });
+    gatePrompt(again, "s1", "p1");
+    send(again, { type: "replay_complete", sessionId: "s1" });
+    await wait(300);
+    expect((await session("s1"))?.awaitingFileAccess).toBe(true);
+    expect(frames.some((f) => f.type === "session_updated" && f.sessionId === "s1" && f.updates?.awaitingFileAccess === true)).toBe(true);
+    const replayed = frames.find((f) => f.type === "prompt_request" && f.promptId === "p1");
+    expect(replayed?.prompt?.metadata?.kind).toBe("agent-path-gate");
+
+    // The card is still answerable: the browser's answer is routed to the NEW bridge socket.
+    browser.send(JSON.stringify({ type: "prompt_response", sessionId: "s1", promptId: "p1", answer: "Allow once" }));
+    await wait(200);
+    expect(answers.some((m) => m.type === "prompt_response" && m.promptId === "p1" && m.answer === "Allow once")).toBe(true);
+  });
+
   it("a non-gate prompt never sets the flag", async () => {
     await boot();
     const bridge = await openBridge();

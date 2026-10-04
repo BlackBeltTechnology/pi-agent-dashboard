@@ -30,6 +30,23 @@ describe("GrantCache", () => {
     expect(c.get()).toEqual([]);
   });
 
+  it("review B3: an atomic same-size/same-mtime rewrite that revokes a grant is still seen (inode/ctime in the signature)", () => {
+    const a = store([["/w/aaaa", "project"]]);
+    const b = store([["/w/bbbb", "project"]]);
+    expect(a.length).toBe(b.length);
+    const f = tmpFile(a);
+    const pinned = new Date(1_700_000_000_000);
+    fs.utimesSync(f, pinned, pinned);
+    const c = new GrantCache({ file: f });
+    expect(c.get()).toEqual(["/w/aaaa"]);
+    // Atomic replace via rename (what the store does), same size, same recorded mtime.
+    const tmp = `${f}.tmp`;
+    fs.writeFileSync(tmp, b);
+    fs.utimesSync(tmp, pinned, pinned);
+    fs.renameSync(tmp, f);
+    expect(c.get()).toEqual(["/w/bbbb"]);
+  });
+
   it("E17 malformed / unknown-version / missing store → empty, no throw", () => {
     expect(new GrantCache({ file: tmpFile("{not json") }).get()).toEqual([]);
     expect(new GrantCache({ file: tmpFile(JSON.stringify({ version: 2, grants: [{ subject: "/x" }] })) }).get()).toEqual([]);

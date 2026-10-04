@@ -159,7 +159,9 @@ export function createPathGateHandler(deps: PathGateDeps) {
       const answer = await Promise.race([
         deps.prompter.select({
           id: id1,
-          title: `Agent wants to ${tool === "read" ? "read" : tool} outside its workspace`,
+          // The TUI shows only title + options (metadata is dashboard-card detail),
+          // so the title itself names the target and flags a sensitive location.
+          title: `Agent wants to ${tool} outside its workspace: ${d.canonical.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?")}${d.sensitive ? "  ⚠ sensitive location" : ""}`,
           options: offer.options,
           metadata: {
             kind: KIND_SELECT,

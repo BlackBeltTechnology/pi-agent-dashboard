@@ -36,7 +36,7 @@ function harness(opts: {
   const confirms = [...(opts.confirms ?? [])];
   const cancelled: string[] = [];
   const pendingResolvers = new Map<string, (v: undefined | boolean) => void>();
-  const selects: Array<{ id: string; options: string[]; metadata: Record<string, unknown> }> = [];
+  const selects: Array<{ id: string; title?: string; options: string[]; metadata: Record<string, unknown> }> = [];
   const confirmCalls: Array<{ id: string; metadata: Record<string, unknown> }> = [];
   const prompter: GatePrompter = {
     select: (a) => {
@@ -167,6 +167,16 @@ describe("path-gate handler", () => {
     await h.call("read", "/h/.ssh/id_rsa");
     expect(h.selects[0].metadata).toMatchObject({ kind: "agent-path-gate", sensitive: true, access: "read", toolCallId: "tc1" });
     expect(h.selects[0].options).toEqual(["Allow once", "Deny"]);
+  });
+
+  it("the prompt TITLE (all a TUI shows) names the path and flags a sensitive location (review B2)", async () => {
+    const h = harness({ answers: ["Allow once", "Allow once"] });
+    await h.call("read", "/h/.ssh/id_rsa");
+    expect((h.selects[0] as { title?: string }).title).toMatch(/\/h\/\.ssh\/id_rsa.*sensitive/i);
+    await h.call("write", "/w/other/plain.txt", { content: "x" });
+    const t = (h.selects[1] as { title?: string }).title ?? "";
+    expect(t).toContain("/w/other/plain.txt");
+    expect(t).not.toMatch(/sensitive/i);
   });
 
   it("X3 timeout blocks, cancels the prompt once", async () => {
