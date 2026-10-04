@@ -32,6 +32,12 @@ async function raise(page: Page, scenario: string) {
   return card;
 }
 
+/** The scripted run finishes even after a BLOCKED read, so assert the tool row itself succeeded. */
+async function expectReadSucceeded(page: Page, pathText: string) {
+  await expect(page.getByText(`Read ${pathText}`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/\d+ failed/i)).toHaveCount(0);
+}
+
 const allowOnce = (page: Page) => page.getByRole("button", { name: /^Allow once/i }).first();
 const deny = (page: Page) => page.getByRole("button", { name: /^Deny/i }).first();
 const always = (page: Page) => page.getByRole("button", { name: /^Always allow/i }).first();
@@ -77,6 +83,7 @@ test.describe("agent path gate (L3)", () => {
     // proceeds and the scripted run finishes.
     await expect(allowOnce(page)).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByText("outside read done")).toBeVisible({ timeout: 30_000 });
+    await expectReadSucceeded(page, "/etc/hostname");
   });
 
   test("#F2 first answer wins across tabs", async ({ page, context }) => {
@@ -89,6 +96,7 @@ test.describe("agent path gate (L3)", () => {
     await allowOnce(page).click();
     await expect(allowOnce(second)).toHaveCount(0, { timeout: 15_000 });
     await expect(second.getByText("outside read done")).toBeVisible({ timeout: 30_000 });
+    await expectReadSucceeded(second as Page, "/etc/hostname");
     await second.close();
   });
 
@@ -176,7 +184,8 @@ test.describe("agent path gate (L3)", () => {
     const card = await spawnFreshGitSession(page);
     await card.click();
     await sendPrompt(page, "[[faux:tool-read-outside]] go");
-    await expect(page.getByText(GATE_TITLE)).toHaveCount(0, { timeout: 20_000 });
-    await expect(page.getByText(/read/i).first()).toBeVisible();
+    await expect(page.getByText("outside read done")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(GATE_TITLE)).toHaveCount(0);
+    await expectReadSucceeded(page, "/etc/hostname");
   });
 });
