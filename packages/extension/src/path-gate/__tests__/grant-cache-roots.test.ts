@@ -54,6 +54,20 @@ describe("GrantCache", () => {
   });
 });
 
+describe("grant store override (review r8 non-blocking)", () => {
+  it("a default GrantCache reads PI_ACCESS_GRANTS_STORE exactly like the server's accessGrantsStorePath", () => {
+    const override = tmpFile(store([["/w/overridden", "project"]]));
+    const prev = process.env.PI_ACCESS_GRANTS_STORE;
+    try {
+      process.env.PI_ACCESS_GRANTS_STORE = override;
+      expect(new GrantCache().get()).toEqual(["/w/overridden"]);
+    } finally {
+      if (prev === undefined) delete process.env.PI_ACCESS_GRANTS_STORE;
+      else process.env.PI_ACCESS_GRANTS_STORE = prev;
+    }
+  });
+});
+
 describe("RootsProvider", () => {
   const res = { agentDir: "/h/.pi/agent", skillDirs: [], contextFiles: [] };
   it("E12 probe exceeding its bound falls back to cwd only", async () => {

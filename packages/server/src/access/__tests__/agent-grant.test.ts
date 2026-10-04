@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetAccessGrants, accessGrantsStorePath, listGrants } from "../access-grants.js";
 import { createAgentConfirmRegistry } from "../agent-confirm-registry.js";
 import { handlePathGrantRequest } from "../agent-grant.js";
-import { ensureGrantStoreId, readGrantStoreId } from "../grant-store-id.js";
+import { announceableGrantStoreId, ensureGrantStoreId, readGrantStoreId } from "../grant-store-id.js";
 
 let root: string;
 let prevStore: string | undefined;
@@ -215,6 +215,14 @@ describe("grant-store-id", () => {
     expect(ids[0]).toMatch(/^[0-9a-f]{32}$/);
     expect(readGrantStoreId(dir)).toBe(ids[0]);
     expect((fs.statSync(path.join(dir, "grant-store-id")).mode & 0o777)).toBe(0o600);
+  });
+
+  it("r8: the identity is NOT announced when the grant store is overridden (the bridge could not read that store)", () => {
+    const dir = path.join(root, "dash3");
+    const id = ensureGrantStoreId(dir);
+    expect(announceableGrantStoreId({}, dir)).toBe(id);
+    expect(announceableGrantStoreId({ PI_ACCESS_GRANTS_STORE: "/elsewhere/grants.json" }, dir)).toBeNull();
+    expect(announceableGrantStoreId({ PI_ACCESS_GRANTS_STORE: "   " }, dir)).toBe(id);
   });
 
   it("never overwrites an existing token; re-read is live", () => {

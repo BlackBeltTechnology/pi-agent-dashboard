@@ -49,6 +49,29 @@ describe("TUI visibility (review B2)", () => {
   });
 });
 
+describe("denial suppression is per session (review r8/B1)", () => {
+  it("a denial in one session does not suppress the same directory after a session switch", async () => {
+    const asked: string[] = [];
+    const t = setup({
+      ui: {
+        select: async (q: string) => {
+          asked.push(q);
+          return asked.length === 1 ? "Deny" : "Allow once";
+        },
+      },
+    });
+    const call = () => t.gate.handler({ toolName: "read", toolCallId: "tc", input: { path: "/etc/hosts" } }, t.ctx);
+    expect((await call())?.reason).toContain("denied");
+    // still the same session: suppressed without a prompt
+    expect((await call())?.reason).toContain("recently-denied");
+    expect(asked).toHaveLength(1);
+    // pi switches to another session in the same process: session_start fires
+    t.gate.onSessionStart();
+    expect(await call()).toBeUndefined(); // asked again (Allow once), not suppressed
+    expect(asked).toHaveLength(2);
+  });
+});
+
 describe("config applies on the very next call (review B4)", () => {
   it("disabling then enabling the gate is effective immediately, even within one second", async () => {
     const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-cfg-"));

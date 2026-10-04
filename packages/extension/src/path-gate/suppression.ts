@@ -15,6 +15,11 @@ export class Suppression {
     this.denied.set(key, this.now() + SUPPRESSION_MS);
   }
 
+  /** Forget every denial (session switch: suppression is per session). */
+  clear(): void {
+    this.denied.clear();
+  }
+
   isSuppressed(key: string): boolean {
     const until = this.denied.get(key);
     if (until === undefined) return false;

@@ -18,6 +18,7 @@ import type { PromptBus } from "../prompt-bus.js";
 import { GrantCache } from "./grant-cache.js";
 import { createGrantLink } from "./grant-link.js";
 import { createPathGateHandler, type GatePrompter } from "./handler.js";
+import { Suppression } from "./suppression.js";
 import { type PiResources, RootsProvider } from "./roots.js";
 
 export interface PathGateOptions {
@@ -93,6 +94,9 @@ export function createPathGate(opts: PathGateOptions) {
     cancel: (id) => opts.getPromptBus()?.cancel(id),
   };
 
+  // One suppression map per bridge; cleared on every session_start so a denial never
+  // leaks into another session of the same pi process.
+  const suppression = new Suppression();
   const handler = createPathGateHandler({
     getConfig,
     getRoots: (g, needsCheckout, cwd) => roots.roots(g, needsCheckout, cwd),
@@ -106,6 +110,7 @@ export function createPathGate(opts: PathGateOptions) {
     log: opts.log,
     counters,
     sessionId: opts.getSessionId,
+    suppression,
   });
 
   return {
@@ -113,6 +118,7 @@ export function createPathGate(opts: PathGateOptions) {
     counters,
     /** Start the bounded checkout probe + resolve pi's own dirs (best effort). */
     onSessionStart(): void {
+      suppression.clear();
       roots.startProbe();
       void import("@earendil-works/pi-coding-agent")
         .then((m: any) => {

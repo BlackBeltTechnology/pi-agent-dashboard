@@ -46,3 +46,17 @@ export function ensureGrantStoreId(dir?: string): string | null {
   }
   return readGrantStoreId(dir);
 }
+
+/**
+ * The token to announce to a bridge, or `null` when it must not be: with
+ * `PI_ACCESS_GRANTS_STORE` set the server writes a store the bridge's gate does not
+ * read by default, so matching tokens would offer an "Always allow" that cannot take
+ * effect. See change: ask-agent-file-access-in-chat.
+ */
+export function announceableGrantStoreId(
+  env: Record<string, string | undefined> = process.env,
+  dir?: string,
+): string | null {
+  if (env.PI_ACCESS_GRANTS_STORE?.trim()) return null;
+  return readGrantStoreId(dir);
+}

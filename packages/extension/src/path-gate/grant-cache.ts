@@ -15,6 +15,9 @@ export interface GrantCacheOptions {
 }
 
 function defaultGrantsFile(): string {
+  // Same override semantics as the server's `accessGrantsStorePath()`.
+  const override = process.env.PI_ACCESS_GRANTS_STORE;
+  if (override?.trim()) return nodePath.resolve(override);
   return nodePath.join(os.homedir(), ".pi", "dashboard", "access-grants.json");
 }
 

@@ -14,7 +14,7 @@ import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-t
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
-import { readGrantStoreId } from "./access/grant-store-id.js";
+import { announceableGrantStoreId } from "./access/grant-store-id.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
@@ -545,7 +545,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     // cached) so the bridge's path gate can decide whether "Always allow" is
     // honest. See change: ask-agent-file-access-in-chat (D3).
     {
-      const grantStoreId = readGrantStoreId();
+      const grantStoreId = announceableGrantStoreId();
       if (grantStoreId) piGateway.sendToSession(sessionId, { type: "dashboard_identity", grantStoreId });
     }
 

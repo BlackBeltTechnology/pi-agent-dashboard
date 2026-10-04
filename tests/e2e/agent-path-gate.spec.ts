@@ -106,6 +106,10 @@ test.describe("agent path gate (L3)", () => {
     await page.getByRole("button", { name: /^(Yes|Confirm|Allow)/i }).first().click();
     // The sibling (b.txt) read must NOT raise a second card.
     await expect(page.getByText("outside reads done")).toBeVisible({ timeout: 30_000 });
+    // Both reads actually succeeded: the gated a.txt AND the sibling b.txt (the closing
+    // text is scripted even when a tool call fails).
+    await expectReadSucceeded(page, "/srv/fixtures-outside/a.txt");
+    await expectReadSucceeded(page, "/srv/fixtures-outside/b.txt");
     // Exactly ONE gate card ever rendered: the second read (b.txt) was admitted by the grant.
     await expect(page.getByText(GATE_TITLE)).toHaveCount(1);
     await page.goto("/settings/access");
