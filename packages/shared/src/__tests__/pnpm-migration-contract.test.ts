@@ -8,10 +8,11 @@
  * electron-forge package), X2/X8 (real publish/smoke runs). X4 (full
  * ci-electron.yml installer matrix) passed on a dispatched run.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");

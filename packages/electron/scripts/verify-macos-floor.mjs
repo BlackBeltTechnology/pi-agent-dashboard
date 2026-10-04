@@ -31,9 +31,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  MACOS_FLOOR_MINOS_MAJOR,
   checkCanary,
   checkMinosFloor,
+  MACOS_FLOOR_MINOS_MAJOR,
   producedBinaryVerdict,
 } from "./macos-floor.mjs";
 

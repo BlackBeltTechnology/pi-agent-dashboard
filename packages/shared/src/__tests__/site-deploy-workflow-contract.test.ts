@@ -23,10 +23,11 @@
  * whether the next release redeploys the site. These assertions parse
  * workflow FILES; only the next real release closes that loop.
  */
-import { describe, it, expect } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 import { parse as parseYaml } from "yaml";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));

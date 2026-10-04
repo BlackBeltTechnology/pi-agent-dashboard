@@ -17,12 +17,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  MACOS_FLOOR_MINOS_MAJOR,
   checkCanary,
   checkMinosFloor,
   extractMinosValues,
+  MACOS_FLOOR_MINOS_MAJOR,
   producedBinaryVerdict,
   // @ts-expect-error — plain .mjs module, no type declarations by design.
 } from "../../scripts/macos-floor.mjs";

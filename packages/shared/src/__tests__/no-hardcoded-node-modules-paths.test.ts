@@ -28,10 +28,11 @@
  *
  * See change: register-build-time-tools.
  */
-import { describe, expect, it } from "vitest";
+
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { describe, expect, it } from "vitest";
 
 /** Banned substrings (after comment-stripping). */
 const PATTERNS: readonly { re: RegExp; suggestion: string }[] = [
