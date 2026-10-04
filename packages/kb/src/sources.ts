@@ -219,14 +219,19 @@ export const gitResolver: SourceResolver = {
     const hasGit = existsSync(join(cloneDir, ".git"));
     const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
     if (hasGit && shouldPull) {
-      // A poisoned/stale `origin` must never be contacted. Compare the RAW config value
+      // A poisoned/stale `origin` must never be contacted. Compare the RAW config value(s)
       // (`remote get-url` applies the user's url.*.insteadOf rewriting — their config is trusted,
-      // so a rewrite is not a mismatch). On a mismatch refuse WITHOUT mutating the cache: nothing
-      // is deleted or replaced, so a concurrent resolver using this clone can never lose it.
-      let origin = "";
-      try { origin = git(["-C", cloneDir, "config", "--get", "remote.origin.url"]).trim(); } catch { /* treated as a mismatch */ }
-      if (origin !== url) {
-        throw new Error(`git cache entry ${cloneDir} was cloned from a different origin (${origin || "unknown"}) than the checked URL (${url}); remove it and retry`);
+      // so a rewrite is not a mismatch). Read ALL values: `--get` reports only the LAST one while
+      // fetch uses the FIRST URL of a multi-URL remote, so require exactly one, equal to the checked
+      // URL. On a mismatch refuse WITHOUT mutating the cache: nothing is deleted or replaced, so a
+      // concurrent resolver using this clone can never lose it.
+      let origins: string[] = [];
+      try { origins = git(["-C", cloneDir, "config", "--get-all", "remote.origin.url"]).split("\n").map((l) => l.trim()).filter(Boolean); } catch { /* treated as a mismatch */ }
+      if (origins.length !== 1) {
+        throw new Error(`git cache entry ${cloneDir} has ${origins.length} configured origin URLs (expected exactly 1: ${url}); remove it and retry`);
+      }
+      if (origins[0] !== url) {
+        throw new Error(`git cache entry ${cloneDir} was cloned from a different origin (${origins[0]}) than the checked URL (${url}); remove it and retry`);
       }
     }
     if (!hasGit) {

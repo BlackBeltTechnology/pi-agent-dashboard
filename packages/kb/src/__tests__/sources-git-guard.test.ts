@@ -8,14 +8,14 @@ import { cacheKey, gitResolver } from "../sources.js";
 import { recordTrust } from "../trust.js";
 
 /** Fake `git`: records argv; fakes version / remote get-url / rev-parse / clone. */
-function fakeGit(opts: { version?: string; origin?: string; rewrittenOrigin?: string; onClone?: () => void } = {}) {
+function fakeGit(opts: { version?: string; origin?: string; originValues?: string[]; rewrittenOrigin?: string; onClone?: () => void } = {}) {
   const calls: string[][] = [];
   const git = (args: string[]): string => {
     calls.push(args);
     const sub = args.filter((a) => !a.startsWith("-") && a !== "-c")[0];
     if (args.includes("version")) return `git version ${opts.version ?? "2.50.1"}\n`;
     // raw config value (what the resolver compares) vs `remote get-url` (applies the user's url.*.insteadOf rewriting)
-    if (args.includes("config") && args.includes("remote.origin.url")) return `${opts.origin ?? ""}\n`;
+    if (args.includes("config") && args.includes("remote.origin.url")) return `${(opts.originValues ?? [opts.origin ?? ""]).join("\n")}\n`;
     if (args.includes("get-url")) return `${opts.rewrittenOrigin ?? opts.origin ?? ""}\n`;
     const ci = args.indexOf("clone");
     if (ci >= 0) { opts.onClone?.(); mkdirSync(join(args[args.length - 1], ".git"), { recursive: true }); }
@@ -136,6 +136,15 @@ describe("git resolver guard (D3)", () => {
       expect(readdirSync(cacheDir).filter((n) => n.includes("stage-") || n.includes(".old-"))).toEqual([]);
     });
 
+    it("origin with MORE THAN ONE configured URL is refused even if one of them matches (fetch uses the first)", async () => {
+      const ref = "git:https://github.com/o/multi";
+      const dir = seedClone(ref);
+      const { git, calls } = fakeGit({ originValues: ["https://10.0.0.5/private", "https://github.com/o/multi"] });
+      await expect(run(ref, { git, lookup: pub("140.82.112.3") }, { refresh: true })).rejects.toThrow(/2 configured origin URLs/);
+      expect(network(calls)).toHaveLength(0);
+      expect(existsSync(join(dir, ".git"))).toBe(true);
+    });
+
     it("origin compare uses the RAW config value: a user's url.*.insteadOf rewrite (get-url differs) is not a mismatch", async () => {
       const ref = "git:https://github.com/o/mirror";
       seedClone(ref);
@@ -244,5 +253,29 @@ describe.skipIf(!gitOk)("git resolver: pinned checkout never updates submodules 
     await gitResolver.resolve(spec, { cwd: root, cacheDir, refresh: true, testHooks: { git: realGit, lookup: pub("140.82.112.3") } });
     expect(g(clone, "rev-parse", "HEAD")).not.toBe(C1); // the parent DID move to v2 ...
     expect(subHead()).toBe(S1); // ... but the submodule was NOT updated
+  });
+
+  it("a cache whose remote carries a private URL FIRST and the approved URL LAST is refused before any network command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kb-realgit-dup-"));
+    const cfg = join(root, "gitconfig");
+    writeFileSync(cfg, "[user]\n\tname = t\n\temail = t@t\n");
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: cfg, GIT_CONFIG_NOSYSTEM: "1" };
+    const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const spec = { kind: "git" as const, ref: "git:https://github.com/o/r" };
+    const cacheDir = join(root, "cache");
+    const clone = join(cacheDir, cacheKey(spec));
+    mkdirSync(clone, { recursive: true });
+    g(clone, "init", "-q");
+    g(clone, "commit", "-q", "--allow-empty", "-m", "c");
+    g(clone, "remote", "add", "origin", "https://10.0.0.5/private"); // fetch would use THIS (first) URL ...
+    g(clone, "config", "--add", "remote.origin.url", "https://github.com/o/r"); // ... while `config --get` reports THIS (last) one
+    expect(g(clone, "config", "--get", "remote.origin.url")).toBe("https://github.com/o/r"); // the bypass the single-value compare missed
+    recordTrust(spec);
+    const seen: string[][] = [];
+    const realGit = (args: string[]) => { seen.push(args); return execFileSync("git", args, { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); };
+    await expect(
+      gitResolver.resolve(spec, { cwd: root, cacheDir, refresh: true, testHooks: { git: realGit, lookup: pub("140.82.112.3") } }),
+    ).rejects.toThrow(/2 configured origin URLs/);
+    expect(network(seen)).toHaveLength(0); // never fetched/pulled from the private host
   });
 });

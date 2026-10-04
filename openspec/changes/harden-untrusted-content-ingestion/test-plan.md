@@ -56,7 +56,7 @@ Exemplars (harness glue to copy):
 | E43 | D3 option-like ref/pin | EP | L1 | automated | pin `--upload-pack=touch /tmp/x`; ref `git:github.com/o/r@-x` | resolve | rejects; git not invoked; `/tmp/x` absent |
 | E44 | D3 argv hardening | EP | L1 | automated | `git:https://example.com:8443/r` (lookup seam → `93.184.216.34`); IPv6 variant → `2606:2800::1` | resolve (fake git) | clone argv: `-c protocol.allow=never -c protocol.https.allow=always -c protocol.ssh.allow=always -c http.followRedirects=false -c submodule.recurse=false -c fetch.recurseSubmodules=false -c http.curloptResolve=example.com:8443:93.184.216.34` all before `clone`; IPv6 pin bracketed `[2606:2800::1]` |
 | E45 | D3 bare ref effective URL | EP | L1 | automated | ref `git:github.com/org/repo` (lookup seam → public) | resolve (fake git) | clone receives `https://github.com/org/repo`; accepted |
-| E46 | D3 origin mismatch on refresh | state | L1 | automated | existing clone whose fake `config --get remote.origin.url` = `https://evil.internal/r`; spec URL `https://github.com/o/r` | resolve with `refresh:true` | rejects with an actionable error; cache dir untouched; no network git command; an insteadOf-style rewrite (raw config matches, `get-url` differs) is not a mismatch |
+| E46 | D3 origin mismatch on refresh | state | L1 | automated | existing clone whose fake `config --get-all remote.origin.url` = `https://evil.internal/r`; spec URL `https://github.com/o/r` | resolve with `refresh:true` | rejects with an actionable error; cache dir untouched; no network git command; an insteadOf-style rewrite (raw config matches, `get-url` differs) is not a mismatch; a remote with two URLs (private first, approved last) is refused before any network command (real git) |
 | E47 | D3 old git | EP | L1 | automated | fake `git version` → `2.30.0` | resolve | no `http.curloptResolve` flag; warning logged once |
 | E48 | D3 fetch/pull flags | EP | L1 | automated | existing clone, matching origin, `refresh:true`, pinned and unpinned | resolve | `fetch`/`pull` argv carry `--no-recurse-submodules` + all `-c` flags before subcommand |
 | E50 | D4 tar `..` entry | EP | L1 | automated | tar built by fixture writer with `../../evil` | resolve | rejects; no file outside stage; `dest` unchanged |
@@ -128,7 +128,7 @@ Exemplars (harness glue to copy):
   address-policy/lookup) that admits the loopback first hop for E25/E26/E28–E30,
   X1, X2.
 - **kb fake `git`:** a PATH-shim script that records argv and fakes
-  `version`/`config --get remote.origin.url`. Alternatively an injectable exec seam in
+  `version`/`config --get-all remote.origin.url`. Alternatively an injectable exec seam in
   `sources.ts`. Used by E40–E48.
 - **document-converter fixtures:** committed `sample.md` + `sample.docx` under
   `packages/document-converter/src/__tests__/fixtures/` for M2.

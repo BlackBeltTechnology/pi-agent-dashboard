@@ -293,11 +293,13 @@ Before any git network command (`clone`, `fetch`, `pull`):
 1. **Scheme allowlist.** Allow `https://`, `ssh://` (via `git:ssh://…` or
    `kind: git`), and scp-style `git@host:path`. Reject `file:`, `git://`,
    `http://`, `ext::`, and anything else, without running git.
-2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read the raw
-   config value `git -C <clone> config --get remote.origin.url` (not `remote
-   get-url`, which applies the user's `url.*.insteadOf` rewriting — their config
-   is trusted, so a rewrite must not read as a mismatch). If it differs from the
-   effective URL, **refuse**: throw an error naming the cache entry and telling
+2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read ALL raw
+   config values `git -C <clone> config --get-all remote.origin.url` (not
+   `remote get-url`, which applies the user's `url.*.insteadOf` rewriting —
+   their config is trusted, so a rewrite must not read as a mismatch; and not
+   `--get`, which reports only the LAST value while fetch uses the FIRST URL of
+   a multi-URL remote). Require exactly one value, equal to the effective URL;
+   otherwise **refuse**: throw an error naming the cache entry and telling
    the user to remove it and retry. Nothing is deleted or replaced, so a
    concurrent resolver using that clone can never lose it, and a poisoned or
    stale `origin` is never contacted.
