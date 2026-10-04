@@ -33,7 +33,10 @@ export function handlePathGrantRequest(
   msg: PathGrantRequestMessage,
   deps: AgentGrantDeps,
 ): PathGrantResultMessage {
-  const log = deps.log ?? ((l: string) => console.log(l));
+  const sink = deps.log ?? ((l: string) => console.log(l));
+  // Paths / subjects / session ids are attacker-influenced: strip control characters from the
+  // WHOLE line at the single emission point so no record can be forged.
+  const log = (line: string): void => sink(line.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?"));
   const refuse = (error: string): PathGrantResultMessage => {
     log(`[path-gate] grant refused session=${connectionSessionId} cause=${error}`);
     return { type: "path_grant_result", requestId: msg.requestId, ok: false, error };

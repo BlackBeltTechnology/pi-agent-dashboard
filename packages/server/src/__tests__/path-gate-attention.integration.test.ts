@@ -126,12 +126,14 @@ describe("awaitingFileAccess (integration)", () => {
     const answers: any[] = [];
     again.on("message", (raw) => { try { answers.push(JSON.parse(String(raw))); } catch { /* ignore */ } });
     send(again, { type: "session_register", sessionId: "s1", cwd: "/tmp", source: "cli" });
+    // The replay burst re-sends the in-flight tool event and the still-pending prompt.
+    send(again, { type: "event_forward", sessionId: "s1", event: { eventType: "tool_execution_start", timestamp: Date.now(), data: { type: "tool_execution_start", toolName: "read" } } });
     gatePrompt(again, "s1", "p1");
     send(again, { type: "replay_complete", sessionId: "s1" });
     await wait(300);
     expect((await session("s1"))?.awaitingFileAccess).toBe(true);
     // review r5/B1: replay reconciliation must NOT fold a file-access prompt into currentTool.
-    expect((await session("s1"))?.currentTool).not.toBe("ask_user");
+    expect((await session("s1"))?.currentTool).toBe("read");
     expect(frames.some((f) => f.type === "session_updated" && f.sessionId === "s1" && f.updates?.awaitingFileAccess === true)).toBe(true);
     const replayed = frames.find((f) => f.type === "prompt_request" && f.promptId === "p1");
     expect(replayed?.prompt?.metadata?.kind).toBe("agent-path-gate");

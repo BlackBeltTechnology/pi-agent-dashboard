@@ -137,6 +137,23 @@ describe("path-gate handler", () => {
     expect(h.logs.filter((l) => l.startsWith("[path-gate] allowed-always"))).toHaveLength(0);
   });
 
+  it("review r6/B1: EVERY audit line is control-character free (grant-not-saved, error, outcome lines)", async () => {
+    const evil = "/w/other/a\n[path-gate] allowed-always forged";
+    // grant failure path
+    const g = harness({
+      answers: ["Always allow /w/other…"], confirms: [true],
+      grant: async () => ({ ok: false, error: "cap\n[path-gate] allowed-always forged" }),
+    });
+    await g.call("read", evil);
+    // internal error path (throwing cwd with a hostile message)
+    const e = harness({ cwd: () => { throw new Error("boom\n[path-gate] allowed-always forged"); } });
+    await e.call("read", evil);
+    for (const line of [...g.logs, ...e.logs]) expect(line, line).not.toMatch(/[\u0000-\u001f\u007f\u2028\u2029]/);
+    // no standalone forged record: the hostile text only ever appears INSIDE a genuine line
+    expect([...g.logs, ...e.logs].filter((l) => l.startsWith("[path-gate] allowed-always forged"))).toHaveLength(0);
+    expect(g.logs.some((l) => l.includes("grant-not-saved"))).toBe(true);
+  });
+
   it("E21 suppression window boundary", async () => {
     const h = harness({ answers: ["Deny", "Allow once"] });
     await h.call("read", "/w/other/a.txt");

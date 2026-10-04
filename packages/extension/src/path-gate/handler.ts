@@ -86,12 +86,12 @@ export function createPathGateHandler(deps: PathGateDeps) {
   const suppression = deps.suppression ?? new Suppression(now);
   let chain: Promise<unknown> = Promise.resolve();
 
+  // Every dynamic field of an audit line is agent- or error-controlled: strip control
+  // characters from the WHOLE line at the single emission point so no site can forge a record.
+  const emit = (line: string): void => deps.log(line.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?"));
   const log = (outcome: GateOutcome, tool: string, access: PathAccess, canonical: string, sensitive: boolean): void => {
-    // A path can carry newlines/control characters (the agent chooses it): neutralise
-    // them so one call can never forge a second log line.
-    const safePath = canonical.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?");
-    deps.log(
-      `[path-gate] ${outcome} tool=${tool} access=${access === "read" ? "r" : "w"} path=${safePath} session=${deps.sessionId()} sensitive=${sensitive}`,
+    emit(
+      `[path-gate] ${outcome} tool=${tool} access=${access === "read" ? "r" : "w"} path=${canonical} session=${deps.sessionId()} sensitive=${sensitive}`,
     );
   };
 
@@ -223,7 +223,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       }
       log("allowed-always", tool, access, d.canonical, d.sensitive);
       if (!result.ok) {
-        deps.log(`[path-gate] grant-not-saved error=${result.error ?? "unknown"} path=${d.canonical}`);
+        emit(`[path-gate] grant-not-saved error=${result.error ?? "unknown"} path=${d.canonical}`);
         deps.notify?.(`Path access allowed once — not saved: ${result.error ?? "unknown error"}`);
       }
       return undefined; // operator approved this call either way
@@ -279,7 +279,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       if (result && deps.counters) deps.counters.blocked++;
       return result;
     } catch (err) {
-      deps.log(`[path-gate] error tool=${tool} session=${safeSession(deps)} ${err instanceof Error ? err.message : String(err)}`);
+      emit(`[path-gate] error tool=${tool} session=${safeSession(deps)} ${err instanceof Error ? err.message : String(err)}`);
       if (deps.counters) deps.counters.blocked++;
       return block("error", "the path gate failed and fails closed");
     }

@@ -179,6 +179,19 @@ describe("agent grant — binding", () => {
     expect(listGrants()).toHaveLength(0);
   });
 
+  it("r6/B1: accepted and refused grant log lines are control-character free", () => {
+    const evilDir = mk("evil\n[path-gate] grant accepted forged");
+    const file = path.join(evilDir, "a.md");
+    const { registry, req, handle, logs } = setup();
+    registry.observe("S1", "p2", { path: file, subject: evilDir });
+    expect(handle("S1", req({ path: file, subject: evilDir })).ok).toBe(true);
+    // refusal path: wrong connection session id carrying a newline is not trusted/echoed raw either
+    handle("S1\n[path-gate] grant accepted forged", req({ path: file, subject: evilDir }));
+    expect(logs.length).toBeGreaterThan(1);
+    for (const l of logs) expect(l, l).not.toMatch(/[\u0000-\u001f\u007f\u2028\u2029]/);
+    expect(logs.filter((l) => l.startsWith("[path-gate] grant accepted"))).toHaveLength(1);
+  });
+
   it("malformed request is refused", () => {
     const { handle, req } = setup();
     expect(handle("S1", req({ promptId: 5 as unknown as string })).ok).toBe(false);
