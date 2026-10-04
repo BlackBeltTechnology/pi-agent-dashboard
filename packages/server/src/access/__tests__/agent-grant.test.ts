@@ -148,14 +148,27 @@ describe("agent grant — binding", () => {
     expect(listGrants()).toHaveLength(0);
   });
 
-  it("r2/B2: a path that turns from file into directory before the grant still derives the same containing directory", () => {
+  it("r3/B1: a gated existing DIRECTORY names itself (not its parent); an ancestor claim is refused", () => {
+    const parent = mk("other3");
+    const docs = mk("other3", "docs");
+    const a = setup();
+    a.registry.observe("S1", "p2", { path: docs, subject: docs });
+    expect(a.handle("S1", a.req({ path: docs, subject: docs })).ok).toBe(true);
+    expect(listGrants()).toEqual([expect.objectContaining({ subject: docs })]);
+    const b = setup();
+    b.registry.observe("S1", "p3", { path: docs, subject: parent }); // forged: the parent of the gated directory
+    expect(b.handle("S1", b.req({ promptId: "p3", path: docs, subject: parent })).ok).toBe(false);
+    expect(listGrants().map((g) => g.subject)).toEqual([docs]);
+  });
+
+  it("r3/B1: a path that turns from FILE into DIRECTORY before the grant no longer derives the recorded subject → refused", () => {
     const docs = mk("other2", "docs");
     const file = path.join(docs, "a.md");
     const { registry, req, handle } = setup();
     registry.observe("S1", "p2", { path: file, subject: docs });
-    fs.mkdirSync(file); // a.md is now a directory; dirname(realpath(path)) is unchanged
-    expect(handle("S1", req({ path: file, subject: docs })).ok).toBe(true);
-    expect(listGrants()).toEqual([expect.objectContaining({ subject: docs })]);
+    fs.mkdirSync(file); // a.md is now a directory: the subject for it would be a.md itself
+    expect(handle("S1", req({ path: file, subject: docs }))).toMatchObject({ ok: false });
+    expect(listGrants()).toHaveLength(0);
   });
 
   it("E29 forbidden subject (home) is refused even with a valid confirm", () => {

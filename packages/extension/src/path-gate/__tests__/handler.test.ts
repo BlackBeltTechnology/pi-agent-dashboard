@@ -13,6 +13,8 @@ const env: ResolveEnv = {
     if (["/", "/w", "/w/repo", "/w/other", "/w/other/docs", "/h", "/h/.ssh", "/etc"].includes(p)) return p;
     throw new Error("ENOENT");
   },
+  exists: () => false,
+  isDirectory: () => false,
 };
 
 type Answer = string | undefined | "hang";

@@ -6,7 +6,7 @@
  */
 import nodePath from "node:path";
 import { volumeCaseInsensitive } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
-import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveToolPath } from "./resolve.js";
+import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveReadTarget, resolveToolPath } from "./resolve.js";
 
 export type PathAccess = "read" | "write";
 
@@ -79,7 +79,9 @@ function isWithin(candidate: string, root: string, env: ResolveEnv, ci: boolean)
 
 export function decidePathAccess(input: DecideInput): Decision {
   const env = input.env ?? defaultResolveEnv();
-  const abs = resolveToolPath(input.rawPath, input.cwd, env);
+  const lexical = resolveToolPath(input.rawPath, input.cwd, env);
+  // `read` opens pi's filename-variant fallback, not necessarily the literal name.
+  const abs = input.access === "read" ? resolveReadTarget(lexical, env) : lexical;
   const canonical = canonicalizeTarget(abs, env);
   const r = input.roots;
   const rooted: readonly string[][] = [
@@ -102,8 +104,9 @@ export function decidePathAccess(input: DecideInput): Decision {
   if (inRoot) return { verdict: "in-root", canonical };
   const p = env.path;
   const suppressionKey = p.dirname(canonical);
-  // A grant names the containing directory (the file's directory), never an ancestor.
-  const subject = suppressionKey;
+  // A grant names the exact directory: the target itself when it IS a directory,
+  // else its containing directory — never an ancestor.
+  const subject = env.isDirectory(canonical) ? canonical : suppressionKey;
   return {
     verdict: "ask",
     canonical,

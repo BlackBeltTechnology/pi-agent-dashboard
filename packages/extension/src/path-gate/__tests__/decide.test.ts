@@ -4,17 +4,20 @@ import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildOptions, decidePathAccess, type GateRoots } from "../decide.js";
-import { canonicalizeTarget, type ResolveEnv, resolveToolPath } from "../resolve.js";
+import { canonicalizeTarget, defaultResolveEnv, type ResolveEnv, resolveReadTarget, resolveToolPath } from "../resolve.js";
 
+// fake FS: only these directories exist (no files, so pi's read variant fallback never kicks in)
+const FAKE_DIRS = ["/", "/w", "/w/repo", "/w/other", "/h", "/etc", "/h/.ssh"];
 const posixEnv = (over: Partial<ResolveEnv> = {}): ResolveEnv => ({
   path: nodePath.posix,
   platform: "linux",
   homeDir: "/h",
   realpathSync: (p) => {
-    // fake FS: only these directories exist
-    if (["/", "/w", "/w/repo", "/w/other", "/h", "/etc", "/h/.ssh"].includes(p)) return p;
+    if (FAKE_DIRS.includes(p)) return p;
     throw new Error("ENOENT");
   },
+  exists: (p) => FAKE_DIRS.includes(p),
+  isDirectory: () => false,
   ...over,
 });
 
@@ -118,6 +121,82 @@ describe("case sensitivity is probed from the volume (review B1)", () => {
     const d = decidePathAccess({ ...base(posixEnv()), rawPath: "src/a.ts", volumeCaseProbe: () => { calls++; return true; } } as never);
     expect(d.verdict).toBe("in-root");
     expect(calls).toBe(0);
+  });
+});
+
+describe("grant subject = the directory itself when the target is a directory (review r3/B1)", () => {
+  const withDirs = (dirs: string[]) => posixEnv({ isDirectory: (p) => dirs.includes(p) });
+  it("a gated existing DIRECTORY names itself, never its parent", () => {
+    const d = decidePathAccess({ ...base(withDirs(["/w/other/docs"])), rawPath: "/w/other/docs" });
+    expect(d).toMatchObject({ verdict: "ask", subject: "/w/other/docs", suppressionKey: "/w/other" });
+  });
+  it("a gated FILE names its containing directory", () => {
+    const d = decidePathAccess({ ...base(withDirs(["/w/other/docs"])), rawPath: "/w/other/docs/a.md" });
+    expect(d).toMatchObject({ verdict: "ask", subject: "/w/other/docs" });
+  });
+  it("a not-yet-existing target names its (lexical) parent", () => {
+    const d = decidePathAccess({ ...base(withDirs([])), access: "write", rawPath: "/w/other/new.txt" });
+    expect(d).toMatchObject({ verdict: "ask", subject: "/w/other" });
+  });
+});
+
+describe("read follows pi's filename-variant fallback (review r3/B2)", () => {
+  const NNBSP = "\u202F";
+  it("parity with pi resolveReadPath over AM/PM, NFD, curly-quote and combined variants", async () => {
+    let dist = "";
+    let dir = nodePath.dirname(new URL(import.meta.url).pathname);
+    for (let i = 0; i < 12 && !dist; i++) {
+      const cand = nodePath.join(dir, "node_modules/@earendil-works/pi-coding-agent/dist");
+      if (fs.existsSync(cand)) dist = cand;
+      dir = nodePath.dirname(dir);
+    }
+    let pi: { resolveReadPath: (p: string, cwd: string) => string };
+    try {
+      pi = await import(pathToFileURL(nodePath.join(dist, "core/tools/path-utils.js")).href);
+    } catch {
+      throw new Error("pi path-utils not found — re-verify resolution");
+    }
+    const tmp = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-variant-")));
+    const names = [
+      `Screenshot 2024-01-01 at 10.00.00${NNBSP}AM.png`, // AM/PM narrow-space variant exists
+      "caf\u00e9.txt".normalize("NFD"), // NFD variant exists
+      "it\u2019s.txt", // curly-quote variant exists
+      "l\u2019\u00e9cran.txt".normalize("NFD"), // combined NFD + curly
+    ];
+    for (const n of names) fs.writeFileSync(nodePath.join(tmp, n), "x");
+    const asked = [
+      "Screenshot 2024-01-01 at 10.00.00 AM.png",
+      "caf\u00e9.txt".normalize("NFC"),
+      "it's.txt",
+      "l'\u00e9cran.txt".normalize("NFC"),
+      "absent.txt",
+    ];
+    for (const a of asked) {
+      const expected = pi.resolveReadPath(a, tmp);
+      expect(resolveReadTarget(nodePath.join(tmp, a), defaultResolveEnv()), a).toBe(expected);
+    }
+  });
+
+  it("a variant that is an ESCAPING symlink is what the gate decides on (not the literal missing name)", () => {
+    const tmp = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-variant2-")));
+    const repo = nodePath.join(tmp, "repo");
+    const outside = nodePath.join(tmp, "outside.txt");
+    fs.mkdirSync(repo);
+    fs.writeFileSync(outside, "secret");
+    fs.symlinkSync(outside, nodePath.join(repo, "a\u2019b")); // in-root curly name → outside file
+    const decide = (access: "read" | "write") =>
+      decidePathAccess({
+        access,
+        rawPath: "a'b", // literal straight-quote name does not exist
+        cwd: repo,
+        roots: roots({ workspace: [repo] }),
+        sensitiveDirs: [],
+        isUngrantable: () => false,
+      });
+    const read = decide("read");
+    expect(read).toMatchObject({ verdict: "ask", canonical: outside });
+    // write/edit use resolveToCwd (no variant fallback): the literal in-root name stands.
+    expect(decide("write").verdict).toBe("in-root");
   });
 });
 

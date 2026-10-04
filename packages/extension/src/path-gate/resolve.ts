@@ -25,6 +25,10 @@ export interface ResolveEnv {
   platform: NodeJS.Platform;
   homeDir: string;
   realpathSync: (p: string) => string;
+  /** `fs.accessSync(p, F_OK)` as pi's `fileExists` (follows symlinks). Injectable for tests. */
+  exists: (p: string) => boolean;
+  /** `fs.statSync(p).isDirectory()`, false when missing. Injectable for tests. */
+  isDirectory: (p: string) => boolean;
 }
 
 export function defaultResolveEnv(): ResolveEnv {
@@ -33,6 +37,21 @@ export function defaultResolveEnv(): ResolveEnv {
     platform: process.platform,
     homeDir: os.homedir(),
     realpathSync: (p) => fs.realpathSync(p),
+    exists: (p) => {
+      try {
+        fs.accessSync(p, fs.constants.F_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    isDirectory: (p) => {
+      try {
+        return fs.statSync(p).isDirectory();
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
@@ -64,6 +83,28 @@ export function resolveToolPath(input: string, cwd: string, env: ResolveEnv = de
   const normalized = normalizeInput(input, env, true);
   const base = normalizeInput(cwd, env, false);
   return env.path.isAbsolute(normalized) ? env.path.resolve(normalized) : env.path.resolve(base, normalized);
+}
+
+/**
+ * What pi's `read` actually opens: `resolveReadPath` tries the literal name, then —
+ * only when it does not exist — an AM/PM narrow-no-break-space variant, an NFD
+ * variant, a curly-quote variant and the NFD+curly combination (final name only,
+ * same directory). The gate must decide on THAT path: an in-root variant that is a
+ * symlink to an outside file would otherwise pass as the missing literal name.
+ * `write` / `edit` use plain `resolveToCwd` (no fallback) and never call this.
+ * Parity-tested against pi's own helper.
+ */
+export function resolveReadTarget(resolved: string, env: ResolveEnv = defaultResolveEnv()): string {
+  if (env.exists(resolved)) return resolved;
+  const amPm = resolved.replace(/ (AM|PM)\./gi, "\u202F$1.");
+  if (amPm !== resolved && env.exists(amPm)) return amPm;
+  const nfd = resolved.normalize("NFD");
+  if (nfd !== resolved && env.exists(nfd)) return nfd;
+  const curly = resolved.replace(/'/g, "\u2019");
+  if (curly !== resolved && env.exists(curly)) return curly;
+  const nfdCurly = nfd.replace(/'/g, "\u2019");
+  if (nfdCurly !== resolved && env.exists(nfdCurly)) return nfdCurly;
+  return resolved;
 }
 
 /** Real-path the nearest existing ancestor, re-appending the missing tail. */

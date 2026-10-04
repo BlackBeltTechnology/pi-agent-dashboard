@@ -7,11 +7,20 @@
  */
 
 import { isSameSubject } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
+import * as fs from "node:fs";
 import nodePath from "node:path";
 import { isUngrantableSubject, realpathNearestAncestor } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
 import type { PathGrantRequestMessage, PathGrantResultMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { recordGrant } from "./access-grants.js";
 import type { AgentConfirmRegistry } from "./agent-confirm-registry.js";
+
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 export interface AgentGrantDeps {
   registry: AgentConfirmRegistry;
@@ -42,14 +51,15 @@ export function handlePathGrantRequest(
   const consumed = deps.registry.consume(connectionSessionId, msg.promptId, { path: msg.path, subject: msg.subject }, isSameSubject);
   if (!consumed.ok) return refuse(consumed.error);
 
-  // Re-derive the subject from the confirmed PATH now (the gate's rule: the file's
-  // containing directory, realpath'd nearest-ancestor + tail) and require it to be
-  // exactly what the confirmation named. Deriving from the claimed subject alone
-  // would let a confirm naming an ancestor of the file persist that ancestor, and a
-  // directory created / renamed / symlink-swapped between prompt and grant derives
-  // a different path and is refused rather than persisted under a name the operator
-  // never saw.
-  const rederived = nodePath.dirname(realpathNearestAncestor(msg.path));
+  // Re-derive the subject from the confirmed PATH now, by the gate's rule (the path
+  // itself when it is a directory, else its containing directory; realpath'd) and
+  // require it to equal what the confirmation named. Deriving from the claimed
+  // subject alone would let a confirm naming an ancestor persist that ancestor; a
+  // path that became a directory (or a swapped symlink) since the prompt derives a
+  // different subject and is refused rather than persisted under a name the
+  // operator never saw.
+  const real = realpathNearestAncestor(msg.path);
+  const rederived = isDirectory(real) ? real : nodePath.dirname(real);
   if (rederived !== consumed.subject) return refuse("subject does not match the confirmed path");
   if (isUngrantableSubject(rederived)) return refuse("forbidden subject");
 
