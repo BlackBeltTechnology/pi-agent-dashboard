@@ -216,17 +216,27 @@ export const gitResolver: SourceResolver = {
     }
 
     const cloneDir = join(ctx.cacheDir, cacheKey(spec));
+    recoverBackups(cloneDir);
     let hasGit = existsSync(join(cloneDir, ".git"));
     const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
     if (hasGit && shouldPull) {
       // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
       let origin = "";
       try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
-      if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
+      if (origin !== url) hasGit = false; // replaced below by a staged, atomically published clone
     }
     if (!hasGit) {
+      // Stage the clone and publish it with the same unique-backup swap as https: `cloneDir` is
+      // never absent or half-deleted, and a failed clone leaves the previous one intact.
       mkdirSync(ctx.cacheDir, { recursive: true });
-      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
+      const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
+      try {
+        const out = join(stage, "clone");
+        git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, out]);
+        swapInto(cloneDir, out, hooks.rename ?? renameSync);
+      } finally {
+        rmSync(stage, { recursive: true, force: true });
+      }
     } else if (shouldPull) {
       if (ref) {
         git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
@@ -292,8 +302,8 @@ function swapInto(dest: string, fresh: string, rename: (a: string, b: string) =>
 
 /**
  * A backup younger than this may be ANOTHER writer's in-flight rollback copy (its
- * two renames are ms apart), so it is never restored or pruned. Older ones are
- * abandoned (the writer crashed between its renames).
+ * two renames are ms apart): while one exists nothing is restored, and it is never
+ * pruned. Older ones are abandoned (the writer crashed between its renames).
  */
 const BACKUP_GRACE_MS = 60_000;
 /** Backups older than this are debris and pruned. */
@@ -316,8 +326,10 @@ export function recoverBackups(dest: string): void {
   }
   const age = (n: string) => Date.now() - backupStamp(n);
   names.sort((x, y) => backupStamp(y) - backupStamp(x)); // newest first
-  if (!existsSync(dest)) {
-    const abandoned = names.find((n) => age(n) > BACKUP_GRACE_MS);
+  // Restore only when EVERY backup is abandoned: a single young one may be a live writer's
+  // rollback copy, and restoring an older backup under it would make that writer's publish fail.
+  if (!existsSync(dest) && !names.some((n) => age(n) <= BACKUP_GRACE_MS)) {
+    const abandoned = names[0];
     if (abandoned) {
       try {
         renameSync(join(dir, abandoned), dest);

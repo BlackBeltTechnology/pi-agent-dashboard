@@ -322,6 +322,39 @@ d("lock-free swap under concurrent refreshes (review B1: last-writer-wins, never
     expect(readdirSync(cacheDir)).toEqual([cacheKey(spec)]); // A removed its own backup
   });
 
+  it("recovery restores NOTHING while ANY young backup exists, even if an older abandoned one is also present", async () => {
+    const cacheDir = mk();
+    const spec = specOf("mixed-age");
+    recordTrust(spec);
+    const dest = join(cacheDir, cacheKey(spec));
+    const now = Date.now();
+    seed(`${dest}.old-${now - 1000}-live`, { "live.md": "LIVE" }); // a live writer's rollback copy
+    seed(`${dest}.old-${now - 5 * 60_000}-abandoned`, { "orig.md": "ABANDONED", ".fetched": "1" });
+    recoverBackups(dest);
+    expect(existsSync(dest)).toBe(false); // nothing restored while a potentially live swap exists
+    expect(backups(cacheDir).length).toBe(2); // and nothing pruned (both < 1h)
+  });
+
+  it("window interleave with an older backup present: the live writer's publish still succeeds", async () => {
+    const cacheDir = mk();
+    const spec = specOf("window-mixed");
+    recordTrust(spec);
+    const dest = join(cacheDir, cacheKey(spec));
+    seed(dest, { "orig.md": "ORIGINAL", ".fetched": "1" });
+    seed(`${dest}.old-${Date.now() - 5 * 60_000}-abandoned`, { "x.md": "OLD" });
+    let calls = 0;
+    const rename = (a: string, b: string) => {
+      calls++;
+      renameSync(a, b);
+      if (calls === 1) {
+        recoverBackups(dest); // another process enters recovery inside A's window
+        expect(existsSync(dest)).toBe(false);
+      }
+    };
+    const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: async () => zip([{ name: "ours.md", data: "OURS" }]), rename } });
+    expect(readFileSync(join(r.dir, "ours.md"), "utf8")).toBe("OURS");
+  });
+
   it("sequential refreshes leave no backups or stage dirs behind", async () => {
     const cacheDir = mk();
     const spec = specOf("seq");
