@@ -141,6 +141,11 @@ describe("git resolver guard (D3)", () => {
       expect(fetch.indexOf("-c")).toBeLessThan(fetch.indexOf("fetch"));
       expect(fetch).toContain("--no-recurse-submodules");
       expect(fetch.join(" ")).toContain("submodule.recurse=false");
+      // review r3 B2: the pinned-ref checkout is hardened too (.gitmodules URLs are attacker-controlled)
+      const checkout = p.calls.find((c) => c.includes("checkout"))!;
+      expect(checkout.indexOf("-c")).toBeLessThan(checkout.indexOf("checkout"));
+      expect(checkout.join(" ")).toContain("submodule.recurse=false");
+      expect(checkout).toContain("--no-recurse-submodules");
 
       const refPlain = "git:https://github.com/o/plain";
       seedClone(refPlain);

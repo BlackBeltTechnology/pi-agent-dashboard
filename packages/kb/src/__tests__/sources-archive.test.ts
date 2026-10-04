@@ -339,6 +339,46 @@ d("per-cache-key lock (review B1: concurrent refreshes)", () => {
     expect(existsSync(join(r.dir, "n.md"))).toBe(true);
   });
 
+  // ---- review r3 B1: the steal mutex must be ownership-safe too ----
+  it("never evicts a LIVE (paused) stealer's mutex, however old — the dead lock and its mutex stay untouched", async () => {
+    const cacheDir = mk();
+    const spec = specOf("paused-stealer");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true });
+    writeOwner(lock, await deadPid(), "T-dead");
+    // A stealer that validated the stale lock and was then suspended (SIGSTOP) — alive, holding its mutex.
+    const steal = `${lock}.steal-T-dead`;
+    mkdirSync(steal, { recursive: true });
+    writeOwner(steal, process.pid, "paused-stealer");
+    age(steal, 120_000);
+    const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
+    await expect(
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch, lockPollMs: 5, lockWaitMs: 150 } }),
+    ).rejects.toThrow(/cache entry is locked/);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(join(steal, "owner"), "utf8")).token).toBe("paused-stealer");
+    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("T-dead");
+  });
+
+  it("evicts a DEAD stealer's mutex and then recovers the dead lock", async () => {
+    const cacheDir = mk();
+    const spec = specOf("dead-stealer");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true });
+    writeOwner(lock, await deadPid(), "T-dead2");
+    const steal = `${lock}.steal-T-dead2`;
+    mkdirSync(steal, { recursive: true });
+    writeOwner(steal, await deadPid(), "crashed-stealer");
+    const r = await httpsResolver.resolve(spec, {
+      cwd: cacheDir, cacheDir,
+      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockPollMs: 5, lockWaitMs: 5_000 },
+    });
+    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
+    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
+  });
+
   it("release only removes a lock this holder still owns", async () => {
     const cacheDir = mk();
     const spec = specOf("owner-release");

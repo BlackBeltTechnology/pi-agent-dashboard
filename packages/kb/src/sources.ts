@@ -125,8 +125,9 @@ function isStale(spec: SourceConfig, markerPath: string): boolean {
  *   legitimately be slow). A lock is stale only when its recorded pid is dead,
  *   or it has no owner record and is older than `staleMs`. A waiter gives up
  *   after `waitMs` with an actionable error instead of hanging.
- * - Stealing is serialised through a tiny `<lock>.steal` mutex and re-validated
- *   inside it, so two stealers can never delete each other's fresh lock.
+ * - Stealing is serialised through a per-stale-token, pid-aware steal mutex and
+ *   re-validated inside it (see `stealStaleLock`), so no stealer can delete a
+ *   successor's fresh lock.
  * - Release removes the lock only while it is still ours.
  */
 const LOCK_POLL_MS = 50;
@@ -165,21 +166,44 @@ function lockIsStale(lock: string, staleMs: number): boolean {
   }
 }
 
-/** Remove a stale lock under the steal mutex, re-validating inside it. */
+/**
+ * Remove a stale lock under a steal mutex, re-validating inside it (review r2/r3).
+ *
+ * The mutex is keyed by the STALE HOLDER'S TOKEN (`<lock>.steal-<token>`), so it
+ * can only ever guard the removal of that one stale lock instance: a fresh lock
+ * (new token) is never covered by it, and the in-mutex check compares tokens
+ * before removing. The mutex is itself pid-aware — a live (even suspended)
+ * stealer's mutex is never evicted, only a dead stealer's — so a stealer that
+ * validated and was then paused cannot be raced past by another stealer and
+ * later delete a successor's lock.
+ */
 function stealStaleLock(lock: string, staleMs: number): void {
-  const steal = `${lock}.steal`;
+  const stale = readOwner(lock);
+  let tag: string;
+  try {
+    tag = stale ? stale.token : `ownerless-${Math.floor(statSync(lock).mtimeMs)}`;
+  } catch {
+    return; // vanished
+  }
+  const steal = `${lock}.steal-${tag}`;
+  const token = randomUUID();
   try {
     mkdirSync(steal);
-  } catch {
-    try {
-      if (Date.now() - statSync(steal).mtimeMs > STEAL_STALE_MS) rmSync(steal, { recursive: true, force: true });
-    } catch { /* gone */ }
-    return; // another stealer is at work — wait and re-check
+    writeFileSync(join(steal, "owner"), JSON.stringify({ pid: process.pid, token } satisfies LockOwner));
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST" && lockIsStale(steal, STEAL_STALE_MS)) {
+      rmSync(steal, { recursive: true, force: true }); // dead stealer's mutex
+    } else if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
+      rmSync(steal, { recursive: true, force: true });
+    }
+    return; // another stealer is at work (or just cleaned up) — wait and re-check
   }
   try {
-    if (lockIsStale(lock, staleMs)) rmSync(lock, { recursive: true, force: true });
+    const now = readOwner(lock);
+    const sameInstance = stale ? now?.token === stale.token : now === null;
+    if (sameInstance && lockIsStale(lock, staleMs)) rmSync(lock, { recursive: true, force: true });
   } finally {
-    rmSync(steal, { recursive: true, force: true });
+    if (readOwner(steal)?.token === token) rmSync(steal, { recursive: true, force: true });
   }
 }
 
@@ -205,7 +229,8 @@ async function withCacheLock<T>(ctx: ResolveCtx, key: string, fn: () => Promise<
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       if (lockIsStale(lock, staleMs)) {
         stealStaleLock(lock, staleMs);
-        continue;
+        if (!existsSync(lock)) continue; // recovered — acquire immediately
+        // else another stealer holds the mutex: fall through to the timeout/poll path (never busy-spin)
       }
       if (Date.now() - started > waitMs) {
         const o = readOwner(lock);
@@ -344,7 +369,7 @@ export const gitResolver: SourceResolver = {
       } else if (shouldPull) {
         if (ref) {
           git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
-          git(["-C", cloneDir, "checkout", ref]);
+          git([...hardening, "-C", cloneDir, "checkout", "--no-recurse-submodules", ref]);
         } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
       }
       return git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
