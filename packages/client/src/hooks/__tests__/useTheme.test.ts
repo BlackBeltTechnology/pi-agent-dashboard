@@ -140,6 +140,18 @@ describe("useTheme", () => {
     expect(document.documentElement.style.getPropertyValue("--bg-primary")).toBe("");
   });
 
+  // The accent-text ramp rides CSS_VAR_KEYS into the DOM like every other
+  // palette token, and is cleared on return to base (index.css then applies).
+  // See change: remediate-accent-text-contrast (test-plan #F1).
+  it("applies and clears the accent-text ramp", () => {
+    const { result } = renderHook(() => useTheme());
+    act(() => result.current.setThemeName("solarized"));
+    expect(document.documentElement.style.getPropertyValue("--accent-purple-text")).toBe("#e9eaf6");
+
+    act(() => result.current.setThemeName("base"));
+    expect(document.documentElement.style.getPropertyValue("--accent-purple-text")).toBe("");
+  });
+
   it("re-applies theme vars when mode changes", () => {
     const { result } = renderHook(() => useTheme());
     act(() => result.current.setThemeName("github"));

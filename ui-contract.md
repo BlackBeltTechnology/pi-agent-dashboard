@@ -10,12 +10,13 @@ Token definitions live in **`packages/client/src/index.css`**. This file
 references them by name and never redefines them.
 
 Theme mechanism: `:root` is the **dark** theme (the default), and
-`[data-theme="light"]` overrides a 32-token subset. **Two themes ship today** —
+`[data-theme="light"]` overrides a 44-token subset. **Two themes ship today** —
 `dark` and `light`. Any doc claiming four themes (studio / earth / athlete /
 gradient) is stale; no such selectors exist in `index.css`.
 
-Light overrides the surface, text, and border ramps plus `--accent-primary`,
-but deliberately does **not** override `--accent-red|green|yellow|purple|orange`.
+Light overrides the surface, text, and border ramps plus `--accent-primary`
+and the six `--accent-<hue>-text` tokens, but deliberately does **not** override
+`--accent-red|green|yellow|purple|orange|blue`.
 The severity families are derived from those accents with `color-mix` against
 `--bg-tertiary` / `--text-primary`, so they retheme automatically. Never
 hand-write a per-theme severity color.
@@ -33,6 +34,8 @@ hand-write a per-theme severity color.
 | hairline / divider | `--border-primary`, `--border-secondary`, `--border-subtle`, `--border-strong` |
 | brand / primary action | `--accent-primary` |
 | link | `--link`, `--link-hover` |
+| accent fill (dot, border, glyph — non-text 3:1) | `--accent-{purple,blue,green,orange,red,yellow}` |
+| accent text (coloured label, AA 4.5:1 on surface / tertiary / primary / card fill) | `--accent-{purple,blue,green,orange,red,yellow}-text` |
 | focus ring | `--focus-ring` |
 
 ### Semantic families — prefer these over raw accents
@@ -47,7 +50,12 @@ hand-write a per-theme severity color.
 **Rule:** a new surface uses a *severity* or *tint* token, not `--accent-red`
 directly and never a Tailwind palette class (`text-green-400`,
 `bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the
-status family and for chart/graph series.
+status family and for chart/graph series. When text must be coloured by hue,
+use `--accent-<hue>-text`, never `--accent-<hue>` (a fill tuned for 3:1, below
+the 4.5:1 text floor), and back the hue with a word, icon or shape — hue is a
+secondary cue (solarized dark accent-text hues are near-indistinguishable).
+`scripts/theme-token-guard.mjs` (arm `accentText`) fails any NEW fill-accent
+text paint; existing ones are baselined debt.
 
 ### Colour roles
 
