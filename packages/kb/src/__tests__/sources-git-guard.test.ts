@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -166,5 +167,71 @@ describe("git resolver guard (D3)", () => {
     expect(network(a.calls)[0].join(" ")).not.toContain("curloptResolve");
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
+  });
+});
+
+// Real-git proof (review r3/r4 B2): a fake git only records argv, so it cannot show that
+// the pinned-ref checkout stops submodule updates. Local repos, no network.
+const gitOk = (() => { try { execFileSync("git", ["--version"], { stdio: "ignore" }); return true; } catch { return false; } })();
+
+describe.skipIf(!gitOk)("git resolver: pinned checkout never updates submodules (real git)", () => {
+  const savedTrust = process.env.KB_SOURCE_TRUST_PATH;
+  const trustFile = join(tmpdir(), `kb-trust-realgit-${Date.now()}.json`);
+  beforeAll(() => { process.env.KB_SOURCE_TRUST_PATH = trustFile; });
+  afterAll(() => {
+    if (savedTrust === undefined) delete process.env.KB_SOURCE_TRUST_PATH;
+    else process.env.KB_SOURCE_TRUST_PATH = savedTrust;
+    rmSync(trustFile, { force: true });
+  });
+
+  it("submodule stays at its pinned commit when recursion is enabled in the user's git config", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kb-realgit-"));
+    const cfg = join(root, "gitconfig"); // user config: recursion ON, file transport allowed for the local submodule fixture
+    writeFileSync(cfg, "[submodule]\n\trecurse = true\n[protocol \"file\"]\n\tallow = always\n[user]\n\tname = t\n\temail = t@t\n");
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: cfg, GIT_CONFIG_NOSYSTEM: "1" };
+    const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+    // submodule repo with two commits S1, S2
+    const subrepo = join(root, "subrepo");
+    mkdirSync(subrepo);
+    g(subrepo, "init", "-q");
+    writeFileSync(join(subrepo, "f"), "1");
+    g(subrepo, "add", "."); g(subrepo, "commit", "-q", "-m", "s1");
+    const S1 = g(subrepo, "rev-parse", "HEAD");
+    writeFileSync(join(subrepo, "f"), "2");
+    g(subrepo, "commit", "-q", "-am", "s2");
+    const S2 = g(subrepo, "rev-parse", "HEAD");
+
+    // parent: C1 pins sub@S1 (initialised); tag v2 = C2 moves the gitlink to S2
+    const spec = { kind: "git" as const, ref: "git:https://github.com/o/r", pin: "v2" };
+    const cacheDir = join(root, "cache");
+    const clone = join(cacheDir, cacheKey(spec));
+    mkdirSync(clone, { recursive: true });
+    g(clone, "init", "-q");
+    g(clone, "submodule", "add", "-q", subrepo, "sub");
+    g(join(clone, "sub"), "checkout", "-q", S1);
+    g(clone, "add", "-A"); g(clone, "commit", "-q", "-m", "c1");
+    const C1 = g(clone, "rev-parse", "HEAD");
+    g(join(clone, "sub"), "checkout", "-q", S2);
+    g(clone, "add", "sub"); g(clone, "commit", "-q", "-m", "c2");
+    g(clone, "tag", "v2");
+    g(clone, "remote", "add", "origin", "https://github.com/o/r");
+
+    const reset = () => { g(clone, "-c", "submodule.recurse=false", "checkout", "-q", "--no-recurse-submodules", C1); g(join(clone, "sub"), "checkout", "-q", S1); };
+    const subHead = () => g(join(clone, "sub"), "rev-parse", "HEAD");
+
+    // CONTROL: an UNGUARDED checkout under this config does move the submodule — the observable can fail.
+    reset();
+    g(clone, "checkout", "-q", "v2");
+    expect(subHead()).toBe(S2);
+
+    // The resolver's pinned refresh: real git for everything except the (network) fetch.
+    reset();
+    expect(subHead()).toBe(S1);
+    recordTrust(spec);
+    const realGit = (args: string[]) => (args.includes("fetch") ? "" : execFileSync("git", args, { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+    await gitResolver.resolve(spec, { cwd: root, cacheDir, refresh: true, testHooks: { git: realGit, lookup: pub("140.82.112.3") } });
+    expect(g(clone, "rev-parse", "HEAD")).not.toBe(C1); // the parent DID move to v2 ...
+    expect(subHead()).toBe(S1); // ... but the submodule was NOT updated
   });
 });

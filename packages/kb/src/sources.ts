@@ -9,10 +9,10 @@
 
 import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { type ArchiveKind, extractArchiveSafely } from "./archive-guard.js";
 import type { SourceConfig } from "./config.js";
 import { assertPublicHost, guardedFetch, type LookupAll } from "./net-guard.js";
@@ -43,11 +43,6 @@ export interface ResolveCtx {
     lookup?: LookupAll;
     /** Replaces `renameSync` in the stage→dest swap. */
     rename?: (from: string, to: string) => void;
-    /** Cache-lock tuning (ms): poll interval / age after which a lock is stolen. */
-    lockPollMs?: number;
-    lockStaleMs?: number;
-    /** Max time a waiter blocks on a live holder before erroring. */
-    lockWaitMs?: number;
   };
 }
 
@@ -111,139 +106,6 @@ function isStale(spec: SourceConfig, markerPath: string): boolean {
   const ttlMs = typeof spec.refresh === "object" ? spec.refresh.ttlMs : undefined;
   if (!ttlMs) return false;
   return Date.now() - Number(statSync(markerPath).mtimeMs) > ttlMs;
-}
-
-/**
- * Per-cache-key lock (review B1, r1+r2). The stage→swap recovery (`dest.old`) and
- * the git clone/refresh assume ONE writer per cache entry; two processes (e.g.
- * `kb index` in two terminals, or the CLI + the extension) would otherwise
- * interleave between the check and the act.
- *
- * - `mkdir` is atomic, so it is the cross-process mutex; the holder records
- *   `{pid, token}` in `<lock>/owner`.
- * - A LIVE holder is never stolen, however old (a big extraction or clone can
- *   legitimately be slow). A lock is stale only when its recorded pid is dead,
- *   or it has no owner record and is older than `staleMs`. A waiter gives up
- *   after `waitMs` with an actionable error instead of hanging.
- * - Stealing is serialised through a per-stale-token, pid-aware steal mutex and
- *   re-validated inside it (see `stealStaleLock`), so no stealer can delete a
- *   successor's fresh lock.
- * - Release removes the lock only while it is still ours.
- */
-const LOCK_POLL_MS = 50;
-const LOCK_STALE_MS = 10 * 60_000;
-const LOCK_WAIT_MS = 30 * 60_000;
-const STEAL_STALE_MS = 30_000; // the steal mutex is held for microseconds
-
-type LockOwner = { pid: number; token: string };
-
-function readOwner(lock: string): LockOwner | null {
-  try {
-    const o = JSON.parse(readFileSync(join(lock, "owner"), "utf8")) as LockOwner;
-    return typeof o?.pid === "number" && typeof o?.token === "string" ? o : null;
-  } catch {
-    return null;
-  }
-}
-
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM"; // exists, not ours
-  }
-}
-
-/** Stale = holder dead, or no owner record and older than `staleMs`. A live holder is never stale. */
-function lockIsStale(lock: string, staleMs: number): boolean {
-  const owner = readOwner(lock);
-  if (owner) return !pidAlive(owner.pid);
-  try {
-    return Date.now() - statSync(lock).mtimeMs > staleMs;
-  } catch {
-    return false; // vanished — the acquire loop retries
-  }
-}
-
-/**
- * Remove a stale lock under a steal mutex, re-validating inside it (review r2/r3).
- *
- * The mutex is keyed by the STALE HOLDER'S TOKEN (`<lock>.steal-<token>`), so it
- * can only ever guard the removal of that one stale lock instance: a fresh lock
- * (new token) is never covered by it, and the in-mutex check compares tokens
- * before removing. The mutex is itself pid-aware — a live (even suspended)
- * stealer's mutex is never evicted, only a dead stealer's — so a stealer that
- * validated and was then paused cannot be raced past by another stealer and
- * later delete a successor's lock.
- */
-function stealStaleLock(lock: string, staleMs: number): void {
-  const stale = readOwner(lock);
-  let tag: string;
-  try {
-    tag = stale ? stale.token : `ownerless-${Math.floor(statSync(lock).mtimeMs)}`;
-  } catch {
-    return; // vanished
-  }
-  const steal = `${lock}.steal-${tag}`;
-  const token = randomUUID();
-  try {
-    mkdirSync(steal);
-    writeFileSync(join(steal, "owner"), JSON.stringify({ pid: process.pid, token } satisfies LockOwner));
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST" && lockIsStale(steal, STEAL_STALE_MS)) {
-      rmSync(steal, { recursive: true, force: true }); // dead stealer's mutex
-    } else if ((e as NodeJS.ErrnoException).code !== "EEXIST") {
-      rmSync(steal, { recursive: true, force: true });
-    }
-    return; // another stealer is at work (or just cleaned up) — wait and re-check
-  }
-  try {
-    const now = readOwner(lock);
-    const sameInstance = stale ? now?.token === stale.token : now === null;
-    if (sameInstance && lockIsStale(lock, staleMs)) rmSync(lock, { recursive: true, force: true });
-  } finally {
-    if (readOwner(steal)?.token === token) rmSync(steal, { recursive: true, force: true });
-  }
-}
-
-async function withCacheLock<T>(ctx: ResolveCtx, key: string, fn: () => Promise<T>): Promise<T> {
-  const pollMs = ctx.testHooks?.lockPollMs ?? LOCK_POLL_MS;
-  const staleMs = ctx.testHooks?.lockStaleMs ?? LOCK_STALE_MS;
-  const waitMs = ctx.testHooks?.lockWaitMs ?? LOCK_WAIT_MS;
-  mkdirSync(ctx.cacheDir, { recursive: true });
-  const lock = join(ctx.cacheDir, `${key}.lock`);
-  const token = randomUUID();
-  const started = Date.now();
-  for (;;) {
-    try {
-      mkdirSync(lock);
-      try {
-        writeFileSync(join(lock, "owner"), JSON.stringify({ pid: process.pid, token } satisfies LockOwner));
-      } catch (werr) {
-        rmSync(lock, { recursive: true, force: true }); // never leave an ownerless lock behind
-        throw werr;
-      }
-      break;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      if (lockIsStale(lock, staleMs)) {
-        stealStaleLock(lock, staleMs);
-        if (!existsSync(lock)) continue; // recovered — acquire immediately
-        // else another stealer holds the mutex: fall through to the timeout/poll path (never busy-spin)
-      }
-      if (Date.now() - started > waitMs) {
-        const o = readOwner(lock);
-        throw new Error(`cache entry is locked: held by pid ${o?.pid ?? "unknown"} for >${Math.round(waitMs / 1000)}s; remove ${lock} if that process is gone`);
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
-    }
-  }
-  try {
-    return await fn();
-  } finally {
-    if (readOwner(lock)?.token === token) rmSync(lock, { recursive: true, force: true });
-  }
 }
 
 // --- filesystem ---
@@ -354,26 +216,24 @@ export const gitResolver: SourceResolver = {
     }
 
     const cloneDir = join(ctx.cacheDir, cacheKey(spec));
-    const rev = await withCacheLock(ctx, cacheKey(spec), async () => {
-      let hasGit = existsSync(join(cloneDir, ".git"));
-      const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
-      if (hasGit && shouldPull) {
-        // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
-        let origin = "";
-        try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
-        if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
-      }
-      if (!hasGit) {
-        mkdirSync(ctx.cacheDir, { recursive: true });
-        git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
-      } else if (shouldPull) {
-        if (ref) {
-          git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
-          git([...hardening, "-C", cloneDir, "checkout", "--no-recurse-submodules", ref]);
-        } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
-      }
-      return git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
-    });
+    let hasGit = existsSync(join(cloneDir, ".git"));
+    const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
+    if (hasGit && shouldPull) {
+      // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
+      let origin = "";
+      try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
+      if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
+    }
+    if (!hasGit) {
+      mkdirSync(ctx.cacheDir, { recursive: true });
+      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
+    } else if (shouldPull) {
+      if (ref) {
+        git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
+        git([...hardening, "-C", cloneDir, "checkout", "--no-recurse-submodules", ref]);
+      } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
+    }
+    const rev = git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
     const dir = spec.subdir ? join(cloneDir, spec.subdir) : cloneDir;
     return { id: spec.ref, dir, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd), revision: rev };
   },
@@ -401,18 +261,64 @@ function plainFileName(pathname: string): string {
   return name === "" || name === "." || name === ".." ? "index.md" : name;
 }
 
-/** stage/out → dest, keeping the previous good cache until the new one is in place. */
+/**
+ * Lock-free, single-winner cache swap (review: concurrent refreshes).
+ *
+ * Every writer backs the previous cache up under a UNIQUE name
+ * (`<dest>.old-<epochMs>-<uuid>`) and only ever deletes ITS OWN backup, so one
+ * writer can never destroy another's rollback copy. Concurrent writers are
+ * last-writer-wins: a loser errors out (rename onto a populated dest fails) but
+ * `dest` always holds one writer's complete, valid content — never a mix, never
+ * nothing. No lock, so no lock-ownership/stale-steal class of bugs.
+ */
 function swapInto(dest: string, fresh: string, rename: (a: string, b: string) => void): void {
-  const old = `${dest}.old`;
+  const backup = `${dest}.old-${Date.now()}-${randomUUID()}`;
   const hadDest = existsSync(dest);
-  if (hadDest) rename(dest, old);
+  if (hadDest) rename(dest, backup);
   try {
     rename(fresh, dest);
   } catch (e) {
-    if (hadDest) rename(old, dest);
+    if (hadDest) {
+      try {
+        rename(backup, dest);
+      } catch {
+        // dest was repopulated by a concurrent writer: it is valid, keep it; the backup ages out
+      }
+    }
     throw e;
   }
-  if (hadDest) rmSync(old, { recursive: true, force: true });
+  if (hadDest) rmSync(backup, { recursive: true, force: true });
+}
+
+/** Backups older than this are crash debris, never a writer's in-flight rollback copy. */
+const BACKUP_MAX_AGE_MS = 60 * 60_000;
+const backupStamp = (name: string): number => Number(/\.old-(\d+)-/.exec(name)?.[1] ?? 0);
+
+/**
+ * Crash recovery: restore the newest backup when `dest` is gone (a crash between
+ * the two swap renames), then prune only backups old enough to be debris.
+ */
+function recoverBackups(dest: string): void {
+  const dir = dirname(dest);
+  const prefix = `${basename(dest)}.old-`;
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.startsWith(prefix));
+  } catch {
+    return;
+  }
+  names.sort((x, y) => backupStamp(y) - backupStamp(x)); // newest first
+  if (!existsSync(dest) && names.length) {
+    try {
+      renameSync(join(dir, names[0]), dest);
+      names.shift();
+    } catch {
+      // a concurrent writer restored/populated dest first — fine
+    }
+  }
+  for (const n of names) {
+    if (Date.now() - backupStamp(n) > BACKUP_MAX_AGE_MS) rmSync(join(dir, n), { recursive: true, force: true });
+  }
 }
 
 export const httpsResolver: SourceResolver = {
@@ -426,35 +332,31 @@ export const httpsResolver: SourceResolver = {
     try { url = new URL(spec.ref); } catch { throw new Error(`invalid source URL: ${spec.ref}`); }
     if (url.protocol !== "https:") throw new Error(`only https:// sources are allowed (got ${url.protocol}//): ${spec.ref}`);
 
-    await withCacheLock(ctx, cacheKey(spec), async () => {
-      // Crash recovery from a previous interrupted swap.
-      const old = `${dest}.old`;
-      if (!existsSync(dest) && existsSync(old)) renameSync(old, dest);
-      else if (existsSync(old)) rmSync(old, { recursive: true, force: true });
+    // Crash recovery from a previous interrupted swap.
+    recoverBackups(dest);
 
-      const shouldFetch = ctx.refresh || spec.refresh === "on-index" || isStale(spec, marker);
-      if (shouldFetch) {
-        mkdirSync(ctx.cacheDir, { recursive: true });
-        const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
-        try {
-          const out = join(stage, "out");
-          mkdirSync(out);
-          const body = await (hooks.fetch ?? ((u: string) => guardedFetch(u)))(spec.ref);
-          const kind = archiveKindOf(url.pathname);
-          if (kind) {
-            const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
-            writeFileSync(archive, body);
-            extractArchiveSafely(kind, archive, out);
-          } else {
-            writeFileSync(join(out, plainFileName(url.pathname)), body);
-          }
-          writeFileSync(join(out, ".fetched"), String(Date.now()));
-          swapInto(dest, out, hooks.rename ?? renameSync);
-        } finally {
-          rmSync(stage, { recursive: true, force: true });
+    const shouldFetch = ctx.refresh || spec.refresh === "on-index" || isStale(spec, marker);
+    if (shouldFetch) {
+      mkdirSync(ctx.cacheDir, { recursive: true });
+      const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
+      try {
+        const out = join(stage, "out");
+        mkdirSync(out);
+        const body = await (hooks.fetch ?? ((u: string) => guardedFetch(u)))(spec.ref);
+        const kind = archiveKindOf(url.pathname);
+        if (kind) {
+          const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
+          writeFileSync(archive, body);
+          extractArchiveSafely(kind, archive, out);
+        } else {
+          writeFileSync(join(out, plainFileName(url.pathname)), body);
         }
+        writeFileSync(join(out, ".fetched"), String(Date.now()));
+        swapInto(dest, out, hooks.rename ?? renameSync);
+      } finally {
+        rmSync(stage, { recursive: true, force: true });
       }
-    });
+    }
     return { id: spec.ref, dir: dest, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd) };
   },
 };

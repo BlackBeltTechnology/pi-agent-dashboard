@@ -1,8 +1,8 @@
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cacheKey, httpsResolver, type ResolveCtx } from "../sources.js";
 import { recordTrust } from "../trust.js";
@@ -42,7 +42,7 @@ d("https resolver: guarded fetch + archive extraction", () => {
     return { r, spec };
   }
   const files = (dir: string) => readdirSync(dir).sort();
-  const noLeftovers = () => expect(readdirSync(cacheDir).filter((x) => x.includes("stage-") || x.endsWith(".old"))).toEqual([]);
+  const noLeftovers = () => expect(readdirSync(cacheDir).filter((x) => x.includes("stage-") || x.includes(".old-"))).toEqual([]);
 
   it("E22 literal metadata URL: rejects with zero connect attempts", async () => {
     const spy = vi.spyOn(https, "request");
@@ -172,26 +172,31 @@ d("https resolver: guarded fetch + archive extraction", () => {
     };
     const specOf = (file: string) => ({ kind: "https" as const, ref: `https://example.test/${++n}/${file}` });
 
-    it("X4a dest absent + dest.old present → renamed back (no refetch when fresh)", async () => {
+    it("X4a dest absent + a backup present → restored (no refetch when fresh)", async () => {
       const spec = specOf("a.zip");
       const dest = join(cacheDir, cacheKey(spec));
-      seed(`${dest}.old`, "OLD");
+      const bk = `${dest}.old-${Date.now()}-crashed`;
+      seed(bk, "OLD");
       const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
       recordTrust(spec);
       const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch } });
       expect(readFileSync(join(r.dir, "orig.md"), "utf8")).toBe("OLD");
       expect(fetch).not.toHaveBeenCalled();
-      expect(existsSync(`${dest}.old`)).toBe(false);
+      expect(existsSync(bk)).toBe(false);
     });
 
-    it("X4b dest + stale dest.old → old removed, swap succeeds", async () => {
+    it("X4b dest + aged (>1h) backup → debris pruned, young backup kept, swap succeeds", async () => {
       const spec = specOf("a.zip");
       const dest = join(cacheDir, cacheKey(spec));
       seed(dest, "CUR");
-      seed(`${dest}.old`, "STALE");
+      const aged = `${dest}.old-${Date.now() - 2 * 3_600_000}-debris`;
+      const young = `${dest}.old-${Date.now()}-inflight`;
+      seed(aged, "STALE");
+      seed(young, "INFLIGHT");
       const { r } = await resolveSpec(spec, zip([{ name: "n.md", data: "x" }]), {}, true);
       expect(files(r.dir)).toEqual([".fetched", "n.md"]);
-      expect(existsSync(`${dest}.old`)).toBe(false);
+      expect(existsSync(aged)).toBe(false);
+      expect(existsSync(young)).toBe(true);
     });
 
     it("X5 swap failure restores dest from dest.old", async () => {
@@ -205,14 +210,13 @@ d("https resolver: guarded fetch + archive extraction", () => {
       };
       await expect(resolveSpec(spec, zip([{ name: "n.md", data: "x" }]), { testHooks: { rename } }, true)).rejects.toThrow(/injected/);
       expect(readFileSync(join(dest, "orig.md"), "utf8")).toBe("ORIGINAL");
-      expect(existsSync(`${dest}.old`)).toBe(false);
       noLeftovers();
     });
   });
 });
 
-d("per-cache-key lock (review B1: concurrent refreshes)", () => {
-  const trust = join(tmpdir(), `kb-trust-lock-${Date.now()}.json`);
+d("lock-free swap under concurrent refreshes (review B1: last-writer-wins, never lose the cache)", () => {
+  const trust = join(tmpdir(), `kb-trust-conc-${Date.now()}.json`);
   const saved = process.env.KB_SOURCE_TRUST_PATH;
   beforeAll(() => { process.env.KB_SOURCE_TRUST_PATH = trust; });
   afterAll(() => {
@@ -220,211 +224,77 @@ d("per-cache-key lock (review B1: concurrent refreshes)", () => {
     else process.env.KB_SOURCE_TRUST_PATH = saved;
     rmSync(trust, { force: true });
   });
+  const specOf = (n: string) => ({ kind: "https" as const, ref: `https://example.test/conc-${n}/a.zip` });
+  const mk = () => mkdtempSync(join(tmpdir(), "kb-conc-"));
+  const seed = (dir: string, files: Record<string, string>) => {
+    mkdirSync(dir, { recursive: true });
+    for (const [k, v] of Object.entries(files)) writeFileSync(join(dir, k), v);
+  };
+  const backups = (cacheDir: string) => readdirSync(cacheDir).filter((n) => n.includes(".old-"));
 
-  const specOf = (n: string) => ({ kind: "https" as const, ref: `https://example.test/lock-${n}/a.zip` });
-  const mk = () => mkdtempSync(join(tmpdir(), "kb-lock-"));
-  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-  it("two concurrent refreshes of one source never run their fetch+swap critical sections at once", async () => {
+  it("another writer lands between our backup and our swap: dest keeps THEIR complete content; ours errors; nothing is lost", async () => {
     const cacheDir = mk();
-    const spec = specOf("serial");
-    recordTrust(spec);
-    let inflight = 0;
-    let maxInflight = 0;
-    const fetch = async () => {
-      inflight++;
-      maxInflight = Math.max(maxInflight, inflight);
-      await sleep(60);
-      inflight--;
-      return zip([{ name: "n.md", data: "x" }]);
-    };
-    const ctx = { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch } };
-    await Promise.all([httpsResolver.resolve(spec, ctx), httpsResolver.resolve(spec, ctx)]);
-    expect(maxInflight).toBe(1);
-    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]); // lock dir + stage + .old all gone
-  });
-
-  it("a failing swap in one refresh leaves the cache intact for the concurrent refresh, which then lands", async () => {
-    const cacheDir = mk();
-    const spec = specOf("failswap");
+    const spec = specOf("interleave");
     recordTrust(spec);
     const dest = join(cacheDir, cacheKey(spec));
-    mkdirSync(dest, { recursive: true });
-    writeFileSync(join(dest, "orig.md"), "ORIGINAL");
-    writeFileSync(join(dest, ".fetched"), "1");
+    seed(dest, { "orig.md": "ORIGINAL", ".fetched": "1" });
+    const other = join(cacheDir, "other-writer-out");
+    seed(other, { "theirs.md": "THEIRS", ".fetched": "2" });
     let calls = 0;
-    const failing = (a: string, b: string) => {
-      if (++calls === 2) throw new Error("injected rename failure");
+    // After OUR rename #1 (dest → backup), the other writer completes its own swap (rename #2 is ours).
+    const rename = (a: string, b: string) => {
+      calls++;
       renameSync(a, b);
+      if (calls === 1) renameSync(other, dest);
     };
-    const slowFetch = async () => { await sleep(30); return zip([{ name: "n.md", data: "NEW" }]); };
-    const [a, b] = await Promise.allSettled([
-      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: slowFetch, rename: failing } }),
-      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: slowFetch } }),
-    ]);
-    expect(a.status).toBe("rejected");
-    expect(b.status).toBe("fulfilled");
-    expect(readFileSync(join(dest, "n.md"), "utf8")).toBe("NEW");
-    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
+    await expect(
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: async () => zip([{ name: "ours.md", data: "OURS" }]), rename } }),
+    ).rejects.toThrow();
+    expect(readdirSync(dest).sort()).toEqual([".fetched", "theirs.md"]); // one writer's complete content
+    expect(readFileSync(join(dest, "theirs.md"), "utf8")).toBe("THEIRS");
+    // the previous cache is still recoverable from our own backup (not deleted by anyone)
+    const [bk] = backups(cacheDir);
+    expect(readFileSync(join(cacheDir, bk, "orig.md"), "utf8")).toBe("ORIGINAL");
+    expect(readdirSync(cacheDir).filter((n) => n.includes("stage-"))).toEqual([]);
   });
 
-  it("waits for a lock held by another process and proceeds once it is released", async () => {
+  it("a writer never deletes another writer's backup (unique names)", async () => {
     const cacheDir = mk();
-    const spec = specOf("held");
+    const spec = specOf("unique");
     recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true }); // as if another `kb` process holds it
-    let fetched = false;
-    const p = httpsResolver.resolve(spec, {
-      cwd: cacheDir, cacheDir,
-      testHooks: { fetch: async () => { fetched = true; return zip([{ name: "n.md", data: "x" }]); }, lockPollMs: 10 },
-    });
-    await sleep(80);
-    expect(fetched).toBe(false);
-    rmSync(lock, { recursive: true });
-    await p;
-    expect(fetched).toBe(true);
+    const dest = join(cacheDir, cacheKey(spec));
+    seed(dest, { "orig.md": "ORIGINAL", ".fetched": "1" });
+    const foreign = `${dest}.old-${Date.now()}-someone-elses`; // a concurrent writer's in-flight rollback copy
+    seed(foreign, { "theirs-old.md": "X" });
+    await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]) } });
+    expect(existsSync(join(foreign, "theirs-old.md"))).toBe(true);
+    expect(backups(cacheDir)).toEqual([foreign.split("/").pop()]); // only the foreign one remains; ours was removed
   });
 
-  it("steals a stale lock (dead holder) instead of hanging", async () => {
+  it("recovery: dest absent → restores the NEWEST backup; prunes only backups older than 1h", async () => {
     const cacheDir = mk();
-    const spec = specOf("stale");
+    const spec = specOf("recover");
     recordTrust(spec);
-    mkdirSync(join(cacheDir, `${cacheKey(spec)}.lock`), { recursive: true });
-    await sleep(30);
-    const r = await httpsResolver.resolve(spec, {
-      cwd: cacheDir, cacheDir,
-      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockStaleMs: 10, lockPollMs: 5 },
-    });
-    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
-  });
-
-  // ---- review r2 B1: ownership-safe stale recovery ----
-  const writeOwner = (lock: string, pid: number, token: string) => writeFileSync(join(lock, "owner"), JSON.stringify({ pid, token }));
-  const age = (path: string, ms: number) => utimesSync(path, new Date(Date.now() - ms), new Date(Date.now() - ms));
-  /** A pid that is guaranteed dead: a child that already exited. */
-  async function deadPid(): Promise<number> {
-    const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-    await new Promise((r) => child.on("exit", r));
-    return child.pid as number;
-  }
-
-  it("never steals a lock whose holder is alive, however old; gives up with an actionable error", async () => {
-    const cacheDir = mk();
-    const spec = specOf("live-old");
-    recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true });
-    writeOwner(lock, process.pid, "live-holder"); // this very process is the live holder
-    age(lock, 60_000);
+    const dest = join(cacheDir, cacheKey(spec));
+    const now = Date.now();
+    seed(`${dest}.old-${now - 1000}-newest`, { "orig.md": "NEWEST", ".fetched": "1" });
+    seed(`${dest}.old-${now - 2000}-older`, { "x.md": "OLDER" });
+    seed(`${dest}.old-${now - 2 * 3_600_000}-debris`, { "y.md": "DEBRIS" });
     const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
-    await expect(
-      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch, lockStaleMs: 10, lockPollMs: 5, lockWaitMs: 120 } }),
-    ).rejects.toThrow(new RegExp(`held by pid ${process.pid}`));
-    expect(fetch).not.toHaveBeenCalled();
-    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("live-holder"); // untouched
+    const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch } });
+    expect(readFileSync(join(r.dir, "orig.md"), "utf8")).toBe("NEWEST");
+    expect(fetch).not.toHaveBeenCalled(); // marker is fresh → no refetch
+    expect(backups(cacheDir)).toEqual([`${basename(dest)}.old-${now - 2000}-older`]); // young kept, debris pruned, newest consumed
   });
 
-  it("steals immediately from a dead holder, even a young lock", async () => {
+  it("sequential refreshes leave no backups or stage dirs behind", async () => {
     const cacheDir = mk();
-    const spec = specOf("dead-young");
+    const spec = specOf("seq");
     recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true });
-    writeOwner(lock, await deadPid(), "dead-holder");
-    const r = await httpsResolver.resolve(spec, {
-      cwd: cacheDir, cacheDir,
-      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockPollMs: 5 },
-    });
-    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
-  });
-
-  // ---- review r3 B1: the steal mutex must be ownership-safe too ----
-  it("never evicts a LIVE (paused) stealer's mutex, however old — the dead lock and its mutex stay untouched", async () => {
-    const cacheDir = mk();
-    const spec = specOf("paused-stealer");
-    recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true });
-    writeOwner(lock, await deadPid(), "T-dead");
-    // A stealer that validated the stale lock and was then suspended (SIGSTOP) — alive, holding its mutex.
-    const steal = `${lock}.steal-T-dead`;
-    mkdirSync(steal, { recursive: true });
-    writeOwner(steal, process.pid, "paused-stealer");
-    age(steal, 120_000);
-    const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
-    await expect(
-      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch, lockPollMs: 5, lockWaitMs: 150 } }),
-    ).rejects.toThrow(/cache entry is locked/);
-    expect(fetch).not.toHaveBeenCalled();
-    expect(JSON.parse(readFileSync(join(steal, "owner"), "utf8")).token).toBe("paused-stealer");
-    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("T-dead");
-  });
-
-  it("evicts a DEAD stealer's mutex and then recovers the dead lock", async () => {
-    const cacheDir = mk();
-    const spec = specOf("dead-stealer");
-    recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true });
-    writeOwner(lock, await deadPid(), "T-dead2");
-    const steal = `${lock}.steal-T-dead2`;
-    mkdirSync(steal, { recursive: true });
-    writeOwner(steal, await deadPid(), "crashed-stealer");
-    const r = await httpsResolver.resolve(spec, {
-      cwd: cacheDir, cacheDir,
-      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockPollMs: 5, lockWaitMs: 5_000 },
-    });
-    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
-    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
-  });
-
-  it("release only removes a lock this holder still owns", async () => {
-    const cacheDir = mk();
-    const spec = specOf("owner-release");
-    recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    // While A is inside its critical section, its lock is replaced by another holder's.
-    const fetch = async () => {
-      rmSync(lock, { recursive: true, force: true });
-      mkdirSync(lock);
-      writeOwner(lock, process.pid, "successor");
-      return zip([{ name: "n.md", data: "x" }]);
-    };
-    await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch } });
-    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("successor");
-  });
-
-  it("many concurrent waiters on a dead holder's lock: exactly one steals, critical sections never overlap", async () => {
-    const cacheDir = mk();
-    const spec = specOf("many-stealers");
-    recordTrust(spec);
-    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
-    mkdirSync(lock, { recursive: true });
-    writeOwner(lock, await deadPid(), "dead-holder");
-    let inflight = 0;
-    let maxInflight = 0;
-    const fetch = async () => {
-      inflight++;
-      maxInflight = Math.max(maxInflight, inflight);
-      await sleep(30);
-      inflight--;
-      return zip([{ name: "n.md", data: "x" }]);
-    };
-    const ctx = { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch, lockPollMs: 5 } };
-    await Promise.all(Array.from({ length: 6 }, () => httpsResolver.resolve(spec, ctx)));
-    expect(maxInflight).toBe(1);
-    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
-  });
-
-  it("releases the lock when the critical section throws", async () => {
-    const cacheDir = mk();
-    const spec = specOf("release");
-    recordTrust(spec);
-    await expect(
-      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch: async () => { throw new Error("HTTP 500"); } } }),
-    ).rejects.toThrow(/HTTP 500/);
-    expect(readdirSync(cacheDir)).toEqual([]);
+    for (let i = 0; i < 3; i++) {
+      await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: async () => zip([{ name: "n.md", data: String(i) }]) } });
+    }
+    expect(readdirSync(cacheDir)).toEqual([cacheKey(spec)]);
   });
 });
 
