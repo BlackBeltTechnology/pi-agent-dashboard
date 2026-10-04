@@ -4,6 +4,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
+| `FileAccessToastHost.tsx` | Own toast tray + `useFileAccessToasts` for the whole app (both layouts); App-level `useToast` tray renders only in the mobile branch. See change: ask-agent-file-access-in-chat. |
 | `agent-card-utils.ts` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `AgentCardShell.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell`. Symbol moved in change `complete-flows-plugin-migration` (Layer 0). |
 | `ArchivedSessionRow.tsx` | Lightweight row for an archived session inside folder `Archive (N)` fold or `Archive matches` search. Exports `ArchivedSessionRow`. Never in live `sessions` Map; click opens read-only `?archived=1`. Testids `archived-session-row`, `session-unarchive-btn`, `archived-delete-btn`. See change: archive-sessions-lazy-load. |

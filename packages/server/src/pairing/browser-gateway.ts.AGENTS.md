@@ -18,3 +18,5 @@ Card sections: routes `set_card_section_visibility` / `reset_folder_card_section
 `frameClassOf`: `pair_pending_changed` → `{cls:"state", key:"pair_pending"}` (coalescing, never shed — a shed hint is a dialog that never appears). See change: add-pairing-approval-dialog.
 
 `replayNotifyLog` forwards `entry.ts` when present; pre-change entries replay without `ts`. See change: collapse-and-order-notify-rows.
+
+`hasPendingPromptKind(sessionId, kinds)` — true when a tracked pending prompt's `prompt.metadata.kind` is in `kinds` (drives `awaitingFileAccess`). See change: ask-agent-file-access-in-chat.

@@ -408,6 +408,12 @@ export interface BrowserGateway {
   /** Clear a pending PromptBus request (dismissed or cancelled) */
   clearPromptRequest(sessionId: string, promptId: string): void;
   /**
+   * True when any tracked pending prompt of the session carries
+   * `prompt.metadata.kind` in `kinds` (agent path gate attention routing).
+   * See change: ask-agent-file-access-in-chat (D7).
+   */
+  hasPendingPromptKind(sessionId: string, kinds: readonly string[]): boolean;
+  /**
    * Snapshot setter over the PromptBus registry: drop every tracked prompt for
    * the session whose id is not in `promptIds`. Used at each replay exit, where
    * the bridge's re-sent prompt burst is the authoritative pending set — this is
@@ -2435,6 +2441,16 @@ export function createBrowserGateway(
     hasPendingPromptRequests(sessionId: string): boolean {
       const sessionMap = pendingPromptRequests.get(sessionId);
       return sessionMap !== undefined && sessionMap.size > 0;
+    },
+
+    hasPendingPromptKind(sessionId: string, kinds: readonly string[]): boolean {
+      const sessionMap = pendingPromptRequests.get(sessionId);
+      if (!sessionMap) return false;
+      for (const msg of sessionMap.values()) {
+        const kind = (msg as { prompt?: { metadata?: { kind?: unknown } } }).prompt?.metadata?.kind;
+        if (typeof kind === "string" && kinds.includes(kind)) return true;
+      }
+      return false;
     },
 
     getDroppedFrameStats(): DroppedFrameStats {

@@ -206,6 +206,11 @@ RUN pnpm install --frozen-lockfile \
 # volume to the user that actually runs.
 RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 && chown pi:pi /home/pi/.pi /home/pi/.zrok2
 
+# Out-of-root fixture dir for the agent path-gate e2e (tool-read-outside-grantable).
+# See change: ask-agent-file-access-in-chat.
+RUN mkdir -p /srv/fixtures-outside && printf 'outside-a\n' > /srv/fixtures-outside/a.txt \
+ && printf 'outside-b\n' > /srv/fixtures-outside/b.txt && chown -R pi:pi /srv/fixtures-outside
+
 USER pi
 ENV HOME=/home/pi
 
