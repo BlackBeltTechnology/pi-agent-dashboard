@@ -34,7 +34,7 @@ hand-write a per-theme severity color.
 | hairline / divider | `--border-primary`, `--border-secondary`, `--border-subtle`, `--border-strong` |
 | brand / primary action | `--accent-primary` |
 | link | `--link`, `--link-hover` |
-| accent fill (dot, border, glyph — non-text 3:1) | `--accent-{purple,blue,green,orange,red,yellow}` |
+| accent fill (dot, border, glyph — no contrast guarantee; check each use against its backdrop) | `--accent-{purple,blue,green,orange,red,yellow}` |
 | accent text (coloured label, AA 4.5:1 on surface / tertiary / primary / card fill) | `--accent-{purple,blue,green,orange,red,yellow}-text` |
 | focus ring | `--focus-ring` |
 
@@ -51,8 +51,8 @@ hand-write a per-theme severity color.
 directly and never a Tailwind palette class (`text-green-400`,
 `bg-blue-500/10`, …) or a hex/`rgba(` literal. Raw accents are reserved for the
 status family and for chart/graph series. When text must be coloured by hue,
-use `--accent-<hue>-text`, never `--accent-<hue>` (a fill tuned for 3:1, below
-the 4.5:1 text floor), and back the hue with a word, icon or shape — hue is a
+use `--accent-<hue>-text`, never `--accent-<hue>` (a fill with no contrast
+guarantee — 80 of 108 sit below the 4.5:1 text floor on `--bg-surface`), and back the hue with a word, icon or shape — hue is a
 secondary cue (solarized dark accent-text hues are near-indistinguishable).
 `scripts/theme-token-guard.mjs` (arm `accentText`) fails any NEW fill-accent
 text paint; existing ones are baselined debt.

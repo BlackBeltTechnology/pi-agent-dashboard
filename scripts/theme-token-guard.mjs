@@ -15,7 +15,7 @@
  *
  *  3. accent-as-text (`accentText`) — a FILL accent `--accent-<hue>` painted as
  *     text (`text-[var(--accent-red)]`, `color: var(--accent-red)`). Fill
- *     accents are tuned for 3:1 non-text; coloured text must use
+ *     accents carry no text-contrast guarantee; coloured text must use
  *     `--accent-<hue>-text` (AA 4.5:1 on every text backdrop). This arm also
  *     reads `.css`. Files in `NON_TEXT_PAINT_FILES` are skipped by it only.
  *     See change: remediate-accent-text-contrast.
@@ -370,7 +370,7 @@ export function main(argv = process.argv.slice(2), { root = ROOT, roots = SCAN_R
     console.error(
       "\nA themed paint must resolve from a declared token, not an inline fallback literal.\n" +
         "Declare the token in packages/client/src/index.css for BOTH :root and [data-theme=\"light\"].\n" +
-        "Coloured TEXT uses --accent-<hue>-text; --accent-<hue> is the fill role (3:1 non-text).",
+        "Coloured TEXT uses --accent-<hue>-text; --accent-<hue> is the fill role (no text-contrast guarantee).",
     );
     return 1;
   }

@@ -87,7 +87,9 @@ const statusVars: Record<string, string> = {
 // ── Accent role split: fill vs text ──
 //
 // `--accent-<hue>` is the FILL role (dots, borders, icon glyphs, tinted
-// backgrounds — non-text, 3:1). `--accent-<hue>-text` is the TEXT role: the same
+// backgrounds). It carries NO contrast guarantee: check each non-text use
+// against its own backdrop (Base light green is 1.73:1 on `--bg-surface`).
+// `--accent-<hue>-text` is the TEXT role: the same
 // hue and saturation, lightness-shifted until it reaches WCAG AA 4.5:1 on
 // `--bg-surface`, `--bg-tertiary`, `--bg-primary` and the card fill. A source
 // accent that already passes all four is copied unchanged. Values are pasted
