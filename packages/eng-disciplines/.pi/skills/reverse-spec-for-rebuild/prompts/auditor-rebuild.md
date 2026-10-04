@@ -33,12 +33,29 @@ Checks:
 2. Coverage — central behaviors present in the code but absent: emitted
    messages, error paths, defaults, state transitions (allowed AND rejected),
    limits, cross-component contracts.
-   The rule catalog (`rules.md`) holds business rules only (constraints,
-   calculations, decisions on domain data); interface contracts such as
-   subscribe/unsubscribe mechanics, exit codes or output formatting belong in
-   the spec, and are not missing when absent from `rules.md`.
+   Catalog boundary: a rule is anything that decides a caller-visible outcome
+   from domain data or failure class, including HTTP/WS/CLI error maps (which
+   failure class yields which status, code, reply or non-success exit) and
+   fallback handlers that hide or substitute details. Plumbing is a numbering or
+   formatting choice that encodes no decision (one non-success exit status for
+   every failure, output formatting, id formats, subscribe/unsubscribe
+   mechanics); plumbing belongs in the spec, not in the rule catalog.
+   An error map or fallback rule absent from `rules.md` is missing coverage:
+   report it against `rules.md`. Plumbing absent from `rules.md` is not
+   missing.
 3. Citations — each cited range exists and implements the claim it is attached
    to. A claim with no citation is uncited.
+   Report a citation in `bad_citations` when the cited range does not exist
+   or does not implement the claim (wrong lines), and when a claim tagged
+   `inferred` or `assumed` omits a line that is NECESSARY to verify it
+   (`inferred` must cite every link). A `confirmed` claim that omits a line
+   NECESSARY to verify the exact claim as written (the constant behind a quoted
+   literal, the throw behind a stated error) goes in `confidence_errors`: it
+   should be `inferred` AND carry that line; lowering the tag alone does not
+   fix the cite, and the lowered claim is then judged under the `inferred`
+   rule above. A cite that omits only context a reader does not need to verify
+   the claim (a neighbouring line, a type declaration) is not a defect:
+   mention it in `notes`.
 4. Classification — each rule's `explicit`/`implicit` tag. Explicit = stated by
    a guard, validation, table, formula or matching comment. Implicit = emerges
    from a default value, exception handler, fall-through, ordering or
@@ -46,7 +63,9 @@ Checks:
 5. Confidence — `confirmed` needs the cited lines to directly implement the
    exact claim; reasoning across locations is `inferred`; convention without
    evidence is `assumed`. A `confirmed` resting on a comment or name alone is
-   an error.
+   an error. By rule, a claim citing more than one location, or stating an
+   absence, is at most `inferred`; a tag lowered only by that cap is not a
+   confidence error — do not report it.
 6. References — every `BR-NNN`, `QUIRK-NNN`, `GAP-NNN` (or `{r1}` local id in a
    fragment-stage spec) resolves to an item in the package / fragment.
 7. Quirk policy — the spec describes what the code DOES; a suspected defect is

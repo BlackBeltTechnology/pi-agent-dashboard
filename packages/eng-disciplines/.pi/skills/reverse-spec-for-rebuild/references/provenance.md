@@ -55,8 +55,8 @@ citation on the line after each item (or field) it supports — see
 
 | Level | Meaning | Required evidence |
 |---|---|---|
-| `confirmed` | The cited code (or a test assertion) directly implements the exact claimed behavior. A reader of the cited lines alone would agree. | The cited range contains the condition/assignment/call that produces the behavior, with the claimed values. |
-| `inferred` | The claim follows from reasoning across two or more pieces of code evidence (call chain, ordering, data flow), none of which states it alone. | Cite every link of the chain. |
+| `confirmed` | The cited code (or a test assertion) directly implements the exact claimed behavior. A reader of the cited lines alone would agree. | The cited range contains the condition/assignment/call that produces the behavior, with the claimed values. Exactly one location. |
+| `inferred` | The claim follows from reasoning across two or more pieces of code evidence (call chain, ordering, data flow), none of which states it alone; also, by rule, any claim citing more than one location or stating an absence. | Cite every link of the chain. |
 | `assumed` | Convention, naming or framework default with no direct evidence in the target. | Cite the closest evidence (e.g. the name or the framework call); an `assumed` claim that matters to the rebuild also gets a `GAP-`. |
 
 Escalation rules:
@@ -68,7 +68,12 @@ Escalation rules:
   the target is at most `inferred` for the *mechanism* and unknown for the
   *value*: register a `GAP-`.
 - A citation with more than one location, or a claim of absence ("never",
-  "no event", "unreachable"), is at most `inferred`.
+  "no event", "unreachable"), is at most `inferred`. This cap is a rule, not a
+  judgement: a tag lowered only by it is never a confidence error.
+- Cite comments are single-line: `<!-- cite:` and its `-->` sit on the same
+  line. `node scripts/guard.mjs lint-cite <file>...` enforces the cap and the
+  single-line rule on `.md` cites and on fragment `.json` (`cite` + `confidence`
+  objects) before every merge and audit.
 - Merging items never raises confidence: the merged item takes the lowest level.
 - Downgrade instead of guessing: when unsure between two levels, pick the lower.
 
