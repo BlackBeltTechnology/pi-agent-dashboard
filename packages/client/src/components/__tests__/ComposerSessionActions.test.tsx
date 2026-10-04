@@ -6,6 +6,9 @@ import {
   createSlotRegistry,
   PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { Router } from "wouter";
+import { memoryLocation } from "wouter/memory-location";
+import { absentData, archiveEntry, knownData, makeChange, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { ComposerSessionActions } from "../session/ComposerSessionActions.js";
 import type { DashboardSession, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -612,5 +615,74 @@ describe("working = streaming ∨ retrying (#F7, composer half)", () => {
     fireEvent.click(screen.getByTestId("composer-stepper-segment-proposal"));
     expect(onReadArtifact).toHaveBeenCalledWith("add-auth", "proposal");
     expect(screen.getByTestId("composer-change-chip").getAttribute("aria-disabled")).toBeNull();
+  });
+});
+
+describe("ComposerSessionActions change chip for non-live attachments (resolve-archived-attached-proposal)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const base = { openspecReadiness: { state: "READY" as const }, onReadArtifact: vi.fn(), onDetach: vi.fn() };
+
+  it("archived: chip menu offers Detach only — no active-preview 'Open proposal'", async () => {
+    stubArchiveApi({ "/repo": [archiveEntry("2026-09-30-add-auth")] });
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          { "/repo": knownData() },
+          <ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...base} />,
+        )}
+      </Router>,
+    );
+    await screen.findByTestId("attachment-archived-badge");
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    expect(screen.queryByTestId("composer-change-open-proposal")).toBeNull();
+    expect(screen.getByTestId("composer-change-detach")).toBeTruthy();
+  });
+
+  it("active in the main checkout (removed worktree): no 'Open proposal' either", async () => {
+    stubArchiveApi({});
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          { "/repo/.worktrees/os-x": absentData(), "/repo": knownData(makeChange("x")) },
+          <ComposerSessionActions
+            session={makeSession({ cwd: "/repo/.worktrees/os-x", status: "ended", attachedProposal: "x", gitWorktree: { mainPath: "/repo", name: "os-x" } as never })}
+            changes={[]}
+            {...base}
+          />,
+        )}
+      </Router>,
+    );
+    await screen.findByTestId("attachment-main-checkout-badge");
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    expect(screen.queryByTestId("composer-change-open-proposal")).toBeNull();
+    expect(screen.getByTestId("composer-change-detach")).toBeTruthy();
+  });
+
+  it("unresolved (OpenSpec data not settled yet): chip menu is Detach-only", () => {
+    stubArchiveApi({});
+    render(
+      <Router hook={memoryLocation({ path: "/" }).hook}>
+        {withOpenSpecMap(
+          {}, // no entry for the cwd yet → unresolved{loading}
+          <ComposerSessionActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...base} />,
+        )}
+      </Router>,
+    );
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    expect(screen.queryByTestId("composer-change-open-proposal")).toBeNull();
+    expect(screen.getByTestId("composer-change-detach")).toBeTruthy();
+  });
+
+  it("live active attachment still offers 'Open proposal'", () => {
+    stubArchiveApi({});
+    render(
+      <ComposerSessionActions
+        session={makeSession({ attachedProposal: "add-auth" })}
+        changes={[implementingChange()]}
+        {...base}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("composer-change-chip"));
+    expect(screen.getByTestId("composer-change-open-proposal")).toBeTruthy();
   });
 });

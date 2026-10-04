@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildArchiveArtifactUrl,
   buildEditorUrl,
   buildFolderEditorUrl,
   buildFolderSettingsUrl,
@@ -30,6 +31,17 @@ describe("route-builders", () => {
     it("escapes special chars in changeName and artifactId", () => {
       const url = buildOpenSpecPreviewUrl("/x", "a b/c?d", "p#q");
       expect(url).toContain("/openspec/a%20b%2Fc%3Fd/p%23q");
+    });
+  });
+
+  describe("buildArchiveArtifactUrl", () => {
+    it("E22 encodes cwd + segments and round-trips", () => {
+      const cwd = "/a b/ü";
+      const url = buildArchiveArtifactUrl(cwd, "2026-09-30-x", "design");
+      expect(url).toBe(`/folder/${encodeFolderPath(cwd)}/openspec/archive/2026-09-30-x/design`);
+      const m = url.match(/^\/folder\/([^/]+)\/openspec\/archive\/([^/]+)\/([^/]+)$/);
+      expect(m).not.toBeNull();
+      expect([decodeFolderPath(m![1]), m![2], m![3]]).toEqual([cwd, "2026-09-30-x", "design"]);
     });
   });
 

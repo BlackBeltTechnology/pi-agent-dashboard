@@ -30,6 +30,7 @@
  */
 import type { ReactNode } from "react";
 import { useRoute, useSearchParams } from "wouter";
+import { useArchiveRoute } from "../../lib/nav/useArchiveRoute.js";
 import { decodeFolderPath } from "../../lib/util/folder-encoding.js";
 
 /** Folder-settings pages the shell will honour; anything else falls back. */
@@ -49,7 +50,8 @@ type FolderSettingsPage = (typeof VALID_FOLDER_SETTINGS_PAGES)[number];
 
 export interface ShellContentRenderers {
   renderOpenSpecBoard: (cwd: string) => ReactNode;
-  renderArchive: (cwd: string) => ReactNode;
+  /** `deepLink` carries `:entry[/:artifact]` when the URL names one. */
+  renderArchive: (cwd: string, deepLink?: { entry: string; artifact?: string }) => ReactNode;
   renderSpecs: (cwd: string) => ReactNode;
   renderDiff: (sessionId: string) => ReactNode;
   renderPiResourceFile: (path: string, title: string) => ReactNode;
@@ -90,7 +92,7 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
     "/folder/:encodedCwd/openspec/:changeName/:artifactId",
   );
   const [openspecBoardMatch, openspecBoardParams] = useRoute("/folder/:encodedCwd/openspec");
-  const [archiveMatch, archiveParams] = useRoute("/folder/:encodedCwd/openspec/archive");
+  const archiveRoute = useArchiveRoute();
   const [specsMatch, specsParams] = useRoute("/folder/:encodedCwd/openspec/specs");
   const [piResourcesMatch, piResourcesParams] = useRoute("/folder/:encodedCwd/pi-resources");
   const [folderSettingsMatch, folderSettingsParams] = useRoute("/folder/:encodedCwd/settings/:page?");
@@ -113,7 +115,6 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
     openspecPreviewMatch && openspecPreviewParams ? decodeFolderPath(openspecPreviewParams.encodedCwd) : null;
   const openspecBoardCwd =
     openspecBoardMatch && openspecBoardParams ? decodeFolderPath(openspecBoardParams.encodedCwd) : null;
-  const archiveCwd = archiveMatch && archiveParams ? decodeFolderPath(archiveParams.encodedCwd) : null;
   const specsCwd = specsMatch && specsParams ? decodeFolderPath(specsParams.encodedCwd) : null;
   const piResourcesCwd = piResourcesMatch && piResourcesParams ? decodeFolderPath(piResourcesParams.encodedCwd) : null;
   const folderSettingsCwd =
@@ -138,7 +139,8 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   const free = variant === "mobile" || !selectedId;
 
   if (openspecBoardMatch && openspecBoardCwd) return <>{render.renderOpenSpecBoard(openspecBoardCwd)}</>;
-  if (archiveMatch && archiveCwd) return <>{render.renderArchive(archiveCwd)}</>;
+  if (archiveRoute)
+    return <>{render.renderArchive(archiveRoute.cwd, archiveRoute.entry ? { entry: archiveRoute.entry, artifact: archiveRoute.artifact } : undefined)}</>;
   if (specsMatch && specsCwd) return <>{render.renderSpecs(specsCwd)}</>;
   // Desktop reaches diff through `selectedId` -> session chat, so it has no
   // diff branch of its own here.
@@ -148,7 +150,7 @@ export function ShellContent({ variant, frozen = false, ...render }: Props) {
   if (piResourcesMatch && piResourcesCwd && free) return <>{render.renderPiResourcesRedirect(piResourcesCwd)}</>;
   if (folderSettingsMatch && folderSettingsCwd && free)
     return <>{render.renderFolderSettings(folderSettingsCwd, folderSettingsPage)}</>;
-  if (openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && free)
+  if (openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && openspecPreviewParams.changeName !== "archive" && free)
     return (
       <>
         {render.renderOpenSpecPreview(

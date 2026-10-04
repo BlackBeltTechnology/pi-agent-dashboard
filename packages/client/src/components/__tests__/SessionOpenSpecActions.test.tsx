@@ -1,8 +1,9 @@
 import type { DashboardSession, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { absentData, archiveEntry, knownData, stubArchiveApi, withOpenSpecMap } from "../../test-support/attachmentHarness.js";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
 import { formatProposePrompt } from "../openspec/ProposeDialog.js";
 import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
@@ -691,5 +692,111 @@ describe("SessionOpenSpecActions — working gate covers retrying", () => {
       expect(el.getAttribute("aria-disabled"), id).toBe("true");
       expect(el.getAttribute("title"), id).toBe("Session is streaming");
     }
+  });
+});
+
+// --- Archived / missing / unresolved attachment headers (resolve-archived-attached-proposal) ---
+describe("attachment resolution headers", () => {
+  const props = { onAttach: vi.fn(), onSendPrompt: vi.fn(), onDetach: vi.fn() };
+  const menuIds = (menu: HTMLElement) => Array.from(menu.querySelectorAll("button")).map((b) => b.getAttribute("data-testid"));
+  const openMenu = () => {
+    fireEvent.click(screen.getByTestId("openspec-overflow-btn"));
+    return screen.getByTestId("openspec-overflow-menu");
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each(["idle", "ended"] as const)("F1 archived header (%s): badge, P D T letters, only Detach, no lifecycle", async (status) => {
+    stubArchiveApi({ "/project/foo": [archiveEntry("2026-09-30-add-auth")] });
+    render(
+      withOpenSpecMap(
+        { "/project/foo": knownData() },
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth", status })} changes={[]} {...props} />,
+      ),
+    );
+    const badge = await screen.findByTestId("attachment-archived-badge");
+    expect(badge.textContent).toBe("Archived 2026-09-30");
+    expect(screen.getAllByTestId("artifact-letter").map((l) => l.textContent)).toEqual(["P", "D", "T"]);
+    expect(screen.queryByTestId("openspec-stepper")).toBeNull();
+    for (const id of ["continue-btn", "ff-btn", "apply-btn", "archive-btn", "verify-btn"]) expect(screen.queryByTestId(id)).toBeNull();
+    expect(menuIds(openMenu())).toEqual(["detach-btn"]);
+  });
+
+  it("F13 Detach on an archived attachment calls onDetach", async () => {
+    stubArchiveApi({ "/project/foo": [archiveEntry("2026-09-30-add-auth")] });
+    const onDetach = vi.fn();
+    render(
+      withOpenSpecMap(
+        { "/project/foo": knownData() },
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...props} onDetach={onDetach} />,
+      ),
+    );
+    await screen.findByTestId("attachment-archived-badge");
+    fireEvent.click(within(openMenu()).getByTestId("detach-btn"));
+    expect(onDetach).toHaveBeenCalledTimes(1);
+  });
+
+  it("F2 missing: muted Not found badge with hint title; only Detach", async () => {
+    stubArchiveApi({ "/project/foo": [] });
+    render(
+      withOpenSpecMap(
+        { "/project/foo": knownData() },
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "gone" })} changes={[]} {...props} />,
+      ),
+    );
+    const badge = await screen.findByTestId("attachment-not-found-badge");
+    expect(badge.textContent).toBe("Not found");
+    expect(badge.getAttribute("title")).toBe("Not in active changes or archive (pull may be needed)");
+    expect(menuIds(openMenu())).toEqual(["detach-btn"]);
+  });
+
+  it.each([
+    ["loading", {}, {}],
+    ["disabled", { "/project/foo": { initialized: false, changes: [], readiness: { state: "OPTED_OUT" } } }, {}],
+    ["error", { "/project/foo": knownData() }, { "/project/foo": "error" as const }],
+  ])("F3 unresolved (%s): bare name, no badge, only Detach", async (_r, map, archives) => {
+    stubArchiveApi(archives);
+    render(
+      withOpenSpecMap(
+        map as never,
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...props} />,
+      ),
+    );
+    await waitFor(() => expect(screen.getByText(/add-auth/)).toBeTruthy());
+    expect(screen.queryByTestId("attachment-archived-badge")).toBeNull();
+    expect(screen.queryByTestId("attachment-not-found-badge")).toBeNull();
+    expect(menuIds(openMenu())).toEqual(["detach-btn"]);
+  });
+
+  it("X3 slow archive fetch: bare header first, then the Archived badge", async () => {
+    stubArchiveApi({ "/project/foo": [archiveEntry("2026-09-30-add-auth")] });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const fast = (globalThis.fetch as unknown as (u: string) => Promise<Response>);
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => { await gate; return fast(u); }));
+    render(
+      withOpenSpecMap(
+        { "/project/foo": knownData() },
+        <SessionOpenSpecActions session={makeSession({ attachedProposal: "add-auth" })} changes={[]} {...props} />,
+      ),
+    );
+    expect(screen.queryByTestId("attachment-not-found-badge")).toBeNull();
+    expect(screen.queryByTestId("attachment-archived-badge")).toBeNull();
+    await act(async () => { release(); });
+    expect(await screen.findByTestId("attachment-archived-badge")).toBeTruthy();
+  });
+
+  it("removed worktree: archived under mainPath", async () => {
+    stubArchiveApi({ "/repo": [archiveEntry("2026-09-30-add-auth")] });
+    render(
+      withOpenSpecMap(
+        { "/repo/.worktrees/os-add-auth": absentData(), "/repo": knownData() },
+        <SessionOpenSpecActions
+          session={makeSession({ cwd: "/repo/.worktrees/os-add-auth", attachedProposal: "add-auth", status: "ended", gitWorktree: { mainPath: "/repo", name: "os-add-auth" } as never })}
+          changes={[]}
+          {...props}
+        />,
+      ),
+    );
+    expect(await screen.findByTestId("attachment-archived-badge")).toBeTruthy();
   });
 });

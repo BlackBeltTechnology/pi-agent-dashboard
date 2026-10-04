@@ -196,6 +196,6 @@ export function isOverlayRoute(path: string): boolean {
   // `/folder/:cwd/openspec/:changeName/:artifactId` — the artifact preview only.
   // The board (`/openspec`) and its `archive` / `specs` pages stay full pages,
   // so they remain valid backgrounds.
-  if (segments[2] === "openspec" && segments.length === 5) return true;
+  if (segments[2] === "openspec" && segments.length === 5 && segments[3] !== "archive") return true;
   return false;
 }
