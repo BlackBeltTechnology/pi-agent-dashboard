@@ -1,6 +1,6 @@
 ---
 name: youtube-srt
-description: Download YouTube subtitles (SRT + compact timestamped TXT) for a channel, playlist or video without downloading media, via yt-dlp — then optionally mine them into a categorized catalog (e.g. an AI-model catalog with function, open weights, local runnability, size, hardware tier). Use on "download the srt of this video", "get transcripts of channel X for the last N months", "subtitles from youtube", "catalog the models AI Search talked about", "update docs/models".
+description: Download YouTube subtitles (SRT + timestamped TXT) for a channel, playlist or video via yt-dlp, no media download; optionally mine them into a categorized catalog (e.g. AI models by function, open weights, local runnability, hardware tier). Use on "download the srt of this video", "transcripts of channel X for the last N months", "catalog the models AI Search talked about", "update docs/models".
 ---
 
 # YouTube SRT → catalog
