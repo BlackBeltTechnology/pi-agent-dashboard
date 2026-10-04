@@ -43,6 +43,8 @@ async function setGate(page: Page, enabled: boolean) {
 
 /** Revoke any persisted grant for the fixture dir via the Access page (isolates grant-dependent specs). */
 async function revokeFixtureGrants(page: Page) {
+  // `gotoDashboard` arms the first-launch-modal dismissal that would otherwise cover the page.
+  await gotoDashboard(page);
   await page.goto("/settings/access");
   const rows = page.getByTestId("access-entry").filter({ hasText: "/srv/fixtures-outside" });
   await page.getByTestId("access-section").waitFor({ timeout: 15_000 });
