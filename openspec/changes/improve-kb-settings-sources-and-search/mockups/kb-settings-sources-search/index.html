@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KB settings — sources picker + remote + test search (mockup)</title>
+<style>
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent:#3b82f6; --accent-soft:#1d3a63; --accent-text:#60a5fa;
+    --green:#4ade80; --amber:#fbbf24; --red:#f87171; --teal:#2dd4bf; --indigo:#a5b4fc;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg-primary); color:var(--text-secondary); font:13px/1.45 system-ui, -apple-system, sans-serif; }
+  .page { max-width:860px; margin:0 auto; border-inline:1px solid var(--border-primary); min-height:100vh; }
+  .hdr { position:sticky; top:0; z-index:5; display:flex; gap:8px; align-items:center; padding:8px 16px; background:var(--bg-primary); border-bottom:1px solid var(--border-primary); }
+  .hdr b { color:var(--text-primary); font-weight:500; font-size:14px }
+  .meta { display:flex; gap:8px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--border-subtle); font-size:11px; color:var(--text-tertiary) }
+  .pill { font-size:10px; text-transform:uppercase; letter-spacing:.04em; padding:1px 6px; border-radius:4px; border:1px solid }
+  .sec { padding:12px 16px; border-bottom:1px solid var(--border-subtle) }
+  .h { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-tertiary); font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:8px }
+  .h .new { color:var(--accent-text); border:1px solid var(--accent); border-radius:3px; padding:0 4px; font-weight:600; letter-spacing:0 }
+  .row { display:flex; gap:8px; align-items:center; padding:6px 8px; margin-bottom:6px; border:1px solid var(--border-subtle); border-radius:6px; background:var(--bg-secondary) }
+  .row .ref { flex:1; font-family:var(--mono); font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .row .sub { font-size:10px; color:var(--text-tertiary); font-family:var(--mono) }
+  .kind { font-size:10px; font-family:var(--mono); padding:1px 5px; border-radius:3px; border:1px solid var(--border-secondary); color:var(--text-tertiary); min-width:34px; text-align:center }
+  .kind.git { color:var(--indigo); border-color:#6366f155 }
+  .kind.https { color:var(--teal); border-color:#14b8a655 }
+  .badge { font-size:10px; padding:1px 6px; border-radius:10px; border:1px solid; white-space:nowrap }
+  .ok { color:var(--green); border-color:#22c55e55 } .warn { color:var(--amber); border-color:#eab30855 } .err { color:var(--red); border-color:#ef444455 }
+  button { font:inherit; cursor:pointer; color:var(--text-secondary); background:transparent; border:1px solid var(--border-secondary); border-radius:5px; padding:4px 9px; font-size:12px }
+  button:hover { color:var(--text-primary); border-color:var(--text-muted) }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:1px }
+  button.ico { border:none; padding:2px 4px; color:var(--text-muted) } button.ico:hover{ color:var(--text-primary) }
+  button.primary { color:#c7d2fe; border-color:#6366f199; background:#6366f11a; font-weight:600 }
+  button.teal { color:#99f6e4; border-color:#14b8a680; background:#14b8a60d }
+  input, select { font:inherit; font-size:12px; color:var(--text-secondary); background:transparent; border:1px solid var(--border-secondary); border-radius:5px; padding:4px 8px }
+  select { background:var(--bg-tertiary) }
+  input.mono { font-family:var(--mono) }
+  .seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:5px; overflow:hidden }
+  .seg button { border:none; border-radius:0; padding:4px 10px; font-size:11px }
+  .seg button[aria-pressed=true] { background:var(--accent-soft); color:var(--text-primary) }
+  .addbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:6px }
+  .addbar .grow { flex:1; min-width:200px }
+  .extra { display:none; gap:6px; margin-top:6px; align-items:center; font-size:11px; color:var(--text-tertiary) }
+  .extra.on { display:flex }
+  .hint { font-size:11px; color:var(--text-tertiary); margin-top:6px }
+  .hint code { font-family:var(--mono); color:var(--text-secondary) }
+  .chip { font-size:11px; font-family:var(--mono); padding:1px 6px; border-radius:4px; border:1px solid; margin-right:4px }
+  .foot { display:flex; gap:8px; align-items:center; padding:12px 16px; background:var(--bg-secondary); border-bottom:1px solid var(--border-subtle) }
+  .foot .r { margin-left:auto; font-size:11px; color:var(--text-muted) }
+  /* search */
+  .searchbar { display:flex; gap:6px; align-items:center }
+  .searchbar input { flex:1; font-size:13px; padding:6px 10px }
+  .stale { font-size:11px; color:var(--amber); margin-top:6px; display:flex; gap:6px; align-items:center }
+  .hits { margin-top:10px; border:1px solid var(--border-subtle); border-radius:6px; overflow:hidden }
+  .hit { padding:8px 10px; border-bottom:1px solid var(--border-subtle); display:grid; grid-template-columns:22px 1fr auto; gap:2px 8px; cursor:pointer }
+  .hit:last-child { border-bottom:none } .hit:hover { background:var(--bg-hover) }
+  .hit .n { color:var(--text-muted); font-size:11px; text-align:right; padding-top:1px }
+  .hit .p { font-family:var(--mono); font-size:12px; color:var(--accent-text) }
+  .hit .p .sep { color:var(--text-muted) } .hit .p .hd { color:var(--text-primary) }
+  .hit .s { grid-column:2 / 3; font-size:12px; color:var(--text-tertiary) }
+  .hit .s mark { background:#3b82f633; color:var(--text-primary); border-radius:2px; padding:0 1px }
+  .hit .sc { font-size:10px; color:var(--text-muted); font-family:var(--mono); text-align:right }
+  .hit .tags { grid-column:2/3; display:flex; gap:4px; margin-top:2px }
+  .tag { font-size:10px; padding:0 5px; border-radius:3px; border:1px solid var(--border-secondary); color:var(--text-tertiary) }
+  .summary { display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted); margin-top:6px }
+  /* modal */
+  .ov { position:fixed; inset:0; background:var(--bg-overlay); display:none; align-items:center; justify-content:center; z-index:20 }
+  .ov.on { display:flex }
+  .modal { width:min(520px,92vw); background:var(--bg-secondary); border:1px solid var(--border-strong,#808080); border-radius:8px; box-shadow:0 20px 60px #000a }
+  .modal .mh { padding:10px 14px; border-bottom:1px solid var(--border-primary); color:var(--text-primary); font-weight:500; display:flex; justify-content:space-between }
+  .modal .mb { padding:10px 14px }
+  .modal .mf { padding:10px 14px; border-top:1px solid var(--border-primary); display:flex; gap:8px; justify-content:flex-end; align-items:center }
+  .crumb { font-family:var(--mono); font-size:12px; width:100% }
+  .dirs { margin-top:8px; max-height:220px; overflow:auto; border:1px solid var(--border-subtle); border-radius:5px }
+  .dir { padding:5px 10px; font-family:var(--mono); font-size:12px; display:flex; gap:8px; align-items:center; cursor:pointer }
+  .dir:hover, .dir.sel { background:var(--accent-soft); color:var(--text-primary) }
+  .dir .k { margin-left:auto; font-size:10px; color:var(--text-muted) }
+  .warnbox { border:1px solid #eab30855; background:#eab3080d; border-radius:6px; padding:8px 10px; font-size:12px; color:var(--text-secondary) }
+  .warnbox b { color:var(--amber) }
+  dl { display:grid; grid-template-columns:90px 1fr; gap:4px 10px; margin:10px 0 0; font-size:12px }
+  dt { color:var(--text-tertiary) } dd { margin:0; font-family:var(--mono); color:var(--text-primary); word-break:break-all }
+  .legend { max-width:860px; margin:0 auto; padding:10px 16px; font-size:11px; color:var(--text-muted); border-inline:1px solid var(--border-primary); border-top:1px dashed var(--border-secondary) }
+  .legend span { color:var(--accent-text) }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="hdr"><button class="ico" aria-label="Back">←</button><b>pi-agent-dashboard · Knowledge Base</b></div>
+  <div class="meta">
+    <span class="pill ok">project</span>
+    <span>4,812 chunks · 611 files</span>
+    <code style="margin-left:auto;font-size:10px;color:var(--text-muted)">.pi/dashboard/knowledge_base.json</code>
+  </div>
+
+  <!-- SOURCES -->
+  <div class="sec">
+    <div class="h">Sources</div>
+    <div id="sources">
+      <div class="row"><span class="kind">dir</span><span class="ref">docs</span><span class="badge ok">212 files</span>
+        <label class="sub">prio <input type="number" value="0" style="width:44px"></label>
+        <button class="ico" aria-label="Move up" disabled>↑</button><button class="ico" aria-label="Move down">↓</button><button class="ico" aria-label="Remove">✕</button></div>
+      <div class="row"><span class="kind">dir</span><span class="ref">packages</span><span class="badge ok">371 files</span>
+        <label class="sub">prio <input type="number" value="0" style="width:44px"></label>
+        <button class="ico">↑</button><button class="ico">↓</button><button class="ico">✕</button></div>
+      <div class="row"><span class="kind">dir</span><span class="ref">/Users/robson/Notes/arch</span><span class="badge warn" title="Outside this folder — stored as absolute path; not portable to other machines/worktrees">outside folder</span>
+        <label class="sub">prio <input type="number" value="0" style="width:44px"></label>
+        <button class="ico">↑</button><button class="ico">↓</button><button class="ico">✕</button></div>
+      <div class="row"><span class="kind git">git</span>
+        <span class="ref">github.com/earendil-works/pi-docs <span class="sub">@main · /docs</span></span>
+        <span class="badge ok" title="Trusted 2026-10-02 · rev a91f3c2">🔒 trusted · a91f3c2</span>
+        <label class="sub">prio <input type="number" value="-1" style="width:44px"></label>
+        <button class="ico">↑</button><button class="ico">↓</button><button class="ico">✕</button></div>
+      <div class="row"><span class="kind https">url</span>
+        <span class="ref">https://example.org/handbook.tar.gz</span>
+        <span class="badge err" title="Last reindex: remote source not trusted">⚠ not trusted</span>
+        <button style="font-size:11px;padding:1px 7px" onclick="openTrust('https','https://example.org/handbook.tar.gz')">Trust…</button>
+        <button class="ico">↑</button><button class="ico">↓</button><button class="ico">✕</button></div>
+    </div>
+
+    <div class="addbar">
+      <div class="seg" role="group" aria-label="Source kind">
+        <button aria-pressed="true" data-k="dir">📁 Folder</button>
+        <button aria-pressed="false" data-k="git">⎇ Git repo</button>
+        <button aria-pressed="false" data-k="https">🔗 URL</button>
+      </div>
+      <input id="ref" class="mono grow" placeholder="path relative to folder, e.g. docs">
+      <button id="browse">Browse…</button>
+      <button class="primary" id="add">+ Add</button>
+    </div>
+    <div class="extra" id="gitExtra">
+      <label>branch/tag <input class="mono" placeholder="main" style="width:110px"></label>
+      <label>subdir <input class="mono" placeholder="docs" style="width:110px"></label>
+      <label>refresh <select><option>manual</option><option>on-index</option><option>every 24h</option></select></label>
+    </div>
+    <div class="hint" id="hint">Pick a folder or type a path. Inside this folder → stored relative (<code>docs</code>); outside → absolute.</div>
+  </div>
+
+  <div class="sec"><div class="h">Include</div><span class="chip" style="color:var(--indigo);border-color:#6366f150">**/*.md</span><span class="chip" style="color:var(--indigo);border-color:#6366f150">**/*.adoc</span></div>
+  <div class="sec"><div class="h">Exclude</div><span class="chip" style="color:var(--red);border-color:#ef444450">**/node_modules/**</span><span class="chip" style="color:var(--red);border-color:#ef444450">openspec/changes/archive/**</span></div>
+  <div class="sec"><div class="h">DB path</div><input class="mono" value=".pi/dashboard/kb/index.db" style="width:100%"></div>
+
+  <div class="foot">
+    <button class="primary">⟳ Save + Reindex</button><button>Save</button><button>⛁ Reindex now</button>
+    <span class="r" id="dirty">unsaved changes</span>
+  </div>
+
+  <!-- TEST SEARCH -->
+  <div class="sec" style="border-bottom:none">
+    <div class="h">Test search</div>
+    <div class="searchbar">
+      <input id="q" value="websocket bridge reconnect" aria-label="Test query">
+      <select aria-label="Lane"><option>all lanes</option><option>agents (files/symbols)</option><option>doc</option><option>source-md</option></select>
+      <select aria-label="Limit"><option>10</option><option>20</option></select>
+      <label style="font-size:11px;color:var(--text-tertiary);display:flex;gap:4px;align-items:center"><input type="checkbox"> verdicts</label>
+      <button class="primary">Search</button>
+    </div>
+    <div class="stale">⚠ Unsaved source edits — results reflect the last saved index (indexed 4 min ago).</div>
+
+    <div class="hits" role="list">
+      <div class="hit" role="listitem"><span class="n">1</span>
+        <span class="p">docs/architecture.md <span class="sep">::</span> <span class="hd">Bridge › Reconnect</span></span><span class="sc">12.4</span>
+        <span class="s">…the bridge opens a <mark>WebSocket</mark> to :8000 and on drop backs off 1s→30s before <mark>reconnect</mark>; buffered events replay…</span>
+        <span class="tags"><span class="tag">docs</span><span class="tag">+3 sections</span></span></div>
+      <div class="hit" role="listitem"><span class="n">2</span>
+        <span class="p">packages/extension/src/AGENTS.md <span class="sep">::</span> <span class="hd">bridge-ws.ts</span></span><span class="sc">10.9</span>
+        <span class="s"><mark>Bridge</mark> <mark>WebSocket</mark> client. Exports <code>connectBridge</code>; exponential <mark>reconnect</mark>, heartbeat 15s…</span>
+        <span class="tags"><span class="tag">packages</span><span class="tag" style="color:var(--indigo)">agents</span><span class="tag ok" style="border-color:#22c55e55">FRESH</span></span></div>
+      <div class="hit" role="listitem"><span class="n">3</span>
+        <span class="p">github.com/earendil-works/pi-docs <span class="sep">›</span> extensions.md <span class="sep">::</span> <span class="hd">Lifecycle</span></span><span class="sc">7.2</span>
+        <span class="s">…extensions survive <mark>reconnect</mark> of the RPC channel; state is…</span>
+        <span class="tags"><span class="tag" style="color:var(--indigo)">git · a91f3c2</span></span></div>
+      <div class="hit" role="listitem"><span class="n">4</span>
+        <span class="p">docs/faq.md <span class="sep">::</span> <span class="hd">Session won't connect</span></span><span class="sc">6.8</span>
+        <span class="s">…check <code>/api/health</code>; the <mark>bridge</mark> logs <mark>reconnect</mark> attempts to server.log…</span>
+        <span class="tags"><span class="tag">docs</span></span></div>
+    </div>
+    <div class="summary"><span>4 sources matched · 38 ms</span><span>Click a hit to open it in the file viewer</span></div>
+  </div>
+</div>
+
+<div class="legend">Mockup only. <span>New</span> vs today's panel: kind toggle + Browse…, git/URL rows with trust badges, the per-source file count, and the Test search section. Click <b>Browse…</b>, switch to <b>Git repo</b> and click <b>+ Add</b>, or click <b>Trust…</b> to see the dialogs.</div>
+
+<!-- Folder picker modal (ui:path-picker primitive) -->
+<div class="ov" id="pickOv" role="dialog" aria-modal="true" aria-labelledby="pickT">
+  <div class="modal">
+    <div class="mh"><span id="pickT">Select source folder</span><button class="ico" onclick="closeAll()">✕</button></div>
+    <div class="mb">
+      <input class="crumb" value="/Users/robson/Project/pi-agent-dashboard/" aria-label="Path">
+      <div class="dirs" id="dirs">
+        <div class="dir">⬆ ..</div>
+        <div class="dir">📁 docker/</div>
+        <div class="dir sel">📁 docs/ <span class="k">inside → "docs"</span></div>
+        <div class="dir">📁 mockups/</div>
+        <div class="dir">📁 openspec/</div>
+        <div class="dir">📁 packages/</div>
+        <div class="dir">📁 qa/</div>
+        <div class="dir">📁 tests/</div>
+      </div>
+      <div class="hint">Stored as <code>docs</code> (relative to this folder). Shared with worktrees via "Copy from parent".</div>
+    </div>
+    <div class="mf"><span style="margin-right:auto;font-size:11px;color:var(--text-muted)">↑↓ navigate · Enter open · Space select</span><button onclick="closeAll()">Cancel</button><button class="primary" onclick="pick()">Select</button></div>
+  </div>
+</div>
+
+<!-- Trust (TOFU) modal -->
+<div class="ov" id="trustOv" role="alertdialog" aria-modal="true" aria-labelledby="trustT">
+  <div class="modal">
+    <div class="mh"><span id="trustT">Trust remote source?</span><button class="ico" onclick="closeAll()">✕</button></div>
+    <div class="mb">
+      <div class="warnbox"><b>Remote content will be fetched and indexed.</b> Its text becomes searchable by agents in this folder and may be quoted into prompts. Only trust sources you control or know.</div>
+      <dl>
+        <dt>kind</dt><dd id="tKind">git</dd>
+        <dt>ref</dt><dd id="tRef">https://github.com/earendil-works/pi-docs</dd>
+        <dt>branch</dt><dd>main</dd>
+        <dt>subdir</dt><dd>docs</dd>
+        <dt>cache</dt><dd>~/.pi/dashboard/kb/sources/3f9a…</dd>
+        <dt>network</dt><dd style="color:var(--green)">✓ public host (SSRF check passed)</dd>
+      </dl>
+      <div class="hint">Trust is recorded once per source + pin. Revoke anytime in <b>Settings → Access</b>.</div>
+    </div>
+    <div class="mf"><button onclick="closeAll()">Cancel</button><button onclick="closeAll()">Add without trusting</button><button class="primary" onclick="closeAll()">Trust &amp; add</button></div>
+  </div>
+</div>
+
+<script>
+  const segs = document.querySelectorAll('.seg button');
+  const ref = document.getElementById('ref'), hint = document.getElementById('hint');
+  const browse = document.getElementById('browse'), gitExtra = document.getElementById('gitExtra');
+  let kind = 'dir';
+  const cfg = {
+    dir:   { ph:'path relative to folder, e.g. docs', hint:'Pick a folder or type a path. Inside this folder → stored relative (<code>docs</code>); outside → absolute.' },
+    git:   { ph:'https://github.com/org/repo  or  git@github.com:org/repo.git', hint:'Shallow-cloned into the KB cache. GitHub/GitLab URLs are detected as git automatically. Private repos use your local git credentials.' },
+    https: { ph:'https://host/file.md  or  …/archive.tar.gz|.zip', hint:'Single markdown file or archive. Fetched on reindex; private/internal hosts are blocked.' },
+  };
+  segs.forEach(b => b.onclick = () => {
+    kind = b.dataset.k; segs.forEach(x => x.setAttribute('aria-pressed', x === b));
+    ref.placeholder = cfg[kind].ph; hint.innerHTML = cfg[kind].hint;
+    browse.style.display = kind === 'dir' ? '' : 'none';
+    gitExtra.classList.toggle('on', kind === 'git');
+  });
+  ref.oninput = () => { // auto-detect GitHub URL typed into Folder/URL mode
+    if (/^(https:\/\/(github|gitlab)\.com\/|git@)/.test(ref.value) && kind !== 'git') document.querySelector('[data-k=git]').click();
+  };
+  browse.onclick = () => document.getElementById('pickOv').classList.add('on');
+  document.querySelectorAll('.dir').forEach(d => d.onclick = () => { document.querySelectorAll('.dir').forEach(x=>x.classList.remove('sel')); d.classList.add('sel'); });
+  function pick(){ ref.value = 'docs'; closeAll(); }
+  function openTrust(k, r){ document.getElementById('tKind').textContent = k; document.getElementById('tRef').textContent = r; document.getElementById('trustOv').classList.add('on'); }
+  document.getElementById('add').onclick = () => { if (kind !== 'dir') openTrust(kind, ref.value || 'https://github.com/earendil-works/pi-docs'); };
+  function closeAll(){ document.querySelectorAll('.ov').forEach(o => o.classList.remove('on')); }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAll(); });
+</script>
+</body>
+</html>
