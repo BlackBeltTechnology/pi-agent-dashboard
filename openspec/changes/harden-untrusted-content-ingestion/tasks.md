@@ -1,40 +1,142 @@
 # Tasks
 
-## 1. Document-converter mount confinement (B11)
+Design: `design.md` D1–D7. Scenarios: `test-plan.md` (manifest; source of truth for automated vs manual).
+TDD: write each folded test first, see it fail, then implement.
 
-- [ ] 1.1 In `engine.ts`, resolve a configured workspace root; reject any request path resolving outside it or into sensitive dirs (`/etc`, `/root`, `~/.ssh`).
-- [ ] 1.2 Mark input mounts `:ro`; confine output mounts to the workspace root.
+## 0. Test infrastructure (test-plan "New infra needed")
 
-## 2. KB source SSRF guard (B12)
+- [ ] 0.1 kb archive fixture writer helper in `packages/kb/src/__tests__/helpers/archive-fixtures.ts`: minimal tar/zip writer for `..`, absolute, symlink, hardlink, control-char, non-ASCII, empty-zip entries (see `packages/kb/src/__tests__/kb.test.ts` tmpdir glue).
+- [ ] 0.2 kb https test server helper with a committed test-only self-signed cert fixture under `packages/kb/src/__tests__/fixtures/tls/`, plus the `guardedFetch` test seam (injectable address policy / lookup) admitting the loopback first hop.
+- [ ] 0.3 kb fake-`git` PATH shim (records argv; fakes `version`, `remote get-url origin`, `clone`) or an injectable exec seam in `sources.ts`.
+- [ ] 0.4 document-converter committed fixtures `packages/document-converter/src/__tests__/fixtures/sample.md` + `sample.docx` (for M2).
 
-- [ ] 2.1 In `sources.ts` `httpsResolver`, restrict scheme to `https`; DNS-resolve the host and reject loopback/RFC1918/link-local; cap redirects.
-- [ ] 2.2 Add a max-bytes cap + `AbortSignal.timeout` on the fetch body (audit B-tier DoS pairing).
+## 1. Document-converter confinement (D1, B11)
 
-## 3. KB archive traversal safety (B13)
+- [ ] 1.1 `engine.ts`: `EngineConfig` → `{ writable?, mounts?, workspaceRoot? }`; materialise roots (mkdir writable, realpath, nearest-existing-ancestor).
+- [ ] 1.2 `engine.ts`: replace `collectMountDirs` with `planMounts` → `Map<target, {source, mode}>` (absolute paths only; dir-itself / glob-ancestor / realpath'd parent; `-v <real>:<lexical>[:ro]`).
+- [ ] 1.3 `engine.ts`: confinement of path + mount dir; denylist (lexical + realpath entries, containing-root exception, `/` exact); per-command mode table; `buildArgv` emits `:ro`.
+- [ ] 1.4 `errors.ts`: add `PATH_NOT_ALLOWED` code; message names path + configured roots.
+- [ ] 1.5 `index.ts`: `DocumentConverterConfig.workspaceRoot?`; `engineCfg()` passes `stagingDir` as `writable`.
+- [ ] 1.6 Relocate `engine.test.ts`, `facade.test.ts`, `integration.test.ts` fixtures into an `mkdtemp` root (`/in.md`-style paths cannot be admitted); integration test uses the 0.4 fixtures and asserts input-dir listing unchanged.
+- [ ] 1.7 Update `packages/document-converter/README.md` + `.pi/skills/{document-converter,doc-summarizer}/SKILL.md` examples: `mounts`/`workspaceRoot` for files outside cwd.
 
-- [ ] 3.1 Replace blind `unzip -o`/`tar xzf` with entry validation (reject `..`/absolute) or a traversal-safe extractor; do not overwrite outside destination.
+## 2. KB https SSRF guard (D2, B12)
 
-## 4. Spreadsheet parse bounding + xlsx triage (B26)
+- [ ] 2.1 New `packages/kb/src/net-guard.ts`: `isNonPublicAddress` on `net.BlockList` with embedded-IPv4 extraction (mapped/translated/compatible/NAT64 /96/6to4/Teredo both v4s; `64:ff9b:1::/48` blocked whole).
+- [ ] 2.2 `guardedLookup` (honours `options.all`, typed cast) + `guardedFetch` (https-only, literal pre-check, manual redirects ≤3 with 3xx destroyed after headers + error listener, cumulative byte/time budget, identity request + bounded gzip/br/deflate-sniff decode, compressed cap, 2xx only).
+- [ ] 2.3 `sources.ts` `httpsResolver`: use `guardedFetch`; plain-file name = `basename(new URL(url).pathname)` → `index.md` fallback.
 
-- [ ] 4.1 Add an input-size cap before the SheetJS parse in the office-preview path.
-- [ ] 4.2 Isolate/pin/replace the vulnerable `xlsx` build; record the decision.
-- [ ] 4.3 Run `npm audit --omit=dev` and document a triage decision for each remaining advisory.
+## 3. KB git guard (D3, B12)
+
+- [ ] 3.1 `sources.ts` `gitResolver`: check effective URL `gitUrlOf(spec)`; scheme allowlist; reject `-`-prefixed ref/pin; host check via `isNonPublicAddress`.
+- [ ] 3.2 Refresh: compare `git remote get-url origin` to effective URL; mismatch → discard + guarded re-clone.
+- [ ] 3.3 Global `-c` flags before subcommand (protocol allowlist, `http.followRedirects=false`, `submodule.recurse=false`, `fetch.recurseSubmodules=false`, `http.curloptResolve=<host>:<port>:<ip>` when git ≥ 2.37, IPv6 bracketed); `--no-recurse-submodules` on fetch/pull.
+
+## 4. KB archive extraction (D4, B13)
+
+- [ ] 4.1 Stage → validate → swap-with-rollback in `httpsResolver`; start-of-resolve `dest.old` recovery; `.fetched` written into `stage/out` before swap; plain files use the same path.
+- [ ] 4.2 Listing validation: tar (`-tf` names + `-tvf` types, ` link to `/` ==> ` reject, escape decoding, `LC_ALL=C`); zip (`-Z1` names, `-Z` header count + type lines, empty-zip special case, `^X` reject); `..`/absolute/control-char/non-file rejection; fail closed.
+- [ ] 4.3 Extract: `unzip -o -q … -d stage/out`; `tar -xf … -C stage/out --no-same-owner` (auto-detect compression); post-extraction lstat/realpath backstop.
+
+## 5. Spreadsheet parser (D5, D7, B26)
+
+- [ ] 5.1 `packages/server/package.json`: `xlsx` → `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz`; `pnpm install`; commit `pnpm-lock.yaml`.
+- [ ] 5.2 Add a CHANGELOG `## [Unreleased]` note: server package now depends on `cdn.sheetjs.com` tarball (air-gapped/mirror installs must allowlist it).
+- [ ] 5.3 Run `pnpm audit --prod`; append `## Audit triage` to `design.md` with a decision per advisory.
+
+## 6. Office-cap-aware oversize preview (D6)
+
+- [ ] 6.1 `packages/shared/src/file-kind.ts`: export `OFFICE_SIZE_CAPS = { docx, pptx, sheet }`; server `OFFICE_CAPS` size defaults read from it.
+- [ ] 6.2 `TooLargePreview.tsx`: optional `cap?: number` (default `MAX_PREVIEW_BYTES`).
+- [ ] 6.3 `SpreadsheetPreview.tsx` + `DocxPreview.tsx`: `res.status === 413` → `<TooLargePreview cwd path cap=… />` before the `success:false` branch.
+- [ ] 6.4 `PptxPreview.tsx`: new `tooLarge` state entered on 413 from the render request.
+
+## 7. Docs + DOX rows
+
+- [ ] 7.1 Update nearest `AGENTS.md` rows: `packages/document-converter/src/AGENTS.md` (engine/errors/index), `packages/kb/src/AGENTS.md` (sources, new net-guard), `packages/shared/src` (file-kind), client preview + editor-pane rows; add `See change: harden-untrusted-content-ingestion`.
+- [ ] 7.2 Delegate any `docs/` prose (security notes for KB sources / document-converter roots) to DocScribe (caveman style).
 
 ## Tests
+- [ ] E1 D1 sensitive output — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: roots=`[tmp/ws]`, req `{command:"renderPdf", input:"tmp/ws/a.md", output:"/root/.ssh/authorized_keys"}` · Trigger: `runEngine` · Observable: rejects `DocConverterError` code `PATH_NOT_ALLOWED`; fake runner call count 0 (test-plan #E1)
+- [ ] E2 D1 outside roots — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: roots=`[tmp/ws]`, input `tmp/other/x.pdf` · Trigger: `runEngine` · Observable: `PATH_NOT_ALLOWED`; runner not called (test-plan #E2)
+- [ ] E3 D1 symlink escape — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `tmp/ws/link → /etc`; input `tmp/ws/link/hosts` · Trigger: `runEngine` · Observable: `PATH_NOT_ALLOWED`; runner not called (test-plan #E3)
+- [ ] E4 D1 in-root symlink input — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `tmp/ws/link → tmp/ws/real`; `convertToMarkdown` input `tmp/ws/link/a.md` · Trigger: `runEngine` · Observable: argv contains `-v <realpath tmp/ws/real>:tmp/ws/link:ro`; request JSON input unchanged (test-plan #E4)
+- [ ] E5 D1 parent of root never mounted — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: workspaceRoot `tmp/ws`; `fillFrontmatter` `paths:["tmp/ws"]`, `apply:false` · Trigger: `runEngine` · Observable: exactly one mount, target `tmp/ws` (dir itself); no mount of `tmp` (test-plan #E5)
+- [ ] E6 D1 `/` as root — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: (a) workspaceRoot `/`; (b) `mounts:["/"]` · Trigger: any `runEngine` · Observable: both reject `PATH_NOT_ALLOWED` (test-plan #E6)
+- [ ] E7 D1 denylist exception — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `HOME=tmp/home`; roots `{tmp/home, tmp/home/.pi/x}` · Trigger: paths (a) `tmp/home/.pi/agent/auth.json`, (b) `tmp/home/.pi/x/a.docx`, (c) workspaceRoot `tmp/home/.pi/agent` + path under it, (d) `tmp/home/.ssh/id` · Observable: (a) reject, (b) accept, (c) accept, (d) reject (test-plan #E7)
+- [ ] E8 D1 denylist realpath — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `HOME=tmp/home`, `tmp/home/.pi → tmp/home/realpi` (symlink), workspaceRoot `tmp/home` · Trigger: path `tmp/home/realpi/agent/x.md` · Observable: `PATH_NOT_ALLOWED` (test-plan #E8)
+- [ ] E9 D1 per-command mode — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: in/out in same and different dirs under `tmp/ws` · Trigger: each command: `convertToMarkdown`, `renderPdf`, `renderDocx`, `extractForEdit`, `mergeBack`, `fillFrontmatter{apply:true,false}`, `profileTables{apply:true,false}` · Observable: input dir `:ro` for convertToMarkdown, renderPdf, fill/profile apply:false; rw otherwise; output dir rw; shared in/out dir → one rw mount (test-plan #E9)
+- [ ] E10 D1 glob path — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `fillFrontmatter` `paths:["tmp/ws/spec/**/*.md"]` · Trigger: `runEngine` · Observable: mount target `tmp/ws/spec` (test-plan #E10)
+- [ ] E11 D1 relative path unchanged — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: `paths:["spec/a.md"]` · Trigger: `runEngine` · Observable: no mount derived from it; no rejection (test-plan #E11)
+- [ ] E12 D1 not-yet-existing output — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: output `tmp/ws/new/sub/x.pdf` (only `tmp/ws` exists) · Trigger: `runEngine` · Observable: accepted; mount target `tmp/ws/new/sub`, mode rw (test-plan #E12)
+- [ ] E13 D1 staging created first — L1 in `packages/document-converter/src/__tests__/facade.test.ts` (see packages/document-converter/src/__tests__/facade.test.ts). Input: facade `stagingDir` = non-existent `tmp/ws/staging`, workspaceRoot `tmp/ws` · Trigger: `convertToMarkdown` (fake runner) · Observable: resolves; `tmp/ws/staging` exists; staging mount rw (test-plan #E13)
+- [ ] E14 D1 legit conversion — L1 in `packages/document-converter/src/__tests__/facade.test.ts` (see packages/document-converter/src/__tests__/facade.test.ts). Input: facade fixtures relocated into an `mkdtemp` root · Trigger: each facade method with fake runner · Observable: all resolve as before (`facade.test.ts`, `engine.test.ts` green) (test-plan #E14)
+- [ ] E20 D2 IPv4 classifier boundaries — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `9.255.255.255`, `10.0.0.0`, `10.255.255.255`, `11.0.0.0`, `100.63.255.255`, `100.64.0.0`, `172.15.255.255`, `172.16.0.0`, `172.31.255.255`, `172.32.0.0`, `198.17.255.255`, `198.18.0.0`, `192.0.2.1`, `203.0.113.9`, `8.8.8.8` · Trigger: `isNonPublicAddress` · Observable: blocked exactly for in-range values; `8.8.8.8`, `9.255…`, `11.0.0.0`, `100.63…`, `172.15…`, `172.32.0.0`, `198.17…` public (test-plan #E20)
+- [ ] E21 D2 IPv6 embedded forms — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `::1`, `[::ffff:7f00:1]`, `::ffff:127.0.0.1`, `::ffff:0:a00:5`, `::a00:5`, `64:ff9b::a00:5`, `64:ff9b:1::808:808`, `2002:a00:5::1`, Teredo client `10.0.0.5`, `fe80::1`, `fd00::1`, `2001:db8::1`, `2606:4700:4700::1111`, `64:ff9b::808:808` · Trigger: `isNonPublicAddress` · Observable: all blocked except `2606:4700:4700::1111` and `64:ff9b::808:808` (test-plan #E21)
+- [ ] E22 D2 literal metadata URL — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: ref `https://169.254.169.254/latest/meta-data/` · Trigger: `httpsResolver.resolve` · Observable: rejects; `net`/`https` connect spy count 0; lookup not called (test-plan #E22)
+- [ ] E23 D2 non-https refused — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: refs `http://example.com/a.md`, `ssh://h/r` (kind https) · Trigger: resolve · Observable: rejects with message containing `only https`; nothing fetched (test-plan #E23)
+- [ ] E24 D2 lookup shapes — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: stub `dns.lookup` → `[{8.8.8.8,4},{10.0.0.5,4}]`; and single `8.8.8.8` · Trigger: `guardedLookup(h,{all:true})` / `(h,{all:false})` · Observable: all:true mixed → error; all:true public → array callback; all:false → `(null,"8.8.8.8",4)` (test-plan #E24)
+- [ ] E25 D2 redirect cap — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: test server: chain of 3 redirects then 200; chain of 4 · Trigger: `guardedFetch` (maxRedirects 3) · Observable: 3 → body returned; 4 → rejects `too many redirects` (test-plan #E25)
+- [ ] E26 D2 redirect to loopback — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: test server first hop (admitted via test seam) → `302 Location: https://127.0.0.1:<p>/x` · Trigger: `guardedFetch` · Observable: rejects; second server receives 0 connections (test-plan #E26)
+- [ ] E27 D2 byte cap — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: maxBytes 1024; bodies of 1024 and 1025 bytes · Trigger: `guardedFetch` · Observable: 1024 ok; 1025 rejects; resolver writes no file (test-plan #E27)
+- [ ] E28 D2 gzip bomb — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `Content-Encoding: gzip`, 2 KB compressed → 10 MB, maxBytes 1 MB · Trigger: `guardedFetch` · Observable: rejects with cap error before 10 MB is buffered (test-plan #E28)
+- [ ] E29 D2 deflate sniff — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `Content-Encoding: deflate` with zlib-wrapped body; with raw-deflate body · Trigger: `guardedFetch` · Observable: both decode to the original text (test-plan #E29)
+- [ ] E30 D2 bad encoding / status — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `Content-Encoding: zstd`; status 404 · Trigger: `guardedFetch` · Observable: both reject; no cache write (test-plan #E30)
+- [ ] E31 D2 plain-file name — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: paths `/docs/x.md`, `/`, `/docs/` · Trigger: https resolve (plain) · Observable: files `x.md`, `index.md`, `index.md` (test-plan #E31)
+- [ ] E40 D3 file transport — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: ref `git:file:///etc` · Trigger: `gitResolver.resolve` (fake `git` on PATH records argv) · Observable: rejects; fake git invocation count 0 (test-plan #E40)
+- [ ] E41 D3 other schemes — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `git:http://h/r`, `git:git://h/r`, `git:ext::sh -c x` · Trigger: resolve · Observable: each rejects; git not invoked for network commands (test-plan #E41)
+- [ ] E42 D3 private host — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `git:https://127.0.0.1/r`, `git:https://10.0.0.5/r` · Trigger: resolve · Observable: rejects; git not invoked (test-plan #E42)
+- [ ] E43 D3 option-like ref/pin — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: pin `--upload-pack=touch /tmp/x`; ref `git:github.com/o/r@-x` · Trigger: resolve · Observable: rejects; git not invoked; `/tmp/x` absent (test-plan #E43)
+- [ ] E44 D3 argv hardening — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: `git:https://example.com:8443/r` (lookup seam → `93.184.216.34`); IPv6 variant → `2606:2800::1` · Trigger: resolve (fake git) · Observable: clone argv: `-c protocol.allow=never -c protocol.https.allow=always -c protocol.ssh.allow=always -c http.followRedirects=false -c submodule.recurse=false -c fetch.recurseSubmodules=false -c http.curloptResolve=example.com:8443:93.184.216.34` all before `clone`; IPv6 pin bracketed `[2606:2800::1]` (test-plan #E44)
+- [ ] E45 D3 bare ref effective URL — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: ref `git:github.com/org/repo` (lookup seam → public) · Trigger: resolve (fake git) · Observable: clone receives `https://github.com/org/repo`; accepted (test-plan #E45)
+- [ ] E46 D3 origin mismatch on refresh — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: existing clone whose fake `remote get-url origin` = `https://evil.internal/r`; spec URL `https://github.com/o/r` · Trigger: resolve with `refresh:true` · Observable: cache dir removed; fresh guarded `clone` of spec URL; no `fetch`/`pull` against origin (test-plan #E46)
+- [ ] E47 D3 old git — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: fake `git version` → `2.30.0` · Trigger: resolve · Observable: no `http.curloptResolve` flag; warning logged once (test-plan #E47)
+- [ ] E48 D3 fetch/pull flags — L1 in `packages/kb/src/__tests__/sources-git-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: existing clone, matching origin, `refresh:true`, pinned and unpinned · Trigger: resolve · Observable: `fetch`/`pull` argv carry `--no-recurse-submodules` + all `-c` flags before subcommand (test-plan #E48)
+- [ ] E50 D4 tar `..` entry — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar built by fixture writer with `../../evil` · Trigger: resolve · Observable: rejects; no file outside stage; `dest` unchanged (test-plan #E50)
+- [ ] E51 D4 tar absolute entry — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar with `/tmp/<rand>/evil` · Trigger: resolve · Observable: rejects; `/tmp/<rand>/evil` absent (test-plan #E51)
+- [ ] E52 D4 tar symlink — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar with symlink `l → /etc` · Trigger: resolve · Observable: rejects (test-plan #E52)
+- [ ] E53 D4 tar hardlink — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar with hardlink entry · Trigger: resolve on host `tar` (GNU in CI, bsdtar on macOS) · Observable: rejects (test-plan #E53)
+- [ ] E54 D4 zip `..` entry — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: zip built by fixture writer with `../evil.md` · Trigger: resolve · Observable: rejects (test-plan #E54)
+- [ ] E55 D4 zip symlink — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: zip with symlink entry (unix mode `0120777`) · Trigger: resolve · Observable: rejects (test-plan #E55)
+- [ ] E56 D4 tricky but legal names — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar + zip with `a -> b.md`, `with space.md` · Trigger: resolve · Observable: both extracted as regular files (test-plan #E56)
+- [ ] E57 D4 non-ASCII names — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar + zip with `café.md`, `文.md` · Trigger: resolve (listing under `LC_ALL=C`) · Observable: both extracted (test-plan #E57)
+- [ ] E58 D4 control char names — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: tar + zip with `tab\tname.md`; tar with `nl\nname.md` · Trigger: resolve · Observable: rejects (test-plan #E58)
+- [ ] E59 D4 empty zip — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: zip with 0 entries · Trigger: resolve · Observable: succeeds; dest is an empty source dir with `.fetched` (test-plan #E59)
+- [ ] E60 D4 bzip2 — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: valid `.tar.bz2` · Trigger: resolve · Observable: extracts (previously broken by `xzf`) (test-plan #E60)
+- [ ] E61 D4 corrupt archive — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: truncated `.tar.gz` · Trigger: resolve · Observable: rejects; prior `dest` unchanged (test-plan #E61)
+- [ ] E62 D4 marker moves — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: fresh resolve · Trigger: resolve · Observable: `dest/.fetched` exists after swap; no `stage-*`, no `dest.old` left (test-plan #E62)
+- [ ] E70 D5 sheet cap — L1 in `packages/server/src/__tests__/file-raw-render-endpoints.test.ts` (see packages/server/src/__tests__/file-raw-render-endpoints.test.ts:977). Input: `officeCaps.sheetSizeCap=1000`; files of 1000 and 1001 bytes · Trigger: `GET /api/file/sheet` · Observable: 1000 → 200; 1001 → 413 and `parseSheet` spy not called (test-plan #E70)
+- [ ] E71 D5 patched parser — L1 in `packages/server/src/__tests__/office-preview.test.ts` (see packages/server/src/__tests__/office-preview.test.ts). Input: resolved `xlsx/package.json` from server package · Trigger: read version · Observable: semver ≥ `0.20.2` (test-plan #E71)
+- [ ] E72 D6 caps single source — L1 in `packages/server/src/__tests__/office-preview.test.ts` (see packages/server/src/__tests__/office-preview.test.ts). Input: `OFFICE_CAPS`, `OFFICE_SIZE_CAPS` · Trigger: compare · Observable: `docxSizeCap/pptxSizeCap/sheetSizeCap` equal `docx/pptx/sheet` (test-plan #E72)
+- [ ] E73 D5 lockfile install — ci in `.github/workflows/ci.yml install job (assert step)` (see .github/workflows/ci.yml existing pnpm install step). Input: `pnpm install --frozen-lockfile` with URL-tarball `xlsx` · Trigger: CI install job on the PR · Observable: job green; `node_modules/xlsx/package.json` version `0.20.3` (test-plan #E73)
+- [ ] E74 D5 electron packaging — electron via `workflow_dispatch` of `.github/workflows/ci-electron.yml` (`legs: linux-x64`) (see .github/workflows/_electron-build.yml runnable-bundle assertion step). Input: branch with URL-tarball `xlsx` · Trigger: dispatch run · Observable: run green; runnable-bundle assertion passes; bundled `resources/server/node_modules/xlsx/package.json` version `0.20.3` (test-plan #E74)
+- [ ] F1 D6 spreadsheet 413 — L1 in `packages/client/src/components/preview/__tests__/SpreadsheetPreview.test.tsx` (see packages/client/src/components/preview/__tests__/SpreadsheetPreview.test.tsx). Input: mocked `previewFetch` → status 413 `{success:false,error}` · Trigger: mount `SpreadsheetPreview` · Observable: `[data-testid=too-large-preview]` present, text contains `limit 50 MB`; `too-large-open-raw` href contains `/api/file/raw`; FallbackPreview absent (test-plan #F1)
+- [ ] F2 D6 docx 413 — L1 in `packages/client/src/components/preview/__tests__/DocxPreview.test.tsx` (see packages/client/src/components/preview/__tests__/DocxPreview.test.tsx). Input: mocked 413 from `/api/file/render` · Trigger: mount `DocxPreview` · Observable: too-large notice with `limit 40 MB`; FallbackPreview absent (test-plan #F2)
+- [ ] F3 D6 pptx 413 — L1 in `packages/client/src/components/preview/__tests__/PptxPreview.test.tsx` (see packages/client/src/components/preview/__tests__/PptxPreview.test.tsx). Input: mocked 413 on render request · Trigger: click "Render slides" · Observable: state idle → loading → too-large notice `limit 100 MB`; FallbackPreview absent (test-plan #F3)
+- [ ] F4 D6 other failures unchanged — L1 in `packages/client/src/components/preview/__tests__/{SpreadsheetPreview,DocxPreview,PptxPreview}.test.tsx` (see packages/client/src/components/preview/__tests__/SpreadsheetPreview.test.tsx). Input: (a) sheet 200 `{success:false}`; (b) pptx engine-unavailable `{success:false}`; (c) docx 200 `{success:false}` · Trigger: mount / render · Observable: FallbackPreview shown; too-large notice absent (test-plan #F4)
+- [ ] F5 D6 default cap unchanged — L1 in `packages/client/src/components/editor-pane/__tests__/TooLargePreview.test.tsx (new)` (see packages/client/src/components/preview/__tests__/SpreadsheetPreview.test.tsx (RTL glue)). Input: `<TooLargePreview cwd path size={11 MB}/>` without `cap` · Trigger: render · Observable: text contains `limit 10 MB` (CappedViewer path unchanged) (test-plan #F5)
+- [ ] X1 D2 timeout — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: test server never sends headers · Trigger: `guardedFetch` (timeoutMs 200) · Observable: rejects within 200–1000 ms; socket closed (test-plan #X1)
+- [ ] X2 D2 3xx unbounded body — L1 in `packages/kb/src/__tests__/net-guard.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: 302 with endless body + `Location` to public test target · Trigger: `guardedFetch` · Observable: follows redirect without reading 302 body; no unhandled `error` event; completes (test-plan #X2)
+- [ ] X3 D2/D4 failed refresh — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: existing good `dest` + marker; refresh returns 500 / blocked redirect / zip-slip archive · Trigger: resolve `refresh:true` · Observable: rejects; `dest` content + `.fetched` byte-identical to before (test-plan #X3)
+- [ ] X4 D4 crash recovery — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: (a) `dest` absent, `dest.old` present; (b) `dest` + stale non-empty `dest.old` · Trigger: resolve · Observable: (a) `dest.old` renamed back, then normal resolve; (b) `dest.old` removed, swap succeeds (test-plan #X4)
+- [ ] X5 D4 swap rollback — L1 in `packages/kb/src/__tests__/sources-archive.test.ts (new)` (see packages/kb/src/__tests__/kb.test.ts describe("source resolvers + trust")). Input: inject failure on `rename(stage/out, dest)` · Trigger: resolve · Observable: rejects; `dest` restored from `dest.old` with original content (test-plan #X5)
+- [ ] X6 D1 engine unavailable unchanged — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: fake runner throws `DOCKER_UNAVAILABLE` for an allowed request · Trigger: `runEngine` · Observable: same `DocConverterError` code as before (no confinement regression in error path) (test-plan #X6)
 
-- [ ] T1 doc-converter: `{output:"/root/.ssh/..."}` rejected; workspace-confined input mounted `:ro`; legit conversion runs.
-- [ ] T2 kb SSRF: `http://169.254.169.254/…` and a `10.x` host refused; public `https://` allowed.
-- [ ] T3 kb zip-slip: archive with `../` entry rejected; normal archive extracts.
-- [ ] T4 xlsx: oversized `.xlsx` refused before parse; audit triage doc present.
+## Manual verification (deferred post-merge by ship-change unless noted)
+
+- [ ] M1 D6 overlay UX — Input: 60 MB `.xlsx` linked in a chat tool output · Trigger: click the file link (overlay) · Observable: [judgment: notice readable, limit 50 MB, Open raw works — overlay path not harness-reachable] (test-plan: manual-only, test-plan #M1)
+- [ ] M2 D1 real-engine `:ro` (C1 B) — Input: committed prerendered fixtures `sample.md`, `sample.docx` in a dir mounted `:ro` · Trigger: run opt-in `integration.test.ts` with `DOC_ENGINE_IMAGE` set: `renderPdf` + `convertToMarkdown` · Observable: [manual pre-merge: PDF produced; input dir listing byte-identical before/after; needs local engine image] (test-plan: manual-only, test-plan #M2)
+- [ ] M3 D7 audit triage — Input: `pnpm audit --prod` output after D5 · Trigger: human triage · Observable: [judgment: every advisory has fix / accept-with-reason / not-reachable in design.md `## Audit triage`] (test-plan: manual-only, test-plan #M3)
+- [ ] M4 V3 real-world smoke — Input: KB source `https://169.254.169.254/` and a public `https://` md; a normal docx conversion · Trigger: real `kb index` + real conversion · Observable: [manual: link-local refused with clear message; public source + conversion succeed] (test-plan: manual-only, test-plan #M4)
 
 ## Discipline checkpoints
 
-- [ ] D1 `security-hardening` — SSRF check resolves DNS then validates (note TOCTOU/rebinding; pin or re-check for high-risk); mount confinement is realpath-based.
-- [ ] D2 `doubt-driven-review` — legitimate conversions + public KB sources still work.
-- [ ] D3 `scenario-design` — metadata/private/public × zip-slip/normal × sensitive/workspace realized as T1–T4.
+- [ ] D1 `security-hardening` — review SSRF classifier vectors, connect-time lookup, git flag placement, mount confinement, archive listing gate against design D1–D4.
+- [ ] D2 `doubt-driven-review` — on the implementation diff before commit (confinement still admits legitimate conversions; public KB sources still resolve).
+- [ ] D3 `review-code` — inline review of the full diff once tests pass.
 
 ## Validate
 
 - [ ] V1 `openspec validate harden-untrusted-content-ingestion --strict` passes.
-- [ ] V2 `npm test` green (kb sources, document-converter, office-preview suites).
-- [ ] V3 Manual: point a KB source at a link-local IP → refused; convert a normal doc → succeeds.
+- [ ] V2 `npm test` green (document-converter, kb, server office-preview/file-raw-render, shared file-kind, client preview suites).
+- [ ] V3 `npm run quality:changed` clean (Biome ratchet).
