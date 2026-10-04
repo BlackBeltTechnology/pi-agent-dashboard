@@ -12,7 +12,9 @@
  *
  * See change: upgrade-electron-runtime, fix-ci-pipeline-followups.
  */
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
@@ -383,4 +385,43 @@ describe("E6: a missing produced binary fails the floor check", () => {
     expect(detach).toBeGreaterThanOrEqual(0);
     expect(detach).toBeLessThan(elseBranch.indexOf("exit 1"));
   });
+});
+
+describe("E6 (behaviour): the binary lookup cannot abort before its error branch", () => {
+  // Under `set -euo pipefail`, `BIN=$(find <missing-dir> … | head -1)` exits
+  // the step at the assignment, skipping the ::error:: + detach branch.
+  // Run the step's own lookup snippet under bash with a stub `hdiutil`.
+  const floor = steps(workflow).find((s) => s.name.startsWith(FLOOR_STEP));
+  const run = (floor?.body ?? "").split(/^ {8}run: \|\n/m)[1] ?? "";
+  const lines = run.split("\n").map((l) => l.replace(/^ {10}/, ""));
+  const from = lines.findIndex((l) => l.startsWith("BIN=$("));
+  const to = lines.findIndex((l, i) => i > from && l === "fi");
+  const snippet = lines.slice(from, to + 1).join("\n");
+
+  it("extracts the lookup snippet", () => {
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(snippet).toContain("::error::");
+  });
+
+  it.runIf(process.platform !== "win32")(
+    "a mounted app with no Contents/MacOS emits ::error::, detaches, exits 1",
+    () => {
+      const app = fs.mkdtempSync(path.join(os.tmpdir(), "floor-app-"));
+      fs.mkdirSync(path.join(app, "Contents")); // no MacOS/ inside
+      const script = [
+        "set -euo pipefail",
+        'hdiutil() { echo "DETACH-CALLED $*"; }',
+        `APP=${JSON.stringify(app)}`,
+        'MOUNT_POINT="/Volumes/stub"',
+        snippet,
+        'echo "UNREACHABLE"',
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      fs.rmSync(app, { recursive: true, force: true });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("::error::");
+      expect(r.stdout).toContain("DETACH-CALLED detach");
+      expect(r.stdout).not.toContain("UNREACHABLE");
+    },
+  );
 });

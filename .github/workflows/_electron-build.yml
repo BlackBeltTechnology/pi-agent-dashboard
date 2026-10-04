@@ -665,20 +665,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DMG=$(find packages/electron/out/make -name '*.dmg' | head -1)
+          DMG=$(find packages/electron/out/make -name '*.dmg' | head -1 || true)
           if [ -z "$DMG" ]; then
             echo "::error::No DMG produced — cannot verify deployment target"
             exit 1
           fi
           echo "Mounting $DMG ..."
           MOUNT_OUT=$(hdiutil attach -nobrowse -readonly "$DMG")
-          MOUNT_POINT=$(echo "$MOUNT_OUT" | grep '/Volumes/' | awk '{$1=$2=""; sub(/^ +/,""); print}' | tail -1)
+          MOUNT_POINT=$(echo "$MOUNT_OUT" | grep '/Volumes/' | awk '{$1=$2=""; sub(/^ +/,""); print}' | tail -1 || true)
           if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
             echo "::error::Failed to mount DMG"
             echo "$MOUNT_OUT"
             exit 1
           fi
-          APP=$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' -type d | head -1)
+          APP=$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' -type d | head -1 || true)
           if [ -z "$APP" ]; then
             echo "::error::No .app bundle inside DMG"
             hdiutil detach "$MOUNT_POINT" -quiet || true
@@ -689,7 +689,7 @@ jobs:
           # 1. LSMinimumSystemVersion in Info.plist. Locate the plist
           # dynamically (the electron-builder app bundle name differs from the
           # legacy Forge maker output). See change: fix-electron-auto-update-pipeline.
-          INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1)
+          INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1 || true)
           MIN_OS=$(plutil -extract LSMinimumSystemVersion raw "$INFO_PLIST" 2>/dev/null || echo "missing")
           echo "  Info.plist ($INFO_PLIST) LSMinimumSystemVersion = $MIN_OS"
           if [ "$MIN_OS" != "12.0" ]; then
@@ -712,7 +712,9 @@ jobs:
           # canary does an unextractable or non-numeric minos on the produced
           # binary emit ::warning:: and exit 0. A missing produced binary fails.
           # See change: fix-ci-pipeline-followups.
-          BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1)
+          # `|| true`: under pipefail a missing MacOS/ dir would abort HERE,
+          # skipping the ::error:: + detach branch below.
+          BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1 || true)
           if [ -n "$BIN" ] && [ -f "$BIN" ]; then
             if ! node packages/electron/scripts/verify-macos-floor.mjs "$BIN"; then
               hdiutil detach "$MOUNT_POINT" -quiet || true
