@@ -168,6 +168,21 @@ jobs:
           echo "Electron dir: $ELECTRON_DIR"
           cd "$ELECTRON_DIR" && node install.js 2>&1 | tail -5
 
+      - name: Install the Electron prebuilt (macOS floor-check canary sample)
+        # electron declares no `scripts` field (install.js is bin.install-electron),
+        # so no install lifecycle populates <electron-dir>/dist, and darwin forge
+        # builds package from the @electron/get cache instead. The floor check's
+        # extractor canary (verify-macos-floor.mjs) otools that prebuilt, so it
+        # MUST exist before that step. Resolve the dir through the tool registry —
+        # never a hard-coded node_modules path. See change: fix-ci-pipeline-followups.
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ELECTRON_DIR=$(node packages/shared/bin/pi-dashboard-resolve-tool.cjs electron)
+          echo "Electron dir: $ELECTRON_DIR"
+          cd "$ELECTRON_DIR" && node install.js
+
       - name: Set version from resolved ref
         # No `shell: bash` — single npm invocation works under cmd, pwsh,
         # and bash. Default Windows shell (cmd) handles it without MSYS.
@@ -650,20 +665,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DMG=$(find packages/electron/out/make -name '*.dmg' | head -1)
+          DMG=$(find packages/electron/out/make -name '*.dmg' | head -1 || true)
           if [ -z "$DMG" ]; then
             echo "::error::No DMG produced — cannot verify deployment target"
             exit 1
           fi
           echo "Mounting $DMG ..."
           MOUNT_OUT=$(hdiutil attach -nobrowse -readonly "$DMG")
-          MOUNT_POINT=$(echo "$MOUNT_OUT" | grep '/Volumes/' | awk '{$1=$2=""; sub(/^ +/,""); print}' | tail -1)
+          MOUNT_POINT=$(echo "$MOUNT_OUT" | grep '/Volumes/' | awk '{$1=$2=""; sub(/^ +/,""); print}' | tail -1 || true)
           if [ -z "$MOUNT_POINT" ] || [ ! -d "$MOUNT_POINT" ]; then
             echo "::error::Failed to mount DMG"
             echo "$MOUNT_OUT"
             exit 1
           fi
-          APP=$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' -type d | head -1)
+          APP=$(find "$MOUNT_POINT" -maxdepth 1 -name '*.app' -type d | head -1 || true)
           if [ -z "$APP" ]; then
             echo "::error::No .app bundle inside DMG"
             hdiutil detach "$MOUNT_POINT" -quiet || true
@@ -674,7 +689,7 @@ jobs:
           # 1. LSMinimumSystemVersion in Info.plist. Locate the plist
           # dynamically (the electron-builder app bundle name differs from the
           # legacy Forge maker output). See change: fix-electron-auto-update-pipeline.
-          INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1)
+          INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1 || true)
           MIN_OS=$(plutil -extract LSMinimumSystemVersion raw "$INFO_PLIST" 2>/dev/null || echo "missing")
           echo "  Info.plist ($INFO_PLIST) LSMinimumSystemVersion = $MIN_OS"
           if [ "$MIN_OS" != "12.0" ]; then
@@ -690,16 +705,26 @@ jobs:
           # unreachable at 10.15 but is reachable at 12.0.
           # The extractor is multi-slice safe (a fat Mach-O emits one
           # load-command set per arch) and lives in a Node script so it is
-          # covered by L1 tests. It exits 1 only on a real mismatch; an
-          # unextractable or non-numeric minos emits ::warning:: and exits 0.
-          BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1)
+          # covered by L1 tests. It first runs an extractor CANARY over the
+          # installed Electron prebuilt (installed by the darwin step above):
+          # a blind extractor, non-numeric/mismatching value, missing sample or
+          # otool failure there is ::error:: + exit 1. Only behind a passing
+          # canary does an unextractable or non-numeric minos on the produced
+          # binary emit ::warning:: and exit 0. A missing produced binary fails.
+          # See change: fix-ci-pipeline-followups.
+          # The pinned executableName (forge.config.ts / electron-builder.yml,
+          # locked by build-config-parity.test.ts) — never "first regular file",
+          # which would otool an unrelated helper and pass on a warning.
+          BIN="$APP/Contents/MacOS/pi-dashboard"
           if [ -n "$BIN" ] && [ -f "$BIN" ]; then
             if ! node packages/electron/scripts/verify-macos-floor.mjs "$BIN"; then
               hdiutil detach "$MOUNT_POINT" -quiet || true
               exit 1
             fi
           else
-            echo "::warning::Main binary not found at $BIN — skipping otool check"
+            echo "::error::Main binary not found at $BIN — a DMG without its inner Mach-O is a broken build, not a tolerable shape"
+            hdiutil detach "$MOUNT_POINT" -quiet || true
+            exit 1
           fi
           hdiutil detach "$MOUNT_POINT" -quiet || true
           echo "✓ Deployment target floor verified: 12.0"

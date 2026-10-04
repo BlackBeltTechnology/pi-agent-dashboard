@@ -164,3 +164,86 @@ export function checkMinosFloor({
     message: `Mach-O minos verified across ${sliceCount} slice(s): ${values.join(", ")} (expected major=${expectedMajor}).`,
   };
 }
+
+/**
+ * Map a produced-binary `checkMinosFloor` result to its CI verdict.
+ *
+ * The produced binary tolerates what it cannot measure (`not-extractable`,
+ * `non-numeric` → warning, exit 0) so a novel Mach-O shape does not red the
+ * build. That tolerance is only safe behind a passing `checkCanary`.
+ *
+ * @param {{ status: string }} result
+ * @returns {{ level: "ok"|"warning"|"error", exitCode: 0|1 }}
+ */
+export function producedBinaryVerdict(result) {
+  if (result.status === "ok") return { level: "ok", exitCode: 0 };
+  if (result.status === "mismatch") return { level: "error", exitCode: 1 };
+  return { level: "warning", exitCode: 0 };
+}
+
+/**
+ * Extractor canary: prove `extractMinosValues` is not blind on a binary we
+ * KNOW carries LC_BUILD_VERSION — the installed Electron prebuilt — before
+ * the produced-binary check is allowed to tolerate an unextractable minos.
+ *
+ * Pure by design: the `otool` exec and the file-existence probe live in
+ * verify-macos-floor.mjs and arrive here as `execFailed` / `sampleMissing`,
+ * so every verdict is fixture-testable on Linux (no otool there).
+ *
+ * Every non-`ok` status is an ERROR (exit 1) — deliberately asymmetric with
+ * `producedBinaryVerdict`. A non-numeric value fails too: on the produced
+ * binary it maps to a passing warning, so accepting it here would leave the
+ * tripwire as dead as a blind extractor would.
+ *
+ * @param {{ otoolOutput?: string, execFailed?: string|false,
+ *           sampleMissing?: boolean, samplePath: string,
+ *           expectedMajor?: number }} args
+ * @returns {{ status: "ok"|"blind-extractor"|"non-numeric"|"sample-missing"|"exec-failed"|"mismatch",
+ *             values: string[], message: string,
+ *             level: "ok"|"error", exitCode: 0|1 }}
+ */
+export function checkCanary({
+  otoolOutput = "",
+  execFailed = false,
+  sampleMissing = false,
+  samplePath,
+  expectedMajor = MACOS_FLOOR_MINOS_MAJOR,
+}) {
+  const fail = (status, values, detail) => ({
+    status,
+    values,
+    level: "error",
+    exitCode: 1,
+    message: `macOS floor canary failed on the Electron prebuilt '${samplePath}': ${detail} The produced-binary check cannot be trusted without it (extractor: extractMinosValues). See change: fix-ci-pipeline-followups.`,
+  });
+
+  if (sampleMissing) {
+    return fail(
+      "sample-missing",
+      [],
+      "the sample does not exist — run `node install.js` in the electron dir resolved by pi-dashboard-resolve-tool.cjs before the floor check.",
+    );
+  }
+  if (execFailed) {
+    return fail("exec-failed", [], `could not run 'otool -l' (${execFailed}).`);
+  }
+
+  const result = checkMinosFloor({ otoolOutput, expectedMajor });
+  if (result.status === "not-extractable") {
+    return fail(
+      "blind-extractor",
+      result.values,
+      "extractMinosValues returned no minos from a binary known to carry LC_BUILD_VERSION — the extractor is blind.",
+    );
+  }
+  if (result.status !== "ok") {
+    return fail(result.status, result.values, result.message);
+  }
+  return {
+    status: "ok",
+    values: result.values,
+    level: "ok",
+    exitCode: 0,
+    message: `Extractor canary ok on '${samplePath}': minos ${result.values.join(", ")}.`,
+  };
+}
