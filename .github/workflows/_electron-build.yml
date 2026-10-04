@@ -712,16 +712,17 @@ jobs:
           # canary does an unextractable or non-numeric minos on the produced
           # binary emit ::warning:: and exit 0. A missing produced binary fails.
           # See change: fix-ci-pipeline-followups.
-          # `|| true`: under pipefail a missing MacOS/ dir would abort HERE,
-          # skipping the ::error:: + detach branch below.
-          BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1 || true)
+          # The pinned executableName (forge.config.ts / electron-builder.yml,
+          # locked by build-config-parity.test.ts) — never "first regular file",
+          # which would otool an unrelated helper and pass on a warning.
+          BIN="$APP/Contents/MacOS/pi-dashboard"
           if [ -n "$BIN" ] && [ -f "$BIN" ]; then
             if ! node packages/electron/scripts/verify-macos-floor.mjs "$BIN"; then
               hdiutil detach "$MOUNT_POINT" -quiet || true
               exit 1
             fi
           else
-            echo "::error::Main binary not found under $APP/Contents/MacOS — a DMG with no inner Mach-O is a broken build, not a tolerable shape"
+            echo "::error::Main binary not found at $BIN — a DMG without its inner Mach-O is a broken build, not a tolerable shape"
             hdiutil detach "$MOUNT_POINT" -quiet || true
             exit 1
           fi

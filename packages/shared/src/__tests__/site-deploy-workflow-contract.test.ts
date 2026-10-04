@@ -239,11 +239,14 @@ describe("sync-release-version.yml has no release-event trigger (change: fix-ci-
     expect(() => assertNoReleaseTrigger(FILE, readWf(FILE))).not.toThrow();
   });
 
-  it("E10: workflow_dispatch.inputs.correlation survives the removal", () => {
-    const onBlock = extractOnBlock(readWf(FILE));
-    expect(onBlock, `${FILE}: workflow_dispatch must stay`).toMatch(/^\s+workflow_dispatch:\s*$/m);
-    expect(onBlock, `${FILE}: the correlation input publish.yml binds to must stay`).toMatch(
-      /^\s+inputs:\s*\n\s+correlation:\s*$/m,
+  it("E10: workflow_dispatch is the sole trigger and owns inputs.correlation", () => {
+    const wf = parseYaml(readWf(FILE)) as { on?: Record<string, unknown> };
+    expect(Object.keys(wf.on ?? {}), `${FILE}: workflow_dispatch must be the only trigger`).toEqual([
+      "workflow_dispatch",
+    ]);
+    const dispatch = wf.on?.workflow_dispatch as { inputs?: Record<string, unknown> } | undefined;
+    expect(dispatch?.inputs, `${FILE}: the correlation input publish.yml binds to must stay`).toHaveProperty(
+      "correlation",
     );
   });
 });

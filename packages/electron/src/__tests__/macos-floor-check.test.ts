@@ -394,7 +394,7 @@ describe("E6 (behaviour): the binary lookup cannot abort before its error branch
   const floor = steps(workflow).find((s) => s.name.startsWith(FLOOR_STEP));
   const run = (floor?.body ?? "").split(/^ {8}run: \|\n/m)[1] ?? "";
   const lines = run.split("\n").map((l) => l.replace(/^ {10}/, ""));
-  const from = lines.findIndex((l) => l.startsWith("BIN=$("));
+  const from = lines.findIndex((l) => l.startsWith("BIN="));
   const to = lines.findIndex((l, i) => i > from && l === "fi");
   const snippet = lines.slice(from, to + 1).join("\n");
 
@@ -402,6 +402,39 @@ describe("E6 (behaviour): the binary lookup cannot abort before its error branch
     expect(from).toBeGreaterThanOrEqual(0);
     expect(snippet).toContain("::error::");
   });
+
+  /** Run the lookup snippet against a temp app laid out by `layout`. */
+  function runLookup(layout: (app: string) => void) {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), "floor-app-"));
+    layout(app);
+    const script = [
+      "set -euo pipefail",
+      'hdiutil() { echo "DETACH-CALLED $*"; }',
+      `APP=${JSON.stringify(app)}`,
+      'MOUNT_POINT="/Volumes/stub"',
+      snippet,
+      'echo "UNREACHABLE"',
+    ].join("\n");
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    fs.rmSync(app, { recursive: true, force: true });
+    return r;
+  }
+
+  it.runIf(process.platform !== "win32")(
+    "an unrelated file in Contents/MacOS is not mistaken for the main binary",
+    () => {
+      // `find … -type f | head -1` used to pick any file; the lookup must
+      // target the pinned executableName (`pi-dashboard`).
+      const r = runLookup((app) => {
+        fs.mkdirSync(path.join(app, "Contents", "MacOS"), { recursive: true });
+        fs.writeFileSync(path.join(app, "Contents", "MacOS", "helper"), "");
+      });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("::error::");
+      expect(r.stdout).toContain("DETACH-CALLED detach");
+      expect(r.stdout).not.toContain("UNREACHABLE");
+    },
+  );
 
   it.runIf(process.platform !== "win32")(
     "a mounted app with no Contents/MacOS emits ::error::, detaches, exits 1",
