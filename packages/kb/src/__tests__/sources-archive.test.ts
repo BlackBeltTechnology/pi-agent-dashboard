@@ -4,7 +4,7 @@ import https from "node:https";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cacheKey, httpsResolver, recoverBackups, type ResolveCtx } from "../sources.js";
+import { cacheKey, httpsResolver, type ResolveCtx, recoverBackups } from "../sources.js";
 import { recordTrust } from "../trust.js";
 import { type Entry, tar, tarGz, zip } from "./helpers/archive-fixtures.js";
 

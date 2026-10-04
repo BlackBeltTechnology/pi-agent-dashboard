@@ -54,7 +54,7 @@ TDD: write each folded test first, see it fail, then implement.
 ## 7. Docs + DOX rows
 
 - [x] 7.1 Update nearest `AGENTS.md` rows: `packages/document-converter/src/AGENTS.md` (engine/errors/index), `packages/kb/src/AGENTS.md` (sources, new net-guard), `packages/shared/src` (file-kind), client preview + editor-pane rows; add `See change: harden-untrusted-content-ingestion`.
-- [ ] 7.2 Delegate any `docs/` prose (security notes for KB sources / document-converter roots) to DocScribe (caveman style).
+- [x] 7.2 Delegate any `docs/` prose (security notes for KB sources / document-converter roots) to DocScribe (caveman style). — none required: user-facing behaviour documented in README, SKILL.md, CHANGELOG and design.md; no `docs/` prose was warranted
 
 ## Tests
 - [x] E1 D1 sensitive output — L1 in `packages/document-converter/src/__tests__/engine.test.ts` (see packages/document-converter/src/__tests__/engine.test.ts). Input: roots=`[tmp/ws]`, req `{command:"renderPdf", input:"tmp/ws/a.md", output:"/root/.ssh/authorized_keys"}` · Trigger: `runEngine` · Observable: rejects `DocConverterError` code `PATH_NOT_ALLOWED`; fake runner call count 0 (test-plan #E1)
@@ -131,12 +131,12 @@ TDD: write each folded test first, see it fail, then implement.
 
 ## Discipline checkpoints
 
-- [ ] D1 `security-hardening` — review SSRF classifier vectors, connect-time lookup, git flag placement, mount confinement, archive listing gate against design D1–D4.
-- [ ] D2 `doubt-driven-review` — on the implementation diff before commit (confinement still admits legitimate conversions; public KB sources still resolve).
-- [ ] D3 `review-code` — inline review of the full diff once tests pass.
+- [x] D1 `security-hardening` — review SSRF classifier vectors, connect-time lookup, git flag placement, mount confinement, archive listing gate against design D1–D4. — covered by review rounds r1–r9 (SSRF classifier vectors incl. real-git `--get` vs `--get-all`, connect-time lookup, git flag placement incl. checkout, mount confinement, archive listing gate)
+- [x] D2 `doubt-driven-review` — on the implementation diff before commit (confinement still admits legitimate conversions; public KB sources still resolve). — covered by the nine-round independent review (incl. the lock → lock-free reversal) and the real-network smoke (link-local/localhost refused, public GitHub fetched)
+- [x] D3 `review-code` — inline review of the full diff once tests pass. — inline review via the `@review` role, nine rounds, ended `VERDICT: pass` (records under the worktree git dir `ship-it/<change>/`)
 
 ## Validate
 
 - [x] V1 `openspec validate harden-untrusted-content-ingestion --strict` passes.
 - [x] V2 `npm test` green (document-converter, kb, server office-preview/file-raw-render, shared file-kind, client preview suites). — 12 failing files all environmental (this worktree has no node_modules: tsx/openspec bin/plugin links/pi pin); none touch changed code
-- [ ] V3 `npm run quality:changed` clean (Biome ratchet).
+- [x] V3 `npm run quality:changed` clean (Biome ratchet). — Biome: 0 errors in changed files; remaining warn-tier items are cognitive-complexity on the security validators (left as-is on purpose) plus pre-existing warnings in touched files; knip ratchet raises no class (the absolute excess is environmental, 0 new findings vs develop)
