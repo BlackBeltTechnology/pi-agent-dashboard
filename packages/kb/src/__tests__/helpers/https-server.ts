@@ -7,7 +7,8 @@
 
 import dns from "node:dns";
 import { readFileSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:https";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
