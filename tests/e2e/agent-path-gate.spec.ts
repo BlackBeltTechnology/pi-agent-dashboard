@@ -48,9 +48,12 @@ async function revokeFixtureGrants(page: Page) {
   await page.goto("/settings/access");
   const rows = page.getByTestId("access-entry").filter({ hasText: "/srv/fixtures-outside" });
   await page.getByTestId("access-section").waitFor({ timeout: 15_000 });
-  while ((await rows.count()) > 0) {
+  // The grant list loads after the section mounts: wait for rows OR the empty state,
+  // else an empty first read would skip the revoke.
+  await page.getByTestId("access-entry").first().or(page.getByTestId("access-empty-state")).waitFor({ timeout: 15_000 });
+  for (let i = 0; i < 5 && (await rows.count()) > 0; i++) {
     await rows.first().getByTestId("access-revoke").click();
-    await page.waitForTimeout(500);
+    await expect(rows).toHaveCount(0, { timeout: 10_000 }).catch(() => undefined);
   }
 }
 
