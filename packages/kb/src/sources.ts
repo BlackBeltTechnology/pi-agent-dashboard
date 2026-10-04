@@ -290,15 +290,22 @@ function swapInto(dest: string, fresh: string, rename: (a: string, b: string) =>
   if (hadDest) rmSync(backup, { recursive: true, force: true });
 }
 
-/** Backups older than this are crash debris, never a writer's in-flight rollback copy. */
+/**
+ * A backup younger than this may be ANOTHER writer's in-flight rollback copy (its
+ * two renames are ms apart), so it is never restored or pruned. Older ones are
+ * abandoned (the writer crashed between its renames).
+ */
+const BACKUP_GRACE_MS = 60_000;
+/** Backups older than this are debris and pruned. */
 const BACKUP_MAX_AGE_MS = 60 * 60_000;
 const backupStamp = (name: string): number => Number(/\.old-(\d+)-/.exec(name)?.[1] ?? 0);
 
 /**
- * Crash recovery: restore the newest backup when `dest` is gone (a crash between
- * the two swap renames), then prune only backups old enough to be debris.
+ * Crash recovery: restore the newest ABANDONED backup (past the grace window) when
+ * `dest` is gone — a crash between the two swap renames — then prune only
+ * backups old enough to be debris. Exported for the interleaving test.
  */
-function recoverBackups(dest: string): void {
+export function recoverBackups(dest: string): void {
   const dir = dirname(dest);
   const prefix = `${basename(dest)}.old-`;
   let names: string[];
@@ -307,17 +314,21 @@ function recoverBackups(dest: string): void {
   } catch {
     return;
   }
+  const age = (n: string) => Date.now() - backupStamp(n);
   names.sort((x, y) => backupStamp(y) - backupStamp(x)); // newest first
-  if (!existsSync(dest) && names.length) {
-    try {
-      renameSync(join(dir, names[0]), dest);
-      names.shift();
-    } catch {
-      // a concurrent writer restored/populated dest first — fine
+  if (!existsSync(dest)) {
+    const abandoned = names.find((n) => age(n) > BACKUP_GRACE_MS);
+    if (abandoned) {
+      try {
+        renameSync(join(dir, abandoned), dest);
+        names.splice(names.indexOf(abandoned), 1);
+      } catch {
+        // a concurrent writer restored/populated dest first — fine
+      }
     }
   }
   for (const n of names) {
-    if (Date.now() - backupStamp(n) > BACKUP_MAX_AGE_MS) rmSync(join(dir, n), { recursive: true, force: true });
+    if (age(n) > BACKUP_MAX_AGE_MS) rmSync(join(dir, n), { recursive: true, force: true });
   }
 }
 

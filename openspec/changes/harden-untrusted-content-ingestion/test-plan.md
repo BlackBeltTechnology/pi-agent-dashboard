@@ -71,7 +71,7 @@ Exemplars (harness glue to copy):
 | E59 | D4 empty zip | BVA (N=0) | L1 | automated | zip with 0 entries | resolve | succeeds; dest is an empty source dir with `.fetched` |
 | E60 | D4 bzip2 | EP | L1 | automated | valid `.tar.bz2` | resolve | extracts (previously broken by `xzf`) |
 | E61 | D4 corrupt archive | EP | L1 | automated | truncated `.tar.gz` | resolve | rejects; prior `dest` unchanged |
-| E62 | D4 marker moves | state | L1 | automated | fresh resolve | resolve | `dest/.fetched` exists after swap; no `stage-*`, no `dest.old` left |
+| E62 | D4 marker moves | state | L1 | automated | fresh resolve | resolve | `dest/.fetched` exists after swap; no `stage-*`, no `dest.old-*` backup left |
 | E70 | D5 sheet cap | BVA | L1 | automated | `officeCaps.sheetSizeCap=1000`; files of 1000 and 1001 bytes | `GET /api/file/sheet` | 1000 → 200; 1001 → 413 and `parseSheet` spy not called |
 | E71 | D5 patched parser | EP | L1 | automated | resolved `xlsx/package.json` from server package | read version | semver ≥ `0.20.2` |
 | E72 | D6 caps single source | EP | L1 | automated | `OFFICE_CAPS`, `OFFICE_SIZE_CAPS` | compare | `docxSizeCap/pptxSizeCap/sheetSizeCap` equal `docx/pptx/sheet` |
@@ -102,8 +102,8 @@ Exemplars (harness glue to copy):
 | X1 | D2 timeout | fault-injection (delay) | L1 | automated | test server never sends headers | `guardedFetch` (timeoutMs 200) | rejects within 200–1000 ms; socket closed |
 | X2 | D2 3xx unbounded body | fault-injection (abort) | L1 | automated | 302 with endless body + `Location` to public test target | `guardedFetch` | follows redirect without reading 302 body; no unhandled `error` event; completes |
 | X3 | D2/D4 failed refresh | fault-injection (abort) | L1 | automated | existing good `dest` + marker; refresh returns 500 / blocked redirect / zip-slip archive | resolve `refresh:true` | rejects; `dest` content + `.fetched` byte-identical to before |
-| X4 | D4 crash recovery | state-transition | L1 | automated | (a) `dest` absent, `dest.old` present; (b) `dest` + stale non-empty `dest.old` | resolve | (a) `dest.old` renamed back, then normal resolve; (b) `dest.old` removed, swap succeeds |
-| X5 | D4 swap rollback | fault-injection (abort) | L1 | automated | inject failure on `rename(stage/out, dest)` | resolve | rejects; `dest` restored from `dest.old` with original content |
+| X4 | D4 crash recovery | state-transition | L1 | automated | (a) `dest` absent, an abandoned (past-grace) backup present; (b) `dest` + an aged (>1h) backup and a young one | resolve | (a) the backup is renamed back, then normal resolve; (b) aged backup pruned, young one kept, swap succeeds |
+| X5 | D4 swap rollback | fault-injection (abort) | L1 | automated | inject failure on `rename(stage/out, dest)` | resolve | rejects; `dest` restored from its backup with original content |
 | X6 | D1 engine unavailable unchanged | fault-injection (abort) | L1 | automated | fake runner throws `DOCKER_UNAVAILABLE` for an allowed request | `runEngine` | same `DocConverterError` code as before (no confinement regression in error path) |
 | M2 | D1 real-engine `:ro` (C1 B) | fault-injection | — | manual-only | committed prerendered fixtures `sample.md`, `sample.docx` in a dir mounted `:ro` | run opt-in `integration.test.ts` with `DOC_ENGINE_IMAGE` set: `renderPdf` + `convertToMarkdown` | [manual pre-merge: PDF produced; input dir listing byte-identical before/after; needs local engine image] |
 | M3 | D7 audit triage | judgment | — | manual-only | `pnpm audit --prod` output after D5 | human triage | [judgment: every advisory has fix / accept-with-reason / not-reachable in design.md `## Audit triage`] |

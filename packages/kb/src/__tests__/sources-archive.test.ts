@@ -4,7 +4,7 @@ import https from "node:https";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cacheKey, httpsResolver, type ResolveCtx } from "../sources.js";
+import { cacheKey, httpsResolver, recoverBackups, type ResolveCtx } from "../sources.js";
 import { recordTrust } from "../trust.js";
 import { type Entry, tar, tarGz, zip } from "./helpers/archive-fixtures.js";
 
@@ -175,7 +175,7 @@ d("https resolver: guarded fetch + archive extraction", () => {
     it("X4a dest absent + a backup present → restored (no refetch when fresh)", async () => {
       const spec = specOf("a.zip");
       const dest = join(cacheDir, cacheKey(spec));
-      const bk = `${dest}.old-${Date.now()}-crashed`;
+      const bk = `${dest}.old-${Date.now() - 5 * 60_000}-crashed`; // past the grace window → abandoned, not in-flight
       seed(bk, "OLD");
       const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
       recordTrust(spec);
@@ -271,20 +271,55 @@ d("lock-free swap under concurrent refreshes (review B1: last-writer-wins, never
     expect(backups(cacheDir)).toEqual([foreign.split("/").pop()]); // only the foreign one remains; ours was removed
   });
 
-  it("recovery: dest absent → restores the NEWEST backup; prunes only backups older than 1h", async () => {
+  it("recovery: dest absent → restores the NEWEST backup past the grace window; prunes only backups older than 1h", async () => {
     const cacheDir = mk();
     const spec = specOf("recover");
     recordTrust(spec);
     const dest = join(cacheDir, cacheKey(spec));
     const now = Date.now();
-    seed(`${dest}.old-${now - 1000}-newest`, { "orig.md": "NEWEST", ".fetched": "1" });
-    seed(`${dest}.old-${now - 2000}-older`, { "x.md": "OLDER" });
+    seed(`${dest}.old-${now - 5 * 60_000}-newest`, { "orig.md": "NEWEST", ".fetched": "1" });
+    seed(`${dest}.old-${now - 6 * 60_000}-older`, { "x.md": "OLDER" });
     seed(`${dest}.old-${now - 2 * 3_600_000}-debris`, { "y.md": "DEBRIS" });
     const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
     const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch } });
     expect(readFileSync(join(r.dir, "orig.md"), "utf8")).toBe("NEWEST");
     expect(fetch).not.toHaveBeenCalled(); // marker is fresh → no refetch
-    expect(backups(cacheDir)).toEqual([`${basename(dest)}.old-${now - 2000}-older`]); // young kept, debris pruned, newest consumed
+    expect(backups(cacheDir)).toEqual([`${basename(dest)}.old-${now - 6 * 60_000}-older`]); // <1h kept, debris pruned, newest consumed
+  });
+
+  it("recovery never takes a YOUNG backup (a live writer's in-flight rollback copy), even with dest absent", async () => {
+    const cacheDir = mk();
+    const spec = specOf("grace");
+    recordTrust(spec);
+    const dest = join(cacheDir, cacheKey(spec));
+    const young = `${dest}.old-${Date.now() - 1000}-inflight`;
+    seed(young, { "orig.md": "IN-FLIGHT" });
+    await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]) } });
+    expect(existsSync(join(young, "orig.md"))).toBe(true); // untouched
+    expect(existsSync(join(dest, "orig.md"))).toBe(false); // not restored over a fresh fetch
+    expect(existsSync(join(dest, "n.md"))).toBe(true);
+  });
+
+  it("recovery entering the window between a writer's two renames does not break that writer", async () => {
+    const cacheDir = mk();
+    const spec = specOf("window");
+    recordTrust(spec);
+    const dest = join(cacheDir, cacheKey(spec));
+    seed(dest, { "orig.md": "ORIGINAL", ".fetched": "1" });
+    let calls = 0;
+    // Writer A has renamed dest → its backup; ANOTHER process starts and runs recovery right now.
+    const rename = (a: string, b: string) => {
+      calls++;
+      renameSync(a, b);
+      if (calls === 1) {
+        for (const t = Date.now(); Date.now() - t < 5; ); // the backup is now measurably "older than 0"
+        recoverBackups(dest);
+        expect(existsSync(dest)).toBe(false); // the in-flight backup was NOT "recovered"
+      }
+    };
+    const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: async () => zip([{ name: "ours.md", data: "OURS" }]), rename } });
+    expect(readFileSync(join(r.dir, "ours.md"), "utf8")).toBe("OURS"); // A's swap succeeded
+    expect(readdirSync(cacheDir)).toEqual([cacheKey(spec)]); // A removed its own backup
   });
 
   it("sequential refreshes leave no backups or stage dirs behind", async () => {

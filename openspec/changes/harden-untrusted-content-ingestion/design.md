@@ -96,6 +96,19 @@ Existing code this design relies on (all claims cited):
 - Changing any size cap value, or the 413 wire body (`file-read-containment`
   pins it to `{ success, error }`).
 - Neutralising a user-configured HTTP proxy for git (see D3 trade-offs).
+- **Cross-process serialization of one KB cache entry.** Two processes resolving
+  the SAME remote source at the same instant (e.g. `kb index` in two terminals)
+  are not serialized. This is pre-existing: `origin/develop` had no
+  serialization on either path (https did `rmSync(dest)` *before* fetching; git
+  mutated the clone in place). This change does not regress it and strictly
+  improves https: a failed or blocked refresh keeps the previous cache, backups
+  are unique per writer, and concurrent writers are last-writer-wins — a loser
+  errors out, but `dest` always holds one writer's complete content. The git
+  path keeps its single-writer assumption (git's own index lock is the only
+  guard). A hand-rolled cross-process lock was tried and removed: every round
+  found a narrower ownership/ABA hole in it, and it guarded a case outside this
+  change's threat model (hostile content, not concurrent cooperative runs).
+  Follow-up if it ever matters: stage-and-atomically-publish git clones.
 
 ## Decisions
 
@@ -327,18 +340,23 @@ whose URLs come from the attacker's repo.
    - The `.fetched` staleness marker (today `join(dest, ".fetched")`,
      `sources.ts:174`) is written into `stage/out` **before** the swap, so it
      moves with the content.
-   - **Recovery, at the start of every resolve:**
-     - if `dest` is absent and `dest.old` exists → `rename(dest.old, dest)`;
-     - otherwise any leftover `dest.old` → `rm -rf`.
+   - **Backups are unique per writer:** `dest.old-<epochMs>-<uuid>`. A writer
+     only ever deletes **its own** backup.
+   - **Recovery, at the start of every resolve** (`recoverBackups`):
+     - if `dest` is absent, restore the newest backup older than a 60 s grace
+       window (a crash between the two swap renames; a younger backup may be a
+       live writer's in-flight rollback copy and is left alone);
+     - prune only backups older than 1 h (debris).
    - Only after every check passes, swap with rollback:
-     1. `rename(dest, dest.old)`, if `dest` exists;
-     2. `rename(stage/out, dest)`. If this fails, `rename(dest.old, dest)` and
-        throw;
-     3. `rm(dest.old)`.
+     1. `rename(dest, backup)`, if `dest` exists;
+     2. `rename(stage/out, dest)`. If this fails, try `rename(backup, dest)`
+        (it fails harmlessly when a concurrent writer already repopulated
+        `dest`) and throw;
+     3. `rm(backup)` (our own).
    - `stage` sits in `cacheDir`, the same filesystem as `dest` (no `EXDEV`).
-     Every rename is atomic. Crash recovery (above) covers both a crash between
-     steps 1 and 2 (`dest` missing) and one between steps 2 and 3 (stale
-     `dest.old`).
+     Every rename is atomic. Crash recovery (above) covers a crash between
+     steps 1 and 2 (`dest` missing); a crash between steps 2 and 3 leaves a
+     backup that ages out.
    - `stage` is always removed.
    - A failed or blocked refresh therefore **keeps the previously good cache**.
      Today `sources.ts:185-186` wipes `dest` before fetching.
@@ -497,6 +515,7 @@ asserted by a test instead (spec: "patched parser in use").
 | D2 blocks a source behind a private mirror | By design; documented. No allowlist knob (YAGNI). |
 | D3 renamed-repo redirect fails | Clear error; user updates ref. |
 | D4 listing format differs across tar implementations | Fixture tests on macOS + Linux; unparseable listing → fail closed. |
+| Two processes refresh the same KB source at once | Out of scope (non-goal). https: unique per-writer backups + grace-window recovery ⇒ last-writer-wins, never an empty or mixed `dest`; git: unchanged from before this change. |
 | D5 CDN unreachable during install | Lockfile integrity pin; CI + electron build verified; one-line rollback. |
 
 ## Migration / compatibility / rollback
