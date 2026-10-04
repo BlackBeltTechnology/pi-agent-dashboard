@@ -152,6 +152,17 @@ export function createPathGateHandler(deps: PathGateDeps) {
       ]
         .filter(Boolean)
         .join("\n\n");
+      // Plain-text twin of `message` for a terminal (no markdown) — see tui-prompt-adapter.
+      const plainMessage = [
+        `Path: ${d.canonical}`,
+        `Tool: ${tool}${detail ? ` (${detail})` : ""}`,
+        `Session cwd: ${cwd}`,
+        d.sensitive ? "⚠ Sensitive location (credentials or the agent's own control plane)." : "",
+        offer.note ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .replace(/[\u0000-\u0009\u000b-\u001f\u007f\u2028\u2029]/g, "?");
       const id1 = newId();
       openId = id1;
       deps.counters && deps.counters.asked++;
@@ -170,6 +181,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
             sensitive: d.sensitive,
             tool,
             message,
+            plainMessage,
             ...(offer.note ? { note: offer.note } : {}),
             ...(toolCallId ? { toolCallId } : {}),
           },

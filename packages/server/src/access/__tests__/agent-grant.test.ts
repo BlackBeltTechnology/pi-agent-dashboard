@@ -111,16 +111,17 @@ describe("agent grant — binding", () => {
 
   it("E27 settled redeem window is 5 s", () => {
     const dir = mk("o");
+    const file = path.join(dir, "f.txt");
     const a = setup();
-    a.registry.observe("S1", "p2", { path: dir, subject: dir });
+    a.registry.observe("S1", "p2", { path: file, subject: dir });
     a.registry.settle("S1", "p2");
     t += 4_900;
-    expect(a.handle("S1", a.req({ path: dir, subject: dir })).ok).toBe(true);
+    expect(a.handle("S1", a.req({ path: file, subject: dir })).ok).toBe(true);
     const b = setup();
-    b.registry.observe("S1", "p3", { path: dir, subject: dir });
+    b.registry.observe("S1", "p3", { path: file, subject: dir });
     b.registry.settle("S1", "p3");
     t += 5_100;
-    expect(b.handle("S1", b.req({ promptId: "p3", path: dir, subject: dir })).ok).toBe(false);
+    expect(b.handle("S1", b.req({ promptId: "p3", path: file, subject: dir })).ok).toBe(false);
   });
 
   it("E28 subject swapped for a symlink between prompt and grant is refused", () => {
@@ -133,6 +134,28 @@ describe("agent grant — binding", () => {
     const r = handle("S1", req({ path: path.join(docs, "a.md"), subject: docs }));
     expect(r.ok).toBe(false);
     expect(listGrants()).toHaveLength(0);
+  });
+
+  it("r2/B2: the subject is re-derived from the gated PATH — a confirm naming an ancestor of the file is refused", () => {
+    const docs = mk("other", "docs");
+    const ancestor = path.dirname(docs); // .../other — an ancestor of the gated file's directory
+    const file = path.join(docs, "a.md");
+    const { registry, req, handle } = setup();
+    // A (buggy/forged) confirm prompt that recorded the ANCESTOR as the subject for that file.
+    registry.observe("S1", "p2", { path: file, subject: ancestor });
+    const r = handle("S1", req({ path: file, subject: ancestor }));
+    expect(r).toMatchObject({ ok: false });
+    expect(listGrants()).toHaveLength(0);
+  });
+
+  it("r2/B2: a path that turns from file into directory before the grant still derives the same containing directory", () => {
+    const docs = mk("other2", "docs");
+    const file = path.join(docs, "a.md");
+    const { registry, req, handle } = setup();
+    registry.observe("S1", "p2", { path: file, subject: docs });
+    fs.mkdirSync(file); // a.md is now a directory; dirname(realpath(path)) is unchanged
+    expect(handle("S1", req({ path: file, subject: docs })).ok).toBe(true);
+    expect(listGrants()).toEqual([expect.objectContaining({ subject: docs })]);
   });
 
   it("E29 forbidden subject (home) is refused even with a valid confirm", () => {

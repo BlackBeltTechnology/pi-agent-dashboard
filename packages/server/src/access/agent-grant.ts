@@ -7,9 +7,10 @@
  */
 
 import { isSameSubject } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
-import { isUngrantableSubject } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
+import nodePath from "node:path";
+import { isUngrantableSubject, realpathNearestAncestor } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
 import type { PathGrantRequestMessage, PathGrantResultMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
-import { normalizeGrantSubject, recordGrant } from "./access-grants.js";
+import { recordGrant } from "./access-grants.js";
 import type { AgentConfirmRegistry } from "./agent-confirm-registry.js";
 
 export interface AgentGrantDeps {
@@ -41,12 +42,15 @@ export function handlePathGrantRequest(
   const consumed = deps.registry.consume(connectionSessionId, msg.promptId, { path: msg.path, subject: msg.subject }, isSameSubject);
   if (!consumed.ok) return refuse(consumed.error);
 
-  // Re-derive now: a directory created / renamed / symlink-swapped between the
-  // prompt and this grant must not persist under a name the operator never saw.
-  // Compared as strings against the subject the registry recorded (the gate sent
-  // a realpath'd directory): a swapped symlink re-derives to a different path.
-  const rederived = normalizeGrantSubject(consumed.subject);
-  if (rederived !== consumed.subject) return refuse("subject changed since confirmation");
+  // Re-derive the subject from the confirmed PATH now (the gate's rule: the file's
+  // containing directory, realpath'd nearest-ancestor + tail) and require it to be
+  // exactly what the confirmation named. Deriving from the claimed subject alone
+  // would let a confirm naming an ancestor of the file persist that ancestor, and a
+  // directory created / renamed / symlink-swapped between prompt and grant derives
+  // a different path and is refused rather than persisted under a name the operator
+  // never saw.
+  const rederived = nodePath.dirname(realpathNearestAncestor(msg.path));
+  if (rederived !== consumed.subject) return refuse("subject does not match the confirmed path");
   if (isUngrantableSubject(rederived)) return refuse("forbidden subject");
 
   const result = recordGrant({ subject: rederived, scope: "project", origin: connectionSessionId, via: "agent-prompt" });

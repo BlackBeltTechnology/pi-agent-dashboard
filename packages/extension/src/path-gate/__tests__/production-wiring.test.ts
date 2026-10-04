@@ -42,6 +42,9 @@ describe("TUI visibility (review B2)", () => {
     expect(t.asked).toHaveLength(1);
     expect(t.asked[0].question).toContain("/etc/hosts");
     expect(t.asked[0].question).toMatch(/outside its workspace/i);
+    // review r2/B1: cwd and the withheld-Always note are part of what the terminal shows.
+    expect(t.asked[0].question).toContain(`Session cwd: ${t.cwd}`);
+    expect(t.asked[0].question).toMatch(/Always allow/);
 
   });
 });
