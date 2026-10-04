@@ -187,6 +187,13 @@ describe("ShellContent archive routes (resolve-archived-attached-proposal)", () 
     expect(screen.getByText(`archive:${CWD}:2026-09-30-x:design`)).toBeTruthy();
   });
 
+  it("an undecodable archive segment falls back to the archive list instead of throwing", () => {
+    at(`/folder/${ENC}/openspec/archive/%ZZ/design`);
+    expect(screen.getByText(`archive:${CWD}`)).toBeTruthy();
+    at(`/folder/${ENC}/openspec/archive/%ZZ`);
+    expect(screen.getAllByText(`archive:${CWD}`).length).toBe(2);
+  });
+
   it("a change preview still renders for a normal change name", () => {
     at(`/folder/${ENC}/openspec/my-change/proposal`);
     expect(screen.getByText(`preview:${CWD}:my-change:proposal`)).toBeTruthy();

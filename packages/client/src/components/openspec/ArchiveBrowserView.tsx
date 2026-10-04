@@ -45,6 +45,7 @@ function AttachedSessionChips({ sessions }: { sessions: DashboardSession[] }) {
           key={s.id}
           type="button"
           data-testid="archive-session-chip"
+          aria-label={`${getSessionDisplayName(s)} (${s.resuming ? "resuming" : s.status})`}
           className="flex items-center gap-1 max-w-[140px] text-[10px] px-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:border-blue-500/50"
           onClick={(e) => { e.stopPropagation(); navigate(`/session/${encodeURIComponent(s.id)}`); }}
         >
