@@ -133,7 +133,12 @@ describe("E11 — sync-release-version.yml pushes HEAD:develop, never main", () 
  * scalar (`on: release`). E10's `/^\s*release:\s*$/m` sees only the first.
  */
 function assertNoReleaseTrigger(file: string, yaml: string): void {
-  const lines = yaml.split("\n").filter((l) => !l.trim().startsWith("#"));
+  // Canonicalize first: YAML lets the key / sequence item be quoted
+  // ('release', "release") with identical meaning.
+  const lines = yaml
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("#"))
+    .map((l) => l.replace(/(["'])release\1/g, "release"));
   const start = lines.findIndex((l) => /^["']?on["']?\s*:/.test(l));
   if (start === -1) throw new Error(`${file}: no top-level \`on:\` key`);
   let end = lines.length;
@@ -178,6 +183,20 @@ describe("sync-release-version.yml has no release-event trigger (change: fix-ci-
     expect(() =>
       assertNoReleaseTrigger(FILE, `name: x\non: [push, release]\njobs: {}\n`),
     ).toThrow(FILE);
+  });
+
+  it("quoted forms are refused too (block key, inline-mapping key, sequence item)", () => {
+    for (const yaml of [
+      `name: x\non:\n  'release':\n    types: [published]\n${tail}`,
+      `name: x\non:\n  "release":\n${tail}`,
+      `name: x\non: {'release': [published]}\njobs: {}\n`,
+      `name: x\non: {"release": [published]}\njobs: {}\n`,
+      `name: x\non: ['release']\njobs: {}\n`,
+      `name: x\non: [push, "release"]\njobs: {}\n`,
+      `name: x\non: release\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
   });
 
   it("does not misfire on dispatch-only triggers", () => {
