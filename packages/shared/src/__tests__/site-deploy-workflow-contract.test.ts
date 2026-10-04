@@ -143,15 +143,17 @@ function assertNoReleaseTrigger(file: string, yaml: string): void {
   if (start === -1) throw new Error(`${file}: no top-level \`on:\` key`);
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
-    if (/^[a-zA-Z"'-]/.test(lines[i])) {
+    // Next top-level KEY ends the block. A column-0 `- item` is a compact
+    // sequence that still belongs to `on:`, so `-` does not end it.
+    if (/^[a-zA-Z"']/.test(lines[i])) {
       end = i;
       break;
     }
   }
   const head = lines[start].replace(/^["']?on["']?\s*:/, "");
   const body = lines.slice(start + 1, end).join("\n");
-  const inline = head.trim() !== "" && /(^|[\s{[,])release\b/.test(head + "\n" + body);
-  const block = /^\s+release\s*:/m.test(body);
+  const inline = head.trim() !== "" && /(^|[\s{[,])release\s*(?=[:,\]}]|$)/m.test(head + "\n" + body);
+  const block = /^\s+release\s*:/m.test(body) || /^\s*-\s*release\s*$/m.test(body);
   if (inline || block) {
     throw new Error(
       `${file}: \`release:\` trigger must not return — a GITHUB_TOKEN commit from this run cannot start deploy-site.yml, so the run it starts is incomplete (dispatch sync-release-version, then deploy-site). See change: fix-ci-pipeline-followups.`,
@@ -197,6 +199,31 @@ describe("sync-release-version.yml has no release-event trigger (change: fix-ci-
     ]) {
       expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
     }
+  });
+
+  it("block-sequence form is refused (on:\n  - release)", () => {
+    for (const yaml of [
+      `name: x\non:\n  - workflow_dispatch\n  - release\njobs: {}\n`,
+      `name: x\non:\n  - "release"\njobs: {}\n`,
+      `name: x\non:\n- release\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non:\n  - workflow_dispatch\njobs: {}\n`),
+    ).not.toThrow();
+  });
+
+  it("does not misfire on a release-named branch filter", () => {
+    expect(() =>
+      assertNoReleaseTrigger(
+        FILE,
+        `name: x\non:\n  push:\n    branches:\n      - release/**\n      - release-1\n${tail}`,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: {push: {branches: [release-1, release/x]}}\n`),
+    ).not.toThrow();
   });
 
   it("does not misfire on dispatch-only triggers", () => {
