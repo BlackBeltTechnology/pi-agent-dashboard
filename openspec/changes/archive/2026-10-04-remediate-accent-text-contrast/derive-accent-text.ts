@@ -2,7 +2,7 @@
  * Derive the `--accent-<hue>-text` ramp (design D1) from the live `THEMES`.
  *
  * Run from `packages/client`:
- *   npx tsx ../../openspec/changes/remediate-accent-text-contrast/derive-accent-text.ts
+ *   npx tsx ../../openspec/changes/archive/2026-10-04-remediate-accent-text-contrast/derive-accent-text.ts
  *
  * For each (palette, hue): a source accent whose floor (min contrast over the
  * four text backdrops) is already ≥ 4.5 is copied unchanged. Otherwise HSL
@@ -16,7 +16,7 @@
 
 // themes.ts pulls in i18n, which reads `window.navigator` at import time.
 (globalThis as { window?: unknown }).window ??= { navigator: { language: "en" } };
-const { THEMES } = await import("../../../packages/client/src/lib/theme/themes.js");
+const { THEMES } = await import("../../../../packages/client/src/lib/theme/themes.js");
 
 const HUES = ["purple", "blue", "green", "orange", "red", "yellow"] as const;
 const AA = 4.5;
