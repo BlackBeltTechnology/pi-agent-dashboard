@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>voice-assistant — Live wall (folder page)</title>
+<title>Plugin app embedded like the OpenSpec board</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="tokens.css" />
 <link rel="stylesheet" href="va.css" />
@@ -62,11 +62,11 @@
 <div class="max-w-6xl mx-auto p-4 sm:p-6">
   <header class="shell-head">
     <div>
-      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Live wall — folder page, embedded like the OpenSpec board</h1>
-      <p class="text-sm" style="color:var(--text-secondary)">Folder entry + folder-menu items + <code>shell-overlay-route</code> with <code>presentation: "content"</code>. The app renders in the content area beside the sidebar; the sidebar and its header (π · theme · tunnel · YOLO · server · Discord · settings) stay untouched. Design D19. The wall belongs to the meeting, the meeting to the folder. The wall plugin owns the folder entry, its menu items and the page; voice-assistant links to it from the copilot session header and the meeting toast. Generic pattern: <code>add-plugin-app-host</code>.</p>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Plugin app embedded like the OpenSpec board</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">Folder entry + folder-menu items + <code>shell-overlay-route</code> with <code>presentation: "content"</code>. The app renders in the content area beside the sidebar; the sidebar and its header (π · theme · tunnel · YOLO · server · Discord · settings) stay untouched. Example: the voice wall (owned by <code>add-voice-wall-plugin</code>).</p>
     </div>
     <nav class="flex items-center gap-3 text-sm">
-      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a> <a href="../../add-plugin-app-host/mockups/dashboard/index.html" class="hover:underline" style="color:var(--accent-blue)">On the real dashboard →</a>
+      <a href="ui-plan.md" class="hover:underline" style="color:var(--accent-blue)">ui-plan.md</a>
       <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
     </nav>
   </header>
@@ -82,7 +82,7 @@
           <div class="entry">OpenSpec (3) <span class="n">→</span></div>
           <div class="entry"><span class="live"></span>Meeting · live 00:14 <span class="n">■ Stop</span></div>
           <div class="entry cur" aria-current="page"><span class="live"></span>Live wall <span class="n">→</span></div>
-          <div class="card"><span class="role">copilot</span> Sprint 42 planning <span style="float:right;color:var(--accent-blue)">▣ Live wall</span><small>streaming · meeting</small></div>
+          <div class="card"><span class="role">copilot</span> Sprint 42 planning<small>streaming · meeting</small></div>
           <div class="card"><span class="role">transcriber</span> Sprint 42 planning<small>live · mic + system</small></div>
           <div class="card">fix-auth<small>idle</small></div>
         </div>
@@ -142,12 +142,12 @@
       <p class="caption">Same as other depth-2 folder boards: swipe/Back to the folder. Actions fold into ⋯; 44 px targets.</p>
     </section>
     <section>
-      <p class="frame-label">5 · Voice-assistant links + round trip</p>
+      <p class="frame-label">5 · App → session → back</p>
       <div class="frame p-3" style="font-size:12px; color:var(--text-secondary)">
-        <div class="flex items-center gap-2 mb-2"><span class="pill-ret">▣ Live wall</span><span>copilot session header and the meeting toast (while a wall runs) → <code>/folder/&lt;cwd&gt;/wall</code></span></div><div class="flex items-center gap-2 mb-2"><span class="pill-ret">← Live wall · Sprint 42</span><span>return pill after the wall opened the copilot session</span></div>
+        <div class="flex items-center gap-2 mb-2"><span class="pill-ret">← Live wall · Sprint 42</span><span>shown in the session header</span></div>
         <div class="card">Copilot chat for <b>Sprint 42 planning</b> (normal session view)</div>
       </div>
-      <p class="caption">Without <code>add-plugin-app-host</code> the links open <code>/apps/wall/…</code> in a named window. A turn link in the wall calls <code>host.openSession(copilotId)</code> (history push). The return pill appears once, while that history entry exists; browser Back works too.</p>
+      <p class="caption">A turn link in the wall calls <code>host.openSession(copilotId)</code> (history push). The return pill appears once, while that history entry exists; browser Back works too.</p>
     </section>
   </div>
 </div>

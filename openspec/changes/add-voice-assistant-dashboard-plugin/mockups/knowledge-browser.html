@@ -3,98 +3,133 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>voice-assistant — Knowledge browser</title>
+<title>voice-assistant — Meetings & knowledge</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
 <script src="theme-init.js"></script>
 <style>
   .panel { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
   .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
-  .status-chip { font-size: 10px; padding: 1px 7px; border-radius: 9999px; border-width: 1px; }
+  .chip { font-size: 10px; padding: 1px 7px; border-radius: 9999px; border: 1px solid; white-space: nowrap; }
+  .tabs { display:flex; gap:2px; border-bottom:1px solid var(--border-primary); margin-bottom:16px; overflow-x:auto; }
+  .tab { font-size:13px; padding:10px 14px; min-height:44px; color:var(--text-secondary); background:transparent; border:0; border-bottom:2px solid transparent; cursor:pointer; white-space:nowrap; }
+  .tab[aria-selected="true"] { color:var(--text-primary); font-weight:700; border-bottom-color:var(--accent-purple); }
+  .count { font-size:10px; margin-left:4px; padding:0 6px; border-radius:999px; background:var(--bg-tertiary); color:var(--text-secondary); }
+  .meta { font-size:11px; color:var(--text-secondary); }
+  [role=tabpanel][hidden] { display:none; }
 </style>
 </head>
 <body class="min-h-screen">
 <div class="max-w-4xl mx-auto p-4 sm:p-6">
-  <header class="flex items-center justify-between mb-4">
+  <header class="shell-head">
     <div class="min-w-0">
       <div class="flex items-center gap-2">
-        <span aria-hidden="true" style="color:var(--text-tertiary)">←</span>
-        <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Knowledge browser</h1>
+        <button class="btn-ghost" aria-label="Back">←</button>
+        <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Meetings & knowledge · acme-erp</h1>
+        <span class="chip" title="Active knowledge backend" style="background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border)">backend: kb</span>
       </div>
-      <p class="text-sm flex items-center gap-2 flex-wrap" style="color:var(--text-tertiary)">
-        <code class="text-xs">/folder/&lt;cwd&gt;/voice-assistant-knowledge</code>
-        <span>— ~/Project/acme-erp — read-only</span>
-        <span class="status-chip" title="Active knowledge backend" style="background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border)">kb</span>
-      </p>
-      <p class="text-xs mt-1" style="color:var(--text-tertiary)">Folder-scoped overlay route (design 6b) — back arrow binds to the slot's <code>onBack</code>; full-bleed, matching kb-plugin's KbSettingsPanel.</p>
+      <p class="text-xs mt-1" style="color:var(--text-secondary)"><code>/folder/&lt;cwd&gt;/voice-assistant-knowledge</code> · full-bleed overlay · read-only · back → slot <code>onBack</code></p>
     </div>
     <nav class="flex items-center gap-3 text-sm">
       <a href="index.html" class="hover:underline whitespace-nowrap" style="color:var(--accent-blue)">← All screens</a>
-      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-2 py-1 rounded border text-xs" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
     </nav>
   </header>
 
-  <section class="panel p-4 mb-4">
-    <div class="text-xs uppercase tracking-wide mb-2" style="color:var(--text-muted)">Configured sources</div>
+  <!-- live meeting strip: only while a meeting runs in this folder -->
+  <div class="callout c-neutral flex items-center gap-3 flex-wrap mb-4" role="status">
+    <span class="dot dot-live" aria-hidden="true"></span>
+    <span><b>Meeting live</b> · Sprint 42 planning · 00:14:32</span>
+    <span class="flex-1"></span>
+    <button class="link text-xs">Open copilot</button>
+    <button class="link text-xs">Live wall</button>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" aria-selected="true" aria-controls="p-meet" id="t-meet" onclick="sel('meet')">Meetings<span class="count">12</span></button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-dec" id="t-dec" onclick="sel('dec')">Decisions<span class="count">15</span></button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="p-src" id="t-src" onclick="sel('src')">Sources<span class="count">3</span></button>
+  </div>
+
+  <!-- MEETINGS -->
+  <section id="p-meet" role="tabpanel" aria-labelledby="t-meet">
+    <p class="meta mb-3">From <code>docs/meetings/</code> · kb <code>category = meeting</code> · newest first · the 3 newest seed the next meeting's copilot.</p>
     <ul class="space-y-2">
-      <li class="row px-3 py-2 flex items-center justify-between">
-        <code class="text-sm" style="color:var(--text-primary)">docs/**/*.md</code>
-        <span class="text-xs" style="color:var(--text-tertiary)">42 files matched</span>
+      <li class="row px-3 py-3">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-sm font-semibold" style="color:var(--text-primary)">Sprint 42 planning</span>
+          <span class="meta tabular-nums">Oct 5, 2026 · 42 min</span>
+          <span class="chip" style="background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border)">seeds next meeting</span>
+        </div>
+        <div class="meta mt-1">Anna K. · Béla T. <span title="machine-assigned by voiceprint">(auto)</span> · Speaker 3</div>
+        <div class="flex gap-4 mt-2 text-xs"><a class="link" href="#">Transcript</a><a class="link" href="#">Notes</a></div>
       </li>
-      <li class="row px-3 py-2 flex items-center justify-between">
-        <code class="text-sm" style="color:var(--text-primary)">manufacturing.md</code>
-        <span class="text-xs" style="color:var(--text-tertiary)">1 file matched</span>
+      <li class="row px-3 py-3">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-sm font-semibold" style="color:var(--text-primary)">Customer call: ACME logistics</span>
+          <span class="meta tabular-nums">Oct 2, 2026 · 58 min</span>
+          <span class="chip" style="background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border)">seeds next meeting</span>
+        </div>
+        <div class="meta mt-1">Robson (mic) · Speaker 1 · Speaker 2</div>
+        <div class="flex gap-4 mt-2 text-xs items-center"><a class="link" href="#">Transcript</a><span class="warn">Notes not written</span></div>
       </li>
-      <li class="row px-3 py-2 flex items-center justify-between">
-        <code class="text-sm" style="color:var(--text-primary)">notes</code>
-        <span class="text-xs" style="color:var(--text-tertiary)">7 files matched</span>
+      <li class="row px-3 py-3">
+        <div class="flex items-baseline gap-2 flex-wrap">
+          <span class="text-sm font-semibold" style="color:var(--text-primary)">Meeting</span>
+          <span class="meta tabular-nums">Sep 30, 2026 · 12 min</span>
+          <span class="chip" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">partial: copilot ended</span>
+        </div>
+        <div class="flex gap-4 mt-2 text-xs"><a class="link" href="#">Transcript</a></div>
       </li>
+    </ul>
+    <p class="meta mt-3">Showing 3 of 12 · <button class="link">Show all</button></p>
+  </section>
+
+  <!-- DECISIONS -->
+  <section id="p-dec" role="tabpanel" aria-labelledby="t-dec" hidden>
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      <span class="chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active 12</span>
+      <span class="chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded 3</span>
+      <span class="meta">grouped by kb <code>status</code> facet</span>
+    </div>
+    <ul class="space-y-2">
+      <li class="row px-3 py-3"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold mono" style="color:var(--text-primary)">DEC-002</span><span class="chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active</span></div>
+        <p class="text-sm" style="color:var(--text-primary)">Cutting log capability deferred to phase 2</p><p class="meta mono mt-0.5">manufacturing.md:100</p></li>
+      <li class="row px-3 py-3"><div class="flex items-center gap-2 mb-1"><span class="text-sm font-semibold mono" style="color:var(--text-primary)">DEC-014</span><span class="chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded</span></div>
+        <p class="text-sm" style="color:var(--text-primary)">Driver-app photo upload ships in v1, not v2</p><p class="meta mono mt-0.5">logistics.md:44</p></li>
     </ul>
   </section>
 
-  <section class="panel p-4">
-    <div class="flex items-center gap-2 mb-2">
-      <div class="text-xs uppercase tracking-wide" style="color:var(--text-muted)">Recorded decisions</div>
-      <span class="flex-1"></span>
-      <span class="status-chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active 12</span>
-      <span class="status-chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded 3</span>
-    </div>
-    <p class="text-[11px] mb-2" style="color:var(--text-muted)">Grouped by the <code>status</code> facet — kb indexes it by default. (On the fallback backend this is a flat list with no counts.)</p>
+  <!-- SOURCES -->
+  <section id="p-src" role="tabpanel" aria-labelledby="t-src" hidden>
     <ul class="space-y-2">
-      <li class="row px-3 py-3">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="text-sm font-semibold" style="color:var(--text-primary)">DEC-002</span>
-          <span class="status-chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active</span>
-        </div>
-        <p class="text-sm" style="color:var(--text-secondary)">Cutting log capability deferred to phase 2</p>
-        <p class="text-xs mt-0.5" style="color:var(--text-muted)">manufacturing.md:100</p>
-      </li>
-      <li class="row px-3 py-3">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="text-sm font-semibold" style="color:var(--text-primary)">DEC-014</span>
-          <span class="status-chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded</span>
-        </div>
-        <p class="text-sm" style="color:var(--text-secondary)">Driver-app photo upload ships in v1, not v2</p>
-        <p class="text-xs mt-0.5" style="color:var(--text-muted)">logistics.md:44</p>
-      </li>
+      <li class="row px-3 py-2 flex items-center justify-between gap-3"><code class="text-sm" style="color:var(--text-primary)">docs/**/*.md</code><span class="meta">42 files</span></li>
+      <li class="row px-3 py-2 flex items-center justify-between gap-3"><code class="text-sm" style="color:var(--text-primary)">docs/meetings</code><span class="meta">24 files · archive dir</span></li>
+      <li class="row px-3 py-2 flex items-center justify-between gap-3"><code class="text-sm" style="color:var(--text-primary)">manufacturing.md</code><span class="meta">1 file</span></li>
     </ul>
   </section>
 
-  <!-- Fallback-backend state -->
-  <section class="panel p-4 mt-6" aria-label="Fallback backend example">
-    <div class="flex items-center gap-2 mb-2">
-      <div class="text-xs uppercase tracking-wide" style="color:var(--text-muted)">Fallback backend example</div>
-      <span class="status-chip" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">fallback</span>
-    </div>
-    <p class="text-[11px]" style="color:var(--text-secondary)">This folder has no kb index — reading the configured <code>knowledge.sources</code> globs directly. Decisions are listed flat, without status counts.</p>
-    <p class="text-[11px] mt-1.5" style="color:var(--text-muted)">Index this folder with kb (sidebar KB row → reindex) for faceted decisions and faster lookups.</p>
-  </section>
-
-  <!-- Empty state -->
-  <section class="panel p-8 mt-6 text-center" aria-label="Empty state example">
-    <p class="text-sm" style="color:var(--text-tertiary)">No knowledge available for this folder yet.</p>
-    <p class="text-xs mt-1" style="color:var(--text-muted)">Either index this folder with kb, or add <code>knowledge.sources</code> in <a href="config-editor.html" class="underline" style="color:var(--accent-blue)">voice-assistant settings</a>.</p>
-  </section>
+  <h2 class="state-title mt-10">Other states</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <section class="panel p-4" aria-label="Fallback backend">
+      <span class="chip" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">backend: fallback</span>
+      <p class="text-xs mt-2" style="color:var(--text-primary)">No kb index. Reading <code>knowledge.sources</code> and <code>docs/meetings/*.md</code> directly. Decisions are listed flat, without counts.</p>
+      <p class="text-xs mt-2"><a class="link" href="#">Set up a knowledge base for this folder</a></p>
+    </section>
+    <section class="panel p-4" aria-label="Empty">
+      <p class="text-sm font-semibold" style="color:var(--text-primary)">No knowledge yet</p>
+      <p class="text-xs mt-1" style="color:var(--text-secondary)">Meetings need knowledge to start. Either <a class="link" href="#">index this folder with kb</a> or <a class="link" href="config-editor.html">add knowledge.sources</a>.</p>
+    </section>
+    <section class="panel p-4" aria-label="Invalid folder">
+      <p class="text-sm font-semibold err">Folder not found</p>
+      <p class="text-xs mt-1" style="color:var(--text-secondary)">The link points to a path that can't be read. Nothing is shown, so this view never displays another folder's knowledge.</p>
+    </section>
+  </div>
+  <p class="caption mt-4">Tabs follow WAI-ARIA APG (<code>tablist</code>/<code>tab</code>/<code>tabpanel</code>). Meetings is the default tab, because the sidebar pill that opens this view shows the meeting count (information scent, NN/g). Partial and notes-missing meetings are labelled, never hidden (Nielsen #1). No edit controls in v1 (spec <i>Read-only in v1</i>).</p>
 </div>
+<script>
+function sel(k){ for (const id of ["meet","dec","src"]) { document.getElementById("t-"+id).setAttribute("aria-selected", id===k); document.getElementById("p-"+id).hidden = id!==k; } }
+</script>
 </body>
 </html>

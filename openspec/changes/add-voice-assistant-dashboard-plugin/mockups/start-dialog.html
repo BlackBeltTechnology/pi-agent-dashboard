@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Start meeting dialog</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>
+  label.f { font-size:12px; color:var(--text-secondary); display:block; margin-bottom:4px; }
+  input[type=text] { width:100%; background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:6px; padding:7px 9px; font-size:13px; color:var(--text-primary); }
+  details > summary { cursor:pointer; font-size:12px; font-weight:700; color:var(--text-primary); list-style:none; display:flex; gap:8px; align-items:center; min-height:28px; }
+  details > summary::-webkit-details-marker { display:none; }
+  details > summary::before { content:"▸"; color:var(--text-secondary); }
+  details[open] > summary::before { content:"▾"; }
+  .disclose { margin:0; padding-left:18px; font-size:12px; color:var(--text-primary); line-height:1.55; }
+  .disclose li { margin:2px 0; }
+  .disclose .muted { color:var(--text-secondary); }
+  @media (max-width: 640px) {
+    .scrim { padding:0; background:transparent; }
+    .dialog { max-width:none; border-radius:0; border-left:0; border-right:0; }
+  }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Start meeting dialog</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">Opened from folder menu → <i>Start meeting…</i> / <i>Dry run…</i>. Modal (<code>role=dialog</code>, <code>aria-modal</code>, focus trapped, Esc = Cancel). Full-screen sheet below 640 px.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+  <!-- ===================== A · READY (meeting) ===================== -->
+  <section aria-label="Variant A — ready">
+    <div class="state-title">A · Ready, kb does not cover archive dir</div>
+    <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="a-h" aria-describedby="a-d">
+      <div class="dlg-head">
+        <h2 id="a-h" class="text-base font-bold" style="color:var(--text-primary)">Start meeting · acme-erp</h2>
+        <div class="mt-2 seg" role="group" aria-label="Mode">
+          <button aria-pressed="true">Meeting</button>
+          <button aria-pressed="false">Dry run</button>
+        </div>
+      </div>
+      <div class="dlg-body">
+        <div>
+          <label class="f" for="a-title">Title <span style="color:var(--text-secondary)">(optional, used in the file name)</span></label>
+          <input id="a-title" type="text" value="Sprint 42 planning" />
+        </div>
+
+        <div id="a-d">
+          <div class="sec-h">What will happen</div>
+          <ul class="disclose">
+            <li><b>Microphone and system audio</b> (the other party) on <b class="mono">robson-mbp</b>, the dashboard host, are captured.</li>
+            <li>Audio is <b>recorded to scratch</b> for speaker naming and <b>deleted after archiving</b>.</li>
+            <li>Speech is <b>transcribed by Soniox</b> (cloud) and sent to a <b>new copilot session</b>, whose chat history persists.</li>
+            <li>The transcript of <b>all parties</b> is saved to <code>docs/meetings/2026-10-05-sprint-42-planning.md</code> and <b>indexed</b> in this folder's knowledge base. <span class="muted">Nothing is committed or pushed.</span></li>
+          </ul>
+        </div>
+
+        <div class="callout c-warn" role="note">
+          <b>docs/meetings is not in this folder's kb sources.</b> Future meetings won't find this one.
+          <label class="check mt-2"><input type="checkbox" checked /> <span>Add <code>docs/meetings</code> to kb sources</span></label>
+        </div>
+
+        <div>
+          <div class="sec-h">Options</div>
+          <div class="flex flex-col gap-3">
+            <label class="check"><input type="checkbox" /> <span>Show copilot replies on the live wall<div class="hint">Off by default. Only final, non-filler text is mirrored.</div></span></label>
+            <label class="check"><input type="checkbox" /> <span>Keep the recorded audio<div class="hint">Stays in scratch after archiving; holds every participant's voice.</div></span></label>
+          </div>
+        </div>
+
+        <details>
+          <summary><span class="ok">✓</span> Ready: 7 checks passed, 1 warning</summary>
+          <ul class="pf mt-2">
+            <li><span class="ic ok">✓</span>Project config <code>set-copilot.config.json</code> v3</li>
+            <li><span class="ic ok">✓</span>Speech-to-text key: plugin credential store</li>
+            <li><span class="ic ok">✓</span>Capture tooling on robson-mbp</li>
+            <li><span class="ic ok">✓</span>Knowledge: kb, 4,812 chunks</li>
+            <li><span class="ic ok">✓</span>Microphone free</li>
+            <li><span class="ic ok">✓</span>Copilot model <code>anthropic/claude-sonnet-4-5</code> <span style="color:var(--text-secondary)">· folder override</span></li>
+            <li><span class="ic ok">✓</span>Transcriber model <code>google/gemini-2.5-flash</code> <span style="color:var(--text-secondary)">· global default</span></li>
+            <li><span class="ic warn">!</span>Archive dir not covered by kb (see above)</li>
+          </ul>
+          <dl class="kv mt-3">
+            <dt>Tools</dt><dd><code>meeting</code>: read-only + kb + wall + subagents</dd>
+            <dt>Live wall</dt><dd>opens automatically · operator input <b>off</b> for this project</dd>
+          </dl>
+        </details>
+      </div>
+      <div class="dlg-foot">
+        <span class="text-xs foot-hint" style="color:var(--text-secondary)">Capture starts after the copilot pre-reads (up to 2 min).</span>
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Start meeting</button>
+      </div>
+    </div>
+    </div>
+    <p class="caption">Disclosure comes before options, in plain language, naming the exact path and the host machine. This satisfies the spec requirements <i>Disclosure at start</i> and <i>Archive location is disclosed</i>, and follows GOV.UK "explain before asking". Preflight passes are collapsed behind a one-line summary and the warning is lifted out of it, so the routine path stays short (progressive disclosure, NN/g; Hick's law). The resolved models show their <b>source</b> (D20).</p>
+  </section>
+
+  <!-- ===================== B · DRY RUN ===================== -->
+  <section aria-label="Variant B — dry run">
+    <div class="state-title">B · Dry run selected</div>
+    <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="b-h">
+      <div class="dlg-head">
+        <h2 id="b-h" class="text-base font-bold" style="color:var(--text-primary)">Dry run · acme-erp</h2>
+        <div class="mt-2 seg" role="group" aria-label="Mode">
+          <button aria-pressed="false">Meeting</button>
+          <button aria-pressed="true">Dry run</button>
+        </div>
+      </div>
+      <div class="dlg-body">
+        <div class="callout c-info" role="note"><b>Nothing is saved.</b> No transcript archive, no notes, no reindex. Use it to test audio and the copilot.</div>
+        <div>
+          <div class="sec-h">What will happen</div>
+          <ul class="disclose">
+            <li><b>Microphone and system audio</b> on <b class="mono">robson-mbp</b> are captured and <b>transcribed by Soniox</b> (cloud).</li>
+            <li>A <b>new copilot session</b> receives the transcript; its chat history persists.</li>
+            <li>Scratch audio is deleted when the dry run stops.</li>
+          </ul>
+        </div>
+        <details>
+          <summary><span class="ok">✓</span> Ready: 7 checks passed</summary>
+        </details>
+      </div>
+      <div class="dlg-foot">
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary">Start dry run</button>
+      </div>
+    </div>
+    </div>
+    <p class="caption">The primary button names the action (<i>Start dry run</i>), not just "OK" (NN/g button labels). The kb-coverage callout and the archive bullet disappear because they don't apply to a dry run, which keeps the dialog shorter (Hick's law).</p>
+  </section>
+
+  <!-- ===================== C · BLOCKED ===================== -->
+  <section aria-label="Variant C — preflight blocked" class="xl:col-span-2">
+    <div class="state-title">C · Preflight blocked</div>
+    <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="c-h">
+      <div class="dlg-head">
+        <h2 id="c-h" class="text-base font-bold" style="color:var(--text-primary)">Start meeting · acme-erp</h2>
+      </div>
+      <div class="dlg-body">
+        <div class="callout c-error" role="alert" tabindex="-1">
+          <div class="font-bold mb-1">2 problems must be fixed before starting</div>
+          <ul class="list-disc pl-5">
+            <li><a class="link" href="global-settings.html">Speech-to-text key not found</a>. Set it in Settings › Voice assistant.</li>
+            <li><a class="link" href="config-editor.html">Copilot model <code>openai/gpt-5</code> is not available</a>. Source: <b>folder override</b>. Pick another or inherit global.</li>
+          </ul>
+        </div>
+        <details open>
+          <summary><span class="err">✕</span> Preflight: 5 passed, 2 failed</summary>
+          <ul class="pf mt-2">
+            <li><span class="ic ok">✓</span>Project config v3</li>
+            <li><span class="ic err">✕</span>Speech-to-text key</li>
+            <li><span class="ic ok">✓</span>Capture tooling on robson-mbp</li>
+            <li><span class="ic ok">✓</span>Knowledge: kb, 4,812 chunks</li>
+            <li><span class="ic ok">✓</span>Microphone free</li>
+            <li><span class="ic err">✕</span>Copilot model <code>openai/gpt-5</code> · folder override</li>
+            <li><span class="ic ok">✓</span>Transcriber model · global default</li>
+          </ul>
+        </details>
+      </div>
+      <div class="dlg-foot">
+        <span class="text-xs foot-hint err" id="c-why">Fix the problems above to start.</span>
+        <button class="btn-secondary">Cancel</button>
+        <button class="btn-primary" aria-disabled="true" aria-describedby="c-why">Start meeting</button>
+      </div>
+    </div>
+    </div>
+    <p class="caption">GOV.UK error-summary pattern: a count heading, one link per problem straight to the place to fix it, and focus moved to the summary. Each failing model check names the role, the ref and its <b>source</b> (spec scenario <i>Unavailable model is caught at preflight</i>). Start is <code>aria-disabled</code> with a described reason, never a silent grey button (Nielsen #5, #9).</p>
+  </section>
+  </div>
+</div>
+</body>
+</html>

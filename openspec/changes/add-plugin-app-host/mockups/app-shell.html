@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard app host — full-screen app shell</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>
+  /* App bar = the sidebar's row 1 (header-app-bar in SessionList.tsx), stretched full width + an app context zone. */
+  .appbar { display:flex; align-items:center; gap:8px; height:40px; padding:0 10px; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); font-size:12px; color:var(--text-secondary); }
+  .appbar .grp { display:flex; align-items:center; gap:6px; }
+  .pi { color:#3b82f6; font-weight:800; font-size:18px; line-height:1; width:24px; text-align:center; }
+  .ico { width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; border-radius:6px; color:var(--text-tertiary); background:transparent; border:0; cursor:pointer; position:relative; }
+  .ico:hover { background:var(--bg-hover); color:var(--text-secondary); }
+  .sep { width:1px; height:20px; background:var(--border-primary); margin:0 2px; }
+  .back { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:6px; border:1px solid var(--border-primary); color:var(--text-secondary); background:transparent; min-height:28px; cursor:pointer; white-space:nowrap; }
+  .back:hover { background:var(--bg-hover); color:var(--text-primary); }
+  .crumb { display:flex; align-items:center; gap:6px; min-width:0; }
+  .crumb .apptitle { color:var(--text-primary); font-weight:700; white-space:nowrap; }
+  .crumb .ctx { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; border:1px solid var(--border-subtle); background:var(--bg-tertiary); color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; cursor:pointer; }
+  .live { width:7px; height:7px; border-radius:50%; background:var(--accent-red, #ef4444); flex:none; }
+  .tunnel-on { color:var(--severity-success-fg); }
+  .srv { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:6px; border:1px solid var(--border-subtle); color:var(--text-secondary); white-space:nowrap; }
+  .yolo { padding:1px 6px; border-radius:999px; font-size:10px; font-weight:700; color:var(--severity-warning-fg); background:var(--severity-warning-bg); border:1px solid var(--severity-warning-border); }
+  .viewport { position:relative; background:var(--bg-primary); }
+  .iframe-tag { position:absolute; right:8px; bottom:6px; font-size:10px; color:var(--text-secondary); background:var(--bg-secondary); border:1px dashed var(--border-secondary); border-radius:6px; padding:1px 6px; }
+  .menu { position:absolute; top:36px; z-index:5; width:300px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:10px; box-shadow:0 10px 30px var(--shadow-card); padding:4px; font-size:12px; }
+  .mh { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); padding:6px 8px 2px; font-weight:700; }
+  .mi { display:flex; align-items:center; gap:8px; padding:8px; min-height:40px; border-radius:6px; color:var(--text-primary); cursor:pointer; }
+  .mi:hover, .mi[aria-current="true"] { background:var(--bg-hover); }
+  .mi small { color:var(--text-secondary); margin-left:auto; font-size:10px; }
+  .toast { position:absolute; left:50%; bottom:14px; transform:translateX(-50%); background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:10px; padding:8px 12px; font-size:12px; color:var(--text-primary); box-shadow:0 8px 24px var(--shadow-card); display:flex; gap:10px; align-items:center; white-space:nowrap; }
+  .center { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:8px; padding:24px; }
+  .center h2 { font-size:16px; font-weight:700; color:var(--text-primary); margin:0; }
+  .center p { font-size:13px; color:var(--text-secondary); max-width:46ch; margin:0; }
+  .phone { max-width:390px; }
+  .phone .mini-board { grid-template-columns:1fr; }
+  .mini-board { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; padding:12px; }
+  .mini-board .area { min-height:110px; }
+  @media (max-width:700px){ .mini-board{grid-template-columns:1fr;} }
+  /* Minimal wall look-alike for the iframe placeholder (the real app is owned by add-voice-wall-plugin). */
+  .frame { border:1px solid var(--border-secondary); border-radius:14px; overflow:hidden; background:var(--bg-primary); box-shadow:0 10px 30px var(--shadow-card); }
+  .frame-label { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); margin:0 0 8px; font-weight:700; }
+  .wtabs { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--border-primary); background:var(--bg-secondary); }
+  .wtab { font-size:13px; padding:10px 14px; min-height:44px; color:var(--text-secondary); background:transparent; border:0; border-bottom:2px solid transparent; }
+  .wtab[aria-selected="true"] { color:var(--text-primary); font-weight:700; border-bottom-color:var(--accent-blue); }
+  .area { background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; }
+  .area-h { display:flex; align-items:baseline; gap:8px; } .area-h h2 { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-secondary); margin:0; font-weight:700; } .area-h .upd { margin-left:auto; font-size:10px; color:var(--text-secondary); }
+  .item { font-size:14px; color:var(--text-primary); padding:8px 10px; border-radius:8px; background:var(--bg-tertiary); border:1px solid var(--border-subtle); }
+  .item.fresh { border-color:var(--severity-info-border); } .item.done { color:var(--text-secondary); }
+  .tag { font-size:10px; font-weight:700; padding:1px 6px; border-radius:999px; border:1px solid; }
+  .t-dec { color:var(--severity-success-fg); border-color:var(--severity-success-border); background:var(--severity-success-bg); }
+  .t-q { color:var(--severity-info-fg); border-color:var(--severity-info-border); background:var(--severity-info-bg); }
+  .link { color:var(--accent-blue); text-decoration:underline; text-underline-offset:2px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">SUPERSEDED — full-screen app shell</h1><p class="text-sm" style="color:var(--severity-warning-fg)">Replaced by <a href="embedded-app.html" style="text-decoration:underline">embedded-app.html</a>: apps embed like the OpenSpec board (folder entry + menu + content area). Kept for history.</p>
+      <p class="text-sm" style="color:var(--text-secondary)">Route <code>/open/:appId/*</code> (name open). Sidebar hidden; the sidebar's row-1 header (<code>header-app-bar</code>) becomes a full-width <b>app bar</b>; the plugin app fills the rest <b>in the same React tree</b> (no iframe; dashed labels below say "iframe" for the app root). Change <code>add-plugin-app-host</code>. Example app: the voice wall (owned by <code>add-voice-wall-plugin</code>).</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="ui-plan.md" class="hover:underline" style="color:var(--accent-blue)">ui-plan.md</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+  <div id="root" class="space-y-8"></div>
+</div>
+
+<script>
+const svg = (d,s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${d}"/></svg>`;
+const P = {
+  back:'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
+  cog:'M12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5m7.43-2.53a7.8 7.8 0 0 0 0-1.94l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.3 7.3 0 0 0-1.69-.98l-.38-2.65A.49.49 0 0 0 14 2h-4a.49.49 0 0 0-.49.42l-.38 2.65a7.6 7.6 0 0 0-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.49.49 0 0 0 .12.64l2.11 1.65a7.9 7.9 0 0 0 0 1.94l-2.11 1.65a.49.49 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1a7.3 7.3 0 0 0 1.69.98l.38 2.65A.49.49 0 0 0 10 22h4a.49.49 0 0 0 .49-.42l.38-2.65a7.6 7.6 0 0 0 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.49.49 0 0 0-.12-.64z',
+  tunnel:'M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2m6.93 6h-2.95a15.7 15.7 0 0 0-1.38-3.56A8 8 0 0 1 18.93 8M12 4.04A14 14 0 0 1 13.91 8h-3.82A14 14 0 0 1 12 4.04M4.26 14a7.8 7.8 0 0 1 0-4h3.38a16.5 16.5 0 0 0 0 4zm.81 2h2.95a15.7 15.7 0 0 0 1.38 3.56A8 8 0 0 1 5.07 16M8.02 8H5.07a8 8 0 0 1 4.33-3.56A15.7 15.7 0 0 0 8.02 8M12 19.96A14 14 0 0 1 10.09 16h3.82A14 14 0 0 1 12 19.96M14.34 14H9.66a14.7 14.7 0 0 1 0-4h4.68a14.7 14.7 0 0 1 0 4m.25 5.56A15.7 15.7 0 0 0 15.97 16h2.96a8 8 0 0 1-4.34 3.56M16.36 14a16.5 16.5 0 0 0 0-4h3.38a7.8 7.8 0 0 1 0 4z',
+  theme:'M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.42-4.03-8-9-8M6.5 12A1.5 1.5 0 1 1 8 10.5 1.5 1.5 0 0 1 6.5 12m3-4A1.5 1.5 0 1 1 11 6.5 1.5 1.5 0 0 1 9.5 8m5 0A1.5 1.5 0 1 1 16 6.5 1.5 1.5 0 0 1 14.5 8m3 4a1.5 1.5 0 1 1 1.5-1.5 1.5 1.5 0 0 1-1.5 1.5',
+  moon:'M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-3.14-9.8A9.4 9.4 0 0 0 12 3',
+  discord:'M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.1.1 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.1 16.1 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05a16.3 16.3 0 0 0 4.97 2.5c.03.01.06 0 .07-.02.38-.52.72-1.07 1.01-1.65.02-.04 0-.08-.04-.09-.53-.2-1.05-.44-1.54-.72-.04-.02-.04-.08-.01-.11.1-.08.21-.16.31-.24a.07.07 0 0 1 .07-.01c3.23 1.47 6.72 1.47 9.91 0a.07.07 0 0 1 .07.01c.1.08.2.16.31.24.04.03.04.09-.01.11-.49.29-1.01.52-1.54.72-.04.01-.05.06-.04.09.3.58.64 1.13 1.01 1.65.02.02.05.03.07.02a16.2 16.2 0 0 0 4.98-2.5c.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02M8.52 14.91c-.98 0-1.79-.9-1.79-2s.79-2 1.79-2c1.01 0 1.81.91 1.79 2 0 1.1-.79 2-1.79 2m6.62 0c-.98 0-1.79-.9-1.79-2s.79-2 1.79-2c1.01 0 1.81.91 1.79 2 0 1.1-.78 2-1.79 2',
+  ext:'M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3m-2 16H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2z',
+  dots:'M12 16a2 2 0 1 1-2 2 2 2 0 0 1 2-2m0-6a2 2 0 1 1-2 2 2 2 0 0 1 2-2m0-6a2 2 0 1 1-2 2 2 2 0 0 1 2-2',
+  chev:'M7 10l5 5 5-5z',
+  full:'M5 5h5v2H7v3H5zm9 0h5v5h-2V7h-3zm3 9h2v5h-5v-2h3zM7 14v3h3v2H5v-5z',
+};
+const ico = (p, label, extra='') => `<button class="ico ${extra}" aria-label="${label}" title="${label}">${svg(P[p])}</button>`;
+
+/* Right group = verbatim order of SessionList row 1: Install · Tunnel · YOLO · ServerSelector · Discord · Settings */
+function globals({compact=false, yolo=false}={}) {
+  if (compact) return `<div class="grp">${ico('tunnel','Tunnel: active (zrok)','tunnel-on')}${ico('dots','More: theme, server, Discord')}${ico('cog','Settings')}</div>`;
+  return `<div class="grp">${ico('tunnel','Tunnel: active (zrok)','tunnel-on')}${yolo?'<span class="yolo" title="YOLO active">YOLO 12m</span>':''}<span class="srv" title="Server">● robson-mbp ${svg(P.chev,12)}</span>${ico('discord','Join our Discord')}${ico('cog','Settings')}</div>`;
+}
+function appbar({compact=false, menu='', yolo=false, ctx='Sprint 42 planning · acme-erp', back='Sessions'}={}) {
+  const left = compact
+    ? `<div class="grp"><span class="pi" title="Home">π</span><button class="back" aria-label="Back to ${back}">${svg(P.back,14)}</button></div>`
+    : `<div class="grp"><span class="pi" title="Home">π</span>${ico('theme','Theme')}${ico('moon','Toggle dark mode')}<span class="sep"></span><button class="back">${svg(P.back,14)} ${back}</button></div>`;
+  const crumb = `<nav class="crumb" aria-label="App"><span class="apptitle">Live wall</span><button class="ctx" aria-haspopup="menu" aria-expanded="${menu?'true':'false'}"><span class="live" aria-hidden="true"></span><span style="overflow:hidden;text-overflow:ellipsis">${ctx}</span>${svg(P.chev,12)}</button></nav>`;
+  const appActions = compact ? '' : `<div class="grp">${ico('full','Present full screen (F)')}${ico('ext','Open in new window')}</div><span class="sep"></span>`;
+  return `<div class="appbar" style="position:relative">${left}${crumb}<span class="flex-1"></span>${appActions}${globals({compact, yolo})}${menu}</div>`;
+}
+const wallBody = (h=300) => `<div class="viewport" style="height:${h}px; overflow:hidden">
+  <div class="wtabs" role="tablist" aria-label="Wall views"><button class="wtab" aria-selected="true">Board</button><button class="wtab" aria-selected="false">Graph</button><button class="wtab" aria-selected="false">Transcript</button></div>
+  <div class="mini-board">
+    <section class="area"><div class="area-h"><h2>Agenda</h2><span class="upd">3 / 5</span></div><div class="item done">✓ Scope of sprint 42</div><div class="item fresh">→ Logistics API cut-over</div></section>
+    <section class="area"><div class="area-h"><h2>Decisions</h2></div><div class="item fresh"><span class="tag t-dec">decided</span> Cut over on the weekend.</div></section>
+    <section class="area"><div class="area-h"><h2>Open questions</h2></div><div class="item"><span class="tag t-q">question</span> Who signs the runbook?</div></section>
+  </div>
+  <span class="iframe-tag">iframe · /apps/wall/#/m/8f3a — app owns its own tabs</span>
+</div>`;
+const frame = (n, title, body, cap, cls='') => `<section class="${cls}"><p class="frame-label">${n} · ${title}</p><div class="frame">${body}</div><p class="caption">${cap}</p></section>`;
+
+const ctxMenu = `<div class="menu" role="menu" style="left:250px" aria-label="Switch app context">
+  <div class="mh">Live wall — running</div>
+  <div class="mi" role="menuitemradio" aria-current="true"><span class="live"></span>Sprint 42 planning<small>acme-erp · 00:14</small></div>
+  <div class="mi" role="menuitemradio"><span class="live"></span>Vendor call<small>logistics-api · 00:03</small></div>
+  <div class="mh">This meeting in the dashboard</div>
+  <div class="mi" role="menuitem">◆ Copilot session<small>opens chat, Back returns</small></div>
+  <div class="mi" role="menuitem">≋ Transcriber session</div>
+  <div class="mi" role="menuitem">▣ Folder acme-erp</div>
+  <div class="mi" role="menuitem">⧉ Share live wall…</div>
+  <div class="mh">Apps</div>
+  <div class="mi" role="menuitem">Team <small>/app/team</small></div>
+</div>`;
+
+const R = [
+  frame(1,'Desktop — full-screen app', appbar() + wallBody(320),
+    'Left: <b>π</b> (home) · theme · <b>← Sessions</b> (returns to where the app was opened from: session, folder, or /). Middle: app name + <b>context chip</b> (live dot, meeting, folder) = switcher. Right: app actions (<b>Present</b>, <b>Open in new window</b>), then the <b>unchanged global controls</b> in the sidebar\'s order: tunnel (zrok), YOLO, server, Discord, settings.'),
+  frame(2,'Context switcher (chip menu)', appbar({menu:ctxMenu}) + wallBody(400),
+    'One menu answers "where am I / where can I go": other running walls, this meeting\'s copilot / transcriber / folder (dashboard routes, <code>Back</code> comes back here), share, other apps. Items the app wants (copilot, transcriber) come from the app via the bridge; the host renders them, so links are host-validated same-origin routes.'),
+  frame(3,'App asks the host to navigate (bridge)', appbar() + wallBody(240).replace('</div>\n  <span class="iframe-tag">','</div><div class="toast" role="status">Opening copilot session… <b style="color:var(--accent-blue)">Undo</b></div>\n  <span class="iframe-tag">'),
+    'An item in the wall ("turn 212 · Anna K." → copilot) posts <code>openSession(id)</code>. The host checks origin + source + allow-list, then navigates the dashboard (history push). Browser Back / <b>← Live wall</b> in the session header returns to the app at the same hash.'),
+  frame(4,'Arrived in a session from an app', `<div class="appbar"><div class="grp"><span class="pi">π</span>${ico('theme','Theme')}${ico('moon','Toggle dark mode')}<span class="sep"></span><button class="back">${svg(P.back,14)} Live wall · Sprint 42</button></div><span class="flex-1"></span>${globals()}</div><div class="center" style="min-height:120px"><p>Normal dashboard session view (sidebar back). A one-time return pill sits in the chat header while the history entry exists.</p></div>`,
+    'Round trip without a second tab. The return pill disappears once the user navigates elsewhere.'),
+  frame(5,'Phone / narrow', appbar({compact:true, ctx:'Sprint 42 · acme-erp'}) + wallBody(260),
+    'Fold order: theme + server + Discord move into <b>⋯</b>; <b>π</b>, <b>Back</b>, context chip, tunnel and settings stay (44 px targets). Present / new window move into the chip menu.', 'phone'),
+  frame(6,'Present — true full screen', `<div class="viewport" style="height:220px; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:800; color:var(--text-primary)">Decisions<span class="iframe-tag">Fullscreen API on the iframe · Esc exits back to frame 1</span></div>`,
+    'Present (F) hides the app bar via the Fullscreen API on the iframe (allow="fullscreen"). Esc/F exits. Global controls intentionally absent on the room screen.'),
+  frame(7,'App unavailable', appbar() + `<div class="center"><h2>Live wall isn’t available</h2><p>The <code>voice-wall</code> plugin is disabled on this dashboard.</p><p><a class="link" href="#">Open Settings › Plugins</a> · <a class="link" href="#">← Back to Sessions</a></p></div>`,
+    'Plugin disabled / unknown app id / app failed to load (iframe error or 10 s no-ready). The bar stays, so the user is never stranded.'),
+  frame(8,'Meeting ended while open', appbar({ctx:'Sprint 42 planning · ended'}).replace('<span class="live" aria-hidden="true"></span>','') + `<div class="center"><h2>This meeting has ended</h2><p>The wall is closed. The transcript and notes were archived.</p><p><a class="link" href="#">Open in Meetings &amp; knowledge</a> · <a class="link" href="#">← Back to Sessions</a></p></div>`,
+    'The app renders its own ended state; the host keeps the bar and swaps the chip\'s live dot for "ended".'),
+];
+document.getElementById('root').innerHTML = R.join('');
+</script>
+</body>
+</html>

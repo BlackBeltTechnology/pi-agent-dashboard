@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Folder row: meeting pill + folder menu</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Folder row — meeting lifecycle</h1>
+      <p class="text-sm" style="color:var(--text-secondary)"><code>sidebar-folder-section</code> state-only <code>SlotPill</code> + <code>useFolderMenuItem</code> contributions (groups <code>create</code> / <code>open</code>). Dashed outline = items this plugin contributes.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <main id="grid" class="grid grid-cols-1 lg:grid-cols-2 gap-6"></main>
+
+  <section class="mt-10" aria-labelledby="flow-h">
+    <h2 id="flow-h" class="state-title">Why the pill never carries buttons</h2>
+    <p class="text-sm" style="color:var(--text-secondary); max-width:70ch">
+      <code>SlotPill</code> is a single <code>role=button</code> (change <i>move-slot-actions-to-menu</i>): nesting buttons inside it is an ARIA anti-pattern.
+      So every meeting <b>verb</b> is a folder-menu item, and the pill shows <b>state</b> only. One exception: while a meeting is live, a compact
+      <b>Stop</b> renders as a <i>sibling</i> of the pill, outside its button root. This follows the KB card-placement reindex precedent
+      (<code>FolderKbSection</code>), because stopping capture is the one action that must not be two clicks deep (Nielsen #3 user control / emergency exit, Fitts's law).
+    </p>
+  </section>
+</div>
+
+<script>
+const P = {
+  voice: "M9,5A4,4 0 0,1 13,9A4,4 0 0,1 9,13A4,4 0 0,1 5,9A4,4 0 0,1 9,5M9,15C11.67,15 17,16.34 17,19V21H1V19C1,16.34 6.33,15 9,15M16.76,5.36C18.78,7.56 18.78,10.61 16.76,12.63L15.08,10.94C15.92,9.76 15.92,8.23 15.08,7.05L16.76,5.36M20.07,2C24,6.05 23.97,12.11 20.07,16L18.44,14.37C21.21,11.19 21.21,6.65 18.44,3.63L20.07,2Z",
+  db: "M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M4,9V12C4,14.21 7.58,16 12,16C16.42,16 20,14.21 20,12V9C20,11.21 16.42,13 12,13C7.58,13 4,11.21 4,9M4,14V17C4,19.21 7.58,21 12,21C16.42,21 20,19.21 20,17V14C20,16.21 16.42,18 12,18C7.58,18 4,16.21 4,14Z",
+  cog: "M12,15.5A3.5,3.5 0 0,1 8.5,12A3.5,3.5 0 0,1 12,8.5A3.5,3.5 0 0,1 15.5,12A3.5,3.5 0 0,1 12,15.5M19.43,12.97C19.47,12.65 19.5,12.33 19.5,12C19.5,11.67 19.47,11.34 19.43,11L21.54,9.37C21.73,9.22 21.78,8.95 21.66,8.73L19.66,5.27C19.54,5.05 19.27,4.96 19.05,5.05L16.56,6.05C16.04,5.66 15.5,5.32 14.87,5.07L14.5,2.42C14.46,2.18 14.25,2 14,2H10C9.75,2 9.54,2.18 9.5,2.42L9.13,5.07C8.5,5.32 7.96,5.66 7.44,6.05L4.95,5.05C4.73,4.96 4.46,5.05 4.34,5.27L2.34,8.73C2.21,8.95 2.27,9.22 2.46,9.37L4.57,11C4.53,11.34 4.5,11.67 4.5,12C4.5,12.33 4.53,12.65 4.57,12.97L2.46,14.63C2.27,14.78 2.21,15.05 2.34,15.27L4.34,18.73C4.46,18.95 4.73,19.03 4.95,18.95L7.44,17.94C7.96,18.34 8.5,18.68 9.13,18.93L9.5,21.58C9.54,21.82 9.75,22 10,22H14C14.25,22 14.46,21.82 14.5,21.58L14.87,18.93C15.5,18.67 16.04,18.34 16.56,17.94L19.05,18.95C19.27,19.03 19.54,18.95 19.66,18.73L21.66,15.27C21.78,15.05 21.73,14.78 21.54,14.63L19.43,12.97Z",
+};
+const svg = (d, s=16) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${d}"/></svg>`;
+
+function pill({ acc="purple", label="Meetings", value, title }) {
+  return `<div class="pill acc-${acc}" role="button" tabindex="0" title="${title||""}">
+    <span class="pill-legend">${label}</span>
+    <span class="pill-glyph">${svg(acc==="cyan"?P.db:P.voice)}</span>
+    <span class="pill-value">${value}</span></div>`;
+}
+const kbPill = pill({ acc:"cyan", label:"Knowledge base", value:`<span class="tabular-nums">4,812</span><span class="pill-sub">chunks</span>`, title:"open KB settings" });
+
+function folder({ name="acme-erp", capsule="", meeting, stop=false, menu="" }) {
+  return `<div class="folder">
+    <div class="folder-head">
+      <span class="folder-name">${name}</span>
+      ${capsule}
+      <button class="menu-trigger" aria-haspopup="menu" aria-expanded="${menu?"true":"false"}" aria-label="Folder actions">${svg(P.cog,15)}</button>
+    </div>
+    <div class="slots">
+      <div class="slot-row">${meeting}${stop?`<button class="sib sib-stop" aria-label="Stop meeting">■ Stop</button>`:""}</div>
+      <div class="slot-row">${kbPill}</div>
+    </div>
+    ${menu?`<div class="mt-3 flex justify-end"><div class="menu" role="menu" aria-label="Folder actions">${menu}</div></div>`:""}
+  </div>`;
+}
+const mi = (icon, label, { badge="", tone="", disabled=false, plugin=true }={}) =>
+  `<div class="px-2 py-1"><button class="mi ${plugin?"plugin-mark":""}" role="menuitem" ${disabled?'aria-disabled="true"':""}><span class="mi-icon" aria-hidden="true">${icon}</span><span class="truncate">${label}</span>${badge?`<span class="mi-badge ${tone}">${badge}</span>`:""}</button></div>`;
+const grp = (name, items) => `<div role="group" aria-label="${name}"><div class="menu-group-label" aria-hidden="true">${name}</div>${items}</div>`;
+const hostCreate = mi("+", "New session", { plugin:false }) ;
+const hostOpen = mi("▤", "Open in editor", { plugin:false });
+
+const states = [
+  {
+    t: "1 · Idle — menu open",
+    html: folder({
+      meeting: pill({ value:`<span class="tabular-nums">12</span><span class="pill-sub">archived</span>`, title:"12 archived meetings — open Meetings & knowledge" }),
+      menu: grp("Create", hostCreate + mi("●", "Start meeting…") + mi("◌", "Dry run…", { badge:"not archived", tone:"" })) + grp("Open", hostOpen + mi("☰", "Meetings & knowledge")),
+    }),
+    c: "Pill value = archived count; activating it opens the <b>Meetings & knowledge</b> overlay. <b>Start meeting…</b> and <b>Dry run…</b> both open the same start dialog with the mode preselected. The ellipsis follows menu-label convention for 'needs more input' (Apple/Microsoft menu guidelines).",
+  },
+  {
+    t: "2 · Knowledge required",
+    html: folder({
+      name: "fresh-repo",
+      meeting: pill({ acc:"yellow", value:`<span class="warn">needs knowledge</span>`, title:"No indexed kb and no knowledge.sources — open folder settings" }),
+      menu: grp("Create", hostCreate + mi("●", "Start meeting…", { disabled:true, badge:"knowledge required", tone:"warn" })) +
+            grp("Open", mi("⛁", "Set up knowledge base") + mi("⚙", "Add knowledge.sources…")),
+    }),
+    c: "Spec: <i>Start meeting is replaced by that state with both remedies</i>. The item stays visible but <code>aria-disabled</code>, with its reason as a badge that becomes part of the accessible name. The two remedies sit next to it (Nielsen #9: help users recover; GOV.UK: say what to do next). Disabled items keep focus, per WAI-ARIA APG.",
+  },
+  {
+    t: "3 · Mic busy (device guard D16)",
+    html: folder({
+      meeting: pill({ value:`<span class="tabular-nums">12</span><span class="pill-sub">archived</span>` }),
+      menu: grp("Create", hostCreate + mi("●", "Start meeting…", { disabled:true, badge:"mic in use: dictation · fix-auth", tone:"warn" }) + mi("◌", "Dry run…", { disabled:true, badge:"mic in use", tone:"warn" })),
+    }),
+    c: "The guard names the holder, so the user knows which session to stop. Recognition over recall (Nielsen #6).",
+  },
+  {
+    t: "4 · Starting — phased (D8)",
+    html: `<div class="grid grid-cols-2 gap-3 phase-grid">
+      ${pill({ value:`<span class="spin"></span><span>preflight</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>priming copilot</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>pre-read</span><span class="pill-sub tabular-nums">4/7</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>starting capture</span>` })}
+    </div>`,
+    c: "Spec: <i>the badge shows each phase</i>. One spinner + verb per phase; pre-read shows its <code>n/total</code> from the copilot's <code>Pre-read:</code> line (Nielsen #1 visibility of system status). No Stop sibling yet: during start, <b>Cancel start</b> is a menu item (not shown).",
+  },
+  {
+    t: "5 · Live",
+    html: folder({
+      capsule: `<span class="capsule">2 working</span>`,
+      meeting: pill({ value:`<span class="dot dot-live" aria-hidden="true"></span><span>live</span><span class="pill-sub tabular-nums">00:14:32</span>`, title:"Meeting live — open copilot" }),
+      stop: true,
+      menu: grp("Create", hostCreate + mi("■", "Stop meeting…", { badge:"live 14 min", tone:"err" })) +
+            grp("Open", hostOpen + mi("◆", "Open copilot") + mi("≋", "Open transcriber")),
+    }),
+    c: "While live, the pill opens the <b>copilot</b>, the session the user most likely wants. Live is shown with the red dot <i>and</i> the word 'live' and the elapsed time, so colour is not the only channel (WCAG 1.4.1). The live wall's folder entry and <b>Live wall</b> menu items come from the <code>voice-wall</code> plugin itself (see <code>wall-view.html</code>). The same <code>id</code> morphs its label from Start to Stop (precedent: <code>kb-reindex</code>).",
+  },
+  {
+    t: "6 · Live, degraded",
+    html: `<div class="flex flex-col gap-3">
+      <div class="slot-row">${pill({ acc:"yellow", value:`<span class="dot dot-live" aria-hidden="true"></span><span>live</span><span class="pill-sub warn">pre-read unconfirmed</span>` })}<button class="sib sib-stop">■ Stop</button></div>
+      <div class="slot-row">${pill({ acc:"yellow", value:`<span class="spin"></span><span>live</span><span class="pill-sub warn">reconnecting STT (2)</span>` })}<button class="sib sib-stop">■ Stop</button></div>
+      <div class="slot-row">${pill({ value:`<span class="dot dot-live" aria-hidden="true"></span><span>dry run</span><span class="pill-sub tabular-nums">00:03:10</span>` })}<button class="sib sib-stop">■ Stop</button></div>
+    </div>`,
+    c: "Warnings are amber, not red: capture continues (the 120 s pre-read timeout does not block; STT buffers about 15 s and replays). A <b>dry run</b> labels itself in the pill value, so nobody believes a dry run is being archived.",
+  },
+  {
+    t: "7 · Stopping — phased (D8 stop + D13)",
+    html: `<div class="grid grid-cols-2 gap-3 phase-grid">
+      ${pill({ value:`<span class="spin"></span><span>stopping capture</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>naming speakers</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>archiving</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>writing notes</span>` })}
+      ${pill({ value:`<span class="spin"></span><span>reindexing</span>` })}
+      ${pill({ value:`<span class="tabular-nums">13</span><span class="pill-sub">archived</span>` })}
+    </div>`,
+    c: "Every stop phase is visible (Nielsen #1), because archive + notes + reindex can take a minute and the user must not think the stop is stuck. Full progress detail is in <a class='link' href='meeting-stop.html'>meeting-stop.html</a>.",
+  },
+  {
+    t: "8 · Error",
+    html: folder({
+      meeting: pill({ acc:"red", value:`<span class="err">meeting failed</span><span class="pill-sub">copilot ended</span>`, title:"Copilot session ended unexpectedly — partial transcript archived" }),
+      menu: grp("Create", hostCreate + mi("●", "Start meeting…") ) + grp("Open", mi("!", "View failure details", { badge:"partial archived", tone:"warn" }) + mi("☰", "Meetings & knowledge")),
+    }),
+    c: "Spec: <i>either session dies → meeting stops, whatever exists is archived, badge shows error</i>. The error says what happened and that the partial transcript is safe (Nielsen #9). The failure persists until the next start, so nothing is silently cleared.",
+  },
+];
+
+document.getElementById("grid").innerHTML = states.map(s =>
+  `<section aria-label="${s.t}"><div class="state-title">${s.t}</div>${s.html}<p class="caption">${s.c}</p></section>`).join("");
+</script>
+</body>
+</html>

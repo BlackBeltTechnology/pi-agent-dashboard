@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live wall on the real dashboard</title>
+<style>
+ body{font:14px/1.5 system-ui,sans-serif;margin:0;background:#f4f4f5;color:#18181b}
+ main{max-width:1480px;margin:0 auto;padding:24px}
+ h1{font-size:18px;margin:0 0 4px} p{margin:4px 0 12px;color:#52525b} code{font-size:12px;background:#e4e4e7;padding:1px 4px;border-radius:4px}
+ figure{margin:0 0 28px} figcaption{font-size:13px;color:#3f3f46;margin:8px 0 0}
+ img{display:block;max-width:100%;border:1px solid #d4d4d8;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+ .row{display:grid;grid-template-columns:1fr 420px;gap:24px;align-items:start}
+ @media(max-width:1000px){.row{grid-template-columns:1fr}}
+</style></head><body><main>
+<h1>Live wall on the real dashboard</h1>
+<p>These are screenshots of the <b>running dashboard</b> (<code>localhost:8000</code>, folder <code>/Users/robson/Documents</code>, OpenSpec board route). <code>capture.cjs</code> rewrites the live DOM using the dashboard's own markup and classes to show the wall as a folder page with <code>presentation: "content"</code>. Regenerate: <code>NODE_PATH=$PWD/node_modules node openspec/changes/add-plugin-app-host/mockups/dashboard/capture.cjs [cwd]</code>. Generic mockup: <a href="../embedded-app.html">embedded-app.html</a>.</p>
+<figure><img src="desktop.png" alt="Dashboard with sidebar on the left; Documents folder shows a new LIVE WALL tile (live 00:14) next to OPENSPEC, highlighted as current; content area shows the wall with OpenSpec-board-style top bar: Back, Live wall · Documents, meeting chip, Present, Open standalone; tabs Board/Graph/Transcript; columns Agenda, Decisions, Open questions.">
+<figcaption><b>1 · Desktop — <code>/folder/&lt;Documents&gt;/wall</code>.</b> Sidebar and its header unchanged (π, theme, tunnel, server, Discord, settings). The wall plugin's <code>sidebar-folder-section</code> tile <b>LIVE WALL · ● live 00:14</b> sits in the folder's tile grid beside OpenSpec/KB/Goals and is marked current. Content area: the OpenSpec board's top-bar layout (Back · title · crumb) rendered by <code>&lt;EmbeddedApp&gt;</code>; the dashed chip is the wall's <code>HeaderContext</code>; Present / Open standalone come from <code>setActions</code>. Below: the wall <code>App</code> (its own tabs and areas); turn links call <code>host.openSession(copilotId)</code>.</figcaption></figure>
+<div class="row">
+<figure><img src="menu.png" alt="Folder actions menu with a new Open group at the top: Live wall (current, red dot), Open wall standalone, Share live wall…, Open copilot, followed by the existing Group sessions by, Workspace and Directory groups.">
+<figcaption><b>2 · Folder ⋯ menu.</b> New <i>Open</i> group from <code>useFolderMenuItem</code>, above the existing groups: <b>Live wall</b>, <b>Open wall standalone</b> (projector window), <b>Share live wall…</b> (wall plugin) and <b>Open copilot</b> (voice-assistant). Shown only while a meeting runs in this folder.</figcaption></figure>
+<figure><img src="mobile.png" alt="Phone width: Back, Live wall · Documents, meeting chip, Present and Open standalone wrapping, view tabs, stacked Agenda/Decisions/Open questions columns.">
+<figcaption><b>3 · Mobile (390 px).</b> Same page in the detail panel at depth 2; Back returns to the folder. The top bar wraps like the OpenSpec board does today; the spec asks for actions to fold into ⋯ at &lt; 640 px.</figcaption></figure>
+</div>
+<h1 style="margin-top:16px">No meeting running</h1>
+<p>Decided: no wall tile and no wall menu items while idle; a stale link or reload of <code>/folder/&lt;cwd&gt;/wall</code> keeps the page and shows an empty state instead of redirecting.</p>
+<div class="row" style="grid-template-columns:1fr 1fr">
+<figure><img src="idle-wall.png" alt="Folder tile grid shows a MEETINGS tile with 3 archived and no LIVE WALL tile; content area shows Live wall page with empty state: No live meeting in Documents, Start meeting and Meetings and knowledge buttons, and below the last meeting Sprint 41 review read-only with Decisions, Open questions and Actions columns.">
+<figcaption><b>4 · Idle folder + <code>/folder/&lt;cwd&gt;/wall</code> empty state.</b> Sidebar: only the voice-assistant <b>MEETINGS · 3 archived</b> tile. Page: <b>No live meeting</b>, <b>Start meeting…</b> (voice-assistant start dialog), <b>Meetings &amp; knowledge</b>, then the <b>last meeting's wall, read-only</b>, replayed from <code>docs/meetings/&lt;date&gt;-&lt;slug&gt;.wall.jsonl</code> (archive step 6a), with a link to the meeting notes. No Present / Open standalone actions while idle.</figcaption></figure>
+<figure><img src="idle-menu.png" alt="Folder actions menu while idle: Create group with Start meeting and Dry run, Open group with Meetings and knowledge; no wall items.">
+<figcaption><b>5 · Idle folder ⋯ menu.</b> Voice-assistant only: <i>Create</i> → Start meeting… / Dry run…; <i>Open</i> → Meetings &amp; knowledge. Wall items appear once a meeting's wall is live.</figcaption></figure>
+</div>
+</main></body></html>
