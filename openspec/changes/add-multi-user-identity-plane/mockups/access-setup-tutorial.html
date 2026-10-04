@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup: Access setup tutorial — roles, providers, users, remote sign-in, pairing (D26)</title>
+<style>
+  /* Tokens copied from login-logout.html (= packages/client/src/index.css). */
+  :root {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --bg-overlay:rgba(0,0,0,.6);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+    --accent-solid:#2563eb; --accent-soft:#1d3a63; --accent-text:#60a5fa;
+    --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --radius:.5rem;
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --bg-overlay:rgba(0,0,0,.3);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaa;
+    --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+    --accent-solid:#2563eb; --accent-soft:#dbeafe; --accent-text:#1d4ed8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; flex-direction:column; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg-primary); color:var(--text-primary); font-size:14px; }
+  button, input, select { font:inherit; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent-text); outline-offset:2px; }
+  [hidden] { display:none !important; }
+  code, pre, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+
+  /* Review toolbar (not product) */
+  .review { position:sticky; top:0; z-index:50; display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; padding:.5rem .75rem; background:var(--bg-secondary); border-bottom:1px solid var(--border-primary); font-size:12px; }
+  .review button { border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-secondary); border-radius:999px; padding:.25rem .65rem; cursor:pointer; }
+  .review button[aria-pressed="true"] { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; }
+  .review .sep { flex:1; }
+  .note { padding:.5rem .75rem; font-size:12px; color:var(--text-tertiary); border-bottom:1px solid var(--border-primary); }
+
+  /* Layout: steps rail | screen | artifacts */
+  .layout { flex:1; display:grid; grid-template-columns:260px minmax(0,1fr) 340px; min-height:0; }
+  @media (max-width:1100px){ .layout { grid-template-columns:220px minmax(0,1fr); } .artifacts { grid-column:1 / -1; border-left:0; border-top:1px solid var(--border-primary); } }
+  @media (max-width:720px){ .layout { grid-template-columns:1fr; } .rail { border-right:0; border-bottom:1px solid var(--border-primary); } }
+
+  .rail { border-right:1px solid var(--border-primary); background:var(--bg-secondary); padding:.75rem .5rem; overflow:auto; }
+  .rail h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:.9rem .5rem .35rem; font-weight:600; }
+  .rail h2:first-child { margin-top:0; }
+  .step-btn { display:flex; gap:.55rem; align-items:flex-start; width:100%; text-align:left; background:none; border:0; color:var(--text-secondary); padding:.45rem .5rem; border-radius:var(--radius); cursor:pointer; }
+  .step-btn:hover { background:var(--bg-hover); }
+  .step-btn[aria-current="step"] { background:var(--accent-soft); color:var(--text-primary); }
+  .step-btn .num { flex:none; width:1.4rem; height:1.4rem; border-radius:999px; display:grid; place-items:center; font-size:11px; background:var(--bg-surface); color:var(--text-secondary); }
+  .step-btn[data-done="true"] .num { background:var(--accent-green); color:#000; }
+  .step-btn[aria-current="step"] .num { background:var(--accent-solid); color:#fff; }
+  .step-btn small { display:block; color:var(--text-muted); font-size:11px; margin-top:.1rem; }
+
+  .stage { padding:1rem 1.25rem 2rem; overflow:auto; }
+  .stage-head { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:.25rem; }
+  .stage-head h1 { font-size:18px; margin:0; }
+  .why { color:var(--text-tertiary); margin:.25rem 0 1rem; max-width:70ch; line-height:1.45; }
+  .badge { font-size:11px; padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-secondary); color:var(--text-secondary); }
+  .badge.role-admin { border-color:#7c3aed; color:#c4b5fd; }
+  .badge.role-user { border-color:var(--accent-solid); color:var(--accent-text); }
+  .badge.role-device { border-color:var(--accent-yellow); color:var(--accent-yellow); }
+  .badge.shipped { border-color:var(--accent-green); color:var(--accent-green); }
+  .badge.planned { border-color:var(--accent-yellow); color:var(--accent-yellow); border-style:dashed; }
+
+  /* Fake window chrome */
+  .win { border:1px solid var(--border-secondary); border-radius:10px; overflow:hidden; background:var(--bg-secondary); box-shadow:0 8px 24px rgba(0,0,0,.25); margin-bottom:1rem; }
+  .win-bar { display:flex; align-items:center; gap:.5rem; padding:.4rem .6rem; background:var(--bg-tertiary); border-bottom:1px solid var(--border-primary); font-size:12px; color:var(--text-tertiary); }
+  .dots { display:flex; gap:4px; } .dots i { width:9px; height:9px; border-radius:50%; background:var(--bg-surface); display:block; }
+  .url { flex:1; background:var(--bg-primary); border:1px solid var(--border-primary); border-radius:999px; padding:.15rem .6rem; font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--text-secondary); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .url b { color:var(--accent-green); font-weight:normal; }
+  .win-body { padding:1rem; }
+  .win.term .win-body { background:#050505; color:#d4d4d4; font-family:ui-monospace,Menlo,monospace; font-size:12px; white-space:pre-wrap; line-height:1.5; }
+  .term .p { color:var(--accent-green); } .term .c { color:var(--text-muted); } .term .y { color:var(--accent-yellow); } .term .bl { color:var(--accent-text); }
+
+  /* Settings-ish UI */
+  .settings { display:grid; grid-template-columns:170px 1fr; gap:0; min-height:280px; }
+  .settings nav { border-right:1px solid var(--border-primary); padding:.5rem; font-size:13px; }
+  .settings nav div { padding:.35rem .5rem; border-radius:6px; color:var(--text-tertiary); }
+  .settings nav div.on { background:var(--bg-hover); color:var(--text-primary); }
+  .settings section { padding:.75rem 1rem; }
+  .settings h3 { margin:0 0 .5rem; font-size:14px; }
+  .row { display:grid; grid-template-columns:150px 1fr; gap:.5rem; align-items:center; margin:.45rem 0; }
+  .row label { color:var(--text-tertiary); font-size:12.5px; }
+  .input { background:var(--bg-primary); border:1px solid var(--border-secondary); border-radius:6px; padding:.35rem .5rem; color:var(--text-primary); width:100%; }
+  .input.ro { color:var(--text-secondary); background:var(--bg-tertiary); }
+  .copy { display:flex; gap:.35rem; } .copy .input { flex:1; }
+  .btn { border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); border-radius:6px; padding:.35rem .7rem; cursor:pointer; white-space:nowrap; }
+  .btn.primary { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; }
+  .btn.ok { background:var(--accent-green); border-color:var(--accent-green); color:#000; }
+  .btn.danger { color:var(--accent-red); }
+  .card { border:1px solid var(--border-primary); border-radius:var(--radius); padding:.75rem; margin:.6rem 0; background:var(--bg-primary); }
+  .card-h { display:flex; align-items:center; gap:.5rem; margin-bottom:.4rem; }
+  .card-h strong { flex:1; }
+  .toggle { width:34px; height:19px; border-radius:999px; background:var(--accent-green); position:relative; display:inline-block; }
+  .toggle::after { content:""; position:absolute; right:2px; top:2px; width:15px; height:15px; border-radius:50%; background:#fff; }
+  .toggle.off { background:var(--bg-surface); } .toggle.off::after { right:auto; left:2px; }
+  .callout { border-left:3px solid var(--accent-yellow); background:rgba(234,179,8,.08); padding:.5rem .7rem; border-radius:0 6px 6px 0; font-size:12.5px; color:var(--text-secondary); margin:.6rem 0; }
+  .callout.ok { border-color:var(--accent-green); background:rgba(34,197,94,.08); }
+  .callout.info { border-color:var(--accent-text); background:rgba(96,165,250,.08); }
+  .callout.bad { border-color:var(--accent-red); background:rgba(239,68,68,.08); }
+
+  table.t { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.t th, table.t td { text-align:left; padding:.4rem .45rem; border-bottom:1px solid var(--border-primary); }
+  table.t th { color:var(--text-muted); font-weight:500; font-size:11.5px; }
+  .pill { font-size:11px; border-radius:999px; padding:.05rem .45rem; background:var(--bg-surface); color:var(--text-secondary); }
+  .pill.operate { background:#4c1d95; color:#ddd6fe; } .pill.control { background:var(--accent-soft); color:var(--accent-text); } .pill.observe { background:#1f2937; color:#9ca3af; }
+  .pill.pending { background:rgba(234,179,8,.15); color:var(--accent-yellow); } .pill.active { background:rgba(34,197,94,.15); color:var(--accent-green); }
+
+  /* Login page / provider pages */
+  .center { display:grid; place-items:center; padding:2rem 1rem; }
+  .login-box { width:min(340px,100%); text-align:center; }
+  .logo { width:44px; height:44px; border-radius:10px; background:var(--accent-solid); margin:0 auto .75rem; display:grid; place-items:center; color:#fff; font-weight:700; }
+  .prov { display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; margin:.4rem 0; padding:.55rem; border-radius:6px; border:1px solid var(--border-secondary); background:var(--bg-tertiary); color:var(--text-primary); cursor:pointer; }
+  .muted { color:var(--text-muted); font-size:12px; }
+  .gh { background:#f6f8fa; color:#1f2328; border-radius:8px; padding:1rem; max-width:420px; margin:0 auto; font-size:13px; }
+  .gh .btn { background:#1f883d; border-color:#1f883d; color:#fff; }
+  .gh ul { padding-left:1.1rem; color:#59636e; }
+
+  /* QR + codes */
+  .qr { width:132px; height:132px; background:
+      repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/22px 22px; border:8px solid #fff; border-radius:6px; }
+  .bigcode { font-family:ui-monospace,Menlo,monospace; font-size:26px; letter-spacing:.15em; color:var(--text-primary); }
+  .phone { width:220px; border:2px solid var(--border-secondary); border-radius:22px; padding:1rem .75rem; background:var(--bg-primary); text-align:center; }
+  .flex { display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-start; }
+  .arrow { align-self:center; color:var(--text-muted); font-size:20px; }
+
+  /* Artifacts panel */
+  .artifacts { border-left:1px solid var(--border-primary); background:var(--bg-secondary); padding:.75rem; overflow:auto; }
+  .artifacts h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin:0 0 .5rem; font-weight:600; }
+  .art { border:1px solid var(--border-primary); border-radius:var(--radius); margin-bottom:.6rem; background:var(--bg-primary); }
+  .art-h { display:flex; gap:.4rem; align-items:center; padding:.35rem .55rem; border-bottom:1px solid var(--border-primary); font-size:11.5px; color:var(--text-secondary); }
+  .art-h .kind { font-size:10px; padding:0 .35rem; border-radius:4px; background:var(--bg-surface); color:var(--text-tertiary); text-transform:uppercase; letter-spacing:.04em; }
+  .art-h .kind.secret { background:rgba(239,68,68,.18); color:var(--accent-red); }
+  .art-h .kind.mem { background:rgba(96,165,250,.15); color:var(--accent-text); }
+  .art-h .kind.file { background:rgba(34,197,94,.15); color:var(--accent-green); }
+  .art pre { margin:0; padding:.5rem .55rem; white-space:pre-wrap; word-break:break-all; color:var(--text-secondary); font-size:11.5px; line-height:1.45; }
+  .art .where { padding:.3rem .55rem; font-size:11px; color:var(--text-muted); border-top:1px solid var(--border-subtle); }
+  .hl { color:var(--accent-yellow); }
+
+  .nav { display:flex; justify-content:space-between; gap:.5rem; margin-top:1rem; }
+  .flow { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:var(--text-tertiary); white-space:pre; overflow:auto; background:var(--bg-primary); border:1px solid var(--border-primary); border-radius:var(--radius); padding:.6rem; margin:.5rem 0 1rem; }
+</style>
+</head>
+<body>
+
+<div class="review" role="toolbar" aria-label="Mockup review controls">
+  <strong style="margin-right:.25rem">Access setup tutorial</strong>
+  <span class="muted">Track:</span>
+  <button data-filter="all" aria-pressed="true">All</button>
+  <button data-filter="admin" aria-pressed="false">Admin</button>
+  <button data-filter="user" aria-pressed="false">Remote user</button>
+  <button data-filter="device" aria-pressed="false">Device (pairing)</button>
+  <span class="sep"></span>
+  <button id="theme" aria-pressed="false">Light theme</button>
+</div>
+<div class="note">
+  Mockup for D26 (social-login broker) + shipped device pairing. Badges: <span class="badge shipped">shipped</span> exists today ·
+  <span class="badge planned">planned</span> D26 / task 18.22. Right panel = every key, token and record the step creates, and where it lives.
+  Values are fake. Not part of the product.
+</div>
+
+<div class="layout">
+  <nav class="rail" aria-label="Tutorial steps" id="rail"></nav>
+  <main class="stage" id="stage" tabindex="-1"></main>
+  <aside class="artifacts" aria-label="Keys and records created by this step">
+    <h2>Created by this step</h2>
+    <div id="arts"></div>
+  </aside>
+</div>
+
+<script>
+const BASE = "https://dash.example.com";
+const STEPS = [
+/* ───────────────────────── ADMIN ───────────────────────── */
+{ id:"roles", track:"admin", group:"0 · Who does what", title:"Roles & tiers", sub:"Read first", status:"planned",
+  why:"Three actors. A <b>user</b> is a person who signs in (GitHub / Google / OIDC). A <b>device</b> has no person behind it (headless bridge, kiosk) and is paired once. Every principal carries a tier; the route→tier map decides what it may call.",
+  screen:`
+  <table class="t">
+    <tr><th>Tier</th><th>Can</th><th>Typical</th></tr>
+    <tr><td><span class="pill observe">observe</span></td><td>Read sessions, transcripts, status</td><td>QA team, stakeholders</td></tr>
+    <tr><td><span class="pill control">control</span></td><td>+ prompt, abort, spawn sessions</td><td>Developers</td></tr>
+    <tr><td><span class="pill operate">operate</span></td><td>+ settings, restart, packages, users, pairing</td><td>Admin (you)</td></tr>
+  </table>
+  <div class="flow">Admin (operate) ──configures──▶ Provider (GitHub/Google) + Allowlist
+                                  │
+     Remote user ──signs in──▶ dashboard issues OWN token {sub, tier}
+     Electron / CLI / MCP ──same sign-in, no pairing──▶ token
+     Device w/o person ──QR pairing + typed code──▶ device bearer (tier)</div>
+  <div class="callout info">Rule: network position is never identity. A trusted IP does not grant a tier; a sign-in or a pairing does.</div>`,
+  arts:[] },
+
+{ id:"base", track:"admin", group:"1 · Admin setup (on the host)", title:"Set a stable public URL", sub:"Settings › Network", status:"shipped",
+  why:"OAuth providers only redirect back to a URL registered in advance. An ephemeral tunnel URL changes on restart and breaks every sign-in. Pick a reserved tunnel, a Tailscale name or your own domain.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">http://localhost:8000/settings/network</span></div>
+  <div class="settings"><nav><div>General</div><div class="on">Network</div><div>Sign-in providers</div><div>Users</div><div>Paired devices</div></nav>
+  <section><h3>Public URL</h3>
+    <div class="row"><label>Primary tunnel</label><select class="input"><option>zrok — reserved share</option><option>zrok — ephemeral ⚠</option><option>Tailscale serve</option><option>Custom domain</option></select></div>
+    <div class="row"><label>Resolved public base</label><input class="input ro" readonly value="${BASE}"></div>
+    <div class="row"><label>Auth redirect override</label><input class="input" placeholder="(optional) auth.redirectBaseUrl"></div>
+    <div class="callout ok">✓ Stable origin — OAuth callbacks will survive restarts.</div>
+    <div class="callout">If you choose <b>ephemeral</b>, sign-in providers are shown disabled with this reason.</div>
+  </section></div></div>`,
+  arts:[
+   {name:"~/.pi/dashboard/config.json", kind:"file", body:`{
+  "tunnel": { "provider": "zrok", "reserved": "dash" },
+  "auth":   { "redirectBaseUrl": "<span class=hl>${BASE}</span>" }
+}`, where:"Mode 0600 (B25). Feeds callback + issuer URL — never the Host header."}
+  ]},
+
+{ id:"ghapp", track:"admin", group:"1 · Admin setup (on the host)", title:"Register the OAuth app at GitHub / Google", sub:"Outside the dashboard", status:"planned",
+  why:"The dashboard tells you exactly what to paste. You do this once per provider, in the provider's console.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>github.com/settings/applications/new</span></div>
+  <div class="win-body"><div class="gh">
+    <strong>Register a new OAuth app</strong>
+    <p style="margin:.6rem 0 .2rem">Application name</p><input class="input" style="background:#fff;color:#1f2328" value="pi dashboard (robson)">
+    <p style="margin:.6rem 0 .2rem">Homepage URL</p><input class="input" style="background:#fff;color:#1f2328" value="${BASE}">
+    <p style="margin:.6rem 0 .2rem">Authorization callback URL</p><input class="input" style="background:#fff;color:#1f2328" value="${BASE}/identity/interaction/callback/github">
+    <p style="margin:.6rem 0 .2rem">☐ Enable Device Flow <span style="color:#59636e">(not needed — the dashboard runs device flow itself)</span></p>
+    <p><button class="btn">Register application</button></p>
+  </div></div></div>
+  <div class="callout info">Google: Cloud Console › Credentials › OAuth client ID › <i>Web application</i>, same callback with <code>/google</code>. Consent screen: scopes <code>openid email profile</code>.</div>`,
+  arts:[
+   {name:"From GitHub (copy to step 4)", kind:"secret", body:`Client ID:     Ov23liAbC123xyz
+Client secret: <span class=hl>4f9c…e21a</span>  (shown once by GitHub)`, where:"Never leaves the host. Browsers never see it (confidential upstream client)."}
+  ]},
+
+{ id:"provider", track:"admin", group:"1 · Admin setup (on the host)", title:"Enable the sign-in provider", sub:"Settings › Sign-in providers", status:"planned",
+  why:"Paste the client id + secret. Saving creates the dashboard's own authorization server keys — this is what makes the dashboard the token issuer for every client.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">http://localhost:8000/settings/sign-in</span></div>
+  <div class="settings"><nav><div>General</div><div>Network</div><div class="on">Sign-in providers</div><div>Users</div><div>Paired devices</div></nav>
+  <section>
+    <div class="card"><div class="card-h"><strong>GitHub</strong><span class="toggle"></span></div>
+      <div class="row"><label>Client ID</label><input class="input" value="Ov23liAbC123xyz"></div>
+      <div class="row"><label>Client secret</label><input class="input" type="password" value="xxxxxxxxxxxxxxxx"></div>
+      <div class="row"><label>Callback to register</label><div class="copy"><input class="input ro mono" readonly value="${BASE}/identity/interaction/callback/github"><button class="btn">Copy</button></div></div>
+      <div class="row"><label>Scopes</label><span class="mono muted">read:user user:email read:org</span></div>
+    </div>
+    <div class="card"><div class="card-h"><strong>Google</strong><span class="toggle off"></span></div><span class="muted">Disabled — fill client ID/secret to enable.</span></div>
+    <div class="card"><div class="card-h"><strong>Generic OIDC</strong><span class="toggle off"></span></div><span class="muted">Issuer URL + client (Keycloak, Entra, Authentik…)</span></div>
+    <div class="callout">Legacy <code>auth.providers.github</code> found. <button class="btn">Import & remove legacy</button> — the two cannot run together (D8).</div>
+    <div class="callout">Status: <b>configured, NOT enforced</b>. Add yourself as a user, then run a test sign-in (step 6).</div>
+  </section></div></div>`,
+  arts:[
+   {name:"config.json › plugins.social-login", kind:"file", body:`"upstreams": {
+  "github": { "enabled": true,
+    "clientId": "Ov23liAbC123xyz",
+    "clientSecret": "<span class=hl>4f9c…e21a</span>" }
+}
+"issuer": "${BASE}/identity"`, where:"0600. Secret masked in UI + API responses."},
+   {name:"~/.pi/dashboard/identity/jwks.json", kind:"secret", body:`{ "keys": [ { "kty":"EC", "crv":"P-256",
+  "kid":"<span class=hl>2026-10-a</span>", "d":"…private…" } ] }`, where:"Generated on first save. Signs every dashboard token. 0600. Public half at /identity/jwks."},
+   {name:"Published (public)", kind:"mem", body:`GET /.well-known/oauth-authorization-server
+GET /.well-known/openid-configuration
+GET /identity/jwks`, where:"Clients discover endpoints here (Electron, CLI, MCP)."}
+  ]},
+
+{ id:"users", track:"admin", group:"1 · Admin setup (on the host)", title:"Add users & assign tiers", sub:"Settings › Users", status:"planned",
+  why:"Nobody gets in by default. Add people one by one (GitHub login, Google email) or by group (GitHub org/team, Google Workspace domain). A user appears as 'pending' until their first sign-in links the upstream account.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">http://localhost:8000/settings/users</span></div>
+  <div class="settings"><nav><div>General</div><div>Network</div><div>Sign-in providers</div><div class="on">Users</div><div>Paired devices</div></nav>
+  <section>
+    <div class="card"><div class="card-h"><strong>Add access</strong></div>
+      <div class="row"><label>Who</label><div class="copy"><select class="input" style="max-width:150px"><option>GitHub user</option><option>GitHub org / team</option><option>Google email</option><option>Google domain</option><option>OIDC claim</option></select><input class="input" value="anna-k"></div></div>
+      <div class="row"><label>Tier</label><select class="input"><option>observe</option><option selected>control</option><option>operate</option></select></div>
+      <div class="row"><label></label><div><button class="btn primary">Add</button> <button class="btn">Copy invite link</button></div></div>
+    </div>
+    <table class="t">
+      <tr><th>Rule</th><th>Tier</th><th>Linked accounts</th><th>Status</th><th></th></tr>
+      <tr><td>GitHub <b>robson</b></td><td><span class="pill operate">operate</span></td><td>—</td><td><span class="pill pending">pending</span></td><td><button class="btn danger">Remove</button></td></tr>
+      <tr><td>GitHub <b>anna-k</b></td><td><span class="pill control">control</span></td><td>—</td><td><span class="pill pending">pending</span></td><td><button class="btn danger">Remove</button></td></tr>
+      <tr><td>GitHub team <b>blackbelt/qa</b></td><td><span class="pill observe">observe</span></td><td>any member</td><td><span class="pill active">rule</span></td><td><button class="btn danger">Remove</button></td></tr>
+      <tr><td>Google domain <b>blackbelt.hu</b></td><td><span class="pill observe">observe</span></td><td>verified emails</td><td><span class="pill active">rule</span></td><td><button class="btn danger">Remove</button></td></tr>
+    </table>
+    <div class="callout info">Most specific rule wins (user &gt; team &gt; org/domain). Rules are re-checked on every token refresh — removing someone locks them out within the access-token TTL (10 min).</div>
+  </section></div></div>`,
+  arts:[
+   {name:"~/.pi/dashboard/identity/users.json", kind:"file", body:`[
+ { "userId":"u_7f3a", "tier":"operate",
+   "match": { "github":"robson" }, "links":[] },
+ { "userId":"u_91bc", "tier":"control",
+   "match": { "github":"anna-k" }, "links":[] }
+]
+rules: [ {"githubTeam":"blackbelt/qa","tier":"observe"},
+         {"googleHd":"blackbelt.hu","tier":"observe"} ]`, where:"0600. links[] fills on first sign-in (stable numeric GitHub id / Google sub, never the login name)."},
+   {name:"Invite link (optional)", kind:"mem", body:`${BASE}/login?invite=<span class=hl>inv_Qm9…</span>
+expires 24h · single use · pre-binds tier`, where:"Convenience only — the allowlist rule is the real gate."}
+  ]},
+
+{ id:"arm", track:"admin", group:"1 · Admin setup (on the host)", title:"Test sign-in & arm enforcement", sub:"Prevents self-lockout", status:"planned",
+  why:"Enforcement turns on only after an allowlisted operate user completes a real sign-in. Until then the dashboard behaves exactly as before. A break-glass command always works from the host.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">http://localhost:8000/settings/sign-in</span></div>
+  <div class="win-body">
+    <div class="card"><div class="card-h"><strong>Enforcement</strong><span class="pill active">ARMED</span></div>
+      <ol style="margin:.2rem 0 .4rem 1.1rem;padding:0;line-height:1.7">
+        <li>✓ Provider configured (GitHub)</li>
+        <li>✓ Stable public URL</li>
+        <li>✓ Test sign-in: <b>robson</b> (GitHub id 1234567) → <span class="pill operate">operate</span></li>
+        <li>✓ No legacy <code>auth.providers</code> conflict</li>
+      </ol>
+      <button class="btn">Run test sign-in again</button> <button class="btn danger">Disarm</button>
+    </div>
+    <div class="callout bad"><b>Locked out?</b> On the host run <code>pi-dashboard login --local</code> (planned, task 18.24) — prints a one-time link (60 s) that signs you in as <i>local-operator</i>.</div>
+  </div></div>`,
+  arts:[
+   {name:"users.json (after test)", kind:"file", body:`{ "userId":"u_7f3a", "tier":"operate",
+  "links":[ { "upstream":"github",
+              "upstreamId":"<span class=hl>1234567</span>" } ] }`, where:"robson flips pending → active."},
+   {name:"server.log", kind:"file", body:`[identity] enforced: social-login (github) — armed by u_7f3a`, where:"Latched until restart / disarm."}
+  ]},
+
+/* ───────────────────────── REMOTE USER ───────────────────────── */
+{ id:"browser", track:"user", group:"2 · Remote user — browser", title:"Open the remote URL & sign in", sub:"Any browser, any network", status:"planned",
+  why:"No pairing, no key exchange. Open the public URL, pick a provider, approve at GitHub. The dashboard checks the allowlist and hands the page a short-lived token kept in memory only.",
+  screen:`
+  <div class="flex">
+  <div class="win" style="flex:1;min-width:260px"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>dash.example.com/login?returnTo=/</span></div>
+    <div class="center"><div class="login-box"><div class="logo">π</div><strong>Sign in to pi dashboard</strong>
+      <p class="muted">dash.example.com</p>
+      <button class="prov">Continue with GitHub</button><button class="prov">Continue with Google</button>
+      <p class="muted">Access is managed by the dashboard admin.</p></div></div></div>
+  <div class="arrow">→</div>
+  <div class="win" style="flex:1;min-width:260px"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>github.com/login/oauth/authorize…</span></div>
+    <div class="win-body"><div class="gh"><strong>Authorize pi dashboard (robson)</strong>
+      <ul><li>Read your profile & email</li><li>Read org and team membership</li></ul>
+      <button class="btn">Authorize anna-k</button></div></div></div>
+  </div>
+  <div class="flow">browser ─/login─▶ dashboard /authorize (PKCE challenge)
+        ─302─▶ GitHub ─code─▶ /identity/interaction/callback/github
+        dashboard: code→GitHub token→/user {id:8899, login:anna-k} → allowlist → control
+        ─302─▶ ${BASE}/#pi_handoff=hc_… ─POST /token {code, verifier}─▶ access token (memory)</div>
+  <div class="callout bad">Not on the list? → "Your GitHub account <b>eve</b> has no access to this dashboard. Ask the admin." No token issued.</div>`,
+  arts:[
+   {name:"PKCE verifier", kind:"mem", body:`sessionStorage.pi_pkce = "dBjftJeZ4CVP…" (no credential)`, where:"Browser. Deleted after exchange."},
+   {name:"Handoff code", kind:"mem", body:`#pi_handoff=<span class=hl>hc_Xf2…</span>  single-use · ≤60 s · bound to S256(verifier)`, where:"URL fragment, stripped immediately."},
+   {name:"Access token (JWT, decoded)", kind:"mem", body:`{ "iss":"${BASE}/identity",
+  "sub":"u_91bc", "name":"Anna K", "tier":"<span class=hl>control</span>",
+  "aud":"pi-dashboard", "exp": +10 min }`, where:"Browser memory only — never storage/URL. Reload → silent re-sign-in."},
+   {name:"users.json (server)", kind:"file", body:`u_91bc.links += { github: "8899" }  pending → active`, where:"First sign-in links the account."},
+   {name:"WS ticket", kind:"mem", body:`POST /api/ws-ticket → tk_…  single-use · scope browser`, where:"Token itself never rides the WebSocket."}
+  ]},
+
+{ id:"electron", track:"user", group:"3 · Remote user — apps", title:"Electron app → remote server", sub:"Replaces QR pairing for people", status:"planned",
+  why:"Enter the URL. The app verifies the server's identity, then opens your system browser for the same GitHub sign-in. The browser redirects back to the app on a loopback port. No QR, no typed code.",
+  screen:`
+  <div class="flex">
+  <div class="win" style="flex:1;min-width:270px"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span>pi-dashboard — Connect to remote</span></div>
+    <div class="win-body">
+      <div class="row"><label>Server URL</label><input class="input" value="dash.example.com"></div>
+      <div class="callout ok">✓ Reachable · TLS valid · server id <code>SHA256:k3Jf…9Qa</code> <span class="muted">(first connect — remembered)</span></div>
+      <p style="margin:.4rem 0">This server uses <b>GitHub / Google</b> sign-in.</p>
+      <button class="btn primary">Sign in with browser</button> <button class="btn">Pair with code instead</button>
+    </div></div>
+  <div class="arrow">→</div>
+  <div class="win" style="flex:1;min-width:250px"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url">http://127.0.0.1:53682/callback?code=…</span></div>
+    <div class="center"><div class="login-box">✓ <strong>Signed in as anna-k</strong><p class="muted">You can close this tab and return to pi-dashboard.</p></div></div></div>
+  </div>`,
+  arts:[
+   {name:"Server identity pin", kind:"file", body:`remote-servers.json
+{ "url":"${BASE}", "serverId":"SHA256:k3Jf…9Qa" }`, where:"Electron userData. Mismatch on later connect → hard stop."},
+   {name:"Client registration", kind:"file", body:`client_id: pi-dashboard-desktop (built-in public client)
+redirect: http://127.0.0.1:{any}/callback (RFC 8252)`, where:"No secret in the app."},
+   {name:"Tokens", kind:"secret", body:`access  (10 min, tier control)
+refresh (30 d, rotates, allowlist re-checked)`, where:"OS keychain (safeStorage). Revocable in Settings › Connected apps."}
+  ]},
+
+{ id:"mcp", track:"user", group:"3 · Remote user — apps", title:"MCP client / CLI", sub:"No hand-minted token", status:"planned",
+  why:"MCP clients discover the dashboard's auth server from a 401, register themselves, and open your browser. The CLI uses device flow: it prints a code you approve in any signed-in browser.",
+  screen:`
+  <div class="win term"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span>terminal — MCP</span></div><div class="win-body"><span class="p">$</span> claude mcp add --transport http pi ${BASE}/mcp
+<span class="c"># first use:</span>
+← 401 WWW-Authenticate: Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"
+→ discovered issuer ${BASE}/identity
+→ registered client <span class="y">mcp_c_5e1…</span> (dynamic registration)
+→ opening browser for sign-in…  <span class="bl">✓ anna-k (control)</span></div></div>
+  <div class="win term"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span>terminal — CLI on a build box (proposed command, not built)</span></div><div class="win-body"><span class="p">$</span> pi-dashboard login --server ${BASE}
+Open  <span class="bl">${BASE}/activate</span>
+Code  <span class="y">WDJB-MJHT</span>   (expires in 10 min)
+waiting… <span class="p">✓ approved by robson — tier observe</span></div></div>
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>dash.example.com/activate</span></div>
+    <div class="win-body"><div class="row"><label>Code from device</label><input class="input mono" value="WDJB-MJHT"></div>
+    <div class="row"><label>Grant tier</label><select class="input"><option>observe</option><option>control</option></select></div>
+    <button class="btn primary">Approve “pi-dashboard CLI” on buildbox</button></div></div>`,
+  arts:[
+   {name:"Dynamic client (MCP)", kind:"file", body:`identity/clients.json
+{ "client_id":"mcp_c_5e1…", "client_name":"Claude Code",
+  "redirect_uris":["http://127.0.0.1:…/callback"] }`, where:"Listed under Connected apps; delete = revoke."},
+   {name:"Device-flow grant (CLI)", kind:"mem", body:`device_code dc_… (secret, CLI only)
+user_code   WDJB-MJHT (≤10 min, typed by a human)`, where:"Approval needs a signed-in browser; tier ≤ approver's tier."},
+   {name:"CLI tokens", kind:"secret", body:`~/.pi/dashboard/remote-auth.json  (0600)
+{ "${BASE}": { "refresh":"rt_…", "tier":"observe" } }`, where:"Replaces copy-pasted bearer tokens."}
+  ]},
+
+/* ───────────────────────── DEVICE PAIRING ───────────────────────── */
+{ id:"pair1", track:"device", group:"4 · Device pairing (no person)", title:"Admin opens a pairing code", sub:"Settings › Paired devices", status:"shipped",
+  why:"For things without a person: a wall display, a phone kept as a monitor, an Electron app with no sign-in provider (headless pi bridges: not yet, see step 11). The admin (signed in, operate) generates a short-lived QR. The QR carries the URL, a one-time code and the server's identity pin — no long-lived key.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>dash.example.com/settings/devices</span></div>
+  <div class="win-body flex">
+    <div class="qr" role="img" aria-label="Pairing QR code"></div>
+    <div style="flex:1;min-width:220px">
+      <strong>Pair a device</strong>
+      <p class="muted">Scan with the device, or paste the string. Expires in <b>4:52</b>.</p>
+      <div class="copy"><input class="input ro mono" readonly value="pi:pair:v1.eyJ1cmwiOiJodHRwczovL2Rhc2gu…"><button class="btn">Copy</button></div>
+      <div class="row"><label>Tier for device</label><select class="input"><option>observe</option><option selected>control</option><option>operate</option></select></div>
+    </div>
+  </div></div>`,
+  arts:[
+   {name:"Pairing payload (decoded)", kind:"mem", body:`{ "v":1, "urls":["${BASE}"],
+  "code":"<span class=hl>pc_8Kd…</span>",   ≤5 min, one-time
+  "serverId":"SHA256:k3Jf…9Qa" }`, where:"Shown on screen only. Code consumed on approve or deny — not on redeem."},
+   {name:"Server state", kind:"mem", body:`pairing[pc_8Kd…] = { expires, pending: null, attempts: 0 }`, where:"In memory. Lost on restart = code dead."}
+  ]},
+
+{ id:"pair2", track:"device", group:"4 · Device pairing (no person)", title:"Device redeems & shows a confirm code", sub:"On the device", status:"shipped",
+  why:"The device (phone /pair page or Electron app) checks the server identity against the pin in the payload, then posts the code to <code>/api/pair/redeem</code>. The server answers with a numeric confirm code that the device displays. Nothing is trusted yet.",
+  screen:`
+  <div class="flex">
+    <div class="phone"><div class="muted">pi-dashboard · Pair</div>
+      <p>✓ Server verified<br><span class="mono muted">SHA256:k3Jf…9Qa</span></p>
+      <p style="margin:.4rem 0 .2rem">Type this code on the dashboard:</p>
+      <div class="bigcode">482 913</div>
+      <p class="muted">Waiting for approval…</p></div>
+    <div class="win" style="flex:1;min-width:260px"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span>pi-dashboard app — Pair</span></div><div class="win-body">
+      <div class="row"><label>Pairing string</label><input class="input ro mono" readonly value="pi:pair:v1.eyJ…"></div>
+      <div class="callout ok">✓ Server identity matches the pin in the payload</div>
+      <p style="margin:.3rem 0">Confirm code: <span class="bigcode" style="font-size:18px">482 913</span></p></div></div>
+  </div>
+  <div class="callout"><b>Gap — headless pi bridge:</b> no CLI pairing exists today. The extension has a pin store (<code>server-pin-store.ts</code> <code>recordServerPin</code>) and a <code>pairedRemote</code> endpoint slot, but nothing calls them; a remote bridge runs unverified via <code>PI_DASHBOARD_URL</code>. A bridge pairing command would need a new task — or the CLI device flow (step 9) once it exists.</div>`,
+  arts:[
+   {name:"Redeem exchange", kind:"mem", body:`POST /api/pair/redeem { code }
+\u2190 { pendingId, confirmCode }`, where:"No device key pair \u2014 the device then polls until approved and receives the bearer."},
+   {name:"Pending device (server)", kind:"mem", body:`{ pendingId:"pd_3a…", label:"buildbox",
+  confirm:"<span class=hl>482913</span>", attempts:5 left }`, where:"Max one pending per code. Token NOT usable yet."}
+  ]},
+
+{ id:"pair3", track:"device", group:"4 · Device pairing (no person)", title:"Admin types the code → device registered", sub:"Active approval", status:"shipped",
+  why:"An approval prompt appears on every operator browser — but it never shows the code and has no one-click approve. You type what the physical device shows. Then the device gets a durable bearer; the server stores only its hash.",
+  screen:`
+  <div class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="url"><b>https://</b>dash.example.com/</span></div>
+  <div class="win-body"><div class="card" style="max-width:380px;margin:0 auto">
+    <div class="card-h"><strong>A device wants to pair</strong></div>
+    <div class="row"><label>Name</label><input class="input" value="buildbox"></div>
+    <div class="row"><label>From</label><span class="muted">203.0.113.7 · Linux</span></div>
+    <div class="row"><label>Code on device</label><input class="input mono" value="482913"></div>
+    <button class="btn primary">Approve</button> <button class="btn danger">Deny</button>
+  </div></div></div>
+  <table class="t">
+    <tr><th>Device</th><th>Tier</th><th>Source</th><th>Last seen</th><th></th></tr>
+    <tr><td>buildbox</td><td><span class="pill control">control</span></td><td>pairing</td><td>just now</td><td><button class="btn danger">Revoke</button></td></tr>
+    <tr><td>claude-code (legacy)</td><td><span class="pill observe">observe</span></td><td>manual</td><td>2 d ago</td><td><button class="btn danger">Revoke</button></td></tr>
+  </table>`,
+  arts:[
+   {name:"~/.pi/dashboard/paired-devices.json", kind:"file", body:`{ "id":"dev_4c…", "label":"buildbox",
+  "tier":"control", "source":"pairing",
+  "tokenHash":"<span class=hl>sha256:9e1…</span>",
+  "createdAt":"2026-10-04T21:58Z" }`, where:"0600. Plaintext token never stored server-side."},
+   {name:"Device bearer", kind:"secret", body:`pdb_<span class=hl>Zx9…</span>  (shown to device once)`, where:"Device stores it (0600 / keychain). Revoke = row deleted → next ticket fails."},
+   {name:"Per connection", kind:"mem", body:`POST /api/ws-ticket (bearer) → tk_… single-use, scope bridge`, where:"Durable bearer never rides the WebSocket."}
+  ]},
+
+{ id:"audit", track:"admin", group:"5 · Keep it tidy", title:"Review & revoke", sub:"Settings › Access", status:"planned",
+  why:"One place to see every way in: people, their linked accounts, apps holding refresh tokens, and paired devices.",
+  screen:`
+  <table class="t">
+    <tr><th>Who / what</th><th>Kind</th><th>Tier</th><th>Via</th><th>Last used</th><th></th></tr>
+    <tr><td>robson</td><td>user</td><td><span class="pill operate">operate</span></td><td>GitHub</td><td>now</td><td></td></tr>
+    <tr><td>anna-k</td><td>user</td><td><span class="pill control">control</span></td><td>GitHub, Google</td><td>5 min</td><td><button class="btn danger">Remove</button></td></tr>
+    <tr><td>└ pi-dashboard desktop</td><td>app</td><td>control</td><td>refresh token</td><td>5 min</td><td><button class="btn danger">Sign out</button></td></tr>
+    <tr><td>└ Claude Code</td><td>MCP app</td><td>control</td><td>refresh token</td><td>1 h</td><td><button class="btn danger">Revoke</button></td></tr>
+    <tr><td>buildbox</td><td>device</td><td><span class="pill control">control</span></td><td>pairing</td><td>now</td><td><button class="btn danger">Revoke</button></td></tr>
+  </table>
+  <div class="callout info">Removing a user revokes all their app refresh tokens immediately; open browser tabs fail at the next refresh (≤10 min) and the WebSocket closes at token expiry.</div>`,
+  arts:[
+   {name:"On remove anna-k", kind:"file", body:`users.json:   u_91bc deleted
+clients/grants: refresh tokens for u_91bc revoked
+server.log:   [identity] user u_91bc removed by u_7f3a`, where:"Audit trail in server.log."}
+  ]},
+];
+
+let current = 0, filter = "all";
+const rail = document.getElementById("rail"), stage = document.getElementById("stage"), arts = document.getElementById("arts");
+const ROLE = { admin:["role-admin","Admin"], user:["role-user","Remote user"], device:["role-device","Device"] };
+
+function visible(){ return STEPS.map((s,i)=>[s,i]).filter(([s])=>filter==="all"||s.track===filter); }
+
+function renderRail(){
+  rail.innerHTML = ""; let g = null;
+  for (const [s,i] of visible()){
+    if (s.group!==g){ g=s.group; const h=document.createElement("h2"); h.textContent=g; rail.appendChild(h); }
+    const b=document.createElement("button"); b.className="step-btn";
+    if (i===current) b.setAttribute("aria-current","step");
+    b.dataset.done = String(i<current);
+    b.innerHTML = `<span class="num">${i+1}</span><span>${s.title}<small>${s.sub}</small></span>`;
+    b.onclick=()=>go(i); rail.appendChild(b);
+  }
+}
+function renderStage(){
+  const s=STEPS[current], [rc,rl]=ROLE[s.track], v=visible().map(([,i])=>i), pos=v.indexOf(current);
+  stage.innerHTML = `
+    <div class="stage-head"><span class="badge ${rc}">${rl}</span><span class="badge ${s.status}">${s.status}</span>
+      <span class="muted">Step ${current+1} of ${STEPS.length}</span></div>
+    <div class="stage-head"><h1>${s.title}</h1></div>
+    <p class="why">${s.why}</p>${s.screen}
+    <div class="nav"><button class="btn" ${pos<=0?"disabled":""} id="prev">← Back</button>
+      <button class="btn primary" ${pos>=v.length-1?"disabled":""} id="next">Next →</button></div>`;
+  document.getElementById("prev").onclick=()=>go(v[pos-1]);
+  document.getElementById("next").onclick=()=>go(v[pos+1]);
+  arts.innerHTML = s.arts.length ? s.arts.map(a=>`<div class="art"><div class="art-h"><span class="kind ${a.kind}">${a.kind==="secret"?"secret":a.kind==="mem"?"transient":"stored"}</span><span class="mono">${a.name}</span></div><pre>${a.body}</pre><div class="where">${a.where}</div></div>`).join("")
+    : `<p class="muted">Nothing is created — orientation step.</p>`;
+}
+function go(i){ if(i==null||i<0) return; current=i; renderRail(); renderStage(); stage.focus(); }
+
+document.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{
+  filter=b.dataset.filter;
+  document.querySelectorAll("[data-filter]").forEach(x=>x.setAttribute("aria-pressed",String(x===b)));
+  const v=visible().map(([,i])=>i); if(!v.includes(current)) current=v[0]; renderRail(); renderStage();
+});
+document.getElementById("theme").onclick=e=>{
+  const light=document.documentElement.dataset.theme!=="light";
+  document.documentElement.dataset.theme=light?"light":"dark"; e.target.setAttribute("aria-pressed",String(light));
+};
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,select")) return;
+  const v=visible().map(([,i])=>i), p=v.indexOf(current);
+  if(e.key==="ArrowRight"&&p<v.length-1) go(v[p+1]);
+  if(e.key==="ArrowLeft"&&p>0) go(v[p-1]);
+});
+renderRail(); renderStage();
+</script>
+</body>
+</html>
