@@ -27,6 +27,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -127,34 +128,26 @@ describe("E11 — sync-release-version.yml pushes HEAD:develop, never main", () 
 });
 
 /**
- * Throw (naming `file`) when `release` appears as a trigger under the
- * top-level `on:` key in ANY YAML form: block (`on:\n  release:`), inline
- * mapping (`on: {release: [published]}`), sequence (`on: [release]`) or
- * scalar (`on: release`). E10's `/^\s*release:\s*$/m` sees only the first.
+ * Throw (naming `file`) when `release` is a trigger under the top-level `on:`
+ * key, in ANY YAML spelling — block / flow mapping key, block / flow sequence
+ * item, bare scalar, quoted, commented. The workflow is PARSED (the `yaml`
+ * dependency, YAML 1.2 so `on` stays a string key): a regex over the text
+ * missed a new spelling every review round. E10's `/^\s*release:\s*$/m` on
+ * deploy-site.yml is block-key-only.
  */
 function assertNoReleaseTrigger(file: string, yaml: string): void {
-  // Canonicalize first: YAML lets the key / sequence item be quoted
-  // ('release', "release") with identical meaning.
-  const lines = yaml
-    .split("\n")
-    .filter((l) => !l.trim().startsWith("#"))
-    .map((l) => l.replace(/(["'])release\1/g, "release"));
-  const start = lines.findIndex((l) => /^["']?on["']?\s*:/.test(l));
-  if (start === -1) throw new Error(`${file}: no top-level \`on:\` key`);
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i++) {
-    // Next top-level KEY ends the block. A column-0 `- item` is a compact
-    // sequence that still belongs to `on:`, so `-` does not end it.
-    if (/^[a-zA-Z"']/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-  const head = lines[start].replace(/^["']?on["']?\s*:/, "");
-  const body = lines.slice(start + 1, end).join("\n");
-  const inline = head.trim() !== "" && /(^|[\s{[,])release\s*(?=[:,\]}]|$)/m.test(head + "\n" + body);
-  const block = /^\s+release\s*:/m.test(body) || /^\s*-\s*release\s*$/m.test(body);
-  if (inline || block) {
+  const doc = parseYaml(yaml) as Record<string, unknown> | null;
+  if (!doc || !("on" in doc)) throw new Error(`${file}: no top-level \`on:\` key`);
+  const on = doc.on;
+  const events =
+    typeof on === "string"
+      ? [on]
+      : Array.isArray(on)
+        ? on.map(String)
+        : on && typeof on === "object"
+          ? Object.keys(on)
+          : [];
+  if (events.includes("release")) {
     throw new Error(
       `${file}: \`release:\` trigger must not return — a GITHUB_TOKEN commit from this run cannot start deploy-site.yml, so the run it starts is incomplete (dispatch sync-release-version, then deploy-site). See change: fix-ci-pipeline-followups.`,
     );
@@ -212,6 +205,16 @@ describe("sync-release-version.yml has no release-event trigger (change: fix-ci-
     expect(() =>
       assertNoReleaseTrigger(FILE, `name: x\non:\n  - workflow_dispatch\njobs: {}\n`),
     ).not.toThrow();
+  });
+
+  it("trailing comments do not hide the trigger", () => {
+    for (const yaml of [
+      `name: x\non:\n  - workflow_dispatch\n  - release # published\njobs: {}\n`,
+      `name: x\non:\n  release: # published only\n    types: [published]\n${tail}`,
+      `name: x\non: [release] # legacy\njobs: {}\n`,
+    ]) {
+      expect(() => assertNoReleaseTrigger(FILE, yaml), yaml).toThrow(FILE);
+    }
   });
 
   it("does not misfire on a release-named branch filter", () => {
