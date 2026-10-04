@@ -211,6 +211,105 @@ d("https resolver: guarded fetch + archive extraction", () => {
   });
 });
 
+d("per-cache-key lock (review B1: concurrent refreshes)", () => {
+  const trust = join(tmpdir(), `kb-trust-lock-${Date.now()}.json`);
+  const saved = process.env.KB_SOURCE_TRUST_PATH;
+  beforeAll(() => { process.env.KB_SOURCE_TRUST_PATH = trust; });
+  afterAll(() => {
+    if (saved === undefined) delete process.env.KB_SOURCE_TRUST_PATH;
+    else process.env.KB_SOURCE_TRUST_PATH = saved;
+    rmSync(trust, { force: true });
+  });
+
+  const specOf = (n: string) => ({ kind: "https" as const, ref: `https://example.test/lock-${n}/a.zip` });
+  const mk = () => mkdtempSync(join(tmpdir(), "kb-lock-"));
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("two concurrent refreshes of one source never run their fetch+swap critical sections at once", async () => {
+    const cacheDir = mk();
+    const spec = specOf("serial");
+    recordTrust(spec);
+    let inflight = 0;
+    let maxInflight = 0;
+    const fetch = async () => {
+      inflight++;
+      maxInflight = Math.max(maxInflight, inflight);
+      await sleep(60);
+      inflight--;
+      return zip([{ name: "n.md", data: "x" }]);
+    };
+    const ctx = { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch } };
+    await Promise.all([httpsResolver.resolve(spec, ctx), httpsResolver.resolve(spec, ctx)]);
+    expect(maxInflight).toBe(1);
+    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]); // lock dir + stage + .old all gone
+  });
+
+  it("a failing swap in one refresh leaves the cache intact for the concurrent refresh, which then lands", async () => {
+    const cacheDir = mk();
+    const spec = specOf("failswap");
+    recordTrust(spec);
+    const dest = join(cacheDir, cacheKey(spec));
+    mkdirSync(dest, { recursive: true });
+    writeFileSync(join(dest, "orig.md"), "ORIGINAL");
+    writeFileSync(join(dest, ".fetched"), "1");
+    let calls = 0;
+    const failing = (a: string, b: string) => {
+      if (++calls === 2) throw new Error("injected rename failure");
+      renameSync(a, b);
+    };
+    const slowFetch = async () => { await sleep(30); return zip([{ name: "n.md", data: "NEW" }]); };
+    const [a, b] = await Promise.allSettled([
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: slowFetch, rename: failing } }),
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch: slowFetch } }),
+    ]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("fulfilled");
+    expect(readFileSync(join(dest, "n.md"), "utf8")).toBe("NEW");
+    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
+  });
+
+  it("waits for a lock held by another process and proceeds once it is released", async () => {
+    const cacheDir = mk();
+    const spec = specOf("held");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true }); // as if another `kb` process holds it
+    let fetched = false;
+    const p = httpsResolver.resolve(spec, {
+      cwd: cacheDir, cacheDir,
+      testHooks: { fetch: async () => { fetched = true; return zip([{ name: "n.md", data: "x" }]); }, lockPollMs: 10 },
+    });
+    await sleep(80);
+    expect(fetched).toBe(false);
+    rmSync(lock, { recursive: true });
+    await p;
+    expect(fetched).toBe(true);
+  });
+
+  it("steals a stale lock (dead holder) instead of hanging", async () => {
+    const cacheDir = mk();
+    const spec = specOf("stale");
+    recordTrust(spec);
+    mkdirSync(join(cacheDir, `${cacheKey(spec)}.lock`), { recursive: true });
+    await sleep(30);
+    const r = await httpsResolver.resolve(spec, {
+      cwd: cacheDir, cacheDir,
+      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockStaleMs: 10, lockPollMs: 5 },
+    });
+    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
+  });
+
+  it("releases the lock when the critical section throws", async () => {
+    const cacheDir = mk();
+    const spec = specOf("release");
+    recordTrust(spec);
+    await expect(
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch: async () => { throw new Error("HTTP 500"); } } }),
+    ).rejects.toThrow(/HTTP 500/);
+    expect(readdirSync(cacheDir)).toEqual([]);
+  });
+});
+
 // Keep tar() referenced for the bsdtar/GNU rendering pin below.
 d("listing renderings pinned on the host tar/unzip", () => {
   it("hardlink + symlink are never regular entries on this host", () => {

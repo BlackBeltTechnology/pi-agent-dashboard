@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -100,6 +100,8 @@ describe("git resolver guard (D3)", () => {
     await run("git:github.com/org/repo", { git, lookup: pub("140.82.112.3") });
     const clone = network(calls)[0];
     expect(clone[clone.length - 2]).toBe("https://github.com/org/repo");
+    // sibling of review B1: the per-cache-key lock is released after the resolve
+    expect(readdirSync(cacheDir).some((f) => f.endsWith(".lock"))).toBe(false);
   });
 
   it("ssh targets are checked but not pinned", async () => {

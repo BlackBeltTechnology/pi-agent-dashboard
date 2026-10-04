@@ -43,6 +43,9 @@ export interface ResolveCtx {
     lookup?: LookupAll;
     /** Replaces `renameSync` in the stage→dest swap. */
     rename?: (from: string, to: string) => void;
+    /** Cache-lock tuning (ms): poll interval / age after which a lock is stolen. */
+    lockPollMs?: number;
+    lockStaleMs?: number;
   };
 }
 
@@ -106,6 +109,42 @@ function isStale(spec: SourceConfig, markerPath: string): boolean {
   const ttlMs = typeof spec.refresh === "object" ? spec.refresh.ttlMs : undefined;
   if (!ttlMs) return false;
   return Date.now() - Number(statSync(markerPath).mtimeMs) > ttlMs;
+}
+
+/**
+ * Per-cache-key lock (review B1). The stage→swap recovery (`dest.old`) and the git
+ * clone/refresh assume ONE writer per cache entry; two processes (e.g. `kb index`
+ * in two terminals, or the CLI + the extension) would otherwise interleave
+ * between the check and the act. `mkdir` is atomic, so it doubles as a
+ * cross-process mutex; a lock older than `staleMs` belongs to a dead holder and
+ * is stolen. Always released, including on throw.
+ */
+const LOCK_POLL_MS = 50;
+const LOCK_STALE_MS = 10 * 60_000;
+async function withCacheLock<T>(ctx: ResolveCtx, key: string, fn: () => Promise<T>): Promise<T> {
+  const pollMs = ctx.testHooks?.lockPollMs ?? LOCK_POLL_MS;
+  const staleMs = ctx.testHooks?.lockStaleMs ?? LOCK_STALE_MS;
+  mkdirSync(ctx.cacheDir, { recursive: true });
+  const lock = join(ctx.cacheDir, `${key}.lock`);
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true });
+        else await new Promise((r) => setTimeout(r, pollMs));
+      } catch {
+        // lock vanished between EEXIST and stat — retry immediately
+      }
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
 }
 
 // --- filesystem ---
@@ -216,24 +255,26 @@ export const gitResolver: SourceResolver = {
     }
 
     const cloneDir = join(ctx.cacheDir, cacheKey(spec));
-    let hasGit = existsSync(join(cloneDir, ".git"));
-    const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
-    if (hasGit && shouldPull) {
-      // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
-      let origin = "";
-      try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
-      if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
-    }
-    if (!hasGit) {
-      mkdirSync(ctx.cacheDir, { recursive: true });
-      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
-    } else if (shouldPull) {
-      if (ref) {
-        git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
-        git(["-C", cloneDir, "checkout", ref]);
-      } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
-    }
-    const rev = git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
+    const rev = await withCacheLock(ctx, cacheKey(spec), async () => {
+      let hasGit = existsSync(join(cloneDir, ".git"));
+      const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
+      if (hasGit && shouldPull) {
+        // A poisoned/stale `origin` must never be contacted: re-clone from the checked URL.
+        let origin = "";
+        try { origin = git(["-C", cloneDir, "remote", "get-url", "origin"]).trim(); } catch { /* treat as mismatch */ }
+        if (origin !== url) { rmSync(cloneDir, { recursive: true, force: true }); hasGit = false; }
+      }
+      if (!hasGit) {
+        mkdirSync(ctx.cacheDir, { recursive: true });
+        git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
+      } else if (shouldPull) {
+        if (ref) {
+          git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
+          git(["-C", cloneDir, "checkout", ref]);
+        } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
+      }
+      return git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
+    });
     const dir = spec.subdir ? join(cloneDir, spec.subdir) : cloneDir;
     return { id: spec.ref, dir, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd), revision: rev };
   },
@@ -286,33 +327,35 @@ export const httpsResolver: SourceResolver = {
     try { url = new URL(spec.ref); } catch { throw new Error(`invalid source URL: ${spec.ref}`); }
     if (url.protocol !== "https:") throw new Error(`only https:// sources are allowed (got ${url.protocol}//): ${spec.ref}`);
 
-    // Crash recovery from a previous interrupted swap.
-    const old = `${dest}.old`;
-    if (!existsSync(dest) && existsSync(old)) renameSync(old, dest);
-    else if (existsSync(old)) rmSync(old, { recursive: true, force: true });
+    await withCacheLock(ctx, cacheKey(spec), async () => {
+      // Crash recovery from a previous interrupted swap.
+      const old = `${dest}.old`;
+      if (!existsSync(dest) && existsSync(old)) renameSync(old, dest);
+      else if (existsSync(old)) rmSync(old, { recursive: true, force: true });
 
-    const shouldFetch = ctx.refresh || spec.refresh === "on-index" || isStale(spec, marker);
-    if (shouldFetch) {
-      mkdirSync(ctx.cacheDir, { recursive: true });
-      const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
-      try {
-        const out = join(stage, "out");
-        mkdirSync(out);
-        const body = await (hooks.fetch ?? ((u: string) => guardedFetch(u)))(spec.ref);
-        const kind = archiveKindOf(url.pathname);
-        if (kind) {
-          const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
-          writeFileSync(archive, body);
-          extractArchiveSafely(kind, archive, out);
-        } else {
-          writeFileSync(join(out, plainFileName(url.pathname)), body);
+      const shouldFetch = ctx.refresh || spec.refresh === "on-index" || isStale(spec, marker);
+      if (shouldFetch) {
+        mkdirSync(ctx.cacheDir, { recursive: true });
+        const stage = mkdtempSync(join(ctx.cacheDir, ".stage-"));
+        try {
+          const out = join(stage, "out");
+          mkdirSync(out);
+          const body = await (hooks.fetch ?? ((u: string) => guardedFetch(u)))(spec.ref);
+          const kind = archiveKindOf(url.pathname);
+          if (kind) {
+            const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
+            writeFileSync(archive, body);
+            extractArchiveSafely(kind, archive, out);
+          } else {
+            writeFileSync(join(out, plainFileName(url.pathname)), body);
+          }
+          writeFileSync(join(out, ".fetched"), String(Date.now()));
+          swapInto(dest, out, hooks.rename ?? renameSync);
+        } finally {
+          rmSync(stage, { recursive: true, force: true });
         }
-        writeFileSync(join(out, ".fetched"), String(Date.now()));
-        swapInto(dest, out, hooks.rename ?? renameSync);
-      } finally {
-        rmSync(stage, { recursive: true, force: true });
       }
-    }
+    });
     return { id: spec.ref, dir: dest, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd) };
   },
 };
