@@ -7,7 +7,7 @@ Neutral static PWA shell. Published to GitHub Pages (pi-dashboard.dev). NOT serv
 | `AGENTS.md` | This per-directory file index. |
 | `package.json` | Private pkg `@blackbelt-technology/pi-dashboard-shell`. Deps react, react-dom, wouter. Dev deps vite, @vitejs/plugin-react, @tailwindcss/vite, tailwindcss, fake-indexeddb. Scripts dev/build/preview. |
 | `tsconfig.json` | Extends `../../tsconfig.base.json`. jsx react-jsx, noEmit, DOM libs. include `src`. |
-| `vite.config.ts` | base `./` for GitHub Pages subpath. react + tailwind plugins. root `src`, outDir `../dist`. `spa404Fallback` plugin copies index.html → 404.html post-build. |
+| `vite.config.ts` | base `./` for GitHub Pages subpath. react + tailwind plugins. root `src`, outDir `../dist`. `spa404Fallback` plugin copies index.html → 404.html post-build; on Pages the repo-root `site/404.html` answers unmatched paths (incl. `/app/`), so the copy is reached only at a Pages root — inert under hash routing. See change: fix-ci-pipeline-followups. |
 | `vitest.config.ts` | jsdom env, include `src/**/*.test.{ts,tsx}`. Registered in root `vitest.config.ts` `test.projects` so `npm test` covers the shell. |
 | `src/App.tsx` | Root component. Hash-routed tabs: `/` KeyringView, `/pair` PairView. `refreshKey` bumps keyring reload after pairing. |
 | `src/main.tsx` | Entry. Mounts App in `Router hook={useHashLocation}` + StrictMode. Imports index.css. |

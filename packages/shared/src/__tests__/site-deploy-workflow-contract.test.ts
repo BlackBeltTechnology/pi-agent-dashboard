@@ -8,6 +8,9 @@
  *   E10 the dead release path is absent (release: trigger, redispatch
  *       job, `github.event_name != 'release'` guards)
  *   E11 sync-release-version.yml pushes HEAD:develop, never main
+ *   sync-release-version.yml declares no `release:` trigger in any YAML
+ *       form, and keeps workflow_dispatch.inputs.correlation
+ *       (change: fix-ci-pipeline-followups, test-plan E7–E10)
  *   E12 shell composed into site/dist/app/ before the Pages artifact upload
  *   E13 site/public/CNAME is exactly pi-dashboard.dev
  *   E14 workflow_dispatch stays available for manual redeploys
@@ -119,6 +122,78 @@ describe("E11 — sync-release-version.yml pushes HEAD:develop, never main", () 
   it("no push targets main", () => {
     expect(syncCode, "a HEAD:main push would fight the develop contract").not.toMatch(
       /git push[^\n]*main/,
+    );
+  });
+});
+
+/**
+ * Throw (naming `file`) when `release` appears as a trigger under the
+ * top-level `on:` key in ANY YAML form: block (`on:\n  release:`), inline
+ * mapping (`on: {release: [published]}`), sequence (`on: [release]`) or
+ * scalar (`on: release`). E10's `/^\s*release:\s*$/m` sees only the first.
+ */
+function assertNoReleaseTrigger(file: string, yaml: string): void {
+  const lines = yaml.split("\n").filter((l) => !l.trim().startsWith("#"));
+  const start = lines.findIndex((l) => /^["']?on["']?\s*:/.test(l));
+  if (start === -1) throw new Error(`${file}: no top-level \`on:\` key`);
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^[a-zA-Z"'-]/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  const head = lines[start].replace(/^["']?on["']?\s*:/, "");
+  const body = lines.slice(start + 1, end).join("\n");
+  const inline = head.trim() !== "" && /(^|[\s{[,])release\b/.test(head + "\n" + body);
+  const block = /^\s+release\s*:/m.test(body);
+  if (inline || block) {
+    throw new Error(
+      `${file}: \`release:\` trigger must not return — a GITHUB_TOKEN commit from this run cannot start deploy-site.yml, so the run it starts is incomplete (dispatch sync-release-version, then deploy-site). See change: fix-ci-pipeline-followups.`,
+    );
+  }
+}
+
+describe("sync-release-version.yml has no release-event trigger (change: fix-ci-pipeline-followups)", () => {
+  const FILE = "sync-release-version.yml";
+  const tail = `  workflow_dispatch:\n    inputs:\n      correlation:\n        type: string\n\npermissions:\n  contents: write\n`;
+
+  it("E7: block form is refused, naming the workflow", () => {
+    const yaml = `name: x\non:\n  release:\n    types: [published, edited]\n${tail}`;
+    expect(() => assertNoReleaseTrigger(FILE, yaml)).toThrow(FILE);
+  });
+
+  it("E8: inline-mapping form is refused", () => {
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: {release: [published]}\njobs: {}\n`),
+    ).toThrow(FILE);
+    // The E10 block-form-only regex misses this shape.
+    expect(`on: {release: [published]}`).not.toMatch(/^\s*release:\s*$/m);
+  });
+
+  it("E9: sequence form is refused", () => {
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non: [release]\njobs: {}\n`)).toThrow(
+      FILE,
+    );
+    expect(() =>
+      assertNoReleaseTrigger(FILE, `name: x\non: [push, release]\njobs: {}\n`),
+    ).toThrow(FILE);
+  });
+
+  it("does not misfire on dispatch-only triggers", () => {
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non:\n${tail}`)).not.toThrow();
+    expect(() => assertNoReleaseTrigger(FILE, `name: x\non: [workflow_dispatch]\n`)).not.toThrow();
+  });
+
+  it("the shipped workflow declares no release trigger", () => {
+    expect(() => assertNoReleaseTrigger(FILE, readWf(FILE))).not.toThrow();
+  });
+
+  it("E10: workflow_dispatch.inputs.correlation survives the removal", () => {
+    const onBlock = extractOnBlock(readWf(FILE));
+    expect(onBlock, `${FILE}: workflow_dispatch must stay`).toMatch(/^\s+workflow_dispatch:\s*$/m);
+    expect(onBlock, `${FILE}: the correlation input publish.yml binds to must stay`).toMatch(
+      /^\s+inputs:\s*\n\s+correlation:\s*$/m,
     );
   });
 });

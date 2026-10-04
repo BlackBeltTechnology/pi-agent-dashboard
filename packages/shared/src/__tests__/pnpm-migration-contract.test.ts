@@ -132,7 +132,58 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
   it("publish.yml drops the npm@11.12.1 EALLOWGIT pin (§8.3)", () => {
     expect(readWf("publish.yml")).not.toContain("npm@11.12.1");
   });
+
+  // Order pins (change: fix-ci-pipeline-followups, test-plan E12). The
+  // ci-cd-pipeline spec re-states both workflows' command sequences in pnpm
+  // terms; these pin the sequence, not just the install verb.
+  it("publish.yml ci-checks runs install → lint → test → build, in order", () => {
+    const job = jobBlock(readWf("publish.yml"), "ci-checks");
+    expectInOrder(job, [
+      "pnpm install --frozen-lockfile",
+      "pnpm run lint",
+      "pnpm test",
+      "pnpm run build",
+    ]);
+  });
+
+  it("ci.yml ci job runs install → lint → build; tests run in the selector-driven jobs", () => {
+    const y = readWf("ci.yml");
+    const ci = jobBlock(y, "ci");
+    expectInOrder(ci, ["pnpm install --frozen-lockfile", "pnpm run lint", "pnpm run build"]);
+    // speed-up-ci-affected-tests (D8) moved the unit tests out of `ci`.
+    expect(ci, "ci.yml `ci` job must not run the test suite").not.toMatch(/pnpm (run )?test\b/);
+    expect(jobBlock(y, "unit"), "ci.yml `unit` job runs the tests").toContain(
+      "pnpm run test:parallel",
+    );
+  });
 });
+
+/** Body of top-level job `name` in a workflow (up to the next 2-space key). */
+function jobBlock(yaml: string, name: string): string {
+  const lines = yaml.split("\n");
+  const start = lines.findIndex((l) => l === `  ${name}:`);
+  if (start === -1) throw new Error(`job \`${name}\` not found`);
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^ {0,2}[a-zA-Z_-]+:/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  return lines
+    .slice(start, end)
+    .filter((l) => !l.trim().startsWith("#"))
+    .join("\n");
+}
+
+function expectInOrder(text: string, needles: readonly string[]): void {
+  let at = -1;
+  for (const n of needles) {
+    const i = text.indexOf(n, at + 1);
+    expect(i, `\`${n}\` missing or out of order`).toBeGreaterThan(at);
+    at = i;
+  }
+}
 
 // ── X6: deploy-site install shape ──────────────────────────────
 // Updated for c52745af0/e305c361b (static landing page): site/ has NO
