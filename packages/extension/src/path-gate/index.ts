@@ -94,8 +94,8 @@ export function createPathGate(opts: PathGateOptions) {
     cancel: (id) => opts.getPromptBus()?.cancel(id),
   };
 
-  // One suppression map per bridge; cleared on every session_start so a denial never
-  // leaks into another session of the same pi process.
+  // One suppression map per bridge; entries are keyed by session id (handler.ts), so a
+  // denial never leaks to another session and survives a same-session reload.
   const suppression = new Suppression();
   const handler = createPathGateHandler({
     getConfig,
@@ -118,7 +118,6 @@ export function createPathGate(opts: PathGateOptions) {
     counters,
     /** Start the bounded checkout probe + resolve pi's own dirs (best effort). */
     onSessionStart(): void {
-      suppression.clear();
       roots.startProbe();
       void import("@earendil-works/pi-coding-agent")
         .then((m: any) => {

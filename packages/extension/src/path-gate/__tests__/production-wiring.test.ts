@@ -10,7 +10,8 @@ import { createTuiPromptAdapter } from "../../tui-prompt-adapter.js";
 import { PromptBus } from "../../prompt-bus.js";
 import { createPathGate } from "../index.js";
 
-function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any } = {}) {
+function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolean; timeoutSeconds: number }; ui?: any; sid?: { v: string } } = {}) {
+  const sid = opts.sid ?? { v: "S1" };
   const cwd = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "pg-wire-")));
   const bus = new PromptBus({ timeoutMs: -1 });
   const asked: Array<{ question: string; options: string[] }> = [];
@@ -22,7 +23,7 @@ function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolea
   };
   bus.registerAdapter(createTuiPromptAdapter(ui, bus));
   const gate = createPathGate({
-    getSessionId: () => "S1",
+    getSessionId: () => sid.v,
     getPromptBus: () => bus,
     send: () => false,
     readConfig: opts.readConfig ?? (() => ({ enabled: true, timeoutSeconds: 120 })),
@@ -49,10 +50,12 @@ describe("TUI visibility (review B2)", () => {
   });
 });
 
-describe("denial suppression is per session (review r8/B1)", () => {
-  it("a denial in one session does not suppress the same directory after a session switch", async () => {
+describe("denial suppression is scoped to the session that was asked (review r8/r9 B1)", () => {
+  const mk = () => {
     const asked: string[] = [];
+    const sid = { v: "S" };
     const t = setup({
+      sid,
       ui: {
         select: async (q: string) => {
           asked.push(q);
@@ -61,14 +64,55 @@ describe("denial suppression is per session (review r8/B1)", () => {
       },
     });
     const call = () => t.gate.handler({ toolName: "read", toolCallId: "tc", input: { path: "/etc/hosts" } }, t.ctx);
+    return { asked, sid, t, call };
+  };
+
+  it("a denial in session S does not suppress the same directory in session T", async () => {
+    const { asked, sid, call, t } = mk();
     expect((await call())?.reason).toContain("denied");
-    // still the same session: suppressed without a prompt
+    expect((await call())?.reason).toContain("recently-denied");
+    sid.v = "T";
+    t.gate.onSessionStart();
+    expect(await call()).toBeUndefined();
+    expect(asked).toHaveLength(2);
+  });
+
+  it("a same-session reload (session_start, same id) keeps the denial until it expires", async () => {
+    const { asked, call, t } = mk();
+    await call();
+    t.gate.onSessionStart(); // reload of the SAME session
     expect((await call())?.reason).toContain("recently-denied");
     expect(asked).toHaveLength(1);
-    // pi switches to another session in the same process: session_start fires
+  });
+
+  it("an outstanding prompt of S that settles AFTER T started denies under S, never under T", async () => {
+    const sid = { v: "S" };
+    const resolvers: Array<(v: string) => void> = [];
+    const asked: string[] = [];
+    const t = setup({
+      sid,
+      ui: {
+        select: (q: string) => new Promise<string>((res) => { asked.push(q); resolvers.push(res); }),
+      },
+    });
+    const call = () => t.gate.handler({ toolName: "read", toolCallId: "tc", input: { path: "/etc/hosts" } }, t.ctx);
+    const sCall = call(); // S asks and waits
+    await new Promise((r) => setTimeout(r, 20));
+    sid.v = "T";
     t.gate.onSessionStart();
-    expect(await call()).toBeUndefined(); // asked again (Allow once), not suppressed
-    expect(asked).toHaveLength(2);
+    const tCall = call(); // T queues its OWN prompt (not behind S: per-session mutex)
+    await new Promise((r) => setTimeout(r, 20));
+    expect(asked).toHaveLength(2); // both prompts open concurrently, one per session
+    resolvers[0]("Deny"); // S settles late → denial recorded under S
+    expect((await sCall)?.reason).toContain("denied");
+    resolvers[1]("Allow once"); // T's own prompt answered normally
+    expect(await tCall).toBeUndefined();
+    // and T is not suppressed by S's late denial
+    const tAgain = call();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(asked).toHaveLength(3);
+    resolvers[2]("Allow once");
+    expect(await tAgain).toBeUndefined();
   });
 });
 

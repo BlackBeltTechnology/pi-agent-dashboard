@@ -84,7 +84,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
   const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const suppression = deps.suppression ?? new Suppression(now);
-  let chain: Promise<unknown> = Promise.resolve();
+  const chains = new Map<string, Promise<unknown>>();
 
   // Every dynamic field of an audit line is agent- or error-controlled: strip control
   // characters from the WHOLE line at the single emission point so no site can forge a record.
@@ -102,9 +102,13 @@ export function createPathGateHandler(deps: PathGateDeps) {
     input: Record<string, unknown>,
     toolCallId: string | undefined,
     cwd: string,
+    sid: string,
   ): Promise<GateResult> {
+    // Suppression is scoped to the session that was ASKED (captured at call start): an
+    // outstanding prompt of session S that settles after T started still denies under S.
+    const supKey = `${sid}\u0000${d.suppressionKey}`;
     // Re-check inside the mutex: an earlier sibling may have been denied meanwhile.
-    if (suppression.isSuppressed(d.suppressionKey)) {
+    if (suppression.isSuppressed(supKey)) {
       log("recently-denied", tool, access, d.canonical, d.sensitive);
       return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
     }
@@ -121,12 +125,12 @@ export function createPathGateHandler(deps: PathGateDeps) {
       onExpire();
     }, timeoutMs);
     const settleDeny = (): GateResult => {
-      suppression.deny(d.suppressionKey);
+      suppression.deny(supKey);
       log("denied", tool, access, d.canonical, d.sensitive);
       return block("denied", `operator declined ${access} access to ${d.canonical}`);
     };
     const settleTimeout = (): GateResult => {
-      suppression.deny(d.suppressionKey);
+      suppression.deny(supKey);
       log("timeout", tool, access, d.canonical, d.sensitive);
       return block("timeout", `no answer within ${Math.round(timeoutMs / 1000)}s`);
     };
@@ -263,18 +267,26 @@ export function createPathGateHandler(deps: PathGateDeps) {
         return undefined;
       }
       const d = decision;
+      const sid = deps.sessionId();
       if (!ctx.hasUI) {
         log("no-ui", tool, access, d.canonical, d.sensitive);
         if (deps.counters) deps.counters.blocked++;
         return block("no-ui", "no interactive UI is attached to approve out-of-workspace access");
       }
-      if (suppression.isSuppressed(d.suppressionKey)) {
+      if (suppression.isSuppressed(`${sid}\u0000${d.suppressionKey}`)) {
         log("recently-denied", tool, access, d.canonical, d.sensitive);
         if (deps.counters) deps.counters.blocked++;
         return block("recently-denied", `access under ${d.suppressionKey} was denied moments ago`);
       }
-      const run = chain.then(() => ask(tool, access, d, input, event.toolCallId, cwd));
-      chain = run.catch(() => undefined);
+      // Per-session mutex: at most one gate prompt open per session; another session of
+      // the same pi process is never queued behind it.
+      const prior = chains.get(sid) ?? Promise.resolve();
+      const run = prior.then(() => ask(tool, access, d, input, event.toolCallId, cwd, sid));
+      const tail = run.catch(() => undefined);
+      chains.set(sid, tail);
+      void tail.then(() => {
+        if (chains.get(sid) === tail) chains.delete(sid);
+      });
       const result = await run;
       if (result && deps.counters) deps.counters.blocked++;
       return result;
