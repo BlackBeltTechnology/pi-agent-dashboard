@@ -8,8 +8,8 @@
 // publishable package self-contained (no kb→server dependency).
 
 import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
@@ -46,6 +46,8 @@ export interface ResolveCtx {
     /** Cache-lock tuning (ms): poll interval / age after which a lock is stolen. */
     lockPollMs?: number;
     lockStaleMs?: number;
+    /** Max time a waiter blocks on a live holder before erroring. */
+    lockWaitMs?: number;
   };
 }
 
@@ -112,38 +114,110 @@ function isStale(spec: SourceConfig, markerPath: string): boolean {
 }
 
 /**
- * Per-cache-key lock (review B1). The stage→swap recovery (`dest.old`) and the git
- * clone/refresh assume ONE writer per cache entry; two processes (e.g. `kb index`
- * in two terminals, or the CLI + the extension) would otherwise interleave
- * between the check and the act. `mkdir` is atomic, so it doubles as a
- * cross-process mutex; a lock older than `staleMs` belongs to a dead holder and
- * is stolen. Always released, including on throw.
+ * Per-cache-key lock (review B1, r1+r2). The stage→swap recovery (`dest.old`) and
+ * the git clone/refresh assume ONE writer per cache entry; two processes (e.g.
+ * `kb index` in two terminals, or the CLI + the extension) would otherwise
+ * interleave between the check and the act.
+ *
+ * - `mkdir` is atomic, so it is the cross-process mutex; the holder records
+ *   `{pid, token}` in `<lock>/owner`.
+ * - A LIVE holder is never stolen, however old (a big extraction or clone can
+ *   legitimately be slow). A lock is stale only when its recorded pid is dead,
+ *   or it has no owner record and is older than `staleMs`. A waiter gives up
+ *   after `waitMs` with an actionable error instead of hanging.
+ * - Stealing is serialised through a tiny `<lock>.steal` mutex and re-validated
+ *   inside it, so two stealers can never delete each other's fresh lock.
+ * - Release removes the lock only while it is still ours.
  */
 const LOCK_POLL_MS = 50;
 const LOCK_STALE_MS = 10 * 60_000;
+const LOCK_WAIT_MS = 30 * 60_000;
+const STEAL_STALE_MS = 30_000; // the steal mutex is held for microseconds
+
+type LockOwner = { pid: number; token: string };
+
+function readOwner(lock: string): LockOwner | null {
+  try {
+    const o = JSON.parse(readFileSync(join(lock, "owner"), "utf8")) as LockOwner;
+    return typeof o?.pid === "number" && typeof o?.token === "string" ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM"; // exists, not ours
+  }
+}
+
+/** Stale = holder dead, or no owner record and older than `staleMs`. A live holder is never stale. */
+function lockIsStale(lock: string, staleMs: number): boolean {
+  const owner = readOwner(lock);
+  if (owner) return !pidAlive(owner.pid);
+  try {
+    return Date.now() - statSync(lock).mtimeMs > staleMs;
+  } catch {
+    return false; // vanished — the acquire loop retries
+  }
+}
+
+/** Remove a stale lock under the steal mutex, re-validating inside it. */
+function stealStaleLock(lock: string, staleMs: number): void {
+  const steal = `${lock}.steal`;
+  try {
+    mkdirSync(steal);
+  } catch {
+    try {
+      if (Date.now() - statSync(steal).mtimeMs > STEAL_STALE_MS) rmSync(steal, { recursive: true, force: true });
+    } catch { /* gone */ }
+    return; // another stealer is at work — wait and re-check
+  }
+  try {
+    if (lockIsStale(lock, staleMs)) rmSync(lock, { recursive: true, force: true });
+  } finally {
+    rmSync(steal, { recursive: true, force: true });
+  }
+}
+
 async function withCacheLock<T>(ctx: ResolveCtx, key: string, fn: () => Promise<T>): Promise<T> {
   const pollMs = ctx.testHooks?.lockPollMs ?? LOCK_POLL_MS;
   const staleMs = ctx.testHooks?.lockStaleMs ?? LOCK_STALE_MS;
+  const waitMs = ctx.testHooks?.lockWaitMs ?? LOCK_WAIT_MS;
   mkdirSync(ctx.cacheDir, { recursive: true });
   const lock = join(ctx.cacheDir, `${key}.lock`);
+  const token = randomUUID();
+  const started = Date.now();
   for (;;) {
     try {
       mkdirSync(lock);
+      try {
+        writeFileSync(join(lock, "owner"), JSON.stringify({ pid: process.pid, token } satisfies LockOwner));
+      } catch (werr) {
+        rmSync(lock, { recursive: true, force: true }); // never leave an ownerless lock behind
+        throw werr;
+      }
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      try {
-        if (Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true });
-        else await new Promise((r) => setTimeout(r, pollMs));
-      } catch {
-        // lock vanished between EEXIST and stat — retry immediately
+      if (lockIsStale(lock, staleMs)) {
+        stealStaleLock(lock, staleMs);
+        continue;
       }
+      if (Date.now() - started > waitMs) {
+        const o = readOwner(lock);
+        throw new Error(`cache entry is locked: held by pid ${o?.pid ?? "unknown"} for >${Math.round(waitMs / 1000)}s; remove ${lock} if that process is gone`);
+      }
+      await new Promise((r) => setTimeout(r, pollMs));
     }
   }
   try {
     return await fn();
   } finally {
-    rmSync(lock, { recursive: true, force: true });
+    if (readOwner(lock)?.token === token) rmSync(lock, { recursive: true, force: true });
   }
 }
 

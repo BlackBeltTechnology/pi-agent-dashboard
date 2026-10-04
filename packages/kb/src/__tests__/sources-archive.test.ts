@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import https from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -297,6 +297,84 @@ d("per-cache-key lock (review B1: concurrent refreshes)", () => {
       testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockStaleMs: 10, lockPollMs: 5 },
     });
     expect(existsSync(join(r.dir, "n.md"))).toBe(true);
+  });
+
+  // ---- review r2 B1: ownership-safe stale recovery ----
+  const writeOwner = (lock: string, pid: number, token: string) => writeFileSync(join(lock, "owner"), JSON.stringify({ pid, token }));
+  const age = (path: string, ms: number) => utimesSync(path, new Date(Date.now() - ms), new Date(Date.now() - ms));
+  /** A pid that is guaranteed dead: a child that already exited. */
+  async function deadPid(): Promise<number> {
+    const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+    await new Promise((r) => child.on("exit", r));
+    return child.pid as number;
+  }
+
+  it("never steals a lock whose holder is alive, however old; gives up with an actionable error", async () => {
+    const cacheDir = mk();
+    const spec = specOf("live-old");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true });
+    writeOwner(lock, process.pid, "live-holder"); // this very process is the live holder
+    age(lock, 60_000);
+    const fetch = vi.fn(async () => zip([{ name: "n.md", data: "x" }]));
+    await expect(
+      httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch, lockStaleMs: 10, lockPollMs: 5, lockWaitMs: 120 } }),
+    ).rejects.toThrow(new RegExp(`held by pid ${process.pid}`));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("live-holder"); // untouched
+  });
+
+  it("steals immediately from a dead holder, even a young lock", async () => {
+    const cacheDir = mk();
+    const spec = specOf("dead-young");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true });
+    writeOwner(lock, await deadPid(), "dead-holder");
+    const r = await httpsResolver.resolve(spec, {
+      cwd: cacheDir, cacheDir,
+      testHooks: { fetch: async () => zip([{ name: "n.md", data: "x" }]), lockPollMs: 5 },
+    });
+    expect(existsSync(join(r.dir, "n.md"))).toBe(true);
+  });
+
+  it("release only removes a lock this holder still owns", async () => {
+    const cacheDir = mk();
+    const spec = specOf("owner-release");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    // While A is inside its critical section, its lock is replaced by another holder's.
+    const fetch = async () => {
+      rmSync(lock, { recursive: true, force: true });
+      mkdirSync(lock);
+      writeOwner(lock, process.pid, "successor");
+      return zip([{ name: "n.md", data: "x" }]);
+    };
+    await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch } });
+    expect(JSON.parse(readFileSync(join(lock, "owner"), "utf8")).token).toBe("successor");
+  });
+
+  it("many concurrent waiters on a dead holder's lock: exactly one steals, critical sections never overlap", async () => {
+    const cacheDir = mk();
+    const spec = specOf("many-stealers");
+    recordTrust(spec);
+    const lock = join(cacheDir, `${cacheKey(spec)}.lock`);
+    mkdirSync(lock, { recursive: true });
+    writeOwner(lock, await deadPid(), "dead-holder");
+    let inflight = 0;
+    let maxInflight = 0;
+    const fetch = async () => {
+      inflight++;
+      maxInflight = Math.max(maxInflight, inflight);
+      await sleep(30);
+      inflight--;
+      return zip([{ name: "n.md", data: "x" }]);
+    };
+    const ctx = { cwd: cacheDir, cacheDir, refresh: true, testHooks: { fetch, lockPollMs: 5 } };
+    await Promise.all(Array.from({ length: 6 }, () => httpsResolver.resolve(spec, ctx)));
+    expect(maxInflight).toBe(1);
+    expect(readdirSync(cacheDir).sort()).toEqual([cacheKey(spec)]);
   });
 
   it("releases the lock when the critical section throws", async () => {
