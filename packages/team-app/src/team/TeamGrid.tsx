@@ -23,7 +23,10 @@ export function TeamGrid() {
   const { toast } = useToast();
   const eff = useEffectiveTarget();
   const { api, target } = eff;
-  const [agents, setAgents] = useState<Agent[] | null>(null);
+  // Keyed by the target it was loaded for: after a target switch the old target's cards must never
+  // stay clickable (they would open that target's conversations under the new target).
+  const [loaded, setLoaded] = useState<{ target: string; agents: Agent[] } | null>(null);
+  const agents = loaded && loaded.target === target ? loaded.agents : null;
   const [error, setError] = useState(false);
   const [adding, setAdding] = useState(false);
   const admin = eff.state.me?.admin === true;
@@ -34,7 +37,8 @@ export function TeamGrid() {
 
   const load = useCallback(async () => {
     try {
-      setAgents(await api.agents(target));
+      const list = await api.agents(target);
+      setLoaded({ target, agents: list });
       setError(false);
     } catch {
       setError(true);

@@ -11,7 +11,7 @@ import { memoryLocation } from "wouter/memory-location";
 import type { Agent, Conversation, Me, Persona, ProjectInfo } from "../api/types.js";
 import { ToastProvider } from "../ui/toast.js";
 
-type Handler = (req: { method: string; path: string; query: URLSearchParams; body: unknown }) => unknown;
+type Handler = (req: { method: string; path: string; query: URLSearchParams; body: unknown }) => unknown | Promise<unknown>;
 
 export interface FakeHost extends AppHost {
   calls: Array<{ method: string; path: string; body: unknown }>;
@@ -54,7 +54,7 @@ export function makeHost(opts: { mode?: "embedded" | "standalone"; dashboard?: b
           }
         }
         if (!handler) return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
-        const out = handler({ method, path: url.pathname, query: url.searchParams, body });
+        const out = await handler({ method, path: url.pathname, query: url.searchParams, body });
         if (out instanceof Response) return out;
         return new Response(JSON.stringify(out ?? {}), { status: 200, headers: { "Content-Type": "application/json" } });
       },

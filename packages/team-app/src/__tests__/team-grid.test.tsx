@@ -4,7 +4,8 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamGrid } from "../team/TeamGrid.js";
-import { agent, bootRoutes, conv, json, makeHost, ME, renderApp } from "./helpers.js";
+import { targetStore } from "../state/target-store.js";
+import { agent, bootRoutes, conv, json, makeHost, ME, project, renderApp } from "./helpers.js";
 
 const AGENTS = "GET /api/plugins/team/agents";
 
@@ -152,5 +153,31 @@ describe("states", () => {
     fireEvent.click(screen.getByText("Újrapróbálás"));
     await screen.findByTestId("empty-target");
     expect(ME.admin).toBe(false);
+  });
+});
+
+describe("target switch", () => {
+  it("the previous target's cards disappear immediately (never clickable under the new target)", async () => {
+    const host = makeHost();
+    bootRoutes(host, {}, [project("p1")]);
+    targetStore.set("_ws");
+    let release: (v: unknown) => void = () => {};
+    const gate = new Promise((r) => {
+      release = r;
+    });
+    host.routes.set(AGENTS, async ({ query }) => {
+      if (query.get("project") === "p1") {
+        await gate;
+        return { agents: [agent("shared:b", { name: "BBB" })] };
+      }
+      return { agents: [agent("shared:a", { name: "AAA" })] };
+    });
+    renderApp(<TeamGrid />, host);
+    await screen.findByRole("heading", { name: "AAA" });
+    act(() => targetStore.set("p1"));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "AAA" })).toBeNull());
+    expect(screen.getByText(/Ügynökök betöltése/)).toBeTruthy();
+    release(null);
+    await screen.findByRole("heading", { name: "BBB" });
   });
 });
