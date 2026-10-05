@@ -51,6 +51,7 @@ export const SCAN_ROOTS = [
   "packages/client/src",
   "packages/automation-plugin/src/client",
   "packages/flows-plugin/src/client",
+  "packages/gmail-plugin/src/client",
 ];
 
 /** index.css is the theme layer — the single place a token may be declared. */
