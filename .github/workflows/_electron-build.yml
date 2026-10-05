@@ -636,8 +636,10 @@ jobs:
               LAST_PL=0
               xvfb-run -a "$BIN" --no-sandbox > /tmp/electron.log 2>&1 &
               APP_PID=$!
+              # Electron start = the exec itself (t=0), not its first log line:
+              # a silent Electron could otherwise reach health with no start row.
+              AT[electron_start]=0
               for i in $(seq 1 90); do
-                if [ -s /tmp/electron.log ]; then mark electron_start "$i"; fi
                 if denoise "$LOG" | grep -aqF "launch (parent pid"; then mark spawn_header "$i"; fi
                 PL=$(denoise "$LOG" | grep -acF "[plugin-loader]" || true); PL=${PL:-0}
                 if [ "$PL" -gt 0 ]; then mark first_plugin_loader "$i"; fi

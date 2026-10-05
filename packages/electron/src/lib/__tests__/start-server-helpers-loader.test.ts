@@ -8,6 +8,7 @@
  *
  * See change: fix-appimage-cold-boot-latency (test-plan E22, design D2).
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
@@ -32,6 +33,28 @@ describe("start-server helpers default to the native TS loader (E22)", () => {
     const jitiCmp = text.search(/PI_DASHBOARD_TS_LOADER[^\n]*jiti/);
     expect(jitiCmp).toBeGreaterThanOrEqual(0);
     expect(text.indexOf(JITI_REL)).toBeGreaterThan(jitiCmp);
+  });
+
+  it.each(["start-server.sh", "start-server.cmd", "start-server.ps1"])("%s warns on an unknown PI_DASHBOARD_TS_LOADER value (parity with selectTsLoader)", (file) => {
+    const text = read(file);
+    expect(text).toMatch(/unknown PI_DASHBOARD_TS_LOADER/);
+  });
+
+  it("start-server.sh: unknown value warns on stderr and still selects the native register", () => {
+    const text = read("start-server.sh");
+    const start = text.indexOf("# TypeScript loader as file:// URL");
+    const end = text.indexOf("if [ ! -f \"$LOADER_PATH\" ]");
+    const block = text.slice(start, end);
+    const run = (value: string) => spawnSync("bash", ["-c", `SVR_DIR=/svr\n${block}\necho "$LOADER_PATH"`], {
+      encoding: "utf-8",
+      env: { ...process.env, PI_DASHBOARD_TS_LOADER: value },
+    });
+    const tsx = run("tsx");
+    expect(tsx.stdout.trim()).toBe(`/svr/${NATIVE_REL}`);
+    expect(tsx.stderr).toContain("unknown PI_DASHBOARD_TS_LOADER");
+    expect(tsx.stderr).toContain("tsx");
+    for (const quiet of ["", "native"]) expect(run(quiet).stderr).toBe("");
+    expect(run("jiti").stdout.trim()).toBe(`/svr/${JITI_REL}`);
   });
 
   it("the referenced native register exists in the shared package and is shipped", () => {

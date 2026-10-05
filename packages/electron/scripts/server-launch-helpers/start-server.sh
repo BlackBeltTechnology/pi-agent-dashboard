@@ -43,9 +43,14 @@ if [ ! -x "$NODE_BIN" ]; then
 fi
 
 # TypeScript loader as file:// URL — native by default, jiti on opt-in.
+# Unknown non-empty values warn and fall back to native (parity with selectTsLoader).
 if [ "${PI_DASHBOARD_TS_LOADER:-}" = "jiti" ]; then
   LOADER_PATH="$SVR_DIR/node_modules/jiti/lib/jiti-register.mjs"
 else
+  case "${PI_DASHBOARD_TS_LOADER:-}" in
+    ""|native) ;;
+    *) echo "⚠ unknown PI_DASHBOARD_TS_LOADER=\"${PI_DASHBOARD_TS_LOADER}\"; using the native TypeScript loader (valid: native, jiti)." >&2 ;;
+  esac
   LOADER_PATH="$SVR_DIR/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs"
 fi
 if [ ! -f "$LOADER_PATH" ]; then

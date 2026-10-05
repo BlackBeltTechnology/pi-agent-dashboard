@@ -31,7 +31,11 @@ rem URL form requires forward slashes; %~dp0 uses backslashes.
 rem Entry: jiti needs the RAW Windows path (JITI VERSION CONTRACT); the native
 rem loader gets a file:// URL so A:/B: drives are not parsed as URL schemes.
 set "SVR_URL=%SVR_DIR:\=/%"
-if /i "%PI_DASHBOARD_TS_LOADER%"=="jiti" (
+rem Unknown non-empty values warn and fall back to native (parity with selectTsLoader).
+if not "%PI_DASHBOARD_TS_LOADER%"=="" if not "%PI_DASHBOARD_TS_LOADER%"=="jiti" if not "%PI_DASHBOARD_TS_LOADER%"=="native" (
+  echo WARNING: unknown PI_DASHBOARD_TS_LOADER="%PI_DASHBOARD_TS_LOADER%"; using the native TypeScript loader ^(valid: native, jiti^). 1>&2
+)
+if "%PI_DASHBOARD_TS_LOADER%"=="jiti" (
   set "LOADER_URL=file:///%SVR_URL%node_modules/jiti/lib/jiti-register.mjs"
   set "CLI=%SVR_DIR%packages\server\src\cli.ts"
 ) else (
