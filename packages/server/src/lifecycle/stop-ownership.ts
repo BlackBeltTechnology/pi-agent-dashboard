@@ -36,7 +36,9 @@ const LOOPBACK_HOSTS = new Set(["", "0.0.0.0", "::", "[::]", "localhost", "127.0
 /** Host the health probe dials: loopback for wildcard/loopback binds, else as configured. */
 export function healthHost(host: string | null | undefined): string {
   const h = (host ?? "").trim();
-  return LOOPBACK_HOSTS.has(h) ? "127.0.0.1" : h;
+  if (LOOPBACK_HOSTS.has(h)) return "127.0.0.1";
+  // A raw IPv6 literal (e.g. ::1) must be bracketed to form a valid URL host.
+  return h.includes(":") && !h.startsWith("[") ? `[${h}]` : h;
 }
 
 const defaultDeps: OwnershipDeps = {
