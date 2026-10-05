@@ -217,7 +217,9 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
       getCollapsedFolders: () => [],
       getFavoriteModels: () => [],
     };
-    const terminalManager = { list: () => [{ id: "t1" }], on: vi.fn() };
+    // Owned by `owner`: enforced terminals are visible to their owner only (18.13).
+    const terminals = [{ id: "t1", principalOwner: owner }];
+    const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
     // Positional deps: preferencesStore is #7, terminalManager #9, isResolverActive #25.
     const gateway = createBrowserGateway(
       sessionManager,
@@ -269,13 +271,14 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
     const g = prefsGateway(true, true);
     const yes = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
     yes.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: true };
-    const no = makeFakeWs(other) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    // Same principal (so ownership passes) — only the policy grant differs.
+    const no = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
     no.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: false };
     g.wss.emit("connection", yes, {});
     g.wss.emit("connection", no, {});
     yes.send.mockClear();
     no.send.mockClear();
-    g.broadcast({ type: "terminal_added", terminal: { id: "t2" } } as never);
+    g.broadcast({ type: "terminal_added", terminal: { id: "t2", principalOwner: owner } } as never);
     expect(types(yes)).toContain("terminal_added");
     expect(types(no)).not.toContain("terminal_added");
   });

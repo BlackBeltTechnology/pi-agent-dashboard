@@ -3726,7 +3726,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {
-              void decideBootstrapGrants(upgradeAuth.principal, policyRegistry).then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS));
+              decideBootstrapGrants(upgradeAuth.principal, policyRegistry)
+                .then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS))
+                .catch((err) => {
+                  console.error("[ws-gate] browser upgrade failed after the policy decision:", err);
+                  socket.destroy();
+                });
             } else {
               finishBrowserUpgrade();
             }
