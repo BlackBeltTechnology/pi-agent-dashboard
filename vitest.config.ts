@@ -96,6 +96,9 @@ export default defineConfig({
       // prompt mapping, adapter payload codec) gate real spawn boundaries.
       "packages/chat-gateway",
       "packages/mcp-server-plugin",
+      // team-plugin (change: add-team-plugin): personas, project teams, conversations and the
+      // isolation guard. Its suites gate owner isolation and path confinement.
+      "packages/team-plugin",
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",

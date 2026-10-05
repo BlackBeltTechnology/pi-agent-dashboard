@@ -20,6 +20,7 @@ export {
   type IdentityMode,
   notifySessionRefused,
   type Operator,
+  onIdentityChange,
   onSessionRefused,
   resetIdentityState,
   setAccessToken,

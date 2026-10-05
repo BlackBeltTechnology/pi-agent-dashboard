@@ -251,3 +251,20 @@ describe("CwdPolicyRegistry — symlink robustness (canonical OR lexical)", () =
     unlinkSync(target);
   });
 });
+
+describe("mergeCwdPolicy — persona scope fields pass through (add-team-plugin E5)", () => {
+  it("appendSystemPrompt / noContextFiles / noProjectTrust / sessionDir are untouched", () => {
+    const options = {
+      appendSystemPrompt: ["/t/persona.md"],
+      noContextFiles: true,
+      noProjectTrust: true,
+      sessionDir: "/s/--w--",
+    };
+    const merged = mergeCwdPolicy({ tools: ["read"] }, options) as typeof options & { tools?: string[] };
+    expect(merged.appendSystemPrompt).toEqual(["/t/persona.md"]);
+    expect(merged.noContextFiles).toBe(true);
+    expect(merged.noProjectTrust).toBe(true);
+    expect(merged.sessionDir).toBe("/s/--w--");
+    expect(merged.tools).toEqual(["read"]);
+  });
+});

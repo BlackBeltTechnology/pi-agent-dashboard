@@ -6,7 +6,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 
 export interface DiscoveredSession {
@@ -18,15 +18,6 @@ export interface DiscoveredSession {
   firstMessage?: string;
   sessionFile: string;
   sessionDir: string;
-}
-
-/** Encode cwd to the safe directory name pi uses */
-function encodeCwd(cwd: string): string {
-  return `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-}
-
-function getSessionsDir(): string {
-  return resolvePiSessionsDir({ piSessionsDir: loadConfig().piSessionsDir });
 }
 
 /** Read the header and first user message from a JSONL session file */
@@ -100,9 +91,7 @@ function readSessionHeader(filePath: string): {
  * Returns sessions sorted by modified time (newest first).
  */
 export function discoverSessionsForCwd(cwd: string): DiscoveredSession[] {
-  const sessionsDir = getSessionsDir();
-  const encoded = encodeCwd(cwd);
-  const dir = join(sessionsDir, encoded);
+  const dir = piSessionDirForCwd(cwd, { piSessionsDir: loadConfig().piSessionsDir });
 
   if (!existsSync(dir)) return [];
 
