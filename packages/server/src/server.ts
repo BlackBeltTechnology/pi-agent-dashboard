@@ -20,7 +20,7 @@ import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, lo
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
-import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
@@ -157,6 +157,8 @@ import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./
 import { BreakGlass } from "./identity/break-glass.js";
 import { dispatchResolvers } from "./identity/dispatch.js";
 import { createPluginIdentity } from "./identity/plugin-identity.js";
+import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
+import { HostActions, hostResource } from "./identity/host-resources.js";
 import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
@@ -3698,6 +3700,32 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // "/ws" would destroy the authorized upgrade. `routeScopeForUrl` strips
         // the query, so scope stays query-string-safe by construction and
         // auth-scope + routing-scope cannot drift.
+        // Review B2: a ticket proves WHO; the optional host policy still decides
+        // whether that principal may reach the terminal / live roads. Bounded +
+        // fail-closed (`authorizeRoadUpgrade`); unchanged when inert or no policy.
+        const gateRoadUpgrade = (action: HostAction, resource: HostResource, proceed: () => void) => {
+          if (!identityEnforced() || !policyRegistry.hasPolicy()) {
+            proceed();
+            return;
+          }
+          authorizeRoadUpgrade({
+            enforced: true,
+            policy: policyRegistry,
+            principal: upgradeAuth.principal ?? null,
+            action,
+            resource,
+          })
+            .then((ok) => {
+              if (ok) {
+                proceed();
+              } else {
+                socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+                socket.destroy();
+              }
+            })
+            .catch(() => socket.destroy());
+        };
+
         switch (scope) {
           case "browser": {
             // 18.37a: decide the non-session policy grants BEFORE the upgrade
@@ -3737,26 +3765,47 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             }
             break;
           }
-          case "terminal":
+          case "terminal": {
             // 18.13: owner equality on the PTY attach (shell I/O is the most
             // sensitive surface). Inert ⇒ no gate; break-glass operator ⇒ all.
-            terminalGateway.handleUpgrade(
-              request,
-              socket,
-              head,
-              identityEnforced()
-                ? (termId) =>
-                    canAccessSession({
-                      active: true,
-                      principal: upgradeAuth.principal ?? null,
-                      owner: terminalManager.get(termId)?.principalOwner,
-                    })
-                : undefined,
+            // Review B2: the host policy also decides `terminal.read` BEFORE the
+            // upgrade; B1: the attached socket closes at the ticket's expiry.
+            const termId = terminalGateway.parseTerminalId(request.url ?? "")?.split("?")[0];
+            gateRoadUpgrade(HostActions.terminalRead, hostResource.terminal(termId), () =>
+              terminalGateway.handleUpgrade(
+                request,
+                socket,
+                head,
+                identityEnforced()
+                  ? (id) =>
+                      canAccessSession({
+                        active: true,
+                        principal: upgradeAuth.principal ?? null,
+                        owner: terminalManager.get(id)?.principalOwner,
+                      })
+                  : undefined,
+                upgradeAuth.principalExpiresAt,
+              ),
             );
             break;
-          case "live":
-            handleLiveServerUpgrade(liveServerManager, request, socket, head);
+          }
+          case "live": {
+            // Review B2 (policy `live.read` before the upgrade) + B1 (a proxied
+            // dev-server socket must not outlive the ticket's principal).
+            gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: (request.url ?? "").split("?")[0] }, () => {
+              if (typeof upgradeAuth.principalExpiresAt === "number") {
+                const delay = Math.max(0, upgradeAuth.principalExpiresAt - Date.now());
+                // 32-bit timer cap; a longer lifetime is implausible and left unscheduled
+                // (same bound as `installSocketLifetime`).
+                if (delay <= 2_147_483_647) {
+                  const timer = setTimeout(() => socket.destroy(), delay);
+                  socket.once("close", () => clearTimeout(timer));
+                }
+              }
+              handleLiveServerUpgrade(liveServerManager, request, socket, head);
+            });
             break;
+          }
           default:
             socket.destroy();
         }

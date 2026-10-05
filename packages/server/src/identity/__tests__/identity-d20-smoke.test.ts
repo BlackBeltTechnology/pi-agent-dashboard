@@ -182,3 +182,95 @@ describe("18.13 terminal + live WS scopes require a principal ticket while enfor
     }
   }, 40000);
 });
+
+describe("review B1/B2 — terminal upgrade honours host policy and token expiry (real PTY)", () => {
+  async function ticketFor(token: string, scope: "browser" | "terminal"): Promise<string> {
+    const res = await fetch(`http://127.0.0.1:${h.handle().httpPort}/api/ws-ticket`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ scope }),
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { data: { ticket: string } }).data.ticket;
+  }
+
+  /** anna spawns a real terminal through her ticketed browser socket; resolves its id. */
+  async function spawnTerminal(token: string): Promise<string> {
+    const ws = await h.dial(await ticketFor(token, "browser"));
+    expect(ws).not.toBeNull();
+    const id = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("no terminal_added")), 10_000);
+      ws!.on("message", (raw) => {
+        const m = JSON.parse(String(raw)) as { type?: string; terminal?: { id: string; principalOwner?: { sub: string } } };
+        if (m.type === "terminal_added" && m.terminal?.principalOwner?.sub === "sub-anna") {
+          clearTimeout(timer);
+          resolve(m.terminal.id);
+        }
+      });
+      ws!.send(JSON.stringify({ type: "create_terminal", cwd: h.home }));
+    });
+    ws!.close();
+    return id;
+  }
+
+  const upgrade = (path_: string): Promise<{ status?: number; ws?: WebSocket }> =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${h.handle().httpPort}${path_}`);
+      ws.on("open", () => resolve({ ws }));
+      ws.on("unexpected-response", (_r, res) => resolve({ status: res.statusCode }));
+      ws.on("error", () => resolve({}));
+      setTimeout(() => resolve({}), 5000);
+    });
+
+  function bootWithPolicy() {
+    h.dropIn("pol-login", loginPlugin("pol-login"));
+    h.dropIn(
+      "pol-policy",
+      `export default async (ctx) => {
+         globalThis.__denied = new Set();
+         ctx.registerHostAccessPolicy(async ({ action }) => !globalThis.__denied.has(action));
+       };`,
+    );
+    h.writeConfig({
+      plugins: { "keycloak-resolver": { enabled: true, issuer: idp.issuer, audience: idp.audience, allowInsecureHttp: true, clockSkewSeconds: 0 } },
+      identity: { trustedResolverPlugins: ["pol-login"], trustedPolicyPlugin: "pol-policy" },
+    });
+    return h.boot();
+  }
+
+  it("B2: a policy that denies terminal.read refuses the upgrade to an EXISTING owned terminal (403); allowed ⇒ attaches", async () => {
+    await bootWithPolicy();
+    try {
+      const token = await idp.mint({ sub: "sub-anna" });
+      const id = await spawnTerminal(token);
+
+      const allowed = await upgrade(`/ws/terminal/${id}?ticket=${encodeURIComponent(await ticketFor(token, "terminal"))}`);
+      expect(allowed.ws).toBeDefined();
+      allowed.ws?.close();
+
+      (globalThis as any).__denied.add("terminal.read");
+      const denied = await upgrade(`/ws/terminal/${id}?ticket=${encodeURIComponent(await ticketFor(token, "terminal"))}`);
+      expect(denied).toEqual({ status: 403 });
+    } finally {
+      delete (globalThis as any).__denied;
+    }
+  }, 60000);
+
+  it("B1: an attached terminal socket is closed 4001 when its bearer expires", async () => {
+    await bootWithPolicy();
+    try {
+      const long = await idp.mint({ sub: "sub-anna" });
+      const id = await spawnTerminal(long);
+      const short = await idp.mint({ sub: "sub-anna", expSeconds: 3 });
+      const { ws } = await upgrade(`/ws/terminal/${id}?ticket=${encodeURIComponent(await ticketFor(short, "terminal"))}`);
+      expect(ws).toBeDefined();
+      const code = await new Promise<number>((resolve) => {
+        ws!.on("close", (c) => resolve(c));
+        setTimeout(() => resolve(-1), 9000);
+      });
+      expect(code).toBe(4001);
+    } finally {
+      delete (globalThis as any).__denied;
+    }
+  }, 60000);
+});

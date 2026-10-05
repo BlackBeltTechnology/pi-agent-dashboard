@@ -39,6 +39,7 @@ export const FRAME_FAMILY: Readonly<Record<string, BootstrapFamily>> = {
   openspec_update: "openspec",
   git_head_update: "branch",
   terminal_added: "terminal",
+  terminal_updated: "terminal",
   terminal_removed: "terminal",
 };
 

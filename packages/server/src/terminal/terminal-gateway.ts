@@ -5,6 +5,7 @@
 import { WebSocketServer, type WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
+import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
 import type { TerminalManager } from "./terminal-manager.js";
 
 const TERMINAL_PATH_PREFIX = "/ws/terminal/";
@@ -19,7 +20,18 @@ export interface TerminalGateway {
    * known to exist; `false` ⇒ the upgrade is refused before any PTY attach.
    * Absent ⇒ unchanged (inert era).
    */
-  handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, authorize?: (termId: string) => boolean): void;
+  handleUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    authorize?: (termId: string) => boolean,
+    /**
+     * Expiry (ms epoch) of the principal bound to the ticket. The attached PTY
+     * socket is closed (4001) at that instant, like a browser socket (§9.4): an
+     * owner check at upgrade must not outlive the credential that passed it.
+     */
+    principalExpiresAt?: number,
+  ): void;
   /** Close the WebSocket server. */
   close(): void;
 }
@@ -33,7 +45,13 @@ export function createTerminalGateway(manager: TerminalManager): TerminalGateway
     return id.length > 0 ? id : null;
   }
 
-  function handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer, authorize?: (termId: string) => boolean): void {
+  function handleUpgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    authorize?: (termId: string) => boolean,
+    principalExpiresAt?: number,
+  ): void {
     // `parseTerminalId` is a startsWith/slice on the raw URL, so a `?ticket=…`
     // query rides the id; strip it before the lookup (unchanged for plain URLs).
     const termId = parseTerminalId(request.url ?? "")?.split("?")[0] ?? null;
@@ -49,6 +67,11 @@ export function createTerminalGateway(manager: TerminalManager): TerminalGateway
 
     wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
       manager.attach(termId, ws);
+      if (typeof principalExpiresAt === "number") {
+        const lifetime = Object.assign(ws, { principalExpiresAt }) as unknown as LifetimeSocket;
+        const dispose = installSocketLifetime(lifetime);
+        ws.on("close", dispose);
+      }
     });
   }
 

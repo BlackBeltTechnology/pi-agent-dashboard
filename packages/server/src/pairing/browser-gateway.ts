@@ -1515,8 +1515,11 @@ export function createBrowserGateway(
     if (msg.type === "sessions_reordered") {
       for (const [ws] of subscriptions) {
         const principal = socketPrincipal(ws);
-        const visible = msg.sessionIds.filter((id) =>
-          canAccessSession({ active: true, principal, owner: ownerOf(id) }),
+        const visible = msg.sessionIds.filter(
+          (id) =>
+            canAccessSession({ active: true, principal, owner: ownerOf(id) }) &&
+            // A terminal id in an order list is terminal disclosure: the terminal grant applies.
+            (terminalManager?.get(id) === undefined || granted(ws, "terminal")),
         );
         if (visible.length > 0) sendTo(ws, { ...msg, sessionIds: visible });
       }
@@ -1787,7 +1790,7 @@ export function createBrowserGateway(
         isResolverActive?.() ?? false,
         (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
         (terminalManager?.list() ?? [])
-          .filter((t) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
+          .filter((t) => granted(ws, "terminal") && canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
           .map((t) => t.id),
       );
       sendTo(ws, {

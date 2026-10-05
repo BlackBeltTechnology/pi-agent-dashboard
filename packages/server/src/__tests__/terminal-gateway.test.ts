@@ -86,4 +86,63 @@ describe("TerminalGateway", () => {
     expect(mockManager.get).toHaveBeenCalledWith("term-abc");
     expect(mockManager.attach).toHaveBeenCalledWith("term-abc", expect.anything());
   });
+
+  // ── review B1: an ATTACHED PTY socket must not outlive the principal's token ──
+  function attachedSocket() {
+    const gateway = createTerminalGateway(mockManager);
+    (mockManager.get as any).mockReturnValue({ id: "term-abc", status: "active" });
+    const handlers: Record<string, () => void> = {};
+    const ws = {
+      close: vi.fn(),
+      ping: vi.fn(),
+      terminate: vi.fn(),
+      on: vi.fn((ev: string, fn: () => void) => { handlers[ev] = fn; }),
+    } as any;
+    (gateway.wss as any).handleUpgrade = vi.fn((_r: any, _s: any, _h: any, cb: any) => cb(ws));
+    return { gateway, ws, handlers };
+  }
+
+  it("closes the attached socket with 4001 when the ticket's principal expires, and never earlier", () => {
+    vi.useFakeTimers();
+    try {
+      const { gateway, ws } = attachedSocket();
+      const expiresAt = Date.now() + 5_000;
+      gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0), undefined, expiresAt);
+      expect(mockManager.attach).toHaveBeenCalled();
+      vi.advanceTimersByTime(4_900);
+      expect(ws.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(200);
+      expect(ws.close).toHaveBeenCalledWith(4001, "identity expired");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an already-expired ticket closes the socket immediately after attach", () => {
+    vi.useFakeTimers();
+    try {
+      const { gateway, ws } = attachedSocket();
+      gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0), undefined, Date.now() - 1);
+      expect(ws.close).toHaveBeenCalledWith(4001, "identity expired");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("no expiry (inert plane / principal-less ticket) installs no timers; the timers are released on close", () => {
+    vi.useFakeTimers();
+    try {
+      const inert = attachedSocket();
+      inert.gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0));
+      expect(vi.getTimerCount()).toBe(0);
+
+      const live = attachedSocket();
+      live.gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, { destroy: vi.fn() } as any, Buffer.alloc(0), undefined, Date.now() + 60_000);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      live.handlers.close?.();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

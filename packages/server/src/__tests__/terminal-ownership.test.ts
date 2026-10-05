@@ -161,4 +161,69 @@ describe("terminal frames reach only the owner (18.13)", () => {
     expect(filterSnapshotForPrincipal(snap as never, true, anna, ["ta"]).orders).toEqual({ "/a": ["ta"] });
     expect(filterSnapshotForPrincipal(snap as never, true, bela, []).orders).toEqual({});
   });
+
+  // ── review round 1, B3: the terminal policy grant covers EVERY terminal-bearing frame ──
+  function policyGateway(grants: { terminal: boolean }) {
+    const sessionManager = createMemorySessionManager();
+    // Window projection that (unlike the memory manager's) keeps the terminal id, so the
+    // order frames below really carry it.
+    (sessionManager as any).snapshotVisibleIds = () => new Set(["ta", "sa"]);
+    (sessionManager as any).buildSnapshot = () => ({ sessions: [], orders: { "/a": ["ta"] }, endedTotals: { "/a": 0 } });
+    const terminals = [{ id: "ta", cwd: "/a", principalOwner: anna }];
+    const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const gateway = createBrowserGateway(
+      sessionManager,
+      createMemoryEventStore(() => false),
+      piGateway,
+      undefined, undefined, undefined,
+      { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never,
+      undefined,
+      terminalManager as never,
+      ...(new Array(15).fill(undefined) as []),
+      () => true,
+    );
+    gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
+    const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: grants.terminal };
+    gateway.wss.emit("connection", ws, {});
+    ws.send.mockClear();
+    return { gateway, ws };
+  }
+  const ordersOf = (ws: ReturnType<typeof fakeWs>) => types(ws).find((m) => m.type === "sessions_reordered")?.sessionIds;
+
+  it("B3: terminal_updated is withheld from an owner whose terminal grant is denied (and sent when granted)", () => {
+    for (const [granted, expected] of [[false, []], [true, ["terminal_updated"]]] as const) {
+      const { gateway, ws } = policyGateway({ terminal: granted });
+      gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "secret" } } as never);
+      expect(types(ws).map((m) => m.type)).toEqual(expected);
+    }
+  });
+
+  it("B3: a denied terminal grant also hides the terminal id from session-order frames; granted keeps it", () => {
+    const denied = policyGateway({ terminal: false });
+    denied.gateway.broadcast({ type: "sessions_reordered", cwd: "/a", sessionIds: ["ta", "sa"] } as never);
+    expect(ordersOf(denied.ws) ?? []).not.toContain("ta");
+    const granted = policyGateway({ terminal: true });
+    granted.gateway.broadcast({ type: "sessions_reordered", cwd: "/a", sessionIds: ["ta"] } as never);
+    expect(ordersOf(granted.ws)).toEqual(["ta"]);
+  });
+
+  it("B3: the connect snapshot's order lists omit the terminal id when its grant is denied", () => {
+    const orders = (grants: { terminal: boolean }) => {
+      const sessionManager = createMemorySessionManager();
+      (sessionManager as any).buildSnapshot = () => ({ sessions: [], orders: { "/a": ["ta"] }, endedTotals: { "/a": 0 } });
+      const terminals = [{ id: "ta", cwd: "/a", principalOwner: anna }];
+      const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
+      const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+      const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+      gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
+      const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+      ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, ...grants };
+      gateway.wss.emit("connection", ws, {});
+      return (types(ws).find((m) => m.type === "sessions_snapshot") as unknown as { orders: Record<string, string[]> }).orders;
+    };
+    expect(orders({ terminal: false })).toEqual({});
+    expect(orders({ terminal: true })).toEqual({ "/a": ["ta"] });
+  });
 });
