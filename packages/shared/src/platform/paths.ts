@@ -316,3 +316,57 @@ export function supportsUnixSocketTransport(
 ): boolean {
   return platform !== "win32";
 }
+
+// ── Isomorphic lexical helpers (string-only; no node:path) ─────────────────
+
+/** Split an absolute-looking path into `{root, segs}`; root is "" for non-absolute input. */
+function splitAbs(p: string): { root: string; segs: string[] } {
+  const unc = p.match(/^[\\/]{2}([^\\/]+)[\\/]+([^\\/]+)(.*)$/);
+  if (unc) return { root: `//${unc[1].toLowerCase()}/${unc[2].toLowerCase()}`, segs: lexSegments(unc[3]) };
+  const drive = p.match(/^([A-Za-z]):[\\/](.*)$/);
+  if (drive) return { root: `${drive[1].toLowerCase()}:`, segs: lexSegments(drive[2]) };
+  if (p.startsWith("/")) return { root: "/", segs: lexSegments(p) };
+  return { root: "", segs: [] };
+}
+
+function lexSegments(rest: string): string[] {
+  const out: string[] = [];
+  for (const seg of rest.split(/[\\/]+/)) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") out.pop();
+    else out.push(seg);
+  }
+  return out;
+}
+
+/** True for POSIX `/x`, Windows `C:\x` / `C:/x`, and UNC `\\srv\share` paths. Isomorphic. */
+export function isAbsolutePath(p: string): boolean {
+  return splitAbs(p).root !== "";
+}
+
+/**
+ * Lexical relative path from `from` to `to` (both absolute), `/`-separated.
+ * Follows no symlinks — a label, not a guard. Equal paths → ".". Different
+ * roots (other drive / UNC share) → `to` unchanged, which is absolute, so a
+ * caller's `isAbsolutePath(result)` correctly flags it as outside. Drive letters
+ * are case-normalized; segments are compared case-sensitively.
+ */
+export function relativePath(from: string, to: string): string {
+  const a = splitAbs(from);
+  const b = splitAbs(to);
+  if (a.root === "" || b.root === "" || a.root !== b.root) return to;
+  let i = 0;
+  while (i < a.segs.length && i < b.segs.length && a.segs[i] === b.segs[i]) i++;
+  const up = a.segs.slice(i).map(() => "..");
+  const rel = [...up, ...b.segs.slice(i)].join("/");
+  return rel === "" ? "." : rel;
+}
+
+/**
+ * True when absolute `target` lies outside absolute `base` (lexical, separator-
+ * aware: `/a/bc` is outside `/a/b`). One implementation for client and server.
+ */
+export function isOutside(base: string, target: string): boolean {
+  const rel = relativePath(base, target);
+  return rel === ".." || rel.startsWith("../") || isAbsolutePath(rel);
+}

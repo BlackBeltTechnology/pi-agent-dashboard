@@ -6,7 +6,7 @@
  * See change: add-kb-folder-slot.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { KbConfigPatch, KbConfigResponse } from "../shared/kb-plugin-types.js";
+import type { KbConfigPatch, KbConfigPutResponse, KbConfigResponse } from "../shared/kb-plugin-types.js";
 import { fetchKbConfig, saveKbConfig } from "./kb-api.js";
 
 export interface UseKbConfigResult {
@@ -14,7 +14,8 @@ export interface UseKbConfigResult {
   loading: boolean;
   error: string | null;
   saving: boolean;
-  save: (patch: KbConfigPatch) => Promise<void>;
+  /** Resolves with the PUT response (carries `untrustedRefs` when a requested grant failed). */
+  save: (patch: KbConfigPatch) => Promise<KbConfigPutResponse | undefined>;
   refetch: () => void;
 }
 
@@ -52,13 +53,14 @@ export function useKbConfig(cwd: string | null | undefined): UseKbConfigResult {
   }, [cwd, nonce]);
 
   const save = useCallback(
-    async (patch: KbConfigPatch): Promise<void> => {
-      if (!cwd) return;
+    async (patch: KbConfigPatch): Promise<KbConfigPutResponse | undefined> => {
+      if (!cwd) return undefined;
       setSaving(true);
       setError(null);
       try {
         const d = await saveKbConfig(cwd, patch);
         setData(d);
+        return d;
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
         throw e;

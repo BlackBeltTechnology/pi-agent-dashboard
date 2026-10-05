@@ -1,0 +1,19 @@
+# CodeQL data extension: `isAllowedCwd` is a path-injection barrier guard.
+#
+# `isAllowedCwd(cwd, known)` (packages/shared/src/cwd-guard.ts) admits a
+# caller-supplied `cwd` ONLY when it — or the resolved main checkout of the git
+# repository it belongs to — is a member of the host's known-folder set
+# (session cwds ∪ pinned dirs), both sides realpath-canonicalized. Every
+# first-party route that touches disk under a caller-supplied `cwd` branches on
+# it first (kb-plugin, mcp-client). CodeQL cannot see through the membership
+# test, so without this model every such route reports `js/path-injection`.
+#
+# Scope: this models exactly that one function. It does not suppress the query.
+# See change: improve-kb-settings-sources-and-search.
+extensions:
+  - addsTo:
+      pack: codeql/javascript-all
+      extensible: barrierGuardModel
+    data:
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]
+      - ["@blackbelt-technology/pi-dashboard-shared/cwd-guard", "Member[isAllowedCwd].Argument[0]", "true", "path-injection"]

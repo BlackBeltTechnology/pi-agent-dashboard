@@ -10,10 +10,11 @@
  * (session cwds ∪ pinned dirs). Falls back to session cwds alone when the host
  * predates that seam. See change: add-kb-folder-slot.
  */
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
+
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { KbJobRegistry } from "./job-registry.js";
-import { applyConfigPatch, isAllowedCwd, mountKbRoutes, reindexAll } from "./kb-routes.js";
+import { applyConfigPatchAndTrust, isAllowedCwd, mountKbRoutes, reindexAll } from "./kb-routes.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const PLUGIN_ID = "kb";
@@ -52,7 +53,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       case "reindex": {
         if (!registry.isRunning(cwd)) {
           registry
-            .start(cwd, async () => reindexAll(cwd))
+            .start(cwd, async () => reindexAll(cwd, ctx.logger))
             .promise.catch((err) =>
               ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
             );
@@ -67,14 +68,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
           ctx.logger.warn(`kb config.set rejected cwd=${cwd}: invalid patch (expected object)`);
           return;
         }
-        const patch = payload.patch as Parameters<typeof applyConfigPatch>[1];
-        const result = applyConfigPatch(cwd, patch);
+        const patch = payload.patch as Parameters<typeof applyConfigPatchAndTrust>[1];
+        const result = applyConfigPatchAndTrust(cwd, patch);
         if (!result.ok) {
           ctx.logger.warn(`kb config.set rejected cwd=${cwd}: ${result.error}`);
           return;
         }
+        if (result.untrustedRefs.length > 0) {
+          ctx.logger.warn(`kb config.set could not trust cwd=${cwd}: ${result.untrustedRefs.join(", ")}`);
+        }
         if (payload.reindex && !registry.isRunning(cwd)) {
-          registry.start(cwd, async () => reindexAll(cwd)).promise.catch(() => {});
+          registry.start(cwd, async () => reindexAll(cwd, ctx.logger)).promise.catch(() => {});
         }
         const cfg = loadConfig(cwd);
         ctx.logger.info(`kb config.set applied cwd=${cwd} origin=${cfg.origin}`);

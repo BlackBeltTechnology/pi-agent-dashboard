@@ -12,3 +12,5 @@
 `GET /api/push/vapid-public-key` → `observe`; `GET/POST /api/push/register`, `DELETE /api/push/register/:tokenId`, `POST /api/push/test` → `operate`. See change: add-server-push-notifications.
 
 Removes `GET /api/mcp-client/adapter`, `PUT /api/mcp-client/disabled`, `PUT /api/mcp-client/settings`; adds `GET /api/mcp-client/live` (operate), `PUT /api/mcp-client/servers/:name/enabled` (operate), `POST /api/mcp-client/servers/:name/convert` (operate). See change: migrate-mcp-to-pi-builtin.
+
+KB routes (observe: GET /api/kb/search, GET /api/kb/sources; operate: POST /api/kb/source-trust). See change: improve-kb-settings-sources-and-search.

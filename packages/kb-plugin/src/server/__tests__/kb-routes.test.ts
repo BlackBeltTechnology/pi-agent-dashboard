@@ -29,7 +29,7 @@ import {
   useGitPath,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { isAllowedCwd, mountKbRoutes } from "../kb-routes.js";
 
@@ -678,4 +678,488 @@ describe("PUT /api/kb/config", () => {
     expect(chunks).toBeGreaterThan(0);
     await app.close();
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// improve-kb-settings-sources-and-search — search / sources / trust / reindex
+// ═══════════════════════════════════════════════════════════════════════════
+import { DatabaseSync } from "node:sqlite";
+import {
+  indexSource,
+  listTrustedSources,
+  loadConfig,
+  recordTrust,
+  SqliteFtsStore,
+  sourceHash,
+} from "@blackbelt-technology/pi-dashboard-kb";
+import { reindexAll } from "../kb-routes.js";
+
+const REMOTE = "https://github.com/example/never";
+const q = (cwd: string) => encodeURIComponent(cwd);
+
+function setSources(cwd: string, sources: Array<Record<string, unknown>>): void {
+  mkdirSync(join(cwd, ".pi", "dashboard"), { recursive: true });
+  writeFileSync(join(cwd, ".pi", "dashboard", "knowledge_base.json"), JSON.stringify({ sources }, null, 2));
+}
+
+const dbPathOf = (cwd: string) => loadConfig(cwd).dbAbsPath;
+
+async function settle(app: FastifyInstance, cwd: string) {
+  return pollStats(app, cwd, (b) => b.indexing === false && b.jobStatus !== "running");
+}
+
+async function reindexAndSettle(app: FastifyInstance, cwd: string) {
+  await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+  return settle(app, cwd);
+}
+
+const getJson = async (app: FastifyInstance, url: string) => {
+  const r = await app.inject({ method: "GET", url });
+  return { status: r.statusCode, body: r.json() };
+};
+
+let savedTrustPath: string | undefined;
+let trustFile: string;
+beforeEach(() => {
+  savedTrustPath = process.env.KB_SOURCE_TRUST_PATH;
+  const d = mkdtempSync(join(tmpdir(), "kb-trust-routes-"));
+  cleanup.push(d);
+  trustFile = join(d, "kb-source-trust.json");
+  process.env.KB_SOURCE_TRUST_PATH = trustFile;
+});
+afterEach(() => {
+  restoreEnv("KB_SOURCE_TRUST_PATH", savedTrustPath);
+});
+
+describe("GET /api/kb/search (kb-plugin-search)", () => {
+  it("E13 validates q: absent / blank / 513 → 400 (no db created); 512 → 200", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    const base = `/api/kb/search?cwd=${q(cwd)}`;
+    expect((await app.inject({ method: "GET", url: base })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `${base}&q=${encodeURIComponent("   ")}` })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `${base}&q=${"a".repeat(513)}` })).statusCode).toBe(400);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+    expect((await app.inject({ method: "GET", url: `${base}&q=${"a".repeat(512)}` })).statusCode).toBe(200);
+    await app.close();
+  });
+
+  it("E14 clamps limit to [1,50] (default 10)", async () => {
+    const cwd = makeFolder();
+    for (let i = 0; i < 60; i++) writeFileSync(join(cwd, "docs", `z${i}.md`), `# Zebra ${i}\n\nzebra herd number ${i} grazes on savannah grass ${i * 7919}.\n`);
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const n = async (limit?: string) =>
+      (await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=zebra${limit !== undefined ? `&limit=${limit}` : ""}`)).body.hits.length as number;
+    expect(await n()).toBeLessThanOrEqual(10);
+    expect(await n("abc")).toBeLessThanOrEqual(10);
+    expect(await n("0")).toBe(1);
+    expect(await n("1junk")).toBeLessThanOrEqual(10); // not half-parsed to 1: non-numeric → default 10
+    expect(await n("1junk")).toBeGreaterThan(1);
+    expect(await n("1")).toBe(1);
+    const fifty = await n("50");
+    expect(fifty).toBeGreaterThan(10);
+    expect(fifty).toBeLessThanOrEqual(50);
+    expect(await n("51")).toBe(fifty);
+    await app.close();
+  });
+
+  it("E15 docType lane filter; unknown docType → 400", async () => {
+    const cwd = makeFolder();
+    writeFileSync(join(cwd, "docs", "AGENTS.md"), "# Docs\n\n| File | Purpose |\n|---|---|\n| `a.md` | alpha widgets reference |\n");
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const agents = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=widgets&docType=agents`);
+    expect(agents.status).toBe(200);
+    for (const h of agents.body.hits) expect(h.docType).toBe("agents");
+    expect((await app.inject({ method: "GET", url: `/api/kb/search?cwd=${q(cwd)}&q=x&docType=bogus` })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `/api/kb/search?cwd=${q(cwd)}&q=x&docType=` })).statusCode).toBe(200); // empty lane = all
+    await app.close();
+  });
+
+  it("E16 no store side effect: unindexed folder creates no db; indexed counts are unchanged", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    const empty = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(empty.status).toBe(200);
+    expect(empty.body.hits).toEqual([]);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+
+    await reindexAndSettle(app, cwd);
+    const counts = () => {
+      const s = SqliteFtsStore.openExisting(dbPathOf(cwd));
+      try {
+        return s?.counts();
+      } finally {
+        s?.close();
+      }
+    };
+    const before = counts();
+    await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(counts()).toEqual(before);
+    await app.close();
+  });
+
+  it("E17 stale schema → needsReindex:true; schema and rows untouched", async () => {
+    const cwd = makeFolder();
+    const db = dbPathOf(cwd);
+    mkdirSync(dirname(db), { recursive: true });
+    const raw = new DatabaseSync(db);
+    raw.exec("CREATE TABLE files (root TEXT, path TEXT, mtime_ms REAL, sha256 TEXT, PRIMARY KEY (root, path))");
+    raw.exec("CREATE VIRTUAL TABLE chunks USING fts5(root UNINDEXED, path UNINDEXED, chunk_id UNINDEXED, doc_type UNINDEXED, heading_path, body)");
+    raw.exec("INSERT INTO files VALUES ('docs','a.md',1,'x')");
+    raw.close();
+    const { app } = buildApp([cwd]);
+    const res = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ hits: [], needsReindex: true });
+    const after = new DatabaseSync(db);
+    const cols = (after.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).not.toContain("start_line");
+    expect((after.prepare("SELECT COUNT(*) AS n FROM files").get() as { n: number }).n).toBe(1);
+    after.close();
+    await app.close();
+  });
+
+  it("E19 a remote source's priority is honoured and the duplicate collapses", async () => {
+    const cwd = makeFolder();
+    const R = "https://example.com/o/r.git";
+    setSources(cwd, [
+      { kind: "git", ref: R, priority: 5 },
+      { kind: "filesystem", ref: "docs", priority: 0 },
+    ]);
+    const cfg = loadConfig(cwd);
+    const store = new SqliteFtsStore(cfg.dbAbsPath);
+    store.init();
+    await indexSource(store, { root: "docs", dir: join(cwd, "docs") }, { cwd });
+    await indexSource(store, { root: R, dir: join(cwd, "docs") }, { cwd });
+    store.close();
+    const { app } = buildApp([cwd]);
+    const res = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(res.status).toBe(200);
+    expect(res.body.hits.length).toBeGreaterThan(0);
+    expect(res.body.hits[0].root).toBe(R);
+    const keys = res.body.hits.map((h: { path: string; headingPath: string }) => `${h.path}#${h.headingPath}`);
+    expect(new Set(keys).size).toBe(keys.length);
+    await app.close();
+  });
+
+  it("E20 FTS operator characters are matched as text; hit shape is complete", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const res = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=${encodeURIComponent('"alpha" OR (x')}`);
+    expect(res.status).toBe(200);
+    const hits = (await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`)).body.hits;
+    expect(hits.length).toBeGreaterThan(0);
+    for (const k of ["root", "path", "headingPath", "chunkId", "snippet", "score", "docType"]) expect(hits[0]).toHaveProperty(k);
+    expect(typeof (await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`)).body.tookMs).toBe("number");
+    await app.close();
+  });
+
+  it("E21 never enriches verdicts, even when asked", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const res = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha&verdicts=1`);
+    expect(res.status).toBe(200);
+    for (const h of res.body.hits) expect(h).not.toHaveProperty("verdict");
+    await app.close();
+  });
+
+  it("X7 a search while a write transaction is OPEN answers 200 from the last committed state (WAL reader, no SQLITE_BUSY)", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const before = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(before.body.hits.length).toBeGreaterThan(0);
+
+    // A writer holds an uncommitted batch (what a running reindex does between commits).
+    const writer = new DatabaseSync(dbPathOf(cwd));
+    writer.exec("PRAGMA busy_timeout=5000");
+    writer.exec("BEGIN IMMEDIATE");
+    writer.exec("INSERT INTO files(root,path,mtime_ms,sha256) VALUES('docs','uncommitted.md',1,'x')");
+    try {
+      const t0 = Date.now();
+      const during = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+      expect(during.status).toBe(200);
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(during.body.hits.map((h: { chunkId: string }) => h.chunkId)).toEqual(before.body.hits.map((h: { chunkId: string }) => h.chunkId));
+    } finally {
+      writer.exec("ROLLBACK");
+      writer.close();
+    }
+    await app.close();
+  });
+
+  it("E29 guard: non-admitted cwd → 403 on search / sources / source-trust, nothing created", async () => {
+    const known = makeFolder();
+    const other = makeFolder();
+    setSources(other, [{ kind: "git", ref: REMOTE }]);
+    const { app } = buildApp([known]);
+    for (const [method, url] of [
+      ["GET", `/api/kb/search?cwd=${q(other)}&q=a`],
+      ["GET", `/api/kb/sources?cwd=${q(other)}`],
+      ["POST", `/api/kb/source-trust?cwd=${q(other)}`],
+    ] as const) {
+      const res = await app.inject({ method, url, ...(method === "POST" ? { payload: { ref: REMOTE } } : {}) });
+      expect(res.statusCode, url).toBe(403);
+    }
+    expect(existsSync(dbPathOf(other))).toBe(false);
+    expect(existsSync(trustFile)).toBe(false);
+    await app.close();
+  });
+});
+
+describe("GET /api/kb/sources (kb-plugin-index-jobs)", () => {
+  it("E22 shape: filesystem file count, outside label, trusted git with last ok outcome; no chunks key", async () => {
+    const cwd = makeFolder();
+    const G = "https://github.com/example/trusted";
+    setSources(cwd, [
+      { kind: "filesystem", ref: "docs" },
+      { kind: "filesystem", ref: "/definitely/outside/the/folder" },
+      { kind: "git", ref: G },
+    ]);
+    recordTrust({ kind: "git", ref: G });
+    const { app, registry } = buildApp([cwd]);
+    // index docs only (the git source is not fetched in this test)
+    const store = new SqliteFtsStore(loadConfig(cwd).dbAbsPath);
+    store.init();
+    await indexSource(store, { root: "docs", dir: join(cwd, "docs") }, { cwd });
+    store.close();
+    await registry.start(cwd, async () => ({
+      changed: 0,
+      chunks: 0,
+      outcomes: [{ ref: G, status: "ok" as const, revision: "a91f3c2", at: Date.now() }],
+    })).promise;
+    const { status, body } = await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
+    expect(status).toBe(200);
+    const by = Object.fromEntries(body.sources.map((s: { ref: string }) => [s.ref, s]));
+    expect(by.docs).toMatchObject({ kind: "filesystem", files: 2, trusted: null, outside: false });
+    expect(by["/definitely/outside/the/folder"]).toMatchObject({ outside: true, files: 0 });
+    expect(by[G]).toMatchObject({ kind: "git", trusted: true, lastStatus: "ok", revision: "a91f3c2" });
+    expect(typeof by[G].lastAt).toBe("number");
+    for (const s of body.sources) expect(s).not.toHaveProperty("chunks");
+    await app.close();
+  });
+
+  it("E23 unindexed folder: files 0 for every source and no db file is created", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    const { body } = await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
+    expect(body.sources).toHaveLength(1);
+    expect(body.sources[0].files).toBe(0);
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+    await app.close();
+  });
+
+  it("E24 /stats keeps its exact key set after a mixed-outcome job", async () => {
+    const cwd = makeFolder();
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { kind: "git", ref: REMOTE }]);
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd);
+    const { body } = await getJson(app, `/api/kb/stats?cwd=${q(cwd)}`);
+    const allowed = ["files", "chunks", "indexed", "staleCount", "indexing", "jobStatus", "lastError"];
+    expect(Object.keys(body).filter((k) => !allowed.includes(k))).toEqual([]);
+    for (const k of allowed.slice(0, 6)) expect(body).toHaveProperty(k);
+    await app.close();
+  });
+});
+
+describe("POST /api/kb/source-trust + trustRefs (kb-plugin-cwd-guard)", () => {
+  const G = "https://github.com/example/grant";
+  const D = "https://example.com/dup.md";
+  const setup = () => {
+    const cwd = makeFolder();
+    setSources(cwd, [
+      { kind: "git", ref: G, pin: "main", subdir: "docs" },
+      { kind: "filesystem", ref: "docs" },
+      { kind: "https", ref: D, pin: "a" },
+      { kind: "https", ref: D, pin: "b" },
+    ]);
+    return cwd;
+  };
+  const post = (app: FastifyInstance, cwd: string, payload: unknown) =>
+    app.inject({ method: "POST", url: `/api/kb/source-trust?cwd=${q(cwd)}`, payload: payload as object });
+
+  it("E25 decision table: 200 / 404 / 400 / 409; only G's hash is stored", async () => {
+    const cwd = setup();
+    const { app } = buildApp([cwd]);
+    const ok = await post(app, cwd, { ref: G });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toHaveProperty("hash");
+    expect(ok.json()).toHaveProperty("subject");
+    expect((await post(app, cwd, { ref: "nope" })).statusCode).toBe(404);
+    expect((await post(app, cwd, { ref: "docs" })).statusCode).toBe(400);
+    expect((await post(app, cwd, { ref: D })).statusCode).toBe(409);
+    expect((await post(app, cwd, {})).statusCode).toBe(400);
+    const saved = loadConfig(cwd).allSourceSpecs.find((s) => s.ref === G);
+    expect(listTrustedSources().map((t) => t.hash)).toEqual([sourceHash(saved as never)]);
+    await app.close();
+  });
+
+  it("E26 records the SAVED spec, never request fields", async () => {
+    const cwd = setup();
+    const { app } = buildApp([cwd]);
+    const res = await post(app, cwd, { ref: G, pin: "evil", kind: "https" });
+    expect(res.statusCode).toBe(200);
+    const saved = loadConfig(cwd).allSourceSpecs.find((s) => s.ref === G);
+    expect(res.json().hash).toBe(sourceHash(saved as never));
+    await app.close();
+  });
+
+  it("E27 a source that exists only in the GLOBAL config is grantable from an admitted folder", async () => {
+    const cwd = makeFolder({ withConfig: false });
+    // Per-test HOME: the global config lives under homedir(), and a shared one would leak this
+    // fixture into concurrent test files (os.homedir() reads HOME / USERPROFILE at call time).
+    const home = mkdtempSync(join(tmpdir(), "kb-home-"));
+    cleanup.push(home);
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      const globalPath = join(home, ".pi", "dashboard", "knowledge_base.json");
+      mkdirSync(dirname(globalPath), { recursive: true });
+      writeFileSync(globalPath, JSON.stringify({ sources: [{ kind: "git", ref: G }] }));
+      const { app } = buildApp([cwd]);
+      expect((await post(app, cwd, { ref: G })).statusCode).toBe(200);
+      await app.close();
+    } finally {
+      restoreEnv("HOME", saved.HOME);
+      restoreEnv("USERPROFILE", saved.USERPROFILE);
+    }
+  });
+
+  it("E28 PUT trustRefs grants after a valid write and reports untrustedRefs; invalid patch trusts nothing", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    const put = (payload: object) => app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload });
+    const ok = await put({ sources: [{ kind: "filesystem", ref: "docs" }, { kind: "git", ref: G }], trustRefs: [G, "missing"] });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().untrustedRefs).toEqual(["missing"]);
+    expect(listTrustedSources()).toHaveLength(1);
+
+    const before = readFileSync(join(cwd, ".pi", "dashboard", "knowledge_base.json"), "utf8");
+    rmSync(trustFile, { force: true });
+    const bad = await put({ sources: "not-an-array", trustRefs: [G] });
+    expect(bad.statusCode).toBe(400);
+    expect(existsSync(trustFile)).toBe(false);
+    expect(readFileSync(join(cwd, ".pi", "dashboard", "knowledge_base.json"), "utf8")).toBe(before);
+    await app.close();
+  });
+
+  it("X6 a failed persist is reported, never claimed: POST → 500, PUT → untrustedRefs", async () => {
+    const cwd = setup();
+    // trust path under a regular file → mkdir/write fails
+    const blocker = join(dirname(trustFile), "blocker");
+    writeFileSync(blocker, "x");
+    process.env.KB_SOURCE_TRUST_PATH = join(blocker, "sub", "trust.json");
+    const { app } = buildApp([cwd]);
+    const r = await post(app, cwd, { ref: G });
+    expect(r.statusCode).toBe(500);
+    expect(r.json()).toHaveProperty("error");
+    const put = await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: { trustRefs: [G] } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().untrustedRefs).toEqual([G]);
+    await app.close();
+  });
+});
+
+describe("reindexAll over all source kinds (kb-plugin-index-jobs)", () => {
+  it("E34 a kind-less remote ref is classified by prefix: untrusted, skipped, no fetch", async () => {
+    const cwd = makeFolder();
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { ref: "https://h.example/doc.md" }]);
+    const r = await reindexAll(cwd);
+    expect(r.outcomes?.find((o) => o.ref === "https://h.example/doc.md")?.status).toBe("untrusted");
+    expect(r.outcomes?.find((o) => o.ref === "docs")?.status).toBe("ok");
+  });
+
+  it("E35 filesystem-only config: all ok and identical indexing", async () => {
+    const cwd = makeFolder();
+    const r = await reindexAll(cwd);
+    expect(r.outcomes?.every((o) => o.status === "ok")).toBe(true);
+    expect(r.chunks).toBeGreaterThan(0);
+    expect(r.changed).toBeGreaterThan(0);
+  });
+
+  it("X1 one failing source is isolated; job errors with a bounded message naming it", async () => {
+    const cwd = makeFolder();
+    mkdirSync(join(cwd, "docs2"), { recursive: true });
+    writeFileSync(join(cwd, "docs2", "c.md"), "# Gamma\n\nGamma content about sprockets.\n");
+    const B = "https://127.0.0.1/blocked.md"; // trusted, but the SSRF guard refuses a loopback host
+    recordTrust({ kind: "https", ref: B });
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { kind: "https", ref: B }, { kind: "filesystem", ref: "docs2" }]);
+    const { app } = buildApp([cwd]);
+    const stats = await reindexAndSettle(app, cwd);
+    expect(stats.jobStatus).toBe("error");
+    expect(stats.lastError?.startsWith("1 source(s) failed:")).toBe(true);
+    expect(stats.lastError).toContain(B);
+    expect((stats.lastError ?? "").length).toBeLessThanOrEqual(500);
+    const { body } = await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
+    const by = Object.fromEntries(body.sources.map((s: { ref: string }) => [s.ref, s]));
+    expect(by.docs.files).toBe(2);
+    expect(by.docs2.files).toBe(1);
+    expect(by[B]).toMatchObject({ lastStatus: "error" });
+    await app.close();
+  });
+
+  it("X2 an untrusted source is skipped, not fatal: job stays idle, trusted source indexed", async () => {
+    const cwd = makeFolder();
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { kind: "git", ref: REMOTE }]);
+    const { app } = buildApp([cwd]);
+    const stats = await reindexAndSettle(app, cwd);
+    expect(stats.jobStatus).toBe("idle");
+    const { body } = await getJson(app, `/api/kb/sources?cwd=${q(cwd)}`);
+    const by = Object.fromEntries(body.sources.map((s: { ref: string }) => [s.ref, s]));
+    expect(by.docs.files).toBe(2);
+    expect(by[REMOTE]).toMatchObject({ trusted: false, lastStatus: "untrusted", files: 0 });
+    await app.close();
+  });
+
+  it("X3 a failed or skipped source keeps its previously indexed chunks", async () => {
+    const cwd = makeFolder();
+    const B = "https://127.0.0.1/kept.md";
+    recordTrust({ kind: "https", ref: B });
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }, { kind: "https", ref: B }]);
+    const store = new SqliteFtsStore(loadConfig(cwd).dbAbsPath);
+    store.init();
+    await indexSource(store, { root: B, dir: join(cwd, "docs") }, { cwd }); // "run 1" content under root B
+    const before = store.filesByRoot()[B];
+    store.close();
+    expect(before).toBe(2);
+    const { app } = buildApp([cwd]);
+    await reindexAndSettle(app, cwd); // run 2: B fails
+    const s = SqliteFtsStore.openExisting(dbPathOf(cwd));
+    expect(s?.filesByRoot()[B]).toBe(2);
+    s?.close();
+    await app.close();
+  });
+
+  it("P3 a slow git clone does not stall the host event loop", async () => {
+    const cwd = makeFolder();
+    const G = "https://93.184.216.34/o/r.git"; // public IP literal: passes the SSRF host check offline
+    recordTrust({ kind: "git", ref: G });
+    setSources(cwd, [{ kind: "git", ref: G }]);
+    const shim = makeGitShim('case "$*" in *version*) echo "git version 2.50.1";; *) sleep 3; exit 1;; esac');
+    const restore = useGitPath(shim);
+    try {
+      const { app } = buildApp([cwd]);
+      await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+      let ticks = 0;
+      const timer = setInterval(() => ticks++, 10);
+      const t0 = Date.now();
+      const s = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${q(cwd)}` });
+      const took = Date.now() - t0;
+      await new Promise((r) => setTimeout(r, 400));
+      clearInterval(timer);
+      expect(s.statusCode).toBe(200);
+      expect(took).toBeLessThan(200);
+      expect(ticks).toBeGreaterThanOrEqual(15); // a blocked loop would register ~0 ticks
+      expect(s.json().indexing).toBe(true);
+      await pollStats(app, cwd, (b) => b.indexing === false, 400);
+      await app.close();
+    } finally {
+      restore();
+    }
+  }, 30_000);
 });

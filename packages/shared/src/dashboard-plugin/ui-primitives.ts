@@ -73,6 +73,11 @@ export const UI_PRIMITIVE_KEYS = {
    *  select/text prompts, cancel) driven by an `OAuthFlowStatus`.
    *  See change: expose-plugin-credential-and-oauth-seams (D6). */
   oauthFlow: "ui:oauth-flow",
+  /** Modal single-folder picker over the guarded `/api/browse`. Transient
+   *  per-client input, so plugins read it with the SOFT hook
+   *  (`useUiPrimitiveOrNull`) and hide the affordance when absent.
+   *  See change: improve-kb-settings-sources-and-search. */
+  pathPicker: "ui:path-picker",
 } as const;
 
 /** Union of all valid UI primitive keys (literal-string narrowed). */
@@ -374,6 +379,20 @@ export interface UiOAuthFlowViewProps {
   onCancel: (flowId: string) => void;
 }
 
+/**
+ * Public prop signature for the path-picker primitive: a modal that confirms ONE
+ * existing directory. `onSelect` receives an absolute path that the host has
+ * verified to be a directory; a file / missing path shows an inline error and
+ * never reaches `onSelect`. See change: improve-kb-settings-sources-and-search.
+ */
+export interface UiPathPickerDialogProps {
+  open: boolean;
+  initialPath?: string;
+  title?: string;
+  onSelect: (absPath: string) => void;
+  onCancel: () => void;
+}
+
 export interface UiPrimitiveMap {
   "ui:agent-card": ComponentType<UiAgentCardProps>;
   "ui:markdown-content": ComponentType<UiMarkdownContentProps>;
@@ -393,6 +412,7 @@ export interface UiPrimitiveMap {
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;
   "ui:log-block": ComponentType<UiLogBlockProps>;
   "ui:oauth-flow": ComponentType<UiOAuthFlowViewProps>;
+  "ui:path-picker": ComponentType<UiPathPickerDialogProps>;
 }
 
 /**
