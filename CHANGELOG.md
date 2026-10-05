@@ -174,6 +174,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Chat Gateway can see the Discord channels it creates.** A provisioned
+  workspace channel denied View to `@everyone`, and that deny applied to the
+  bot too, so on a real server the bot was locked out of its own channel
+  (403 Missing Access) and never received messages. Channel creation and every
+  access reconcile now add an allow overwrite for the bot itself (view, send,
+  embed, read history, threads). Channels provisioned before this fix need the
+  bot added to their permissions once (or a one-off access change).
+
 - **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
   (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients
   that accept compression (undici `fetch`, pi's built-in MCP client), so

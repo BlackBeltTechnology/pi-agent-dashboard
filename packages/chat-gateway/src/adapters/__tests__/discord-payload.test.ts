@@ -293,6 +293,29 @@ describe("channel provisioning payload", () => {
     ]);
   });
 
+  // Real-guild regression: the @everyone VIEW deny applies to the bot too, so a
+  // channel created without a bot-self allow locks the bot out of the channel
+  // it just created (403 Missing Access; inbound messages never arrive). The
+  // fake adapter cannot see this — only a live guild did.
+  it("channelOverwrites grants the bot itself view+post+history+threads when selfId is given", () => {
+    const SELF_ALLOW =
+      VIEW | (1n << 11n) | (1n << 14n) | (1n << 16n) | (1n << 35n) | (1n << 38n);
+    const out = channelOverwrites("g", [{ targetId: "u1", kind: "member", viewChannel: true }], "bot-1");
+    expect(out[0]).toEqual({ id: "g", type: 0, allow: 0n, deny: VIEW });
+    expect(out).toContainEqual({ id: "bot-1", type: 1, allow: SELF_ALLOW, deny: 0n });
+  });
+
+  it("a grant cannot override the bot-self allow (self overwrite is applied last)", () => {
+    const out = channelOverwrites("g", [{ targetId: "bot-1", kind: "member", viewChannel: false }], "bot-1");
+    expect(out.filter((o) => o.id === "bot-1")).toHaveLength(1);
+    expect(out.find((o) => o.id === "bot-1")?.deny).toBe(0n);
+  });
+
+  it("the create payload carries the bot-self allow when selfId is given", () => {
+    const payload = channelCreatePayload({ guildId: "g", name: "ws", overwrites: [] }, "bot-1");
+    expect(payload.permissionOverwrites.map((o) => o.id)).toEqual(["g", "bot-1"]);
+  });
+
   it("the create payload carries the overwrites by construction", () => {
     // There is deliberately no create-without-overwrites shape: every create
     // path goes through this function, so the deny cannot be omitted.

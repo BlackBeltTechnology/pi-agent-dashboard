@@ -26,18 +26,27 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 2. Click **New Application**. Enter bot name. Confirm dialog.
 3. Select **Bot** in left sidebar.
 4. Click **Reset Token**. Copy token string immediately. Store token securely.
-5. Scroll to **Privileged Gateway Intents**.
-6. Enable **Message Content Intent**. (Required: bot reads inbound chat message text).
+5. Under **Bot** → **Authorization Flow**, turn **Requires OAuth2 Code Grant** OFF. Invite fails `Integration requires code grant` when ON.
+6. Scroll to **Privileged Gateway Intents**. Enable **Message Content Intent** (required: bot reads inbound chat message text). Click **Save Changes**. Intent off or unsaved fails login: `[discord] login failed (check the bot token and its intents): Used disallowed intents` in `server.log`.
 7. Select **OAuth2** → **URL Generator** in left sidebar.
 8. Check scopes:
    - `bot`
    - `applications.commands`
 9. Check bot permissions:
+   - **View Channels**
    - **Send Messages**
-   - **Read Message History**
    - **Embed Links**
-10. Copy generated authorization URL at page bottom.
-11. Open URL in browser. Select target Discord server. Authorize bot join.
+   - **Read Message History**
+   - **Manage Channels**
+   - **Manage Roles**
+   - **Create Public Threads**
+   - **Create Private Threads**
+   - **Send Messages in Threads**
+   - Permission integer `378225642512`.
+   - `Manage Channels` required: team-controls provisioning creates the private workspace channel.
+   - Do NOT grant **Administrator**. Administrator bypasses channel overwrites; masks access bugs.
+10. Copy generated authorization URL at page bottom. Shape: `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot%20applications.commands&permissions=378225642512&guild_id=<GUILD_ID>`.
+11. Open URL in browser. Select target Discord server. Authorize bot join. Bot absent from guild fails provisioning: `chat-gateway: team-controls — provision_failed: Unknown Guild` in `server.log`.
 
 ## Dashboard Configuration
 
@@ -46,6 +55,7 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 3. Paste bot token into **Discord Bot Token** field.
 4. Save configuration.
 5. Server treats `token` as `writeOnly` schema property. Server redacts token from client payloads; server never logs token.
+6. Config writable without UI: `POST /api/config/plugins/chat-gateway` (shallow merge; `token` `writeOnly`, redacted in response), then `POST /api/restart`.
 
 ## Mandatory Spawn Boundary (`allowedRoots`)
 
@@ -112,6 +122,7 @@ sequenceDiagram
 - Pairing accepts Direct Messages only (`isDM: true`).
 - Guild channel pairing attempts ignored; prevents pairing code exposure in shared channels.
 - Direct messages enrollment-only under team controls: DM adds user to L1 allowlist; DM cannot carry workspace binding; DM session-control requests refused.
+- User id already in `allowlist`: skip L1 pairing DM; already authorized.
 
 ## Authorization Semantics
 
@@ -215,6 +226,9 @@ flowchart TD
 - Scope containment evaluated inside chokepoint: target session cwd must reside inside bound workspace folders, else `scope_violation`. Free-text cwd in chat never resolves targets.
 - Interactive attach candidate confinement: bound channel filters candidate sessions via `isWithinWorkspace` against workspace folders; ignores sessions in other `allowedRoots` directories.
 - Channel→workspace bindings in the separate provisioning store `channels.json`; session↔thread routing stays in `bindings.json`. One channel per workspace; records retained after a binding goes inactive. Channel and history never deleted.
+- Gateway serves the channel IT PROVISIONS per `teamControls.bindings.<workspaceId>`, recorded in `~/.pi/dashboard/chat-gateway/channels.json`. Not a pre-existing channel.
+- Provisioned channel created top-level (no category), named after workspace (e.g. `#pi-dashboard`). Same-named pre-existing channel easy to confuse with it.
+- After provisioning, add new channel id to `groupChannels` (L4), else inbound messages ignored (`group_channel_not_opted_in`).
 - Trust failure: host trust-gated verb returning no-op (e.g. `assignSessionRef` returning `false`) marks layer unhealthy and refuses command. Requires plugin manifest `priority: 100` (`<= 100`). Sticky; first cause wins.
 
 ### Output Filtering & Pacing
@@ -238,6 +252,8 @@ flowchart TD
 - Disarm persistence: latch survives server restarts. Persisted to `~/.pi/dashboard/chat-gateway/disarm.json` (mode 0600, atomic rename). Controller boots from `disarm.json` (`initialDisarmed`); falls back to `config.disarmed` only when nothing was ever persisted. Controller routes all transitions through single `setDisarmed` chokepoint, notifying `onDisarmChange`.
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
 - Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
+- Every provisioned channel / access reconcile carries member allow for the bot itself (`DiscordChannelOps.selfId()`, `BOT_SELF_ALLOW` in `packages/chat-gateway/src/adapters/discord-payload.ts`). Without it `@everyone` VIEW deny locks bot out of the channel it created: REST 403 `Missing Access` code 50001, inbound never arrives, no command-log entry. See change: fix-chat-gateway-bot-self-overwrite.
+- Channels provisioned before that fix: add the bot member overwrite once (access reconcile).
 - Missing bot token leaves plugin inert (no adapter, socket, or timers). Settings panel still works: surface is a local projection (in-memory policy + file reads), so an operator inspects and edits policy before a token exists; delegation reports unavailable, never an empty roster.
 - Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
 - Command log: append-only ring buffer in `~/.pi/dashboard/chat-gateway/command-log.json` (mode 0600, atomic rename) bounded by `auditRetention` (default 10000, max 1000000); exposes no edit or delete operations. Synchronous whole-log rewrite per append ensures durability over latency.
@@ -276,4 +292,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite.
