@@ -620,7 +620,9 @@ jobs:
               # console output), so this 1 s health-poll loop records the
               # elapsed second at which each marker FIRST appears — enough
               # resolution against a 90 s budget. Budget: 90 s (CI container +
-              # xvfb slack). Distinct from the 30 s launch-to-health contract of
+              # xvfb slack). Measured with the native loader: health at 4-6 s
+              # (CI runs 37347903583, 37359343373); the jiti loader missed the
+              # budget (run 37347958369). Distinct from the 30 s launch-to-health contract of
               # ci-electron-on-demand-build, which this step does not replace.
               # See change: fix-appimage-cold-boot-latency (design D6).
               declare -A AT=()
