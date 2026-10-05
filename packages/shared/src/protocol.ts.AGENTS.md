@@ -25,3 +25,5 @@ Adds `PluginRequestMessage` (`plugin_request`: `requestId`,`pluginId`,`messageTy
 `PiVersionUpdateMessage` doc: version is argv-anchored running pi; server derives below-floor flag. `DispatchExtensionCommandMessage` note drops the 0.84.2 qualifier. See change: update-pi-core-1-0-adopt-apis.
 
 `UsageRecordedMessage` (`usage_recorded`: kind, usage, provider?/model?, entryId?) joins `ExtensionToServerMessage` — top-level, never `event_forward`. `SessionRegisterMessage.usageSeed?: UsageTotals` — bridge baseline totals, applied server-side only for an unknown id. See change: count-non-message-usage.
+
+Frames `PathGrantRequestMessage` (`path_grant_request`, ext→server), `PathGrantResultMessage` (`path_grant_result`) and `DashboardIdentityMessage` (`dashboard_identity {grantStoreId}`) (server→ext). See change: ask-agent-file-access-in-chat.

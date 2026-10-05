@@ -27,6 +27,8 @@ export interface ToastMessage {
   /** When true, the toast does not auto-dismiss (stays until acted on /
    *  manually closed). Defaults false → the current ~3s auto-dismiss. */
   noAutoDismiss?: boolean;
+  /** Optional stable key so a caller can withdraw/replace this toast later. */
+  key?: string;
 }
 
 let nextId = 0;
@@ -130,12 +132,13 @@ export function useToast() {
   const showToast = (
     text: string,
     variant: ToastVariant = "neutral",
-    opts?: { action?: ToastAction; noAutoDismiss?: boolean },
+    opts?: { action?: ToastAction; noAutoDismiss?: boolean; key?: string },
   ) => {
     const id = nextId++;
     setMessages((prev) => [
-      ...prev,
-      { id, text, variant, action: opts?.action, noAutoDismiss: opts?.noAutoDismiss },
+      // A keyed toast replaces an earlier one with the same key (no stacking).
+      ...(opts?.key ? prev.filter((m) => m.key !== opts.key) : prev),
+      { id, text, variant, action: opts?.action, noAutoDismiss: opts?.noAutoDismiss, key: opts?.key },
     ]);
   };
 
@@ -143,5 +146,10 @@ export function useToast() {
     setMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
-  return { messages, showToast, dismissToast };
+  /** Withdraw a keyed toast (e.g. when the thing it announced has settled). */
+  const dismissToastByKey = (key: string) => {
+    setMessages((prev) => (prev.some((m) => m.key === key) ? prev.filter((m) => m.key !== key) : prev));
+  };
+
+  return { messages, showToast, dismissToast, dismissToastByKey };
 }

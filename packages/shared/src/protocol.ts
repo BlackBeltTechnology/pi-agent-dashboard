@@ -771,6 +771,40 @@ export interface PromptCancelMessage {
   promptId: string;
 }
 
+/**
+ * Bridge → server: persist a project-scope "Always allow" grant after the
+ * operator confirmed the agent path-gate confirm prompt. Bound to the raised
+ * confirm prompt (`promptId`) server-side.
+ * See change: ask-agent-file-access-in-chat.
+ */
+export interface PathGrantRequestMessage {
+  type: "path_grant_request";
+  requestId: string;
+  sessionId: string;
+  promptId: string;
+  path: string;
+  subject: string;
+}
+
+/** Server → bridge: outcome of a {@link PathGrantRequestMessage}. */
+export interface PathGrantResultMessage {
+  type: "path_grant_result";
+  requestId: string;
+  ok: boolean;
+  subject?: string;
+  error?: string;
+}
+
+/**
+ * Server → bridge, on every bridge (re)registration: content of the server's
+ * `~/.pi/dashboard/grant-store-id` token, re-read each time. The bridge offers
+ * "Always allow" only when it equals its own local token file.
+ */
+export interface DashboardIdentityMessage {
+  type: "dashboard_identity";
+  grantStoreId: string;
+}
+
 export interface ProcessInfo {
   pid: number;
   pgid: number;
@@ -948,6 +982,7 @@ export type ExtensionToServerMessage =
   | NotifyMessage
   | PromptDismissMessage
   | PromptCancelMessage
+  | PathGrantRequestMessage
   | ReplayCompleteMessage
   | FirstMessageUpdateMessage
   | RolesListMessage
@@ -1535,6 +1570,8 @@ export type ServerToExtensionMessage =
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
+  | PathGrantResultMessage
+  | DashboardIdentityMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | McpTokenMintedExtensionMessage

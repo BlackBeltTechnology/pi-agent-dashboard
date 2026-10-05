@@ -84,6 +84,8 @@ import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged 
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
 import { provisionOpenspecCli } from "./openspec-cli-shim.js";
+import { createPathGate } from "./path-gate/index.js";
+import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
@@ -157,6 +159,8 @@ interface BridgeState {
   hasUI?: boolean;
   /** Monotonic generation counter — stale listeners bail out when mismatched */
   generation?: number;
+  /** Path-gate denial map; process-global so a /reload keeps the 120 s suppression. */
+  pathGateSuppression?: Suppression;
   /** The pi instance that owns the bridge (used to detect subagent re-entry) */
   pi?: ExtensionAPI;
   /** All connection instances from any bridge incarnation (for cleanup) */
@@ -1184,6 +1188,33 @@ function initBridge(pi: ExtensionAPI) {
     pluginRequests.failAll("disconnected");
   };
 
+  // Agent path gate: asks the operator before read/write/edit leave the session's
+  // roots. Created before the connection so the close handler can reset it.
+  // See change: ask-agent-file-access-in-chat.
+  const pathGate = createPathGate({
+    suppression: (getBridgeState().pathGateSuppression ??= new Suppression()),
+    getSessionId: () => sessionId,
+    getPromptBus: () => promptBus,
+    send: (m) => connection.sendIfOpen(m),
+    readConfig: () => loadConfig().agentPathGate,
+    getCwd: () => cachedCwd ?? process.cwd(),
+    getSessionDir: () => {
+      try {
+        return cachedCtx?.sessionManager?.getSessionDir?.();
+      } catch {
+        return undefined;
+      }
+    },
+    log: (line) => console.log(line),
+    notify: (message) => {
+      try {
+        cachedCtx?.ui?.notify?.(message, "warning");
+      } catch {
+        /* best effort */
+      }
+    },
+  });
+
   let connection = new ConnectionManager({
     url: dashboardUrl,
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
@@ -1239,6 +1270,7 @@ function initBridge(pi: ExtensionAPI) {
     onClose: () => {
       if (connection !== primaryConnection) return;
       pluginLaneDown();
+      pathGate.reset();
     },
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
@@ -1311,6 +1343,8 @@ function initBridge(pi: ExtensionAPI) {
         pluginRequests.handleReply(msg);
         return;
       }
+      // Agent path gate: grant-store identity + grant results (never re-emitted).
+      if (pathGate.onServerMessage(msg as { type?: string })) return;
       if (msg.type === "mcp_token_minted") {
         // The minted MCP bearer (+ /mcp url) arrives on the session-private
         // lane and is registered with pi's built-in MCP — never placed in
@@ -2895,6 +2929,18 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     return fanoutAdmission.onToolCall(event);
   }));
+  // Agent path gate — registered AFTER the fan-out admission handler (and after the
+  // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
+  // its own try/catch maps any internal error to a block. Stale bridge instances
+  // (after reload) pass through. See change: ask-agent-file-access-in-chat (D1).
+  pi.on("tool_call", ((event: any, ctx: any) => {
+    if (!isActive()) return undefined;
+    return pathGate.handler(event, ctx);
+  }) as any);
+  pi.on("before_agent_start", safe((event: any) => {
+    if (!isActive()) return;
+    pathGate.onBeforeAgentStart(event);
+  }));
   // Release permits on `tool_execution_end` — the ONE signal pi emits on the
   // normal, blocked AND aborted paths. NEVER `tool_result`: an aborted call
   // skips the path that produces it, so a permit released there would leak on
@@ -3031,6 +3077,7 @@ function initBridge(pi: ExtensionAPI) {
     // Bail out if a newer bridge instance has taken over
     if (!isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
+    pathGate.onSessionStart();
     // Re-arm MCP registration for the (replacement) session; its mint below
     // registers pi-dashboard again. See change: migrate-mcp-to-pi-builtin (D1).
     mcpRegistrar.onSessionStart();
@@ -3860,6 +3907,10 @@ function initBridge(pi: ExtensionAPI) {
           // chose not to parallelize. See change:
           // bound-subagent-fanout-under-host-pressure (D7).
           ...fanoutAdmission.counters,
+          // Agent path gate counters (in-root decisions are counted, not logged).
+          pathGateInRoot: pathGate.counters.inRoot,
+          pathGateAsked: pathGate.counters.asked,
+          pathGateBlocked: pathGate.counters.blocked,
           // Poll-cost counters (summed across sessions on /api/health).
           // See change: optimize-polling-hot-paths.
           ...pollCost,

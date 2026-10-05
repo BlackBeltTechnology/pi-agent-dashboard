@@ -532,6 +532,41 @@ export interface AccessGrantsConfig {
   promptEnabled: boolean;
 }
 
+/**
+ * Agent path gate: asks the operator before pi's read/write/edit tools touch
+ * paths outside the session's roots. Default on.
+ * `PI_DASHBOARD_AGENT_PATH_GATE=off|on` overrides per process.
+ * See change: ask-agent-file-access-in-chat.
+ */
+export interface AgentPathGateConfig {
+  enabled: boolean;
+  timeoutSeconds: number;
+}
+
+export const DEFAULT_AGENT_PATH_GATE: AgentPathGateConfig = { enabled: true, timeoutSeconds: 120 };
+
+export function parseAgentPathGate(raw: unknown): AgentPathGateConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_AGENT_PATH_GATE.enabled,
+    timeoutSeconds:
+      typeof r.timeoutSeconds === "number" && Number.isFinite(r.timeoutSeconds) && r.timeoutSeconds > 0
+        ? r.timeoutSeconds
+        : DEFAULT_AGENT_PATH_GATE.timeoutSeconds,
+  };
+}
+
+/** Apply the `PI_DASHBOARD_AGENT_PATH_GATE` override (`off`/`on`) to a parsed config. */
+export function resolveAgentPathGate(
+  cfg: AgentPathGateConfig,
+  env: Record<string, string | undefined> = process.env,
+): AgentPathGateConfig {
+  const v = env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
+  if (v === "off") return { ...cfg, enabled: false };
+  if (v === "on") return { ...cfg, enabled: true };
+  return cfg;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -731,6 +766,7 @@ export interface DashboardConfig {
    * See change: add-access-grant-dialog.
    */
   accessGrants: AccessGrantsConfig;
+  agentPathGate: AgentPathGateConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /**
@@ -1216,6 +1252,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   accessGrants: { promptEnabled: false },
+  agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
@@ -2014,6 +2051,7 @@ export function loadConfig(): DashboardConfig {
             ? parsed.accessGrants.promptEnabled
             : defaults.accessGrants.promptEnabled,
       },
+      agentPathGate: parseAgentPathGate(parsed.agentPathGate),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),

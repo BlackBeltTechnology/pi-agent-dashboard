@@ -16,3 +16,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `PushConfig {enabled, coalesceWindowMs, fcm?:{serviceAccountPath}, webPush?:{contactEmail}}` + `parsePushConfig(raw)` (enabled only on strict `true`; window clamp 5000–300000, default `DEFAULT_PUSH_COALESCE_WINDOW_MS` 30000). `DashboardConfig.push?`; `loadConfig` always sets it. See change: add-server-push-notifications.
 
 `parseHostGateMode(raw, absentDefault = "enforce")`: `undefined` → enforce, recognised string → itself, anything else → report (typo cannot lock operator out). `DEFAULTS.hostGate` = `{ mode: "enforce" }` (the loadConfig early returns — no file, empty, malformed JSON — bypass the parser). See change: harden-server-request-surfaces.
+
+`AgentPathGateConfig {enabled=true, timeoutSeconds=120}`, `DEFAULT_AGENT_PATH_GATE`, `parseAgentPathGate`, `resolveAgentPathGate(cfg, env)` (`PI_DASHBOARD_AGENT_PATH_GATE=off|on` override); `DashboardConfig.agentPathGate`. See change: ask-agent-file-access-in-chat.

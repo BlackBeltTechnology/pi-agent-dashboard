@@ -261,3 +261,12 @@ truth for automated vs manual.
 - [ ] 8.39 Look at the tool-approval card beside `ConfirmRenderer` output in each theme and
       judge visual consistency with the existing interactive-renderer surface.
       (test-plan: manual-only, #F13)
+
+### Coordination note (from change `ask-agent-file-access-in-chat`)
+
+The shipped agent path gate (`packages/extension/src/path-gate/`, a standalone `tool_call` handler)
+exports the pure `decidePathAccess` decision. When supervised mode extracts the shared tool-gate
+package, compose them in a fixed order: **path gate first, then the action gate** — a path outside
+the session roots is asked about (or blocked) before any per-action approval is raised, so one tool
+call never raises two overlapping prompts for the same fact. Do not fold the path gate into the
+action gate's policy; keep `decidePathAccess` pure and importable.
