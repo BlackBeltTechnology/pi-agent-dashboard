@@ -2,7 +2,9 @@
  * Thin Gmail REST wrappers over `fetch` (design D6 — no `googleapis`).
  * One access token per instance (one lease per tool call). 429 / 5xx surface
  * as `rate_limited` / `gmail_unavailable` with Retry-After; NEVER retried here
- * (no retry storm). Error messages never include the token.
+ * (no retry storm). Error messages never include the token. 403 →
+ * `api_disabled` / `scope_insufficient` / `gmail_error` from Google's `reason`
+ * only (see change: improve-gmail-settings-ux).
  * See change: add-gmail-plugin.
  */
 import { GmailToolError } from "./lease-client.js";
@@ -68,6 +70,7 @@ export class GmailApi {
     }
     if (res.status === 401) throw new GmailToolError("unauthorized", "unauthorized: Gmail rejected the access token");
     if (res.status === 404) throw new GmailToolError("not_found", "not_found: no such message, thread or attachment");
+    if (res.status === 403) throw await classify403(res);
     throw new GmailToolError("gmail_error", `gmail_error: Gmail returned HTTP ${res.status}`);
   }
 
@@ -113,6 +116,61 @@ export class GmailApi {
 
   trash(id: string) {
     return this.call<unknown>("POST", `messages/${encodeURIComponent(id)}/trash`);
+  }
+}
+
+const GMAIL_403 = () => new GmailToolError("gmail_error", "gmail_error: Gmail returned HTTP 403");
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+const DISABLED = new Set(["SERVICE_DISABLED", "accessNotConfigured"]);
+const SCOPE = new Set(["ACCESS_TOKEN_SCOPE_INSUFFICIENT", "insufficientPermissions"]);
+
+/**
+ * Classify a Gmail 403 from Google's machine-readable `reason` ONLY (design
+ * D9). Google's body is untrusted: every field is type-guarded, any throw
+ * degrades to the generic `gmail_error`, and no body text (message,
+ * activationUrl, "consumer" other than `projects/<digits>`) reaches the message.
+ * See change: improve-gmail-settings-ux.
+ */
+async function classify403(res: Response): Promise<GmailToolError> {
+  try {
+    const body: unknown = JSON.parse(await res.text());
+    const err = isObj(body) ? body.error : undefined;
+    if (!isObj(err)) return GMAIL_403();
+    // Modern shape: details[] ErrorInfo (reason + metadata); legacy: errors[].reason.
+    const infos = (Array.isArray(err.details) ? err.details : []).filter(
+      (d): d is Record<string, unknown> =>
+        isObj(d) && typeof d["@type"] === "string" && d["@type"].endsWith("google.rpc.ErrorInfo") && typeof d.reason === "string",
+    );
+    const legacy = (Array.isArray(err.errors) ? err.errors : [])
+      .map((e) => (isObj(e) && typeof e.reason === "string" ? e.reason : undefined))
+      .filter((r): r is string => r !== undefined);
+
+    const meta = (i: Record<string, unknown>) => (isObj(i.metadata) ? i.metadata : {});
+    const forGmail = (i: Record<string, unknown>) => {
+      const service = meta(i).service;
+      return typeof service !== "string" || service === "gmail.googleapis.com";
+    };
+    const disabled = infos.find((i) => DISABLED.has(i.reason as string) && forGmail(i));
+    if (disabled || legacy.some((r) => DISABLED.has(r))) {
+      const consumer = disabled ? meta(disabled).consumer : undefined;
+      const n = typeof consumer === "string" ? /^projects\/(\d{1,20})$/.exec(consumer)?.[1] : undefined;
+      return new GmailToolError(
+        "api_disabled",
+        n
+          ? `api_disabled: the Gmail API is disabled in Google Cloud project ${n}. Enable it: gcloud services enable gmail.googleapis.com --project=${n} (or APIs & Services \u2192 Library \u2192 Gmail API \u2192 Enable), then retry in a minute.`
+          : "api_disabled: the Gmail API is disabled in the dashboard's Google Cloud project. Enable it: gcloud services enable gmail.googleapis.com --project=<your-project> (or APIs & Services \u2192 Library \u2192 Gmail API \u2192 Enable), then retry in a minute.",
+      );
+    }
+    if (infos.some((i) => SCOPE.has(i.reason as string)) || legacy.some((r) => SCOPE.has(r))) {
+      return new GmailToolError(
+        "scope_insufficient",
+        "scope_insufficient: the account's grant lacks the Gmail permission; re-authenticate it in Settings \u2192 Plugins \u2192 Gmail with every permission ticked.",
+      );
+    }
+    return GMAIL_403();
+  } catch {
+    return GMAIL_403();
   }
 }
 

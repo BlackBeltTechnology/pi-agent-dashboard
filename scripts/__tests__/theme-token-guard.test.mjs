@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadBaseline, main, NON_TEXT_PAINT_FILES, ratchet, scan, total } from "../theme-token-guard.mjs";
+import { loadBaseline, main, NON_TEXT_PAINT_FILES, ratchet, SCAN_ROOTS, scan, total } from "../theme-token-guard.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FILE_ICON = "packages/client/src/lib/preview/file-icon.ts";
@@ -118,6 +118,25 @@ describe("theme-token-guard ratchet", () => {
     const r = ratchet({ "a.tsx::--x": 1, "b.tsx::--y": 1 }, afterRepair);
     expect(r.ok).toBe(false);
     expect(r.added.map((a) => a.key)).toEqual(["b.tsx::--y"]);
+  });
+});
+
+// test-plan #E7 (improve-gmail-settings-ux): the Gmail plugin client is scanned,
+// and an undeclared token there fails the undeclared arm.
+describe("Gmail plugin client is guarded", () => {
+  const GMAIL = "packages/gmail-plugin/src/client";
+  it("SCAN_ROOTS includes the gmail plugin client dir", () => {
+    expect(SCAN_ROOTS).toContain(GMAIL);
+  });
+  it("a var(--border) under that root is an undeclared-token violation", () => {
+    const root = mkdtempSync(join(tmpdir(), "theme-guard-gmail-"));
+    mkdirSync(join(root, GMAIL), { recursive: true });
+    mkdirSync(join(root, "packages", "client", "src"), { recursive: true });
+    writeFileSync(join(root, "packages", "client", "src", "index.css"), readFileSync(join(REPO_ROOT, "packages/client/src/index.css"), "utf8"));
+    writeFileSync(join(root, GMAIL, "Row.tsx"), 'const a = "border-[var(--border)]";\n');
+    const { undeclared } = scan({ root, roots: [GMAIL] });
+    expect(undeclared[`${GMAIL}/Row.tsx::--border`]).toBe(1);
+    expect(ratchet(undeclared, loadBaseline().undeclared).added.length).toBeGreaterThan(0);
   });
 });
 

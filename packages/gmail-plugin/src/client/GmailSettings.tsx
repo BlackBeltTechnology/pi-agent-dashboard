@@ -5,14 +5,21 @@
  * (add / re-auth / level / alias / revoke, status badges, honest scope limit).
  * Sign-in flows render through the host `ui:oauth-flow` primitive.
  * See change: add-gmail-plugin.
+ *
+ * improve-gmail-settings-ux: declared theme tokens + `.focus-ring` on every
+ * control; consent hint + "Google showed an error?" disclosure while a sign-in
+ * waits (reported code latched via `reportedRef`, so neither poll callback can
+ * overwrite it or re-mount the flow); every flow error rendered as a sentence
+ * (`errorKey` / `ERROR_EN`); Revoke via `ui:confirm-dialog`; alias feedback;
+ * level descriptions; collapsed-summary project/client id.
  */
 import { oauthFlowClient, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { validateClientJson } from "../shared/client-json.js";
 import type { AccountInfo } from "../shared/protocol.js";
 import { TIERS, type Tier } from "../shared/scopes.js";
-import { consoleLinks, errorStep, gcloudCommands, type WizardStep } from "./wizard.js";
+import { consoleLinks, ERROR_EN, errorKey, errorStep, gcloudCommands, type WizardStep } from "./wizard.js";
 
 const API = "/api/plugins/gmail";
 
@@ -35,8 +42,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 const btn =
-  "rounded border border-[var(--border)] px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)] disabled:opacity-50";
+  "focus-ring rounded border border-[var(--border-primary)] px-2 py-0.5 text-[12px] hover:bg-[var(--bg-hover)] disabled:opacity-50";
+const field = "focus-ring rounded border border-[var(--border-primary)] bg-transparent text-[12px]";
 const muted = "text-[12px] text-[var(--text-muted)]";
+const errorText = "text-[12px] text-[var(--severity-error-fg)]";
+// Static strings: Tailwind cannot see interpolated class names.
+const badgeOk =
+  "rounded border border-[var(--severity-success-border)] bg-[var(--severity-success-bg)] px-1 text-[11px] text-[var(--severity-success-fg)]";
+const badgeReauth =
+  "rounded border border-[var(--severity-warning-border)] bg-[var(--severity-warning-bg)] px-1 text-[11px] text-[var(--severity-warning-fg)]";
 
 /** Poll a flow every 500 ms until terminal. */
 function useFlowPoll(flowId: string | undefined, onPending: (s: FlowStatus) => void, onDone: (err: string | null) => void) {
@@ -70,7 +84,7 @@ function Copyable({ value }: { value: string }) {
   const t = useT();
   return (
     <div className="flex items-center gap-2">
-      <code className="flex-1 overflow-x-auto rounded bg-[var(--bg-subtle)] px-2 py-1 text-[12px]">{value}</code>
+      <code className="flex-1 overflow-x-auto rounded bg-[var(--bg-tertiary)] px-2 py-1 text-[12px]">{value}</code>
       <button type="button" className={btn} onClick={() => void navigator.clipboard?.writeText(value)}>
         {t("copy", undefined, "Copy")}
       </button>
@@ -80,7 +94,7 @@ function Copyable({ value }: { value: string }) {
 
 function StepLink({ href, label }: { href: string; label: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[12px] text-[var(--accent)] underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="focus-ring text-[12px] text-[var(--accent-text)] underline">
       {label}
     </a>
   );
@@ -122,7 +136,7 @@ export function SetupWizard({
   };
 
   const stepClass = (n: WizardStep) =>
-    `rounded border p-2 ${focus === n ? "border-[var(--warning)]" : "border-[var(--border)]"}`;
+    `rounded border p-2 ${focus === n ? "border-[var(--accent)]" : "border-[var(--border-primary)]"}`;
   const uploadMsg: Record<string, string> = {
     not_json: t("errNotJson", undefined, "That file is not valid JSON. Upload the client_secret_*.json you downloaded (step 5)."),
     web_client: t("errWebClient", undefined, "This is a Web application client. Create a Desktop app client instead (step 4)."),
@@ -144,7 +158,7 @@ export function SetupWizard({
           {t("projectId", undefined, "Project id")}
           <input
             data-testid="gmail-project-id"
-            className="rounded border border-[var(--border)] bg-transparent px-1 text-[12px]"
+            className={`${field} px-1`}
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             placeholder="my-gmail-agent"
@@ -171,7 +185,14 @@ export function SetupWizard({
           {t(
             "audienceHelp",
             undefined,
-            "Workspace org: choose Internal. Otherwise External, and add every Gmail address you will connect as a test user. In Testing, tokens expire after 7 days; “Publish app” gives longer-lived tokens with an unverified-app warning.",
+            "Internal admits only accounts of the project's own Workspace organization: choose it only when every account you will connect belongs to that organization. Otherwise choose External and add every address you will connect as a test user. In Testing, tokens expire after 7 days; “Publish app” gives longer-lived tokens with an unverified-app warning.",
+          )}
+        </div>
+        <div className={muted}>
+          {t(
+            "audienceErrors",
+            undefined,
+            "Google error pages: org_internal = the account is outside the organization, switch to External; access_denied = add the account as a test user; admin_policy_enforced = the account's Workspace admin must trust this OAuth client.",
           )}
         </div>
       </li>
@@ -186,6 +207,7 @@ export function SetupWizard({
         <div className="font-medium text-[13px]">{t("step5", undefined, "5. Upload client_secret_*.json")}</div>
         <input
           type="file"
+          className="focus-ring text-[12px]"
           accept="application/json,.json"
           data-testid="gmail-client-upload"
           aria-label={t("uploadLabel", undefined, "Upload the OAuth client JSON")}
@@ -200,7 +222,7 @@ export function SetupWizard({
           </div>
         )}
         {uploadError && (
-          <div role="alert" className="text-[12px] text-[var(--error)]" data-testid="gmail-upload-error" data-step={uploadError.step}>
+          <div role="alert" className={errorText} data-testid="gmail-upload-error" data-step={uploadError.step}>
             {uploadMsg[uploadError.code] ?? uploadError.code}
           </div>
         )}
@@ -214,6 +236,28 @@ export function SetupWizard({
 }
 
 const TIER_LABEL: Record<Tier, string> = { readonly: "readonly", draft: "draft", send: "send" };
+const TIER_DESC: Record<Tier, [key: string, en: string]> = {
+  readonly: ["tierReadonly", "read mail"],
+  draft: ["tierDraft", "read + create drafts"],
+  send: ["tierSend", "read, draft, send, reply, labels, archive, trash"],
+};
+
+/** `<option>`s carrying each level's own description. */
+function TierOptions() {
+  const t = useT();
+  return (
+    <>
+      {TIERS.map((tier) => (
+        <option key={tier} value={tier}>
+          {`${TIER_LABEL[tier]} — ${t(TIER_DESC[tier][0], undefined, TIER_DESC[tier][1])}`}
+        </option>
+      ))}
+    </>
+  );
+}
+
+/** Codes the user can report from Google's own error page (closed list, design D1). */
+const REPORT_CODES = ["org_internal", "access_denied", "admin_policy_enforced", "other"] as const;
 
 function AccountRow({
   acct,
@@ -227,8 +271,11 @@ function AccountRow({
   onRevoked: (email: string, remoteRevoked: boolean) => void;
 }) {
   const t = useT();
+  const ConfirmDialog = useUiPrimitive("ui:confirm-dialog");
   const [alias, setAlias] = useState(acct.alias ?? "");
   const [msg, setMsg] = useState<string | null>(null);
+  const [aliasMsg, setAliasMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const run = async (fn: () => Promise<void>) => {
     setMsg(null);
     try {
@@ -246,82 +293,123 @@ function AccountRow({
       if (r.flowId) onFlow(r.flowId);
       else onChanged();
     });
+  const saveAlias = async () => {
+    try {
+      await api(`/accounts/${encodeURIComponent(acct.sub)}`, { method: "PATCH", body: JSON.stringify({ alias: alias || null }) });
+      setAliasMsg({ ok: true, text: t("aliasSaved", undefined, "Saved") });
+      onChanged();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? (err as Error).message;
+      const text =
+        code === "alias_taken"
+          ? t("errAliasTaken", undefined, "That alias is already used by another account.")
+          : code === "invalid_alias"
+            ? t("errInvalidAlias", undefined, "Aliases are 1–40 letters, digits, '.', '_' or '-'.")
+            : code;
+      setAliasMsg({ ok: false, text });
+    }
+  };
+  const revoke = () =>
+    run(async () => {
+      const r = await api<{ remoteRevoked: boolean }>(`/accounts/${encodeURIComponent(acct.sub)}`, { method: "DELETE" });
+      onRevoked(acct.email, r.remoteRevoked);
+      onChanged();
+    });
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded border border-[var(--border)] p-2" data-testid="gmail-account-row" data-email={acct.email}>
-      <span className="font-medium text-[13px]" data-testid="gmail-account-email">
-        {acct.email}
-      </span>
-      {acct.status === "ok" ? (
-        <span className="rounded bg-[var(--success-bg)] px-1 text-[11px]" data-testid="gmail-account-status" data-status="ok">
-          {t("statusOk", undefined, "ok")}
+    <li
+      className="flex flex-col gap-1 rounded border border-[var(--border-primary)] p-2"
+      data-testid="gmail-account-row"
+      data-email={acct.email}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-[13px]" data-testid="gmail-account-email">
+          {acct.email}
         </span>
-      ) : (
-        <span className="rounded bg-[var(--warning-bg)] px-1 text-[11px]" data-testid="gmail-account-status" data-status="reauth_required">
-          {t("statusReauth", undefined, "re-auth needed")}
-        </span>
-      )}
-      {acct.testingHint && (
-        <span className={muted} title={t("testingHint", undefined, "Testing-mode app: Google expires this grant after 7 days.")}>
-          {t("testingBadge", undefined, "testing: 7-day")}
-        </span>
-      )}
-      <label className={muted}>
-        {t("level", undefined, "Level")}{" "}
-        <select
-          data-testid="gmail-account-level"
-          value={acct.tier}
-          onChange={(e) => void setLevel(e.target.value as Tier)}
-          className="rounded border border-[var(--border)] bg-transparent text-[12px]"
+        {acct.status === "ok" ? (
+          <span className={badgeOk} data-testid="gmail-account-status" data-status="ok">
+            {t("statusOk", undefined, "ok")}
+          </span>
+        ) : (
+          <span className={badgeReauth} data-testid="gmail-account-status" data-status="reauth_required">
+            {t("statusReauth", undefined, "re-auth needed")}
+          </span>
+        )}
+        {acct.testingHint && (
+          <span className={muted} title={t("testingHint", undefined, "Testing-mode app: Google expires this grant after 7 days.")}>
+            {t("testingBadge", undefined, "testing: 7-day")}
+          </span>
+        )}
+        <input
+          aria-label={t("aliasLabel", undefined, "Alias")}
+          data-testid="gmail-account-alias"
+          className={`${field} w-24 px-1`}
+          value={alias}
+          placeholder={t("aliasPlaceholder", undefined, "alias")}
+          onChange={(e) => {
+            setAlias(e.target.value);
+            setAliasMsg(null);
+          }}
+          onBlur={() => alias !== (acct.alias ?? "") && void saveAlias()}
+        />
+        {aliasMsg && (
+          <span
+            role={aliasMsg.ok ? "status" : "alert"}
+            className={aliasMsg.ok ? muted : errorText}
+            data-testid="gmail-alias-feedback"
+          >
+            {aliasMsg.text}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className={muted}>
+          {t("level", undefined, "Level")}{" "}
+          <select
+            data-testid="gmail-account-level"
+            value={acct.tier}
+            onChange={(e) => void setLevel(e.target.value as Tier)}
+            className={field}
+          >
+            <TierOptions />
+          </select>
+        </label>
+        <button
+          type="button"
+          className={btn}
+          data-testid="gmail-account-reauth"
+          onClick={() =>
+            void run(async () => {
+              // Force a fresh consent at the current level (status reset on persist).
+              const r = await api<{ flowId?: string }>(`/accounts/${encodeURIComponent(acct.sub)}/reauth`, { method: "POST" });
+              if (r.flowId) onFlow(r.flowId);
+            })
+          }
         >
-          {TIERS.map((tier) => (
-            <option key={tier} value={tier}>
-              {TIER_LABEL[tier]}
-            </option>
-          ))}
-        </select>
-      </label>
-      <input
-        aria-label={t("aliasLabel", undefined, "Alias")}
-        data-testid="gmail-account-alias"
-        className="w-24 rounded border border-[var(--border)] bg-transparent px-1 text-[12px]"
-        value={alias}
-        placeholder={t("aliasPlaceholder", undefined, "alias")}
-        onChange={(e) => setAlias(e.target.value)}
-        onBlur={() =>
-          alias !== (acct.alias ?? "") &&
-          void run(async () => {
-            await api(`/accounts/${encodeURIComponent(acct.sub)}`, { method: "PATCH", body: JSON.stringify({ alias: alias || null }) });
-            onChanged();
-          })
-        }
-      />
-      <button type="button" className={btn} data-testid="gmail-account-reauth" onClick={() =>
-          void run(async () => {
-            // Force a fresh consent at the current level (status reset on persist).
-            const r = await api<{ flowId?: string }>(`/accounts/${encodeURIComponent(acct.sub)}/reauth`, { method: "POST" });
-            if (r.flowId) onFlow(r.flowId);
-          })
-        }>
-        {t("reauth", undefined, "Re-authenticate")}
-      </button>
-      <button
-        type="button"
-        className={btn}
-        data-testid="gmail-account-revoke"
-        onClick={() =>
-          void run(async () => {
-            const r = await api<{ remoteRevoked: boolean }>(`/accounts/${encodeURIComponent(acct.sub)}`, { method: "DELETE" });
-            onRevoked(acct.email, r.remoteRevoked);
-            onChanged();
-          })
-        }
-      >
-        {t("revoke", undefined, "Revoke")}
-      </button>
-      {msg && (
-        <span role="alert" className="text-[12px] text-[var(--error)]">
-          {msg}
-        </span>
+          {t("reauth", undefined, "Re-authenticate")}
+        </button>
+        <button type="button" className={btn} data-testid="gmail-account-revoke" onClick={() => setConfirming(true)}>
+          {t("revoke", undefined, "Revoke")}
+        </button>
+        {msg && (
+          <span role="alert" className={errorText}>
+            {msg}
+          </span>
+        )}
+      </div>
+      {confirming && (
+        <ConfirmDialog
+          message={t(
+            "revokeConfirm",
+            { email: acct.email },
+            `Revoke ${acct.email}? The dashboard forgets the account and asks Google to revoke its access.`,
+          )}
+          confirmLabel={t("revoke", undefined, "Revoke")}
+          onConfirm={() => {
+            setConfirming(false);
+            void revoke();
+          }}
+          onCancel={() => setConfirming(false)}
+        />
       )}
     </li>
   );
@@ -330,12 +418,16 @@ function AccountRow({
 export function GmailSettings() {
   const t = useT();
   const OAuthFlow = useUiPrimitive("ui:oauth-flow");
+  const newLevelId = useId();
   const [state, setState] = useState<GmailState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
   const [lastRevoke, setLastRevoke] = useState<string | null>(null);
   const [newTier, setNewTier] = useState<Tier>("readonly");
+  // Latch (design D1): once the user reports a Google-page code, no late poll
+  // result may overwrite it or re-mount the flow view. Reset on a new flow.
+  const reportedRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -350,6 +442,7 @@ export function GmailSettings() {
   }, [refresh]);
 
   const startFlow = async (flowId: string) => {
+    reportedRef.current = null;
     setFlowError(null);
     try {
       setFlow({ phase: "waiting", status: await oauthFlowClient.status(flowId) });
@@ -360,15 +453,29 @@ export function GmailSettings() {
   };
   useFlowPoll(
     flow?.status?.flowId,
-    (status) => setFlow({ phase: "waiting", status }),
+    (status) => {
+      if (reportedRef.current) return;
+      setFlow({ phase: "waiting", status });
+    },
     (err) => {
+      if (reportedRef.current) return;
       setFlow(null);
       setFlowError(err);
       void refresh();
     },
   );
 
+  /** Order is load-bearing (design D1): latch, then clear, then cancel. */
+  const report = (code: string) => {
+    const flowId = flow?.status?.flowId;
+    reportedRef.current = code;
+    setFlow(null);
+    setFlowError(code);
+    if (flowId) void oauthFlowClient.cancel(flowId).catch(() => {});
+  };
+
   const addAccount = async () => {
+    reportedRef.current = null;
     setFlowError(null);
     setFlow({ phase: "starting" });
     try {
@@ -380,17 +487,26 @@ export function GmailSettings() {
     }
   };
 
-  if (loadError) return <div role="alert" className="text-[12px] text-[var(--error)]">{loadError}</div>;
+  if (loadError) return <div role="alert" className={errorText}>{loadError}</div>;
   if (!state) return <div className={muted}>{t("loading", undefined, "Loading…")}</div>;
 
   const step = errorStep(flowError);
+  const errKey = errorKey(flowError);
+  const { client } = state;
+  const summary = !client.configured
+    ? t("summaryNotConfigured", undefined, "not configured")
+    : client.projectId
+      ? t("summaryProject", { projectId: client.projectId }, `✓ project ${client.projectId}`)
+      : t("summaryClient", { clientId: client.clientId ?? "" }, `✓ ${client.clientId ?? ""}`);
   return (
     <section className="flex flex-col gap-3" data-testid="gmail-settings" aria-labelledby="gmail-settings-title">
       <h3 id="gmail-settings-title" className="font-semibold text-[14px]">
         {t("title", undefined, "Gmail")}
       </h3>
-      <details open={!state.client.configured || state.accounts.length === 0 || step !== null}>
-        <summary className="cursor-pointer text-[13px]">{t("setup", undefined, "Google Cloud setup")}</summary>
+      <details open={!client.configured || state.accounts.length === 0 || step !== null}>
+        <summary className="focus-ring cursor-pointer text-[13px]" data-testid="gmail-setup-summary">
+          {t("setup", undefined, "Google Cloud setup")} <span className={muted}>{summary}</span>
+        </summary>
         <SetupWizard state={state} highlight={step} onUploaded={() => void refresh()} />
       </details>
 
@@ -400,7 +516,7 @@ export function GmailSettings() {
           {t(
             "levelHelp",
             undefined,
-            "Levels: readonly = read; draft = + drafts; send = + send, reply, labels, archive, trash. Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level controls what the agent's tools may do. Any session on this dashboard can use every account within its level.",
+            "Levels are enforced by this plugin, not by Google: a token carries every scope Google granted (draft-level compose access could technically send), so a level limits what the agent's tools may do. Any session on this dashboard can use every account within its level.",
           )}
         </p>
         {state.accounts.length === 0 && <div className={muted}>{t("noAccounts", undefined, "No accounts connected.")}</div>}
@@ -426,38 +542,83 @@ export function GmailSettings() {
           ))}
         </ul>
         {flow ? (
-          <OAuthFlow
-            flow={flow}
-            onSendInput={(id, value) => oauthFlowClient.input(id, value)}
-            onCancel={(id) => {
-              void oauthFlowClient.cancel(id);
-            }}
-          />
+          <div className="flex flex-col gap-2">
+            <p className={muted} data-testid="gmail-consent-hint">
+              {t(
+                "consentHint",
+                undefined,
+                "On Google's consent screen tick every permission (Select all). The Gmail permission may start unticked.",
+              )}
+            </p>
+            <OAuthFlow
+              flow={flow}
+              onSendInput={(id, value) => oauthFlowClient.input(id, value)}
+              onCancel={(id) => {
+                void oauthFlowClient.cancel(id);
+              }}
+            />
+            {flow.phase === "waiting" && (
+              <details data-testid="gmail-google-error">
+                <summary className="focus-ring cursor-pointer text-[12px]">
+                  {t("googleErrorSummary", undefined, "Google showed an error instead of returning here?")}
+                </summary>
+                <div className={muted}>{t("googleErrorHelp", undefined, "Pick the error code Google displayed:")}</div>
+                <div className="flex flex-wrap gap-2">
+                  {REPORT_CODES.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      className={btn}
+                      data-testid={`gmail-report-${code}`}
+                      onClick={() => report(code)}
+                    >
+                      {code === "other" ? t("reportOther", undefined, "Something else") : code}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <select
-              aria-label={t("newLevel", undefined, "Level for the new account")}
-              data-testid="gmail-new-level"
-              value={newTier}
-              onChange={(e) => setNewTier(e.target.value as Tier)}
-              className="rounded border border-[var(--border)] bg-transparent text-[12px]"
-            >
-              {TIERS.map((tier) => (
-                <option key={tier} value={tier}>
-                  {TIER_LABEL[tier]}
-                </option>
-              ))}
-            </select>
-            <button type="button" className={btn} data-testid="gmail-add-account" disabled={!state.client.configured} onClick={() => void addAccount()}>
-              {t("addAccount", undefined, "Add account")}
-            </button>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <label htmlFor={newLevelId} className={muted}>
+                {t("newLevel", undefined, "Level for the new account")}
+              </label>
+              <select
+                id={newLevelId}
+                data-testid="gmail-new-level"
+                value={newTier}
+                onChange={(e) => setNewTier(e.target.value as Tier)}
+                className={field}
+              >
+                <TierOptions />
+              </select>
+              <button
+                type="button"
+                className={btn}
+                data-testid="gmail-add-account"
+                disabled={!client.configured}
+                onClick={() => void addAccount()}
+              >
+                {t("addAccount", undefined, "Add account")}
+              </button>
+            </div>
+            <p className={muted} data-testid="gmail-cross-org-hint">
+              {t(
+                "crossOrgHint",
+                undefined,
+                "Accounts outside the project's Workspace organization need an External audience, with each account added as a test user (step 3).",
+              )}
+            </p>
           </div>
         )}
         {flowError && (
-          <div role="alert" className="text-[12px] text-[var(--error)]" data-testid="gmail-flow-error" data-step={step ?? ""}>
-            {step
-              ? t("flowErrorStep", { error: flowError, step }, `Sign-in failed (${flowError}). Fix wizard step ${step}.`)
-              : t("flowError", { error: flowError }, `Sign-in failed: ${flowError}`)}
+          <div role="alert" className={errorText} data-testid="gmail-flow-error" data-step={step ?? ""}>
+            {t(errKey, { clientId: client.clientId ?? "" }, ERROR_EN[errKey])}{" "}
+            <span className={muted} data-testid="gmail-flow-error-code">
+              ({flowError})
+            </span>
           </div>
         )}
         {lastRevoke && (
