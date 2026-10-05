@@ -104,12 +104,25 @@ mkdirSync(path.join(SERVER_BUNDLE, "packages", "dist", "client"), {
 // current source (e.g. src/cwd-guard.ts) and the server boots into RECOVERY
 // MODE. It stays in piDashboard.bundledPlugins too: the loader discovers
 // plugins from resources/plugins/, not node_modules.
+//
+// The rest: first-party deps of the server / extension / bundled plugins.
+// Bundled plugins ship WITHOUT node_modules and resolve imports only via
+// resources/server/node_modules, so each first-party dep must be installed
+// here from workspace source (registry copies are missing or nest stale
+// shared). Coverage is enforced transitively by bundled-plugins-complete.test.ts.
 const BUNDLED_WORKSPACE_PKGS = [
   "server",
   "shared",
   "extension",
   "dashboard-plugin-runtime",
   "mcp-client-plugin",
+  "bus-client", // extension
+  "client-utils", // automation / flows / keycloak-resolver / subagents plugins
+  "document-converter", // server
+  "kb", // kb-plugin
+  "mcp-server-plugin", // chat-gateway
+  "session-distiller", // cost-estimator
+  "system-one", // system-one-plugin
 ];
 for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   cpSync(
