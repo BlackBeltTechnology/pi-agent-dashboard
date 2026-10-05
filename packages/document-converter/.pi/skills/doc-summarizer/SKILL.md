@@ -24,7 +24,11 @@ Call the facade; never invoke Python, docling, or pdftotext directly.
 
 ```ts
 import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-document-converter";
-const dc = createDocumentConverter({ image: "pi-doc-engine:0.1.0", stagingDir: "/abs/staging" });
+const dc = createDocumentConverter({
+  image: "pi-doc-engine:0.1.0",
+  stagingDir: "/abs/staging",
+  mounts: ["/docs"],   // files outside cwd need a root (mounts or workspaceRoot), else PATH_NOT_ALLOWED
+});
 
 const { output } = await dc.convertToMarkdown("<file_path>");              // digital PDF/DOCX/…
 // scanned PDF: pass OCR explicitly
@@ -33,7 +37,7 @@ await dc.convertToMarkdown("<file_path>", { ocr: { mode: "force", lang: ["englis
 
 The result is a provenance-stamped `.md` in `stagingDir`. Read that file to get
 the document text. On failure the call rejects with `DocConverterError`
-(`.code`, `.stderr`) — surface `UNSUPPORTED_FORMAT`, `OCR_LANG_UNSUPPORTED`,
+(`.code`, `.stderr`) — surface `UNSUPPORTED_FORMAT`, `PATH_NOT_ALLOWED`, `OCR_LANG_UNSUPPORTED`,
 `INGEST_FAILED`, `DOCKER_UNAVAILABLE` rather than retrying blindly.
 
 ## Step 2 — Decide direct vs. chunked

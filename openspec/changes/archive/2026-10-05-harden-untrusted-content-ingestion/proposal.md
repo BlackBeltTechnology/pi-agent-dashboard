@@ -44,7 +44,7 @@ validation.
     IPv6-embedded IPv4 forms, so DNS rebinding is closed. Each redirect hop is
     re-validated. Response size and time are capped (the size cap applies after
     bounded decompression). Only 2xx is accepted.
-  - git: only https/ssh/`git@` URLs (checked on the URL git receives; refresh also checks `origin`; `-`-prefixed refs rejected). The user's own
+  - git: only https/ssh/`git@` URLs (checked on the URL git receives; refresh refuses when the clone's configured `origin` differs; `-`-prefixed refs rejected). The user's own
     git config (`insteadOf`, proxy, credentials) is trusted. git gets
     transport-allowlist, no-redirect and no-submodule-recursion `-c` options
     before the subcommand, plus a curl resolve pin for https.

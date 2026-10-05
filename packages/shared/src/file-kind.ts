@@ -86,6 +86,19 @@ export interface FileKindResult {
  */
 export const MAX_PREVIEW_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Per-kind office preview size caps (bytes). Single source of truth: the server
+ * gates (413) read these defaults and the client names the real limit in the
+ * too-large notice. Decks run large (corpus median 4.2 MB, tail 258 MB); the
+ * 100 MB cap size-gates the extreme tail before conversion.
+ * See change: harden-untrusted-content-ingestion (D6).
+ */
+export const OFFICE_SIZE_CAPS = {
+  docx: 40 * 1024 * 1024,
+  pptx: 100 * 1024 * 1024,
+  sheet: 50 * 1024 * 1024,
+} as const;
+
 /** Markdown extensions render via `MarkdownViewer`, overriding the text/code path. */
 const MARKDOWN_EXTENSIONS = new Set([".md", ".mdx", ".markdown"]);
 

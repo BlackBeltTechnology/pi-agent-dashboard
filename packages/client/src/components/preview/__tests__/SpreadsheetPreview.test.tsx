@@ -70,4 +70,26 @@ describe("SpreadsheetPreview", () => {
       expect(link?.getAttribute("href")).toContain("/api/file/raw");
     });
   });
+
+  // F1 (change: harden-untrusted-content-ingestion, D6): an office-cap 413 names
+  // the real limit and offers Open raw instead of the generic fallback.
+  it("F1: HTTP 413 → TooLargePreview with the 50 MB sheet cap + open-raw link; no FallbackPreview", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      status: 413,
+      json: async () => ({ success: false, error: "file too large to preview" }),
+    }) as any;
+    render(<SpreadsheetPreview target={target} />);
+    await waitFor(() => expect(screen.getByTestId("too-large-preview")).toBeTruthy());
+    expect(screen.getByTestId("too-large-preview").textContent).toContain("limit 50 MB");
+    expect(screen.getByTestId("too-large-open-raw").getAttribute("href")).toContain("/api/file/raw");
+    expect(document.querySelector("a[download]")).toBeNull();
+  });
+
+  // F4a: every other failure keeps the generic fallback.
+  it("F4a: 200 {success:false} still → FallbackPreview, no too-large notice", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ success: false, error: "corrupt" }) }) as any;
+    render(<SpreadsheetPreview target={target} />);
+    await waitFor(() => expect(document.querySelector("a[download]")).toBeTruthy());
+    expect(screen.queryByTestId("too-large-preview")).toBeNull();
+  });
 });
