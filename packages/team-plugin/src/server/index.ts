@@ -12,7 +12,7 @@ import type { TeamConfig } from "./types.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
+async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   const host: HostPort = {
     spawnSession: (o) => ctx.spawnSession(o),
     abortSpawnedRun: (a) => ctx.abortSpawnedRun(a),
@@ -35,3 +35,5 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.onShutdown(() => team.stop());
   ctx.logger.info("team plugin server entry activated");
 }
+
+export default registerPlugin;

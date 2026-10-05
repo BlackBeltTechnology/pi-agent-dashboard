@@ -11,7 +11,7 @@ import { memoryLocation } from "wouter/memory-location";
 import type { Agent, Conversation, Me, Persona, ProjectInfo } from "../api/types.js";
 import { ToastProvider } from "../ui/toast.js";
 
-export type Handler = (req: { method: string; path: string; query: URLSearchParams; body: unknown }) => unknown;
+type Handler = (req: { method: string; path: string; query: URLSearchParams; body: unknown }) => unknown;
 
 export interface FakeHost extends AppHost {
   calls: Array<{ method: string; path: string; body: unknown }>;
@@ -144,7 +144,7 @@ export function bootRoutes(host: FakeHost, me: Partial<Me> = {}, projects: Proje
   host.routes.set("GET /api/plugins/team/projects", () => ({ projects }));
 }
 
-export function LocationProbe() {
+function LocationProbe() {
   const [loc] = useLocation();
   const search = useSearch();
   return <span data-testid="loc">{`${loc}${search ? `?${search}` : ""}`}</span>;

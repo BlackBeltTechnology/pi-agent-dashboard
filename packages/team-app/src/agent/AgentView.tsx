@@ -17,7 +17,7 @@ import { ChatPane } from "./ChatPane.js";
 
 const WIDE = "(min-width: 1024px)";
 
-export function useWide(): boolean {
+function useWide(): boolean {
   const sub = (cb: () => void) => {
     const m = window.matchMedia?.(WIDE);
     m?.addEventListener?.("change", cb);

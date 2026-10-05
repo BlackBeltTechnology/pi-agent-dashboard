@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
-export const APP_PREFIX = "/apps/team";
+const APP_PREFIX = "/apps/team";
 
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

@@ -10,7 +10,7 @@ export function hasEmbeddedHost(mod: object = runtime): boolean {
   return "EmbeddedApp" in mod;
 }
 
-export function standaloneUrl(projectId: string): string {
+function standaloneUrl(projectId: string): string {
   return `/apps/team/?project=${encodeURIComponent(projectId)}`;
 }
 

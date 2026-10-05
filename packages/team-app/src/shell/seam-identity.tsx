@@ -47,7 +47,7 @@ function decodeJwt(token: string): Record<string, unknown> {
   }
 }
 
-export function operatorFromToken(token: string): { operator: Operator; username?: string } {
+function operatorFromToken(token: string): { operator: Operator; username?: string } {
   const c = decodeJwt(token);
   const str = (v: unknown) => (typeof v === "string" ? v : undefined);
   return {

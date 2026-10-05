@@ -15,7 +15,7 @@ export function Icon({ name, className = "ic" }: { name: keyof typeof ICON | str
   );
 }
 
-export function initialsOf(name: string): string {
+function initialsOf(name: string): string {
   return (
     name
       .split(/\s+/)

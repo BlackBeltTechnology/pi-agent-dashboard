@@ -8,7 +8,7 @@ import path from "node:path";
 import { atomicWriteJson, type FsOps, LOCAL_USER_KEY, personaDirName, realFs, type TeamPaths } from "./paths.js";
 import { type ConversationRecord, TeamError } from "./types.js";
 
-export const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{22}$/;
+const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
 export interface Locator {
   uk: string;

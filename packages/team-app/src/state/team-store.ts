@@ -10,9 +10,9 @@ import { ApiError, createApi, type TeamApi } from "../api/client.js";
 import type { Me, ProjectInfo, Target } from "../api/types.js";
 import { resolveStartTarget, targetStore, useStoredTarget } from "./target-store.js";
 
-export type TeamStatus = "loading" | "ready" | "error" | "unauthorized" | "not-admitted";
+type TeamStatus = "loading" | "ready" | "error" | "unauthorized" | "not-admitted";
 
-export interface TeamState {
+interface TeamState {
   status: TeamStatus;
   me?: Me;
   projects: ProjectInfo[];
@@ -25,7 +25,7 @@ export interface TeamStore {
   refresh(): Promise<void>;
 }
 
-export function classify(err: unknown): TeamStatus {
+function classify(err: unknown): TeamStatus {
   if (err instanceof NoCredentialError) return "unauthorized";
   if (err instanceof NotAdmittedError) return "not-admitted";
   if (err instanceof ApiError) {
@@ -37,7 +37,7 @@ export function classify(err: unknown): TeamStatus {
 
 const stores = new WeakMap<object, TeamStore>();
 
-export function getTeamStore(host: Pick<AppHost, "api">): TeamStore {
+function getTeamStore(host: Pick<AppHost, "api">): TeamStore {
   let s = stores.get(host);
   if (s) return s;
   const api = createApi(host);

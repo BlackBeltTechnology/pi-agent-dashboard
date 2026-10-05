@@ -11,13 +11,13 @@ import type { Persona } from "./types.js";
 /** pi's cwd anchor; persona text must not be able to move the bridge's splice point. */
 const ANCHOR = "\nCurrent working directory: ";
 const ZWJ = "\u200d";
-export const CONTEXT_FILE_MAX_BYTES = 64 * 1024;
+const CONTEXT_FILE_MAX_BYTES = 64 * 1024;
 
-export function neutraliseAnchor(text: string): string {
+function neutraliseAnchor(text: string): string {
   return text.split(ANCHOR).join(`\n${ZWJ}${ANCHOR.slice(1)}`);
 }
 
-export function renderPersonaMarkdown(persona: Pick<Persona, "name" | "description" | "role" | "instructions">): string {
+function renderPersonaMarkdown(persona: Pick<Persona, "name" | "description" | "role" | "instructions">): string {
   const header = `# ${persona.name}${persona.role === "leader" ? " (leader)" : ""}`;
   const desc = persona.description ? `\n\n${persona.description}` : "";
   return neutraliseAnchor(`${header}${desc}\n\n${persona.instructions}\n`);

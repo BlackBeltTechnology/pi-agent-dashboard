@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { TeamError, WORKSPACE_TARGET } from "./types.js";
 
-export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export function isSlug(v: unknown): v is string {
   return typeof v === "string" && SLUG_RE.test(v);

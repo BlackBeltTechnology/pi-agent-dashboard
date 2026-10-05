@@ -26,7 +26,7 @@ export interface PersonaRules {
   assignableTargets: ReadonlySet<string>;
 }
 
-export interface PersonaInput {
+interface PersonaInput {
   slug?: string;
   name: string;
   description: string;

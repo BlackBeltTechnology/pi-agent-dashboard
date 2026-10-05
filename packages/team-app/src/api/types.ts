@@ -4,8 +4,8 @@ export const WORKSPACE: Target = "_ws";
 
 export type AvatarSpec = { kind: "gallery"; id: string } | { kind: "initials" };
 export type ToolsPreset = "chat" | "files" | "full";
-export type ConvStatus = "busy" | "running" | "sleeping";
-export type AgentStatus = ConvStatus | "new" | "retired" | "unavailable";
+type ConvStatus = "busy" | "running" | "sleeping";
+type AgentStatus = ConvStatus | "new" | "retired" | "unavailable";
 
 export interface Me {
   uk: string;

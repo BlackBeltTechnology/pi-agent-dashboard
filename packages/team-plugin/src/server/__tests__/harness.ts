@@ -12,7 +12,7 @@ import type { HostPort, HostSession } from "../conversations.js";
 import { createTeam, type Team } from "../team.js";
 import type { TeamConfig } from "../types.js";
 
-export interface FakeHost extends HostPort {
+interface FakeHost extends HostPort {
   sessions: Map<string, HostSession>;
   spawns: PluginSpawnOptions[];
   aborts: Array<{ sessionId?: string; spawnToken?: string; graceful?: boolean }>;
@@ -23,7 +23,7 @@ export interface FakeHost extends HostPort {
   piHandlers: Map<string, (msg: unknown, sessionId: string) => void>;
 }
 
-export function makeFakeHost(tmp: string): FakeHost {
+function makeFakeHost(tmp: string): FakeHost {
   let n = 0;
   const resolvedHandlers: Array<(sid: string, ref: Record<string, unknown>) => void> = [];
   const eventHandlers: Array<(sid: string, ev: unknown) => void> = [];
@@ -48,7 +48,8 @@ export function makeFakeHost(tmp: string): FakeHost {
         status: "idle",
         sessionFile: file,
         principalOwner: ref.principalOwner,
-        pluginRefs: { team: ref.team },
+        // The real host stores the whole filed ref under pluginRefs.<pluginId>.
+        pluginRefs: { team: ref as unknown as Record<string, unknown> },
       };
       const fire = () => {
         if (!host.behavior.resolve) {
@@ -88,7 +89,7 @@ export function makeFakeHost(tmp: string): FakeHost {
     resolveLate(runId) {
       const p = pendingByRun.get(runId);
       if (!p) return;
-      const session: HostSession = { id: p.sid, cwd: "/", status: "idle", pluginRefs: { team: p.ref.team as Record<string, unknown> } };
+      const session: HostSession = { id: p.sid, cwd: "/", status: "idle", pluginRefs: { team: p.ref } };
       host.sessions.set(p.sid, session);
       for (const h of resolvedHandlers) h(p.sid, p.ref);
     },

@@ -11,7 +11,7 @@ export interface IdentityLike {
   principalOf(request: unknown): { iss: string; sub: string; email?: string; name?: string } | null;
 }
 
-export const LOCAL_ISS = "urn:pi-dashboard:local-operator";
+const LOCAL_ISS = "urn:pi-dashboard:local-operator";
 
 export interface Access {
   mode(): Mode;

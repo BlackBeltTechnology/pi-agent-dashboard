@@ -18,7 +18,7 @@ export interface PersonaServiceDeps {
 }
 
 /** Wire form: no `owner` (callers only ever see their own private personas). */
-export function publicPersona(p: Persona): Omit<Persona, "owner"> {
+function publicPersona(p: Persona): Omit<Persona, "owner"> {
   const { owner: _owner, ...rest } = p;
   return rest;
 }

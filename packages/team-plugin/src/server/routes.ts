@@ -12,7 +12,7 @@ import type { ProjectRegistry } from "./projects.js";
 import type { UsersStore } from "./users.js";
 import { type Caller, TeamError, WORKSPACE_TARGET } from "./types.js";
 
-export const API_PREFIX = "/api/plugins/team";
+const API_PREFIX = "/api/plugins/team";
 
 export interface RouteDeps {
   access: Access;

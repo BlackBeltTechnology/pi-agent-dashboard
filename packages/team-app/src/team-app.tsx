@@ -7,7 +7,7 @@ import { defineDashboardApp } from "@blackbelt-technology/pi-dashboard-app-kit/r
 import { TeamApp } from "./TeamApp.js";
 import { TargetSelector } from "./shell/TargetSelector.js";
 
-export const teamApp = defineDashboardApp({
+const teamApp = defineDashboardApp({
   id: "team",
   title: "AI Team",
   App: TeamApp,

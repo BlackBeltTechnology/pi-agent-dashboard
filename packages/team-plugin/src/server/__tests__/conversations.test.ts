@@ -188,6 +188,12 @@ describe("agents per target (E33, F5, X6)", () => {
     expect(convs.find((c) => c.id === c1)?.personaStale).toBe(true);
     expect(convs.find((c) => c.id === c2)?.personaStale).toBe(false);
     expect((await agents("alice")).json.agents[0].personaStale).toBe(true);
+    // a restarted (sleeping) conversation is no longer "stale": its next start uses the new persona
+    await h.call("POST", `${API}/agents/${enc(key)}/conversations/${c1}/restart?project=_ws`, { user: "alice" });
+    await h.call("POST", `${API}/agents/${enc(key)}/conversations/${c2}/restart?project=_ws`, { user: "alice" });
+    const after = (await list("alice", key)).json.conversations as Array<{ personaStale: boolean }>;
+    expect(after.every((c) => !c.personaStale)).toBe(true);
+    expect((await agents("alice")).json.agents[0].personaStale).toBe(false);
   });
 });
 

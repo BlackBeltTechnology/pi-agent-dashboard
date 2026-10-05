@@ -6,7 +6,7 @@
  */
 import { useEffect, useSyncExternalStore } from "react";
 
-export interface MatchProject {
+interface MatchProject {
   id: string;
   name: string;
   available: boolean;
@@ -14,7 +14,7 @@ export interface MatchProject {
   agents: number;
   active: number;
 }
-export interface MatchResult {
+interface MatchResult {
   cwd: string;
   project: MatchProject | null;
   enableable: boolean;
@@ -64,7 +64,7 @@ async function flush(): Promise<void> {
   }
 }
 
-export function requestMatch(cwd: string): void {
+function requestMatch(cwd: string): void {
   pending.add(cwd);
   timer ??= setTimeout(() => void flush(), BATCH_MS);
 }

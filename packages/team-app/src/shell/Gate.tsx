@@ -9,9 +9,9 @@ import { useT } from "../i18n/index.js";
 import { useTeam } from "../state/team-store.js";
 import { Icon } from "../ui/icons.js";
 
-export type GateKind = "signin" | "redirecting" | "unavailable" | "not-admitted";
+type GateKind = "signin" | "redirecting" | "unavailable" | "not-admitted";
 
-export function GateView({ kind, onSignIn, onRetry }: { kind: GateKind; onSignIn?: () => void; onRetry?: () => void }) {
+function GateView({ kind, onSignIn, onRetry }: { kind: GateKind; onSignIn?: () => void; onRetry?: () => void }) {
   const t = useT();
   return (
     <div className="gate">

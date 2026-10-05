@@ -123,7 +123,9 @@ export interface StandaloneHostOptions {
  * Storage keys are prefixed `<appId>:`.
  */
 export async function createStandaloneHost(o: StandaloneHostOptions): Promise<AppHost> {
-  const cfg = o.config ?? (await loadAppConfig("/config.json", { allowMissing: true }));
+  // Base-scoped: a standalone deployment serves `<basePath>/config.json`; the dashboard-served app has none
+  // (the plugin's SPA fallback answers HTML ⇒ same-origin default). Never the dashboard's own `/config.json`.
+  const cfg = o.config ?? (await loadAppConfig(`${o.basePath.replace(/\/$/, "")}/config.json`, { allowMissing: true }));
   configureDashboard(cfg);
   const langKey = `${o.appId}:lang`;
   const themeKey = `${o.appId}:theme`;

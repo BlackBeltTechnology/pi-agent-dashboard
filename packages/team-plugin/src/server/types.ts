@@ -44,7 +44,7 @@ export interface Caller {
 
 export type Mode = "single" | "multi";
 
-export interface PersonaSnapshot {
+interface PersonaSnapshot {
   name: string;
   description: string;
   avatar: AvatarSpec;

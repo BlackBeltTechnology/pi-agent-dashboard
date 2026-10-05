@@ -489,6 +489,7 @@
         "src/client/index.tsx",
         "src/server/index.ts",
         "src/extension/index.ts",
+        "scripts/*.mjs",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

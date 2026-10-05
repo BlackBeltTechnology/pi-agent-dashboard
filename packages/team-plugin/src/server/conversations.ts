@@ -8,8 +8,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { PRESET_TOOLS } from "../extension/guard.js";
 import type { Access } from "./access.js";
-import { canonicalize, isInside, type TeamPaths } from "./paths.js";
+import { canonicalize, type TeamPaths } from "./paths.js";
 import { cpLength } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
 import { type LocatedRecord, type Locator, type RecordStore } from "./records.js";
@@ -35,6 +36,7 @@ export interface HostSession {
   name?: string;
   firstMessage?: string;
   principalOwner?: { iss: string; sub: string };
+  /** `pluginRefs[pluginId]` = the whole ref the plugin filed at spawn. */
   pluginRefs?: Record<string, Record<string, unknown>>;
 }
 
@@ -73,20 +75,14 @@ export interface ServiceDeps {
   sessionDirFor?: (cwd: string) => string;
 }
 
-export const GUARD_READY_MESSAGE = "team_guard_ready";
+const GUARD_READY_MESSAGE = "team_guard_ready";
 const DEFAULT_MAX_CONVERSATIONS = 50;
 const DEFAULT_IDLE_MINUTES = 30;
 /** An event older than this is treated as replayed history. */
 const REPLAY_AGE_MS = 120_000;
 
-export const TOOL_PRESETS: Record<"chat" | "files" | "full", string[]> = {
-  chat: ["read", "grep", "find", "ls"],
-  files: ["read", "grep", "find", "ls", "write", "edit"],
-  full: ["read", "grep", "find", "ls", "write", "edit", "bash"],
-};
-
 export type ConvStatus = "busy" | "running" | "sleeping";
-export type AgentStatus = ConvStatus | "new" | "retired" | "unavailable";
+type AgentStatus = ConvStatus | "new" | "retired" | "unavailable";
 
 export interface ConversationView {
   id: string;
@@ -279,10 +275,19 @@ export class ConversationService {
     return { l, rec };
   }
 
+  /**
+   * The host stores the WHOLE ref we filed under `pluginRefs.<pluginId>`, i.e.
+   * `pluginRefs.team = { team: { personaKey, project, conversationId, uk, runId }, principalOwner }`.
+   */
+  private teamRef(s: HostSession | undefined): { personaKey?: unknown; project?: unknown; conversationId?: unknown } | undefined {
+    const filed = s?.pluginRefs?.team as { team?: unknown } | undefined;
+    const t = filed?.team;
+    return t && typeof t === "object" ? (t as { personaKey?: unknown; project?: unknown; conversationId?: unknown }) : undefined;
+  }
+
   private ownLive(rec: ConversationRecord, c: string): HostSession | undefined {
     const s = this.d.host.getSession(rec.sessionId);
-    const team = s?.pluginRefs?.team as { conversationId?: unknown } | undefined;
-    if (!s || team?.conversationId !== c) return undefined;
+    if (!s || this.teamRef(s)?.conversationId !== c) return undefined;
     return s;
   }
 
@@ -300,6 +305,14 @@ export class ConversationService {
     return `Beszélgetés · ${rec.createdAt.slice(0, 10)}`;
   }
 
+  /**
+   * "Restart to apply" only makes sense for a LIVE session: a sleeping conversation (idle-ended or
+   * just restarted) already picks the current persona up on its next start.
+   */
+  private isStale(rec: ConversationRecord, c: string, persona: Persona | null): boolean {
+    return !!persona && persona.updatedAt > rec.personaUpdatedAt && this.statusOf(rec, c) !== "sleeping";
+  }
+
   private view(lr: { c: string; record: ConversationRecord }, persona: Persona | null): ConversationView {
     const rec = lr.record;
     return {
@@ -308,7 +321,7 @@ export class ConversationService {
       status: this.statusOf(rec, lr.c),
       lastActivityAt: rec.lastActivityAt,
       archived: rec.archived,
-      personaStale: !!persona && persona.updatedAt > rec.personaUpdatedAt,
+      personaStale: this.isStale(rec, lr.c, persona),
     };
   }
 
@@ -369,7 +382,7 @@ export class ConversationService {
         },
         lifecycle: { recover: false, finalizeOnSocketClose: true },
         scope: {
-          tools: TOOL_PRESETS[persona.tools],
+          tools: [...PRESET_TOOLS[persona.tools]],
           ...(skills.length ? { skills } : {}),
           extensions: [this.d.guardExtensionPath],
           extensionConfig: { team: { persona: personaFile, root: root.dir, tools: persona.tools } },
@@ -488,7 +501,7 @@ export class ConversationService {
 
     // 3. reuse
     const live = this.ownLive(rec, c);
-    const team = live?.pluginRefs?.team as { personaKey?: unknown; project?: unknown } | undefined;
+    const team = this.teamRef(live);
     if (
       live &&
       live.status !== "ended" &&
@@ -678,7 +691,7 @@ export class ConversationService {
       status,
       activeCount: active.length,
       latest: this.latestOf(active),
-      personaStale: active.some((r) => p.updatedAt > r.record.personaUpdatedAt),
+      personaStale: active.some((r) => this.isStale(r.record, r.c, p)),
       unassigned: !assigned,
       retired: false,
     };
@@ -691,4 +704,3 @@ export class ConversationService {
   }
 }
 
-export { isInside };

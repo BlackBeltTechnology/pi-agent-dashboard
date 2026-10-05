@@ -9,9 +9,9 @@ import { atomicWriteJson, canonicalize, type FsOps, isInside, isSlug, type TeamP
 import { cpLength } from "./persona.js";
 import { type Caller, type Mode, type Project, type ProjectConfigEntry, type TeamConfig, TeamError } from "./types.js";
 
-export const FOLDER_PROJECTS_MAX = 200;
+const FOLDER_PROJECTS_MAX = 200;
 
-export interface ProjectLogger {
+interface ProjectLogger {
   info(msg: string): void;
   warn(msg: string): void;
 }
@@ -53,7 +53,7 @@ function parseUsers(v: unknown): UsersSpec | null {
   return null;
 }
 
-export function slugify(base: string): string {
+function slugify(base: string): string {
   const s = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")

@@ -18,7 +18,7 @@ import { createRoot } from "react-dom/client";
 import { AuthProvider } from "react-oidc-context";
 import { Router } from "wouter";
 import { TeamApp } from "./TeamApp.js";
-import { teamApp } from "./team-app.js";
+import teamApp from "./team-app.js";
 import { useT } from "./i18n/index.js";
 import { Gate } from "./shell/Gate.js";
 import { SeamIdentityProvider } from "./shell/seam-identity.js";

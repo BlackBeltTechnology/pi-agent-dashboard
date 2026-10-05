@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import { teamApp } from "../team-app.js";
+import teamApp from "../team-app.js";
 import { TargetSelector } from "../shell/TargetSelector.js";
 import { TeamApp } from "../TeamApp.js";
 import { targetStore } from "../state/target-store.js";
