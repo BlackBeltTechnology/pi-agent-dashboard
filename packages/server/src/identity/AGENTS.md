@@ -13,8 +13,8 @@ Files in this directory. One row per source file. Multi-user identity plane (See
 | `dispatch.ts` | First-claim-wins resolver walk (claim / reject / none), bounded timeout, validate/copy/freeze via `principal-guard`. |
 | `domain-fanout.ts` | `deliverDomainEvent`: policy-driven per-socket send of plugin domain events; operator bypass; no policy ⇒ plain broadcast. |
 | `host-access.ts` | `HostPolicy` interface (`authorize({principal,action,resource,probe?})`) + `gateHttpNonSession`. |
-| `host-resources.ts` | `HostActions` constants + `hostResource` descriptors. Families incl. `editor.write`, `live.read|write`. |
-| `http-road-classification.ts` | `classifyHttpRoad(method, routePattern)` → identity / session / session-handler / non-session `{action,resource}`. Covers `/api/*`, `/editor/` (`editor.write`), `/live/` (`live.<verb>`). |
+| `host-resources.ts` | `HostActions` constants + `hostResource` descriptors. Families incl. `editor.write`, `live.read`, `live.write`. |
+| `http-road-classification.ts` | `classifyHttpRoad(method, routePattern)` → identity / session / session-handler / non-session `{action,resource}`. Covers `/api/*`, `/editor/` (`editor.write`), `/live/` (`live.read` / `live.write`). |
 | `identity-floor.ts` | D24 signed-out floor: enforced + no principal ⇒ `/api/`,`/editor/`,`/live/` 401 except pre-auth GETs and the one break-glass `POST /api/identity/local-exchange`. |
 | `identity-me.ts` | `GET /api/identity/me` payload `{enforced, principal, localOperator, can}`. Uses `probe:true` so UI probes are never audited. |
 | `identity-registration-tracker.ts` | Per-plugin ledger of identity registrations; releases a failed plugin's; `freeze()` latches after boot. |

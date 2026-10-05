@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BROWSER_HEARTBEAT_INTERVAL_MS,
-  MAX_TIMER_DELAY_MS,
-  scheduleAtExpiry,
   IDENTITY_EXPIRED_CLOSE_CODE,
   installSocketLifetime,
   type LifetimeSocket,
+  MAX_TIMER_DELAY_MS,
+  scheduleAtExpiry,
 } from "../socket-lifetime.js";
 
 /** A fake socket + a manual timer harness that captures scheduled callbacks. */

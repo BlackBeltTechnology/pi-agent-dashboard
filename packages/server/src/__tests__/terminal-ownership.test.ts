@@ -382,4 +382,22 @@ describe("terminal frames reach only the owner (18.13)", () => {
     expect(terminalFramesSent(ws)).toEqual(["terminal_removed:ta"]);
     expect(terminalFramesSent(other)).toEqual([]);
   });
+
+  it("CodeRabbit: a live terminal_added decides all owner sockets concurrently — N slow policy calls cost ~one timeout, not N×", async () => {
+    const { gateway, live } = perTargetGateway(async () => { await new Promise((r) => setTimeout(r, 80)); return true; }, null);
+    const sockets: FakeWs[] = [];
+    for (let i = 0; i < 6; i++) {
+      const w = fakeWs(anna);
+      w.bootstrapGrants = { ...familyAllowed, terminals: new Set<string>() };
+      gateway.wss.emit("connection", w, {});
+      w.send.mockClear();
+      sockets.push(w);
+    }
+    live.push({ id: "tnew", cwd: "/a", principalOwner: anna });
+    const t0 = Date.now();
+    gateway.broadcast({ type: "terminal_added", terminal: { id: "tnew", cwd: "/a", shell: "sh", status: "active", createdAt: 0, principalOwner: anna } } as never);
+    for (let i = 0; i < 100 && sockets.some((w) => types(w).length === 0); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(Date.now() - t0).toBeLessThan(80 * 3); // sequential would be ≥ 480 ms
+    for (const w of sockets) expect(types(w).map((m) => m.type)).toEqual(["terminal_added"]);
+  });
 });

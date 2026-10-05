@@ -15,9 +15,13 @@ The `social-login` plugin SHALL act as one OAuth/OIDC authorization server that 
 - **WHEN** a user signs in via GitHub then via Google linked to the same account
 - **THEN** both resolve to the same `(iss, sub)` principal
 
-### Requirement: Issuer origin from configuration
-The broker SHALL derive issuer and callback origins from the configured public base URL and MUST NOT use the request `Host` header.
+### Requirement: Issuer and callback origins from configuration
+The broker SHALL derive BOTH its issuer origin (the `iss` it signs and the origin of its `.well-known` metadata) and its upstream callback origin (the redirect URI registered at GitHub/Google) from the configured public base URL, and MUST NOT use the request `Host` header for either. The settings page SHALL show the exact callback URL to register and warn when the base is ephemeral.
 
 #### Scenario: Forged Host header
 - **WHEN** a request carries a `Host` different from the configured public base
-- **THEN** issued metadata and redirects still use the configured public base
+- **THEN** issued metadata, the `iss` claim and redirects still use the configured public base
+
+#### Scenario: Callback URL matches what was registered
+- **WHEN** the operator copies the callback URL from the settings page
+- **THEN** it is `<public base>` plus the broker's callback path, independent of how the settings page was reached

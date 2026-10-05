@@ -567,6 +567,8 @@ export interface TokenCreateDeps {
   localToken?: string | null;
   out?: (line: string) => void;
   err?: (line: string) => void;
+  /** Request bound for `cmdLogin` (ms); default 5000. */
+  timeoutMs?: number;
 }
 
 const TOKEN_TIERS = ["observe", "control", "operate"] as const;
@@ -690,6 +692,8 @@ export async function cmdLogin(
       method: "POST",
       headers: { "content-type": "application/json", [LOCAL_TOKEN_HEADER]: localToken },
       body: "{}",
+      // A server that accepts the connection but never answers must not hang recovery.
+      signal: AbortSignal.timeout(deps.timeoutMs ?? 5000),
     });
     if (!res.ok) {
       err(`[login] failed to issue a code: HTTP ${res.status}`);

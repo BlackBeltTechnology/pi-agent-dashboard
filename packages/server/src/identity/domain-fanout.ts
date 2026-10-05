@@ -53,19 +53,26 @@ export async function deliverDomainEvent<S>(
     }
     return delivered;
   }
-  // Policy ⇒ per-socket decision; principal-less sockets get nothing.
-  for (const t of targets) {
-    if (!t.principal) continue;
-    // D23: the break-glass operator sees everything; the policy is not asked.
-    if (isLocalOperator(t.principal)) {
-      send(t.socket);
-      delivered.push(t.socket);
-      continue;
-    }
-    if (await policy.authorize({ principal: t.principal, action, resource })) {
-      send(t.socket);
-      delivered.push(t.socket);
-    }
+  // Policy ⇒ per-socket decision; principal-less sockets get nothing. Decisions run
+  // CONCURRENTLY (each is bounded by the policy timeout), so N sockets cost ~one
+  // timeout rather than N× — a slow policy must not stall the whole fan-out queue.
+  // Delivery stays in target order, and a faulting decision denies only its socket.
+  const decided = await Promise.all(
+    [...targets].map(async (t) => {
+      if (!t.principal) return { t, ok: false };
+      // D23: the break-glass operator sees everything; the policy is not asked.
+      if (isLocalOperator(t.principal)) return { t, ok: true };
+      try {
+        return { t, ok: (await policy.authorize({ principal: t.principal, action, resource })) === true };
+      } catch {
+        return { t, ok: false };
+      }
+    }),
+  );
+  for (const { t, ok } of decided) {
+    if (!ok) continue;
+    send(t.socket);
+    delivered.push(t.socket);
   }
   return delivered;
 }

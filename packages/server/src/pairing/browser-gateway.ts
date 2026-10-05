@@ -1537,25 +1537,35 @@ export function createBrowserGateway(
     const policy = hostPolicy;
     domainChain = domainChain
       .then(async () => {
-        for (const ws of [...subscriptions.keys()]) {
-          if (ws.readyState !== WebSocket.OPEN || !ownerAllows(ws)) continue;
-          if (msg.type === "terminal_added") {
-            const g = grantsOf(ws);
-            if (g.terminal !== true) continue;
-            const principal = socketPrincipal(ws);
-            const ok =
-              g.terminals === "all" ||
-              (principal !== null &&
-                (isLocalOperator(principal) ||
-                  (await policy!.authorize({ principal: principal as never, action: HostActions.terminalRead, resource: hostResource.terminal(id) }).catch(() => false)) === true));
-            if (!ok) continue;
+        const candidates = [...subscriptions.keys()].filter((ws) => ws.readyState === WebSocket.OPEN && ownerAllows(ws));
+        if (msg.type === "terminal_added") {
+          // Decide every candidate socket CONCURRENTLY (each decision is bounded by the
+          // policy timeout), so N sockets cost ~one timeout, not N× — a slow policy must
+          // not stall the queue every later frame waits behind. Delivery stays in order.
+          const approved = await Promise.all(
+            candidates.map(async (ws) => {
+              const g = grantsOf(ws);
+              if (g.terminal !== true) return false;
+              if (g.terminals === "all") return true;
+              const principal = socketPrincipal(ws);
+              if (principal === null) return false;
+              if (isLocalOperator(principal)) return true;
+              return (
+                (await policy!
+                  .authorize({ principal: principal as never, action: HostActions.terminalRead, resource: hostResource.terminal(id) })
+                  .catch(() => false)) === true
+              );
+            }),
+          );
+          candidates.forEach((ws, i) => {
+            if (!approved[i]) return;
             let set = approvedTerminals.get(ws);
             if (!set) approvedTerminals.set(ws, (set = new Set()));
             set.add(id);
             sendTo(ws, msg); // state-aware: bounded + coalescing under backpressure
-          } else if (terminalAllowed(ws, id)) {
-            sendTo(ws, msg);
-          }
+          });
+        } else {
+          for (const ws of candidates) if (terminalAllowed(ws, id)) sendTo(ws, msg);
         }
         finish();
       })

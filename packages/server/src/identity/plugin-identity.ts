@@ -26,8 +26,8 @@
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
 import type { IncomingMessage } from "node:http";
+import path from "node:path";
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { isLocalOperator } from "./session-access.js";
 

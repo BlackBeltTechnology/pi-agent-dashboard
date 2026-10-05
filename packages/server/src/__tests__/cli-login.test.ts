@@ -63,4 +63,18 @@ describe("pi-dashboard login --local", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(err.lines.join("\n")).toMatch(/local token/i);
   });
+
+  it("bounds the request: a server that accepts but never answers cannot hang the recovery command", async () => {
+    const err = sink();
+    const fetchImpl = vi.fn((_url: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "TimeoutError" })));
+      }),
+    ) as unknown as typeof fetch;
+    const t0 = Date.now();
+    const code = await cmdLogin(["--local"], { port: 8000 }, { fetchImpl, localToken: "lt", out: () => {}, err: err.fn, timeoutMs: 50 });
+    expect(code).toBe(1);
+    expect(Date.now() - t0).toBeLessThan(2000);
+    expect(err.lines.join("\n")).toMatch(/dashboard not running|aborted/);
+  });
 });

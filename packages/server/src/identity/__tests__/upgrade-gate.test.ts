@@ -1,7 +1,7 @@
 import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { describe, expect, it, vi } from "vitest";
-import { authorizeRoadUpgrade } from "../upgrade-gate.js";
 import { LOCAL_OPERATOR } from "../session-access.js";
+import { authorizeRoadUpgrade } from "../upgrade-gate.js";
 
 const anna: Principal = { iss: "https://idp", sub: "anna" };
 const policy = (decide: () => unknown, has = true) => ({ hasPolicy: () => has, authorize: vi.fn(async () => decide() as boolean) });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BreakGlass, BREAK_GLASS_BEARER_PREFIX, BREAK_GLASS_BEARER_TTL_MS, BREAK_GLASS_CODE_TTL_MS } from "../break-glass.js";
+import { BREAK_GLASS_BEARER_PREFIX, BREAK_GLASS_BEARER_TTL_MS, BREAK_GLASS_CODE_TTL_MS, BreakGlass } from "../break-glass.js";
 import { isLocalOperator, LOCAL_OPERATOR } from "../session-access.js";
 
 const T0 = 1_000_000;
