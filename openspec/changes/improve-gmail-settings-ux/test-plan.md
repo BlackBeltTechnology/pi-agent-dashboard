@@ -22,6 +22,13 @@ L1 = vitest in `packages/gmail-plugin/src/{client,server}/__tests__/` (client su
 | E8 | Readable section — link text | static scan | L1 | automated | `GmailSettings.tsx` source | grep | no `text-[var(--accent)]`; `StepLink` uses `--accent-text` |
 | E9 | Readable section — focus | DOM | L1 | automated | rendered section with one account + waiting flow | query all `button, select, input, summary, a` | every element has class `focus-ring` |
 | E10 | Readable section — scope limit | content | L1 | automated | rendered accounts list | read `gmail-level-help` + level `<option>`s | help matches `/not by Google/` and states any dashboard session can use every account within its level; each option text has a description after the tier name |
+| E12 | Consent hint | content | L1 | automated | add-account flow in `waiting` | render `GmailSettings` | text "tick every permission" (Select all) visible next to the `ui:oauth-flow` view; absent when no flow |
+| E13 | Consent hint — scope_missing | content | L1 | automated | flow status `{status:"error", error:"scope_missing"}` | poll | `gmail-flow-error` says the Gmail permission was not granted and to add the account again with every permission ticked; `data-step=""` |
+| E14 | API errors — disabled | decision-table | L1 | automated | 403 body `{error:{details:[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",reason:"SERVICE_DISABLED",metadata:{service:"gmail.googleapis.com",consumer:"projects/603220229616"}}]}}`; legacy `{error:{errors:[{reason:"accessNotConfigured"}]}}` | `gmail_search` | code `api_disabled`; modern message contains `603220229616` and `gcloud services enable gmail.googleapis.com`; legacy message has no project number |
+| E15 | API errors — scope | decision-table | L1 | automated | 403 reasons `ACCESS_TOKEN_SCOPE_INSUFFICIENT` (ErrorInfo) / `insufficientPermissions` (legacy) | `gmail_search` | code `scope_insufficient`; message says re-authenticate with every permission ticked |
+| E16 | API errors — consumer validation | EP | L1 | automated | `SERVICE_DISABLED` with consumer `projects/abc`, `projects/1;rm -rf`, `12345` (number), missing | `gmail_search` | code `api_disabled`; message contains none of `abc`, `rm -rf`, `12345` |
+| E17 | API errors — other service | decision-table | L1 | automated | `SERVICE_DISABLED` with `metadata.service:"drive.googleapis.com"` | `gmail_search` | code `gmail_error` |
+| X8 | API errors — malformed | fault-injection | L1 | automated | 403 bodies: `not json`, `{}`, `{error:"x"}`, `{error:{details:"x"}}`, `{error:{details:[{"@type":5,reason:{}}]}}`, `{error:{message:"SECRET-TEXT",details:[]}}` | `gmail_search` | every call rejects a `GmailToolError` with code `gmail_error` (never a raw TypeError); no message contains `SECRET-TEXT` |
 | E11 | Readable section — cross-org hint | content | L1 | automated | rendered add-account area | read text | label for the level select is visible; hint mentions External audience for other organizations |
 
 ### Frontend-quirk
@@ -54,10 +61,10 @@ L1 = vitest in `packages/gmail-plugin/src/{client,server}/__tests__/` (client su
 
 ## Coverage summary
 
-- Requirements covered: 4/4 (Guided setup, Revoke, Secrets never logged, Settings section readable)
-- Scenarios by class: edge 11 · perf 0 · frontend 9 · error 7
-- Scenarios by level: L1 24 · L3 1 · — 2
-- Scenarios by disposition: automated 25 · manual-only 2
+- Requirements covered: 5/5 (Guided setup, Revoke, Secrets never logged, Settings section readable, Actionable Gmail API errors)
+- Scenarios by class: edge 17 · perf 0 · frontend 9 · error 8
+- Scenarios by level: L1 31 · L3 1 · — 2
+- Scenarios by disposition: automated 32 · manual-only 2
 
 ## New infra needed
 

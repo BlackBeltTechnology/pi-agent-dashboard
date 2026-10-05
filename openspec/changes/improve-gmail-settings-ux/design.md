@@ -72,6 +72,21 @@ The existing canonical `.focus-ring` utility (`packages/client/src/index.css:337
 ### D7 — i18n
 English stays the call-site fallback; every new/changed key is added to the `zh-CN` and `hu` catalogs (`src/i18n.ts`), parity enforced by `scripts/i18n-parity`.
 
+### D8 — Consent hint (plugin-owned)
+- The host drops `auth_url.instructions`: `provider-auth-adapter.ts:265-271` stores only `event.url`; `OAuthFlowStatus` (`packages/shared/src/rest-api.ts:752-760`) and `OAuthFlowView.tsx:123-125` have no instructions slot. Changing that is a non-goal, so the hint is rendered by `GmailSettings.tsx` itself, directly above the `ui:oauth-flow` view while `flow` is set: "On Google's consent screen tick every permission (Select all). The Gmail permission may start unticked." `google-oauth.ts` is not changed.
+- `ERROR_EN.scope_missing` = "Google did not grant the Gmail permission. Add the account again and tick every permission on Google's consent screen." `errorStep("scope_missing")` stays `null` (default arm, `wizard.ts:41-60`).
+- `scope_missing` reaches the client as the flow error: `persist` throws `GmailFlowError("scope_missing")` (`routes.ts:84`) → `provider-auth-adapter.ts:526-531`.
+
+### D9 — 403 classification in the bridge
+In `GmailApi.call` (`packages/gmail-plugin/src/bridge/gmail-api.ts:71`), when `res.status === 403`, ONE `try` block wraps reading, parsing and extraction; any throw inside it → the existing `GmailToolError("gmail_error", "gmail_error: Gmail returned HTTP 403")`. No raw error escapes. Every field is `typeof`/`Array.isArray`-guarded:
+1. `body = JSON.parse(await res.text())`; `err = body.error` must be an object.
+2. `reasons` = string `reason`s from `err.details[]` entries whose string `@type` ends with `google.rpc.ErrorInfo`, plus string `reason`s from `err.errors[]` (legacy shape).
+3. **API disabled:** a reason in `{SERVICE_DISABLED, accessNotConfigured}` AND (no string `metadata.service` on that ErrorInfo, or it equals `gmail.googleapis.com`) → `GmailToolError("api_disabled", …)`. Project number = the ErrorInfo's string `metadata.consumer` matching `^projects/(\d{1,20})$`; otherwise the message omits the number (still `api_disabled`). Message with number: `api_disabled: the Gmail API is disabled in Google Cloud project <n>. Enable it: gcloud services enable gmail.googleapis.com --project=<n> (or APIs & Services → Library → Gmail API → Enable), then retry in a minute.` Without: same text, "in the dashboard's Google Cloud project", `--project=<your-project>`.
+4. **Scope:** a reason in `{ACCESS_TOKEN_SCOPE_INSUFFICIENT, insufficientPermissions}` → `scope_insufficient: the account's grant lacks the Gmail permission; re-authenticate it in Settings → Plugins → Gmail with every permission ticked.`
+5. Anything else → unchanged `gmail_error`.
+Never includes `err.message`, `metadata.activationUrl` or any other body text. Additive codes only. Google's exact 403 shape is not verifiable from the repo; both modern (`details[].ErrorInfo`) and legacy (`errors[].reason`) shapes are handled and anything else degrades to today's behaviour.
+- Alternative: probe Gmail at sign-in and refuse the account. Rejected: it blocks storing an account whose only problem is fixable in the Console, and adds a network call to every sign-in.
+
 ## Risks / Trade-offs
 
 - [User picks the wrong code] → cancel is harmless; message routes to a fix; retry is one click.
@@ -79,6 +94,9 @@ English stays the call-site fallback; every new/changed key is added to the `zh-
 - [Host changes the cancel message] → the latch (D1) does not depend on it; only the message mapping does, which falls back to `errGeneric`.
 - [Non-Gmail error messages arrive as `flowError` (e.g. `fetch failed`)] → `errGeneric` sentence; raw text shown only in the muted support span, same as today.
 - [`--severity-*` on the account status badge, a non-message surface] → trade-off accepted: it is an action-required notice, not a session status; revisit if a shared account-status token family appears.
+
+- [Google changes the 403 body shape] → falls back to today's `gmail_error`; no regression.
+- [`--project=<number>` instead of the project id] → `gcloud services enable` accepts the project number.
 
 ## Migration Plan
 
