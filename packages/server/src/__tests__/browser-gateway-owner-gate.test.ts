@@ -17,6 +17,9 @@ import { createMemorySessionManager } from "../session/memory-session-manager.js
 const owner = { iss: "https://kc/realms/app", sub: "user-1" };
 const other = { iss: "https://kc/realms/app", sub: "user-2" };
 
+/** `createBrowserGateway` takes ~25 positional optional deps; the newer tests set only a few. */
+const createGatewayLoose = createBrowserGateway as unknown as (...args: unknown[]) => ReturnType<typeof createBrowserGateway>;
+
 function makeFakeWs(principal?: { iss: string; sub: string }) {
   const ws = new EventEmitter() as EventEmitter & {
     send: ReturnType<typeof vi.fn>;
@@ -221,7 +224,7 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
     const terminals = [{ id: "t1", principalOwner: owner }];
     const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
     // Positional deps: preferencesStore is #7, terminalManager #9, isResolverActive #25.
-    const gateway = createBrowserGateway(
+    const gateway = createGatewayLoose(
       sessionManager,
       createMemoryEventStore(() => false),
       piGateway,
@@ -362,7 +365,7 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
         getTerminalRecord: () => ({ transcript: "", sawInput: false }), releaseTranscript: vi.fn(), isReleased: () => false,
       };
       const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-      const gateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, undefined, undefined, undefined, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => active);
+      const gateway = createGatewayLoose(sessionManager, eventStore, piGateway, undefined, undefined, undefined, undefined, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => active);
       return { gateway, eventStore, spawn, kill, live };
     }
     const events = (es: ReturnType<typeof createMemoryEventStore>) => es.getEvents("s1", 0).map((e) => e.event.eventType);

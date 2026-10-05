@@ -73,19 +73,34 @@ describe("terminal handlers (18.13)", () => {
 });
 
 // ── gateway visibility ──────────────────────────────────────────────────────
-function fakeWs(principal?: object) {
-  const ws = new EventEmitter() as EventEmitter & Record<string, any>;
+interface FakeWs extends EventEmitter {
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  ping: ReturnType<typeof vi.fn>;
+  terminate: ReturnType<typeof vi.fn>;
+  readyState: number;
+  bufferedAmount: number;
+  OPEN: number;
+  principal?: object;
+  bootstrapGrants?: unknown;
+}
+
+function fakeWs(principal?: object): FakeWs {
+  const ws = new EventEmitter() as FakeWs;
   Object.assign(ws, { send: vi.fn(), close: vi.fn(), ping: vi.fn(), terminate: vi.fn(), readyState: 1, bufferedAmount: 0, OPEN: 1 });
   if (principal) ws.principal = principal;
   return ws;
 }
-const types = (ws: { send: ReturnType<typeof vi.fn> }) => ws.send.mock.calls.map((c) => JSON.parse(c[0] as string) as { type: string; terminal?: { id: string }; terminalId?: string; sessionIds?: string[] });
+
+/** `createBrowserGateway` takes ~25 positional optional deps; the tests set only a few. */
+const makeGateway = createBrowserGateway as unknown as (...args: unknown[]) => ReturnType<typeof createBrowserGateway>;
+const types = (ws: FakeWs) => ws.send.mock.calls.map((c) => JSON.parse(c[0] as string) as { type: string; terminal?: { id: string }; terminalId?: string; sessionIds?: string[] });
 
 function gatewayWith(terminals: Array<{ id: string; cwd: string; principalOwner?: typeof anna }>, active = true) {
   const live = [...terminals];
   const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
   const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-  const gateway = createBrowserGateway(
+  const gateway = makeGateway(
     createMemorySessionManager(),
     createMemoryEventStore(() => false),
     piGateway,
@@ -140,7 +155,7 @@ describe("terminal frames reach only the owner (18.13)", () => {
     gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "x" } } as never);
     live.length = 0; // PTY exited: the manager no longer knows it
     gateway.broadcast({ type: "terminal_removed", terminalId: "ta" } as never);
-    const got = (w: typeof a) => types(w).map((m) => m.type);
+    const got = (w: FakeWs) => types(w).map((m) => m.type);
     expect(got(a)).toEqual(["terminal_updated", "terminal_removed"]);
     expect(got(op)).toEqual(["terminal_updated", "terminal_removed"]);
     expect(got(b)).toEqual([]);
@@ -174,7 +189,7 @@ describe("terminal frames reach only the owner (18.13)", () => {
     const terminals = [{ id: "ta", cwd: "/a", principalOwner: anna }];
     const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
     const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-    const gateway = createBrowserGateway(
+    const gateway = makeGateway(
       sessionManager,
       createMemoryEventStore(() => false),
       piGateway,
@@ -186,13 +201,13 @@ describe("terminal frames reach only the owner (18.13)", () => {
       () => true,
     );
     gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
-    const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    const ws = fakeWs(anna) as FakeWs;
     ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: grants.terminal, terminals: grants.terminal ? "all" : new Set<string>() };
     gateway.wss.emit("connection", ws, {});
     ws.send.mockClear();
     return { gateway, ws };
   }
-  const ordersOf = (ws: ReturnType<typeof fakeWs>) => types(ws).find((m) => m.type === "sessions_reordered")?.sessionIds;
+  const ordersOf = (ws: FakeWs) => types(ws).find((m) => m.type === "sessions_reordered")?.sessionIds;
 
   it("B3: terminal_updated is withheld from an owner whose terminal grant is denied (and sent when granted)", async () => {
     for (const [granted, expected] of [[false, []], [true, ["terminal_updated"]]] as const) {
@@ -219,9 +234,9 @@ describe("terminal frames reach only the owner (18.13)", () => {
       const terminals = [{ id: "ta", cwd: "/a", principalOwner: anna }];
       const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
       const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-      const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+      const gateway = makeGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
       gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
-      const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+      const ws = fakeWs(anna) as FakeWs;
       ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, ...grants, terminals: grants.terminal ? "all" : new Set<string>() };
       gateway.wss.emit("connection", ws, {});
       return (types(ws).find((m) => m.type === "sessions_snapshot") as unknown as { orders: Record<string, string[]> }).orders;
@@ -240,10 +255,10 @@ describe("terminal frames reach only the owner (18.13)", () => {
     ];
     const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
     const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const gateway = makeGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
     const authorize = vi.fn(async ({ resource }: { resource: { id?: string } }) => policy(resource.id));
     gateway.setHostPolicy({ hasPolicy: () => true, authorize: authorize as never });
-    const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    const ws = fakeWs(anna) as FakeWs;
     if (grants) ws.bootstrapGrants = grants;
     gateway.wss.emit("connection", ws, {});
     ws.send.mockClear();
@@ -254,7 +269,7 @@ describe("terminal frames reach only the owner (18.13)", () => {
 
   it("r2-B2: bootstrap only lists terminals in the per-target allow set", () => {
     const g = perTargetGateway(() => true, null);
-    const fresh = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    const fresh = fakeWs(anna) as FakeWs;
     fresh.bootstrapGrants = { ...familyAllowed, terminals: new Set(["ta"]) };
     g.gateway.wss.emit("connection", fresh, {});
     expect(types(fresh).filter((m) => m.type === "terminal_added").map((m) => m.terminal?.id)).toEqual(["ta"]);
@@ -288,7 +303,7 @@ describe("terminal frames reach only the owner (18.13)", () => {
     const live = [{ id: "ta", cwd: "/a", principalOwner: anna }];
     const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
     const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const gateway = makeGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
     const ws = fakeWs(anna);
     gateway.wss.emit("connection", ws, {});
     ws.send.mockClear();
@@ -337,13 +352,13 @@ describe("terminal frames reach only the owner (18.13)", () => {
     const live = [{ id: "ta", cwd: "/a", principalOwner: anna }];
     const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
     const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
-    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const gateway = makeGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
     const ws = fakeWs(anna);
     gateway.wss.emit("connection", ws, {});
     ws.send.mockClear();
     return { gateway, ws };
   }
-  const terminalFramesSent = (ws: ReturnType<typeof fakeWs>) => types(ws).filter((m) => m.type.startsWith("terminal_")).map((m) => `${m.type}:${m.terminal?.id ?? m.terminalId}`);
+  const terminalFramesSent = (ws: FakeWs) => types(ws).filter((m) => m.type.startsWith("terminal_")).map((m) => `${m.type}:${m.terminal?.id ?? m.terminalId}`);
 
   it("r4-B1: on a saturated socket a terminal_removed is deferred as STATE and delivered after the drain — never shed", async () => {
     const { gateway, ws } = noPolicyGateway();
