@@ -83,6 +83,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   opens reconnecting sockets with a fresh single-use ticket on every attempt. The
   `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
 
+- **Discord release announcements.** The Release workflow (`publish.yml`)
+  gains a best-effort `discord-announce` job that posts each production
+  release's notes to the community Discord through the
+  `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
+  secret skips cleanly, mentions are suppressed, and a webhook failure never
+  fails the release. The community invite link moves to
+  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual
   browser/device-code choice. It stays hidden while `models.json` points
