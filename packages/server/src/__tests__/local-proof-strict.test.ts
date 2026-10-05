@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCookie from "@fastify/cookie";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
 import {
   createLocalTrustContext,
@@ -24,7 +24,7 @@ import {
   isPluginScopePeerLocal,
   isTrustedSource,
 } from "../auth/localhost-guard.js";
-import { createRouteTierGate, tierRefusalFor } from "../auth/route-tier-gate.js";
+import { tierRefusalFor } from "../auth/route-tier-gate.js";
 import { authorizeWsUpgrade, validateWsUpgrade } from "../auth/auth-plugin.js";
 import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 import { PairingManager } from "../pairing/pairing.js";
@@ -327,5 +327,3 @@ describe("D0: cookie parsing without OAuth providers (X8)", () => {
   });
 });
 
-void createRouteTierGate;
-void vi;

@@ -47,7 +47,7 @@ const setCookie = (res: { headers: Record<string, unknown> }) =>
 
 describe("exchange route (E31)", () => {
   it.each(["observe", "operate"] as const)("a %s device gets the cookie", async (tier) => {
-    const d = reg.add("d", tier);
+    const d = reg.add("d", "pairing", tier);
     const res = await req("POST", "/api/device-session", bearer(d.token));
     expect(res.statusCode).toBe(200);
     const c = setCookie(res)!;
@@ -73,7 +73,7 @@ describe("exchange route (E31)", () => {
 
 describe("cookie admission (E32, E33, E34, X8, X13)", () => {
   it("E32/X8 cookie-only observe device: GET ok as device; operate route insufficient_scope", async () => {
-    const d = reg.add("d", "observe");
+    const d = reg.add("d", "pairing", "observe");
     const ok = await req("GET", "/api/sessions", cookie(d.token));
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual({ id: d.device.id, via: "device" });

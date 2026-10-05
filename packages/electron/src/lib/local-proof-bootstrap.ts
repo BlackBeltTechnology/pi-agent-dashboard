@@ -57,7 +57,7 @@ export async function mintLocalProofUrl(
  * when the bootstrap URL was loaded, false when it fell back to the plain URL.
  */
 export async function loadWithLocalProof(
-  win: { loadURL: (url: string) => Promise<void> | void },
+  win: { loadURL: (url: string) => unknown },
   serverUrl: string,
   deps: { fetchImpl?: typeof fetch; token?: string | null } = {},
 ): Promise<boolean> {

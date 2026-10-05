@@ -146,7 +146,7 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
         setError(t("landing.err.expiredRejected", undefined, "Pairing expired or was rejected. Re-scan the QR to start over."));
         return;
       }
-      finishPaired(outcome.token);
+      await finishPaired(outcome.token);
     } catch (err) {
       setPhase("error");
       setError(

@@ -69,7 +69,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { openBrowser } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
@@ -667,6 +667,24 @@ function localTokenHeader(): Record<string, string> {
 }
 
 /**
+ * Open a URL in the default browser WITHOUT a shell (argv only), so the URL is never
+ * interpreted by `sh`/`cmd`. Fire-and-forget.
+ */
+function openUrlInBrowser(url: string): void {
+  const [cmd, args]: [string, string[]] =
+    process.platform === "darwin" // platform-branch-ok: argv-only browser launcher
+      ? ["open", [url]]
+      : process.platform === "win32" // platform-branch-ok: argv-only browser launcher
+        ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+        : ["xdg-open", [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+  } catch {
+    /* printed URL above is the fallback */
+  }
+}
+
+/**
  * `pi-dashboard open [--print]` — mint a one-time local-proof code via the local
  * token and open (or print) `/auth/local-proof?code=…`, which sets the httpOnly
  * proof cookie in the browser. Exit 1 when the server is not running.
@@ -707,7 +725,7 @@ export async function cmdOpen(
   }
   const url = `${base}/auth/local-proof?code=${encodeURIComponent(code)}`;
   out(url);
-  if (!opts.print) (opts.open ?? ((u: string) => openBrowser(u)))(url);
+  if (!opts.print) (opts.open ?? openUrlInBrowser)(url);
   return 0;
 }
 

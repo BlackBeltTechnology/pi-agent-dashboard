@@ -25,8 +25,14 @@ import type { PairedDeviceRegistry } from "../pairing/paired-devices.js";
 /** Extract a `Bearer` token from an Authorization header, or null. */
 export function parseBearerHeader(authorization: string | undefined): string | null {
   if (!authorization) return null;
-  const m = /^Bearer\s+(.+)$/i.exec(authorization.trim());
-  return m ? m[1].trim() : null;
+  // Linear slice parse, not a regex: `\s+(.+)` is polynomial on `"bearer "` + many spaces
+  // (CodeQL js/polynomial-redos) and this header is attacker-controlled.
+  const trimmed = authorization.trim();
+  if (trimmed.slice(0, 6).toLowerCase() !== "bearer") return null;
+  const rest = trimmed.slice(6);
+  if (!/^\s/.test(rest)) return null;
+  const token = rest.trim();
+  return token === "" ? null : token;
 }
 
 export const DEVICE_COOKIE = "pi_dash_device";
