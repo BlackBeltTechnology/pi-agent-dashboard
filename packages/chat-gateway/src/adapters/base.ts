@@ -185,6 +185,17 @@ export interface PlatformAdapter {
 
 	/** Rename a bound channel (a workspace rename). Never deletes. */
 	renameChannel?(channelId: string, name: string): Promise<void>;
+
+	/**
+	 * Open a thread anchored on `messageId` in `channelId`; resolves the new
+	 * thread's id (a channel id messages can be sent to). Optional — a platform
+	 * without threads omits it and the gateway keeps channel-root sessions.
+	 */
+	startThread?(
+		channelId: string,
+		messageId: string,
+		name: string,
+	): Promise<{ threadId: string }>;
 }
 
 /**

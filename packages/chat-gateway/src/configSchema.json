@@ -49,6 +49,11 @@
       "default": [],
       "description": "L4: guild channel ids explicitly opted in. Any other guild channel is inert; DMs are isolated."
     },
+    "threadPerConversation": {
+      "type": "boolean",
+      "default": true,
+      "description": "Open a Discord thread on every new message in the channel root and run that conversation in its own session inside the thread. false = one shared session for the whole channel."
+    },
     "sessionVisibility": {
       "type": "string",
       "enum": ["hidden", "shown"],

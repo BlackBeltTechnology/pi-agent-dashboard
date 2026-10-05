@@ -34,6 +34,8 @@ function makeConfig(): ResolvedConfig {
     steerPrefix: "!",
     editThrottleMs: 0,
     sessionVisibility: "hidden",
+    // These scenarios pin channel-root binding semantics.
+    threadPerConversation: false,
   };
 }
 

@@ -81,6 +81,143 @@ const boundBinding = (over: Partial<Binding> = {}): Binding => ({
   ...over,
 });
 
+/**
+ * Adapter that can open threads, mirroring Discord: `startThread` returns a
+ * thread id, and a message posted in that thread arrives with `channelId` =
+ * the thread id (threads are channels) plus `threadId`/`parentChannelId`.
+ */
+class ThreadingAdapter extends RecordingAdapter {
+  threads: Array<{ channelId: string; messageId: string; name: string }> = [];
+  failThread: string | null = null;
+  async startThread(channelId: string, messageId: string, name: string): Promise<{ threadId: string }> {
+    if (this.failThread) throw new Error(this.failThread);
+    this.threads.push({ channelId, messageId, name });
+    return { threadId: `th-${this.threads.length}` };
+  }
+}
+
+const rootMsg = (over: Record<string, unknown> = {}) => ({
+  platform: "discord" as const,
+  channelId: "c1",
+  messageId: "m1",
+  userId: "u1",
+  text: "what is the current branch?",
+  isDM: false,
+  startedAt: 0,
+  ...over,
+});
+
+describe("thread per conversation", () => {
+  const cfg = (over: Record<string, unknown> = {}) =>
+    baseConfig({ groupChannels: ["c1"], defaultCwd: "/repos/proj", ...over });
+
+  it("a root-channel message opens a thread on it and binds a NEW session to the thread", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    const store = memoryStore();
+    const { gateway } = makeGateway({ seam, adapter, store, config: cfg() });
+    await gateway.start();
+
+    await gateway.handleInbound(rootMsg());
+
+    expect(adapter.threads).toEqual([
+      { channelId: "c1", messageId: "m1", name: "what is the current branch?" },
+    ]);
+    expect(seam.spawns).toHaveLength(1);
+    expect(seam.spawns[0].initialPrompt).toBe("what is the current branch?");
+    // The status reply goes INTO the thread, not the channel root.
+    expect(adapter.sent.at(-1)?.channelId).toBe("th-1");
+
+    seam.resolveSpawn("sess-th", seam.spawns[0].pluginRef ?? {});
+    const b = store.get("discord:th-1:th-1");
+    expect(b?.sessionId).toBe("sess-th");
+    expect(b?.parentChannelId).toBe("c1");
+    expect(store.get("discord:c1:-")).toBeUndefined();
+  });
+
+  it("a follow-up inside the thread reuses its session and opens no new thread", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    const store = memoryStore();
+    const { gateway } = makeGateway({ seam, adapter, store, config: cfg() });
+    await gateway.start();
+    await gateway.handleInbound(rootMsg());
+    seam.resolveSpawn("sess-th", seam.spawns[0].pluginRef ?? {});
+    seam.sessions = [{ id: "sess-th", cwd: "/repos/proj" }];
+
+    await gateway.handleInbound(
+      rootMsg({ channelId: "th-1", threadId: "th-1", parentChannelId: "c1", messageId: "m2", text: "and the last commit?" }),
+    );
+
+    expect(adapter.threads).toHaveLength(1);
+    expect(seam.spawns).toHaveLength(1);
+    expect(seam.sentPrompts).toEqual([
+      { sessionId: "sess-th", text: "and the last commit?", delivery: "followUp" },
+    ]);
+  });
+
+  it("each root-channel message is its own conversation, even when the channel root was bound before", async () => {
+    const seam = createFakeSeam();
+    seam.sessions = [{ id: "old", cwd: "/repos/proj" }];
+    const adapter = new ThreadingAdapter();
+    const store = memoryStore([
+      boundBinding({ channelId: "c1", sessionId: "old", isDM: false }),
+    ]);
+    const { gateway } = makeGateway({ seam, adapter, store, config: cfg() });
+    await gateway.start();
+
+    await gateway.handleInbound(rootMsg());
+
+    expect(adapter.threads).toHaveLength(1);
+    expect(seam.sentPrompts).toEqual([]); // not routed into the old root session
+    expect(seam.spawns).toHaveLength(1);
+  });
+
+  it("thread names are trimmed to Discord's 100-char limit and drop the steer prefix", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    const { gateway } = makeGateway({ seam, adapter, config: cfg() });
+    await gateway.start();
+    await gateway.handleInbound(rootMsg({ text: `!${"x".repeat(150)}` }));
+    expect(adapter.threads[0].name).toBe("x".repeat(100));
+  });
+
+  it("threadPerConversation:false keeps today's channel-root behaviour", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    const store = memoryStore();
+    const { gateway } = makeGateway({ seam, adapter, store, config: cfg({ threadPerConversation: false }) });
+    await gateway.start();
+    await gateway.handleInbound(rootMsg());
+    expect(adapter.threads).toHaveLength(0);
+    seam.resolveSpawn("sess-root", seam.spawns[0].pluginRef ?? {});
+    expect(store.get("discord:c1:-")?.sessionId).toBe("sess-root");
+  });
+
+  it("a thread that cannot be opened falls back to the channel root (message not lost)", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    adapter.failThread = "Missing Permissions";
+    const store = memoryStore();
+    const { gateway } = makeGateway({ seam, adapter, store, config: cfg() });
+    await gateway.start();
+    await gateway.handleInbound(rootMsg());
+    expect(seam.spawns).toHaveLength(1);
+    seam.resolveSpawn("sess-root", seam.spawns[0].pluginRef ?? {});
+    expect(store.get("discord:c1:-")?.sessionId).toBe("sess-root");
+  });
+
+  it("refused messages and DMs never open a thread", async () => {
+    const seam = createFakeSeam();
+    const adapter = new ThreadingAdapter();
+    const { gateway } = makeGateway({ seam, adapter, config: cfg() });
+    await gateway.start();
+    await gateway.handleInbound(rootMsg({ userId: "stranger" }));
+    await gateway.handleInbound(rootMsg({ isDM: true, channelId: "dm1" }));
+    expect(adapter.threads).toHaveLength(0);
+  });
+});
+
 describe("chat-gateway orchestrator", () => {
   it("X10: a non-allowlisted user never reaches a session", async () => {
     const { gateway, seam, adapter } = makeGateway({
