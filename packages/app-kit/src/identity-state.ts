@@ -26,6 +26,12 @@ export type IdentityMode = "unknown" | "oidc" | "none" | "unavailable";
 
 let mode: IdentityMode = "unknown";
 let accessToken: string | null = null;
+/**
+ * Bumped whenever the credential is dropped (token cleared, mode changed, reset)
+ * — NOT on a token renewal — so an async step can tell whether the credential it
+ * started with is still the live one.
+ */
+let credentialEpoch = 0;
 let operator: Operator | null = null;
 const refusedListeners = new Set<() => void>();
 
@@ -36,7 +42,13 @@ export function getIdentityMode(): IdentityMode {
 
 /** Set the identity mode (normally done by `initIdentity`). */
 export function setIdentityMode(next: IdentityMode): void {
+  if (next !== mode) credentialEpoch += 1;
   mode = next;
+}
+
+/** The current credential epoch (see `credentialEpoch`). */
+export function getCredentialEpoch(): number {
+  return credentialEpoch;
 }
 
 /** The live access token, or null when not signed in. */
@@ -46,6 +58,7 @@ export function getAccessToken(): string | null {
 
 /** Set (or clear) the live access token. */
 export function setAccessToken(token: string | null): void {
+  if (token === null) credentialEpoch += 1;
   accessToken = token;
 }
 
@@ -74,6 +87,7 @@ export function notifySessionRefused(): void {
 export function resetIdentityState(): void {
   mode = "unknown";
   accessToken = null;
+  credentialEpoch += 1;
   operator = null;
   refusedListeners.clear();
 }

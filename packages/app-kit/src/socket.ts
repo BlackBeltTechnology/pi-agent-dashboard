@@ -108,8 +108,16 @@ export function connectWithReconnect(opts: ReconnectOptions): ReconnectHandle {
   const scheduleReconnect = () => {
     if (tornDown) return;
     // Drop the dead socket's handlers so a paired close-after-error can't
-    // double-schedule.
-    detach(socket);
+    // double-schedule, and close it: after an `error` the connection may still
+    // be open, and `send()` must never target a socket we gave up on.
+    const dead = socket;
+    detach(dead);
+    socket = null;
+    try {
+      dead?.close();
+    } catch {
+      /* already closing */
+    }
     if (attempts >= maxRetries) {
       onStatus("disconnected");
       return;

@@ -13,7 +13,14 @@
 //  • A socket opens with a freshly minted single-use browser-scope ticket
 //    (`POST /api/ws-ticket`); the access token NEVER appears in a URL.
 import { apiUrl, isDashboardOrigin, wsUrl } from "./config.js";
-import { getAccessToken, getIdentityMode, notifySessionRefused, setAccessToken, setIdentityMode } from "./identity-state.js";
+import {
+  getAccessToken,
+  getCredentialEpoch,
+  getIdentityMode,
+  notifySessionRefused,
+  setAccessToken,
+  setIdentityMode,
+} from "./identity-state.js";
 
 /** Thrown when a request would have to go out without a usable credential. */
 export class NoCredentialError extends Error {
@@ -107,10 +114,17 @@ export async function mintWsTicket(scope: "browser" = "browser"): Promise<string
   }
 }
 
-/** Append `?ticket=<t>` (or `&ticket=`) to a WS url, preserving an existing query. */
+/**
+ * Append `?ticket=<t>` (or `&ticket=`) to a WS url, preserving an existing
+ * query and keeping any `#fragment` last — a ticket inside the fragment would
+ * never reach the server.
+ */
 export function appendWsTicket(url: string, ticket: string): string {
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}ticket=${encodeURIComponent(ticket)}`;
+  const hashAt = url.indexOf("#");
+  const base = hashAt === -1 ? url : url.slice(0, hashAt);
+  const fragment = hashAt === -1 ? "" : url.slice(hashAt);
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}ticket=${encodeURIComponent(ticket)}${fragment}`;
 }
 
 /**
@@ -129,7 +143,11 @@ export function ticketSocketUrl(path: string): string | null | Promise<string | 
   const url = wsUrl(path);
   if (!isDashboardOrigin(url) || mode === "none") return url;
   if (!getAccessToken()) return null;
-  const withTicket = (ticket: string | null) => (ticket ? appendWsTicket(url, ticket) : null);
+  // A sign-out or refusal while the mint is in flight must not open a socket
+  // with a ticket minted for the previous credential.
+  const epoch = getCredentialEpoch();
+  const withTicket = (ticket: string | null) =>
+    ticket && getCredentialEpoch() === epoch && getAccessToken() ? appendWsTicket(url, ticket) : null;
   if (ticketMinterOverride) {
     const minted = ticketMinterOverride();
     if (typeof minted === "string") return withTicket(minted);

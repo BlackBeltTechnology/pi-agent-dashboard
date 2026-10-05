@@ -209,6 +209,17 @@ describe("connectWithReconnect — design D7", () => {
     expect(timers.pending()).toBe(0);
   });
 
+  it("an error closes the failed socket before the retry (review B1)", () => {
+    const { conn, sockets, timers } = harness();
+    sockets[0].open();
+    sockets[0].serverError();
+    expect(sockets[0].closed).toBe(true);
+    conn.send("x");
+    expect(sockets[0].sent).not.toContain("x");
+    timers.flush();
+    expect(sockets.length).toBe(2);
+  });
+
   it("F8: error then close schedules exactly one retry", () => {
     const { sockets, timers } = harness();
     sockets[0].open();

@@ -242,6 +242,48 @@ describe("ticketSocketUrl — E10 mode × mint result", () => {
     expect(ticketSocketUrl("wss://dash.example.com/ws?x=1")).toBe("wss://dash.example.com/ws?x=1&ticket=T2");
   });
 
+  it("puts the ticket in the query, never after a fragment (review B2)", () => {
+    setIdentityMode("oidc");
+    setAccessToken("t");
+    setTicketMinterForTests(() => "k1");
+    expect(ticketSocketUrl("/ws#frag")).toBe("wss://dash.example.com/ws?ticket=k1#frag");
+    expect(appendWsTicket("ws://x/ws?a=1#f?g", "k1")).toBe("ws://x/ws?a=1&ticket=k1#f?g");
+  });
+
+  it("a sign-out while the mint is in flight yields null (review B3)", async () => {
+    setIdentityMode("oidc");
+    setAccessToken("t");
+    let release: (t: string) => void = () => {};
+    setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
+    const pending = ticketSocketUrl("/ws");
+    setAccessToken(null);
+    release("k1");
+    expect(await pending).toBeNull();
+  });
+
+  it("a sign-out while the real mint request is in flight yields null (review B3)", async () => {
+    setIdentityMode("oidc");
+    setAccessToken("t");
+    let respond: (r: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((r) => (respond = r))));
+    const pending = ticketSocketUrl("/ws");
+    setAccessToken(null);
+    setAccessToken("other-user");
+    respond(new Response(JSON.stringify({ data: { ticket: "k1" } }), { status: 200 }));
+    expect(await pending).toBeNull();
+  });
+
+  it("a token renewal while the mint is in flight keeps the ticket", async () => {
+    setIdentityMode("oidc");
+    setAccessToken("t");
+    let release: (t: string) => void = () => {};
+    setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
+    const pending = ticketSocketUrl("/ws");
+    setAccessToken("t-renewed");
+    release("k1");
+    expect(await pending).toBe("wss://dash.example.com/ws?ticket=k1");
+  });
+
   it("appendWsTicket percent-encodes the ticket", () => {
     expect(appendWsTicket("ws://x/ws", "a b/c")).toBe("ws://x/ws?ticket=a%20b%2Fc");
   });
