@@ -128,6 +128,21 @@ describe("authedFetch — origin-bound credential, cookies, refusal", () => {
     off();
   });
 
+  it("a late 401 for an older token does not sign out the newer session (review r2 B2)", async () => {
+    setIdentityMode("oidc");
+    setAccessToken("old");
+    const onRefused = vi.fn();
+    onSessionRefused(onRefused);
+    let respond: (r: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((r) => (respond = r))));
+    const pending = authedFetch("/api/x");
+    setAccessToken(null);
+    setAccessToken("new");
+    respond(new Response("{}", { status: 401 }));
+    expect((await pending).status).toBe(401);
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
   it("a 401 from a foreign origin is not a refusal of the dashboard credential", async () => {
     setIdentityMode("oidc");
     setAccessToken("t1");
@@ -273,13 +288,28 @@ describe("ticketSocketUrl — E10 mode × mint result", () => {
     expect(await pending).toBeNull();
   });
 
+  it("an account switch while the mint is in flight yields null (review r2 B1)", async () => {
+    setIdentityMode("oidc");
+    setActingOperator({ iss: "https://kc/realms/r", sub: "alice" });
+    setAccessToken("alice-token");
+    let release: (t: string) => void = () => {};
+    setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
+    const pending = ticketSocketUrl("/ws");
+    setAccessToken("bob-token");
+    setActingOperator({ iss: "https://kc/realms/r", sub: "bob" });
+    release("alice-ticket");
+    expect(await pending).toBeNull();
+  });
+
   it("a token renewal while the mint is in flight keeps the ticket", async () => {
+    setActingOperator({ iss: "https://kc/realms/r", sub: "alice" });
     setIdentityMode("oidc");
     setAccessToken("t");
     let release: (t: string) => void = () => {};
     setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
     const pending = ticketSocketUrl("/ws");
     setAccessToken("t-renewed");
+    setActingOperator({ iss: "https://kc/realms/r", sub: "alice" });
     release("k1");
     expect(await pending).toBe("wss://dash.example.com/ws?ticket=k1");
   });

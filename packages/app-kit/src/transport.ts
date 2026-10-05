@@ -74,7 +74,7 @@ export async function authedFetch(input: string | URL | Request, init?: RequestI
   const res = await fetch(target, { ...init, headers, credentials: "omit" });
   // Only the dashboard can refuse the dashboard credential; a foreign origin's
   // 401/403 is that origin's business and is returned as-is.
-  if (toDashboard) checkRefusal(mode, res.status);
+  if (toDashboard) checkRefusal(mode, res.status, token);
   return res;
 }
 
@@ -87,9 +87,14 @@ function sendableCredential(): { mode: "oidc" | "none"; token: string | null } {
   return { mode, token };
 }
 
-/** A dashboard 401 refuses the credential; in `none` mode a 401/403 means the caller is not admitted. */
-function checkRefusal(mode: "oidc" | "none", status: number): void {
-  if (status === 401) notifySessionRefused();
+/**
+ * A dashboard 401 refuses the credential the request was sent with — only a
+ * refusal of the STILL-live token signals the session (a late 401 for a token
+ * that was since renewed or replaced must not sign out the newer session). In
+ * `none` mode a 401/403 means the caller is not admitted.
+ */
+function checkRefusal(mode: "oidc" | "none", status: number, sentToken: string | null): void {
+  if (status === 401 && getAccessToken() === sentToken) notifySessionRefused();
   if (mode === "none" && (status === 401 || status === 403)) throw new NotAdmittedError(status);
 }
 

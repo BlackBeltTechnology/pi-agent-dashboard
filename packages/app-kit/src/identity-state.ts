@@ -27,9 +27,10 @@ export type IdentityMode = "unknown" | "oidc" | "none" | "unavailable";
 let mode: IdentityMode = "unknown";
 let accessToken: string | null = null;
 /**
- * Bumped whenever the credential is dropped (token cleared, mode changed, reset)
- * — NOT on a token renewal — so an async step can tell whether the credential it
- * started with is still the live one.
+ * Bumped whenever the credential is dropped or changes hands (token cleared,
+ * acting operator `(iss, sub)` changed, mode changed, reset) — NOT on a token
+ * renewal for the same operator — so an async step can tell whether the
+ * credential it started with is still the live one.
  */
 let credentialEpoch = 0;
 let operator: Operator | null = null;
@@ -69,6 +70,7 @@ export function currentOperator(): Operator | null {
 
 /** Set (or clear) the acting operator. */
 export function setActingOperator(next: Operator | null): void {
+  if (next?.iss !== operator?.iss || next?.sub !== operator?.sub) credentialEpoch += 1;
   operator = next;
 }
 
