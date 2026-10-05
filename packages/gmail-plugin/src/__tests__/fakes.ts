@@ -116,10 +116,16 @@ export function fakeGoogleFetch(opts: FakeTokenOptions) {
 
 export function capturingLogger() {
   const lines: string[] = [];
+  /** `warn` lines only (also appended to `lines`). */
+  const warns: string[] = [];
   return {
     lines,
+    warns,
     info: (m: string) => lines.push(m),
-    warn: (m: string) => lines.push(m),
+    warn: (m: string) => {
+      warns.push(m);
+      lines.push(m);
+    },
     error: (m: string) => lines.push(m),
   };
 }

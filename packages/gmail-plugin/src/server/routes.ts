@@ -4,6 +4,8 @@
  * with `@fastify/rate-limit` (loopback allow-listed). Tiers: `operate`
  * (`packages/shared/src/route-tiers.ts`). Responses NEVER carry tokens or the
  * client secret. See change: add-gmail-plugin.
+ * A failed sign-in logs ONE `[gmail] sign-in failed: <code>` warn, code from
+ * `KNOWN_FLOW_CODES` or `sign_in_failed`. See change: improve-gmail-settings-ux.
  */
 
 import type {
@@ -14,6 +16,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { validateClientJson } from "../shared/client-json.js";
 import type { GoogleEndpoints } from "../shared/endpoints.js";
+import { knownFlowCode } from "../shared/flow-codes.js";
 import { isTier, scopesCoverTier, type Tier } from "../shared/scopes.js";
 import { AccountError, type AccountStore, summarize } from "./accounts.js";
 import { revokeToken } from "./gmail-rest.js";
@@ -65,7 +68,16 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
     if (!deps.oauth) return reply.code(501).send({ error: "oauth_unavailable" });
     const client = await store.getClient();
     if (!client) return reply.code(409).send({ error: "no_client" });
-    const loginFlow = createGoogleLoginFlow({
+    // One failure, one warn line: a login throwing before its first event also
+    // rejects startFlow (login_failed), so whichever site logs first wins.
+    // The line carries an allow-listed code only (improve-gmail-settings-ux D3).
+    let logged = false;
+    const logFailure = (err: unknown) => {
+      if (logged) return;
+      logged = true;
+      logger.warn(`[gmail] sign-in failed: ${knownFlowCode((err as { code?: unknown } | null)?.code) ?? "sign_in_failed"}`);
+    };
+    const googleFlow = createGoogleLoginFlow({
       client,
       endpoints,
       tier,
@@ -73,29 +85,46 @@ export async function mountGmailRoutes(fastify: FastifyInstance, deps: GmailRout
       fetchImpl: deps.fetchImpl,
       createCallback: deps.createCallback,
     });
+    const loginFlow = {
+      ...googleFlow,
+      login: async (ix: Parameters<typeof googleFlow.login>[0]) => {
+        try {
+          return await googleFlow.login(ix);
+        } catch (err) {
+          logFailure(err);
+          throw err;
+        }
+      },
+    };
     try {
       return await deps.oauth.startFlow({
         key: expect ? `reauth-${expect.sub}` : `add-${newId()}`,
         loginFlow,
         persist: async (credential) => {
-          const c = credential as GoogleSignInResult;
-          if (expect && c.sub !== expect.sub) throw new GmailFlowError("account_mismatch");
-          // Consent-screen checkboxes can be cleared: never store a level the grant cannot serve.
-          if (!scopesCoverTier(c.grantedScopes, c.tier)) throw new GmailFlowError("scope_missing");
-          const acct = await store.upsertFromSignIn({
-            sub: c.sub,
-            email: c.email,
-            tier: c.tier,
-            scopes: c.grantedScopes,
-            access: c.access,
-            refresh: c.refresh || undefined,
-            expires: c.expires,
-            testingHint: c.testingHint,
-          });
-          logger.info(`[gmail] sign-in ${acct.email} tier=${acct.tier}: ok`);
+          try {
+            const c = credential as GoogleSignInResult;
+            if (expect && c.sub !== expect.sub) throw new GmailFlowError("account_mismatch");
+            // Consent-screen checkboxes can be cleared: never store a level the grant cannot serve.
+            if (!scopesCoverTier(c.grantedScopes, c.tier)) throw new GmailFlowError("scope_missing");
+            const acct = await store.upsertFromSignIn({
+              sub: c.sub,
+              email: c.email,
+              tier: c.tier,
+              scopes: c.grantedScopes,
+              access: c.access,
+              refresh: c.refresh || undefined,
+              expires: c.expires,
+              testingHint: c.testingHint,
+            });
+            logger.info(`[gmail] sign-in ${acct.email} tier=${acct.tier}: ok`);
+          } catch (err) {
+            logFailure(err);
+            throw err;
+          }
         },
       });
     } catch (err) {
+      logFailure(err);
       return sendError(reply, err);
     }
   }

@@ -19,21 +19,28 @@ The wizard walks through these steps. Each console link carries `?project=<id>`.
    The dashboard never runs `gcloud`.
 2. **Branding.** Console → Google Auth Platform → Branding (older consoles: *APIs & Services → OAuth consent screen*). Fill in the app name and support email.
 3. **Audience.**
-   - Workspace organisation: **Internal**.
-   - Otherwise **External**, and add every Gmail address you will connect as a **test user**.
+   - **Internal** admits only accounts of the project's own Workspace organisation. Choose it only when *every* account you will connect belongs to that organisation.
+   - Otherwise **External**, and add every address you will connect as a **test user** — this includes a second Workspace domain or a gmail.com account next to your Workspace account (with Internal, Google shows `Error 403: org_internal` for them).
+   - One OAuth client per dashboard: to mix organisations, use External.
    - For an **External** app in *Testing* status, Google expires refresh tokens after **7 days** (the panel shows a `testing: 7-day` badge). *Publish app* gives longer-lived tokens, with an "unverified app" warning at sign-in.
 4. **Client.** Clients → Create client → application type **Desktop app**. Download the JSON.
 5. **Upload** the `client_secret_*.json`. Only a Desktop (`installed`) client is accepted; a Web client is rejected.
 6. **Test sign-in** = add your first account.
 
-Sign-in errors point back to the step that fixes them:
+Every sign-in error is shown as a sentence (the raw code next to it, for support) and, where the fix is in the wizard, highlights that step:
 
-| Error | Fix in step |
+| Error | Fix |
 |---|---|
-| `access_denied` ("app not verified for this user") | 3 — add the address as a test user |
-| `org_internal` | 3 — audience |
-| `redirect_uri_mismatch`, Web client | 4 — create a **Desktop** client |
-| `invalid_client` | 5 — re-upload the client JSON |
+| `access_denied` ("app not verified for this user") | step 3 — add the address as a test user |
+| `org_internal` | step 3 — the account is outside the project's Workspace organisation: switch the audience to External and add it as a test user |
+| `admin_policy_enforced` | the account's Workspace admin must trust the OAuth client id (Admin console → Security → API controls → App access control) |
+| `scope_missing` | Google did not grant the Gmail permission — add the account again and tick every permission (*Select all*) on the consent screen |
+| `redirect_uri_mismatch`, Web client | step 4 — create a **Desktop** client |
+| `invalid_client` | step 5 — re-upload the client JSON |
+
+Google shows some errors (`org_internal`, `admin_policy_enforced`, …) on its own page and never returns to the dashboard. While a sign-in waits, open **"Google showed an error instead of returning here?"** under the sign-in link and pick the code Google displayed: the sign-in is cancelled and the fix is shown. Failed sign-ins are logged once on the server as `[gmail] sign-in failed: <code>` (a fixed code — never tokens, URLs or email).
+
+Revoking an account asks for confirmation first.
 
 Remote dashboards: the sign-in listens on a `127.0.0.1` loopback port of the **dashboard host**. When your browser runs elsewhere, the redirect page fails to load — copy its full URL from the address bar and paste it into the flow view.
 
@@ -66,6 +73,14 @@ Remote dashboards: the sign-in listens on a `127.0.0.1` loopback port of the **d
 | `gmail_modify` / `gmail_trash` | send | Confirmed. Archive = remove label `INBOX`. |
 
 Writes need a UI to confirm: a headless session is blocked, and a dismissed or timed-out prompt counts as "no".
+
+Gmail API `403` errors are classified from Google's machine-readable reason only (its free text is never echoed):
+
+| Tool error code | Meaning / fix |
+|---|---|
+| `api_disabled` | The Gmail API is disabled in the OAuth client's Google Cloud project. The message names the project number and the command: `gcloud services enable gmail.googleapis.com --project=<n>` (or APIs & Services → Library → Gmail API → Enable), then retry in a minute. |
+| `scope_insufficient` | The account's grant lacks the Gmail permission. Re-authenticate it in Settings → Plugins → Gmail with every permission ticked. |
+| `gmail_error` | Any other 403. |
 
 ## Prompt injection
 
