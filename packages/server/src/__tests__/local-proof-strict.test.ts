@@ -89,6 +89,7 @@ async function guardedApp(): Promise<FastifyInstance> {
   app.get("/api/sessions", async () => ({ ok: true }));
   app.post("/api/restart", async () => ({ ok: true }));
   app.get("/api/health", async () => ({ ok: true, accessGrants: true }));
+  app.post("/v1/chat/completions", async () => ({ ok: true }));
   await app.ready();
   return app;
 }
@@ -129,6 +130,17 @@ describe("HTTP admission through the universal guard (E5, E6, E13, E17)", () => 
     expect((await req("POST", "/api/restart")).statusCode).toBe(200);
     strict = true;
     expect((await req("POST", "/api/restart")).statusCode).toBe(403);
+  });
+  it("E14 /v1/* admission is unchanged under strict; /api operate stays gated (B1)", async () => {
+    strict = true;
+    const v1 = await req("POST", "/v1/chat/completions");
+    expect(v1.statusCode).toBe(200);
+    // a dot-segment cannot borrow the /v1 exemption for an operate route
+    expect((await req("POST", "/v1/../api/restart")).statusCode).toBe(403);
+    expect((await req("POST", "/api/restart")).statusCode).toBe(403);
+    // a forwarded (relayed) /v1 request is still denied
+    const relayed = await app.inject({ method: "POST", url: "/v1/chat/completions", remoteAddress: LOOP, headers: { "x-forwarded-for": "1.2.3.4" } });
+    expect(relayed.statusCode).toBe(403);
   });
   it("E13 /api/health stays public under strict", async () => {
     strict = true;

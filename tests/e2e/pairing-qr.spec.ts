@@ -76,6 +76,16 @@ test.describe("pairing QR — /pair landing handshake", () => {
     expect(deviceCookie?.httpOnly, "httpOnly device cookie set").toBe(true);
     const sessions = await page.evaluate(async () => (await fetch("/api/sessions")).status);
     expect(sessions).toBe(200);
+    // After a reload the dashboard authenticates by cookie only: it mints a ticket
+    // WITHOUT an Authorization header and opens a ticketed /ws.
+    const [ticketReq, ws] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes("/api/ws-ticket"), { timeout: 20_000 }),
+      page.waitForEvent("websocket", { predicate: (w) => new URL(w.url()).pathname === "/ws", timeout: 20_000 }),
+      page.reload(),
+    ]);
+    expect(ticketReq.headers().authorization, "ticket mint carries no bearer header").toBeUndefined();
+    expect(ws.url(), "socket carries the single-use ticket").toContain("ticket=");
+    await expect(page.getByTestId("pairing-dialog")).toHaveCount(0);
 
     // 6. The REAL paired-devices registry mutated — the phone is now a revocable
     //    dashboard client.

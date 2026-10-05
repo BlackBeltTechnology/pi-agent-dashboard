@@ -393,8 +393,14 @@ function hasNetworkPassCondition(
   // presenting as 127.0.0.1 injects a forwarding header and is NOT exempted here
   // (D10, narrowed). Under `requireLocalProof` it additionally needs proof.
   if (isLocallyTrusted({ ip: request.ip, headers }, opts.localTrust)) return true;
-  // Strict observe exception: bare local may still READ observe-tier REST routes.
-  if (opts.localTrust?.strict() && isGenuinelyLocal(request.ip, headers) && isObserveApiRequest(request)) {
+  // Strict exceptions for a bare local caller: READ observe-tier REST routes, and
+  // the `/v1/*` model proxy (local pi processes call it with no proof; admission is
+  // unchanged by design — a documented trade-off).
+  if (
+    opts.localTrust?.strict() &&
+    isGenuinelyLocal(request.ip, headers) &&
+    (isObserveApiRequest(request) || isModelProxyRequest(request))
+  ) {
     return true;
   }
   // Affirmative local-IPC token.
@@ -403,6 +409,15 @@ function hasNetworkPassCondition(
   noteTrustedList(trusted);
   if (isTrustedSource(request.ip, headers, trusted, opts.localTrust)) return true;
   return Boolean((request as any).isAuthenticated);
+}
+
+/**
+ * Is this a `/v1/*` model-proxy request? Judged on the matched route pattern
+ * (post-routing), never the raw URL, so dot-segment tricks cannot borrow it.
+ * See change: harden-trust-and-credential-boundaries (D2 trade-off).
+ */
+function isModelProxyRequest(request: FastifyRequest): boolean {
+  return (request.routeOptions?.url ?? "").startsWith("/v1/");
 }
 
 /**
