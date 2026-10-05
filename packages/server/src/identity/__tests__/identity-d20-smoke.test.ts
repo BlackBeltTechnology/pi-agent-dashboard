@@ -12,6 +12,7 @@
  */
 import { type FakeOidcIssuer, startFakeOidcIssuer } from "@blackbelt-technology/pi-dashboard-shared/test-support/fake-oidc-issuer.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { type BootHarness, createBootHarness, loginPlugin } from "./boot-harness.js";
 
 let h: BootHarness;
@@ -140,6 +141,44 @@ describe("18.27 ctx.identity — plugin consumer seam on a real server", () => {
       expect(dir.startsWith(h.home)).toBe(true);
     } finally {
       delete (globalThis as any).__consumerIdentity;
+    }
+  }, 40000);
+});
+
+describe("18.13 terminal + live WS scopes require a principal ticket while enforced", () => {
+  const upgrade = (port: number, path_: string): Promise<{ status?: number; opened?: boolean }> =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}${path_}`);
+      ws.on("open", () => {
+        ws.close();
+        resolve({ opened: true });
+      });
+      ws.on("unexpected-response", (_req, res) => resolve({ status: res.statusCode }));
+      ws.on("error", () => resolve({}));
+      setTimeout(() => resolve({}), 5000);
+    });
+
+  it("ticketless loopback is refused 403 (no legacy allowance); a principal ticket passes the auth gate", async () => {
+    h.dropIn("tl-login", loginPlugin("tl-login"));
+    configure(["tl-login"]);
+    await h.boot();
+    const port = h.handle().httpPort;
+    expect(await upgrade(port, "/ws/terminal/term-missing")).toEqual({ status: 403 });
+    expect(await upgrade(port, "/live/nope")).toEqual({ status: 403 });
+
+    const token = await idp.mint({ sub: "sub-anna" });
+    for (const scope of ["terminal", "live"] as const) {
+      const res = await fetch(`http://127.0.0.1:${port}/api/ws-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ scope }),
+      });
+      expect(res.status).toBe(200);
+      const ticket = ((await res.json()) as { data: { ticket: string } }).data.ticket;
+      const path_ = scope === "terminal" ? "/ws/terminal/term-missing" : "/live/nope";
+      // Past auth: the (absent) target destroys the socket — NOT the 403 of the auth gate.
+      const out = await upgrade(port, `${path_}?ticket=${encodeURIComponent(ticket)}`);
+      expect(out.status).not.toBe(403);
     }
   }, 40000);
 });

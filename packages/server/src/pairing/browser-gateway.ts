@@ -1393,7 +1393,8 @@ export function createBrowserGateway(
     return family && policyGating() ? (ws) => granted(ws, family) : undefined;
   };
   function ownerOf(sessionId: string, fromFrame?: Owner): Owner | undefined {
-    const owner = fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
+    const owner =
+      fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? terminalManager?.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
     if (owner) lastKnownOwner.set(sessionId, owner);
     return owner;
   }
@@ -1475,7 +1476,28 @@ export function createBrowserGateway(
 
   /** Enforced-mode delivery of a session-scoped frame. Returns false for a
    *  frame with no session identity (it fans out to everyone as before). */
+  /**
+   * Terminal frames (18.13): same owner rule as sessions — only the owner (or the
+   * break-glass operator) learns a terminal exists, its title or its removal. An
+   * ownerless terminal reaches no human. `lastKnownOwner` outlives the PTY so a
+   * `terminal_removed` still reaches only the owner.
+   */
+  function broadcastTerminalFrame(msg: Extract<ServerToBrowserMessage, { type: "terminal_added" | "terminal_updated" | "terminal_removed" }>): void {
+    const id = msg.type === "terminal_added" ? msg.terminal.id : msg.terminalId;
+    const owner: Owner | undefined =
+      (msg.type === "terminal_added" ? msg.terminal.principalOwner : undefined) ?? terminalManager?.get(id)?.principalOwner ?? lastKnownOwner.get(id);
+    if (owner) lastKnownOwner.set(id, owner);
+    const gate = familyGate(msg.type);
+    const allow = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner }) && (!gate || gate(ws));
+    fanout(JSON.stringify(msg), undefined, undefined, allow);
+    if (msg.type === "terminal_removed") lastKnownOwner.delete(id);
+  }
+
   function broadcastOwnerScoped(msg: ServerToBrowserMessage): boolean {
+    if (msg.type === "terminal_added" || msg.type === "terminal_updated" || msg.type === "terminal_removed") {
+      broadcastTerminalFrame(msg);
+      return true;
+    }
     if (msg.type === "sessions_reordered") {
       for (const [ws] of subscriptions) {
         const principal = socketPrincipal(ws);
@@ -1705,6 +1727,8 @@ export function createBrowserGateway(
     // Send active terminals on connect
     if (terminalManager && granted(ws, "terminal")) {
       for (const terminal of terminalManager.list()) {
+        // 18.13: enforced ⇒ only terminals this principal owns (operator: all).
+        if (!canAccessSession({ active: isResolverActive?.() ?? false, principal: socketPrincipal(ws), owner: terminal.principalOwner })) continue;
         sendTo(ws, { type: "terminal_added", terminal });
       }
     }
@@ -1748,6 +1772,9 @@ export function createBrowserGateway(
         rawSnapshot,
         isResolverActive?.() ?? false,
         (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+        (terminalManager?.list() ?? [])
+          .filter((t) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
+          .map((t) => t.id),
       );
       sendTo(ws, {
         type: "sessions_snapshot",

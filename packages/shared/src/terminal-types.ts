@@ -17,6 +17,13 @@ export interface TerminalSession {
    * See change: add-inline-terminal-card.
    */
   ephemeral?: boolean;
+  /**
+   * Owner `(iss, sub)` stamped at spawn while the identity plane is enforced
+   * (design D11/D24, task 18.13). Same rule as sessions: exact equality, an
+   * ownerless terminal is invisible/unreachable to every human principal; the
+   * break-glass operator sees all. Absent in the inert era.
+   */
+  principalOwner?: { iss: string; sub: string };
 }
 
 /** Control messages sent as text frames on the terminal WebSocket. */

@@ -151,7 +151,7 @@ import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./
 import { BreakGlass } from "./identity/break-glass.js";
 import { dispatchResolvers } from "./identity/dispatch.js";
 import { createPluginIdentity } from "./identity/plugin-identity.js";
-import { isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
+import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -3640,7 +3640,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing identity ticket — cookie / local-IPC token /
         // trusted-network / no-ticket browser upgrades are all refused. Other
         // scopes (terminal/live) and the inert era are unchanged.
-        const requireIdentityTicket = scope === "browser" && identityEnforced();
+        // 18.13: while enforced the terminal + live scopes also require a
+        // principal-bearing ticket — they were the legacy loopback / local-token /
+        // trusted-network / principal-less-ticket allowances that bypassed it.
+        const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
@@ -3704,7 +3707,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             break;
           }
           case "terminal":
-            terminalGateway.handleUpgrade(request, socket, head);
+            // 18.13: owner equality on the PTY attach (shell I/O is the most
+            // sensitive surface). Inert ⇒ no gate; break-glass operator ⇒ all.
+            terminalGateway.handleUpgrade(
+              request,
+              socket,
+              head,
+              identityEnforced()
+                ? (termId) =>
+                    canAccessSession({
+                      active: true,
+                      principal: upgradeAuth.principal ?? null,
+                      owner: terminalManager.get(termId)?.principalOwner,
+                    })
+                : undefined,
+            );
             break;
           case "live":
             handleLiveServerUpgrade(liveServerManager, request, socket, head);

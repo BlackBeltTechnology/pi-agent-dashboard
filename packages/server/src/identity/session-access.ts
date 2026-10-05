@@ -117,12 +117,14 @@ export function filterSnapshotForPrincipal<S extends OwnedSession>(
   snapshot: OwnedSnapshot<S>,
   active: boolean,
   principal: { iss: string; sub: string } | null | undefined,
+  /** Non-session ids that share the order lists (terminals) and are visible to this principal. */
+  extraVisibleIds?: Iterable<string>,
 ): OwnedSnapshot<S> {
   if (!active) return snapshot;
   const sessions = snapshot.sessions.filter((s) =>
     canAccessSession({ active, principal, owner: s.principalOwner }),
   );
-  const visibleIds = new Set(sessions.map((s) => s.id));
+  const visibleIds = new Set([...sessions.map((s) => s.id), ...(extraVisibleIds ?? [])]);
   const orders: Record<string, string[]> = {};
   for (const [group, ids] of Object.entries(snapshot.orders)) {
     const kept = ids.filter((id) => visibleIds.has(id));

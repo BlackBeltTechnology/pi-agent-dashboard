@@ -724,3 +724,18 @@ describe("transcript tombstone + input tracking", () => {
     expect(mgr.getTerminalRecord(s.id)?.sawInput).toBe(true);
   });
 });
+
+
+describe("terminal owner stamp (identity plane, 18.13)", () => {
+  it("spawn stamps a COPY of the owner's (iss, sub) and nothing else; absent owner ⇒ no field", () => {
+    const mgr = createTerminalManager();
+    const owner = { iss: "https://idp", sub: "anna", name: "Anna", email: "a@x" };
+    const owned = mgr.spawn("/tmp", { owner });
+    expect(owned.principalOwner).toEqual({ iss: "https://idp", sub: "anna" });
+    expect(owned.principalOwner).not.toBe(owner);
+    const plain = mgr.spawn("/tmp");
+    expect("principalOwner" in plain).toBe(false);
+    mgr.kill(owned.id);
+    mgr.kill(plain.id);
+  });
+});

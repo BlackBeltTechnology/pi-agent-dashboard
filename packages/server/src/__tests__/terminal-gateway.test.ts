@@ -62,4 +62,28 @@ describe("TerminalGateway", () => {
     expect(handleUpgradeMock).toHaveBeenCalled();
     expect(mockManager.attach).toHaveBeenCalledWith("term-abc", mockWs);
   });
+
+  it("an authorize callback that refuses ⇒ socket destroyed, nothing attached (same as a missing terminal)", () => {
+    const gateway = createTerminalGateway(mockManager);
+    (mockManager.get as any).mockReturnValue({ id: "term-abc", status: "active" });
+    const wsUpgrade = vi.fn();
+    (gateway.wss as any).handleUpgrade = wsUpgrade;
+    const socket = { destroy: vi.fn() } as any;
+    const authorize = vi.fn(() => false);
+    gateway.handleUpgrade({ url: "/ws/terminal/term-abc" } as any, socket, Buffer.alloc(0), authorize);
+    expect(authorize).toHaveBeenCalledWith("term-abc");
+    expect(socket.destroy).toHaveBeenCalled();
+    expect(wsUpgrade).not.toHaveBeenCalled();
+    expect(mockManager.attach).not.toHaveBeenCalled();
+  });
+
+  it("an authorize callback that allows ⇒ attaches; a ?ticket query never leaks into the id", () => {
+    const gateway = createTerminalGateway(mockManager);
+    (mockManager.get as any).mockReturnValue({ id: "term-abc", status: "active" });
+    (gateway.wss as any).handleUpgrade = vi.fn((_r: any, _s: any, _h: any, cb: any) => cb({ on: vi.fn() }));
+    const socket = { destroy: vi.fn() } as any;
+    gateway.handleUpgrade({ url: "/ws/terminal/term-abc?ticket=t" } as any, socket, Buffer.alloc(0), () => true);
+    expect(mockManager.get).toHaveBeenCalledWith("term-abc");
+    expect(mockManager.attach).toHaveBeenCalledWith("term-abc", expect.anything());
+  });
 });

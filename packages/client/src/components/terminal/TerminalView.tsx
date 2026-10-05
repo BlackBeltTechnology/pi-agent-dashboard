@@ -6,6 +6,7 @@ import { Terminal } from "@xterm/xterm";
 import React, { useCallback, useEffect, useRef } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { appendWsTicket, getApiBearer, mintWsTicket } from "../../lib/pairing/device-auth.js";
 
 function getTerminalTheme(): Record<string, string> {
   const style = getComputedStyle(document.documentElement);
@@ -64,30 +65,47 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
 
     terminal.open(containerRef.current);
 
-    // Connect WebSocket
+    // Connect WebSocket. While identity is enforced the host requires a
+    // principal-bearing single-use ticket for the terminal scope too (18.13), so
+    // an in-memory bearer ⇒ mint one first. No bearer (inert / cookie / loopback)
+    // ⇒ connect synchronously, exactly as before.
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsPort = window.location.port ? `:${window.location.port}` : "";
     const wsUrl = `${wsProtocol}//${window.location.hostname}${wsPort}/ws/terminal/${terminalId}`;
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = "arraybuffer";
+    let cancelled = false;
+    let ws = null as WebSocket | null;
 
-    ws.addEventListener("open", () => {
-      const attachAddon = new AttachAddon(ws);
-      terminal.loadAddon(attachAddon);
-      attachRef.current = attachAddon;
+    const connect = (url: string) => {
+      if (cancelled) return;
+      const sock = new WebSocket(url);
+      ws = sock;
+      sock.binaryType = "arraybuffer";
 
-      // Initial fit after connection
-      try {
-        fitAddon.fit();
-        // Send initial resize
-        const dims = { type: "resize", cols: terminal.cols, rows: terminal.rows };
-        ws.send(JSON.stringify(dims));
-      } catch {}
-    });
+      sock.addEventListener("open", () => {
+        const attachAddon = new AttachAddon(sock);
+        terminal.loadAddon(attachAddon);
+        attachRef.current = attachAddon;
 
-    ws.addEventListener("close", () => {
-      terminal.write("\r\n\x1b[90m[Terminal disconnected]\x1b[0m\r\n");
-    });
+        // Initial fit after connection
+        try {
+          fitAddon.fit();
+          // Send initial resize
+          const dims = { type: "resize", cols: terminal.cols, rows: terminal.rows };
+          sock.send(JSON.stringify(dims));
+        } catch {}
+      });
+
+      sock.addEventListener("close", () => {
+        terminal.write("\r\n\x1b[90m[Terminal disconnected]\x1b[0m\r\n");
+      });
+      wsRef.current = sock;
+    };
+
+    if (getApiBearer()) {
+      void mintWsTicket("terminal").then((ticket) => connect(ticket ? appendWsTicket(wsUrl, ticket) : wsUrl));
+    } else {
+      connect(wsUrl);
+    }
 
     // Title change listener
     terminal.onTitleChange((title) => {
@@ -96,11 +114,11 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
 
     termRef.current = terminal;
     fitRef.current = fitAddon;
-    wsRef.current = ws;
 
     return () => {
+      cancelled = true;
       attachRef.current?.dispose();
-      ws.close();
+      ws?.close();
       terminal.dispose();
       termRef.current = null;
       fitRef.current = null;

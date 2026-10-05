@@ -186,7 +186,7 @@ export interface TerminalManagerOptions {
 }
 
 export interface TerminalManager {
-  spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession;
+  spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession;
   attach(id: string, ws: WebSocket): void;
   detach(id: string, ws: WebSocket): void;
   kill(id: string): void;
@@ -256,7 +256,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  function spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession {
+  function spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession {
     const shell = detectShell();
     const id = generateId();
 
@@ -289,6 +289,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
       status: "active",
       createdAt: Date.now(),
       ...(opts?.ephemeral ? { ephemeral: true } : {}),
+      ...(opts?.owner ? { principalOwner: { iss: opts.owner.iss, sub: opts.owner.sub } } : {}),
     };
 
     const buffer = new RingBuffer(bufferSize);

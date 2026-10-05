@@ -2,7 +2,31 @@
  * Terminal message handlers: create, kill, rename.
  */
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { canAccessSession } from "../identity/session-access.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
+
+type Owner = { iss: string; sub: string };
+
+/** The socket's bound principal (set at the WS upgrade); null in the inert era. */
+const principalOf = (ctx: BrowserHandlerContext): Owner | null =>
+  (ctx.ws as { principal?: Owner } | undefined)?.principal ?? null;
+
+/** Owner to stamp on a new terminal: the creating principal, only while enforced. */
+function ownerForSpawn(ctx: BrowserHandlerContext): Owner | undefined {
+  return ctx.isResolverActive?.() ? (principalOf(ctx) ?? undefined) : undefined;
+}
+
+/**
+ * Owner gate (18.13): a terminal command from anyone but the owner (or the
+ * break-glass operator) is dropped before it touches the PTY. Inert plane ⇒ allow.
+ * An ownerless terminal is unreachable to humans (same rule as sessions).
+ */
+function mayUseTerminal(ctx: BrowserHandlerContext, terminalId: string): boolean {
+  if (!ctx.isResolverActive?.()) return true;
+  const t = ctx.terminalManager?.get(terminalId);
+  if (!t) return true; // nothing to protect; the manager no-ops on an unknown id
+  return canAccessSession({ active: true, principal: principalOf(ctx), owner: t.principalOwner });
+}
 
 export function handleCreateTerminal(
   msg: Extract<BrowserToServerMessage, { type: "create_terminal" }>,
@@ -10,7 +34,7 @@ export function handleCreateTerminal(
 ): void {
   const { terminalManager, sessionOrderManager, broadcast } = ctx;
   if (terminalManager && sessionOrderManager) {
-    const terminal = terminalManager.spawn(msg.cwd);
+    const terminal = terminalManager.spawn(msg.cwd, { owner: ownerForSpawn(ctx) });
     sessionOrderManager.insert(msg.cwd, terminal.id);
     broadcast({ type: "terminal_added", terminal });
     broadcast({ type: "sessions_reordered", cwd: msg.cwd, sessionIds: sessionOrderManager.getOrder(msg.cwd) });
@@ -30,7 +54,7 @@ export function handleOpenInlineTerminal(
 ): void {
   const { terminalManager, eventStore, broadcast, broadcastEvent } = ctx;
   if (!terminalManager) return;
-  const terminal = terminalManager.spawn(msg.cwd, { ephemeral: true });
+  const terminal = terminalManager.spawn(msg.cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
   broadcast({ type: "terminal_added", terminal });
   const seq = eventStore.insertEvent(msg.sessionId, {
     eventType: "inline_terminal_open",
@@ -62,6 +86,7 @@ export function handleCloseInlineTerminal(
 ): void {
   const { terminalManager, eventStore, broadcastEvent } = ctx;
   if (!terminalManager) return;
+  if (!mayUseTerminal(ctx, msg.terminalId)) return;
   // Idempotency guard FIRST — a released card never emits again.
   if (terminalManager.isReleased(msg.terminalId)) return;
 
@@ -98,6 +123,7 @@ export function handleKillTerminal(
   ctx: BrowserHandlerContext,
 ): void {
   if (ctx.terminalManager) {
+    if (!mayUseTerminal(ctx, msg.terminalId)) return;
     try { ctx.terminalManager.kill(msg.terminalId); } catch { /* ignore */ }
   }
 }
@@ -107,6 +133,7 @@ export function handleRenameTerminal(
   ctx: BrowserHandlerContext,
 ): void {
   if (ctx.terminalManager) {
+    if (!mayUseTerminal(ctx, msg.terminalId)) return;
     ctx.terminalManager.updateTitle(msg.terminalId, msg.title);
     ctx.broadcast({ type: "terminal_updated", terminalId: msg.terminalId, updates: { title: msg.title } });
   }
