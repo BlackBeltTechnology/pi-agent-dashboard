@@ -1000,7 +1000,7 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 **Plugin settings persistence:**
 - All plugin settings live under `plugins.<id>.*` in `~/.pi/dashboard/config.json`. The dashboard core never reads or writes another plugin's namespace.
 - Each manifest may declare a `configSchema` (JSON Schema 7); the loader validates on read (with defaults applied) and on write (rejects invalid).
-- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers.
+- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers. Omitted keys keep stored values: validation runs on a clone so Ajv `useDefaults` cannot inject defaults into the merge; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - The client-side `pluginContext.usePluginConfig<T>()` hook is reactive — consumers re-render within one frame of a write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate to `plugins.<id>.*` on the plugin's first server boot.
 
