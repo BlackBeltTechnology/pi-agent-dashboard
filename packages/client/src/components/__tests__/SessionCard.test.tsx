@@ -1754,9 +1754,13 @@ describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordan
  */
 describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)", () => {
   it("renders identical DOM with and without a populated notifyLog", () => {
+    // Pin startedAt: makeSession() reads Date.now() per call, so a second
+    // boundary between the two renders flipped the uptime label (59s→58s).
+    const startedAt = Date.now() - 60000;
     const withLog = render(
       <SessionCard
         session={makeSession({
+          startedAt,
           notifyLog: [
             { notifyId: "n1", message: "provider rate limited", level: "warning" },
             { notifyId: "n2", message: "retrying in 4s" },
@@ -1768,7 +1772,7 @@ describe("SessionCard notifyLog invariance (fix-connect-snapshot-frame-loss F5)"
     const htmlWithLog = withLog.container.innerHTML;
     withLog.unmount();
 
-    const withoutLog = render(<SessionCard session={makeSession()} {...defaultProps} />);
+    const withoutLog = render(<SessionCard session={makeSession({ startedAt })} {...defaultProps} />);
     expect(withoutLog.container.innerHTML).toBe(htmlWithLog);
   });
 });
