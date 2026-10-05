@@ -4,18 +4,12 @@ Synthesized from `AGENTS.md` "Build & Restart Workflow" + `docs/faq.md`. This is
 
 ## The three components
 
-```
-   ┌─────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-   │ Bridge Extension│    │ Dashboard Server │    │   Web Client     │
-   │ src/extension/  │    │  src/server/     │    │  src/client/     │
-   │                 │◀──▶│  src/shared/     │◀──▶│                  │
-   │ Runs IN every   │ WS │ Aggregates       │ WS │ React + Tailwind │
-   │ pi session,     │    │ events, persists │    │ UI               │
-   │ forwards events │    │ to JSON/.meta    │    │ Subscribes via   │
-   │ via WebSocket   │    │ Dual WS gateways │    │ /ws/browser      │
-   └─────────────────┘    └──────────────────┘    └──────────────────┘
-        reload                  restart                 build (prod)
-                                                       HMR    (dev)
+```mermaid
+flowchart LR
+  E["Bridge Extension<br/>src/extension/<br/>runs IN every pi session,<br/>forwards events via WebSocket<br/><b>reload</b>"]
+  S["Dashboard Server<br/>src/server/, src/shared/<br/>aggregates events, persists to JSON/.meta<br/>dual WS gateways<br/><b>restart</b>"]
+  C["Web Client<br/>src/client/<br/>React + Tailwind UI, subscribes via /ws/browser<br/><b>build (prod) / HMR (dev)</b>"]
+  E <-->|WS| S <-->|WS| C
 ```
 
 Why each has a different rebuild path:
@@ -91,7 +85,7 @@ If client changes don't appear in dev mode → check that Vite is actually runni
 
 - `POST /api/restart` waits for the old server to exit, starts a new one, verifies health.
 - Body `{"dev": true|false}` switches modes mid-flight.
-- `pi-dashboard stop` kills stale processes holding the ports (via `lsof`), not just the PID file. So if the PID file is stale but a zombie holds the port, `stop` still cleans up.
+- `pi-dashboard stop` also sweeps the ports (via `lsof`) but kills only listeners this HOME owns (lock sidecar / health identity). A zombie it cannot attribute is reported; `stop --force` kills it but is DANGEROUS (can hit another HOME's dashboard, Electron server, unrelated services).
 
 ### Single restart path (don't bypass)
 

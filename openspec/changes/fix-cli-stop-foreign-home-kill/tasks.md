@@ -1,7 +1,7 @@
 ## 1. Ownership primitives
 
-- [ ] 1.1 Add `peekInstanceId(env, piPort)` to `packages/server/src/lifecycle/instance-id.ts`: non-creating, not memoized, wrapping the private `readInstanceId`. Verify the tests in 6.15 pass.
-- [ ] 1.2 Implement `packages/server/src/lifecycle/stop-ownership.ts` per design D2–D5:
+- [x] 1.1 Add `peekInstanceId(env, piPort)` to `packages/server/src/lifecycle/instance-id.ts`: non-creating, not memoized, wrapping the private `readInstanceId`. Verify the tests in 6.15 pass.
+- [x] 1.2 Implement `packages/server/src/lifecycle/stop-ownership.ts` per design D2–D5:
   - `collectOwnedPids(config, deps)`: lock proof with an httpPort match; health proof keyed on `config.piPort`; a 2 s single-attempt fetch; host mapping; early return when `config.port <= 0`;
   - `partitionHolders(Map<pid, ports[]>, owned)`.
 
@@ -9,32 +9,32 @@
 
 ## 2. `cmdStop` wiring (A + B + C `--force`)
 
-- [ ] 2.1 `parseArgs` accepts `--force`; widen `ParsedArgs.flags` to `Partial<ServerConfig> & { force?: boolean }`. Verify 6.17 passes and `npx tsc --noEmit -p packages/server` is clean.
-- [ ] 2.2 Give `buildConfig` an optional `warn` argument (default `console.warn`). In `main()`, pass a no-op into the single pre-switch `buildConfig` when `subcommand === "stop"`. Verify 6.1 and 6.2 pass.
-- [ ] 2.3 Export `cmdStop(config, opts = {}, injected?: StopDeps)` (design D1). It computes the owned set before the PID-file step; excludes the PID-file pid only if its kill succeeded; skips ports `<= 0`; and prints the D6 skip and force lines with every port held. `case "stop"` calls `cmdStop(config, { force: flags.force === true })`, and the internal `loadConfig()` is removed. Verify 6.3, 6.4 and 6.10–6.14 pass.
-- [ ] 2.4 Restart fallback (design D8): type `cmdStopImpl` as `(cfg: ServerConfig) => Promise<void>`, call `stopFn(config)`, and never forward `force`. Update the zero-arg stubs in `cli-restart.test.ts` and `cli-start-call-shape.test.ts`. Verify 6.18 and 6.25 pass, along with the existing `cli-restart` and `cli-start-call-shape` suites.
-- [ ] 2.5 Update the `cli.ts` usage block to `stop [--port n] [--pi-port n] [--force]`. The danger note says `--force` can kill another HOME's or user's dashboard, the Electron server, or an unrelated service; that it is meant only to recover an orphaned listener that cannot be attributed otherwise; and that `restart` ignores it. Verify by grepping for the usage block.
+- [x] 2.1 `parseArgs` accepts `--force`; widen `ParsedArgs.flags` to `Partial<ServerConfig> & { force?: boolean }`. Verify 6.17 passes and `npx tsc --noEmit -p packages/server` is clean.
+- [x] 2.2 Give `buildConfig` an optional `warn` argument (default `console.warn`). In `main()`, pass a no-op into the single pre-switch `buildConfig` when `subcommand === "stop"`. Verify 6.1 and 6.2 pass.
+- [x] 2.3 Export `cmdStop(config, opts = {}, injected?: StopDeps)` (design D1). It computes the owned set before the PID-file step; excludes the PID-file pid only if its kill succeeded; skips ports `<= 0`; and prints the D6 skip and force lines with every port held. `case "stop"` calls `cmdStop(config, { force: flags.force === true })`, and the internal `loadConfig()` is removed. Verify 6.3, 6.4 and 6.10–6.14 pass.
+- [x] 2.4 Restart fallback (design D8): type `cmdStopImpl` as `(cfg: ServerConfig) => Promise<void>`, call `stopFn(config)`, and never forward `force`. Update the zero-arg stubs in `cli-restart.test.ts` and `cli-start-call-shape.test.ts`. Verify 6.18 and 6.25 pass, along with the existing `cli-restart` and `cli-start-call-shape` suites.
+- [x] 2.5 Update the `cli.ts` usage block to `stop [--port n] [--pi-port n] [--force]`. The danger note says `--force` can kill another HOME's or user's dashboard, the Electron server, or an unrelated service; that it is meant only to recover an orphaned listener that cannot be attributed otherwise; and that `restart` ignores it. Verify by grepping for the usage block.
 
 ## 3. Caller fix (D)
 
-- [ ] 3.1 In `packages/electron/scripts/assert-bundled-server-plugin-load.mjs`, declare `let port` in `main()`. Pass `--port <port> --pi-port <port+1>` to the `finally` `stop` call only when `Number.isInteger(port)`. Verify 6.19 passes.
+- [x] 3.1 In `packages/electron/scripts/assert-bundled-server-plugin-load.mjs`, declare `let port` in `main()`. Pass `--port <port> --pi-port <port+1>` to the `finally` `stop` call only when `Number.isInteger(port)`. Verify 6.19 passes.
 
 ## 4. Docs
 
-- [ ] 4.1 Delegate the `docs/` edits to DocScribe (caveman style). They should describe the ownership rule plus `--force` with its dangers and orphan-recovery-only scope. Files:
+- [x] 4.1 Delegate the `docs/` edits to DocScribe (caveman style). They should describe the ownership rule plus `--force` with its dangers and orphan-recovery-only scope. Files:
   - `docs/faq.md` (~190, ~1645–1663);
   - `docs/architecture.md` (~4200);
   - `docs/installation-windows.md`, only where its prose describes port killing.
 
   Verify `grep -rniE "stale port holders|kills any stale|kills by port|holding the port.*lsof|stale-port lsof" docs/` returns nothing.
-- [ ] 4.2 Update `README.md` (~445) and the skill references below. Verify with the same grep across `.pi/skills README.md`.
+- [x] 4.2 Update `README.md` (~445) and the skill references below. Verify with the same grep across `.pi/skills README.md`.
   - `.pi/skills/debug-dashboard/SKILL.md`;
   - `.pi/skills/debug-dashboard/references/known-issues.md`: EADDRINUSE recovery becomes `stop --force` with the danger note and the orphan-only scope;
   - `.pi/skills/debug-dashboard/references/log-locations.md`;
   - `.pi/skills/debug-dashboard/references/isolated-verification.md`: `stop` under a temp HOME is now safe; never copy `server.pid`, `server.lock*` or `instances/`;
   - `.pi/skills/implement/references/rebuild-matrix.md`;
   - `.pi/skills/frontend-mockup-loop-dashboard/SKILL.md` (Pitfalls).
-- [ ] 4.3 AGENTS.md closeout. Each entry carries `See change: fix-cli-stop-foreign-home-kill`. Verify with `kb_search --doc-type agents "stop-ownership"`.
+- [x] 4.3 AGENTS.md closeout. Each entry carries `See change: fix-cli-stop-foreign-home-kill`. Verify with `kb_search --doc-type agents "stop-ownership"`.
   - add a `stop-ownership.ts` row to `packages/server/src/lifecycle/AGENTS.md`;
   - update the `instance-id.ts` row (`peekInstanceId`);
   - update the `cli.ts` row/sidecar (`cmdStop(config,{force},injected)`, ownership-scoped sweep, `buildConfig` warn param).

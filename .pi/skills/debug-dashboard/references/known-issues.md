@@ -42,11 +42,12 @@ versions at boot.
 **Fix:** Harmless if concurrent — losing process exits silently. If persistent:
 ```bash
 lsof -i :8000          # find the holder
-pi-dashboard stop      # kills by port (handles stale PID files)
+pi-dashboard stop      # handles stale PID files; kills port holders this HOME owns, reports others
+pi-dashboard stop --force   # DANGEROUS, last resort for an ORPHANED holder only (see below)
 pi-dashboard start
 ```
 
-`pi-dashboard stop` kills processes holding the port via `lsof`, not just the PID file — so stale PIDs don't block it.
+`pi-dashboard stop` sweeps the ports via `lsof` but kills only listeners this HOME provably owns (lock sidecar pid+port, or `/api/health` instanceId+pid). A holder it cannot attribute is printed with a `--force` hint and left running. `--force` kills EVERY listener: it can take down another HOME's or user's dashboard, the Electron app's server, or an unrelated service — use only for an orphan nothing on disk identifies. `restart` ignores `--force`.
 
 ## New session won't start (spawn_register_timeout)
 

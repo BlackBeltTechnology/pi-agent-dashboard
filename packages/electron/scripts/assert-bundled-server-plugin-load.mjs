@@ -183,10 +183,12 @@ async function bootAndReadVerdict({ root, layout, home, port }) {
 async function main() {
   const home = mkdtempSync(join(tmpdir(), "electron-bundle-load-"));
   let layout;
+  let port;
   try {
     const bundle = requireBundle();
     layout = bundle.layout;
-    const text = await bootAndReadVerdict({ root: bundle.root, layout, home, port: await freePort() });
+    port = await freePort();
+    const text = await bootAndReadVerdict({ root: bundle.root, layout, home, port });
 
     const problems = pluginLoadProblems(text);
     for (const p of problems) console.error(`✗ ${p}`);
@@ -203,7 +205,7 @@ async function main() {
   } finally {
     // Stop the detached daemon this HOME owns, then drop the temp state.
     if (layout) {
-      spawnSync(layout.nodeBin, ["--import", pathToFileURL(layout.jiti).href, layout.cli, "stop"], {
+      spawnSync(layout.nodeBin, ["--import", pathToFileURL(layout.jiti).href, layout.cli, "stop", ...(Number.isInteger(port) ? ["--port", String(port), "--pi-port", String(port + 1)] : [])], {
         cwd: bundleRoot(),
         env: { ...process.env, HOME: home, USERPROFILE: home },
         stdio: ["ignore", "ignore", "ignore"],

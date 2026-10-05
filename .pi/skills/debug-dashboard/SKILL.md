@@ -7,25 +7,12 @@ description: 'Diagnose problems in the running pi-agent-dashboard system: server
 
 System-level debugging for the running pi-agent-dashboard. Three layers:
 
-```
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 1 — Is the server alive?                         │
-   │            npx tsx ./scripts/health-probe.ts            │
-   │            npx tsx ./scripts/tail-server-log.ts         │
-   └─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 2 — Are the bridges connecting?                  │
-   │            npx tsx ./scripts/list-sessions.ts           │
-   │            npx tsx ./scripts/tail-server-log.ts --errors│
-   └─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 3 — Is the UI rendering?                         │
-   │            (use the browser skill)                     │
-   └─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  L1["Layer 1 - Is the server alive?<br/>npx tsx ./scripts/health-probe.ts<br/>npx tsx ./scripts/tail-server-log.ts"]
+  L2["Layer 2 - Are the bridges connecting?<br/>npx tsx ./scripts/list-sessions.ts<br/>npx tsx ./scripts/tail-server-log.ts --errors"]
+  L3["Layer 3 - Is the UI rendering?<br/>(use the browser skill)"]
+  L1 --> L2 --> L3
 ```
 
 ## First moves — always run these
@@ -44,7 +31,7 @@ If `health-probe` says "not-running" → server isn't up. Check `server.log` for
 
 | Symptom | Likely cause | Where to look |
 |---------|--------------|---------------|
-| Restart loops | Stale port held by zombie, or `restart` racing with bridge auto-start | `lsof -i :8000`, then `pi-dashboard stop` (kills by port, not just PID) |
+| Restart loops | Stale port held by zombie, or `restart` racing with bridge auto-start | `lsof -i :8000`, then `pi-dashboard stop` (kills owned port holders, not just PID; `--force` is a dangerous last resort, see known-issues.md) |
 | `EADDRINUSE` on start | Concurrent spawn from multiple pi sessions | Harmless — losing process exits silently. Check log. |
 | Bridge connects then disconnects | `server_restarting` broadcast active, or version skew | grep `server_restarting` in server.log; check `/api/health` for version |
 | Blank page in browser | Vite not running in dev mode (silent fallback to prod build); or auth blocking | Check `/api/health.mode`; check `auth` settings |
