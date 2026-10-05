@@ -1614,6 +1614,12 @@ The first-party features `automation` and `goal` SHALL each own their identity t
 
 `pluginRef` SHALL be boundary-validated on receipt, following the publish/collect doctrine's fail-open rule: core SHALL accept only a plain object, SHALL reject (drop + warn once, without throwing) a malformed ref, and SHALL NOT let a ref overwrite a reserved session field it does not own. A plugin's ref merges only the keys that plugin owns; it cannot set another plugin's `goalId`/`automationRun` or a core-reserved field.
 
+#### Scenario: Trusted plugin ends a session like the Shutdown control
+
+- **WHEN** a trusted plugin (manifest `priority <= 100`) calls `ctx.shutdownSession(sessionId)` for a known session
+- **THEN** the host SHALL run the same shutdown the browser `shutdown` message and `POST /api/session/:id/shutdown` run, and resolve `true`
+- **AND** an untrusted plugin, or an unknown session, SHALL get `false` with no effect
+
 #### Scenario: Declared hidden keeps the session off the board
 
 - **WHEN** a plugin spawns a session with `lifecycle: { hidden: true }` and the session registers via its spawn token

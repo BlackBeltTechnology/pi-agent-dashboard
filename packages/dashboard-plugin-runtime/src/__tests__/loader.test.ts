@@ -29,6 +29,7 @@ function makeFakeContext(): ServerPluginContext {
     consumeAll: () => [],
     spawnSession: async () => ({ success: false }),
     abortSession: () => false,
+    shutdownSession: async () => false,
     abortSpawnedRun: async () => false,
     registerCwdPolicy: () => {},
     unregisterCwdPolicy: () => {},

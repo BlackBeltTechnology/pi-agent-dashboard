@@ -58,6 +58,9 @@ export const CHAT_COMMAND_ALLOWLIST: readonly string[] = [
   // Bind a thread to an existing dashboard session (watch it). Chat-ONLY.
   // See change: chat-gateway-attach-dashboard-sessions.
   "attach_session",
+  // `!close` in a thread: shut down a gateway-started session (or detach an
+  // attached one), archive the thread. Chat-ONLY. See change: chat-gateway-close-command.
+  "close_session",
 ];
 
 /**
@@ -76,6 +79,8 @@ export const CHAT_LOCAL_VERB_TIERS: ReadonlyMap<string, Tier> = new Map([
   // Attaching only WATCHES (mirroring is never gated, X15); every prompt sent
   // into the thread is still authorized as `send_prompt` (control).
   ["attach_session", "observe"],
+  // Ending a session is at least as strong as prompting it (`send_prompt`).
+  ["close_session", "control"],
 ]);
 
 /** The effective per-verb tier table, read from the shared generated manifest. */

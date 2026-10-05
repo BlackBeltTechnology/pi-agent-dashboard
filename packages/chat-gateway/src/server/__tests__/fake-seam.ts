@@ -55,6 +55,8 @@ export interface FakeSeam extends HostSeam {
   emitFrame(sessionId: string, frame: unknown): void;
   /** Resolve a spawn as the host would on session_register. */
   resolveSpawn(sessionId: string, pluginRef: Record<string, unknown>): void;
+  /** Session ids passed to `shutdownSession`. */
+  shutdowns: string[];
   /** Forward one session event as the host's `onEvent` stream would. */
   emitSessionEvent(sessionId: string): void;
 }
@@ -71,6 +73,7 @@ export function createFakeSeam(): FakeSeam {
     sentPrompts: [],
     sentResponses: [],
     spawns: [],
+    shutdowns: [],
     spawnResult: { success: true },
     persistedAllowlists: [],
     assignedRefs: [],
@@ -91,6 +94,10 @@ export function createFakeSeam(): FakeSeam {
       return true;
     },
     abort: () => false,
+    async shutdownSession(sessionId) {
+      seam.shutdowns.push(sessionId);
+      return true;
+    },
     async spawn(opts) {
       seam.spawns.push(opts);
       return seam.spawnResult;

@@ -128,9 +128,9 @@ NEW conversation when ALL hold:
 - `startThread` failure → `warn` log `chat-gateway: could not open a thread (...)`. Answer in channel root. Message never lost.
 - `threadPerConversation: false` → previous behaviour: channel root binds one shared session.
 
-### Reach Dashboard Sessions from Discord (`!sessions`, `!attach`, auto-mirror)
+### Reach Dashboard Sessions from Discord (`!sessions`, `!attach`, `!close`, auto-mirror)
 
-Two whole-message commands pull sessions started in the DASHBOARD into chat. Any other text — including steer-prefixed text — is a prompt, not a command.
+Whole-message commands. `!sessions`/`!attach` pull sessions started in the DASHBOARD into chat; `!close` ends a bound conversation. Any other text — including steer-prefixed text — is a prompt, not a command.
 
 - `!sessions` — authorized verb `list_sessions` (observe). Replies numbered list (max 25, `LIST_LIMIT`) of live, non-hidden sessions in scope: bound-workspace folders when the channel is bound, else `allowedRoots`. Row = name, status, short id (`id.slice(0,8)`), plus `<#thread>` when attached. Zero → `No live dashboard sessions in this workspace.` Reply ends `` Attach one with `!attach <number>`. `` Last listing cached per channel (`lastListing`) for `!attach <number>`.
 - `!attach <number|id-prefix>` — authorized chat-local verb `attach_session` (observe) with target cwd for the scope check (`CHAT_LOCAL_VERB_TIERS`, `team/tier.ts`). Resolves number from last `!sessions` listing, else unique id-prefix. Opens public thread on the command message named after the session (`attachInThread`), binds `source:"attach"` keyed `discord:<threadId>:<threadId>` (`parentChannelId` = channel), subscribes, confirms `Attached to <name>. Its activity shows here; messages you send here go to that session.`
@@ -138,8 +138,15 @@ Two whole-message commands pull sessions started in the DASHBOARD into chat. Any
   - Run inside a thread → refused: `` Run `!attach` in the channel itself, not inside a thread. ``
   - No match / target cwd out of scope → `` No live session `<arg>` in this workspace. Use `!sessions` to list them. ``
   - `startThread` missing or fails → `Could not open a thread here (does the bot have Create Public Threads?).`
+- `!close` — whole message, INSIDE a bound thread. Chat-local verb `close_session` (tier `control`, `CHAT_LOCAL_VERB_TIERS`, `team/tier.ts`); audited in command log.
+  - Thread bound to a gateway-STARTED session (`source` `spawn`/`resume`) still live → `seam.shutdownSession` → host `ctx.shutdownSession` → `browserGateway.shutdownSession` (same body as dashboard **Shutdown** + `POST /api/session/<id>/shutdown`). Host refusal (untrusted plugin, unknown session) → nothing changes; author told `Could not close the session (the gateway lacks the trust level to shut it down).`
+  - Thread bound to an ATTACHED session (`source:"attach"`, incl. auto-mirror) → detach only; session keeps running.
+  - Both: binding removed; session unsubscribed when no other binding needs it; confirmation reply (`Detached. The session keeps running on the dashboard. Archiving this thread.` / `Session closed. Archiving this thread.`); thread archived (`adapter.archiveThread`, Discord `setArchived(true)`).
+  - Channel root → hint only (`Use \`!close\` inside a thread to close that conversation.`). Unbound thread → `Nothing to close here: this thread is not linked to a session.` `!close the file` stays a steer prompt.
+  - Channel deletion from chat: not possible by design.
+- Ways to close without chat: dashboard **Shutdown**, `POST /api/session/<id>/shutdown`, `/abort` stops only the current run; Discord client archive/delete; gateway threads auto-archive after 24h inactivity.
 - Attached sessions never hidden, never re-policied (`source:"attach"`). Prompts later sent into the thread still authorized as `send_prompt` (control).
-- Code: `packages/chat-gateway/src/server/gateway.ts` (`SESSIONS_COMMAND` `/^\s*!\s*sessions\s*$/i`, `ATTACH_COMMAND` `/^\s*!\s*attach\s+(\S+)\s*$/i`, `scopeFor`, `attachableSessions`, `maybeAutoMirror`). Seam: `onSessionEvent(sessionId)`, `SeamSession.name`, `SeamSession.hidden` (`seam.ts`). Team: `attach_session` tier (`tier.ts`), `boundChannelIds()` (`team/controller.ts`).
+- Code: `packages/chat-gateway/src/server/gateway.ts` (`SESSIONS_COMMAND` `/^\s*!\s*sessions\s*$/i`, `ATTACH_COMMAND` `/^\s*!\s*attach\s+(\S+)\s*$/i`, `CLOSE_COMMAND` `/^\s*!\s*close\s*$/i`, `scopeFor`, `attachableSessions`, `maybeAutoMirror`, `handleCloseCommand`, `closeTarget`, `endOwnedSession`, `unbind`). Seam: `onSessionEvent(sessionId)`, `SeamSession.name`, `SeamSession.hidden`, `HostSeam.shutdownSession` (`seam.ts`). Team: `attach_session`/`close_session` tiers (`tier.ts`), `boundChannelIds()` (`team/controller.ts`). Adapters: `archiveThread?` (`base.ts`), `archiveThread` (`discord.ts`).
 
 Auto-mirror (`mirrorDashboardSessions: true`, default `false`):
 
@@ -148,7 +155,7 @@ Auto-mirror (`mirrorDashboardSessions: true`, default `false`):
 - Considered once per run (`mirrorConsidered`, marked before any await → an event burst cannot open two threads). Persisted bindings → no duplicate thread after restart.
 - Security: sends session activity to Discord at the channel mirror level. Opt-in.
 - Discord UI: open a thread via the "N messages" link under a post or the channel Threads icon.
-- See change: chat-gateway-attach-dashboard-sessions.
+- See change: chat-gateway-attach-dashboard-sessions, chat-gateway-close-command.
 
 ## L1 Pairing Flow
 
@@ -270,8 +277,8 @@ flowchart TD
 
 - Tiers: `observe` < `control` < `operate` (`tiers.js`).
 - Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
-- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`). Unlisted verbs refused.
-- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
+- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`, `attach_session`, `close_session`). Unlisted verbs refused.
+- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`, `attach_session` -> `observe`, `close_session` -> `control`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
 - Global ceiling defaults to `observe`. Acts as HARD maximum; caps resolved principal tier. Per-binding ceiling may only LOWER global ceiling; effective ceiling evaluates as `min(binding, global)`. Prevents global `observe` defeat by stale binding `operate`. `clampTier` caps, never raises. Unconfigured layer grants nothing.
 - Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.
@@ -361,4 +368,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation, chat-gateway-attach-dashboard-sessions, fix-plugin-config-partial-write.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation, chat-gateway-attach-dashboard-sessions, fix-plugin-config-partial-write, chat-gateway-close-command.

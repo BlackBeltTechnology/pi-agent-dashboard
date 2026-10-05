@@ -9,7 +9,10 @@
  * - `mirrorDashboardSessions` (opt-in) attaches every eligible live session at
  *   start and every newly seen one (first forwarded event) into its workspace's
  *   channel, one thread each.
- * See change: chat-gateway-attach-dashboard-sessions.
+ * - `!close` (inside a thread, verb `close_session`, control): a thread the
+ *   gateway started its own session in → shut the session down; an attached
+ *   thread → detach only. Both archive the thread and drop the binding.
+ * See change: chat-gateway-attach-dashboard-sessions, chat-gateway-close-command.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -30,6 +33,10 @@ class ThreadingAdapter extends RecordingAdapter {
     const threadId = `th-${this.threads.length + 1}`;
     this.threads.push({ channelId, messageId, name, threadId });
     return { threadId };
+  }
+  archived: string[] = [];
+  async archiveThread(threadId: string): Promise<void> {
+    this.archived.push(threadId);
   }
 }
 
@@ -257,6 +264,89 @@ describe("dashboard sessions in Discord", () => {
       await gateway.start();
       expect(adapter.threads.length).toBe(first);
       await gateway.stop();
+    });
+  });
+
+  describe("!close", () => {
+    const inThread = (id: string) => ({ channelId: id, threadId: id, parentChannelId: "chan1" });
+    const bindSpawned = (store: ReturnType<typeof setup>["store"], sessionId: string, threadId: string) =>
+      store.set({
+        platform: "discord",
+        channelId: threadId,
+        threadId,
+        parentChannelId: "chan1",
+        sessionId,
+        cwd: "/repo/a",
+        boundBy: "alice",
+        source: "spawn",
+        isDM: false,
+        createdAt: 1,
+      });
+
+    it("in a gateway-started conversation: shuts the session down, archives, unbinds", async () => {
+      const { adapter, gateway, seam, store, log } = setup();
+      bindSpawned(store, "s1aaaaaa-1", "th-7");
+      await gateway.handleInbound(say("alice", "!close", inThread("th-7")));
+      expect(seam.shutdowns).toEqual(["s1aaaaaa-1"]);
+      expect(adapter.archived).toEqual(["th-7"]);
+      expect(store.get("discord:th-7:th-7")).toBeUndefined();
+      expect(repliesIn(adapter, "th-7")[0]).toMatch(/Session closed/);
+      expect(seam.sentPrompts).toHaveLength(0);
+      expect(log.entries().at(-1)).toMatchObject({ verb: "close_session", outcome: "permitted" });
+    });
+
+    it("in an attached thread: detaches only — the session keeps running", async () => {
+      const { adapter, gateway, seam, store } = setup();
+      await gateway.handleInbound(say("alice", "!attach s1"));
+      await gateway.handleInbound(say("alice", "!close", inThread("th-1")));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(adapter.archived).toEqual(["th-1"]);
+      expect(store.get("discord:th-1:th-1")).toBeUndefined();
+      expect(repliesIn(adapter, "th-1").at(-1)).toMatch(/Detached.*keeps running/);
+    });
+
+    it("an ended gateway session is unbound without a shutdown call", async () => {
+      const { adapter, gateway, seam, store } = setup();
+      bindSpawned(store, "gone-1", "th-8");
+      await gateway.handleInbound(say("alice", "!close", inThread("th-8")));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(adapter.archived).toEqual(["th-8"]);
+      expect(store.get("discord:th-8:th-8")).toBeUndefined();
+    });
+
+    it("needs control: an observe principal is refused and nothing changes", async () => {
+      const { adapter, gateway, seam, store } = setup();
+      bindSpawned(store, "s1aaaaaa-1", "th-7");
+      await gateway.handleInbound(say("eve", "!close", inThread("th-7")));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(adapter.archived).toHaveLength(0);
+      expect(store.get("discord:th-7:th-7")).toBeDefined();
+      expect(repliesIn(adapter, "th-7")[0]).toMatch(/^Refused/);
+    });
+
+    it("in the channel root it only explains itself", async () => {
+      const { adapter, gateway, seam } = setup();
+      await gateway.handleInbound(say("alice", "!close"));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(seam.spawns).toHaveLength(0);
+      expect(adapter.threads).toHaveLength(0);
+      expect(repliesIn(adapter, "chan1")[0]).toMatch(/inside a thread/);
+    });
+
+    it("an unbound thread has nothing to close", async () => {
+      const { adapter, gateway, seam } = setup();
+      await gateway.handleInbound(say("alice", "!close", inThread("th-9")));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(adapter.archived).toHaveLength(0);
+      expect(repliesIn(adapter, "th-9")[0]).toMatch(/Nothing to close/);
+    });
+
+    it("only the whole message is the command (\"!close the file\" is a steer prompt)", async () => {
+      const { gateway, seam, store } = setup();
+      bindSpawned(store, "s1aaaaaa-1", "th-7");
+      await gateway.handleInbound(say("alice", "!close the file", inThread("th-7")));
+      expect(seam.shutdowns).toHaveLength(0);
+      expect(seam.sentPrompts).toEqual([{ sessionId: "s1aaaaaa-1", text: "close the file", delivery: "steer" }]);
     });
   });
 });

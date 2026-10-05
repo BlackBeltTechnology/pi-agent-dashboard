@@ -65,6 +65,8 @@ export interface HostSeam {
   /** Answer a PromptBus request. Returns false when the session is unreachable. */
   sendPromptResponse(sessionId: string, response: Record<string, unknown>): boolean;
   abort(sessionId: string): boolean;
+  /** End a session like the dashboard Shutdown (trusted hook). See change: chat-gateway-close-command. */
+  shutdownSession(sessionId: string): Promise<boolean>;
   spawn(opts: SeamSpawnOptions): Promise<SpawnOutcome>;
   /** Live sessions, for the attach-to-existing source. */
   listSessions(): SeamSession[];
@@ -137,6 +139,9 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
     },
     abort(sessionId) {
       return ctx.abortSession(sessionId);
+    },
+    shutdownSession(sessionId) {
+      return ctx.shutdownSession(sessionId);
     },
     async spawn(opts) {
       const res = await ctx.spawnSession({

@@ -91,6 +91,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   session per channel. If the bot cannot open a thread (missing Create Public
   Threads), it answers in the channel instead.
 
+- **Close a Discord conversation with `!close`.** Send `!close` inside a
+  thread to end it. A conversation the bot started is shut down like the
+  dashboard's Shutdown button; a thread you attached to a dashboard session
+  is only detached, and the session keeps running. Either way the thread is
+  archived. Requires control access. Plugins get a matching
+  `ctx.shutdownSession(id)` hook (trusted plugins only).
+
 - **Reach your dashboard sessions from Discord.** In a workspace channel,
   `!sessions` lists the live sessions in that workspace and `!attach <number>`
   opens a thread for one: its activity shows there, and your messages in the

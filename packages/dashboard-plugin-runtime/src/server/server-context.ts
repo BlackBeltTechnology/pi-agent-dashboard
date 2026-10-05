@@ -552,6 +552,15 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
 export type AbortSessionFn = (sessionId: string) => boolean;
 
 /**
+ * End a session exactly like the dashboard's Shutdown control (same host body:
+ * process terminated for any spawn strategy, manual-close liveness written,
+ * unregistered + broadcast). Gated to first-party / trusted plugins like
+ * `abortSession`: untrusted plugins get a hook that resolves `false`. Resolves
+ * `false` for an unknown session. See change: chat-gateway-close-command.
+ */
+export type ShutdownSessionFn = (sessionId: string) => Promise<boolean>;
+
+/**
  * Terminate a plugin-spawned driver session (generic kill primitive shared by
  * automation runs AND goal-supervisor respawns). Renamed from
  * `abortAutomationRun` — the primitive is not automation-specific; goal is a
@@ -864,6 +873,11 @@ export interface ServerPluginContext {
    */
   abortSession: AbortSessionFn;
   /**
+   * End a session like the dashboard's Shutdown control. Trusted plugins
+   * only; untrusted ⇒ resolves `false`. See change: chat-gateway-close-command.
+   */
+  shutdownSession: ShutdownSessionFn;
+  /**
    * Terminate an automation run's spawned session (Stop + completion).
    * Gated to first-party/trusted plugins; untrusted plugins get a hook that
    * resolves `false`. See change: fix-automation-stop-zombie-runs.
@@ -1062,6 +1076,8 @@ export interface ServerContextDeps {
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
+  /** Optional: hosts without it give plugins a refusing no-op. */
+  shutdownSession?: ShutdownSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
   registerCwdPolicy: RegisterCwdPolicyFn;
   unregisterCwdPolicy: UnregisterCwdPolicyFn;
@@ -1145,6 +1161,7 @@ export function createServerPluginContext(
     sendExtensionMessage: deps.sendExtensionMessage,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
+    shutdownSession: deps.shutdownSession ?? (async () => false),
     abortSpawnedRun: deps.abortSpawnedRun,
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,
