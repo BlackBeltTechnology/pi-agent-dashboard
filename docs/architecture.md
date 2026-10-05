@@ -4214,6 +4214,26 @@ Both positions are wrapped as `file://` URLs universally:
 
 The URL form is cross-platform safe (Linux/macOS accept `file://` URLs identically to raw paths), so no platform gating is needed. A repo-level lint test (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) refuses any new call site that passes a raw identifier as argv after `--import` / `--loader`, preventing regression. Mirrors the `platform/exec.ts` + `no-direct-child-process.test.ts` pattern. See changes: `fix-windows-server-parity` (loader position), `fix-windows-entry-script-url` (entry-script position).
 
+#### TypeScript loader (native default, jiti opt-in)
+
+Every fresh server launch boots the Node-native TS loader by default: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`). Hooks strip types via `module.stripTypeScriptTypes` in `transform` mode. No transpile cache.
+
+**Why:** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See change: `fix-appimage-cold-boot-latency`.
+
+**Selection:** `selectTsLoader(env)` in `packages/shared/src/platform/ts-loader-select.mjs` (plain `.mjs`, runs pre-loader). `PI_DASHBOARD_TS_LOADER=jiti` → jiti (rollback). Unknown value → warn + native. Reads launching process env; `opts.env` overlay never selects.
+
+**Launch sites:** `launchDashboardServer` (`packages/shared/src/server-launcher.ts`; log header `…, loader <url>)`), `packages/server/bin/pi-dashboard.mjs`, Electron `spawnFromSource`, bridge auto-start, `start-server.{sh,cmd,ps1}` (fixed bundle path `node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs`), `assert-bundled-server-plugin-load.mjs`, Electron Doctor launch test.
+
+**Workers** keep inherited loader (native or jiti); `fit-worker-pool.workerExecArgv` adds selected loader when none.
+
+**`/api/restart`** keeps running loader → loader switch needs fresh launch (`pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start`, or Electron relaunch).
+
+**Entry wrap:** native → `file://` entry on win32 (A:/B: drives), raw on POSIX; jiti → raw always (`shouldUrlWrapEntry`).
+
+**Loader-neutral source:** server-loaded TS must not use bare `require`/`__dirname`/`__filename`/`module.exports`/`exports.` nor value-import `.tsx`; use `createRequire(import.meta.url)`. Gate: `scripts/check-loader-neutral-source.mjs` (AST, wired into `npm test`).
+
+pi extensions + plugin bridges still load under pi's jiti (separate process).
+
 #### stdout + stderr capture parity
 
 Both server-launch call sites (`packages/server/src/cli.ts` and `packages/extension/src/server-launcher.ts`) capture **both** stdout and stderr into `~/.pi/dashboard/server.log`. The CLI uses `stdio: ["ignore", logFd, logFd]` on its direct `spawn()` call; the bridge uses `spawnDetached({ stdoutFd: logFd, logFd })`. Without this parity, crash diagnostics from jiti / Fastify / ajv-compiler that reach stdout would be invisible via the bridge path while remaining visible via the CLI path. See change: `fix-bridge-autostart-diagnostics`.

@@ -278,6 +278,27 @@ Cross-refs:
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
 
+## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+
+Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti:
+
+```
+pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+```
+
+Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app.
+
+`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+
+Check which loader a launch used: `grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1`. Header names the loader (`native-ts-register.mjs` or jiti URL).
+
+Old Node without `module.stripTypeScriptTypes` errors naming `PI_DASHBOARD_TS_LOADER=jiti`. Use Node ≥ 22.13, or set the env var.
+
+Cross-refs:
+- packages/shared/src/platform/ts-loader-select.mjs
+- packages/shared/src/platform/native-ts-register.mjs
+- docs/architecture.md
+
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 
 Tray menu ownership-aware. Shows "Server managed externally" (disabled row) when server on port not owned by this Electron. Happens when server started by `pi-dashboard start` terminal (standalone), by a pi session (bridge), or by another Electron instance.

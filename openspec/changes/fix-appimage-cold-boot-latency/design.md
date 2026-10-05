@@ -32,6 +32,21 @@ therefore a cold transpile.
   (plugin-graph growth, or loss of a cache warmed at build time). This is recorded as
   documentation only (D7).
 
+**D7 attribution findings** (task 9.1; `unsquashfs -lls` listings of the v0.8.0 x64 AppImage,
+released 2026-08-26, and the spike build `f58e56b` from CI run 37286703495):
+- H1 inverted. The 08-26 AppImage ships **no** `resources/server/node_modules/.cache/jiti`. The
+  current one ships 934 cache entries, warmed at build time. The entries are third-party modules
+  only (no first-party server or plugin source), and their hash suffixes are path-keyed. Some
+  modules appear under two hashes, which points at a build-path key. At runtime the bundle lives
+  under a different path and the dir is read-only squashfs, so the shipped cache cannot help: it
+  neither hits nor can be rewritten. A lost warm cache did not cause the regression.
+- H2 supported, but not sufficient. First-party server-loaded `.ts` grew from 562 to 1006 under
+  `resources/server/packages/`, and from 500 to 800 under `node_modules/@blackbelt-technology/`.
+  Plugin manifests grew from 4 to 12. That is about 1.6–1.8× more source to cold-transpile on
+  every launch. It does not by itself explain 18 s → over 240 s (more than 13×).
+- Still open: the superlinear part, for example jiti's per-module overhead on the larger graph or
+  CJS-interop re-imports. It is moot for the default path, because native has no transpile cache.
+
 **How workers get their loader.**
 - Three worker pools inherit the loader through `execArgv: [...process.execArgv]`:
   - `openspec-poll-worker-pool.ts:102`

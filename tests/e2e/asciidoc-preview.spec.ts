@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { harnessContainer, inContainer } from "./helpers/folder-collapse.js";
 import { byTestId, dismissToasts, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — AsciiDoc preview styling (change: asciidoc-support, test-plan
@@ -143,5 +144,27 @@ test.describe("AsciiDoc preview styling", () => {
     const sentinel = await page.evaluate(() => (window as unknown as { __adocNoReload?: number }).__adocNoReload);
     expect(sentinel, "the document reloaded — F6 requires an in-place retarget").toBeTruthy();
     await expect(body).toBeVisible();
+  });
+});
+
+// F1 (change: fix-appimage-cold-boot-latency) — the harness boots through
+// `pi-dashboard start` on the Node-native TS loader (the default). AsciiDoc
+// rendering is a lazy path that used a bare `require("asciidoctor")`, which
+// only jiti injects; under native ESM it threw `require is not defined`.
+// The preview must render the file's headings, and the server.log spawn
+// header must name the native loader.
+test.describe("AsciiDoc preview under the native TS loader", () => {
+  test("F1: renders headings and server.log names native-ts-register.mjs", async ({ page }) => {
+    harnessContainer(); // fail fast with a clear message if no harness is up
+    const body = await openAdoc(page);
+    await expect(body.locator("h2").first()).toBeVisible({ timeout: 20_000 });
+    expect((await body.locator("h2").first().innerText()).trim().length).toBeGreaterThan(0);
+    await expect(page.getByText(/require is not defined/)).toHaveCount(0);
+
+    const log = inContainer('cat "$HOME/.pi/dashboard/server.log" 2>/dev/null || true');
+    const headers = log.split("\n").filter((l) => l.includes("launch (parent pid"));
+    expect(headers.length, "server.log has no spawn header").toBeGreaterThan(0);
+    expect(headers.at(-1)).toContain("native-ts-register.mjs");
+    expect(log).not.toContain("require is not defined");
   });
 });

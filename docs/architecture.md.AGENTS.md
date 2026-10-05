@@ -27,3 +27,5 @@ Gains `### Single model runtime (collapse-model-proxy-onto-modelruntime)`: one m
 Gains `### Trust and Credential Boundaries`: `requireLocalProof`, `pi-dashboard open`, `pi_dash_local`/`pi_dash_device`/`pi_dash_oauth_state` cookies, pairing approval ≠ loopback. See change: harden-trust-and-credential-boundaries.
 
 Gains `### Plugin Session Lifecycle Declarations (hide-chat-gateway-sessions)`: `PluginSpawnOptions.lifecycle` (`recover`/`finalizeOnSocketClose`/`hidden`); `hidden` persisted; not re-applied on reattach; `pluginHidden` survives restart; `ServerPluginContext.shutdownSession` (trusted `priority<=100`; reuses `browserGateway.shutdownSession`). See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart, chat-gateway-close-command.
+
+TS loader §: native default, jiti opt-in. See change: fix-appimage-cold-boot-latency.
