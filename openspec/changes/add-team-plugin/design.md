@@ -553,7 +553,7 @@ No latency budget is set for Phase 1 (decision 2026-10-03); `GET /agents` stays 
   `@dash` alias; the team API is never called before the identity layer reports a credential (or none is needed).
 - **E2E** runs on the identity-matrix lifecycle (one private dashboard, fake OIDC issuer with the real interactive flow, real pi,
   a local OpenAI-compatible fake provider that records provider-bound prompts and replays tool calls): `playwright.team.config.ts`,
-  `npm run test:e2e:team`. The docker identity overlay extension (task 6.2) and the own-origin standalone E2E are not done.
+  `npm run test:e2e:team`. The own-origin standalone deployment is exercised by `team-standalone.spec.ts` (static server + `config.json` + CORS + app-kit OIDC against a component login descriptor; the fake issuer answers CORS like a real IdP's web origins). The docker identity overlay (`compose.test.identity.yml`) was NOT extended: the matrix lifecycle needs no docker.
 
 ## Risks / Trade-offs
 

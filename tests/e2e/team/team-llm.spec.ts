@@ -178,6 +178,15 @@ test("X9: a dashboard restart mid-conversation reconnects the socket without dup
   expect(await occurrences("PROMPT-AFTER-EDIT")).toBe(before);
 });
 
+test("an ended conversation resumes after a dashboard restart (the host still vouches for the transcript's owner)", async () => {
+  const convId = (await h.api(anna, "GET", `/agents/${enc("shared:llm")}/conversations?project=_ws`)).json.conversations[0].id as string;
+  expect((await h.api(anna, "POST", `/agents/${enc("shared:llm")}/conversations/${convId}/restart?project=_ws`)).status).toBe(200);
+  await h.inst.restart();
+  const r = await h.api(anna, "POST", `/agents/${enc("shared:llm")}/conversations/${convId}/session?project=_ws`);
+  expect(r.status, JSON.stringify(r.json)).toBe(200);
+  expect((await h.api(anna, "GET", `/agents/${enc("shared:llm")}/conversations?project=_ws`)).json.conversations.map((c: { id: string }) => c.id)).toEqual([convId]);
+});
+
 test("X11 + X12: project resources never load, root AGENTS.md is appended, transcripts stay in the default session folder", async () => {
   await anna.page.goto(`${h.base}/apps/team/?project=proj`);
   await anna.page.locator('[data-key="shared:llm"]').getByTestId("talk").click();

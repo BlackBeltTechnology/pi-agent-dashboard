@@ -37,6 +37,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * Like a real IdP's registered web origins: a SPA on its OWN origin (app-kit's OIDC client) fetches
+ * discovery / JWKS / token cross-origin. Test double only. Returns true when the request was a preflight
+ * and is already answered. See change: add-team-plugin.
+ */
+function applyCors(req: IncomingMessage, res: ServerResponse): boolean {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-headers", "content-type, authorization");
+  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
+  if (req.method !== "OPTIONS") return false;
+  res.writeHead(204).end();
+  return true;
+}
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
     let raw = "";
@@ -308,7 +322,9 @@ export async function startFakeOidcIssuer(opts: FakeOidcOptions = {}): Promise<F
     }
   }
 
-  const server: Server = createServer(handleRequest);
+  const server: Server = createServer((req, res) => {
+    if (!applyCors(req, res)) handleRequest(req, res);
+  });
 
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, host, resolve));
   const { port } = server.address() as AddressInfo;

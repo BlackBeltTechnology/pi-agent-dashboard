@@ -61,6 +61,13 @@ export interface HarnessOptions {
   homeFiles?: Record<string, string>;
   /** `models.json` providers written to `~/.pi/agent/models.json`. */
   modelsJson?: Record<string, unknown>;
+  /** `cors.allowedOrigins` for a standalone app on its own origin. */
+  corsOrigins?: string[];
+  /**
+   * Publish a COMPONENT login descriptor (`issuer` + public `clientId`, what app-kit's OIDC client needs)
+   * instead of the separate-view one the dashboard's own login plugin offers.
+   */
+  componentLogin?: boolean;
 }
 
 export async function bootTeamHarness(opts: HarnessOptions = {}): Promise<TeamHarness> {
@@ -76,7 +83,22 @@ export async function bootTeamHarness(opts: HarnessOptions = {}): Promise<TeamHa
   const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
   const extra = typeof opts.team === "function" ? opts.team({ work, dir }) : (opts.team ?? {});
   cfg.plugins = { ...cfg.plugins, team: { admins: [{ iss: issuer.issuer, sub: "sub-anna" }], idleMinutes: 0, ...extra } };
+  if (opts.corsOrigins) cfg.cors = { allowedOrigins: opts.corsOrigins };
   fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  if (opts.componentLogin) {
+    fs.writeFileSync(
+      path.join(inst.home, ".pi", "dashboard", "plugins", "identity-login-plane", "server.mjs"),
+      `export default async function registerPlugin(ctx) {
+  ctx.registerBrowserLoginConfig({
+    pluginId: "identity-login-plane",
+    issuer: process.env.PI_LOGIN_BROWSER_ISSUER,
+    clientId: process.env.PI_LOGIN_CLIENT_ID,
+    label: "Keycloak",
+  });
+}
+`,
+    );
+  }
   for (const [rel, content] of Object.entries(opts.homeFiles ?? {})) {
     const f = path.join(inst.home, rel);
     fs.mkdirSync(path.dirname(f), { recursive: true });

@@ -167,6 +167,37 @@ describe("Gate", () => {
   });
 });
 
+describe("credential arriving while the first call is in flight", () => {
+  it("the refused first call is retried once the identity publishes its credential", async () => {
+    const host = makeHost();
+    let credential = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const listeners = new Set<() => void>();
+    host.identity = { current: () => null, subscribe: (cb) => (listeners.add(cb), () => listeners.delete(cb)) };
+    host.routes.set("GET /api/plugins/team/me", async () => {
+      const had = credential;
+      if (!had) await gate;
+      return had ? { uk: "u", iss: "i", sub: "s", admin: false, mode: "multi", maxConversations: 50, skills: [] } : json({ error: "x" }, 401);
+    });
+    host.routes.set("GET /api/plugins/team/projects", () => ({ projects: [] }));
+    render(
+      <AppHostProvider host={host}>
+        <Gate>
+          <p>APP</p>
+        </Gate>
+      </AppHostProvider>,
+    );
+    await waitFor(() => expect(host.calls.length).toBeGreaterThanOrEqual(1));
+    credential = true; // the bridge publishes its token while the first call is still pending
+    for (const l of listeners) l();
+    release(); // the first call now resolves 401
+    await screen.findByText("APP");
+  });
+});
+
 describe("SeamIdentityProvider", () => {
   it("none mode ⇒ authenticated local operator", async () => {
     const host = makeHost();

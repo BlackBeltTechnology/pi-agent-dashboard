@@ -136,6 +136,8 @@ function newConversationId(): string {
 export class ConversationService {
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly createLocks = new Map<string, Promise<void>>();
+  /** Launches admitted but not yet bound, per user (live-cap reservation). */
+  private readonly launching = new Map<string, number>();
   private readonly pending = new Map<string, Pending>();
   /** runId → sessionId, from the guard's `team_guard_ready` (bounded). */
   private readonly readyRuns = new Map<string, string>();
@@ -364,11 +366,10 @@ export class ConversationService {
     c: string,
     root: { dir: string; project?: Project },
     resumeFile?: string,
-  ): Promise<{ sessionId: string; sessionFile?: string; runId: string; spawnToken: string }> {
+  ): Promise<{ sessionId: string; sessionFile?: string; runId: string; spawnToken: string; release: () => void }> {
     if (!fs.existsSync(this.d.guardExtensionPath)) throw new TeamError(503, "guard_unavailable");
     // An unconfined (`full`) persona must never run in multi-user mode, whatever mode it was authored in.
     if (persona.tools === "full" && this.d.access.mode() === "multi") throw new TeamError(409, "persona_unavailable");
-    this.assertLiveCapacity(caller);
     const personaFile = this.d.renderPersona(persona, caller.uk);
     if (!fs.existsSync(personaFile)) {
       this.d.logger.error(`team.persona_render_failed personaKey=${persona.key}`);
@@ -390,6 +391,7 @@ export class ConversationService {
     entry.settle = () => {
       if (readyAndBound()) settleFn();
     };
+    const releaseSlot = this.reserveLiveSlot(caller);
     this.pending.set(runId, entry);
 
     const timeoutMs = this.d.spawnTimeoutMs ?? 30_000;
@@ -437,9 +439,11 @@ export class ConversationService {
       this.pending.delete(runId);
       const sessionId = entry.sessionId as string;
       const s = this.d.host.getSession(sessionId);
-      return { sessionId, sessionFile: s?.sessionFile, runId, spawnToken };
+      // The caller releases the slot AFTER the record is written, so the new session is never uncounted.
+      return { sessionId, sessionFile: s?.sessionFile, runId, spawnToken, release: releaseSlot };
     } catch (err) {
       this.pending.delete(runId);
+      releaseSlot();
       throw err;
     } finally {
       if (timer) clearTimeout(timer);
@@ -450,7 +454,7 @@ export class ConversationService {
   // ── create / ensure ────────────────────────────────────────────────────────
 
   /** Live pi processes are bounded per user (not only per conversation list), `maxLiveSessions` default 10. */
-  private assertLiveCapacity(caller: Caller): void {
+  private reserveLiveSlot(caller: Caller): () => void {
     const cap = this.d.config().maxLiveSessions;
     const limit = typeof cap === "number" && cap >= 1 ? Math.floor(cap) : DEFAULT_MAX_LIVE_SESSIONS;
     let live = 0;
@@ -459,7 +463,15 @@ export class ConversationService {
       const s = this.d.host.getSession(lr.record.sessionId);
       if (s && s.status !== "ended") live++;
     }
-    if (live >= limit) throw new TeamError(429, "session_limit");
+    // In-flight launches count too: admission is synchronous, so concurrent creates cannot all see room.
+    const inFlight = this.launching.get(caller.uk) ?? 0;
+    if (live + inFlight >= limit) throw new TeamError(429, "session_limit");
+    this.launching.set(caller.uk, inFlight + 1);
+    return () => {
+      const n = (this.launching.get(caller.uk) ?? 1) - 1;
+      if (n <= 0) this.launching.delete(caller.uk);
+      else this.launching.set(caller.uk, n);
+    };
   }
 
   private activeCount(caller: Caller, t: string, personaKey: string): number {
@@ -494,26 +506,30 @@ export class ConversationService {
         }
         throw err;
       }
-      const stamp = this.iso();
-      const rec: ConversationRecord = {
-        schemaVersion: 1,
-        c,
-        personaKey,
-        project: t,
-        sessionId: bound.sessionId,
-        ...(bound.sessionFile ? { sessionFile: bound.sessionFile } : {}),
-        runId: bound.runId,
-        spawnToken: bound.spawnToken,
-        createdAt: stamp,
-        startedAt: stamp,
-        lastActivityAt: stamp,
-        personaUpdatedAt: persona.updatedAt,
-        archived: false,
-        personaSnapshot: this.snapshot(persona),
-      };
-      this.d.records.write(this.loc(caller, personaKey, t, c), rec);
-      this.logEnsure(caller, personaKey, t, c, "create", bound.sessionId);
-      return { id: c, sessionId: bound.sessionId };
+      try {
+        const stamp = this.iso();
+        const rec: ConversationRecord = {
+          schemaVersion: 1,
+          c,
+          personaKey,
+          project: t,
+          sessionId: bound.sessionId,
+          ...(bound.sessionFile ? { sessionFile: bound.sessionFile } : {}),
+          runId: bound.runId,
+          spawnToken: bound.spawnToken,
+          createdAt: stamp,
+          startedAt: stamp,
+          lastActivityAt: stamp,
+          personaUpdatedAt: persona.updatedAt,
+          archived: false,
+          personaSnapshot: this.snapshot(persona),
+        };
+        this.d.records.write(this.loc(caller, personaKey, t, c), rec);
+        this.logEnsure(caller, personaKey, t, c, "create", bound.sessionId);
+        return { id: c, sessionId: bound.sessionId };
+      } finally {
+        bound.release();
+      }
     } finally {
       release();
       void tail.then(() => {
@@ -564,9 +580,11 @@ export class ConversationService {
 
     // 4. resume
     const known = this.d.host.getSession(rec.sessionId);
-    const ownerOk = !known || this.ownerMatches(known, caller);
     const file = rec.sessionFile ?? known?.sessionFile;
     const fileExists = !!file && fs.existsSync(file);
+    // Owner-fail-closed (D5 step 4): in multi-user mode an existing transcript is only resumed when the host's
+    // persisted session record proves it is this user's; a session the host cannot vouch for is never adopted.
+    const ownerOk = known ? this.ownerMatches(known, caller) : !(this.d.access.mode() === "multi" && fileExists);
     const neverTalked = !rec.lastAgentEndAt;
     if (!ownerOk || (!fileExists && !neverTalked)) {
       this.logEnsure(caller, personaKey, t, c, "unrecoverable", rec.sessionId);
@@ -582,26 +600,30 @@ export class ConversationService {
       }
       throw err;
     }
-    // The conversation may have been archived / deleted while the spawn was in flight: never resurrect it.
-    const cur = this.d.records.read(l);
-    if (!cur || cur.archived) {
-      await this.d.host.abortSpawnedRun({ sessionId: bound.sessionId, graceful: true });
-      throw new TeamError(cur ? 409 : 404, cur ? "conversation_archived" : "conversation_not_found");
+    try {
+      // The conversation may have been archived / deleted while the spawn was in flight: never resurrect it.
+      const cur = this.d.records.read(l);
+      if (!cur || cur.archived) {
+        await this.d.host.abortSpawnedRun({ sessionId: bound.sessionId, graceful: true });
+        throw new TeamError(cur ? 409 : 404, cur ? "conversation_archived" : "conversation_not_found");
+      }
+      const stamp = this.iso();
+      this.d.records.write(l, {
+        ...cur,
+        sessionId: bound.sessionId,
+        sessionFile: bound.sessionFile ?? (fileExists ? file : undefined),
+        runId: bound.runId,
+        spawnToken: bound.spawnToken,
+        startedAt: stamp,
+        lastActivityAt: stamp,
+        personaUpdatedAt: persona.updatedAt,
+        personaSnapshot: this.snapshot(persona),
+      });
+      this.logEnsure(caller, personaKey, t, c, fileExists ? "resume" : "create", bound.sessionId);
+      return { sessionId: bound.sessionId };
+    } finally {
+      bound.release();
     }
-    const stamp = this.iso();
-    this.d.records.write(l, {
-      ...cur,
-      sessionId: bound.sessionId,
-      sessionFile: bound.sessionFile ?? (fileExists ? file : undefined),
-      runId: bound.runId,
-      spawnToken: bound.spawnToken,
-      startedAt: stamp,
-      lastActivityAt: stamp,
-      personaUpdatedAt: persona.updatedAt,
-      personaSnapshot: this.snapshot(persona),
-    });
-    this.logEnsure(caller, personaKey, t, c, fileExists ? "resume" : "create", bound.sessionId);
-    return { sessionId: bound.sessionId };
   }
 
   // ── conversation management ───────────────────────────────────────────────
@@ -636,7 +658,8 @@ export class ConversationService {
         await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
         // `onEvent` may have persisted activity while we awaited: merge into the fresh record.
         const fresh = this.d.records.read(l);
-        if (fresh) Object.assign(rec, { lastAgentEndAt: fresh.lastAgentEndAt, lastActivityAt: fresh.lastActivityAt });
+        if (!fresh) throw new TeamError(404, "conversation_not_found"); // deleted while we awaited: never write it back
+        Object.assign(rec, { lastAgentEndAt: fresh.lastAgentEndAt, lastActivityAt: fresh.lastActivityAt });
       }
       if (!body.archived && rec.archived && this.activeCount(caller, t, personaKey) >= this.maxConversations()) {
         throw new TeamError(409, "conversation_limit");

@@ -515,6 +515,56 @@ describe("hardening from the security audit", () => {
     expect((await list("alice", key, "_ws", true)).json.conversations.length).toBe(1);
   });
 
+  it("multi-user: a transcript the host cannot vouch for is never resumed (owner-fail-closed); single-user still resumes", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: Date.now() });
+    const spawns = h.host.spawns.length;
+    h.host.sessions.delete(c.sessionId); // host no longer knows the session (e.g. lost record)
+    const r = await ensure("alice", key, c.id);
+    expect(r.status).toBe(409);
+    expect(r.json.error).toBe("conversation_unrecoverable");
+    expect(h.host.spawns.length).toBe(spawns);
+    await h.close();
+
+    h = await makeHarness({ mode: "single" });
+    const k2 = await mkPersona(undefined, "a");
+    const c2 = (await create(undefined, k2)).json;
+    h.host.emit(c2.sessionId, { eventType: "agent_end", timestamp: Date.now() });
+    h.host.sessions.delete(c2.sessionId);
+    expect((await ensure(undefined, k2, c2.id)).status).toBe(200);
+  });
+
+  it("archiving while the conversation is deleted concurrently never writes the record back", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    let fired = false;
+    h.host.behavior.onAbort = async () => {
+      if (fired) return;
+      fired = true;
+      await h.call("DELETE", `${API}/agents/${enc(key)}/conversations/${c.id}?project=_ws`, { user: "alice" });
+    };
+    const r = await h.call("PATCH", `${API}/agents/${enc(key)}/conversations/${c.id}?project=_ws`, { user: "alice", body: { archived: true } });
+    expect(r.status).toBe(404);
+    expect((await list("alice", key, "_ws", true)).json.conversations).toEqual([]);
+    expect((await list("alice", key)).json.conversations).toEqual([]);
+  });
+
+  it("the live cap holds under concurrent creates across personas (in-flight launches count)", async () => {
+    h = await makeHarness({ config: { maxLiveSessions: 2 } });
+    const keys = await Promise.all(["a", "b", "c", "d"].map((s) => mkPersona("alice", s)));
+    h.host.behavior.delayMs = 40;
+    const results = await Promise.all(keys.map((k) => create("alice", k)));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 201, 429, 429]);
+    expect(h.host.spawns.length).toBe(2);
+    // the slots were released: once a session ends, a new create is admitted
+    for (const s of h.host.sessions.values()) s.status = "ended";
+    h.host.behavior.delayMs = 0;
+    expect((await create("alice", keys[3])).status).toBe(201);
+  });
+
   it("streaming activity writes are coalesced; the turn end is always persisted", async () => {
     const clock = { t: Date.parse("2026-01-01T12:00:00Z") };
     h = await makeHarness({ now: () => clock.t });

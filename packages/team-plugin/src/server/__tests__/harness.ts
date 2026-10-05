@@ -17,7 +17,7 @@ interface FakeHost extends HostPort {
   spawns: PluginSpawnOptions[];
   aborts: Array<{ sessionId?: string; spawnToken?: string; graceful?: boolean }>;
   /** resolve = register the session; ready = send the guard ready signal. */
-  behavior: { resolve: boolean; ready: boolean; delayMs: number };
+  behavior: { resolve: boolean; ready: boolean; delayMs: number; onAbort?: () => Promise<void> };
   emit(sessionId: string, event: unknown): void;
   resolveLate(runId: string): void;
   piHandlers: Map<string, (msg: unknown, sessionId: string) => void>;
@@ -68,6 +68,8 @@ function makeFakeHost(tmp: string): FakeHost {
       host.aborts.push(a);
       const s = a.sessionId ? host.sessions.get(a.sessionId) : undefined;
       if (s) s.status = "ended";
+      // Only await when a test installed a hook: the default path stays synchronous (sweeps are fire-and-forget).
+      if (host.behavior.onAbort) await host.behavior.onAbort();
       return true;
     },
     getSession: (id) => host.sessions.get(id),

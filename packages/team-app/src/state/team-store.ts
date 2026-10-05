@@ -44,6 +44,8 @@ function getTeamStore(host: Pick<AppHost, "api">): TeamStore {
   let state: TeamState = { status: "loading", projects: [] };
   const listeners = new Set<() => void>();
   let inflight: Promise<void> | null = null;
+  // A refresh requested while one is in flight (e.g. the credential arrived mid-call) re-runs afterwards.
+  let again = false;
   const set = (next: TeamState) => {
     state = next;
     for (const l of listeners) l();
@@ -56,7 +58,11 @@ function getTeamStore(host: Pick<AppHost, "api">): TeamStore {
       return () => listeners.delete(cb);
     },
     refresh() {
-      inflight ??= (async () => {
+      if (inflight !== null) {
+        again = true;
+        return inflight;
+      }
+      inflight = (async () => {
         try {
           const [me, projects] = await Promise.all([api.me(), api.projects()]);
           set({ status: "ready", me, projects });
@@ -64,6 +70,10 @@ function getTeamStore(host: Pick<AppHost, "api">): TeamStore {
           set({ status: classify(err), projects: state.projects, me: state.me });
         } finally {
           inflight = null;
+          if (again) {
+            again = false;
+            void s?.refresh();
+          }
         }
       })();
       return inflight;
@@ -84,9 +94,15 @@ export function useTeam() {
   const authed = !identity || identity.authenticated;
   useEffect(() => {
     if (!authed) return;
-    const s = store.getState().status;
-    if (s === "loading" || s === "unauthorized") void store.refresh();
-  }, [store, authed]);
+    const retry = () => {
+      const s = store.getState().status;
+      if (s === "loading" || s === "unauthorized") void store.refresh();
+    };
+    retry();
+    // Child effects run before the identity bridge publishes its token, so the first call can find no
+    // credential yet (`unauthorized`): retry whenever the credential / operator changes.
+    return host.identity.subscribe(retry);
+  }, [store, authed, host]);
   const target: Target = resolveStartTarget(stored, state.projects);
   return {
     host,
