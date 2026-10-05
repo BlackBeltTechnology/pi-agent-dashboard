@@ -80,6 +80,10 @@ The helper SHALL NOT mutate `commandList` and SHALL NOT call any pi APIs. It is 
 - **WHEN** called with `("hello world", [{ name: "ctx-stats", source: "extension" }])`
 - **THEN** SHALL return `false`
 
+#### Scenario: Rejects dashboard-native command name
+- **WHEN** called with `("/roles", [{ name: "roles", source: "extension" }])`
+- **THEN** SHALL return `false` (excluded by `DASHBOARD_NATIVE_COMMANDS`)
+
 ### Requirement: Bridge feature-detects pi.dispatchCommand
 The bridge's `sessionPrompt` callback SHALL feature-detect the presence of `pi.dispatchCommand` at call time via `hasDispatchCommand(pi)` in `packages/extension/src/bridge-context.ts`.
 

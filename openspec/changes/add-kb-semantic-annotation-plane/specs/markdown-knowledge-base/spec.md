@@ -50,3 +50,9 @@ indexer then reads deterministically.
   relations
 - **AND** any LLM enrichment SHALL have already run out-of-band, leaving only
   frontmatter for the indexer to read
+
+#### Scenario: No LLM extraction
+
+- **WHEN** the indexer builds the graph
+- **THEN** it SHALL NOT call any LLM or embedding model to derive entities or
+  relations

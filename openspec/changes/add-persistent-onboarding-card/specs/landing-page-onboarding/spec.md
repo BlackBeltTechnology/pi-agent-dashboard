@@ -223,7 +223,7 @@ The offset is **fixed, not measured**. A composer grown to multiple lines MAY ov
 ### Requirement: Step ① Setup credentials
 Step ① SHALL navigate the user to the providers page of the settings panel when its CTA is activated.
 
-#### Scenario: CTA routes to providers page
+#### Scenario: CTA routes to providers tab
 - **GIVEN** Step ① is in the **pending** state
 - **WHEN** the user clicks the Step ① CTA button
 - **THEN** the client SHALL navigate to `/settings/providers`
