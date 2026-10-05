@@ -1186,6 +1186,7 @@ Plugin config:
 - All settings under `plugins.<id>.*` in `~/.pi/dashboard/config.json`.
 - Manifest may declare `configSchema` (JSON Schema 7); Ajv validates on read (with defaults) + write (rejects invalid).
 - `POST /api/config/plugins/:id` accepts partial config; broadcasts `plugin_config_update { id, config }`.
+- Partial write keeps omitted keys: validation clones the body so Ajv `useDefaults` cannot reset stored values; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - `pluginContext.usePluginConfig<T>()` reactive — re-renders within one frame of write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate on plugin's first server boot.
 

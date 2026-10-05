@@ -308,6 +308,15 @@ export function toDiscordControl(prompt: InteractivePrompt): DiscordControlSpec 
  */
 const VIEW_CHANNEL = 1n << 10n;
 
+/**
+ * What the bot grants ITSELF on a channel it provisions: view, send, embed,
+ * read history, create public threads, send in threads. Required because the
+ * `@everyone` VIEW deny applies to the bot too, so a channel without this
+ * overwrite locks the bot out of the channel it just created.
+ */
+const BOT_SELF_ALLOW =
+	VIEW_CHANNEL | (1n << 11n) | (1n << 14n) | (1n << 16n) | (1n << 35n) | (1n << 38n);
+
 /** Discord overwrite `type`: 0 = role, 1 = member. */
 const OVERWRITE_ROLE = 0 as const;
 const OVERWRITE_MEMBER = 1 as const;
@@ -359,17 +368,24 @@ export function channelNameFor(name: string): string {
 export function channelOverwrites(
 	guildId: string,
 	grants: readonly ChannelOverwrite[],
+	selfId?: string,
 ): DiscordOverwrite[] {
 	const overwrites: DiscordOverwrite[] = [
 		{ id: guildId, type: OVERWRITE_ROLE, allow: 0n, deny: VIEW_CHANNEL },
 	];
 	for (const grant of grants) {
+		// The bot-self allow is appended last and wins; a grant for the bot's own
+		// id must not be able to lock it out.
+		if (selfId && grant.targetId === selfId) continue;
 		overwrites.push({
 			id: grant.targetId,
 			type: grant.kind === "role" ? OVERWRITE_ROLE : OVERWRITE_MEMBER,
 			allow: grant.viewChannel ? VIEW_CHANNEL : 0n,
 			deny: grant.viewChannel ? 0n : VIEW_CHANNEL,
 		});
+	}
+	if (selfId) {
+		overwrites.push({ id: selfId, type: OVERWRITE_MEMBER, allow: BOT_SELF_ALLOW, deny: 0n });
 	}
 	return overwrites;
 }
@@ -380,10 +396,11 @@ export function channelOverwrites(
  */
 export function channelCreatePayload(
 	input: ProvisionChannelInput,
+	selfId?: string,
 ): DiscordChannelCreatePayload {
 	return {
 		name: channelNameFor(input.name),
-		permissionOverwrites: channelOverwrites(input.guildId, input.overwrites),
+		permissionOverwrites: channelOverwrites(input.guildId, input.overwrites, selfId),
 	};
 }
 

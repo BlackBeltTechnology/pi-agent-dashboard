@@ -18,7 +18,7 @@
 
 ## 4. CSP
 
-- [ ] 4.1 Send a `Content-Security-Policy` header (`script-src 'self'`; allow styles/images/`connect-src` for WS) on the dashboard document response.
+- [x] 4.1 Send a `Content-Security-Policy` header (`script-src 'self'`; allow styles/images/`connect-src` for WS) on the dashboard document response.
 - [ ] 4.2 Load the app under the CSP and confirm no legitimate asset/WebSocket is blocked (browser console clean).
 
 ## Tests

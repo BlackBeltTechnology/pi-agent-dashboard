@@ -31,6 +31,10 @@ export const PROVIDER_KEY = "pi-dashboard:login-provider";
 export const LAST_PROVIDER_KEY = "pi-dashboard:last-login-provider";
 /** Signed-out landing marker (`/login?pi_signed_out=1`). */
 export const SIGNED_OUT_PARAM = "pi_signed_out";
+/** D23 break-glass: `?pi_local=<one-time code>` printed by `pi-dashboard login --local`. */
+export const LOCAL_CODE_PARAM = "pi_local";
+/** Pre-auth exchange of that code for the in-memory local-operator bearer. */
+export const LOCAL_EXCHANGE_PATH = "/api/identity/local-exchange";
 
 /** The core login page (a full page; nothing of the dashboard renders). */
 export const LOGIN_PATH = "/login";

@@ -64,6 +64,12 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const send = usePluginSend();
 
   const [enabled, setEnabled] = useState(config?.enabled ?? true);
+  const [threadPerConversation, setThreadPerConversation] = useState(
+    config?.threadPerConversation ?? true,
+  );
+  const [mirrorDashboardSessions, setMirrorDashboardSessions] = useState(
+    config?.mirrorDashboardSessions ?? false,
+  );
   const [token, setToken] = useState("");
   const [allowedRoots, setAllowedRoots] = useState("");
   const [defaultCwd, setDefaultCwd] = useState("");
@@ -72,6 +78,9 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const [admins, setAdmins] = useState("");
   const [groupChannels, setGroupChannels] = useState("");
   const [steerPrefix, setSteerPrefix] = useState(config?.steerPrefix ?? "!");
+  const [sessionVisibility, setSessionVisibility] = useState<"hidden" | "shown">(
+    config?.sessionVisibility ?? "hidden",
+  );
 
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -86,6 +95,8 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
 
   const saved = {
     enabled: config?.enabled ?? true,
+    threadPerConversation: config?.threadPerConversation ?? true,
+    mirrorDashboardSessions: config?.mirrorDashboardSessions ?? false,
     allowedRoots: (config?.allowedRoots ?? []).join("\n"),
     defaultCwd: config?.defaultCwd ?? "",
     fixedMap: formatFixedMap(config?.fixedMap ?? {}),
@@ -93,6 +104,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     admins: (config?.admins ?? []).join(", "),
     groupChannels: (config?.groupChannels ?? []).join(", "),
     steerPrefix: config?.steerPrefix ?? "!",
+    sessionVisibility: config?.sessionVisibility ?? "hidden",
   };
 
   const savedKey = JSON.stringify(saved);
@@ -100,6 +112,8 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   useEffect(() => {
     const d = dirtyFields.current;
     if (!d.has("enabled")) setEnabled(saved.enabled);
+    if (!d.has("threadPerConversation")) setThreadPerConversation(saved.threadPerConversation);
+    if (!d.has("mirrorDashboardSessions")) setMirrorDashboardSessions(saved.mirrorDashboardSessions);
     if (!d.has("allowedRoots")) setAllowedRoots(saved.allowedRoots);
     if (!d.has("defaultCwd")) setDefaultCwd(saved.defaultCwd);
     if (!d.has("fixedMap")) setFixedMap(saved.fixedMap);
@@ -107,6 +121,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     if (!d.has("admins")) setAdmins(saved.admins);
     if (!d.has("groupChannels")) setGroupChannels(saved.groupChannels);
     if (!d.has("steerPrefix")) setSteerPrefix(saved.steerPrefix);
+    if (!d.has("sessionVisibility")) setSessionVisibility(saved.sessionVisibility);
   }, [savedKey]);
 
   useEffect(() => {
@@ -140,6 +155,8 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     try {
       const partial: Record<string, unknown> = {
         enabled,
+        threadPerConversation,
+        mirrorDashboardSessions,
         allowedRoots: parseLines(allowedRoots),
         defaultCwd,
         fixedMap: parseFixedMap(fixedMap),
@@ -147,6 +164,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
         admins: parseList(admins),
         groupChannels: parseList(groupChannels),
         steerPrefix,
+        sessionVisibility,
       };
       // A blank token means "keep the stored secret" — never send it, so a
       // save cannot erase the token by omission-through-the-form.
@@ -180,6 +198,26 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           onChange={(e) => markDirty("enabled", setEnabled)(e.target.checked)}
         />
         Enabled
+      </label>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <input
+          type="checkbox"
+          data-testid="chat-gateway-thread-per-conversation"
+          checked={threadPerConversation}
+          onChange={(e) => markDirty("threadPerConversation", setThreadPerConversation)(e.target.checked)}
+        />
+        One thread per conversation (new channel message → new thread + session)
+      </label>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <input
+          type="checkbox"
+          data-testid="chat-gateway-mirror-dashboard-sessions"
+          checked={mirrorDashboardSessions}
+          onChange={(e) => markDirty("mirrorDashboardSessions", setMirrorDashboardSessions)(e.target.checked)}
+        />
+        Show dashboard sessions on Discord (one thread each; sends their activity to Discord)
       </label>
 
       <div>
@@ -267,6 +305,21 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           className={`${field} max-w-[8rem]`}
         />
       </div>
+
+      <label className="block">
+        <span className={label}>Chat sessions on the board</span>
+        <select
+          data-testid="chat-gateway-session-visibility"
+          value={sessionVisibility}
+          onChange={(e) =>
+            markDirty("sessionVisibility", setSessionVisibility)(e.target.value as "hidden" | "shown")
+          }
+          className={`${field} max-w-[16rem]`}
+        >
+          <option value="hidden">Hidden (show with "show hidden")</option>
+          <option value="shown">Shown</option>
+        </select>
+      </label>
 
       <div className="flex items-center gap-2">
         <button

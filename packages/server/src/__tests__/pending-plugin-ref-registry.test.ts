@@ -56,3 +56,14 @@ describe("pending-plugin-ref-registry has()", () => {
     expect(registry.has("")).toBe(false);
   });
 });
+
+// A plugin may declare its owned session hidden at spawn (e.g. chat-gateway's
+// Discord sessions). A hidden-only declaration must be STORED — the filer used
+// to keep a lifecycle only when recover/finalizeOnSocketClose was set.
+describe("pending-plugin-ref-registry lifecycle.hidden", () => {
+  it("a hidden-only lifecycle is stored and returned on resolve", () => {
+    const registry = createPendingPluginRefRegistry();
+    expect(registry.file("tok-H", {}, "chat-gateway", { hidden: true })).toBe(true);
+    expect(registry.resolve("tok-H")?.lifecycle).toEqual({ hidden: true });
+  });
+});

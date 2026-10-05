@@ -44,3 +44,5 @@ Doctor: `runtimeHealthForDoctor` holder (set in runtime-overlay block) feeds the
 `ServerConfig.push?`. `createPushService({config.push, dataDir: CONFIG_DIR, getSession, selfPort})` only when `push.enabled === true`, inside try/catch (init failure → logged, push disabled, `push init failed (<code>)` in `push.errors`); dispatcher passed to `wireEvents` beside `viewedSessionTracker`; `registerPushRoutes(fastify, {getPush})` always; `readPushErrors` to system routes; `pushService.shutdown()` in `stop()`. See change: add-server-push-notifications.
 
 Calls `ensureGrantStoreId()` before `wireEvents` (grant-store token for `dashboard_identity`). See change: ask-agent-file-access-in-chat.
+
+- Plugin ctx `shutdownSession`: trust gate (priority ≤ 100), unknown session ⇒ false, else `await browserGateway.shutdownSession(id)` (single shutdown body, no parallel `{type:"shutdown"}`). See change: chat-gateway-close-command.

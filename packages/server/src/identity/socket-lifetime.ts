@@ -25,7 +25,7 @@ export const IDENTITY_EXPIRED_CLOSE_CODE = 4001;
 export const BROWSER_HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** setTimeout caps at a 32-bit delay; a larger delay fires immediately. */
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /** Minimal socket surface the lifetime manager drives. */
 export interface LifetimeSocket {
@@ -46,6 +46,49 @@ export interface SocketLifetimeOptions {
 }
 
 /**
+ * Run `fire` at `expiresAt` (ms epoch). `setTimeout` clamps a delay above 2^31-1 ms
+ * (~24.8 days) to ~1 ms, so a long-lived credential is armed in bounded chunks and
+ * re-evaluated against the clock each time — it fires at its real expiry, never
+ * early and never "left unscheduled". An already-past expiry fires at once; a
+ * missing / non-finite one schedules nothing. Returns a cancel that stops the
+ * pending chunk (call it from the socket's close handler).
+ */
+export function scheduleAtExpiry(
+  expiresAt: number | undefined,
+  fire: () => void,
+  deps: { now?: () => number; setTimer?: SocketLifetimeOptions["setTimer"]; clearTimer?: SocketLifetimeOptions["clearTimer"] } = {},
+): () => void {
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return () => {};
+  const now = deps.now ?? Date.now;
+  const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
+  const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h));
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+  const arm = () => {
+    if (cancelled) return;
+    const delay = expiresAt - now();
+    if (delay <= 0) {
+      fire();
+      return;
+    }
+    if (delay <= MAX_TIMER_DELAY_MS) {
+      // Final leg: the timer IS the expiry.
+      handle = setTimer(() => {
+        if (!cancelled) fire();
+      }, delay);
+    } else {
+      // Partial leg: wake at the cap and re-evaluate against the clock.
+      handle = setTimer(arm, MAX_TIMER_DELAY_MS);
+    }
+  };
+  arm();
+  return () => {
+    cancelled = true;
+    if (handle !== undefined) clearTimer(handle);
+  };
+}
+
+/**
  * Install the expiry-close (§9.4) and transport-heartbeat (§9.5) timers on a
  * browser socket. Returns a cleanup that clears BOTH timers — call it from the
  * socket's `close`/`error` handler so no timer outlives the socket.
@@ -58,20 +101,15 @@ export function installSocketLifetime(ws: LifetimeSocket, opts: SocketLifetimeOp
   const clearHeartbeat = opts.clearHeartbeat ?? ((h) => clearInterval(h));
   const intervalMs = opts.heartbeatIntervalMs ?? BROWSER_HEARTBEAT_INTERVAL_MS;
 
-  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
 
-  // §9.4 identity expiry — independent of the heartbeat.
-  const expiresAt = ws.principalExpiresAt;
-  if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
-    const delay = expiresAt - now();
-    if (delay <= 0) {
-      ws.close(IDENTITY_EXPIRED_CLOSE_CODE, "identity expired");
-    } else if (delay <= MAX_TIMER_DELAY_MS) {
-      expiryTimer = setTimer(() => ws.close(IDENTITY_EXPIRED_CLOSE_CODE, "identity expired"), delay);
-    }
-    // delay > 32-bit cap ⇒ implausible token lifetime; left unscheduled.
-  }
+  // §9.4 identity expiry — independent of the heartbeat. Chunked past the 32-bit
+  // timer cap so a long-lived credential still closes AT its expiry.
+  const cancelExpiry = scheduleAtExpiry(ws.principalExpiresAt, () => ws.close(IDENTITY_EXPIRED_CLOSE_CODE, "identity expired"), {
+    now,
+    setTimer,
+    clearTimer,
+  });
 
   // §9.5 transport heartbeat — a missed pong terminates. Does NOT touch expiry.
   let alive = true;
@@ -88,7 +126,7 @@ export function installSocketLifetime(ws: LifetimeSocket, opts: SocketLifetimeOp
   }, intervalMs);
 
   return () => {
-    if (expiryTimer !== undefined) clearTimer(expiryTimer);
+    cancelExpiry();
     if (heartbeatTimer !== undefined) clearHeartbeat(heartbeatTimer);
   };
 }

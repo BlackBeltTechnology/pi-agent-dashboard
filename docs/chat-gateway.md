@@ -26,18 +26,27 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 2. Click **New Application**. Enter bot name. Confirm dialog.
 3. Select **Bot** in left sidebar.
 4. Click **Reset Token**. Copy token string immediately. Store token securely.
-5. Scroll to **Privileged Gateway Intents**.
-6. Enable **Message Content Intent**. (Required: bot reads inbound chat message text).
+5. Under **Bot** → **Authorization Flow**, turn **Requires OAuth2 Code Grant** OFF. Invite fails `Integration requires code grant` when ON.
+6. Scroll to **Privileged Gateway Intents**. Enable **Message Content Intent** (required: bot reads inbound chat message text). Click **Save Changes**. Intent off or unsaved fails login: `[discord] login failed (check the bot token and its intents): Used disallowed intents` in `server.log`.
 7. Select **OAuth2** → **URL Generator** in left sidebar.
 8. Check scopes:
    - `bot`
    - `applications.commands`
 9. Check bot permissions:
+   - **View Channels**
    - **Send Messages**
-   - **Read Message History**
    - **Embed Links**
-10. Copy generated authorization URL at page bottom.
-11. Open URL in browser. Select target Discord server. Authorize bot join.
+   - **Read Message History**
+   - **Manage Channels**
+   - **Manage Roles**
+   - **Create Public Threads**
+   - **Create Private Threads**
+   - **Send Messages in Threads**
+   - Permission integer `378225642512`.
+   - `Manage Channels` required: team-controls provisioning creates the private workspace channel.
+   - Do NOT grant **Administrator**. Administrator bypasses channel overwrites; masks access bugs.
+10. Copy generated authorization URL at page bottom. Shape: `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot%20applications.commands&permissions=378225642512&guild_id=<GUILD_ID>`.
+11. Open URL in browser. Select target Discord server. Authorize bot join. Bot absent from guild fails provisioning: `chat-gateway: team-controls — provision_failed: Unknown Guild` in `server.log`.
 
 ## Dashboard Configuration
 
@@ -46,6 +55,8 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 3. Paste bot token into **Discord Bot Token** field.
 4. Save configuration.
 5. Server treats `token` as `writeOnly` schema property. Server redacts token from client payloads; server never logs token.
+6. Config writable without UI: `POST /api/config/plugins/chat-gateway` (shallow merge of a partial body; `token` `writeOnly`, redacted in response), then `POST /api/restart`.
+7. Partial write keeps omitted keys: body merges over stored config; schema defaults fill only keys never stored (`fix-plugin-config-partial-write`).
 
 ## Mandatory Spawn Boundary (`allowedRoots`)
 
@@ -64,15 +75,87 @@ Canonical key format: `platform:channelId:threadId` (threads key independently f
 Precedence ladder:
 1. **Persisted binding**: Reads active binding from `~/.pi/dashboard/chat-gateway/bindings.json`.
    - Active connected session receives prompt.
-   - Ended session resumes automatically from transcript via `resume(continue)`.
+   - Ended session resumes automatically from transcript via `resume(continue)`; triggering message becomes `initialPrompt`.
    - Disconnected live session emits unreachable error into channel (`no bridge connection`).
-2. **Fixed mapping (`fixedMap`)**: Resolves `fixedMap[channelKey]`. If configured and within `allowedRoots`, spawns new session in mapped directory.
-3. **Default directory (`defaultCwd`)**: Falls back to `defaultCwd`. If configured and within `allowedRoots`, spawns new session.
+2. **Fixed mapping (`fixedMap`)**: Resolves `fixedMap[channelKey]`. If configured and within `allowedRoots`, spawns new session in mapped directory; triggering message becomes `initialPrompt`.
+3. **Default directory (`defaultCwd`)**: Falls back to `defaultCwd`. If configured and within `allowedRoots`, spawns new session; triggering message becomes `initialPrompt`.
 4. **Interactive attach**: Attaches to running session when exactly one open session exists within scope.
    - Bound channel: filters running sessions by bound workspace folders (`isWithinWorkspace`). Zero open sessions in range refuses attach, naming bound workspace folders (`This channel is bound to a workspace, but no live session is inside it (<folders>). Nothing was attached.`); prevents adopting out-of-workspace sessions from broader `allowedRoots`.
    - Unbound channel: filters running sessions by `allowedRoots`. Zero open sessions in range refuses attach; prompts operator to configure `fixedMap` or `defaultCwd`.
    - Ambiguous attach: multiple open sessions in scope refuses attach; prevents session hijack.
 5. **Refusal**: Returns explicit reason if candidate directory fails `allowedRoots` or resolution finds no target.
+
+### Spawn / Resume Prompt Delivery & Correlation
+
+- Fresh spawn and resume pass triggering message text to host as `initialPrompt`; `steerPrefix` stripped via `stripSteerPrefix` (fresh session has no turn to steer).
+- Host queues `initialPrompt` per cwd (`pendingInitialPromptRegistry`); dispatches it as the session's first turn once session registers.
+- Spawn reply: `Starting a session in <cwd>… your message will run once it is up.`
+- Resume reply: `Resuming the session… your message will run once it is up.`
+- Binding written on host `onSessionResolved`.
+- Correlation rides plugin-OWNED `pluginRef.chatSpawnToken` (+ `bindSource`).
+- Core-reserved ref keys stripped before owner notify (`CORE_RESERVED_REF_KEYS` in `packages/server/src/pending/pending-plugin-ref-registry.ts`: `spawnToken`, `source`, `sessionId`, `cwd`, `sessionFile`, `name`, …). Plugin must never correlate on them.
+- Regression (pre-fix): no `bindings.json` written; every message spawned an orphan session; `server.log` `[pending-plugin-ref-registry] dropped ref key "spawnToken"`.
+- Spawn and resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`. Keeps Discord sessions off the board by default.
+- Hide applied on FIRST register only (fresh spawn-token resolution, `packages/server/src/event-wiring.ts`). Reattach never re-applies; later operator unhide survives.
+- Restart respawn (fixed, `fix-plugin-hidden-across-restart`): after `/api/restart` a session may re-register `registerReason: "spawn"` (respawn, no spawn token, `dashboardSpawned: true`). Non-reattach register re-decided `hidden` via headless heuristic → `false`; next `.meta.json` save wrote `hidden: false`.
+- Fix: `lifecycle.hidden` apply writes core-owned intent `pluginHidden: true` (`sessionManager.update(sessionId, { hidden: true, pluginHidden: true })`, `packages/server/src/event-wiring.ts`). Persisted like `recover` (`session-to-meta.ts`); restored by `sessionFromMeta` (`session-scanner.ts`).
+- `register` decision order (`packages/server/src/session/memory-session-manager.ts`): reattach → keep `existing.hidden`; `visibilityIntent`; `existing.pluginHidden === true` → hidden; else headless heuristic.
+- Pre-fix hidden sessions carry no `pluginHidden` → not migrated.
+- Troubleshooting: `~/.pi/dashboard/chat-gateway/bindings.json` absent after a spawn + command-log only `spawn_session` entries → correlation broken.
+- See change: fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, fix-plugin-hidden-across-restart.
+
+### Thread per Conversation
+
+Default (`threadPerConversation: true`): guild message in channel ROOT opens its own conversation thread + session.
+
+NEW conversation when ALL hold:
+- Not a DM (`isDM` false).
+- No `threadId` (message not already in a thread).
+- Not `!disarm`.
+- Has `messageId`.
+- Adapter implements optional `startThread`.
+
+- Authorized via `team.authorizeRequest` as verb `spawn_session`. Never routed into older channel-root binding.
+- Grant first. Then `adapter.startThread(channelId, messageId, name)` opens public thread on the message.
+  - Discord: `message.startThread({ name, autoArchiveDuration: 1440 })`. Needs **Create Public Threads**.
+  - Name = message text, steer prefix stripped, whitespace collapsed, ≤100 chars.
+- Message re-addressed into thread: `channelId = threadId`, `threadId` set, `parentChannelId = root`.
+- Normal `ensureBinding` then spawns with `initialPrompt`. Binding key `discord:<threadId>:<threadId>`.
+- Status reply + answer stream inside thread.
+- Follow-up inside thread reuses its session; no new thread.
+- L4 `groupChannels` + team binding/mirror resolve via parent channel (existing fallback).
+- Refused messages and DMs never open a thread.
+- `startThread` failure → `warn` log `chat-gateway: could not open a thread (...)`. Answer in channel root. Message never lost.
+- `threadPerConversation: false` → previous behaviour: channel root binds one shared session.
+
+### Reach Dashboard Sessions from Discord (`!sessions`, `!attach`, `!close`, auto-mirror)
+
+Whole-message commands. `!sessions`/`!attach` pull sessions started in the DASHBOARD into chat; `!close` ends a bound conversation. Any other text — including steer-prefixed text — is a prompt, not a command.
+
+- `!sessions` — authorized verb `list_sessions` (observe). Replies numbered list (max 25, `LIST_LIMIT`) of live, non-hidden sessions in scope: bound-workspace folders when the channel is bound, else `allowedRoots`. Row = name, status, short id (`id.slice(0,8)`), plus `<#thread>` when attached. Zero → `No live dashboard sessions in this workspace.` Reply ends `` Attach one with `!attach <number>`. `` Last listing cached per channel (`lastListing`) for `!attach <number>`.
+- `!attach <number|id-prefix>` — authorized chat-local verb `attach_session` (observe) with target cwd for the scope check (`CHAT_LOCAL_VERB_TIERS`, `team/tier.ts`). Resolves number from last `!sessions` listing, else unique id-prefix. Opens public thread on the command message named after the session (`attachInThread`), binds `source:"attach"` keyed `discord:<threadId>:<threadId>` (`parentChannelId` = channel), subscribes, confirms `Attached to <name>. Its activity shows here; messages you send here go to that session.`
+  - Already attached → reply points at existing thread; no second thread.
+  - Run inside a thread → refused: `` Run `!attach` in the channel itself, not inside a thread. ``
+  - No match / target cwd out of scope → `` No live session `<arg>` in this workspace. Use `!sessions` to list them. ``
+  - `startThread` missing or fails → `Could not open a thread here (does the bot have Create Public Threads?).`
+- `!close` — whole message, INSIDE a bound thread. Chat-local verb `close_session` (tier `control`, `CHAT_LOCAL_VERB_TIERS`, `team/tier.ts`); audited in command log.
+  - Thread bound to a gateway-STARTED session (`source` `spawn`/`resume`) still live → `seam.shutdownSession` → host `ctx.shutdownSession` → `browserGateway.shutdownSession` (same body as dashboard **Shutdown** + `POST /api/session/<id>/shutdown`). Host refusal (untrusted plugin, unknown session) → nothing changes; author told `Could not close the session (the gateway lacks the trust level to shut it down).`
+  - Thread bound to an ATTACHED session (`source:"attach"`, incl. auto-mirror) → detach only; session keeps running.
+  - Both: binding removed; session unsubscribed when no other binding needs it; confirmation reply (`Detached. The session keeps running on the dashboard. Archiving this thread.` / `Session closed. Archiving this thread.`); thread archived (`adapter.archiveThread`, Discord `setArchived(true)`).
+  - Channel root → hint only (`Use \`!close\` inside a thread to close that conversation.`). Unbound thread → `Nothing to close here: this thread is not linked to a session.` `!close the file` stays a steer prompt.
+  - Channel deletion from chat: not possible by design.
+- Ways to close without chat: dashboard **Shutdown**, `POST /api/session/<id>/shutdown`, `/abort` stops only the current run; Discord client archive/delete; gateway threads auto-archive after 24h inactivity.
+- Attached sessions never hidden, never re-policied (`source:"attach"`). Prompts later sent into the thread still authorized as `send_prompt` (control).
+- Code: `packages/chat-gateway/src/server/gateway.ts` (`SESSIONS_COMMAND` `/^\s*!\s*sessions\s*$/i`, `ATTACH_COMMAND` `/^\s*!\s*attach\s+(\S+)\s*$/i`, `CLOSE_COMMAND` `/^\s*!\s*close\s*$/i`, `scopeFor`, `attachableSessions`, `maybeAutoMirror`, `handleCloseCommand`, `closeTarget`, `endOwnedSession`, `unbind`). Seam: `onSessionEvent(sessionId)`, `SeamSession.name`, `SeamSession.hidden`, `HostSeam.shutdownSession` (`seam.ts`). Team: `attach_session`/`close_session` tiers (`tier.ts`), `boundChannelIds()` (`team/controller.ts`). Adapters: `archiveThread?` (`base.ts`), `archiveThread` (`discord.ts`).
+
+Auto-mirror (`mirrorDashboardSessions: true`, default `false`):
+
+- Team-controls only. Settings checkbox "Show dashboard sessions on Discord" (`chat-gateway-mirror-dashboard-sessions`).
+- At gateway start + when a session first appears on host `onEvent` stream: every live, non-hidden, unbound session whose cwd is in a bound workspace gets a `🖥 Dashboard session: <name>` post + thread in that workspace's channel (`workspaceChannelFor`, `maybeAutoMirror`).
+- Considered once per run (`mirrorConsidered`, marked before any await → an event burst cannot open two threads). Persisted bindings → no duplicate thread after restart.
+- Security: sends session activity to Discord at the channel mirror level. Opt-in.
+- Discord UI: open a thread via the "N messages" link under a post or the channel Threads icon.
+- See change: chat-gateway-attach-dashboard-sessions, chat-gateway-close-command.
 
 ## L1 Pairing Flow
 
@@ -112,6 +195,7 @@ sequenceDiagram
 - Pairing accepts Direct Messages only (`isDM: true`).
 - Guild channel pairing attempts ignored; prevents pairing code exposure in shared channels.
 - Direct messages enrollment-only under team controls: DM adds user to L1 allowlist; DM cannot carry workspace binding; DM session-control requests refused.
+- User id already in `allowlist`: skip L1 pairing DM; already authorized.
 
 ## Authorization Semantics
 
@@ -193,8 +277,8 @@ flowchart TD
 
 - Tiers: `observe` < `control` < `operate` (`tiers.js`).
 - Shared verb tiers read directly from `GENERATED_TOOLS` (`@blackbelt-technology/pi-dashboard-mcp-server-plugin/manifest`); prevents web/chat/MCP drift.
-- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`). Unlisted verbs refused.
-- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`).
+- Allowed chat verbs restricted to curated `CHAT_COMMAND_ALLOWLIST` (`list_sessions`, `send_prompt`, `abort`, `spawn_session`, `resume_session`, `prompt_response`, `get_session_diff`, `get_session_file`, `get_transcript`, `get_tool_result`, `disarm`, `attach_session`, `close_session`). Unlisted verbs refused.
+- Chat-local verbs without MCP counterpart declare tier in `CHAT_LOCAL_VERB_TIERS` (`disarm` -> `observe`, `attach_session` -> `observe`, `close_session` -> `control`).
 - `NON_DELEGABLE` verbs (`mint_device_token`, `set_providers`, `install_package`, `tunnel_connect`) refused across all tiers/ceilings; non-configurable.
 - Global ceiling defaults to `observe`. Acts as HARD maximum; caps resolved principal tier. Per-binding ceiling may only LOWER global ceiling; effective ceiling evaluates as `min(binding, global)`. Prevents global `observe` defeat by stale binding `operate`. `clampTier` caps, never raises. Unconfigured layer grants nothing.
 - Tier resolution: explicit identifier mapping outranks platform role; highest wins. Missing mapping refuses (`no_principal_mapping`); fails closed without fallback.
@@ -215,6 +299,9 @@ flowchart TD
 - Scope containment evaluated inside chokepoint: target session cwd must reside inside bound workspace folders, else `scope_violation`. Free-text cwd in chat never resolves targets.
 - Interactive attach candidate confinement: bound channel filters candidate sessions via `isWithinWorkspace` against workspace folders; ignores sessions in other `allowedRoots` directories.
 - Channel→workspace bindings in the separate provisioning store `channels.json`; session↔thread routing stays in `bindings.json`. One channel per workspace; records retained after a binding goes inactive. Channel and history never deleted.
+- Gateway serves the channel IT PROVISIONS per `teamControls.bindings.<workspaceId>`, recorded in `~/.pi/dashboard/chat-gateway/channels.json`. Not a pre-existing channel.
+- Provisioned channel created top-level (no category), named after workspace (e.g. `#pi-dashboard`). Same-named pre-existing channel easy to confuse with it.
+- After provisioning, add new channel id to `groupChannels` (L4), else inbound messages ignored (`group_channel_not_opted_in`).
 - Trust failure: host trust-gated verb returning no-op (e.g. `assignSessionRef` returning `false`) marks layer unhealthy and refuses command. Requires plugin manifest `priority: 100` (`<= 100`). Sticky; first cause wins.
 
 ### Output Filtering & Pacing
@@ -238,6 +325,8 @@ flowchart TD
 - Disarm persistence: latch survives server restarts. Persisted to `~/.pi/dashboard/chat-gateway/disarm.json` (mode 0600, atomic rename). Controller boots from `disarm.json` (`initialDisarmed`); falls back to `config.disarmed` only when nothing was ever persisted. Controller routes all transitions through single `setDisarmed` chokepoint, notifying `onDisarmChange`.
 - Workspace deletion marks binding inactive; leaves channel and message history intact. Channel deletion drops binding; leaves running sessions active.
 - Channel provisioning executes atomic create-with-overwrites (`@everyone` view denied); missing overwrite permissions aborts channel creation and flags plugin health.
+- Every provisioned channel / access reconcile carries member allow for the bot itself (`DiscordChannelOps.selfId()`, `BOT_SELF_ALLOW` in `packages/chat-gateway/src/adapters/discord-payload.ts`). Without it `@everyone` VIEW deny locks bot out of the channel it created: REST 403 `Missing Access` code 50001, inbound never arrives, no command-log entry. See change: fix-chat-gateway-bot-self-overwrite.
+- Channels provisioned before that fix: add the bot member overwrite once (access reconcile).
 - Missing bot token leaves plugin inert (no adapter, socket, or timers). Settings panel still works: surface is a local projection (in-memory policy + file reads), so an operator inspects and edits policy before a token exists; delegation reports unavailable, never an empty roster.
 - Team layer optional to `createChatGateway`; omitting `teamControls` restores baseline L1/L2 operation.
 - Command log: append-only ring buffer in `~/.pi/dashboard/chat-gateway/command-log.json` (mode 0600, atomic rename) bounded by `auditRetention` (default 10000, max 1000000); exposes no edit or delete operations. Synchronous whole-log rewrite per append ensures durability over latency.
@@ -258,6 +347,9 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `allowlist` | `string[]` | `[]` | L1 identity allowlist: Discord user IDs authorized to talk to sessions. |
 | `admins` | `string[]` | `[]` | L2 binding authority: Discord user IDs authorized to bind channels to directories. |
 | `groupChannels` | `string[]` | `[]` | L4 channel allowlist: guild channel IDs opted into gateway interaction. Unlisted guild channels ignored. |
+| `threadPerConversation` | `boolean` | `true` | Open a thread on every new channel-root message; runs each conversation in its own session inside the thread. `false` = one shared session per channel. Settings checkbox `chat-gateway-thread-per-conversation`. |
+| `mirrorDashboardSessions` | `boolean` | `false` | Opt-in: attach every live, non-hidden session inside a bound workspace into that workspace's channel (one thread each), at gateway start and when first seen on the host event stream. Sends their activity to Discord at the channel's mirror level. Team-controls mode only. Settings checkbox `chat-gateway-mirror-dashboard-sessions`. |
+| `sessionVisibility` | `string` | `"hidden"` | Board visibility of gateway-spawned/resumed sessions. Enum: `"hidden"`, `"shown"`. `hidden` sets session `hidden: true` on first register; revealed by "show hidden" toggle. Attached sessions never touched. Settings panel select `chat-gateway-session-visibility`. |
 | `steerPrefix` | `string` | `"!"` | Inbound message prefix forcing delivery mode `steer` instead of `followUp`. |
 | `editThrottleMs` | `number` | `1000` | Minimum milliseconds between Discord message edit API calls per channel. Minimum `0`. |
 | `toolPolicy` | `object` | - | L3 tool execution policy for gateway-spawned sessions. Contains `allow`, `approval`, `defaultAction`. |
@@ -276,4 +368,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation, chat-gateway-attach-dashboard-sessions, fix-plugin-config-partial-write, chat-gateway-close-command.

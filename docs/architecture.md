@@ -1000,7 +1000,7 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 **Plugin settings persistence:**
 - All plugin settings live under `plugins.<id>.*` in `~/.pi/dashboard/config.json`. The dashboard core never reads or writes another plugin's namespace.
 - Each manifest may declare a `configSchema` (JSON Schema 7); the loader validates on read (with defaults applied) and on write (rejects invalid).
-- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers.
+- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers. Omitted keys keep stored values: validation runs on a clone so Ajv `useDefaults` cannot inject defaults into the merge; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - The client-side `pluginContext.usePluginConfig<T>()` hook is reactive — consumers re-render within one frame of a write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate to `plugins.<id>.*` on the plugin's first server boot.
 
@@ -1305,6 +1305,18 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
 - `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
+
+### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
+
+`ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.
+
+- `recover?: boolean` — `false` opts owned session out of cold-start recovery (default recoverable). Persisted to `.meta.json` only when `false` (additive opt-out byte).
+- `finalizeOnSocketClose?: boolean` — `true` finalizes owned session on socket close, no reconnect grace. In-memory only; read at pi-gateway socket-close finalize branch.
+- `hidden?: boolean` — `true` hides owned session from board on FIRST register. Same `hidden` flag as headless auto-hide (`packages/server/src/session/memory-session-manager.ts`); revealed by "show hidden" toggle. Persisted to `.meta.json`, broadcast via `broadcastSessionUpdated`. Applied on fresh spawn-token resolution only (`packages/server/src/event-wiring.ts`); reattach never re-applies, so a later operator unhide survives. Persists the INTENT as `pluginHidden: true` on the session + `.meta.json` (`session-to-meta.ts`, restored by `sessionFromMeta` in `session-scanner.ts`) so a post-restart respawn re-register (`registerReason: "spawn"`, no token) keeps hidden. `register` order: reattach → `existing.hidden`; `visibilityIntent`; `existing.pluginHidden === true` → hidden; else headless heuristic. Explicit `visibilityIntent: "visible"` still wins. Pre-fix hidden sessions carry no `pluginHidden` → not migrated. See change: fix-plugin-hidden-across-restart.
+- `pending-plugin-ref-registry.ts` (`packages/server/src/pending/`) files a lifecycle record when ANY of `recover`/`finalizeOnSocketClose`/`hidden` set.
+- Sibling hook `ServerPluginContext.shutdownSession(sessionId): Promise<boolean>` ends a session like the dashboard **Shutdown**. Trusted plugins only (manifest `priority <= 100`); untrusted or unknown session → `false`. Reuses `browserGateway.shutdownSession` — same body as `POST /api/session/:id/shutdown`, never a parallel `{type:"shutdown"}` path (#449/#452). First consumer: chat-gateway `!close`. See change: chat-gateway-close-command.
+- First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
+- See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart.
 
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
 

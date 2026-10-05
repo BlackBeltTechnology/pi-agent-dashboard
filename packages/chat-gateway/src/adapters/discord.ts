@@ -96,6 +96,12 @@ export interface DiscordChannelOps {
    * IS the guild id, so a reconcile must name it even for an existing channel.
    */
   guildIdFor(channelId: string): Promise<string>;
+  /**
+   * The bot's own user id. Every provisioned channel carries an allow for it:
+   * the `@everyone` view deny would otherwise lock the bot out of the channel
+   * it created (real-guild 403 Missing Access).
+   */
+  selfId(): string;
 }
 
 /**
@@ -309,6 +315,29 @@ export class DiscordAdapter extends BaseAdapter {
 
   // ── Outbound ────────────────────────────────────────────────────────────
 
+  /** Open a public thread on the user's message (needs Create Public Threads). */
+  async startThread(
+    channelId: string,
+    messageId: string,
+    name: string,
+  ): Promise<{ threadId: string }> {
+    const channel = await this.requireClient().channels.fetch(channelId);
+    if (!channel?.isTextBased() || !("messages" in channel)) {
+      throw new Error(`[discord] channel ${channelId} cannot hold threads`);
+    }
+    const message = await channel.messages.fetch(messageId);
+    // 1 day of inactivity before Discord auto-archives; a reply un-archives it.
+    const thread = await message.startThread({ name, autoArchiveDuration: 1440 });
+    return { threadId: thread.id };
+  }
+
+  /** Archive a thread (`!close`). See change: chat-gateway-close-command. */
+  async archiveThread(threadId: string): Promise<void> {
+    const channel = await this.requireClient().channels.fetch(threadId);
+    if (!channel?.isThread()) throw new Error(`[discord] ${threadId} is not a thread`);
+    await channel.setArchived(true, "closed from chat (!close)");
+  }
+
   async sendMessage(channelId: string, content: string): Promise<string> {
     const channel = await this.sendableChannel(channelId);
     const chunks = chunkForDiscord(content);
@@ -353,7 +382,7 @@ export class DiscordAdapter extends BaseAdapter {
   async provisionChannel(
     input: ProvisionChannelInput,
   ): Promise<{ channelId: string }> {
-    const payload = channelCreatePayload(input);
+    const payload = channelCreatePayload(input, this.channelOps().selfId());
     return this.channelOps().create(input.guildId, payload);
   }
 
@@ -367,7 +396,7 @@ export class DiscordAdapter extends BaseAdapter {
   ): Promise<void> {
     const guildId = await this.channelOps().guildIdFor(channelId);
     await this.channelOps().update(channelId, {
-      permissionOverwrites: channelOverwrites(guildId, overwrites),
+      permissionOverwrites: channelOverwrites(guildId, overwrites, this.channelOps().selfId()),
     });
   }
 
@@ -459,6 +488,16 @@ export class DiscordAdapter extends BaseAdapter {
   /** Real Discord channel management. */
   private defaultOps(): DiscordChannelOps {
     return {
+      // Refuses rather than writing an overwrite list without the bot-self allow.
+      selfId: () => {
+        const id = this.requireClient().user?.id;
+        if (!id) {
+          throw new Error(
+            "[discord] bot identity unknown (client not ready); refusing to write overwrites without the bot-self allow",
+          );
+        }
+        return id;
+      },
       create: async (guildId, payload) => {
         const guild = await this.requireClient().guilds.fetch(guildId);
         const created = await guild.channels.create({

@@ -13,28 +13,28 @@ Ordered by leverage. The systemic fixes (S1–S3) each close multiple findings; 
 
 ## Tier 1 — High, standalone
 
-- [ ] **B1 · git checkout command injection** — route through `runGitCapture(["checkout",…argv])`, branch allowlist `^[\w./-]+$` (git-operations.ts:383/387/391). 🔴
+- [x] **B1 · git checkout command injection** — route through `runGitCapture(["checkout",…argv])`, branch allowlist `^[\w./-]+$` (git-operations.ts:383/387/391). 🔴
 - [ ] **B2 · Electron remote-mode preload isolation** — minimal preload for the main window (drop `remoteConnect.connect`/`doctor.run`/`readServerLog`); validate `event.senderFrame` origin in every `ipcMain.handle`. 🔴
 - [ ] **B3 · Electron `shell.openExternal` scheme allowlist** — http/https/mailto only, on BOTH `setWindowOpenHandler` and `will-navigate` open-external branch (main.ts:401-412). 🔴
 
 ## Tier 2 — Medium
 
-- [ ] **B4 · REST bearer storage** — prefer httpOnly SameSite cookie for the browser REST credential; else shorten TTL + rotate (device-auth.ts). 🟠
-- [ ] **B5 · Login OAuth CSRF + open redirect** — bind state nonce to signed cookie; constrain `returnUrl` same-origin relative (auth-plugin.ts:60,214). 🟠
+- [x] **B4 · REST bearer storage** — prefer httpOnly SameSite cookie for the browser REST credential; else shorten TTL + rotate (device-auth.ts). 🟠
+- [x] **B5 · Login OAuth CSRF + open redirect** — bind state nonce to signed cookie; constrain `returnUrl` same-origin relative (auth-plugin.ts:60,214). 🟠
 - [ ] **B6 · Windows `shellEscape` bypass** — replace `execSync(args.map(shellEscape))` worktree/merge/PR sites with spawn argv `shell:false` (git-operations.ts). 🟠
 - [ ] **B7 · Unbounded PTY spawn** — cap concurrent PTYs global+per-cwd, reap idle (terminal-manager.ts). 🟠
 - [ ] **B8 · Unconstrained browse/mkdir** — constrain roots to `$HOME` + pinned dirs (routes/file-routes.ts). 🟠
 - [ ] **B9 · Recovery server** — bind loopback, gate POST reinstall/retry on local-token (recovery-server.ts). 🟠
 - [ ] **B10 · Electron SSRF probe** — restrict to wizard window; deny RFC1918+link-local+loopback (remote-probe.ts). 🟠
-- [ ] **B11 · document-converter bind-mounts** — `:ro` inputs, confine under workspace root, reject sensitive roots (engine.ts). 🟠
-- [ ] **B12 · kb source SSRF** — https-only, block private/link-local after DNS resolve, cap redirects (kb/sources.ts). 🟠
-- [ ] **B13 · kb archive zip-slip** — reject `..`/absolute entries or use traversal-safe extractor (kb/sources.ts). 🟠
-- [ ] **B14 · bare-loopback trust under marker-less tunnel** — require local-token for terminal/session/git rather than trusting bare loopback (localhost-guard.ts). 🟠
-- [ ] **B15 · plugin_emit_event allowlist** — allowlist emittable event names (bridge.ts:915). 🟠
+- [x] **B11 · document-converter bind-mounts** — `:ro` inputs, confine under workspace root, reject sensitive roots (engine.ts). 🟠
+- [x] **B12 · kb source SSRF** — https-only, block private/link-local after DNS resolve, cap redirects (kb/sources.ts). 🟠
+- [x] **B13 · kb archive zip-slip** — reject `..`/absolute entries or use traversal-safe extractor (kb/sources.ts). 🟠
+- [x] **B14 · bare-loopback trust under marker-less tunnel** — require local-token for terminal/session/git rather than trusting bare loopback (localhost-guard.ts). 🟠
+- [x] **B15 · plugin_emit_event allowlist** — allowlist emittable event names (bridge.ts:915). 🟠
 
 ## Tier 3 — Low / hardening
 
-- [ ] B16 cookie Secure flag behind TLS tunnel (auth-plugin.ts:206)
+- [x] B16 cookie Secure flag behind TLS tunnel (auth-plugin.ts:206)
 - [ ] B17 pin JWT `algorithms:["HS256"]` (auth.ts:157); 256-bit HMAC secret (auth.ts:135)
 - [ ] B18 auth audit logging: pairing approve/revoke, credential writes
 - [ ] B19 narrow CORS `*.share.zrok.io` to active tunnel host (cors-origin.ts)
@@ -54,5 +54,5 @@ Ordered by leverage. The systemic fixes (S1–S3) each close multiple findings; 
 
 ## Added by verification
 
-- [ ] **B25 · chmod `0600` on config.json write** (auth HMAC secret readable by other local users under default umask) — `config.ts:948`, `config-api.ts:183`. 🟠
-- [ ] **B26 · `xlsx`/SheetJS high vuln** (prototype pollution + ReDoS, no npm fix) reachable via XLSX office-preview — sandbox the parse, cap input size, or pin the vendor CDN build. 🟠 Triage the other 18 transitive (build-tooling) advisories.
+- [x] **B25 · chmod `0600` on config.json write** (auth HMAC secret readable by other local users under default umask) — `config.ts:948`, `config-api.ts:183`. 🟠
+- [x] **B26 · `xlsx`/SheetJS high vuln** (prototype pollution + ReDoS, no npm fix) reachable via XLSX office-preview — sandbox the parse, cap input size, or pin the vendor CDN build. 🟠 Triage the other 18 transitive (build-tooling) advisories.

@@ -13,6 +13,28 @@ import {
 const principal: Principal = { iss: "https://kc/realms/app", sub: "user-1" };
 const resource = { kind: "workspace", path: "/w" } as const;
 
+describe("PolicyRegistry — probe mode (18.37d)", () => {
+  it("a probe decides like authorize but never writes the audit trail; a real denial still does", async () => {
+    const audit = vi.fn();
+    const reg = new PolicyRegistry({ trustedPolicyPlugin: "p", audit });
+    reg.register("p", async () => false);
+    await expect(reg.authorize({ principal, action: "workspace.read", resource, probe: true })).resolves.toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+    await expect(reg.authorize({ principal, action: "workspace.read", resource })).resolves.toBe(false);
+    expect(audit).toHaveBeenCalledTimes(1);
+  });
+
+  it("probe is fail-closed too: throw / non-boolean ⇒ false, still unaudited", async () => {
+    const audit = vi.fn();
+    const reg = new PolicyRegistry({ trustedPolicyPlugin: "p", audit });
+    reg.register("p", (async () => {
+      throw new Error("x");
+    }) as never);
+    await expect(reg.authorize({ principal, action: "workspace.read", resource, probe: true })).resolves.toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+});
+
 describe("PolicyRegistry — registration (§7.1)", () => {
   it("accepts the named plugin and refuses any other registrant", () => {
     const reg = new PolicyRegistry({ trustedPolicyPlugin: "policy-plugin" });

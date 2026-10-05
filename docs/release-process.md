@@ -160,6 +160,15 @@ On `v*` tag push, `publish.yml`:
    - Calls `softprops/action-gh-release@v2` with
      `body_path: release-notes.md`, `draft: true`, all Electron artifacts
      attached.
+4. **`discord-announce` job** — posts release notes to community Discord.
+   `needs: [resolve, github-release]`; runs alongside `site-redeploy`.
+   Fires only when `github-release` succeeded AND `is_prerelease != 'true'`
+   — prereleases stay quiet. `continue-on-error: true` — webhook failure
+   never reds release. Reads repo secret `DISCORD_RELEASE_WEBHOOK` via env
+   `DISCORD_WEBHOOK_URL`; secret unset → step logs skip, exits 0. Posts
+   release name/url/body (`gh release view`) as one embed, body truncated at
+   3800 chars; `allowed_mentions: { parse: [] }` blocks @everyone / role /
+   user pings.
 
 Release lands as **draft** — nothing published until *Publish* clicked on
 GitHub Releases page.
@@ -185,10 +194,29 @@ git push origin v<version>
 
 ## After Publishing
 
-- Announce in project channels (Discord, X, etc. — if/when exist).
+- Discord announce fires from `discord-announce` job — see
+  [Discord Announcement](#discord-announcement).
+- X / other channels still manual.
 - Monitor GitHub Issues for install/upgrade regressions.
 - Leave `## [Unreleased]` empty-but-present so next contributor has
   obvious target.
+
+## Discord Announcement
+
+Automatic. `discord-announce` job in `publish.yml` posts release notes to
+community Discord after `github-release` succeeds. Best-effort — see
+[What CI Does](#what-ci-does) job 4.
+
+One-time setup:
+
+1. Discord channel → Edit Channel → Integrations → Webhooks → New Webhook.
+2. Copy webhook URL.
+3. `gh secret set DISCORD_RELEASE_WEBHOOK` (repo secret).
+
+Rollback: delete `DISCORD_RELEASE_WEBHOOK` secret (job skips, exits 0) or
+delete `discord-announce` job.
+
+Community invite: <https://discord.gg/uQsJgsejb>.
 
 ## Rollback: bad auto-update release
 

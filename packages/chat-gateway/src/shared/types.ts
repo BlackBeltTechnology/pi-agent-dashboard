@@ -51,6 +51,26 @@ export interface ChatGatewayConfig {
   /** Minimum ms between `editMessage` calls on one channel. Default 1000. */
   editThrottleMs?: number;
   /**
+   * Board visibility of gateway-SPAWNED/RESUMED sessions. Default `hidden`:
+   * chat sessions stay off the board (revealed by "show hidden"). Attached
+   * sessions are the operator's own and are never touched.
+   */
+  sessionVisibility?: "hidden" | "shown";
+  /**
+   * Open a platform thread on every NEW conversation (a guild message in the
+   * channel root) and bind its session to that thread. Default `true`; `false`
+   * binds the channel root to one shared session.
+   */
+  threadPerConversation?: boolean;
+  /**
+   * Opt-in: attach every live, non-hidden session inside a bound workspace into
+   * that workspace's channel (one thread each) — at gateway start and whenever a
+   * new one is first seen. Sends transcripts to Discord at the channel's mirror
+   * level. Default `false`; only an explicit `true` enables.
+   * See change: chat-gateway-attach-dashboard-sessions.
+   */
+  mirrorDashboardSessions?: boolean;
+  /**
    * L3 tool policy for gateway-SPAWNED sessions (attached sessions stay
    * ungated by design). Present ⇒ the companion guard extension is loaded.
    * Deny-first: a tool in neither list is denied unless `defaultAction` widens
@@ -105,6 +125,9 @@ export interface ResolvedConfig {
   groupChannels: string[];
   steerPrefix: string;
   editThrottleMs: number;
+  sessionVisibility: "hidden" | "shown";
+  threadPerConversation: boolean;
+  mirrorDashboardSessions: boolean;
   toolPolicy?: {
     allow?: string[];
     approval?: string[];
@@ -117,6 +140,9 @@ export const CONFIG_DEFAULTS = {
   enabled: true,
   steerPrefix: "!",
   editThrottleMs: 1000,
+  sessionVisibility: "hidden",
+  threadPerConversation: true,
+  mirrorDashboardSessions: false,
 } as const;
 
 // ── Inbound message ───────────────────────────────────────────────────────
@@ -137,6 +163,8 @@ export interface InboundMessage {
    * configured); without this a thread id is never in `groupChannels`.
    */
   parentChannelId?: string;
+  /** Platform message id (the anchor a conversation thread is opened on). */
+  messageId?: string;
   /** Platform user id of the sender. */
   userId: string;
   /** Display name, for logs only — never an authorization input. */

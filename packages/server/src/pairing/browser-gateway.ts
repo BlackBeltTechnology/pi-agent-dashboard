@@ -11,8 +11,11 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
-import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
+import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from "../identity/session-access.js";
+import { ALLOW_ALL_GRANTS, type BootstrapFamily, type BootstrapGrants, DENY_ALL_GRANTS, FRAME_FAMILY } from "../identity/bootstrap-grants.js";
+import { deliverDomainEvent } from "../identity/domain-fanout.js";
 import type { HostPolicy } from "../identity/host-access.js";
+import { HostActions, hostResource } from "../identity/host-resources.js";
 import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
 import { classifyWsRoad } from "../identity/ws-road-classification.js";
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
@@ -480,6 +483,13 @@ export interface BrowserGateway {
   isRecoveryLivenessPending?: (sessionId: string) => boolean;
   /** Broadcast a message to all connected clients */
   broadcast(msg: ServerToBrowserMessage): void;
+  /**
+   * Fan out a plugin DOMAIN event (a global, non-session frame). Enforced + a
+   * host policy ⇒ delivered per socket only where the policy permits
+   * (`deliverDomainEvent`), ordered, fail-closed; otherwise the plain
+   * `broadcast`. See change: add-multi-user-identity-plane (§10, task 18.37b).
+   */
+  broadcastDomainEvent(msg: ServerToBrowserMessage, pluginId: string, eventType: string): void;
   /**
    * Register a handler for a Browser→Server message type the gateway does
    * not natively handle. Used by plugins to receive `plugin_action`
@@ -1383,8 +1393,33 @@ export function createBrowserGateway(
   const lastKnownOwner = new Map<string, Owner>();
   const withheldSpawnRequestId = new Map<string, string>();
   const socketPrincipal = (ws: WebSocket): Owner | null => (ws as { principal?: Owner }).principal ?? null;
+  // ── non-session policy grants (D9/D24, 18.37a) ────────────────────────
+  // Decided async at the WS upgrade and bound as `ws.bootstrapGrants`; applied
+  // synchronously here. Active only when enforced AND a policy is registered;
+  // a socket without grants is then fail-closed (denied every family).
+  const policyGating = () => (isResolverActive?.() ?? false) && hostPolicy?.hasPolicy() === true;
+  const grantsOf = (ws: WebSocket): BootstrapGrants =>
+    !policyGating() ? ALLOW_ALL_GRANTS : ((ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants ?? DENY_ALL_GRANTS);
+  const granted = (ws: WebSocket, family: BootstrapFamily): boolean => grantsOf(ws)[family] === true;
+  // Per-TARGET terminal decisions (review r2 B2): the family grant says "terminals at
+  // all"; the policy may still deny one id. Seeded at the upgrade (`grants.terminals`),
+  // extended as live-created terminals are approved one by one.
+  const approvedTerminals = new WeakMap<WebSocket, Set<string>>();
+  const terminalAllowed = (ws: WebSocket, id: string): boolean => {
+    if (!policyGating()) return true;
+    const g = grantsOf(ws);
+    if (g.terminal !== true) return false;
+    if (g.terminals === "all") return true;
+    return g.terminals?.has(id) === true || approvedTerminals.get(ws)?.has(id) === true;
+  };
+  /** Per-socket gate for a non-session frame type, or undefined when it is not family-gated. */
+  const familyGate = (type: string): ((ws: WebSocket) => boolean) | undefined => {
+    const family = FRAME_FAMILY[type];
+    return family && policyGating() ? (ws) => granted(ws, family) : undefined;
+  };
   function ownerOf(sessionId: string, fromFrame?: Owner): Owner | undefined {
-    const owner = fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
+    const owner =
+      fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? terminalManager?.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
     if (owner) lastKnownOwner.set(sessionId, owner);
     return owner;
   }
@@ -1436,17 +1471,120 @@ export function createBrowserGateway(
     // message, so the shed site's debt identity is derived here and passed down
     // (D2). A non-registry frame yields `undefined` and pays nothing.
     const dirty = deliveryInfoOf(msg);
-    fanout(serialized, cls === "state" ? key : undefined, dirty);
+    fanout(serialized, cls === "state" ? key : undefined, dirty, familyGate(msg.type));
+  }
+
+  let domainChain: Promise<void> = Promise.resolve();
+  /**
+   * Plugin domain event (§10, 18.37b). Policy + enforced ⇒ per-socket decision via
+   * `deliverDomainEvent`, queued so async decisions never reorder events;
+   * otherwise exactly the plain broadcast.
+   */
+  function broadcastDomainEvent(msg: ServerToBrowserMessage, pluginId: string, eventType: string): void {
+    const policy = hostPolicy;
+    if (!(isResolverActive?.() ?? false) || !policy?.hasPolicy()) {
+      broadcast(msg);
+      return;
+    }
+    domainChain = domainChain
+      .then(async () => {
+        const targets = [...subscriptions.keys()]
+          .filter((ws) => ws.readyState === WebSocket.OPEN)
+          .map((ws) => ({ socket: ws, principal: socketPrincipal(ws) }));
+        // `sendTo`: the same bounded delivery (state coalescing / transcript shedding) as
+        // the plain broadcast — a policy must not turn a slow socket into an unbounded buffer.
+        await deliverDomainEvent(targets, HostActions.domainEvent, hostResource.domain(pluginId, eventType), policy, (ws) => {
+          sendTo(ws, msg);
+        });
+      })
+      .catch((err) => console.error("[browser-gw] domain event fan-out failed:", err));
   }
 
   /** Enforced-mode delivery of a session-scoped frame. Returns false for a
    *  frame with no session identity (it fans out to everyone as before). */
+  /**
+   * Terminal frames (18.13): same owner rule as sessions — only the owner (or the
+   * break-glass operator) learns a terminal exists, its title or its removal. An
+   * ownerless terminal reaches no human. `lastKnownOwner` outlives the PTY so a
+   * `terminal_removed` still reaches only the owner.
+   */
+  function broadcastTerminalFrame(msg: Extract<ServerToBrowserMessage, { type: "terminal_added" | "terminal_updated" | "terminal_removed" }>): void {
+    const id = msg.type === "terminal_added" ? msg.terminal.id : msg.terminalId;
+    const owner: Owner | undefined =
+      (msg.type === "terminal_added" ? msg.terminal.principalOwner : undefined) ?? terminalManager?.get(id)?.principalOwner ?? lastKnownOwner.get(id);
+    if (owner) lastKnownOwner.set(id, owner);
+    const serialized = JSON.stringify(msg);
+    const ownerAllows = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner });
+    const finish = () => {
+      if (msg.type === "terminal_removed") {
+        lastKnownOwner.delete(id);
+        for (const ws of subscriptions.keys()) approvedTerminals.get(ws)?.delete(id);
+      }
+    };
+
+    if (!policyGating()) {
+      // No policy ⇒ the synchronous owner-only path. The frame is STATE (per-terminal
+      // key): coalesced under backpressure, never shed — a shed `terminal_removed`
+      // would leave a dead terminal on screen.
+      fanout(serialized, frameClassOf(msg).key, undefined, ownerAllows);
+      finish();
+      return;
+    }
+
+    // Policy ⇒ a per-TARGET decision. Queued so a terminal's added/updated/removed
+    // frames are decided and delivered in order (an update can never overtake the
+    // decision for its own add). The decision is the policy's, per socket + id.
+    const policy = hostPolicy;
+    domainChain = domainChain
+      .then(async () => {
+        const candidates = [...subscriptions.keys()].filter((ws) => ws.readyState === WebSocket.OPEN && ownerAllows(ws));
+        if (msg.type === "terminal_added") {
+          // Decide every candidate socket CONCURRENTLY (each decision is bounded by the
+          // policy timeout), so N sockets cost ~one timeout, not N× — a slow policy must
+          // not stall the queue every later frame waits behind. Delivery stays in order.
+          const approved = await Promise.all(
+            candidates.map(async (ws) => {
+              const g = grantsOf(ws);
+              if (g.terminal !== true) return false;
+              if (g.terminals === "all") return true;
+              const principal = socketPrincipal(ws);
+              if (principal === null) return false;
+              if (isLocalOperator(principal)) return true;
+              return (
+                (await policy!
+                  .authorize({ principal: principal as never, action: HostActions.terminalRead, resource: hostResource.terminal(id) })
+                  .catch(() => false)) === true
+              );
+            }),
+          );
+          candidates.forEach((ws, i) => {
+            if (!approved[i]) return;
+            let set = approvedTerminals.get(ws);
+            if (!set) approvedTerminals.set(ws, (set = new Set()));
+            set.add(id);
+            sendTo(ws, msg); // state-aware: bounded + coalescing under backpressure
+          });
+        } else {
+          for (const ws of candidates) if (terminalAllowed(ws, id)) sendTo(ws, msg);
+        }
+        finish();
+      })
+      .catch((err) => console.error("[browser-gw] terminal frame fan-out failed:", err));
+  }
+
   function broadcastOwnerScoped(msg: ServerToBrowserMessage): boolean {
+    if (msg.type === "terminal_added" || msg.type === "terminal_updated" || msg.type === "terminal_removed") {
+      broadcastTerminalFrame(msg);
+      return true;
+    }
     if (msg.type === "sessions_reordered") {
       for (const [ws] of subscriptions) {
         const principal = socketPrincipal(ws);
-        const visible = msg.sessionIds.filter((id) =>
-          canAccessSession({ active: true, principal, owner: ownerOf(id) }),
+        const visible = msg.sessionIds.filter(
+          (id) =>
+            canAccessSession({ active: true, principal, owner: ownerOf(id) }) &&
+            // A terminal id in an order list is terminal disclosure: the terminal grant applies.
+            (terminalManager?.get(id) === undefined || terminalAllowed(ws, id)),
         );
         if (visible.length > 0) sendTo(ws, { ...msg, sessionIds: visible });
       }
@@ -1457,8 +1595,14 @@ export function createBrowserGateway(
       const cwd = (msg as { cwd?: unknown }).cwd;
       if (!FOLDER_SCOPED.has(msg.type) || typeof cwd !== "string") return false;
       const audience = folderAudience(cwd);
+      const gate = familyGate(msg.type);
       const { cls, key } = frameClassOf(msg);
-      fanout(JSON.stringify(msg), cls === "state" ? key : undefined, deliveryInfoOf(msg), audience ?? undefined);
+      fanout(
+        JSON.stringify(msg),
+        cls === "state" ? key : undefined,
+        deliveryInfoOf(msg),
+        audience && gate ? (ws) => audience(ws) && gate(ws) : (gate ?? audience ?? undefined),
+      );
       return true;
     }
     const owner = ownerOf(target.id, target.owner);
@@ -1534,7 +1678,9 @@ export function createBrowserGateway(
     const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
     const serialized = header + dataSerialized + "}";
     // Pre-serialized state frame: hand fanout the D1 delivery key directly.
-    fanout(serialized, `openspec_update:${cwd}`, undefined, folderAudience(cwd) ?? undefined);
+    const audience = folderAudience(cwd);
+    const gate = familyGate("openspec_update");
+    fanout(serialized, `openspec_update:${cwd}`, undefined, audience && gate ? (ws) => audience(ws) && gate(ws) : (gate ?? audience ?? undefined));
   }
 
   // Decides prompt-capability issuance per connection; null = never issue.
@@ -1601,7 +1747,7 @@ export function createBrowserGateway(
       if (typeof preferencesStore.getGroupByPrefs === "function") {
         sendTo(ws, { type: "group_by_prefs_updated", ...preferencesStore.getGroupByPrefs() });
       }
-      sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
+      if (granted(ws, "workspace")) sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
       // Send favorite models snapshot on connect. Guarded with `typeof` so
       // old PreferencesStore stubs in tests don't crash.
       // See change: enrich-model-selector-capabilities-favorites.
@@ -1611,7 +1757,7 @@ export function createBrowserGateway(
       // Send current workspaces snapshot. See change: folder-workspaces.
       // Guarded with `typeof` so old PreferencesStore stubs in tests that
       // predate workspaces still work — they simply get no workspace snapshot.
-      if (typeof preferencesStore.getWorkspaces === "function") {
+      if (typeof preferencesStore.getWorkspaces === "function" && granted(ws, "workspace")) {
         sendTo(ws, { type: "workspaces_updated", workspaces: preferencesStore.getWorkspaces() });
       }
       // Send display-prefs snapshot on connect so a client that missed a live
@@ -1641,7 +1787,7 @@ export function createBrowserGateway(
     // `openspec_update` per cwd, never silently omit.
     // See change: fix-cold-boot-openspec-protocol.
     if (directoryService) {
-      for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
+      for (const msg of granted(ws, "openspec") ? buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot) : []) {
         const audience = folderAudience(msg.cwd);
         if (!audience || audience(ws)) sendTo(ws, msg);
       }
@@ -1652,7 +1798,7 @@ export function createBrowserGateway(
       // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
       // (precedent: `preferencesStore.getDisplayPrefs` above).
       // See change: fix-folder-header-worktree-branch-leak.
-      if (typeof directoryService.folderHeadSnapshot === "function") {
+      if (typeof directoryService.folderHeadSnapshot === "function" && granted(ws, "branch")) {
         for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
           const audience = folderAudience(cwd);
           if (!audience || audience(ws)) sendTo(ws, { type: "git_head_update", cwd, branch });
@@ -1661,8 +1807,11 @@ export function createBrowserGateway(
     }
 
     // Send active terminals on connect
-    if (terminalManager) {
+    if (terminalManager && granted(ws, "terminal")) {
       for (const terminal of terminalManager.list()) {
+        if (!terminalAllowed(ws, terminal.id)) continue; // per-target policy decision
+        // 18.13: enforced ⇒ only terminals this principal owns (operator: all).
+        if (!canAccessSession({ active: isResolverActive?.() ?? false, principal: socketPrincipal(ws), owner: terminal.principalOwner })) continue;
         sendTo(ws, { type: "terminal_added", terminal });
       }
     }
@@ -1706,6 +1855,9 @@ export function createBrowserGateway(
         rawSnapshot,
         isResolverActive?.() ?? false,
         (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
+        (terminalManager?.list() ?? [])
+          .filter((t) => terminalAllowed(ws, t.id) && canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
+          .map((t) => t.id),
       );
       sendTo(ws, {
         type: "sessions_snapshot",
@@ -2428,6 +2580,8 @@ export function createBrowserGateway(
         invokeSubscriber(handler, msg as unknown as ServerToBrowserMessage, "prompt replay", sessionId);
       }
     },
+
+    broadcastDomainEvent,
 
     broadcastToAll(msg: ServerToBrowserMessage) {
       broadcast(msg);
