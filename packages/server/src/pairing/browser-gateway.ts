@@ -1486,14 +1486,15 @@ export function createBrowserGateway(
       broadcast(msg);
       return;
     }
-    const serialized = JSON.stringify(msg);
     domainChain = domainChain
       .then(async () => {
         const targets = [...subscriptions.keys()]
           .filter((ws) => ws.readyState === WebSocket.OPEN)
           .map((ws) => ({ socket: ws, principal: socketPrincipal(ws) }));
+        // `sendTo`: the same bounded delivery (state coalescing / transcript shedding) as
+        // the plain broadcast — a policy must not turn a slow socket into an unbounded buffer.
         await deliverDomainEvent(targets, HostActions.domainEvent, hostResource.domain(pluginId, eventType), policy, (ws) => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(serialized);
+          sendTo(ws, msg);
         });
       })
       .catch((err) => console.error("[browser-gw] domain event fan-out failed:", err));
@@ -1549,9 +1550,9 @@ export function createBrowserGateway(
             let set = approvedTerminals.get(ws);
             if (!set) approvedTerminals.set(ws, (set = new Set()));
             set.add(id);
-            ws.send(serialized);
+            sendTo(ws, msg); // state-aware: bounded + coalescing under backpressure
           } else if (terminalAllowed(ws, id)) {
-            ws.send(serialized);
+            sendTo(ws, msg);
           }
         }
         finish();

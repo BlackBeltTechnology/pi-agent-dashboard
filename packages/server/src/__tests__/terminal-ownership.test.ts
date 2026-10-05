@@ -293,4 +293,39 @@ describe("terminal frames reach only the owner (18.13)", () => {
     gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "x" } } as never);
     expect(types(ws).map((m) => m.type)).toEqual(["terminal_updated"]); // delivered synchronously
   });
+
+  // ── review r3 B1: policy-gated terminal frames keep the gateway's backpressure ──
+  it("r3-B1: a saturated socket never accumulates per-update sends — repeated terminal_updated coalesce to the latest", async () => {
+    const { gateway, ws } = perTargetGateway(() => true, { ...familyAllowed, terminals: new Set(["ta"]) });
+    (ws as any).bufferedAmount = 64 * 1024 * 1024; // far above the 4 MiB default MAX_WS_BUFFER
+    for (let i = 0; i < 200; i++) {
+      gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: `t${i}` } } as never);
+    }
+    await tick();
+    // Deferred, not sent: a direct ws.send per frame is the unbounded-buffer bug.
+    expect(types(ws).filter((m) => m.type === "terminal_updated")).toHaveLength(0);
+
+    // The socket drains; the next delivery flushes the coalesced state — ONE latest update, not 200.
+    (ws as any).bufferedAmount = 0;
+    gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "final" } } as never);
+    await new Promise((r) => setTimeout(r, 450)); // the state flusher runs every 250 ms
+    const titles = ws.send.mock.calls
+      .map((c) => JSON.parse(c[0] as string) as { type: string; updates?: { title?: string } })
+      .filter((m) => m.type === "terminal_updated")
+      .map((m) => m.updates?.title);
+    expect(titles.length).toBeLessThanOrEqual(2);
+    expect(titles[titles.length - 1]).toBe("final");
+  });
+
+  it("r3-B1: a stalled socket whose pending state exceeds the bound is terminated, not grown without limit", async () => {
+    const { gateway, ws } = perTargetGateway(() => true, { ...familyAllowed, terminals: new Set(["ta", "tb"]) });
+    (ws as any).bufferedAmount = 64 * 1024 * 1024;
+    const big = "x".repeat(2 * 1024 * 1024);
+    for (let i = 0; i < 6; i++) {
+      gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: big } } as never);
+      gateway.broadcast({ type: "terminal_updated", terminalId: "tb", updates: { title: big } } as never);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ws.terminate).toHaveBeenCalled();
+  });
 });

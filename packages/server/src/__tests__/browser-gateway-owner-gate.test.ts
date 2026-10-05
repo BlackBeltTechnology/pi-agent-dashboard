@@ -327,4 +327,20 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
     const order = a.send.mock.calls.map((c) => (JSON.parse(c[0] as string) as { i?: number }).i).filter(Boolean);
     expect(order).toEqual([1, 2]);
   });
+
+  it("r3-B1 sibling: a policy-fanned domain event honours the gateway's transcript shedding on a saturated socket", async () => {
+    const g = prefsGateway(true, true);
+    g.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
+    const slow = makeFakeWs(owner);
+    const fast = makeFakeWs(owner);
+    g.wss.emit("connection", slow, {});
+    g.wss.emit("connection", fast, {});
+    (slow as any).bufferedAmount = 64 * 1024 * 1024; // saturated: far above MAX_WS_BUFFER
+    slow.send.mockClear();
+    fast.send.mockClear();
+    for (let i = 0; i < 50; i++) g.broadcastDomainEvent({ type: "goal_status", n: i } as never, "goal", "goal_status");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(types(slow).filter((t) => t === "goal_status")).toHaveLength(0); // shed, not queued in the socket buffer
+    expect(types(fast).filter((t) => t === "goal_status").length).toBe(50); // the healthy socket is unaffected
+  });
 });
