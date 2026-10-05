@@ -15,6 +15,27 @@ added a transitive coverage test (`packages/shared/src/__tests__/bundled-plugins
 depend on them (hoisted). Observed failure in CI Electron: `gmail-plugin` →
 `Cannot find module 'oauth4webapi'`.
 
+**Still failing on `develop` after #806** (2026-10-05). These are CI Electron linux-x64 runs on spike
+branch `spike/native-ts-loader` (develop `27d6391e7` plus an opt-in TS-loader switch from
+`fix-appimage-cold-boot-latency`). The Ubuntu 22.04 AppImage smoke booted the bundled server once
+per loader:
+
+| Run | Loader | Plugins loaded / failed | Failure |
+|---|---|---|---|
+| 37285545559 | native | 18 / 1 | `gmail`: `Cannot find package 'oauth4webapi' imported from /tmp/squashfs-root/resources/server/resources/plugins/gmail-plugin/src/serv…` |
+| 37285545559 | jiti | 18 / 1 | `gmail`: `Cannot find module 'oauth4webapi'` |
+| 37286703495 | native | 18 / 1 | `gmail`: same |
+
+The failure doesn't depend on the TypeScript loader: it is a resolution gap in the bundle layout,
+not a transpile problem. gmail is the only failing plugin, so the other server-reachable deps
+listed below (`yaml`, `debug`, `discord.js`) currently resolve by hoisting. In the same runs, the
+build-time plugin-load gate (`assert-bundled-server-plugin-load.mjs`) reported **zero** `Failed to
+load plugin` lines. It boots the bundle in place at `<repo>/packages/electron/resources/server`
+(`:45`, `cwd: root` at `:137`). From there Node's module resolution walks up into the monorepo's own
+`node_modules/oauth4webapi`, which exists, so gmail resolves at build time and fails only once the
+bundle is relocated (the extracted AppImage). This is the false green that the bounded walk-up in
+design D4 and What Changes items 3–4 exist to close.
+
 Third-party runtime deps of bundled plugins today (from each `package.json#dependencies`; the
 other bundled plugins — roles, flows-anthropic-bridge, apple-tools, cost-estimator, quota —
 declare first-party deps only):
