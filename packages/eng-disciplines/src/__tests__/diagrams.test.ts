@@ -408,6 +408,103 @@ describe("use-case catalog and site", () => {
     for (const s of ["UC-01", "SCR-nope", "bpmn/missing.bpmn"]) expect(r.stderr).toContain(s);
   });
 
+  const ifmlUi = () =>
+    writeUi(
+      [
+        screen({
+          actions: [
+            {
+              id: "ACT-add",
+              label: "Add",
+              guards: ["BR-001"],
+              effects: [
+                { kind: "validate", step: "Check line", refs: ["BR-001"] },
+                { kind: "write", step: "Store order" },
+              ],
+            },
+          ],
+          dialogs: [{ id: "DLG-sure", kind: "confirm", message: "sure?", from: "ACT-add" }],
+          navigation: [{ to: "SCR-two", trigger: "open two" }],
+        }),
+        screen({ id: "SCR-two", kind: "modal", name: "Two", forms: [], actions: [], dialogs: [], fields: [{ key: "start", label: "Start", type: "date" }] }),
+      ],
+      {
+        "FRM-line": {
+          id: "FRM-line",
+          fields: [
+            { key: "qty", type: "number", conditions: [{ kind: "validation", when: "qty>0", message: "positive" }] },
+            { key: "item", type: "select", conditions: [] },
+          ],
+        },
+      },
+    );
+
+  it("ifml writes IFML 1.0 XMI that passes check-ifml", () => {
+    writeUc([uc()]);
+    ifmlUi();
+    const out = join(dir, "model.xmi");
+    const r = run(dir, "ifml", pkg, out);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const x = read(out);
+    expect(x).toContain('xmlns:ifml="http://www.omg.org/spec/IFML/20140301"');
+    for (const t of ["Window", "Form", "SimpleField", "SelectionField", "ValidationRule", "OnSubmitEvent", "ActivationExpression", "Action", "ActionEvent", "NavigationFlow", "Annotation"])
+      expect(x).toContain(`xmi:type="ifml:${t}"`);
+    expect(x).toMatch(/xmi:type="ifml:Window"[^>]*name="Orders"/);
+    expect(x).toMatch(/xmi:type="ifml:Window"[^>]*name="DLG-sure"[^>]*isModal="true"/);
+    expect(x).toContain('body="qty&gt;0"');
+    expect(x).toContain("trace: SCR-order#ACT-add");
+    const c = run(dir, "check-ifml", out);
+    expect(c.stderr).toBe("");
+    expect(c.code).toBe(0);
+  });
+
+  it("ifml exits 2 without a UI model; check-ifml refuses non-conforming XMI", () => {
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    const none = join(dir, "none.xmi");
+    expect(run(dir, "ifml", pkg, none).code).toBe(2);
+    expect(existsSync(none)).toBe(false);
+    const bad = join(dir, "bad.xmi");
+    writeFileSync(
+      bad,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20110701" xmlns:ifml="http://www.omg.org/spec/IFML/20140301">
+<ifml:IFMLModel xmi:id="m" name="m"><interactionFlowModel xmi:id="f" name="f">
+<interactionFlowModelElements xmi:type="ifml:Window" xmi:id="w" name="w" colour="red">
+<viewElementEvents xmi:type="ifml:ViewElementEvent" xmi:id="e" name="e"><outInteractionFlows xmi:type="ifml:NavigationFlow" xmi:id="n" sourceInteractionFlowElement="e" targetInteractionFlowElement="nope"/></viewElementEvents>
+<viewElements xmi:type="ifml:Frobnicator" xmi:id="x" name="x"/>
+</interactionFlowModelElements></interactionFlowModel></ifml:IFMLModel></xmi:XMI>
+`,
+    );
+    const c = run(dir, "check-ifml", bad);
+    expect(c.code).toBe(1);
+    for (const s of ["Frobnicator", "colour", "nope"]) expect(c.stderr).toContain(s);
+  });
+
+  it("build-site embeds the IFML model and XMI; use cases list actions from ui: lines of alternate flows", () => {
+    ifmlUi();
+    writeFileSync(
+      join(pkg, "diagrams", "bpmn", "add", "code.bpmn"),
+      "<bpmn:definitions><bpmn:userTask id='T' name='Add'><bpmn:documentation>BR-001\nui: SCR-order#ACT-add</bpmn:documentation></bpmn:userTask></bpmn:definitions>",
+    );
+    writeUc([uc({ screens: ["SCR-order"], altFlows: [{ label: "from code", bpmn: "bpmn/add/code.bpmn" }] })]);
+    const out = join(dir, "site-ifml.html");
+    const r = run(dir, "build-site", pkg, out);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const data = embedded(read(out));
+    expect(data.ifml.elements.some((e: { type: string; trace: { screen?: string } }) => e.type === "Window" && e.trace.screen === "SCR-order")).toBe(true);
+    expect(data.ifml.flows.length).toBeGreaterThan(0);
+    expect(data.ifmlXmi.startsWith("<?xml")).toBe(true);
+    expect(data.useCases[0].uiActions).toEqual(["SCR-order#ACT-add"]);
+    writeFileSync(join(pkg, "diagrams", "bpmn", "add", "code.bpmn"), "<bpmn:definitions><bpmn:documentation>ui: SCR-order#ACT-nope</bpmn:documentation></bpmn:definitions>");
+    const bad = run(dir, "build-site", pkg, join(dir, "site-ifml-bad.html"));
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("ACT-nope");
+  });
+
   it("build-site inlines viewer libraries", () => {
     writeUc([uc()]);
     writeFileSync(join(dir, "fake-bpmn.js"), "window.FAKE_BPMN_LIB=1;");

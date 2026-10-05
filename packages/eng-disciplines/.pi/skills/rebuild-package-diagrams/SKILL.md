@@ -98,6 +98,8 @@ still produced and checked.
    refs without a record. In `use-cases.json`, optional `screens: ["SCR-…"]` and
    `altFlows: [{label, bpmn}]` (e.g. a flow derived from code) are gated by
    `check-use-cases` and `build-site` (unknown screen, missing file).
+   Alternate-flow nodes may document `ui: <screen>#<action>`; the catalog then lists those
+   actions on the use case (`build-site` refuses unknown ones).
 2. Build with the viewer libraries inlined (offline, single file, ~5 MB):
    `$D build-site PKG PKG/diagrams/catalog.html --bpmn-js <bpmn-navigated-viewer.production.min.js>
    --bpmn-css <diagram-js.css> --bpmn-css <bpmn.css> --bpmn-css <bpmn-font/css/bpmn-embedded.css>
@@ -147,3 +149,18 @@ still produced and checked.
   `bpmn-package-explorer` generation pipeline.
 - `use-cases.json` passes `check-use-cases`; nothing on a diagram lacks a package ref.
 - `catalog.html` opens offline, a multi-select merge shows flows + ER + shared markers.
+
+## IFML (OMG Interaction Flow Modeling Language 1.0)
+
+With a UI model (`PKG/ui/screens/*.json`):
+
+1. `$D ifml PKG PKG/ui/ifml.xmi` — projects the UI model to IFML 1.0 XMI (mapping:
+   `references/ifml-mapping.md`) and refuses to write a file that fails the conformance
+   check (exit 1); exit 2 without a UI model.
+2. `$D check-ifml <file.xmi>` — validates any IFML XMI against `references/ifml-metamodel.json`
+   (from the normative OMG metamodel): unknown/abstract metaclass, undeclared feature,
+   wrong child type, dangling id, repeated single-valued feature.
+3. `build-site` embeds the projection + XMI: catalog view `#view=ifml:all|sel|<UC>|<SCR>`
+   (windows, forms, events, actions, navigation flows; guarded events red, actions named by
+   the use-case flows green; click opens the screen/action/form), "IFML view" links on
+   screen, use-case and merged pages, and an XMI download.

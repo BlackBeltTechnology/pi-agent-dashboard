@@ -5,18 +5,23 @@
 //   check-trace <file.bpmn> <packageDir>     -> exit 1 when a flow node lacks a resolvable package ref
 //   check-use-cases <packageDir>             -> exit 1 when diagrams/use-cases.json does not resolve
 //   build-site <packageDir> <out.html> [--bpmn-js f] [--bpmn-css f]... [--mermaid f] -> one self-contained HTML
-// Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams.
+//   ifml <packageDir> <out.xmi>              -> IFML 1.0 XMI of ui/ (exit 2 without UI model, 1 if non-conforming)
+//   check-ifml <file.xmi>                    -> exit 1 listing IFML metamodel violations
+// Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkTrace, checkUseCases, extractModel, renderEr } from "./lib.mjs";
-import { buildCatalog, renderSite } from "./site.mjs";
+import { buildIfml, checkIfmlXmi, ifmlToXmi } from "./ifml.mjs";
+import { checkTrace, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
+import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 
 const USAGE = `usage:
   diagrams.mjs extract-model <model.md>
   diagrams.mjs render-er <er.json> <model.json>
   diagrams.mjs check-trace <file.bpmn> <packageDir>
   diagrams.mjs check-use-cases <packageDir>
-  diagrams.mjs build-site <packageDir> <out.html> [--bpmn-js <file>] [--bpmn-css <file>]... [--mermaid <file>]`;
+  diagrams.mjs build-site <packageDir> <out.html> [--bpmn-js <file>] [--bpmn-css <file>]... [--mermaid <file>]
+  diagrams.mjs ifml <packageDir> <out.xmi>
+  diagrams.mjs check-ifml <file.xmi>`;
 
 function die(msg, code = 2) {
   process.stderr.write(`${msg}\n`);
@@ -82,9 +87,18 @@ const COMMANDS = {
     writeFileSync(out, renderSite(data, libs));
     return 0;
   },
+  ifml: ([pkg, out]) => {
+    const ui = readUi(pkg);
+    if (!ui.screens.length) die(`diagrams: no UI model (ui/screens/*.json) in ${pkg}`);
+    const xmi = ifmlToXmi(buildIfml(ui), packageTitle(pkg));
+    const errors = checkIfmlXmi(xmi);
+    if (!errors.length) writeFileSync(out, xmi);
+    return report(errors);
+  },
+  "check-ifml": ([file]) => report(checkIfmlXmi(readText(file))),
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

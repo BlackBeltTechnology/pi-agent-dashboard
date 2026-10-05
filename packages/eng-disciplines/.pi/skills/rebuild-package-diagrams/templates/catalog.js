@@ -27,6 +27,12 @@
     for (const x of UI.screens) for (const f of x.forms || []) out[f.form] = uniq([...(out[f.form] || []), x.id]); // one screen may use a form in several regions
     return out;
   }
+  const actionUcs = buildActionUcs(); // "SCR#ACT" -> use-case ids whose flows name the action (ui: lines)
+  function buildActionUcs() {
+    const out = {};
+    for (const u of D.useCases) for (const k of u.uiActions || []) (out[k] = out[k] || []).push(u.id);
+    return out;
+  }
   const screenUcs = (sid) => D.useCases.filter((u) => (u.screens || []).includes(sid)).map((u) => u.id);
 
   /** Which UI actions guard, reference or have an effect on a rule/quirk/gap or requirement. */
@@ -109,11 +115,12 @@
   }
 
   // ---------- state (hash) ----------
-  const state = { sel: [], view: "", tab: "uc", q: "" };
+  const state = { sel: [], view: "", tab: "uc", q: "", focus: "" };
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     state.sel = (p.get("sel") || "").split(",").filter((x) => ucById[x]);
     state.view = p.get("view") || (state.sel.length ? "merge" : "");
+    state.focus = p.get("f") || "";
   }
   function link(over) {
     const sel = over.sel ?? state.sel;
@@ -121,6 +128,7 @@
     if (sel.length) p.set("sel", sel.join(","));
     const view = over.view ?? state.view;
     if (view) p.set("view", view);
+    if (over.focus) p.set("f", over.focus);
     return `#${p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":").replace(/%23/g, "~")}`;
   }
   function go(over) { location.hash = link(over); }
@@ -242,6 +250,7 @@
     return `<h2>${esc(D.meta.title)}</h2><p class="lede">Built ${D.meta.built}. Tick use cases on the left to merge them; every item links to what references it.</p>
       <div class="grid">${[["Use cases", D.useCases.length], ["Drawn flows", flows], ["Capabilities", Object.keys(D.capabilities).length], ["Requirements", Object.keys(reqs).length], ["Rules", n("BR")], ["Quirks", n("QUIRK")], ["Gaps", n("GAP")], ["Questions", questions.length], ["Entities", Object.keys(D.entities).length], ...(UI.screens.length ? [["Screens", UI.screens.length], ["Forms", Object.keys(UI.forms).length]] : [])]
         .map(([l, v]) => `<div class="card"><div class="stat">${v}</div>${l}</div>`).join("")}</div>
+      ${D.ifml ? `<p>${ifmlLink("all", "IFML view of all screens")}</p>` : ""}
       <h3>Use cases</h3><table><tr><th>ID</th><th>Use case</th><th>Actor</th><th>Flow</th><th></th></tr>${D.useCases.map((u) =>
         `<tr><td class="idc">${u.id}</td><td><a href="${link({ view: `uc:${u.id}` })}">${esc(u.name)}</a></td><td>${esc(u.actor)}</td><td>${u.bpmnXml ? "BPMN" : "—"}</td><td>${selectButton(u.id)}</td></tr>`).join("")}</table>`;
   }
@@ -279,7 +288,7 @@
     return `<h2>Merged view</h2><p class="lede">${sel.length} use case${sel.length > 1 ? "s" : ""} — union of flows, requirements, rules and entities. Items used by more than one selected use case are marked <span class="badge shared">shared</span>.</p>
       <div class="chips">${sel.map((u) => `<span class="chip uc">${u.id} ${esc(u.name)} <button class="x" data-toggle="${u.id}" aria-label="Remove ${u.id}">×</button></span>`).join("")}</div>
       <h3>Flows</h3>${flowsHtml(sel)}
-      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml(sel)}` : ""}
+      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml(sel)}${ifmlLink("sel", "IFML view of the selection")}` : ""}
       <h3>Requirements (${Object.keys(reqCount).length})</h3>${reqHtml || "<p>None listed.</p>"}
       <h3>Rules, quirks and gaps (${Object.keys(refCount).length})</h3>${refRows ? `<table><tr><th>ID</th><th>Statement</th><th>Used by / source</th></tr>${refRows}</table>` : "<p>None.</p>"}
       <h3>Open questions (${mergeQs.length})</h3>${questionsTable(mergeQs, (qid) => usedBy((u) => (qById[qid].refs || []).some((r) => u.refSource[r])))}
@@ -326,7 +335,7 @@
     if (!u) return viewHome();
     return `<h2>${u.id} ${esc(u.name)}</h2><p class="lede">Actor: <b>${esc(u.actor)}</b> · Trigger: ${esc(u.trigger)}</p>${selectButton(u.id)}
       <h3>Flow</h3>${flowsHtml([u])}
-      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml([u])}` : ""}
+      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml([u])}${uiActionsOfUc(u)}${ifmlLink(u.id, "IFML view of this use case")}` : ""}
       <h3>Requirements</h3>${u.reqKeys.map((k) => reqs[k] ? `<details class="card"><summary>${esc(reqs[k].name)} <span class="cite">${esc(reqs[k].cap)}</span></summary><div class="text">${md(reqs[k].text)}</div>${cites(reqs[k].cites)}${scenariosHtml(reqs[k])}</details>` : "").join("")}
       <h3>Rules, quirks and gaps</h3><table><tr><th>ID</th><th>Statement</th><th>Source</th></tr>${u.allRefs.map((r) => `<tr><td class="idc"><a href="${link({ view: `item:${r}` })}">${r}</a><br>${kindBadge(r)}</td><td>${md(clip(D.items[r].statement, 600))}</td><td><span class="badge via">${u.refSource[r]}</span></td></tr>`).join("")}</table>
       <h3>Open questions</h3>${questionsTable(questionsFor(u.allRefs))}
@@ -423,11 +432,13 @@
     const rows = (a.effects || []).map((e) => `<li><span class="badge via">${esc(e.kind)}</span> <b>${esc(e.step || "")}</b> ${md(e.target || "")}${citeSpan(e.cite)} ${(e.refs || []).map(refChip).join("")}</li>`);
     return rows.length ? `<ol class="effects">${rows.join("")}</ol>` : "";
   }
-  function actionCard(a) {
+  function actionCard(a, sid) {
     const trig = a.trigger ? `${esc(a.trigger.kind || "")}${citeSpan(a.trigger.cite)}` : "—";
     const handler = a.handler ? `<code>${esc(a.handler.name)}</code>${citeSpan(a.handler.cite)}` : "—";
     const guards = (a.guards || []).length ? `<div class="chips"><span class="badge k-GAP">guards</span>${a.guards.map(refChip).join("")}</div>` : "";
-    return `<details class="card" id="${esc(a.id)}"><summary>${esc(a.label || a.id)} <span class="cite">${esc(a.id)}</span></summary>
+    const ucs = actionUcs[`${sid}#${a.id}`] || [];
+    const inFlows = ucs.length ? `<div class="chips"><span class="badge via">in flows of</span>${ucs.map(ucChip).join("")}</div>` : "";
+    return `<details class="card" id="${esc(a.id)}"${state.focus === a.id ? " open" : ""}><summary>${esc(a.label || a.id)} <span class="cite">${esc(a.id)}</span></summary>${inFlows}
       <table><tr><th>Trigger</th><td>${trig}</td></tr><tr><th>Handler</th><td>${handler}</td></tr></table>
       ${guards}${effectsHtml(a)}<div class="chips">${(a.refs || []).map(refChip).join("")}</div></details>`;
   }
@@ -450,11 +461,11 @@
     const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
     const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
     const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
-    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}
       <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
       <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
       ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
-      <h3>Actions (${(x.actions || []).length})</h3>${(x.actions || []).map(actionCard).join("")}
+      <h3>Actions (${(x.actions || []).length})</h3>${(x.actions || []).map((a) => actionCard(a, sid)).join("")}
       <h3>Dialogs (${dialogs.length})</h3>${rowsTable(["ID", "Kind", "Message", "Buttons", "From"], dialogs)}
       <h3>Navigation</h3>${rowsTable(["To", "Trigger", "Cite"], nav)}
       ${unmapped ? `<details class="card"><summary>Not modelled (${(x.unmapped || []).length})</summary><ul>${unmapped}</ul></details>` : ""}`;
@@ -486,6 +497,132 @@
         ${views ? `<tr><th>Views</th><td>${views}</td></tr>` : ""}</table>
       <h3>Screens</h3><div class="chips">${listOr((formScreens[fid] || []).map(scrChip), "None")}</div>
       <h3>Fields (${(f.fields || []).length})</h3><div class="scroll">${rowsTable(["Key", "Label", "Type", "Required", "Editable", "Computed", "Views", "Validations", "Defined in"], (f.fields || []).map(fieldRow))}</div>`;
+  }
+
+  // ---------- IFML ----------
+  function ifmlLink(arg, label) {
+    if (!D.ifml) return "";
+    return `<a class="chip ifml" href="${link({ view: `ifml:${arg}` })}">${esc(label)}</a>`;
+  }
+  function uiActionsOfUc(u) {
+    const keys = u.uiActions || [];
+    if (!keys.length) return "";
+    return `<h4>UI actions in its flows</h4><div class="chips">${keys.map((k) => {
+      const [sid, aid] = k.split("#");
+      const a = (scrById[sid]?.actions || []).find((x) => x.id === aid);
+      return `<a class="chip scr" href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(a?.label || aid)} <span class="cite">${esc(sid)}</span></a>`;
+    }).join("")}</div>`;
+  }
+  /** Screens shown for an IFML view argument: all | sel | UC-id | screen id. */
+  function ifmlScreens(arg) {
+    if (arg === "all") return UI.screens.map((x) => x.id);
+    if (arg === "sel") return uniq(state.sel.flatMap((id) => ucById[id].screens || []));
+    if (ucById[arg]) return ucById[arg].screens || [];
+    return scrById[arg] ? [arg] : [];
+  }
+  /** Highlighted actions (named by ui: lines of the shown use cases). */
+  function ifmlHighlight(arg) {
+    const ucs = arg === "sel" ? state.sel : ucById[arg] ? [arg] : [];
+    return new Set(ucs.flatMap((id) => ucById[id].uiActions || []));
+  }
+  const mLabel = (s, n = 42) => clip(String(s ?? ""), n).replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;");
+  /** Element subset + flows for a set of screens: {els, flows, nid} with mermaid-safe ids. */
+  function ifmlSubset(screens) {
+    const keep = new Set(screens);
+    const els = D.ifml.elements.filter((e) => keep.has(e.trace.screen));
+    const ids = new Set(els.map((e) => e.id));
+    const nid = Object.fromEntries(els.map((e, i) => [e.id, `n${i}`]));
+    const drawn = (id) => (id.startsWith("AE_") ? els.find((e) => e.id === id)?.parent : id);
+    const flows = D.ifml.flows.filter((f) => ids.has(f.source) && ids.has(f.target)).map((f) => ({ from: drawn(f.source), to: f.target, done: f.source.startsWith("AE_") }));
+    return { els, flows, nid };
+  }
+  const IFML_SHAPE = {
+    Form: (id, e, n) => `${id}["«Form» ${mLabel(e.name)}<br/>${n} fields"]:::form`,
+    // Events: compact stadium with a dot (Mermaid sizes circles to the label, which hides the layout).
+    OnSubmitEvent: (id, e) => `${id}(["● submit: ${mLabel(e.name, 28)}"]):::event`,
+    ViewElementEvent: (id, e) => `${id}(["● ${mLabel(e.name, 30)}"]):::event`,
+    Action: (id, e) => `${id}{{"«Action» ${mLabel(e.name, 32)}"}}:::action`,
+  };
+  function windowLines(w, sub) {
+    const forms = sub.els.filter((e) => e.parent === w.id && e.type === "Form");
+    const onForm = (e) => forms.some((f) => f.id === e.parent);
+    const events = sub.els.filter((e) => IFML_SHAPE[e.type] && /Event$/.test(e.type) && (e.parent === w.id || onForm(e)));
+    const inner = [...forms, ...events];
+    const title = `${w.attrs.isModal ? "«Modal»" : "«Window»"} ${mLabel(w.name, 48)}`;
+    if (!inner.length) return [`  ${sub.nid[w.id]}[/"${title}"/]:::modal`];
+    const fields = (e) => sub.els.filter((x) => x.parent === e.id && /Field$/.test(x.type)).length;
+    return [
+      `  subgraph ${sub.nid[w.id]}["${title}"]`,
+      "  direction TB",
+      ...inner.map((e) => `    ${IFML_SHAPE[e.type](sub.nid[e.id], e, fields(e))}`),
+      "  end",
+      ...events.filter(onForm).map((e) => `  ${sub.nid[e.parent]} -.- ${sub.nid[e.id]}`),
+    ];
+  }
+  function ifmlText(sub, hi) {
+    const lines = ["flowchart LR"];
+    for (const w of sub.els.filter((e) => e.type === "Window")) lines.push(...windowLines(w, sub));
+    for (const a of sub.els.filter((e) => e.type === "Action")) lines.push(`  ${IFML_SHAPE.Action(sub.nid[a.id], a)}`);
+    for (const f of sub.flows) lines.push(`  ${sub.nid[f.from]} ${f.done ? '-->|"done"|' : "-->"} ${sub.nid[f.to]}`);
+    const guarded = sub.els.filter((e) => e.attrs.activationExpression).map((e) => sub.nid[e.id]);
+    const hot = sub.els.filter((e) => hi.has(`${e.trace.screen}#${e.trace.action}`) && /Event|Action/.test(e.type)).map((e) => sub.nid[e.id]);
+    lines.push("  classDef form fill:#eef5ff,stroke:#0b5cad", "  classDef event fill:#fff,stroke:#333", "  classDef action fill:#fff4e5,stroke:#b03a1a", "  classDef modal fill:#fff,stroke:#6a4c93,stroke-dasharray:4 3", "  classDef guarded stroke:#b03a1a,stroke-width:3px", "  classDef hot fill:#e6f4ea,stroke:#1f6f43,stroke-width:3px");
+    if (guarded.length) lines.push(`  class ${guarded.join(",")} guarded`);
+    if (hot.length) lines.push(`  class ${uniq(hot).join(",")} hot`);
+    for (const w of sub.els.filter((e) => e.type === "Window" && e.attrs.isModal && sub.els.some((k) => k.parent === e.id))) lines.push(`  style ${sub.nid[w.id]} stroke-dasharray:4 3`);
+    return lines.join("\n");
+  }
+  /** Where a click on an IFML element goes. */
+  function ifmlTarget(e) {
+    if (e.trace.form && !e.trace.field && UI.forms[e.trace.form]) return link({ view: `form:${e.trace.form}` });
+    return link({ view: `scr:${e.trace.screen}`, focus: e.trace.action || e.trace.dialog || "" });
+  }
+  function ifmlTable(sub) {
+    const shown = sub.els.filter((e) => ["Window", "Form", "OnSubmitEvent", "ViewElementEvent", "Action"].includes(e.type));
+    return `<table><tr><th>IFML</th><th>Name</th><th>Trace</th></tr>${shown.map((e) => `<tr><td><span class="badge via">${esc(e.type)}</span>${e.attrs.activationExpression ? ' <span class="badge k-GAP">guarded</span>' : ""}</td><td><a href="${ifmlTarget(e)}">${esc(e.name)}</a></td><td class="cite">${esc([e.trace.screen, e.trace.action || e.trace.dialog || e.trace.form].filter(Boolean).join(" › "))}</td></tr>`).join("")}</table>`;
+  }
+  function viewIfml(arg) {
+    if (!D.ifml) return viewHome();
+    const screens = ifmlScreens(arg);
+    const sub = ifmlSubset(screens);
+    const scope = arg === "all" ? "all screens" : arg === "sel" ? `selected use cases (${state.sel.join(", ") || "none"})` : arg;
+    return `<h2>IFML view</h2><p class="lede">Interaction Flow Modeling Language (OMG IFML 1.0) projection of the UI model — ${esc(scope)}: ${screens.length} screen(s), ${sub.els.length} elements, ${sub.flows.length} flows. Windows hold forms and events (● rounded); events trigger actions (hexagons); <span class="badge k-GAP">guarded</span> events have an activation expression; green = action named by the use case flows.</p>
+      <div class="chips">${ifmlLink("all", "All screens")}${state.sel.length ? ifmlLink("sel", "Selected use cases") : ""}<button class="chip" data-xmi>Download IFML XMI</button></div>
+      <div class="er" data-ifml="${esc(arg)}"></div>
+      <h3>Elements</h3>${ifmlTable(sub)}`;
+  }
+  let ifmlSeq = 0;
+  async function drawIfml() {
+    const el = document.querySelector("[data-ifml]");
+    if (!el) return;
+    const arg = el.dataset.ifml;
+    const sub = ifmlSubset(ifmlScreens(arg));
+    if (!sub.els.length) { el.textContent = "No screen in scope."; return; }
+    const text = ifmlText(sub, ifmlHighlight(arg));
+    if (!window.mermaid) { el.innerHTML = `<div class="notice">Diagram viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(text)}</pre>`; return; }
+    try {
+      const { svg } = await window.mermaid.render(`ifml${++ifmlSeq}`, text);
+      el.innerHTML = svg;
+      wireIfmlClicks(el, sub);
+    } catch (e) { el.innerHTML = `<div class="notice">IFML render failed: ${esc(e.message || e)}</div><pre>${esc(text)}</pre>`; }
+  }
+  function wireIfmlClicks(el, sub) {
+    const byNid = Object.fromEntries(sub.els.map((e) => [sub.nid[e.id], e]));
+    for (const g of el.querySelectorAll("g.node, g.cluster")) {
+      const m = (g.id || "").match(/(?:^|-)(n\d+)(?:-|$)/);
+      const e = m && byNid[m[1]];
+      if (!e) continue;
+      g.style.cursor = "pointer";
+      g.addEventListener("click", () => { location.hash = ifmlTarget(e); });
+    }
+  }
+  function downloadXmi() {
+    const url = URL.createObjectURL(new Blob([D.ifmlXmi], { type: "application/xml" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${D.meta.title.replace(/[^\w.-]+/g, "_")}.ifml.xmi`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   // ---------- diagrams ----------
@@ -554,7 +691,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
@@ -565,11 +702,14 @@
     const flow = $("flow");
     if (flow) void drawFlow(flow.dataset.uc);
     void drawEr();
+    void drawIfml();
+    if (state.focus) document.getElementById(state.focus)?.scrollIntoView({ block: "start" });
   }
 
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow]");
+    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi]");
     if (!t) return;
+    if ("xmi" in t.dataset) { downloadXmi(); return; }
     if (t.dataset.tab) { state.tab = t.dataset.tab; renderTabs(); renderList(); return; }
     if (t.dataset.flow) { void drawFlow(t.dataset.flow); return; }
     if ("clear" in t.dataset) { go({ sel: [], view: "" }); return; }

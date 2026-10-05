@@ -3,6 +3,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
@@ -77,6 +78,20 @@ function itemCapabilities(item, known) {
   return [...new Set([...fromList, ...fromSpec, ...fromAffects])].filter((c) => known.has(c));
 }
 
+export const packageTitle = (pkgDir) => (readIf(join(pkgDir, "README.md")).match(/^# (.+)$/m)?.[1] ?? "Rebuild package").trim();
+
+const UI_LINE_RE = /(?<![\w-])ui:\s*([\w.-]+)#([\w.-]+)/g;
+/** `ui: <screen>#<action>` lines of a use case's flows -> keys; unknown ones reported. */
+function uiActionsOf(uc, ui, errors) {
+  const xml = [uc.bpmnXml, ...uc.altFlows.map((f) => f.bpmnXml)].filter(Boolean).join("\n");
+  const keys = [...new Set([...xml.matchAll(UI_LINE_RE)].map((m) => `${m[1]}#${m[2]}`))];
+  for (const k of keys) {
+    const [sid, aid] = k.split("#");
+    if (!ui.screens.find((s) => s.id === sid)?.actions?.some((a) => a.id === aid)) errors.push(`${uc.id}: ui line names unknown screen action ${k}`);
+  }
+  return keys;
+}
+
 /** Assemble the catalog data object. Returns {data, errors}. */
 export function buildCatalog(pkgDir) {
   const errors = [];
@@ -110,7 +125,7 @@ export function buildCatalog(pkgDir) {
   errors.push(...checkUseCases(pkgDir, useCases, model));
   const ui = readUi(pkgDir);
   errors.push(...checkUi(pkgDir, ui));
-  const title = (readIf(join(pkgDir, "README.md")).match(/^# (.+)$/m)?.[1] ?? "Rebuild package").trim();
+  const title = packageTitle(pkgDir);
   const data = {
     meta: { title, built: new Date().toISOString().slice(0, 10) },
     capabilities,
@@ -122,11 +137,20 @@ export function buildCatalog(pkgDir) {
     useCases: useCases.map((uc) => {
       const b = bpmnFor(diagDir, uc);
       const docRefs = b.bpmnXml ? [...new Set(b.bpmnXml.match(REF_RE) ?? [])] : [];
-      return { ...uc, ...b, altFlows: altFlowsFor(diagDir, uc), bpmnRefs: docRefs.filter((r) => items[r]) };
+      const full = { ...uc, ...b, altFlows: altFlowsFor(diagDir, uc), bpmnRefs: docRefs.filter((r) => items[r]) };
+      return { ...full, uiActions: uiActionsOf(full, ui, errors) };
     }),
+    ...ifmlData(ui, title),
   };
   return { data, errors };
 }
+
+/** IFML graph + XMI when the package has a UI model. */
+const ifmlData = (ui, title) => {
+  if (!ui.screens.length) return { ifml: null, ifmlXmi: "" };
+  const ifml = buildIfml(ui);
+  return { ifml, ifmlXmi: ifmlToXmi(ifml, title) };
+};
 
 const inlineScript = (s) => s.replace(/<\/script/gi, "<\\/script");
 
