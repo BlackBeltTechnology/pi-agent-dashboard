@@ -47,14 +47,13 @@ if (-not (Test-Path $loaderPath)) {
 }
 $loaderUrl = "file:///" + ($loaderPath -replace '\\','/')
 
-# Entry: jiti's JITI VERSION CONTRACT requires the RAW Windows path; the
-# native loader gets a file:// URL so A:/B: drives are not parsed as URL schemes.
-$cliPath = Join-Path $svrDir 'packages\server\src\cli.ts'
-if (-not (Test-Path $cliPath)) {
-  Write-Error "Bundled cli.ts not found at: $cliPath"
+# Entry: RAW Windows path for both loaders (Node path.resolve()s the main
+# entry, so a file:// entry breaks; jiti also misnormalises file:/// URLs).
+$cli = Join-Path $svrDir 'packages\server\src\cli.ts'
+if (-not (Test-Path $cli)) {
+  Write-Error "Bundled cli.ts not found at: $cli"
   exit 1
 }
-$cli = if ($useJiti) { $cliPath } else { "file:///" + ($cliPath -replace '\\','/') }
 
 # Default subcommand = "start" when invoked with no args
 $childArgs = if ($args.Count -eq 0) { @('start') } else { $args }

@@ -6,8 +6,3 @@ export declare function selectTsLoader(
   warn?: (msg: string) => void,
 ): TsLoaderKind;
 export declare function resolveNativeTsLoader(opts?: { anchor?: string }): string;
-export declare function wrapperEntryArg(
-  kind: TsLoaderKind,
-  entry: string,
-  platform?: NodeJS.Platform,
-): string;

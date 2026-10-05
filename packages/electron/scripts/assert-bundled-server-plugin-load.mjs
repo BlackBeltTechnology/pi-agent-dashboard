@@ -70,13 +70,12 @@ export function bundleLayout(root, platform = process.platform, env = process.en
 
 /**
  * `node` argv for the bundled CLI: `--import <loader URL> <entry> ...args`.
- * Entry rule mirrors `shouldUrlWrapEntry`: jiti → raw path everywhere;
- * native → `file://` on win32 (A:/B: drive safety), raw on POSIX.
+ * Entry is RAW for both loaders on every OS (mirrors `shouldUrlWrapEntry`):
+ * Node `path.resolve()`s the main entry, so a `file://` entry breaks.
  */
 export function bootArgv(layout, args, platform = process.platform) {
-  const toUrl = (p) => (platform === "win32" ? `file:///${p.replace(/\\/g, "/")}` : pathToFileURL(p).href);
-  const entry = layout.loaderKind === "native" && platform === "win32" ? toUrl(layout.cli) : layout.cli;
-  return ["--import", toUrl(layout.loader), entry, ...args];
+  const loaderUrl = platform === "win32" ? `file:///${layout.loader.replace(/\\/g, "/")}` : pathToFileURL(layout.loader).href;
+  return ["--import", loaderUrl, layout.cli, ...args];
 }
 
 /**

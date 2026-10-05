@@ -4,9 +4,12 @@ Stage: design   Generated: 2026-10-05
 
 Hard gate resolved (2 clarifications answered):
 - **P1 threshold.** The 22.04 smoke hard-fails at 90 s. The timing table is informational.
-- **Windows.** Native-loader verification on Windows is L2 automated. Extend
+- **Windows.** Native-loader verification on Windows is L2. *(Ship-time decision, 2026-10-05: no
+  Windows VM on the shipping host; the win32-x64 CI Electron leg's native boot (plugin-load gate,
+  `C:` path) is accepted as the pre-ship Windows gate, and the `subst B:` VM run of
+  `qa/tests/02-server-start.ps1` is a manual follow-up — X4 is `manual-only`.)* Extend
   `qa/tests/02-server-start.ps1` with a native header check, health, and a `subst B:` launch, and
-  run it on the QA VM before ship.
+  run it on the QA VM (manual follow-up; see above).
 
 ---
 
@@ -28,9 +31,9 @@ Hard gate resolved (2 clarifications answered):
 | E10 | server-launch: jiti opt-in unchanged | EP | L1 | automated | `PI_DASHBOARD_TS_LOADER=jiti`, `_resolveJiti` → `file:///j/jiti-register.mjs` | `launchDashboardServer` | argv loader `file:///j/jiti-register.mjs`; entry raw on win32 and POSIX (same as pre-change) |
 | E11 | server-launch: native launch does not require jiti | EP | L1 | automated | env unset, `_resolveJiti` → null | `launchDashboardServer` | resolves without throwing `JitiNotFoundError`; with `PI_DASHBOARD_TS_LOADER=jiti` the same input throws `JitiNotFoundError` |
 | E12 | dashboard-server: `isNativeTsLoader` identity | EP | L1 | automated | `file:///…/pi-dashboard-shared/src/platform/native-ts-register.mjs`; `C:\x\…\platform\native-ts-register.mjs`; `/x/other-pkg/native-ts-register.mjs`; a jiti URL | `isNativeTsLoader` / `isJitiLoader` / `isTsxLoader` | true, true, false, false for native; jiti/tsx false on the native inputs |
-| E13 | server-launch: entry-wrap rule for native | decision-table | L1 | automated | loader = native URL; platform ∈ {win32, linux, darwin}; entry `B:\Dev\cli.ts` / `/x/cli.ts` | `buildNodeImportArgvParts` | win32 → entry `file:///B:/Dev/cli.ts`; POSIX → raw; loader always `file://` |
+| E13 | server-launch: entry-wrap rule for native | decision-table | L1 | automated | loader = native URL; platform ∈ {win32, linux, darwin}; entry `B:\Dev\cli.ts` / `/x/cli.ts` | `buildNodeImportArgvParts` | entry raw on every platform (D8 revised); loader always `file://` |
 | E14 | dashboard-server: bin wrapper default loader | EP | L1 | automated | wrapper run with env unset, the spawn captured (existing wrapper-test seam) | `pi-dashboard status` | child argv `--import <native-ts-register URL> …/cli.ts status`; no jiti lookup performed |
-| E15 | dashboard-server: bin wrapper mirrors entry-wrap | decision-table | L1 | automated | `process.platform` ∈ {win32, linux} × loader ∈ {native, jiti} | wrapper builds the child argv | native+win32 → `file://` entry; jiti → raw; linux → raw. A parity assertion compares the result with `shouldUrlWrapEntry` for all 4 cells |
+| E15 | dashboard-server: bin wrapper mirrors entry-wrap | decision-table | L1 | automated | `process.platform` ∈ {win32, linux} × loader ∈ {native, jiti} | wrapper builds the child argv | every cell → raw entry (D8 revised). A parity assertion compares the result with `shouldUrlWrapEntry` for all 4 cells |
 | E16 | electron-launch-source: CLI wrapper fails loud only for the selected loader | decision-table | L1 | automated | jiti unresolvable × env ∈ {unset, `jiti`} × argv ∈ {`start`, `--version`} | wrapper run | unset+start → native exec, no "cannot find jiti"; jiti+start → stderr `pi-dashboard: cannot find jiti.`, exit 1; `--version` → prints version, exit 0, in both cases |
 | E17 | server-launch: worker threads keep the loader | EP | L1 | automated | `process.execArgv = ["--import", <native URL>]`; `.ts` worker entry | `workerExecArgv` (fit-worker-pool) | returns the inherited argv unchanged; `resolveJiti` not called |
 | E18 | server-launch: worker without any TS loader | EP | L1 | automated | `process.execArgv = []`, env unset | `workerExecArgv` | prepends `--import <native URL>`; with `PI_DASHBOARD_TS_LOADER=jiti` prepends the jiti URL |
@@ -68,7 +71,7 @@ Hard gate resolved (2 clarifications answered):
 | X1 | native-ts-loader: old Node guard | fault-injection (abort) | L1 | automated | a preload that deletes `module.stripTypeScriptTypes` before the register module runs | `node --import <preload> --import native-ts-register.mjs x.ts` | exit ≠ 0; stderr contains `PI_DASHBOARD_TS_LOADER=jiti` |
 | X2 | native-ts-loader: unsupported syntax surfaces | fault-injection (abort) | L1 | automated | fixture `.ts` using `import x = require("y")` | run under the native loader | exit ≠ 0; stderr names the fixture file (no silent hang) |
 | X3 | electron-build-pipeline: slow boot is attributable | fault-injection (delay) | electron | automated | boot that never reaches health within 90 s (exercised by the throwaway-branch dispatch with a forced `PI_DASHBOARD_TS_LOADER=jiti`, per skill `validate-ci-workflow-pre-merge`) | the 90 s loop expires | step fails; log contains the timing rows reached so far and the de-noised server log |
-| X4 | server-launch: Windows native launch incl. `B:` drive | fault-injection (environment) | L2 | automated | Windows QA VM; dashboard install mapped with `subst B: <install-root>` | `qa/tests/02-server-start.ps1` starts the server from `B:` with env unset | `/api/health` 200; `server.log` header names `native-ts-register.mjs`; no `ERR_UNSUPPORTED_ESM_URL_SCHEME` |
+| X4 | server-launch: Windows native launch incl. `B:` drive | fault-injection (environment) | L2 | manual-only | Windows QA VM; dashboard install mapped with `subst B: <install-root>` | `qa/tests/02-server-start.ps1` starts the server from `B:` with env unset | `/api/health` 200; `server.log` header names `native-ts-register.mjs`; no `ERR_UNSUPPORTED_ESM_URL_SCHEME` |
 | X5 | server-launch: jiti rollback on a fresh launch | state-transition | L2 | automated | Linux qa VM, server running native | `pi-dashboard stop`, then `PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start` | `/api/health` 200; the server.log header for the second launch names `jiti-register.mjs` |
 
 ---

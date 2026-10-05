@@ -56,9 +56,9 @@ try {
 
                 # --- Native TS loader on Windows, incl. a B: drive (test-plan #X4) ---
                 # See change: fix-appimage-cold-boot-latency. The default launch
-                # boots on native-ts-register.mjs with a file:// URL-wrapped entry
-                # (A:/B: drive letters would otherwise parse as URL schemes ->
-                # ERR_UNSUPPORTED_ESM_URL_SCHEME).
+                # boots on native-ts-register.mjs with a RAW entry path; the B:
+                # relaunch below checks that a raw drive-letter entry is not
+                # parsed as a URL scheme (ERR_UNSUPPORTED_ESM_URL_SCHEME).
                 $logPath = Join-Path $env:USERPROFILE ".pi\dashboard\server.log"
                 function Get-LastLaunchHeader {
                     (Get-Content $logPath -ErrorAction SilentlyContinue | Select-String -SimpleMatch "launch (parent pid" | Select-Object -Last 1).Line

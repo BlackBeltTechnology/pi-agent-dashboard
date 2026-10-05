@@ -4228,7 +4228,7 @@ Every fresh server launch boots the Node-native TS loader by default: `@blackbel
 
 **`/api/restart`** keeps running loader → loader switch needs fresh launch (`pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start`, or Electron relaunch).
 
-**Entry wrap:** native → `file://` entry on win32 (A:/B: drives), raw on POSIX; jiti → raw always (`shouldUrlWrapEntry`).
+**Entry wrap:** entry raw for native AND jiti on every OS (`shouldUrlWrapEntry` false for both); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
 
 **Loader-neutral source:** server-loaded TS must not use bare `require`/`__dirname`/`__filename`/`module.exports`/`exports.` nor value-import `.tsx`; use `createRequire(import.meta.url)`. Gate: `scripts/check-loader-neutral-source.mjs` (AST, wired into `npm test`).
 
@@ -5289,7 +5289,7 @@ Pre-fix, both cases shared the misleading wording "Server failed to start within
 
 ### The runtime jiti version contract (Defect 2 defense)
 
-`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. The Windows-non-tsx arm wraps with `file://` to sidestep Node's drive-letter URL-scheme parsing (`B:`, `A:` are otherwise treated as URL schemes). This rule **assumes** the jiti loader is from `pi-coding-agent@0.70.x` (jiti 2.x), which correctly handles `file:///` URL entries on Windows. Newer jiti versions (2.6.5 in pi 0.71.x) misnormalize triple-slash URLs.
+`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. The Windows-non-tsx arm wraps with `file://` to sidestep Node's drive-letter URL-scheme parsing (`B:`, `A:` are otherwise treated as URL schemes). This rule **assumes** the jiti loader is from `pi-coding-agent@0.70.x` (jiti 2.x), which correctly handles `file:///` URL entries on Windows. Newer jiti versions (2.6.5 in pi 0.71.x) misnormalize triple-slash URLs. Native loader (`platform/native-ts-register.mjs`) also exempt — entry raw every OS. See change: `fix-appimage-cold-boot-latency`.
 
 The contract holds because Defect 1's fix populates `~/.pi-dashboard/` with `pi-coding-agent` at the offline-cacache-pinned version. The runtime `resolveJitiFromPi()` chain is `managed → system`; once managed is populated with the pinned version, system pi (which may be a newer 0.71.x) is never reached.
 

@@ -9,10 +9,6 @@
 //   - `resolveNativeTsLoader({ anchor })` → `file://` URL of
 //     `native-ts-register.mjs`. With an anchor, resolve by package specifier
 //     from it (D2); otherwise / on failure, the copy shipped beside this file.
-//   - `wrapperEntryArg(kind, entry, platform)` → the entry argv token for the
-//     pre-loader wrapper. Plain-JS mirror of `shouldUrlWrapEntry` +
-//     `toFileUrl` in node-spawn.ts (jiti: raw; native: `file://` on win32,
-//     raw on POSIX). An L1 parity test pins the mirror (D8).
 //
 // See change: fix-appimage-cold-boot-latency (design D1, D2).
 import { createRequire } from "node:module";
@@ -42,7 +38,3 @@ export function resolveNativeTsLoader(opts = {}) {
   return new URL("./native-ts-register.mjs", import.meta.url).href;
 }
 
-export function wrapperEntryArg(kind, entry, platform = process.platform) {
-  if (kind === "jiti" || platform !== "win32") return entry;
-  return pathToFileURL(entry, { windows: true }).href;
-}

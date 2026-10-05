@@ -115,10 +115,9 @@ export function isJitiLoader(loader: string | null | undefined): boolean {
 /**
  * Detect the dashboard's Node-native TypeScript loader
  * (`…/platform/native-ts-register.mjs`, either separator). Used by worker
- * spawners to see that a TS loader is already present in `execArgv`.
- * Native is neither tsx nor jiti, so `shouldUrlWrapEntry` keeps the default
- * rule for it (URL-wrapped on win32, raw on POSIX).
- * See change: fix-appimage-cold-boot-latency (design D8).
+ * spawners to see that a TS loader is already present in `execArgv`, and by
+ * `shouldUrlWrapEntry` to pass the native loader's entry RAW on every OS.
+ * See change: fix-appimage-cold-boot-latency (design D8, revised).
  */
 export function isNativeTsLoader(loader: string | null | undefined): boolean {
   if (!loader) return false;
@@ -132,6 +131,12 @@ export function isNativeTsLoader(loader: string | null | undefined): boolean {
  *   - tsx loader: always raw path (tsx rejects file:// entries on every OS)
  *   - jiti loader: always raw path (jiti misnormalises file:// URL
  *     entries on Windows — see the JITI VERSION CONTRACT below)
+ *   - native loader (`platform/native-ts-register.mjs`): always raw path.
+ *     Verified on windows-latest (CI run 37347903583): with any `--import`
+ *     loader, Node runs the main entry through `path.resolve()` before
+ *     building its URL, so a `file:///D:/…` entry became
+ *     `D:\<cwd>\file:\D:\…\cli.ts` → ERR_MODULE_NOT_FOUND.
+ *     See change: fix-appimage-cold-boot-latency (design D8, revised).
  *   - any loader on POSIX: raw path (no drive-letter / URL-scheme collision)
  *   - other / default Node resolver on Windows: file:// URL
  *     (Node parses drive letters like `B:` / `A:` as URL schemes in argv
@@ -174,6 +179,7 @@ export function shouldUrlWrapEntry(
 ): boolean {
   if (isTsxLoader(loader)) return false;
   if (isJitiLoader(loader)) return false;
+  if (isNativeTsLoader(loader)) return false;
   return platform === "win32";
 }
 

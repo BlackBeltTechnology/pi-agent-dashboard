@@ -151,9 +151,12 @@ describe('selected TS loader (E31)', () => {
     expect(bundleLayout(root, 'linux', {}).missing).toEqual([join(root, ...NATIVE_REL)]);
   });
 
-  it('native on win32 URL-wraps the entry; jiti keeps it raw', () => {
+  it('the entry stays raw for both loaders on win32 (Node path.resolve()s the main entry)', () => {
     const layout = { loader: 'C:\\b\\native-ts-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts', jiti: 'C:\\b\\jiti-register.mjs' };
-    expect(bootArgv({ ...layout, loaderKind: 'native' }, [], 'win32')[2]).toBe('file:///B:/b/packages/server/src/cli.ts');
-    expect(bootArgv({ ...layout, loaderKind: 'jiti' }, [], 'win32')[2]).toBe(layout.cli);
+    for (const loaderKind of ['native', 'jiti']) {
+      const argv = bootArgv({ ...layout, loaderKind }, [], 'win32');
+      expect(argv[1]).toBe('file:///C:/b/native-ts-register.mjs');
+      expect(argv[2]).toBe(layout.cli);
+    }
   });
 });

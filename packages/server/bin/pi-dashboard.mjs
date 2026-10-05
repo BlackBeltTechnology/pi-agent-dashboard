@@ -134,14 +134,14 @@ if (!loader) {
 }
 
 // Mirrors shouldUrlWrapEntry() in packages/shared/src/platform/node-spawn.ts:
-// jiti misnormalises file:/// URL entries on Windows (verified live on
-// Node 22.18.0 + jiti 2.7.0 in a standalone install — the entry gets
-// re-prepended with cwd as if it were a relative specifier), so jiti gets
-// the RAW path on every platform. The native loader keeps Node's default
-// rule: `file://` on win32 (A:/B: drive safety), raw on POSIX. The mirror
-// lives in `wrapperEntryArg` (ts-loader-select.mjs), pinned by a parity
-// test. See changes: fix-windows-standalone-spawn, fix-appimage-cold-boot-latency.
-const entry = loaderKind === "jiti" ? cliPath : tsLoaderSelect.wrapperEntryArg(loaderKind, cliPath);
+// the entry is passed RAW for both loaders, on every platform. jiti
+// misnormalises file:/// URL entries on Windows (verified live on Node 22.18.0
+// + jiti 2.7.0), and with any `--import` loader Node itself runs the main
+// entry through `path.resolve()` first, so a `file:///D:/…` entry becomes a
+// cwd-relative path (native loader, windows-latest CI run 37347903583).
+// Node's drive-letter heuristic handles raw `C:\…` entries directly.
+// See changes: fix-windows-standalone-spawn, fix-appimage-cold-boot-latency.
+const entry = cliPath;
 
 // Heap ceiling for the standalone launch path, from `serverHeap.maxOldSpaceMb`.
 //

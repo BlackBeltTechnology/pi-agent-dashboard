@@ -12,8 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { realpathSync, symlinkSync } from "node:fs";
-import { wrapperEntryArg } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
-import { shouldUrlWrapEntry, toFileUrl } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { shouldUrlWrapEntry } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
 
 const here = path.dirname(url.fileURLToPath(import.meta.url));
 const wrapperPath = path.resolve(here, "..", "..", "bin", "pi-dashboard.mjs");
@@ -209,19 +208,21 @@ describe("bin/pi-dashboard.mjs — TS loader selection", () => {
     expect(child.argv.slice(1)).toEqual(["status"]);
   }, 60_000);
 
-  it("E15: wrapperEntryArg mirrors shouldUrlWrapEntry in all 4 cells", () => {
+  // E15 — the wrapper passes `cliPath` raw for both loaders; that mirror holds
+  // only while `shouldUrlWrapEntry` is false for native AND jiti on every OS.
+  // (design D8, revised: Node path.resolve()s the main entry, so a file://
+  // entry breaks every Windows launch — win32 CI run 37347903583.)
+  it("E15: shouldUrlWrapEntry agrees with the wrapper's raw entry in all 4 cells", () => {
     const loaders = {
       native: "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs",
       jiti: "file:///x/node_modules/jiti/lib/jiti-register.mjs",
     } as const;
     for (const platform of ["win32", "linux"] as const) {
       for (const kind of ["native", "jiti"] as const) {
-        const entry = platform === "win32" ? "B:\\Dev\\cli.ts" : "/x/cli.ts";
-        const wrap = shouldUrlWrapEntry(loaders[kind], platform);
-        expect(wrapperEntryArg(kind, entry, platform)).toBe(wrap ? toFileUrl(entry) : entry);
+        expect(shouldUrlWrapEntry(loaders[kind], platform), `${kind}/${platform}`).toBe(false);
       }
     }
-    expect(wrapperEntryArg("native", "B:\\Dev\\cli.ts", "win32")).toBe("file:///B:/Dev/cli.ts");
+    expect(readFileSync(wrapperPath, "utf-8")).toMatch(/^const entry = cliPath;$/m);
   });
 
   it("E16: missing jiti is fatal only for the jiti opt-in; --version never needs a loader", () => {
