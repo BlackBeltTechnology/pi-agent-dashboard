@@ -23,6 +23,7 @@
     "@blackbelt-technology/pi-dashboard-web": "^0.8.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-oidc-context": "^3.3.1",
     "wouter": "^3.9.0"
   },
   "devDependencies": {

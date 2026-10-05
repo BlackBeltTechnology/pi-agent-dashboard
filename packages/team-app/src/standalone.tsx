@@ -17,12 +17,12 @@ import { type ReactNode, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AuthProvider } from "react-oidc-context";
 import { Router } from "wouter";
-import { TeamApp } from "./TeamApp.js";
-import teamApp from "./team-app.js";
 import { useT } from "./i18n/index.js";
 import { Gate } from "./shell/Gate.js";
 import { SeamIdentityProvider } from "./shell/seam-identity.js";
 import { useTeam } from "./state/team-store.js";
+import { TeamApp } from "./TeamApp.js";
+import teamApp from "./team-app.js";
 import { Icon } from "./ui/icons.js";
 import "./styles/index.css";
 

@@ -3,9 +3,9 @@
  * admin + owner gates and caps. See change: add-team-plugin.
  */
 import type { Access } from "./access.js";
-import type { ProjectRegistry } from "./projects.js";
-import { LIMITS, type PersonaRules, suffixedSlug, validatePersonaInput } from "./persona.js";
 import { isSlug, parsePersonaKey } from "./paths.js";
+import { LIMITS, type PersonaRules, suffixedSlug, validatePersonaInput } from "./persona.js";
+import type { ProjectRegistry } from "./projects.js";
 import type { PersonaStore as FsPersonaStore } from "./store.js";
 import { type Caller, type Persona, type PersonaScope, type TeamConfig, TeamError, WORKSPACE_TARGET } from "./types.js";
 
@@ -132,6 +132,7 @@ export class PersonaService {
     this.d.store.remove(key, caller.uk);
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   fork(caller: Caller, key: string, body: unknown): Omit<Persona, "owner"> {
     const src = this.d.store.get(key, caller.uk);
     if (!src) throw new TeamError(404, "persona_not_found");

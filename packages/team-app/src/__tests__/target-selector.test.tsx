@@ -7,10 +7,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { describe, expect, it } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
-import teamApp from "../team-app.js";
 import { TargetSelector } from "../shell/TargetSelector.js";
-import { TeamApp } from "../TeamApp.js";
 import { targetStore } from "../state/target-store.js";
+import { TeamApp } from "../TeamApp.js";
+import teamApp from "../team-app.js";
 import { bootRoutes, json, makeHost, project, renderApp } from "./helpers.js";
 
 const PROJECTS = [project("billing", { name: "billing-api" }), project("crm", { name: "crm-web", available: false })];

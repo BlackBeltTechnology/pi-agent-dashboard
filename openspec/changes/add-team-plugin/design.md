@@ -518,6 +518,34 @@ in a project also lists team sessions; the dashboard UI stays owner-filtered
 No latency budget is set for Phase 1 (decision 2026-10-03); `GET /agents` stays one
 `listAll` pass plus per-user record reads.
 
+**D18 — Implementation notes and scope decisions** (2026-10-05, during implementation).
+
+- **Minimal `AppHost` lands here.** `add-plugin-app-host` was unimplemented when this change was built, so the
+  `AppHost` contract (types, `defineDashboardApp`, `AppHostProvider`/`useAppHost`, `createStandaloneHost`,
+  `StandaloneBar`) now lives in `packages/app-kit/src/react/app-host.tsx` (decision with the user). The embedded host
+  (`EmbeddedApp`, `shell-overlay-route` `presentation: "content"`, the global sidebar-entry slot) stays with
+  `add-plugin-app-host`; it plugs into the same interface. Until then the plugin registers only the
+  `sidebar-folder-section` claim and the folder row / "Csapat" item open `/apps/team/?project=<id>` in a new tab
+  (D17 fallback; `hasEmbeddedHost()` flips it when `EmbeddedApp` exists). The app's `HeaderContext`, locked folder chip
+  and "Teljes csapat" action (`host.setActions`) are already host-driven and tested against a fake embedded host.
+- **Standalone config is base-scoped**: `createStandaloneHost` reads `<basePath>/config.json` (never the dashboard's own
+  `/config.json`, which a host without a client build answers `500`).
+- **Host ref shape.** The host stores the whole ref the plugin filed under `session.pluginRefs.<pluginId>`, i.e.
+  `{ team: { personaKey, project, conversationId, uk, runId }, principalOwner }`; reuse checks read `pluginRefs.team.team`.
+- **`personaStale` only for live sessions.** A sleeping (idle-ended or just restarted) conversation already picks the
+  current persona up on its next start, so "Restart to apply" is shown only while a session is live.
+- **Resume edge cases.** A session the host no longer knows is resumed when the recorded transcript exists (our record sits
+  under the user's own folder and only this plugin writes it); a conversation that never completed a turn and has no
+  transcript starts fresh under the same id instead of `409 conversation_unrecoverable`.
+- **Replay detection** for `onEvent`: `event.replay === true` or a timestamp older than 120 s is treated as replayed history.
+- **API additions** (additive): `GET /me` returns `maxConversations` + the skill-catalog names; `POST /projects/match` rows carry
+  `manageable` (admin ∧ folder-enabled). The app starts on the remembered target, else the first available project, else `_ws`.
+- **Sign-in** reuses the dashboard's own login library (`dashboard-login.ts`: PKCE, handoff exchange, `signOutTarget`) through the
+  `@dash` alias; the team API is never called before the identity layer reports a credential (or none is needed).
+- **E2E** runs on the identity-matrix lifecycle (one private dashboard, fake OIDC issuer with the real interactive flow, real pi,
+  a local OpenAI-compatible fake provider that records provider-bound prompts and replays tool calls): `playwright.team.config.ts`,
+  `npm run test:e2e:team`. The docker identity overlay extension (task 6.2) and the own-origin standalone E2E are not done.
+
 ## Risks / Trade-offs
 
 - [Logical isolation only] → file tools confined, tool names gated, `full` (bash) only in

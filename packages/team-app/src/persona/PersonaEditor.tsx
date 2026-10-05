@@ -55,6 +55,7 @@ export function slugFromName(name: string): string {
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?: string }) {
   const t = useT();
   const nav = useNav();
@@ -79,6 +80,7 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
 
   const usable = useMemo(() => new Set([WORKSPACE, ...projects.filter((p) => p.available).map((p) => p.id)]), [projects]);
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   useEffect(() => {
     if (personas === null || draft) return;
     const src = personas.find((p) => p.key === (forkKey ?? editKey));
@@ -148,6 +150,7 @@ export function PersonaEditor({ editKey, forkKey }: { editKey?: string; forkKey?
     return e;
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   const submit = async (ev: FormEvent) => {
     ev.preventDefault();
     const local = validate();

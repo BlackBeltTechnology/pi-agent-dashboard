@@ -6,8 +6,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import Fastify, { type FastifyInstance } from "fastify";
 import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import Fastify, { type FastifyInstance } from "fastify";
 import type { HostPort, HostSession } from "../conversations.js";
 import { createTeam, type Team } from "../team.js";
 import type { TeamConfig } from "../types.js";

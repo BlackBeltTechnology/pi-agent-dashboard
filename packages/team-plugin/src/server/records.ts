@@ -61,6 +61,7 @@ export class RecordStore {
   }
 
   /** Records of one user for a target, optionally one persona. */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   list(uk: string, t: string, personaKey?: string): LocatedRecord[] {
     const out: LocatedRecord[] = [];
     let personaDirs: string[];

@@ -3,7 +3,7 @@
  * render wrapper (host provider + wouter memory router + toast provider).
  * See change: add-team-plugin.
  */
-import { AppHostProvider, type AppHost } from "@blackbelt-technology/pi-dashboard-app-kit/react";
+import { type AppHost, AppHostProvider } from "@blackbelt-technology/pi-dashboard-app-kit/react";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { Router, useLocation, useSearch } from "wouter";
@@ -36,6 +36,7 @@ export function makeHost(opts: { mode?: "embedded" | "standalone"; dashboard?: b
     lang: opts.lang ?? "hu",
     titles: [],
     api: {
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
       async fetch(path, init) {
         const url = new URL(path, "http://x");
         const method = (init?.method ?? "GET").toUpperCase();

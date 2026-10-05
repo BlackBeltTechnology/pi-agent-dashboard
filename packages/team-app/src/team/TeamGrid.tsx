@@ -8,8 +8,8 @@ import { ApiError } from "../api/client.js";
 import type { Agent, Persona } from "../api/types.js";
 import { WORKSPACE } from "../api/types.js";
 import { useT } from "../i18n/index.js";
-import { targetName } from "../shell/TargetSelector.js";
 import { useNav } from "../shell/nav.js";
+import { targetName } from "../shell/TargetSelector.js";
 import { useEffectiveTarget } from "../state/effective-target.js";
 import { usePoll } from "../state/use-poll.js";
 import { ConfirmDialog } from "../ui/dialogs.js";
@@ -17,6 +17,7 @@ import { Icon } from "../ui/icons.js";
 import { useToast } from "../ui/toast.js";
 import { AgentCard } from "./AgentCard.js";
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function TeamGrid() {
   const t = useT();
   const nav = useNav();
@@ -108,7 +109,6 @@ export function TeamGrid() {
         <p className="live" role="status">{t("grid.loading")}</p>
         <div className="grid" aria-hidden="true">
           {Array.from({ length: 6 }, (_, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static skeletons
             <div key={i} className="card skeleton"><div className="sk" style={{ height: "2.75rem" }} /></div>
           ))}
         </div>

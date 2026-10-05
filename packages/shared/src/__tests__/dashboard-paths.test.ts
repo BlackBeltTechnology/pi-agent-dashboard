@@ -203,7 +203,10 @@ describe("dashboard-paths getters", () => {
 
 describe("piSessionDirForCwd (add-team-plugin D15)", () => {
   it("E40: matches pi's default per-cwd session folder for POSIX paths", async () => {
-    const { SessionManager } = await import("@earendil-works/pi-coding-agent");
+    // pi-core's barrel re-exports via `.ts` specifiers this project's resolver cannot type: load by shape.
+    const { SessionManager } = (await import("@earendil-works/pi-coding-agent")) as unknown as {
+      SessionManager: { create(cwd: string): { getSessionDir(): string } };
+    };
     const { piSessionDirForCwd } = await import("../dashboard-paths.js");
     const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-agent-parity-"));
     const prev = process.env.PI_CODING_AGENT_DIR;

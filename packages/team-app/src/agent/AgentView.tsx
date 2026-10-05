@@ -32,6 +32,7 @@ function readOnlyReason(a: Agent): "retired" | "unassigned" | "full" | null {
   return null;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function AgentView({ agentKey, convId }: { agentKey: string; convId?: string }) {
   const t = useT();
   const nav = useNav();

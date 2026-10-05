@@ -123,6 +123,41 @@ test("D7: the guard blocks a write outside the root and bash; an in-root write i
   expect(ws, "in-root write landed in the user's workspace").toBeTruthy();
 });
 
+test("F16: after a persona edit + restart the next turn follows the new instructions and the transcript is intact", async () => {
+  const convId = (await h.api(anna, "GET", `/agents/${enc("shared:llm")}/conversations?project=_ws`)).json.conversations[0].id as string;
+  const upd = await h.api(anna, "PUT", `/personas/${enc("shared:llm")}`, {
+    name: "LLM",
+    description: "Model-driven",
+    instructions: "MARKER-EDITED-INSTRUCTIONS",
+    tools: "files",
+    model: "fakellm/fake-model",
+    projects: ["_ws", "proj"],
+  });
+  expect(upd.status).toBe(200);
+  expect((await h.api(anna, "POST", `/agents/${enc("shared:llm")}/conversations/${convId}/restart?project=_ws`)).status).toBe(200);
+  await anna.page.goto(`${h.base}/apps/team/agent/${enc("shared:llm")}/c/${convId}?project=_ws`);
+  await expect(anna.page.getByText("PROMPT-ONE hello team").first()).toBeVisible({ timeout: 90_000 }); // resumed transcript
+  const before = llm.requests.length;
+  await sendPrompt(anna.page, "PROMPT-AFTER-EDIT");
+  await waitForTurns(before + 1);
+  expect(lastTurn().system).toContain("MARKER-EDITED-INSTRUCTIONS");
+  expect(lastTurn().system).not.toContain("MARKER-PERSONA-INSTRUCTIONS");
+  expect(lastTurn().userTexts.join("\n")).toContain("PROMPT-ONE hello team"); // same conversation history reaches the model
+});
+
+test("X9: a dashboard restart mid-conversation reconnects the socket without duplicating messages", async () => {
+  const convId = (await h.api(anna, "GET", `/agents/${enc("shared:llm")}/conversations?project=_ws`)).json.conversations[0].id as string;
+  await anna.page.goto(`${h.base}/apps/team/agent/${enc("shared:llm")}/c/${convId}?project=_ws`);
+  const occurrences = (t: string) => anna.page.getByText(t, { exact: false }).count();
+  await expect(anna.page.getByText("PROMPT-AFTER-EDIT").first()).toBeVisible({ timeout: 90_000 });
+  const before = await occurrences("PROMPT-AFTER-EDIT");
+  await h.inst.restart();
+  await expect(anna.page.getByText("Újracsatlakozás").or(anna.page.getByText("PROMPT-AFTER-EDIT").first())).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => occurrences("PROMPT-AFTER-EDIT"), { timeout: 60_000 }).toBe(before);
+  await expect(anna.page.locator(".composer textarea").first()).toBeEnabled({ timeout: 60_000 });
+  expect(await occurrences("PROMPT-AFTER-EDIT")).toBe(before);
+});
+
 test("X11 + X12: project resources never load, root AGENTS.md is appended, transcripts stay in the default session folder", async () => {
   await anna.page.goto(`${h.base}/apps/team/?project=proj`);
   await anna.page.locator('[data-key="shared:llm"]').getByTestId("talk").click();

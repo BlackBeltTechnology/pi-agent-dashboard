@@ -92,7 +92,7 @@ describe("F27: row + menu contributions", () => {
     fireEvent.click(screen.getByTestId("team-project-submit"));
     await waitFor(() => {
       const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === "POST" && String(c[0]).endsWith("/projects"));
-      expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({ path: "/repo/new", name: "Marketing", users: "*", contextFiles: false });
+      expect(JSON.parse(String(((post as unknown[])[1] as RequestInit).body))).toMatchObject({ path: "/repo/new", name: "Marketing", users: "*", contextFiles: false });
     });
     await waitFor(() => expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/projects/match")).length).toBe(2));
   });
@@ -117,7 +117,7 @@ describe("F27: row + menu contributions", () => {
     fireEvent.click(screen.getByTestId("team-project-submit"));
     await waitFor(() => {
       const post = fetchMock.mock.calls.find(createCall);
-      expect(JSON.parse(String((post?.[1] as RequestInit).body)).users).toEqual([{ iss: "i", sub: "anna" }]);
+      expect(JSON.parse(String(((post as unknown[])[1] as RequestInit).body)).users).toEqual([{ iss: "i", sub: "anna" }]);
     });
   });
 

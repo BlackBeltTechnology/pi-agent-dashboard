@@ -4,8 +4,8 @@
  * owns the document. See change: add-team-plugin (D16).
  */
 import { defineDashboardApp } from "@blackbelt-technology/pi-dashboard-app-kit/react";
-import { TeamApp } from "./TeamApp.js";
 import { TargetSelector } from "./shell/TargetSelector.js";
+import { TeamApp } from "./TeamApp.js";
 
 const teamApp = defineDashboardApp({
   id: "team",

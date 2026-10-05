@@ -66,6 +66,21 @@ describe("F13: reconnect without duplication", () => {
     expect(new Set(texts).size).toBe(6);
   });
 
+  it("a ticket mint that fails while the dashboard restarts is retried instead of ending the conversation", async () => {
+    const sockets: FakeSocket[] = [];
+    const host = makeHost();
+    let attempts = 0;
+    host.api.wsUrl = async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("server down");
+      if (attempts === 2) return null;
+      return "ws://x/ws?ticket=ok";
+    };
+    renderHook(() => useTeamChat(host, "s", () => (sockets[sockets.push(new FakeSocket()) - 1]), 5));
+    await waitFor(() => expect(sockets.length).toBe(1), { timeout: 3000 });
+    expect(attempts).toBe(3);
+  });
+
   it("sendPrompt / abort go over the same socket; nothing sent without a session", async () => {
     const sockets: FakeSocket[] = [];
     const host = makeHost();

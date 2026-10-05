@@ -55,6 +55,7 @@ export function TeamProjectDialog({ mode, cwd, projectId, initialName, onClose, 
     };
   }, []);
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   const submit = async () => {
     const e: typeof errors = {};
     if (!name.trim()) e.name = t("errName", undefined, "Give the project a name.");

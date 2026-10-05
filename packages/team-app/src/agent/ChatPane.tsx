@@ -10,13 +10,13 @@ import { type ReactNode, useEffect, useState } from "react";
 import { ApiError } from "../api/client.js";
 import type { Agent, Conversation, Target } from "../api/types.js";
 import { useT } from "../i18n/index.js";
-import { useNav, agentPath, withProject } from "../shell/nav.js";
+import { agentPath, useNav, withProject } from "../shell/nav.js";
 import { useEffectiveTarget } from "../state/effective-target.js";
+import { StatusEl } from "../team/AgentCard.js";
 import { ConfirmDialog, TextDialog } from "../ui/dialogs.js";
 import { Icon } from "../ui/icons.js";
 import { MenuButton, type MenuEntry } from "../ui/menu.js";
 import { useToast } from "../ui/toast.js";
-import { StatusEl } from "../team/AgentCard.js";
 import { ChatProviders } from "./chat-providers.js";
 import { useTeamChat } from "./chat-session.js";
 
@@ -94,6 +94,7 @@ function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function ChatPane({ agent, conv, target, readOnlyReason, onChanged }: ChatPaneProps) {
   const t = useT();
   const host = useAppHost();
@@ -106,6 +107,7 @@ export function ChatPane({ agent, conv, target, readOnlyReason, onChanged }: Cha
   const blocked = !!readOnlyReason || conv.archived;
   const wasSleeping = conv.status === "sleeping";
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the explicit retry trigger
   useEffect(() => {
     if (blocked) return;
     let cancelled = false;
@@ -117,7 +119,6 @@ export function ChatPane({ agent, conv, target, readOnlyReason, onChanged }: Cha
     return () => {
       cancelled = true;
     };
-    // biome-ignore lint/correctness/useExhaustiveDependencies: attempt = explicit retry
   }, [api, agent.key, target, conv.id, blocked, attempt]);
 
   const restoreConv = async () => {

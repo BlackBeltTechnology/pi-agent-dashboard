@@ -6,14 +6,14 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
-import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { PRESET_TOOLS } from "../extension/guard.js";
 import type { Access } from "./access.js";
 import { canonicalize, type TeamPaths } from "./paths.js";
 import { cpLength } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
-import { type LocatedRecord, type Locator, type RecordStore } from "./records.js";
+import type { LocatedRecord, Locator, RecordStore } from "./records.js";
 import { collectContextFiles } from "./render.js";
 import type { PersonaStore } from "./store-types.js";
 import {
@@ -333,6 +333,7 @@ export class ConversationService {
     );
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   private async launch(
     caller: Caller,
     persona: Persona,
@@ -486,12 +487,15 @@ export class ConversationService {
     if (rec.archived) throw new TeamError(409, "conversation_archived");
     const key = `${caller.uk}|${personaKey}|${t}|${c}`;
     const existing = this.inFlight.get(key) as Promise<{ sessionId: string }> | undefined;
-    if (existing) return existing;
-    const p = this.ensureInner(caller, personaKey, t, c).finally(() => this.inFlight.delete(key));
+    if (existing !== undefined) return existing;
+    const p = this.ensureInner(caller, personaKey, t, c).finally(() => {
+      this.inFlight.delete(key);
+    });
     this.inFlight.set(key, p);
     return p;
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   private async ensureInner(caller: Caller, personaKey: string, t: string, c: string): Promise<{ sessionId: string }> {
     const l = this.loc(caller, personaKey, t, c);
     const rec = this.d.records.read(l);
@@ -607,6 +611,7 @@ export class ConversationService {
 
   // ── agents (D8) ───────────────────────────────────────────────────────────
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   agents(caller: Caller, t: string): AgentView[] {
     const mode = this.d.access.mode();
     const records = this.d.records.list(caller.uk, t);

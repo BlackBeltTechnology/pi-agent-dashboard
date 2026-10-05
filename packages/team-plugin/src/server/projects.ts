@@ -5,7 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteJson, canonicalize, type FsOps, isInside, isSlug, type TeamPaths, realFs } from "./paths.js";
+import { atomicWriteJson, canonicalize, type FsOps, isInside, isSlug, realFs, type TeamPaths } from "./paths.js";
 import { cpLength } from "./persona.js";
 import { type Caller, type Mode, type Project, type ProjectConfigEntry, type TeamConfig, TeamError } from "./types.js";
 

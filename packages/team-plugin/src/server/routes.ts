@@ -9,8 +9,8 @@ import type { ConversationService } from "./conversations.js";
 import { isTargetId } from "./paths.js";
 import type { PersonaService } from "./personas-service.js";
 import type { ProjectRegistry } from "./projects.js";
-import type { UsersStore } from "./users.js";
 import { type Caller, TeamError, WORKSPACE_TARGET } from "./types.js";
+import type { UsersStore } from "./users.js";
 
 const API_PREFIX = "/api/plugins/team";
 

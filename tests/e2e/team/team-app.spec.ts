@@ -64,7 +64,7 @@ test("admin creates a shared persona; the grid shows it; opening it spawns a rea
   const team = (await h.sessions()).find((s) => s.cwd.includes(`${path.sep}workspace`));
   expect(team, "team session registered in the user's own workspace").toBeTruthy();
   expect(team?.principalOwner?.sub).toBe("sub-anna");
-  const encoded = `--${(team?.cwd as string).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  const encoded = `--${String(team?.cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
   expect(team?.sessionFile ?? "").toContain(`${path.sep}${encoded}${path.sep}`);
   const usersDir = path.join(h.inst.home, ".pi", "dashboard", "team", "users");
   const rendered = fs.readdirSync(usersDir, { recursive: true }).map(String).find((f) => f.endsWith(path.join("runtime", "shared-backend", "persona.md")));

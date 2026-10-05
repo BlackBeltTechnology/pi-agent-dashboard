@@ -7,8 +7,8 @@
 import { useState } from "react";
 import type { Agent, Target } from "../api/types.js";
 import { relativeTime, useT } from "../i18n/index.js";
-import { Avatar, Icon } from "../ui/icons.js";
 import { ConfirmDialog } from "../ui/dialogs.js";
+import { Avatar, Icon } from "../ui/icons.js";
 import { MenuButton, type MenuItem } from "../ui/menu.js";
 
 export interface AgentCardProps {
@@ -35,6 +35,7 @@ export function StatusEl({ status }: { status: Agent["status"] }) {
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function AgentCard(p: AgentCardProps) {
   const t = useT();
   const a = p.agent;

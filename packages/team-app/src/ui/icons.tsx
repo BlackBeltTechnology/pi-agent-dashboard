@@ -1,5 +1,5 @@
-import { GALLERY, ICON } from "../i18n/catalog.js";
 import type { AvatarSpec } from "../api/types.js";
+import { GALLERY, ICON } from "../i18n/catalog.js";
 
 /** Authored stroke icon from the approved mockup set (constant SVG paths only). */
 export function Icon({ name, className = "ic" }: { name: keyof typeof ICON | string; className?: string }) {
@@ -9,7 +9,6 @@ export function Icon({ name, className = "ic" }: { name: keyof typeof ICON | str
       className={className}
       aria-hidden="true"
       focusable="false"
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: constant, authored SVG path data (never user input)
       dangerouslySetInnerHTML={{ __html: ICON[name] ?? "" }}
     />
   );
@@ -36,7 +35,6 @@ export function Avatar({ avatar, name, size = "" }: { avatar: AvatarSpec; name: 
           viewBox="0 0 24 24"
           aria-hidden="true"
           focusable="false"
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: constant, authored gallery SVG
           dangerouslySetInnerHTML={{ __html: g.svg }}
         />
       </span>

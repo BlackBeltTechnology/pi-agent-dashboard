@@ -19,6 +19,10 @@ export interface MenuItem {
 
 export type MenuEntry = MenuItem | "sep";
 
+function itemClass(it: MenuItem): string | undefined {
+  return [it.danger ? "danger" : "", it.disabled ? "is-disabled" : ""].join(" ").trim() || undefined;
+}
+
 export interface MenuButtonProps {
   label: string;
   items: MenuEntry[];
@@ -43,6 +47,7 @@ export function MenuButton({ label, items, trigger, triggerClass = "btn btn-ghos
     if (refocus) btnRef.current?.focus();
   };
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `els` reads refs only; re-running on every render would re-steal focus
   useEffect(() => {
     if (!open) return;
     const list = els();
@@ -83,6 +88,28 @@ export function MenuButton({ label, items, trigger, triggerClass = "btn btn-ghos
     }
   };
 
+  const renderItem = (it: MenuEntry, i: number) =>
+    it === "sep" ? (
+      <li key={`sep-${i}`} role="separator" />
+    ) : (
+      <li
+        key={it.id}
+        role={it.radio ? "menuitemradio" : "menuitem"}
+        tabIndex={-1}
+        className={itemClass(it)}
+        aria-checked={it.radio ? !!it.checked : undefined}
+        aria-disabled={it.disabled ? true : undefined}
+        data-item={it.id}
+        onClick={() => {
+          if (it.disabled) return;
+          close(true);
+          it.onSelect();
+        }}
+      >
+        {it.node ?? it.label}
+      </li>
+    );
+
   return (
     <div className="menu-wrap" ref={wrapRef}>
       <button
@@ -109,29 +136,7 @@ export function MenuButton({ label, items, trigger, triggerClass = "btn btn-ghos
         hidden={!open}
         onKeyDown={onListKey}
       >
-        {items.map((it, i) =>
-          it === "sep" ? (
-            // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity
-            <li key={`sep-${i}`} role="separator" />
-          ) : (
-            <li
-              key={it.id}
-              role={it.radio ? "menuitemradio" : "menuitem"}
-              tabIndex={-1}
-              className={[it.danger ? "danger" : "", it.disabled ? "is-disabled" : ""].join(" ").trim() || undefined}
-              aria-checked={it.radio ? !!it.checked : undefined}
-              aria-disabled={it.disabled ? true : undefined}
-              data-item={it.id}
-              onClick={() => {
-                if (it.disabled) return;
-                close(true);
-                it.onSelect();
-              }}
-            >
-              {it.node ?? it.label}
-            </li>
-          ),
-        )}
+        {items.map(renderItem)}
       </ul>
     </div>
   );

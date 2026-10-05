@@ -8,6 +8,7 @@ import { useT } from "../i18n/index.js";
 function useModal(onClose: () => void) {
   const ref = useRef<HTMLDialogElement>(null);
   const opener = useRef<Element | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only: the dialog opens once and `onClose` is read at event time
   useEffect(() => {
     opener.current = document.activeElement;
     const d = ref.current;
@@ -20,7 +21,6 @@ function useModal(onClose: () => void) {
       d?.removeEventListener("cancel", handle);
       (opener.current as HTMLElement | null)?.focus?.();
     };
-    // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only
   }, []);
   return ref;
 }

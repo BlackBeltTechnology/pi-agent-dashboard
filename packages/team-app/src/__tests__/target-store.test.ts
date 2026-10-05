@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { project } from "./helpers.js";
 import { resolveStartTarget, targetStore } from "../state/target-store.js";
+import { project } from "./helpers.js";
 
 describe("target store + start target (F24)", () => {
   const projects = [project("billing"), project("crm", { available: false })];

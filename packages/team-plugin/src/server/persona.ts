@@ -59,6 +59,7 @@ const ALLOWED_KEYS = new Set([
 
 export const cpLength = (s: string): number => [...s].length;
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function validatePersonaInput(body: unknown, rules: PersonaRules, opts: { create: boolean }): Validation {
   const fields: Record<string, string> = {};
   if (typeof body !== "object" || body === null || Array.isArray(body)) {

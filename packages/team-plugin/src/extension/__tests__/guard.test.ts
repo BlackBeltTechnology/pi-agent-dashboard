@@ -6,8 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import teamGuard, { createToolCallHandler } from "../index.js";
 import { decideToolCall, PRESET_TOOLS, policyFromEnv } from "../guard.js";
+import teamGuard, { createToolCallHandler } from "../index.js";
 
 let tmp: string;
 let ws: string;

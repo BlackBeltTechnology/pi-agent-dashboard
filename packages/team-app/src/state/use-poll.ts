@@ -1,9 +1,17 @@
 import { useEffect, useRef } from "react";
 
-/** Run `fn` now and every `ms` while the document is visible; stops when hidden. */
+/**
+ * Run `fn` now, whenever its identity changes (e.g. the target switched), and every `ms`
+ * while the document is visible; the interval stops while hidden.
+ */
 export function usePoll(fn: () => void | Promise<void>, ms: number, enabled = true): void {
   const ref = useRef(fn);
   ref.current = fn;
+
+  useEffect(() => {
+    if (enabled) void fn();
+  }, [fn, enabled]);
+
   useEffect(() => {
     if (!enabled) return;
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -22,7 +30,6 @@ export function usePoll(fn: () => void | Promise<void>, ms: number, enabled = tr
         start();
       }
     };
-    void ref.current();
     if (document.visibilityState !== "hidden") start();
     document.addEventListener("visibilitychange", onVis);
     return () => {

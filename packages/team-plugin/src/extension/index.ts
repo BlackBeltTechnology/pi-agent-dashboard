@@ -11,7 +11,7 @@ export const TEAM_PLUGIN_ID = "team";
 export const GUARD_READY_MESSAGE = "team_guard_ready";
 
 interface PiLike {
-  on(event: string, handler: (event: any, ctx: any) => unknown): void;
+  on(event: string, handler: (event: unknown, ctx: unknown) => unknown): void;
   events?: { emit: (name: string, payload: unknown) => void };
 }
 
@@ -24,7 +24,8 @@ export function createToolCallHandler(policy: TeamPolicy | null) {
 
 export default function teamGuard(pi: PiLike, options?: { policy?: TeamPolicy | null }): void {
   const policy = options?.policy !== undefined ? options.policy : policyFromEnv();
-  pi.on("tool_call", createToolCallHandler(policy));
+  const onToolCall = createToolCallHandler(policy);
+  pi.on("tool_call", (event) => onToolCall((event ?? {}) as { toolName?: unknown; input?: unknown }));
 
   const announce = () =>
     pi.events?.emit("dashboard:plugin-message", {

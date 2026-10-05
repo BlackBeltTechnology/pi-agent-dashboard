@@ -3,9 +3,9 @@
  */
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TeamGrid } from "../team/TeamGrid.js";
 import { targetStore } from "../state/target-store.js";
-import { agent, bootRoutes, conv, json, makeHost, ME, project, renderApp } from "./helpers.js";
+import { TeamGrid } from "../team/TeamGrid.js";
+import { agent, bootRoutes, conv, json, ME, makeHost, project, renderApp } from "./helpers.js";
 
 const AGENTS = "GET /api/plugins/team/agents";
 

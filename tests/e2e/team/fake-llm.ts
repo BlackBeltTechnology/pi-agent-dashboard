@@ -39,6 +39,7 @@ export async function startFakeLlm(): Promise<FakeLlm> {
     req.on("data", (d) => {
       body += d;
     });
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
     req.on("end", () => {
       if (req.method !== "POST" || !req.url?.includes("/chat/completions")) {
         res.writeHead(404).end();

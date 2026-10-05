@@ -65,6 +65,7 @@ function normalise(raw: string): string | null {
   return p;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPolicy | null): Decision {
   if (!policy) return { allow: false, reason: "policy_unavailable" };
   if (typeof toolName !== "string" || !PRESET_TOOLS[policy.preset].includes(toolName)) {

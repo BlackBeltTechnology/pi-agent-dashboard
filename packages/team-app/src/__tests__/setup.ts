@@ -21,4 +21,5 @@ afterEach(() => {
 });
 
 import { targetStore } from "../state/target-store.js";
+
 afterEach(() => targetStore.reset());

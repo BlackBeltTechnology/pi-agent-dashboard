@@ -5,9 +5,9 @@
 // host (`<EmbeddedApp>`, `presentation:"content"`) is owned by
 // `add-plugin-app-host` and plugs into the same `AppHost` interface.
 // See change: add-team-plugin (D16, minimal AppHost).
-import { createContext, type ComponentType, type ReactNode, useContext, useEffect, useSyncExternalStore } from "react";
-import { apiUrl, type AppConfig, configureDashboard, loadAppConfig, wsUrl as kitWsUrl } from "../config.js";
-import { currentOperator, onIdentityChange, type Operator } from "../identity-state.js";
+import { type ComponentType, createContext, type ReactNode, useContext, useEffect, useSyncExternalStore } from "react";
+import { type AppConfig, apiUrl, configureDashboard, wsUrl as kitWsUrl, loadAppConfig } from "../config.js";
+import { currentOperator, type Operator, onIdentityChange } from "../identity-state.js";
 import { authedFetch, ticketSocketUrl } from "../transport.js";
 
 export interface AppAction {

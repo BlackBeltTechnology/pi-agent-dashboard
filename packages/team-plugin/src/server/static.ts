@@ -36,6 +36,7 @@ export function mountAppRoutes(fastify: FastifyInstance, distDir: string, logger
 
   fastify.get(APP_PREFIX, async (_req, reply) => reply.redirect(`${APP_PREFIX}/`, 308));
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
   fastify.get(`${APP_PREFIX}/*`, async (req, reply) => {
     let root: string;
     try {

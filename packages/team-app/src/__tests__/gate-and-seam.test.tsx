@@ -2,12 +2,12 @@
  * Sign-in gate + same-origin login seam (X8, F17, F22 client side).
  * See change: add-team-plugin.
  */
-import { resetAppConfig, resetIdentityState, getAccessToken } from "@blackbelt-technology/pi-dashboard-app-kit";
-import { AppHostProvider, IdentityProvider, type Identity } from "@blackbelt-technology/pi-dashboard-app-kit/react";
+import { getAccessToken, resetAppConfig, resetIdentityState } from "@blackbelt-technology/pi-dashboard-app-kit";
+import { AppHostProvider, type Identity, IdentityProvider } from "@blackbelt-technology/pi-dashboard-app-kit/react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Gate } from "../shell/Gate.js";
-import { bootSeam, SeamIdentityProvider, type SeamDeps } from "../shell/seam-identity.js";
+import { bootSeam, type SeamDeps, SeamIdentityProvider } from "../shell/seam-identity.js";
 import { bootRoutes, json, makeHost } from "./helpers.js";
 
 beforeEach(() => {

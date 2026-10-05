@@ -7,8 +7,9 @@ import {
   createUiPrimitiveRegistry,
   registerUiPrimitive,
 } from "@blackbelt-technology/dashboard-plugin-runtime";
-import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
 import { ActionList } from "@blackbelt-technology/pi-dashboard-client-utils/ActionList";
+import { AgentCardShell } from "@blackbelt-technology/pi-dashboard-client-utils/AgentCardShell";
+import { formatDuration, formatTokens } from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
 import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
@@ -16,7 +17,6 @@ import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover
 import { SearchableSelectDialog } from "@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog";
 import { StatusPill } from "@blackbelt-technology/pi-dashboard-client-utils/StatusPill";
 import { ZoomControls } from "@blackbelt-technology/pi-dashboard-client-utils/ZoomControls";
-import { formatDuration, formatTokens } from "@blackbelt-technology/pi-dashboard-client-utils/agent-card-utils";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   ApiContext,
@@ -26,9 +26,12 @@ import {
   ThemeProvider,
   UiPrimitiveProvider,
 } from "@blackbelt-technology/pi-dashboard-web/chat-embed";
-import { MarkdownContent } from "@dash/components/preview/MarkdownContent";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vite/tsconfig alias to packages/client/src (vite.aliases.ts)
 import { ThinkingBlock } from "@dash/components/chat/ThinkingBlock";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vite/tsconfig alias to packages/client/src (vite.aliases.ts)
 import { ToolCallStep } from "@dash/components/chat/ToolCallStep";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vite/tsconfig alias to packages/client/src (vite.aliases.ts)
+import { MarkdownContent } from "@dash/components/preview/MarkdownContent";
 import type { FC, ReactNode } from "react";
 import { Router } from "wouter";
 

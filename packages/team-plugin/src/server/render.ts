@@ -4,8 +4,8 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { atomicWriteText } from "./text-write.js";
 import { canonicalize, isInside } from "./paths.js";
+import { atomicWriteText } from "./text-write.js";
 import type { Persona } from "./types.js";
 
 /** pi's cwd anchor; persona text must not be able to move the bridge's splice point. */
@@ -17,7 +17,7 @@ function neutraliseAnchor(text: string): string {
   return text.split(ANCHOR).join(`\n${ZWJ}${ANCHOR.slice(1)}`);
 }
 
-function renderPersonaMarkdown(persona: Pick<Persona, "name" | "description" | "role" | "instructions">): string {
+export function renderPersonaMarkdown(persona: Pick<Persona, "name" | "description" | "role" | "instructions">): string {
   const header = `# ${persona.name}${persona.role === "leader" ? " (leader)" : ""}`;
   const desc = persona.description ? `\n\n${persona.description}` : "";
   return neutraliseAnchor(`${header}${desc}\n\n${persona.instructions}\n`);

@@ -5,8 +5,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { API, type Harness, makeHarness, persona } from "./harness.js";
 import type { TeamConfig } from "../types.js";
+import { API, type Harness, makeHarness, persona } from "./harness.js";
 
 let h: Harness;
 afterEach(async () => h?.close());

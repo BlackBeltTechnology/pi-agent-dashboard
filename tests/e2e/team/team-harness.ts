@@ -31,6 +31,15 @@ export interface User {
   unauthenticatedTeamRequests: string[];
 }
 
+export interface TeamSession {
+  id: string;
+  pid?: number;
+  cwd: string;
+  sessionFile?: string;
+  principalOwner?: { sub: string };
+  status?: string;
+}
+
 export interface TeamHarness {
   issuer: FakeOidcIssuer;
   inst: DedicatedInstance;
@@ -38,9 +47,10 @@ export interface TeamHarness {
   work: string;
   dir(name: string): string;
   localToken(): string;
+  // biome-ignore lint/suspicious/noExplicitAny: test helper — loose JSON bodies
   api(user: User, method: string, p: string, body?: unknown): Promise<{ status: number; json: any }>;
   signInViaApp(browser: Browser, name: string, startPath: string): Promise<User>;
-  sessions(): Promise<Array<{ id: string; pid?: number; cwd: string; sessionFile?: string; principalOwner?: { sub: string }; status?: string }>>;
+  sessions(): Promise<TeamSession[]>;
   stop(): Promise<void>;
 }
 
@@ -131,7 +141,7 @@ export async function bootTeamHarness(opts: HarnessOptions = {}): Promise<TeamHa
     },
     async sessions() {
       const res = await fetch(`${base}/api/sessions`, { headers: { "x-pi-local-token": localToken() } });
-      return ((await res.json()) as { data?: any[] }).data ?? [];
+      return ((await res.json()) as { data?: TeamSession[] }).data ?? [];
     },
     async stop() {
       const pids: number[] = [];

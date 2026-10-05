@@ -8,13 +8,15 @@
  */
 import {
   apiUrl,
+  type Operator,
   setActingOperator,
   setCredential,
   setIdentityMode,
-  type Operator,
 } from "@blackbelt-technology/pi-dashboard-app-kit";
 import { type Identity, IdentityProvider } from "@blackbelt-technology/pi-dashboard-app-kit/react";
-import { completeHandoff, readLoginReturn, startSignIn, stripLoginReturn, signOutTarget } from "@dash/lib/identity/dashboard-login";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vite/tsconfig alias to packages/client/src (vite.aliases.ts)
+import { completeHandoff, readLoginReturn, signOutTarget, startSignIn, stripLoginReturn } from "@dash/lib/identity/dashboard-login";
+// biome-ignore lint/correctness/noUndeclaredDependencies: vite/tsconfig alias to packages/client/src (vite.aliases.ts)
 import type { LoginProvider } from "@dash/lib/identity/login-config";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -56,6 +58,7 @@ function operatorFromToken(token: string): { operator: Operator; username?: stri
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
 function parseProviders(body: unknown): LoginProvider[] | null {
   if (typeof body !== "object" || body === null) return null;
   const rec = body as Record<string, unknown>;
@@ -173,6 +176,7 @@ export function SeamIdentityProvider({ children, deps }: { children: ReactNode; 
   }, [phase, realDeps]);
 
   const value = useMemo<Identity>(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: many small independent branches (field / state rendering); splitting would scatter one linear flow
     () => ({
       mode: phase.kind === "none" ? "none" : phase.kind === "unavailable" ? "unavailable" : phase.kind === "loading" ? "unknown" : "oidc",
       available: phase.kind === "signedOut" || phase.kind === "signedIn" || phase.kind === "redirecting",

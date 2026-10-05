@@ -5,7 +5,7 @@
  * doubled. The host owns the ticketed URL (`host.api.wsUrl`).
  * See change: add-team-plugin (D10).
  */
-import { type MinimalSocket, connectWithReconnect, type ReconnectHandle, type ReconnectStatus } from "@blackbelt-technology/pi-dashboard-app-kit";
+import { connectWithReconnect, type MinimalSocket, type ReconnectHandle, type ReconnectStatus } from "@blackbelt-technology/pi-dashboard-app-kit";
 import type { AppHost } from "@blackbelt-technology/pi-dashboard-app-kit/react";
 import { useSessionState } from "@blackbelt-technology/pi-dashboard-web/chat-embed";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,10 +17,30 @@ export interface TeamChat {
   abort(): void;
 }
 
+/**
+ * Resolve a ticketed socket URL, riding out a dashboard restart: app-kit treats a `null` URL as
+ * "no credential — stop retrying", but a ticket mint that fails because the server is briefly
+ * down must not end the conversation. Retries for `windowMs`, then gives up (null).
+ */
+async function resolveWithRetry(host: Pick<AppHost, "api">, retryDelayMs: number, windowMs: number): Promise<string | null> {
+  const deadline = Date.now() + windowMs;
+  for (;;) {
+    try {
+      const url = await host.api.wsUrl("/ws");
+      if (url) return url;
+    } catch {
+      /* server unreachable: retry */
+    }
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, retryDelayMs));
+  }
+}
+
 export function useTeamChat(
   host: Pick<AppHost, "api">,
   sessionId: string | null,
   createSocket?: (url: string) => MinimalSocket,
+  retryDelayMs = 1000,
 ): TeamChat {
   const { state, apply, reset } = useSessionState(sessionId ?? undefined);
   const [status, setStatus] = useState<ReconnectStatus>("connecting");
@@ -29,6 +49,7 @@ export function useTeamChat(
   const socketFactory = useRef(createSocket);
   socketFactory.current = createSocket;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: apply/reset are stable per sessionId; the socket factory rides a ref
   useEffect(() => {
     reset();
     if (!sessionId) {
@@ -37,7 +58,7 @@ export function useTeamChat(
     }
     const handle = connectWithReconnect({
       url: "/ws",
-      resolveUrl: () => host.api.wsUrl("/ws"),
+      resolveUrl: () => resolveWithRetry(host, retryDelayMs, 60_000),
       onStatus: setStatus,
       onOpen: (send) => send(JSON.stringify({ type: "subscribe", sessionId, lastSeq: 0 })),
       onMessage: (raw) => {
@@ -55,7 +76,6 @@ export function useTeamChat(
       handle.close();
       conn.current = null;
     };
-    // biome-ignore lint/correctness/useExhaustiveDependencies: apply/reset are stable per sessionId
   }, [sessionId, host]);
 
   const send = useCallback((payload: unknown) => conn.current?.send(JSON.stringify(payload)), []);
