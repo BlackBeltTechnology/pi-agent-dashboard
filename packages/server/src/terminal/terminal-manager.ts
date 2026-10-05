@@ -275,7 +275,11 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     ) as Record<string, string>;
     const env = augmentEnvWithGitSource(baseEnv, whichSync) as Record<string, string>;
 
-    const p = pty.spawn(shell, [], {
+    // POSIX: start a login shell (as Terminal.app/iTerm do) so ~/.zprofile /
+    // ~/.bash_profile run — e.g. `brew shellenv` adding /opt/homebrew/bin,
+    // which the server's inherited PATH (GUI/launchd) usually lacks.
+    const shellArgs = process.platform === "win32" ? [] : ["-l"];
+    const p = pty.spawn(shell, shellArgs, {
       cwd,
       env,
       cols: 80,

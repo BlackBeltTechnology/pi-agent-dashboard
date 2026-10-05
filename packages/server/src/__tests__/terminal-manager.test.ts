@@ -201,7 +201,8 @@ describe("TerminalManager", () => {
       manager.spawn("/home/user");
       expect(pty.spawn).toHaveBeenCalledWith(
         expect.any(String),
-        [],
+        // POSIX: login shell so ~/.zprofile / ~/.bash_profile (e.g. `brew shellenv`) run.
+        process.platform === "win32" ? [] : ["-l"],
         expect.objectContaining({
           cwd: "/home/user",
           cols: 80,
