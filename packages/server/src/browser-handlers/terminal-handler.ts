@@ -17,6 +17,21 @@ function ownerForSpawn(ctx: BrowserHandlerContext): Owner | undefined {
 }
 
 /**
+ * Session owner gate (review r5 B1). The inline-terminal commands carry a `sessionId`
+ * and WRITE `inline_terminal_open|close` events into that session's transcript, so —
+ * unlike the other terminal commands, where a session id is only context — they are
+ * session mutations: exact owner equality on the supplied session, or the command is
+ * dropped before any PTY is spawned or killed and before any event is written.
+ * Unknown / ownerless sessions are unreachable to humans (same rule as every session
+ * road); the break-glass operator passes; inert plane ⇒ unchanged.
+ */
+function mayWriteSession(ctx: BrowserHandlerContext, sessionId: unknown): boolean {
+  if (!ctx.isResolverActive?.()) return true;
+  const owner = typeof sessionId === "string" ? ctx.sessionManager.get(sessionId)?.principalOwner : undefined;
+  return canAccessSession({ active: true, principal: principalOf(ctx), owner });
+}
+
+/**
  * Owner gate (18.13): a terminal command from anyone but the owner (or the
  * break-glass operator) is dropped before it touches the PTY. Inert plane ⇒ allow.
  * An ownerless terminal is unreachable to humans (same rule as sessions).
@@ -54,6 +69,7 @@ export function handleOpenInlineTerminal(
 ): void {
   const { terminalManager, eventStore, broadcast, broadcastEvent } = ctx;
   if (!terminalManager) return;
+  if (!mayWriteSession(ctx, msg.sessionId)) return;
   const terminal = terminalManager.spawn(msg.cwd, { ephemeral: true, owner: ownerForSpawn(ctx) });
   broadcast({ type: "terminal_added", terminal });
   const seq = eventStore.insertEvent(msg.sessionId, {
@@ -86,7 +102,8 @@ export function handleCloseInlineTerminal(
 ): void {
   const { terminalManager, eventStore, broadcastEvent } = ctx;
   if (!terminalManager) return;
-  if (!mayUseTerminal(ctx, msg.terminalId)) return;
+  // Both gates: the SESSION the event is written into AND the terminal being closed.
+  if (!mayWriteSession(ctx, msg.sessionId) || !mayUseTerminal(ctx, msg.terminalId)) return;
   // Idempotency guard FIRST — a released card never emits again.
   if (terminalManager.isReleased(msg.terminalId)) return;
 

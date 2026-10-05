@@ -16,7 +16,11 @@
  *
  * Curation note: several `non-session` types carry a `sessionId` only as CONTEXT
  * for a global/workspace operation (e.g. `request_models`, `role_set`,
- * `list_files`, terminal open/close) — those are deliberately NOT owner-gated.
+ * `list_files`) — those are deliberately NOT owner-gated. The inline-terminal
+ * commands (`open_inline_terminal`, `close_inline_terminal`) are NOT context-only: they
+ * write events into the named session, so their HANDLERS owner-gate that session
+ * (`terminal-handler.ts` `mayWriteSession`) while the host policy still decides the
+ * terminal road.
  * A few (`remove_tag_globally`, `reorder_sessions`) touch multiple sessions and
  * are left to the policy road; their cross-owner effects are a §8.4 concern.
  */

@@ -29,6 +29,8 @@ function handlerCtx(over: { principal?: object | null; active: boolean; terminal
     ws: over.principal === null ? {} : { principal: over.principal },
     isResolverActive: () => over.active,
     terminalManager: { spawn, kill, updateTitle, get: (id: string) => over.terminals?.[id] && { id, ...over.terminals[id] } },
+    // Session "s" belongs to anna (the inline-terminal commands owner-gate the session they write into).
+    sessionManager: { get: (id: string) => (id === "s" ? { principalOwner: anna } : undefined) },
     sessionOrderManager: { insert: vi.fn(), getOrder: () => [] },
     broadcast,
     eventStore: { insertEvent: () => 1, getEvent: () => ({}), getEvents: () => [] },

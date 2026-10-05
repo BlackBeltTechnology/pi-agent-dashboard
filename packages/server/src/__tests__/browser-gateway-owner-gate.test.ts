@@ -343,4 +343,74 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
     expect(types(slow).filter((t) => t === "goal_status")).toHaveLength(0); // shed, not queued in the socket buffer
     expect(types(fast).filter((t) => t === "goal_status").length).toBe(50); // the healthy socket is unaffected
   });
+
+  // ── review r5 B1: inline-terminal commands WRITE into the supplied session ──
+  describe("inline-terminal commands honour session ownership (dispatch-level, two principals)", () => {
+    function inlineGateway(active: boolean) {
+      const sessionManager = createMemorySessionManager();
+      sessionManager.register({ id: "s1", cwd: "/p", source: "dashboard" } as never);
+      sessionManager.update("s1", { principalOwner: owner });
+      const eventStore = createMemoryEventStore(() => false);
+      const spawn = vi.fn((cwd: string, o?: { ephemeral?: boolean; owner?: unknown }) => ({
+        id: "t-inline", cwd, shell: "sh", status: "active" as const, createdAt: 0, ephemeral: true, ...(o?.owner ? { principalOwner: o.owner } : {}),
+      }));
+      const kill = vi.fn();
+      const live = new Map<string, any>();
+      const terminalManager = {
+        spawn: (cwd: string, o?: any) => { const t = spawn(cwd, o); live.set(t.id, t); return t; },
+        kill, list: () => [...live.values()], get: (id: string) => live.get(id), on: vi.fn(),
+        getTerminalRecord: () => ({ transcript: "", sawInput: false }), releaseTranscript: vi.fn(), isReleased: () => false,
+      };
+      const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+      const gateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, undefined, undefined, undefined, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => active);
+      return { gateway, eventStore, spawn, kill, live };
+    }
+    const events = (es: ReturnType<typeof createMemoryEventStore>) => es.getEvents("s1", 0).map((e) => e.event.eventType);
+
+    it("the session owner may open and close an inline terminal in their session", async () => {
+      const { gateway, eventStore, spawn } = inlineGateway(true);
+      const ws = makeFakeWs(owner);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(spawn).toHaveBeenCalledWith("/p", expect.objectContaining({ ephemeral: true, owner }));
+      expect(events(eventStore)).toContain("inline_terminal_open");
+      await deliver(ws, { type: "close_inline_terminal", sessionId: "s1", terminalId: "t-inline" });
+      expect(events(eventStore)).toContain("inline_terminal_close");
+    });
+
+    it("a NON-owner cannot spawn a PTY or write events into another principal's session", async () => {
+      const { gateway, eventStore, spawn } = inlineGateway(true);
+      const ws = makeFakeWs(other);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(events(eventStore)).not.toContain("inline_terminal_open");
+    });
+
+    it("a non-owner cannot close (kill + write a close event) a terminal in someone else's session, even one it owns itself", async () => {
+      const { gateway, eventStore, kill, live } = inlineGateway(true);
+      // The attacker owns a terminal of their own and names the VICTIM's session.
+      live.set("t-bela", { id: "t-bela", cwd: "/x", shell: "sh", status: "active", createdAt: 0, ephemeral: true, principalOwner: other });
+      const ws = makeFakeWs(other);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "close_inline_terminal", sessionId: "s1", terminalId: "t-bela" });
+      expect(kill).not.toHaveBeenCalled();
+      expect(events(eventStore)).not.toContain("inline_terminal_close");
+    });
+
+    it("principal-less sockets and unknown sessions are refused too; inert plane ⇒ unchanged", async () => {
+      const a = inlineGateway(true);
+      const anon = makeFakeWs();
+      a.gateway.wss.emit("connection", anon, {});
+      await deliver(anon, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      await deliver(anon, { type: "open_inline_terminal", sessionId: "does-not-exist", cwd: "/p" });
+      expect(a.spawn).not.toHaveBeenCalled();
+
+      const inert = inlineGateway(false);
+      const ws = makeFakeWs(other);
+      inert.gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(inert.spawn).toHaveBeenCalled();
+    });
+  });
 });
