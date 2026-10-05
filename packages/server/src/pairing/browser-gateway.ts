@@ -1523,8 +1523,10 @@ export function createBrowserGateway(
     };
 
     if (!policyGating()) {
-      // No policy ⇒ the synchronous owner-only path, unchanged.
-      fanout(serialized, undefined, undefined, ownerAllows);
+      // No policy ⇒ the synchronous owner-only path. The frame is STATE (per-terminal
+      // key): coalesced under backpressure, never shed — a shed `terminal_removed`
+      // would leave a dead terminal on screen.
+      fanout(serialized, frameClassOf(msg).key, undefined, ownerAllows);
       finish();
       return;
     }

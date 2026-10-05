@@ -328,4 +328,41 @@ describe("terminal frames reach only the owner (18.13)", () => {
     await new Promise((r) => setTimeout(r, 100));
     expect(ws.terminate).toHaveBeenCalled();
   });
+
+  // ── review r4 B1: the NO-policy owner-only path keeps terminal lifecycle STATE (never shed) ──
+  function noPolicyGateway() {
+    const sessionManager = createMemorySessionManager();
+    const live = [{ id: "ta", cwd: "/a", principalOwner: anna }];
+    const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const ws = fakeWs(anna);
+    gateway.wss.emit("connection", ws, {});
+    ws.send.mockClear();
+    return { gateway, ws };
+  }
+  const terminalFramesSent = (ws: ReturnType<typeof fakeWs>) => types(ws).filter((m) => m.type.startsWith("terminal_")).map((m) => `${m.type}:${m.terminal?.id ?? m.terminalId}`);
+
+  it("r4-B1: on a saturated socket a terminal_removed is deferred as STATE and delivered after the drain — never shed", async () => {
+    const { gateway, ws } = noPolicyGateway();
+    (ws as any).bufferedAmount = 64 * 1024 * 1024;
+    gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "x" } } as never);
+    gateway.broadcast({ type: "terminal_removed", terminalId: "ta" } as never);
+    expect(terminalFramesSent(ws)).toEqual([]); // deferred, not written into the saturated buffer
+
+    (ws as any).bufferedAmount = 0;
+    await new Promise((r) => setTimeout(r, 450)); // state flusher: 250 ms
+    // Coalesced per terminal: the LATEST lifecycle frame wins, and it is not lost.
+    expect(terminalFramesSent(ws)).toEqual(["terminal_removed:ta"]);
+  });
+
+  it("r4-B1: the no-policy path still respects ownership and is synchronous on a healthy socket", () => {
+    const { gateway, ws } = noPolicyGateway();
+    const other = fakeWs(bela);
+    gateway.wss.emit("connection", other, {});
+    other.send.mockClear();
+    gateway.broadcast({ type: "terminal_removed", terminalId: "ta" } as never);
+    expect(terminalFramesSent(ws)).toEqual(["terminal_removed:ta"]);
+    expect(terminalFramesSent(other)).toEqual([]);
+  });
 });

@@ -102,7 +102,12 @@ export function TerminalView({ terminalId, visible, onTitle, onClose, terminalNa
     };
 
     if (getApiBearer()) {
-      void mintWsTicket("terminal").then((ticket) => connect(ticket ? appendWsTicket(wsUrl, ticket) : wsUrl));
+      mintWsTicket("terminal")
+        .then((ticket) => connect(ticket ? appendWsTicket(wsUrl, ticket) : wsUrl))
+        // A failed mint is a connection error shown in the terminal, never an unhandled rejection.
+        .catch(() => {
+          if (!cancelled) terminal.write("\r\n\x1b[90m[Terminal connection failed]\x1b[0m\r\n");
+        });
     } else {
       connect(wsUrl);
     }
