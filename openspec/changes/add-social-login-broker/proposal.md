@@ -10,7 +10,7 @@
 
 ## Prerequisites
 
-`add-multi-user-identity-plane` landed; `harden-trust-and-credential-boundaries` B5 (login CSRF/state + returnUrl) and B25 (config `0600`) landed. Starts with spike 1.a.
+`add-multi-user-identity-plane` landed; `harden-trust-and-credential-boundaries` B5 (login CSRF/state + returnUrl) and B25 (config `0600`) are LANDED on `develop` (#808). Starts with spike 1.a.
 
 ## Capabilities
 

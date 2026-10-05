@@ -27,6 +27,24 @@ Active (resolver enabled + configured):
 - non-owner + principal-less + ownerless sessions invisible/immutable to humans.
 - deny = 404. No owned-vs-not-found oracle.
 
+## Break-glass operator (D23)
+
+Recovery path for an IdP outage. Works with IdP down. Operator never locked out.
+
+Flow:
+- `pi-dashboard login --local` (`cmdLogin`, `packages/server/src/cli.ts`) reads 0600 local token → POST `/api/identity/local-code` (`x-pi-local-token` ONLY).
+- `local-code` mints one-time code (≤ 60 s, single-use). Bound `MAX_OUTSTANDING_CODES = 32`.
+- CLI prints `http://localhost:<port>/?pi_local=<code>`.
+- Client boot redeems `?pi_local=<code>` → POST `/api/identity/local-exchange` (pre-auth, no guard) → in-memory `pi_op_` bearer.
+- Bearer TTL 1 h. No cookies. Reload starts fresh (D22).
+- Boot log names the command while enforced: `identity is ENFORCED. Locked out (IdP unreachable)? On this host run: pi-dashboard login --local`.
+
+Code: `packages/server/src/identity/break-glass.ts`, `resolver-hook.ts`; client `packages/client/src/lib/identity/login-session.ts`.
+- `pi_op_` bearer resolved host-side BEFORE any resolver (foreign JWT never looked up here). Dead `pi_op_` bearer → 401, not fall-through.
+- Bearer resolves to reserved principal `LOCAL_OPERATOR` (`iss: urn:pi-dashboard:local-operator`, `sub: local-operator`). Matched by REFERENCE (`isLocalOperator`) — look-alike `(iss, sub)` is an ordinary non-owner.
+- Resolvers cannot mint the reserved issuer (`sanitizePrincipalResolution` refuses the URN). Host-only local token (CLI/bridge, same OS user) also acts as operator while enforced (`sessionPrincipalOf`).
+- Local operator sees everything; policy never consulted. In-memory per instance: restart invalidates every code + bearer. Only SHA-256 of secret stored.
+
 ## Bundled validator (core stays generic)
 
 Keycloak validator ships as bundled `keycloak-resolver` plugin
@@ -84,6 +102,45 @@ deny / throw / timeout / non-boolean → denies that road.
 Product authorization (roles, RBAC, per-feature perms) lives in PRODUCT plugin.
 Not in core. Not in policy.
 Authorization stays outside authentication.
+
+## Host policy additions (18.37)
+
+Bootstrap + live non-session frames gated PER FAMILY via `packages/server/src/identity/bootstrap-grants.ts`:
+`workspace` / `openspec` / `branch` / `terminal`.
+- Decided ONCE at WS upgrade (async), bound `ws.bootstrapGrants`, applied sync by gateway.
+- No policy ⇒ allow all. No principal ⇒ deny all. Operator ⇒ allow all (policy not consulted).
+- No grants under a policy ⇒ deny that family (fail-closed).
+
+Plugin global frames route through `broadcastDomainEvent` → `deliverDomainEvent` (`packages/server/src/identity/domain-fanout.ts`):
+- Ordered queue (`domainChain`), per-socket policy decision, operator bypass.
+- `plugin_intents` + `plugin_config_update` exempt (own roads).
+
+Road actions (`http-road-classification.ts`):
+- `/editor/` ⇒ `editor.write` (any access = write capability).
+- `/live/` ⇒ `live.<read|write>` by method verb.
+
+`GET /api/identity/me` → `identityMe` asks policy with `probe: true` (advisory UI `can` map; never audited).
+
+## Plugin consumer seam `ctx.identity` (D24)
+
+`packages/server/src/identity/plugin-identity.ts`; type `PluginIdentitySeam` in `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+Absent when host does not wire identity.
+
+- `isEnforced()` — D21 latch.
+- `principalOf(request)` — principal host resolved on a plugin HTTP route, else null.
+- `principalOfUpgrade(req)` — principal behind a plugin WS upgrade's `Authorization` credential. Plugin WS scopes take no core ticket; this is how a WS route learns WHO connected. null ⇒ unauthenticated.
+- `authorize(principal, action, resource)` — asks the ONE trusted policy (D9). Host namespaces action `plugin:<id>:<action>`. Action regex `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` (no `:`, cannot leave namespace). No policy ⇒ true. Operator ⇒ true.
+- `userDataDir(principal)` — `<plugin data root>/users/<sha256 of JSON [iss,sub]>`, 0700, stable per user. Never derived from raw `sub`.
+
+## Terminal + live isolation (18.13)
+
+Terminal owner:
+- `TerminalSession.principalOwner` stamped at spawn while enforced (creating principal).
+- kill / rename / close-inline owner-gated (`mayUseTerminal`, `packages/server/src/browser-handlers/terminal-handler.ts`); non-owner dropped before it touches the PTY.
+- `terminal_added` / `terminal_updated` / `terminal_removed` + bootstrap reach owner only (operator all; ownerless none). `lastKnownOwner` lets `terminal_removed` still reach the owner after the PTY is gone.
+- `/ws/terminal/<id>` upgrade needs a principal-bearing ticket (`mintWsTicket("terminal")`); PTY attach owner-gated, refused like a missing terminal.
+- `/live/*` WS upgrade needs a principal-bearing ticket (`mintWsTicket("live")`).
+- Residual: live previews carry NO per-user owner yet.
 
 ## Non-human principals
 

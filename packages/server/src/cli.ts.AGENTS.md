@@ -5,3 +5,5 @@
 `main()` calls `migrateSubagentTickThrottle()` (config-api) right after `ensureConfig()` — the single boot-path site of the one-shot throttle-default migration. See change: heal-orphaned-tool-cards-on-session-end.
 
 `buildConfig()` carries `push: fileConfig.push` into `ServerConfig`. See change: add-server-push-notifications.
+
+- Identity plane: `cmdLogin(argv, {port}, deps)` = `pi-dashboard login --local` (D23 break-glass): POST `/api/identity/local-code` with the local token, prints `http://localhost:<port>/?pi_local=<code>` (single-use, ≤60 s). Dispatched in `main()` before the subcommand switch. See change: add-multi-user-identity-plane (18.24).

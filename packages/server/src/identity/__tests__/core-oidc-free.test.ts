@@ -64,6 +64,12 @@ describe("I1: core stays OIDC-free (LG-4)", () => {
     });
   }
 
+  it("17.7 non-goal guard: no core client adopts a `#access_token=` URL fragment (the D22 handoff is a one-time CODE, never a token in the URL)", () => {
+    const clientFiles = [path.join(PACKAGES, "client/src"), path.join(PACKAGES, "client-utils/src")].flatMap((r) => walk(r));
+    const hits = clientFiles.filter((f) => /[#&?]access_token=|get\(["']access_token["']\)/.test(code(fs.readFileSync(f, "utf8"))));
+    expect(hits.map((f) => path.relative(PACKAGES, f))).toEqual([]);
+  });
+
   it("the guard itself catches a violation (self-test)", () => {
     for (const [, re] of FORBIDDEN) expect(re.source.length).toBeGreaterThan(0);
     expect(FORBIDDEN[0][1].test('cfg.plugins["keycloak-resolver"].issuer')).toBe(true);
