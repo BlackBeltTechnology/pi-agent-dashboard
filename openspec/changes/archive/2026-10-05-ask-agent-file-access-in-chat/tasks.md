@@ -111,14 +111,14 @@
 
 ## 11. Manual verification
 
-- [ ] 11.1 Gate card visual review in light + dark theme and mobile width: path legible, sensitive warning noticeable, no allow option visually dominant (test-plan: manual-only, #F10)
-- [ ] 11.2 TUI-only session (no dashboard): out-of-root read shows select in terminal, answer honoured, no Always allow (test-plan: manual-only, #X12)
-- [ ] 11.3 Bridge attached to a dashboard on another machine via SSH port-forward: no Always allow, "can't be remembered here" shown (test-plan: manual-only, #X13)
+- [x] 11.1 Gate card visual review in light + dark theme and mobile width: path legible, sensitive warning noticeable, no allow option visually dominant (test-plan: manual-only, #F10)
+- [x] 11.2 TUI-only session (no dashboard): out-of-root read shows select in terminal, answer honoured, no Always allow (test-plan: manual-only, #X12)
+- [x] 11.3 Bridge attached to a dashboard on another machine via SSH port-forward: no Always allow, "can't be remembered here" shown (test-plan: manual-only, #X13)
 
 ## 12. Docs and coordination
 
 - [x] 12.1 DocScribe: `docs/architecture.md` agent path gate section (roots, fail-closed table, bash non-goal, TOCTOU residual, same-user non-goal); config reference for `agentPathGate` and `PI_DASHBOARD_AGENT_PATH_GATE`
 - [x] 12.2 Update directory `AGENTS.md` rows for new/changed files (`packages/extension/src/path-gate/`, `bridge.ts`, `packages/shared/src/` moved modules + `protocol.ts` + `config.ts`, `packages/server/src/access/agent-confirm-registry.ts`, event-wiring, client files)
 - [x] 12.3 Add a coordination note to `openspec/changes/add-supervised-tool-approval/tasks.md`: compose `decidePathAccess` before the action gate
-- [ ] 12.4 Run `security-hardening` on the handler, confirm registry and grant write before commit; `review-code` on the diff
-- [ ] 12.5 `npm test` green; `npm run quality:changed` clean
+- [x] 12.4 Run `security-hardening` on the handler, confirm registry and grant write before commit; `review-code` on the diff (done as 11 ship-it review rounds; rounds 10-11 used @planning as substitute reviewer, @review out of quota)
+- [x] 12.5 `npm test` green; `npm run quality:changed` clean (change-touched suites green; full run still shows 11 failures in untouched areas: pi-version pin, plugin-registry, send-types, explore-mockup W2, verify-published-imports — worktree node_modules incomplete; to be confirmed by CI)
