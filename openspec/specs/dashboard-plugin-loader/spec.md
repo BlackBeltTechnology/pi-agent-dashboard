@@ -608,7 +608,7 @@ The dashboard server SHALL expose `POST /api/config/plugins/:id` accepting a par
 
 1. Validate the `:id` matches an installed, enabled plugin.
 2. Validate the body against that plugin's `configSchema`.
-3. Read existing config, merge the partial, write atomically (tmp + rename).
+3. Read existing config, merge the partial, write atomically (tmp + rename). Keys the body omits SHALL keep their stored values: schema defaults SHALL fill only keys absent from the merged result, never overwrite a stored value (validation SHALL NOT inject defaults into the body before the merge).
 4. Broadcast `plugin_config_update { id, config }` to all subscribers.
 5. Return `{ success: true, config: <merged> }`.
 
@@ -618,6 +618,12 @@ Writes to core config (`auth`, `port`, `bypassHosts`, etc.) continue via the exi
 
 - **WHEN** a `POST /api/config/plugins/openspec` body `{ "pollIntervalSeconds": 60 }` arrives
 - **THEN** the server SHALL persist `plugins.openspec.pollIntervalSeconds = 60`, return 200, and broadcast `plugin_config_update`.
+
+#### Scenario: Partial write keeps omitted keys
+
+- **WHEN** plugin `p` has stored `{ roots: ["/a"], flag: true }` with schema defaults `roots: []`, `flag: false`, and `POST /api/config/plugins/p` arrives with body `{ "throttle": 500 }`
+- **THEN** the stored config SHALL be `{ roots: ["/a"], flag: true, throttle: 500 }`
+- **AND** a key never stored SHALL receive its schema default
 
 #### Scenario: Unknown plugin id rejected
 

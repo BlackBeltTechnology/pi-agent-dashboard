@@ -197,6 +197,12 @@ see [`docs/release-process.md`](docs/release-process.md).
   ones stay hidden.
 
 - **Chat Gateway runs your Discord message and keeps the session.** A message
+- **Saving one plugin setting no longer resets the others.** Writing part
+  of a plugin's config through `POST /api/config/plugins/:id` reset every
+  setting left out of the request to its default (e.g. the Chat Gateway's
+  allowed folders, allowlist and admins). Settings you don't send now keep
+  their saved values.
+
   in a bound channel started a session but never ran, and every later message
   started yet another session. The gateway matched spawns on a key the
   dashboard reserves for itself (`spawnToken`), which the host strips, so no

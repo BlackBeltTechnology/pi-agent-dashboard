@@ -89,7 +89,12 @@ export function registerPluginConfigRoutes(
       const schema = loadSchemaForPlugin(id, repoRoot);
       if (schema) {
         try {
-          validatePluginConfig(id, body as Record<string, unknown>, schema);
+          // Validate a CLONE: Ajv `useDefaults` fills every omitted key with its
+          // schema default in place, and those defaults would then overwrite the
+          // stored values in the merge below — turning a partial write into a
+          // reset. Defaults for never-stored keys are applied after the merge.
+          // See change: fix-plugin-config-partial-write.
+          validatePluginConfig(id, structuredClone(body) as Record<string, unknown>, schema);
         } catch (e: unknown) {
           return reply.status(400).send({
             success: false,
