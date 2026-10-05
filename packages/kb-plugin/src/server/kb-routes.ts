@@ -272,12 +272,13 @@ type SearchQuery = { q: string; docType?: KbSearchDocType; limit: number } | { e
 function parseSearchQuery(query: { q?: string; limit?: string; docType?: string }): SearchQuery {
   const q = (query.q ?? "").trim();
   if (q.length < 1 || q.length > MAX_QUERY_CHARS) return { error: `q must be 1-${MAX_QUERY_CHARS} characters` };
-  if (query.docType !== undefined && !SEARCH_DOC_TYPES.includes(query.docType as KbSearchDocType)) {
+  const docType = query.docType === "" ? undefined : query.docType; // an empty lane means "all lanes"
+  if (docType !== undefined && !SEARCH_DOC_TYPES.includes(docType as KbSearchDocType)) {
     return { error: `docType must be one of ${SEARCH_DOC_TYPES.join(", ")}` };
   }
-  const n = Number.parseInt(query.limit ?? "", 10);
-  const limit = Number.isFinite(n) ? Math.min(50, Math.max(1, n)) : 10;
-  return { q, limit, ...(query.docType ? { docType: query.docType as KbSearchDocType } : {}) };
+  // Whole-string integer only: "1junk" / "abc" fall back to the default rather than being half-parsed.
+  const limit = /^\d+$/.test(query.limit ?? "") ? Math.min(50, Math.max(1, Number(query.limit))) : 10;
+  return { q, limit, ...(docType ? { docType: docType as KbSearchDocType } : {}) };
 }
 
 /** Lexical `outside` label for a filesystem ref (same shared helper the client uses). */

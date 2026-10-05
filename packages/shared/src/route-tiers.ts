@@ -108,6 +108,11 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "GET", path: "/api/identity/login-config", tier: "observe" },
   { method: "GET", path: "/api/identity/me", tier: "observe" },
   { method: "GET", path: "/api/kb/config", tier: "observe" },
+  // improve-kb-settings-sources-and-search: read-only test search + per-source status
+  // mirror /api/kb/config and /stats (observe); the trust GRANT widens what the server
+  // may fetch, so it sits at the same tier as the existing revoke (operate).
+  { method: "GET", path: "/api/kb/search", tier: "observe" },
+  { method: "GET", path: "/api/kb/sources", tier: "observe" },
   { method: "GET", path: "/api/kb/stats", tier: "observe" },
   { method: "GET", path: "/api/known-servers", tier: "operate" },
   { method: "GET", path: "/api/live-server/list", tier: "operate" },
@@ -233,6 +238,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "POST", path: "/api/git/worktree/remove-batch", tier: "control" },
   { method: "POST", path: "/api/grammar/check", tier: "observe" },
   { method: "POST", path: "/api/kb/reindex", tier: "operate" },
+  { method: "POST", path: "/api/kb/source-trust", tier: "operate" },
   { method: "POST", path: "/api/known-servers", tier: "operate" },
   { method: "POST", path: "/api/live-server/start", tier: "operate" },
   { method: "POST", path: "/api/local-proof", tier: "operate" },

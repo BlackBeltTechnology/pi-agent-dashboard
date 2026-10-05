@@ -755,6 +755,8 @@ describe("GET /api/kb/search (kb-plugin-search)", () => {
     expect(await n()).toBeLessThanOrEqual(10);
     expect(await n("abc")).toBeLessThanOrEqual(10);
     expect(await n("0")).toBe(1);
+    expect(await n("1junk")).toBeLessThanOrEqual(10); // not half-parsed to 1: non-numeric → default 10
+    expect(await n("1junk")).toBeGreaterThan(1);
     expect(await n("1")).toBe(1);
     const fifty = await n("50");
     expect(fifty).toBeGreaterThan(10);
@@ -772,6 +774,7 @@ describe("GET /api/kb/search (kb-plugin-search)", () => {
     expect(agents.status).toBe(200);
     for (const h of agents.body.hits) expect(h.docType).toBe("agents");
     expect((await app.inject({ method: "GET", url: `/api/kb/search?cwd=${q(cwd)}&q=x&docType=bogus` })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `/api/kb/search?cwd=${q(cwd)}&q=x&docType=` })).statusCode).toBe(200); // empty lane = all
     await app.close();
   });
 

@@ -167,7 +167,7 @@ Folded from `test-plan.md` — one task per automated scenario row.
   - no per-root FTS scans.
 - [x] D3 `doubt-driven-review`: before landing, re-check "Add without trusting", one-source-per-ref, and that skipped sources keep their chunks.
 - [x] D4 `observability-instrumentation`: per-source outcome logs (6.3), surfaced via `/api/kb/sources`.
-- [ ] D5 `review-code` on the full diff before commit.
+- [x] D5 `review-code` on the full diff before commit. (2 rounds with `@review`: r1 blocked on B1 async archive guard + B2 search DDL, both fixed; r2 `BLOCKING_COUNT: 0`.)
 
 ## Docs
 
@@ -178,4 +178,4 @@ Folded from `test-plan.md` — one task per automated scenario row.
 
 - [x] V1 `openspec validate improve-kb-settings-sources-and-search --strict` passes.
 - [x] V2 `npm test` green (kb, kb-plugin, shared, client, dashboard-plugin-runtime suites).
-- [ ] V3 Rebuild: `npm run build && curl -X POST http://localhost:8000/api/restart`.
+- [x] V3 Rebuild: `npm run build && curl -X POST http://localhost:8000/api/restart`. `npm run build` verified green; the live-instance restart is **DEFERRED — not run** (it would drop the operator's live dashboard sessions).
