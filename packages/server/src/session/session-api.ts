@@ -82,6 +82,8 @@ export interface SessionApiDeps {
    * See change: expand-mcp-tiered-surface (D3).
    */
   getTrustedNetworks?: () => string[];
+  /** Strict local-proof context (`requireLocalProof`). */
+  localTrust?: import("../auth/local-proof.js").LocalTrustContext;
   /**
    * Admission guard for the lifecycle/extension-ui routes. Without it an
    * unauthenticated off-host caller (no Origin, so the CSRF gate is silent)
@@ -586,7 +588,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return check.error;
       }
       if (action === "force_kill" || action === "kill_process") {
-        const refusal = tierRefusalFor(request, "operate", getTrustedNetworks);
+        const refusal = tierRefusalFor(request, "operate", getTrustedNetworks, deps.localTrust);
         if (refusal) {
           sendTierRefusal(reply, refusal.scope);
           return;

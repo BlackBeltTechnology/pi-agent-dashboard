@@ -67,7 +67,7 @@ export interface AccessGrant {
    * this grant (change: add-access-grant-dialog, task 8.2). Absent = the Access
    * page's grant route. Optional and additive: older builds spread it through.
    */
-  via?: "prompt";
+  via?: "prompt" | "agent-prompt";
 }
 
 /** D10: fixed cap, per scope. */
@@ -290,7 +290,7 @@ export interface RecordGrantInput {
   origin?: string;
   /** Set when the subject came from the denial's offered-ancestor ladder. */
   widenedFrom?: string;
-  via?: "prompt";
+  via?: "prompt" | "agent-prompt";
   now?: number;
 }
 
@@ -303,7 +303,7 @@ export interface RecordGrantInput {
  * did not stick.
  */
 /** A grant with its optional provenance fields set only when present. */
-function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: "prompt" | undefined): AccessGrant {
+function buildGrant(base: AccessGrant, widenedFrom: string | undefined, via: "prompt" | "agent-prompt" | undefined): AccessGrant {
   const grant: AccessGrant = { ...base };
   if (widenedFrom) grant.widenedFrom = widenedFrom;
   if (via) grant.via = via;

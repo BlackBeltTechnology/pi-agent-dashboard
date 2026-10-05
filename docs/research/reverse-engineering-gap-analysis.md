@@ -156,3 +156,47 @@ Sanitization C1-C3 = optional mode. Deferred until clean-room need.
 - Target language/stack — defines executable vectors.
 - Rebuild-check in v1?
 - Quirk policy.
+
+## Eval results: tune-reverse-spec-for-rebuild-eval (2026-10-04)
+
+Context — run 1 (change `add-reverse-spec-for-rebuild`). Recall 88.2%. R9 named `config.autoApproveLimit` (wrong key). 8/8 capability audits `revise` after 2 rounds. Not promotable.
+
+Changes under test:
+
+- D1 catalog boundary — error maps + fallbacks = rules; plumbing = formatting/numbering w/o decision. Applied generator, auditor, SKILL.md merge.
+- D2 literal external config key.
+- D3 `guard.mjs lint-cite` — REJECTS `confirmed` cite naming ≥2 `path:line` tokens (any separator); REJECTS unterminated `<!-- cite:`. Exit 1.
+- Merged-cite policy — union; >1 location → inferred.
+- Tuning 1 — confirmed cite holds every line claim needs; absence clause → whole item inferred; auditor: omitted line NECESSARY to verify exact claim (constant behind quoted literal) → `confidence_errors` when tagged confirmed; omitted mere context → `notes`.
+- Runs 2b/2c/real-target ran earlier wording (omitted supporting line = note). Narrowed after review round 3 finding B1; eval not re-run with final wording.
+- Tuning 2 — generator STEP 7 cite self-check.
+
+Fixture runs — plain repo, `@fast` deepseek-v4.1-flash gen, `@research` opus-5.5 audit, scripted merge.
+
+| run | recall | precision | capability audits | other |
+|---|---|---|---|---|
+| 2 | 16/17 = 94.1% (I4 missed) | 136/136 | 0/8 pass after 3 rounds | R11+I6 recalled |
+| 2b | 17/17 | 111/113 | 5/8 pass after 3 rounds | completeness 22/22 PASS; R9 literal key `approval.autoApproveLimit` named by main match |
+| 2c | 17/17 | 137/137 | 8/8 pass after 3 rounds | expl/impl 16/17; completeness 23/23 PASS; cites 10/10; hostile clean; cross-cutting `revise` w/ one item (`model.md` `Request.params` confirmed → inferred) at cap |
+
+M3 failed runs 2 + 2c (Q1 matched by 2 quirks) = scripted merge has no meaning-based dedupe. Passed 2b.
+
+Run 3 (M5, run 2c package supplied). Lexical-similarity id matching kept 103/182 ids. Add one meaning-based matching pass (`@research`) → 155/156 surviving items kept id, 1 miss fixed, 0 new item reuses previous id, 18 merged, 8 dropped. Lesson: id carry-over needs meaning-based matching.
+
+`lint-cite` flagged 0 findings every run. Generators already tag 2+ location cites `inferred`. Remaining audit findings = absence claims + cross-module claims cited at one location (out of lint scope by design D3) + occasional wrong line numbers. Hallucinated values per capability round fell 4 → 0 (run 2 r1 → run 2c r3).
+
+Real target — kb discovery, `packages/server/src/canvas`, 2 capabilities, 2 files. 1 discovery + 2 generators. Capability audits `revise` r1, r2, then pass. Cross-cutting `revise` r1 then pass. Completeness PASS 16/16. Final 60 rules / 7 quirks / 4 gaps (48 explicit, 12 implicit counted at README time). Audit found real behaviour generators missed:
+
+- DOC-path traversal unchecked on accumulator side (contradicts comment `canvas-detect.ts:8-9`).
+- Unparseable settings file overwritten with `{}` (data loss).
+- `networkGuard` preHandler contract on `/api/canvas-types`.
+- Request `cwd` unvalidated for settings write.
+
+`lint-cite` clean on fragments, catalogs, completeness. Promoted to `.reverse-spec-scratch/promoted/canvas-rebuild` only. `git status --porcelain` before/after identical (M11 ok).
+
+Verdict:
+
+- D1/D2 confirmed on fixture — R11, I6, I4 recalled; literal key named.
+- D3 lint = a floor, NOT the convergence lever. Convergence came from generator self-check + auditor cite-omission split (necessary → confidence, context → note) + revise loops.
+- Shortfalls accepted by user: M3 duplicate quirk (scripted merge), cross-cutting cap residual in run 2c.
+- Open: meaning-based merge dedupe not mechanised; absence-claim tagging by `@fast` generator still needs revise rounds.

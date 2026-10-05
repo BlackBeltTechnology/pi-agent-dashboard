@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
  *   pi-dashboard restart [flags]    Restart daemon
  *   pi-dashboard status             Show daemon status
  *   pi-dashboard runtime            Print the resolved spawn runtime (diagnostic)
+ *   pi-dashboard open [--print]     Open the dashboard in a browser with local proof (requireLocalProof)
  *
  * Flags:
  *   --port <n>       HTTP port (default: 8000)
@@ -68,12 +69,13 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
 import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
 
-const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime"] as const;
+const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime", "open"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export interface ParsedArgs {
@@ -527,7 +529,8 @@ async function cmdRestartImpl(
     try {
       const res = await fetchFn(`http://localhost:${config.port}/api/restart`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        // The local token proves the caller is on this host (needed under requireLocalProof).
+        headers: { "content-type": "application/json", ...localTokenHeader() },
         body: JSON.stringify({ dev: !!config.dev }),
       });
       if (res.ok) {
@@ -706,6 +709,76 @@ export async function cmdLogin(
   }
 }
 
+function localTokenHeader(): Record<string, string> {
+  const t = safeEnsureLocalToken();
+  return t ? { [LOCAL_TOKEN_HEADER]: t } : {};
+}
+
+/**
+ * Open a URL in the default browser WITHOUT a shell (argv only), so the URL is never
+ * interpreted by `sh`/`cmd`. Fire-and-forget.
+ */
+function openUrlInBrowser(url: string): void {
+  const [cmd, args]: [string, string[]] =
+    process.platform === "darwin" // platform-branch-ok: argv-only browser launcher
+      ? ["open", [url]]
+      : process.platform === "win32" // platform-branch-ok: argv-only browser launcher
+        ? ["rundll32", ["url.dll,FileProtocolHandler", url]]
+        : ["xdg-open", [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+  } catch {
+    /* printed URL above is the fallback */
+  }
+}
+
+/**
+ * `pi-dashboard open [--print]` — mint a one-time local-proof code via the local
+ * token and open (or print) `/auth/local-proof?code=…`, which sets the httpOnly
+ * proof cookie in the browser. Exit 1 when the server is not running.
+ * See change: harden-trust-and-credential-boundaries (D2).
+ */
+export async function cmdOpen(
+  config: ServerConfig,
+  opts: { print?: boolean; out?: (s: string) => void; err?: (s: string) => void; fetchImpl?: typeof fetch; open?: (url: string) => void } = {},
+): Promise<number> {
+  const out = opts.out ?? ((s: string) => console.log(s));
+  const err = opts.err ?? ((s: string) => console.error(s));
+  const fetchFn = opts.fetchImpl ?? fetch;
+  const base = `http://localhost:${config.port}`;
+  const token = safeEnsureLocalToken();
+  if (!token) {
+    err("cannot read the local token (~/.pi/dashboard/local/token)");
+    return 1;
+  }
+  let code: string | undefined;
+  try {
+    const res = await fetchFn(`${base}/api/local-proof`, {
+      method: "POST",
+      headers: { [LOCAL_TOKEN_HEADER]: token },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      err(`server rejected the local-proof request: HTTP ${res.status}`);
+      return 1;
+    }
+    code = ((await res.json()) as { data?: { code?: string } }).data?.code;
+  } catch {
+    err(`server not running on port ${config.port} (start it with: pi-dashboard start)`);
+    return 1;
+  }
+  // The code is a 32-byte base64url token; refuse anything else before it reaches a URL
+  // that is handed to the OS browser launcher.
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(code)) {
+    err("server returned no valid local-proof code");
+    return 1;
+  }
+  const url = `${base}/auth/local-proof?code=${encodeURIComponent(code)}`;
+  out(url);
+  if (!opts.print) (opts.open ?? openUrlInBrowser)(url);
+  return 0;
+}
+
 function safeEnsureLocalToken(): string | null {
   try {
     return ensureLocalToken();
@@ -879,6 +952,9 @@ async function main() {
       break;
     case "runtime":
       cmdRuntime();
+      break;
+    case "open":
+      process.exit(await cmdOpen(config, { print: rawArgs.includes("--print") }));
       break;
     default:
       // No subcommand — run in foreground (backward compatible)

@@ -16,13 +16,16 @@
  * See change: add-pi-gateway-transport-identity (task 6.2).
  */
 
-import { isGenuinelyLocal } from "./localhost-guard.js";
+import type { LocalTrustContext } from "./local-proof.js";
+import { isLocallyTrusted } from "./localhost-guard.js";
 
 export interface BridgeMintInput {
   /** `Authorization` header, if any. */
   authorization?: string;
   ip: string;
   headers: Record<string, unknown>;
+  /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
+  localTrust?: LocalTrustContext;
   /**
    * Resolve a durable device bearer to its paired-device id, or null. Returns
    * the ID rather than a boolean so the minted ticket can carry WHICH device
@@ -67,7 +70,7 @@ export function decideBridgeTicketMint(input: BridgeMintInput): BridgeMintDecisi
   if (deviceId) {
     return { allow: true, reason: "paired device bearer", deviceId };
   }
-  if (isGenuinelyLocal(input.ip, input.headers)) {
+  if (isLocallyTrusted({ ip: input.ip, headers: input.headers }, input.localTrust)) {
     return { allow: true, reason: "genuinely-local caller" };
   }
   return {

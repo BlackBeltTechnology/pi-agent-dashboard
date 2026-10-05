@@ -37,6 +37,13 @@
 //   node guard.mjs lint-spec <file>
 //       structural check of an OpenSpec full-form spec; exit 1 with
 //       "<file>:<line>: <reason>" per violation on stdout.
+//   node guard.mjs lint-cite <file>...
+//       confidence cap check: a citation tagged `confirmed` whose ref holds >= 2
+//       `path:line[-line]` locations is a finding (multi-location claims are at most
+//       `inferred`). `.md`: single-line `<!-- cite: ref=..., confidence=... -->`
+//       comments (an unterminated `<!-- cite:` is a finding) -> "<file>:<line>: <reason>".
+//       `.json`: every object holding both `cite` and `confidence` ->
+//       "<file>#<json-pointer>: <reason>". Findings -> exit 1; invalid JSON -> exit 2.
 //
 // Bad input (missing/empty argument, unknown subcommand) -> exit 2 + usage on stderr.
 // Paths are resolved against the current directory; the repository root is
@@ -75,7 +82,8 @@ const USAGE = `usage:
   node guard.mjs seed-ids <ids.json> <dir>...
   node guard.mjs next-id <ids.json> <BR|QUIRK|GAP>
   node guard.mjs sweep [--run <id>]
-  node guard.mjs lint-spec <file>`;
+  node guard.mjs lint-spec <file>
+  node guard.mjs lint-cite <file>...`;
 
 function usage(msg) {
   if (msg) process.stderr.write(`${msg}\n`);
@@ -591,6 +599,83 @@ function lintSpec(args) {
   }
 }
 
+const LOC_RE = /[^\s;,:]+:\d+(?:-\d+)?/g;
+const CITE_OPEN = "<!-- cite:";
+const CAP_MSG = (n) => `confidence=confirmed with ${n} locations (multi-location claims are at most inferred)`;
+
+function locationCount(ref) {
+  return (String(ref).match(LOC_RE) || []).length;
+}
+
+function lintCiteMd(file, text) {
+  const out = [];
+  text.split(/\r?\n/).forEach((line, idx) => {
+    let from = line.indexOf(CITE_OPEN);
+    while (from !== -1) {
+      const end = line.indexOf("-->", from);
+      if (end === -1) {
+        out.push(`${file}:${idx + 1}: unterminated cite comment (cites are single-line)`);
+        return;
+      }
+      const body = line.slice(from + CITE_OPEN.length, end);
+      const conf = /confidence=([A-Za-z]+)/.exec(body);
+      const ref = /ref=(.*?)(?=, confidence=|$)/.exec(body.trimEnd());
+      if (conf?.[1] === "confirmed" && ref) {
+        const n = locationCount(ref[1]);
+        if (n >= 2) out.push(`${file}:${idx + 1}: ${CAP_MSG(n)}`);
+      }
+      from = line.indexOf(CITE_OPEN, end);
+    }
+  });
+  return out;
+}
+
+function lintCiteJson(file, value, pointer, out) {
+  if (Array.isArray(value)) {
+    value.forEach((v, i) => lintCiteJson(file, v, `${pointer}/${i}`, out));
+    return out;
+  }
+  if (value === null || typeof value !== "object") return out;
+  if ("cite" in value && "confidence" in value && value.confidence === "confirmed") {
+    const n = locationCount(value.cite);
+    if (n >= 2) out.push(`${file}#${pointer}: ${CAP_MSG(n)}`);
+  }
+  for (const [k, v] of Object.entries(value)) {
+    lintCiteJson(file, v, `${pointer}/${k.replace(/~/g, "~0").replace(/\//g, "~1")}`, out);
+  }
+  return out;
+}
+
+function lintCite(files) {
+  if (!files.length) usage("lint-cite: missing file");
+  for (const f of files) {
+    if (!existsSync(f) || !statSync(f).isFile()) {
+      process.stderr.write(`lint-cite: not found: ${f}\n`);
+      process.exit(2);
+    }
+  }
+  const findings = [];
+  for (const f of files) {
+    const text = readFileSync(f, "utf8");
+    if (f.endsWith(".json")) {
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (err) {
+        process.stderr.write(`lint-cite: invalid JSON: ${f}: ${err.message}\n`);
+        process.exit(2);
+      }
+      lintCiteJson(f, data, "", findings);
+    } else {
+      findings.push(...lintCiteMd(f, text));
+    }
+  }
+  if (findings.length) {
+    process.stdout.write(`${findings.join("\n")}\n`);
+    process.exit(1);
+  }
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 switch (cmd) {
   case "check-dest":
@@ -631,6 +716,9 @@ switch (cmd) {
     break;
   case "lint-spec":
     lintSpec(rest);
+    break;
+  case "lint-cite":
+    lintCite(rest);
     break;
   default:
     usage(cmd ? `unknown subcommand: ${cmd}` : "missing subcommand");

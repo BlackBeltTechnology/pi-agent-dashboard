@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,10 +11,12 @@ import { agentsChain, countInlineRows, doxInit, doxLint, extractRefPaths, parseR
 import { evaluate } from "../eval.js";
 import { docTypeOf, indexSource } from "../indexer.js";
 import { kbInit } from "../init.js";
+import { guardedFetch } from "../net-guard.js";
 import { classifyRef, filesystemResolver, httpsResolver, npmResolver, resolveAll, sourceIdentity } from "../sources.js";
 import { SqliteFtsStore } from "../sqlite-store.js";
 import { canonicalSource, isTrusted, recordTrust } from "../trust.js";
 import type { KbStore } from "../types.js";
+import { startHttpsServer, testFetchOpts } from "./helpers/https-server.js";
 
 describe("chunker", () => {
   it("splits on headings and builds breadcrumb", () => {
@@ -360,22 +361,18 @@ describe("source resolvers + trust", () => {
     expect(canonicalSource(spec)).toBe(canonicalSource(spec));
   });
 
-  // Exercises the resolver's fetch → cache → write path against a loopback server.
-  // A local HTTPS listener needs a self-signed cert; the fetch/cache logic is
-  // scheme-agnostic, so we use http:// loopback to test the mechanism, not to
-  // assert any "https-only" contract.
-  it("https resolver fetches + caches a single .md (fetch path, loopback)", async () => {
+  // Exercises the resolver's fetch → cache → write path against a local TLS
+  // server (https-only contract; change: harden-untrusted-content-ingestion).
+  // The test seam admits the loopback first hop; the default policy blocks it.
+  it("https resolver fetches + caches a single .md (fetch path, TLS loopback)", async () => {
     const body = "# Fetched\nRemote markdown content long enough to remain a chunk after merge.\n";
-    const srv: Server = createServer((_req, res) => { res.writeHead(200, { "content-type": "text/markdown" }); res.end(body); });
-    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
-    const port = (srv.address() as any).port;
-    const url = `http://127.0.0.1:${port}/note.md`;
-    const spec = { kind: "https" as const, ref: url };
+    const srv = await startHttpsServer((_req, res) => { res.writeHead(200, { "content-type": "text/markdown" }); res.end(body); });
+    const spec = { kind: "https" as const, ref: srv.url("/note.md") };
     recordTrust(spec);
-    const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir });
+    const r = await httpsResolver.resolve(spec, { cwd: cacheDir, cacheDir, testHooks: { fetch: (u) => guardedFetch(u, testFetchOpts) } });
     expect(existsSync(join(r.dir, "note.md"))).toBe(true);
     expect(readFileSync(join(r.dir, "note.md"), "utf8")).toBe(body);
-    await new Promise<void>((r) => srv.close(() => r()));
+    await srv.close();
   });
 
   it("resolveAll preserves order + priority across sources", async () => {

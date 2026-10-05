@@ -285,7 +285,18 @@ describe("token exchange — redirect_uri echo", () => {
       });
     }) as any;
 
-    await app.inject({ method: "GET", url: "/auth/callback/github?code=abc123" });
+    // Callback must present the state cookie + matching nonce set at authorize time
+    // (see change: harden-trust-and-credential-boundaries).
+    const state = new URL(authorized.headers.location as string).searchParams.get("state")!;
+    const stateCookie = ([] as string[])
+      .concat(authorized.headers["set-cookie"] ?? [])
+      .find((c) => c.startsWith("pi_dash_oauth_state="))!
+      .split(";")[0]!;
+    await app.inject({
+      method: "GET",
+      url: `/auth/callback/github?code=abc123&state=${state}`,
+      headers: { cookie: stateCookie },
+    });
 
     expect(postedUri).toBe(mintedUri);
     expect(postedUri).toBe(`${OVERRIDE}/auth/callback/github`);

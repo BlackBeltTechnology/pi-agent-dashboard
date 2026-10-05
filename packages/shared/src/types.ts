@@ -474,6 +474,14 @@ export interface DashboardSession {
    * live session as unresponsive. See change: fix-false-unresponsive-badge.
    */
   hostPressure?: HostPressure | null;
+  /**
+   * Server-derived: true while any tracked pending prompt of this session has
+   * metadata `kind` `agent-path-gate` / `agent-path-gate-confirm` (the agent is
+   * blocked on a file-access approval). Separate from `currentTool`, which is
+   * left untouched. Re-derived on replay/resync; false after disconnect.
+   * See change: ask-agent-file-access-in-chat (D7).
+   */
+  awaitingFileAccess?: boolean;
   /** Extension-declared UI modules (Phase 1: management-modal slot). */
   uiModules?: ExtensionUiModule[];
   /** Cached row data per `view.dataEvent` for table/grid views. Per-event item cap is enforced server-side. */

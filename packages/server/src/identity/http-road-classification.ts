@@ -84,6 +84,9 @@ const FAMILY_BY_SEGMENT: Readonly<Record<string, Family>> = {
   auth: "access",
   "paired-devices": "access",
   "host-gate": "access",
+  // credential plumbing (change: harden-trust-and-credential-boundaries)
+  "device-session": "access",
+  "local-proof": "access",
   // gateway: tunnel, pairing handshake, discovery, push
   tunnel: "gateway",
   "tunnel-connect": "gateway",

@@ -9,3 +9,5 @@ Adds `gmail-send` (`gmail_send` a@fake.test → x@/y@dest.test, raises the tool'
 Adds `notify-repeat` (one `e2e_notify` call, 5 identical warnings) + `notify-repeat-slow` (10 warnings 800 ms apart, watched growing live) + exported `NOTIFY_REPEAT_MESSAGE` / `NOTIFY_REPEAT_DONE`. Drive `tests/e2e/notify-collapse.spec.ts`. See change: collapse-and-order-notify-rows.
 
 Adds `mcp-env-probe` (X1: reads the pi session env and reports `PI_DASHBOARD_MCP_TOKEN` absent — `MCP_ENV_PROBE_PREFIX`, `summarizeEnvProbe`) + `mcp-dashboard-call` (X2: `tool_search` then call `MCP_DASHBOARD_LIST_SESSIONS_TOOL` = `mcp__pi_dashboard__list_sessions` — `MCP_DASHBOARD_CALL_PREFIX`, `summarizeDashboardCall`) for the built-in-MCP registration e2e. See change: migrate-mcp-to-pi-builtin.
+
+Catalog `tool-read-outside` (reads `/etc/hostname`) and `tool-read-outside-grantable` (reads `/srv/fixtures-outside/a.txt` then `b.txt`, then text `outside reads done`) for the agent path gate e2e. See change: ask-agent-file-access-in-chat.

@@ -17,14 +17,20 @@ interface Props {
   path: string;
   /** Actual file size in bytes, for the human-readable notice. */
   size?: number;
+  /**
+   * Limit to name in the notice, in bytes. Defaults to `MAX_PREVIEW_BYTES`; the
+   * office previews pass their per-kind `OFFICE_SIZE_CAPS` entry on a 413.
+   * See change: harden-untrusted-content-ingestion (D6).
+   */
+  cap?: number;
 }
 
 const MB = 1024 * 1024;
 
-export function TooLargePreview({ cwd, path, size }: Props) {
+export function TooLargePreview({ cwd, path, size, cap = MAX_PREVIEW_BYTES }: Props) {
   const { t } = useI18n();
   const rawHref = `${getApiBase()}/api/file/raw?cwd=${encodeURIComponent(cwd)}&path=${encodeURIComponent(path)}`;
-  const capMb = Math.round(MAX_PREVIEW_BYTES / MB);
+  const capMb = Math.round(cap / MB);
   const sizeMb = typeof size === "number" ? (size / MB).toFixed(1) : null;
   return (
     <div

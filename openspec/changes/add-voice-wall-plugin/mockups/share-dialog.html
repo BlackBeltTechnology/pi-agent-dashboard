@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-wall — Share live wall (dashboard side)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>
+  .linkbox { display:flex; gap:6px; align-items:stretch; }
+  .linkbox input { flex:1; min-width:0; background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:6px; padding:8px 9px; font-size:12px; color:var(--text-primary); font-family:ui-monospace, Menlo, monospace; }
+  .qr { width:112px; height:112px; flex:none; border-radius:8px; background:var(--bg-primary); border:1px solid var(--border-secondary); display:grid; grid-template-columns:repeat(11,1fr); padding:8px; gap:1px; }
+  .qr i { background:var(--text-primary); border-radius:1px; }
+  .qr i.o { background:transparent; }
+  label.f { font-size:12px; color:var(--text-secondary); display:block; margin-bottom:4px; }
+  select { background:var(--bg-tertiary); border:1px solid var(--border-primary); border-radius:6px; padding:7px 8px; font-size:13px; color:var(--text-primary); min-height:36px; }
+  .person { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-primary); padding:6px 8px; border-radius:6px; background:var(--bg-tertiary); }
+  .avatar { width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:800; background:var(--tint-purple-bg); color:var(--tint-purple-fg); border:1px solid var(--tint-purple-border); flex:none; }
+  @media (max-width: 640px) { .scrim { padding:0; background:transparent; } .dialog { max-width:none; border-radius:0; border-left:0; border-right:0; } .qr { width:96px; height:96px; } }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Share live wall (dashboard side)</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">Folder menu → <i>Share live wall…</i> (group <code>open</code>, only while a meeting runs). Mints a per-meeting share link; manages who may type.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+
+  <!-- A · ACTIVE SHARE -->
+  <section aria-label="A — active share">
+    <div class="state-title">A · Link active</div>
+    <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="a-h">
+      <div class="dlg-head">
+        <h2 id="a-h" class="text-base font-bold" style="color:var(--text-primary)">Share live wall · Sprint 42 planning</h2>
+        <p class="text-xs mt-1" style="color:var(--text-secondary)">acme-erp · meeting live 00:14:32</p>
+      </div>
+      <div class="dlg-body">
+        <div class="flex gap-3 items-start">
+          <div class="qr" role="img" aria-label="QR code for the share link" id="qr"></div>
+          <div class="flex-1 min-w-0">
+            <label class="f" for="link">View-only link</label>
+            <div class="linkbox">
+              <input id="link" readonly value="https://robson.share.zrok.io/apps/wall/#/s/7Hq2…" />
+              <button class="btn-secondary" style="min-height:auto">Copy</button>
+            </div>
+            <p class="text-xs mt-2" style="color:var(--text-secondary)"><b style="color:var(--text-primary)">3 viewers</b> connected now</p>
+            <div class="flex gap-3 mt-2 text-xs"><button class="link">Open wall</button><button class="link">Present on this screen</button></div>
+          </div>
+        </div>
+
+        <div class="callout c-warn" role="note">
+          <b>Anyone with this link can watch the wall</b> until it expires, including people it's forwarded to. Everything on the wall should be fit for all participants.
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="f" for="exp">Link expires</label>
+            <select id="exp"><option selected>When the meeting ends</option><option>In 2 hours</option><option>In 24 hours</option></select>
+          </div>
+          <div class="flex items-end">
+            <label class="check"><input type="checkbox" /> <span>Viewers can see the transcript<div class="hint">Off: transcript holds everyone's words.</div></span></label>
+          </div>
+        </div>
+
+        <div>
+          <div class="sec-h">Who may type into the copilot</div>
+          <p class="text-xs mb-2" style="color:var(--text-secondary)">Signed-in dashboard users only. Their text reaches the copilot session as <code>[wall operator]</code>, attributed to their account.</p>
+          <div class="flex flex-col gap-1.5">
+            <div class="person"><span class="avatar" aria-hidden="true">R</span><span class="flex-1">Robson <span style="color:var(--text-secondary)">(you, meeting owner)</span></span></div>
+            <div class="person"><span class="avatar" aria-hidden="true">AK</span><span class="flex-1">anna.k@acme.example</span><button class="link text-xs">Remove</button></div>
+          </div>
+          <button class="link text-xs mt-2">+ Add a dashboard user</button>
+        </div>
+      </div>
+      <div class="dlg-foot">
+        <button class="btn-danger mr-auto">Revoke link</button>
+        <button class="btn-secondary">Done</button>
+      </div>
+    </div>
+    </div>
+    <p class="caption">The risk statement sits beside the link, where the sharing decision is made, rather than in a separate confirm (Nielsen #5 without confirm fatigue). Defaults are the least exposing: expire with the meeting, transcript hidden, typing only for the owner (secure-by-default, OWASP ASVS V1). <i>Revoke</i> invalidates the token instantly and disconnects open viewers; it is red and kept apart from <i>Done</i> (Fitts's law applied to keep destructive actions far from the default one).</p>
+  </section>
+
+  <!-- B · NO AUTH CONFIGURED + REVOKED -->
+  <section aria-label="B — states">
+    <div class="state-title">B · Single-user host (no dashboard sign-in configured)</div>
+    <div class="scrim">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="b-h">
+      <div class="dlg-head"><h2 id="b-h" class="text-base font-bold" style="color:var(--text-primary)">Share live wall · Sprint 42 planning</h2></div>
+      <div class="dlg-body">
+        <div class="linkbox"><input readonly value="http://192.168.16.204:8000/apps/wall/#/s/9xLm…" aria-label="View-only link" /><button class="btn-secondary" style="min-height:auto">Copy</button></div>
+        <div class="callout c-info" role="note">This dashboard has no sign-in, so <b>only you can type</b>, from this computer. Participants can view.</div>
+        <div class="callout c-warn" role="note">The link uses a <b>LAN address over plain http</b>. It works only on this network. Use a tunnel for remote participants.</div>
+      </div>
+      <div class="dlg-foot"><button class="btn-danger mr-auto">Revoke link</button><button class="btn-secondary">Done</button></div>
+    </div>
+    </div>
+    <p class="caption">Typing is tied to an <i>authenticated</i> identity. Without dashboard sign-in, no remote person can type: the genuinely-local operator is the only one who can. The link's reach (LAN vs tunnel) is stated, so the operator isn't surprised when a remote participant can't open it (Nielsen #1).</p>
+
+    <div class="state-title mt-8">C · After revoke / expiry</div>
+    <div class="toast" role="status">
+      <span class="ok font-bold" aria-hidden="true">✓</span>
+      <div class="flex-1"><div class="font-bold">Link revoked</div><div class="text-xs mt-1" style="color:var(--text-secondary)">3 viewers were disconnected. The meeting keeps running.</div><div class="mt-2 text-xs"><button class="link">Create a new link</button></div></div>
+    </div>
+    <p class="caption">Revoking affects viewers only, and the toast says so, so nobody fears they stopped the meeting.</p>
+  </section>
+  </div>
+</div>
+<script>
+// deterministic fake QR (decorative pattern; real one rendered from the URL)
+const q=document.getElementById("qr"); let h="";
+for(let i=0;i<121;i++){const r=Math.floor(i/11),c=i%11;const finder=(r<3&&c<3)||(r<3&&c>7)||(r>7&&c<3);h+=`<i class="${finder||((Math.imul(i+13,2654435761)>>>27)%3===0)?"":"o"}"></i>`;}
+q.innerHTML=h;
+</script>
+</body>
+</html>

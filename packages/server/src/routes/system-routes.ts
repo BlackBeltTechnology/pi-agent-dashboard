@@ -376,7 +376,11 @@ export function registerSystemRoutes(
       // See change: warn-unreachable-trusted-networks.
       const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
       const reachability = safeComputeBindReachability(configModule.loadConfig);
-      return { success: true, data: { ...readConfigRedacted(), reachability } };
+      // `agentPathGateEnvOverride` is COMPUTED (never persisted): lets Settings
+      // render the toggle inert with the reason. See change: ask-agent-file-access-in-chat.
+      const gateEnv = process.env.PI_DASHBOARD_AGENT_PATH_GATE?.trim().toLowerCase();
+      const agentPathGateEnvOverride = gateEnv === "off" || gateEnv === "on" ? gateEnv : null;
+      return { success: true, data: { ...readConfigRedacted(), reachability, agentPathGateEnvOverride } };
     },
   );
 

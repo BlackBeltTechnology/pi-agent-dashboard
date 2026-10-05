@@ -1,172 +1,282 @@
 ## Context
 
-Reading `set-copilot`'s source confirms its architecture splits cleanly into two halves:
+`set-copilot` (upstream, Tatár Gábor) turns speech into chat alerts, commentary and wall visuals. Its own architecture overview (`references/2026-10-03-set-copilot-architecture.html`) states the principles we keep:
+- the session is the copilot;
+- files are the boundaries;
+- two channels (mic / system), never mixed;
+- instructions skip the queue (fast lane, 250 ms tick);
+- mechanics in code, judgement in config;
+- the wall fails closed, dictation fails open.
 
-1. **Mechanical half (fully reusable, already library-shaped):** `capture.ts` (`runCapture`, audio + STT → JSONL transcript), `transcript-writer.ts` (`TranscriptWriter` — topic/urgency/question/command detection per line), `transcript-build.ts`/`transcript-stitch-run.ts` (sentence stitching for a clean dictation handoff), `handover.ts` (exactly-once transcript archival), `poll.ts` (`runPoll` — long-poll batching of reaction-worthy lines), `knowledge/*` (markdown adapter + keyword matcher), `wall/*` (`WallServer`, event routing/redaction), `copilot-prompt.ts` (`renderCopilotPrompt` — renders the alert-category/engagement policy as text). `src/index.ts` re-exports precisely this set and is documented as the intended embedding point.
-2. **Claude-Code-specific half (NOT reused):** `cli.ts` subcommand dispatch, `.claude/skills/{ds,dd,dictate,meeting-copilot}/SKILL.md` (upstream's own skill names — `ds`/`dd` shell `set-copilot dictate start|stop`; this plugin's equivalent dashboard actions are named `dict-start`/`dict-end`, see decision 3) (each one shells a `set-copilot` subcommand and tells the Claude Code model how to interpret its stdout), `hooks/` (a Stop-hook-era mechanism the project itself is moving away from in favor of following its own transcript file). The meeting-copilot skill says outright: *"The copilot is NOT a separate AI — it IS this Claude Code session."* That session-is-the-brain design is exactly what pi-dashboard's existing `sendToSession`/`onEvent` plumbing lets us reproduce without Claude Code: target a **pi** session instead, using APIs pi-dashboard already ships (`packages/server/src/session/session-api.ts`'s `POST /api/session/:id/prompt` is the REST twin of the same `piGateway.sendToSession` call `ServerPluginContext.sendToSession` wraps).
+Its field playbook (`references/2026-10-03-set-copilot-playbook.md`) supplies the operating lessons.
+
+**We keep upstream's mechanics and replace its control plane with pi-dashboard's own system.** Voice handling and agent control are ours: spawned pi sessions, our extensions, our subagents and flows, our `video-transcription` and speaker-id. "Copilot" always means set-copilot's meeting-copilot **role**, played by a pi session; no Anthropic or Claude Code tooling is used.
+
+**Revision 2026-10-04.**
+- Transcription moves out of the dashboard server into a **separately spawned transcriber pi session**, short-lived for dictation and per meeting for meetings.
+- The copilot session runs its own poll loop.
+- The plugin server is a thin coordinator.
+- Earlier revisions (server-owned runners, server-side poll parser) are superseded.
+
+### Verified upstream facts (`32b6a7d`)
+
+| Fact | Consequence |
+|---|---|
+| `runCapture` uses cwd-derived `loadConfig()`, calls `process.exit`, owns `SIGINT`/`SIGTERM`, logs to stdout | Runs in a child process of the transcriber session, never in the pi process or the dashboard |
+| `runPoll(cfg, s): Promise<void>` writes batches, `capture-dead`, `wall-input` to stdout | Runs in a child of the copilot session; its stdout is the batch API |
+| `loadConfig(root)` writes `.env` into `process.env` | Only inside those children |
+| `handover.ts` outside the `index.ts` closure; `spawnSync(cmd,{shell:true})` hook path | Vendored explicitly; hook path never called |
+| `capture.ts` calls `startDualCapture` inline | One carve-out (`captureFactory`) for browser-mic and audio tee |
+| Soniox realtime reconnect unbounded, one clock (`2835e5d`); `{"type":"reconnect"}` lines | Adopted |
+| Fast lane: `copilot … csináld/stop/vége` → `{"type":"command"}`; name addressing → `command:true`; poll returns early on these | Adopted unchanged (mechanics) |
+
+### Our own system (verified on `HEAD`)
+
+| Need | Ours |
+|---|---|
+| Spawn and control agent sessions | `ctx.spawnSession` (trusted plugin) with `pluginRef`, `principalOwner`, `scope { tools, noTools, extensions, extensionConfig → PI_EXT_<ID>_<KEY> }`; `onSessionResolved`, `abortSpawnedRun`, `sendToSession` (`/`-prefixed text → extension command dispatch), `onEvent`, `onSessionEnded` |
+| In-session control | pi extension API: `registerCommand`, `registerTool`, `sendUserMessage(text,{deliverAs:"followUp"})`, `ctx.isIdle()`, `before_agent_start`, `tool_call`, `session_shutdown`, `ctx.ui.notify` |
+| Sub-work inside a session | our subagents (`pi-dashboard-subagents` `Agent` tool) replace upstream's `subagent_type:"fork"` producers |
+| Batch/after-meeting pipelines | pi-flows, available for v2 (`transcript-recover` equivalent) |
+| Speech credentials, async STT, diarization | `packages/video-transcription`: `loadConfig` (keys `SONIOX_API_KEY` / `ASSEMBLY_AI_KEY` from env or gitignored `.env`), `SonioxClient` (stt-async-v3, diarization), `AssemblyAIClient` (EU) |
+| Naming speakers | `pi-voiceid` (`voiceid.ts`): `label` writes `*.named.srt` from the voiceprint library `~/.pi/voiceprints/voiceprints.json` |
+| Knowledge | `packages/kb` + kb-plugin routes (`/api/kb/config`, `/api/kb/reindex`) |
+| Wall | `add-voice-wall-plugin` (`voice-wall` service, `./emit` schema export) |
+
+## Own-system mapping (upstream → ours)
+
+| Upstream (Claude Code) | Ours |
+|---|---|
+| `/ds`, `/dd` slash commands | Composer mic (`composer-toolbar-action`) → short-lived **transcriber session** → text into the composer draft (or sent, per setting) |
+| `/meeting-copilot start\|stop\|status` | Folder-row Start / Dry run / Stop → **transcriber + copilot sessions**; status from runtime-dir `status.json` |
+| `capture --detach` (escape the tool harness) | Capture child owned by the transcriber session's extension (no tool call involved) |
+| Monitor loop on `set-copilot poll` | Poll child owned by the copilot session's extension; batches injected with `sendUserMessage(followUp)` when idle |
+| `set-copilot prompt` loaded by the skill | `prompt` runner → `policy.md`; injected additively on every `before_agent_start` |
+| `wall-emit` CLI | `wall_emit` tool (validates with `voice-wall/emit`) |
+| `subagent_type:"fork"` producers for drawings | Our `Agent` tool (subagents) under the copilot preset, emitting via `wall_emit` |
+| `mirror-follow` tailing the Claude transcript | Copilot extension `message_end` hook, opt-in |
+| Stop hook guarding `transcript-recover` | v2 flow; v1 archives deterministically |
+| `.set/copilot/<session-id>/` in the project | `~/.pi/dashboard/voice/<hash>/{dict-<sid>,meeting-<id>}/` scratch |
+| Desktop notify | `copilot_alert` → `ctx.ui.notify` |
+| `/set-repair` | Plugin activation reap + `session_shutdown` cleanup |
+| `transcript` (stitch) after stop | Transcriber archive step + our Soniox async diarization + `pi-voiceid label` |
 
 ## Goals / Non-Goals
 
 **Goals:**
-- One server-side plugin service, loaded once by the dashboard, that owns audio capture, STT, wall broadcast, and knowledge cross-reference for as many concurrent `{ project, target session }` pairs as are active — not one process per session and not a per-project CLI install.
-- Reproduce dictation handoff and meeting-copilot analysis using only `ctx.sendToSession` / `ctx.onEvent` — the same mechanism the dashboard's own `/api/session/:id/prompt` route uses — so the target pi session (which already has full tool access to the project) does the actual reasoning, exactly as the Claude Code session did upstream, but without ever invoking `cc`/Claude Code.
-- Preserve the mechanical guarantees the vendored code already provides: exactly-once transcript handover, redaction before anything reaches a public wall client, fail-open dictation (never silently swallow captured speech).
+- The dashboard server never hosts vendored code or audio.
+- Every voice activity is a visible, stoppable pi session.
+- Files are the only data boundary between sessions.
+- Upstream guarantees are preserved (exactly-once handover, fail-open dictation, reconnect-with-replay, fast lane).
+- Meetings end up named, stitched and indexed in kb.
 
-**Non-Goals:**
-- Not reimplementing STT/audio capture, transcript stitching, or wall rendering — vendored as-is.
-- Not making the *target pi session* itself the thing that starts/stops capture — that stays a dashboard-side action (button click), not a slash command the session issues to itself.
-- Meeting-copilot's mic+system-audio capture runs only on the dashboard server's own machine (matches upstream's single-machine assumption) — this stays true for v1; browser-side capture of the OTHER PARTY's audio in a meeting is out of scope (see decision 4d). Dictation, however, now supports a second, explicit **browser-mic** source (decision 4d/3b) alongside the default server-local one, specifically to fix the remote-dictation gap. The control plane (session-card buttons, config editor, knowledge browser, the live wall) works over any of the dashboard's existing remote-access paths (zrok tunnel, paired/bearer-authed neutral shell, LAN/mDNS) with zero plugin-specific work regardless of capture source.
-- Not building a generic embeddable knowledge-adapter SDK beyond what `MarkdownAdapter` already provides.
+**Non-Goals (v1):**
+- the wall itself;
+- browser capture of the other party;
+- latency budgets;
+- persistent copilot;
+- the high-effort lane;
+- the transcript split view;
+- standalone apps;
+- a `transcript-recover` flow.
 
 ## Decisions
 
-**1. Server-only plugin, no bridge entry, no `.claude/skills`.** `ServerPluginContext.sendToSession(sessionId, text)` already dispatches through the bridge's extension-command path (`packages/dashboard-plugin-runtime/src/server/server-context.ts`, `SendToSessionFn`) — it is not a suggestion to add a bridge, it IS the bridge, from the server side. `ctx.onEvent((sessionId, event) => …)` is the forwarded pi-event stream every connected session already produces. Together they replace both halves of the Claude-Code coupling (stdout handoff, transcript-file tailing) with mechanisms pi-dashboard ships today. No new bridge code, no manifest `bridge` field.
+**D1. Three roles, one package.**
 
-**2. Vendor only `src/index.ts`'s export set — with one explicit carve-out for the audio SOURCE.** Copy exactly the modules that surface re-exports (`config.ts`, `capture.ts`, `knowledge/run-digest.ts`, `poll.ts`, `copilot-prompt.ts`, `knowledge/sources.ts`, `knowledge/keyword-matcher.ts`, `transcript-writer.ts`, `transcript-build.ts`, `transcript-stitch-run.ts`, `recovery-ledger.ts`, `knowledge/types.ts`, `knowledge/markdown-adapter.ts`, `wall/index.ts`, `wall/server.ts`, `wall/categories.ts`, `wall/types.ts`, plus their direct internal imports — **verified against upstream `24a714d` by reading each module's import list**: `soniox-rt.ts`, `whisper-local.ts`, `handover.ts`, `tones.ts`, `audio.ts` (`startDualCapture`/`DualChannelCapture` — the OS recorder spawn, imported by `capture.ts`), `runtime-dir.ts` (`claimRuntimeDir`/`RuntimeDirBusyError`/`captureAlive` — imported by `capture.ts` AND `poll.ts`), `fast-lane.ts` (imported by `transcript-writer.ts` and `config.ts`), `recovery-ledger.ts` (imported by `transcript-stitch-run.ts` — required, not optional), `wall/director.ts`, `wall/emit.ts`, `wall/event-source.ts`, `wall/redaction.ts`, `wall/routing.ts`, `wall/channels.ts`, `wall/layout.ts`, `wall/feed-script.ts` (both imported by `wall/index.ts`), and `wall/public/{index.html,wall.js,wall.css,wall-core.mjs,text-format.mjs,text-render.mjs}`). An earlier draft omitted `audio.ts`, `runtime-dir.ts`, `fast-lane.ts`, `wall/layout.ts`, `wall/feed-script.ts` and the two `text-*.mjs` assets and left `recovery-ledger.ts` conditional; task 2.10's `tsc` gate would have caught it, but the list is now correct up front. Pin the vendored commit SHA in `NOTICE`. Explicitly **exclude** `cli.ts`, `doctor.ts`/`diagnostics.ts` (CLI-facing diagnostics printer — reimplement a thin server-side preflight instead), `mirror-follow.ts`/`mirror-format.ts`/`mirror-policy.ts` (the Claude-Code-transcript-tailing mirror — superseded by `ctx.onEvent`), `skill-install.ts`, `replay*.ts` (offline replay harness), `*.test.ts`, and all of `.claude/skills/`, `hooks/`.
+```mermaid
+flowchart LR
+  SRV["Plugin server<br/>coordinator"] -->|spawn / '/voice-stop' / abort| T["Transcriber session<br/>(extension: transcriber)"]
+  SRV -->|spawn / abort| C["Copilot session<br/>(extension: copilot)"]
+  T -->|capture child| F1[("transcript.jsonl · audio wav")]
+  F1 --> C
+  C -->|poll child| F1
+  C -->|wall_emit| F2[("wall-events.jsonl")]
+  T & C -->|status.json| SRV
+```
 
-**Carve-out for v1 (decision 4d):** `capture.ts`'s audio SOURCE becomes pluggable — the vendored `sox`/`parec` OS-device spawn stays the default, unmodified path, but dictation additionally accepts a browser-streamed source feeding the same vendored `soniox-rt.ts` client. Everything downstream of "raw audio in" (`TranscriptWriter`, stitching, handover, wall) is untouched. **Upstream already isolates the source (verified):** `capture.ts` does not spawn recorders itself — it imports `startDualCapture(opts): DualChannelCapture` from `audio.ts`. The seam is therefore "let `runCapture` accept an alternate `DualChannelCapture` factory" — a parameter added at one call site in `capture.ts`, with the browser-mic implementation living in plugin-owned code that satisfies the same `DualChannelCapture` shape. This is smaller than an earlier draft feared ("fork of one function with no upstream extension point"). It is still a modification to a vendored file, so it is recorded as the ONE confirmed carve-out; the two seams the earlier draft flagged as contingent (scratch-dir redirection, STT reconnect bounding) are now resolved in 4g without carve-outs. The implementation MUST keep `capture.ts`'s downstream wiring (`TranscriptWriter`, recovery-ledger, handover) intact rather than re-running it by hand. If that proves impossible without duplicating capture's plumbing, the browser-mic source is deferred rather than allowed to metastasize into a rewrite.
+- The package ships two extensions, `extension/transcriber` and `extension/copilot`, loaded **only** into the sessions the plugin spawns (`scope.extensions` + `extensionConfig`).
+- There is no manifest `bridge`, and nothing is loaded into ordinary sessions.
+- The plugin must be host-trusted (`priority <= 100`) to spawn.
 
-**Demoted to fallback-only (decision 4e):** `knowledge/sources.ts`, `knowledge/markdown-adapter.ts`, and `knowledge/run-digest.ts` are still vendored, but are no longer the primary knowledge path — they serve only the no-kb fallback. `knowledge/keyword-matcher.ts` and `knowledge/types.ts` remain primary and are used on BOTH paths.
+**D2. Vendor the engine, one carve-out.**
+- Import closure of the upstream engine modules, computed by script. Exclusions as before (`cli.ts`, `doctor.ts`, `diagnostics.ts`, `mirror-*`, `skill-install.ts`, `replay*`, `meeting.ts`, `detach.ts`, `project-registry.ts`, wall server/UI, `.claude/`, `hooks/`).
+- The single patch adds an optional `captureFactory` to `CaptureOptions` (one call site, `capture-source.patch`).
+- Our factory implementations wrap `startDualCapture` for (a) the browser-mic ingest source and (b) a **tee** that writes each channel's PCM to a scratch WAV for post-meeting diarization. Neither needs a further patch.
 
-**3. Dictation control flow.** `session-card-action-bar` action `dict-start` (renames upstream's `ds`) → server calls `runCapture({ micOnly: true })` scoped to a runtime dir keyed by `{ projectRoot, targetSessionId }` (parallels the upstream `.set/copilot/$SESSION_ID` convention, substituting the pi session id). Action `dict-end` (renames upstream's `dd`) → server calls the vendored `handoverTranscriptOnce` + `stitchTranscript`/`stitchText` (same functions `handover.ts`'s `printTranscriptOnce` composes, minus the "print to stdout" step) to get plain reassembled text, then `ctx.sendToSession(targetSessionId, text)`. Fail-open is preserved: if stitching throws, send the raw transcript text rather than swallowing it (mirrors upstream's own fallback rationale in `handover.ts`).
+**D3. Children are owned by sessions, not the server.**
+- Runners (`src/runner/*.ts`) are spawned by the extensions with `cwd = projectRoot`, `detached` (own process group), an env allowlist, `SET_COPILOT_DIR`, and the STT key where needed.
+- On `session_shutdown`, the owning extension kills its children's groups.
+- The server never imports vendored entrypoints (test-enforced).
 
-**3b. Dictation capture-source selection: server-local (default) or browser-mic (opt-in, v1).** `dict-start` gains a source parameter: `server` (unchanged — `runCapture({ micOnly: true })` against the dashboard host's own device) or `browser` (new — see decision 4d for the transport). **Server-local stays the default**; browser-mic is an explicit per-click toggle, not an auto-detected switch, so a user is never surprised by an unexpected mic-permission prompt. Both sources feed the SAME downstream pipeline (`TranscriptWriter` → stitch → `sendToSession`) — the source only changes where raw audio bytes originate, per decision 2's carve-out. Meeting-copilot is unaffected: it still only uses the server-local source (mic + system audio), since browser-mic cannot capture "the other party" in a call.
-
-**4. Meeting-copilot control flow.** "Start meeting copilot" → server calls `runCapture({})` (mic + system audio) and consumes batches from the vendored batching function (see decision 4f for the per-capture, await-driven consumer shape and why it is not the server-wide fixed-interval poller that starved this server before). On a reaction-worthy batch (matches `topics`/`urgency`/`question`/`command` per `TranscriptWriter`'s own line annotations), the server composes a message — the batch's JSONL lines plus, on the FIRST batch only, the rendered policy (`renderCopilotPrompt(cfg)` — alert categories, engagement level, project instructions) as framing — and calls `ctx.sendToSession(targetSessionId, message)`. The server subscribes via `ctx.onEvent` for that session and mirrors the assistant's resulting text into the vendored `WallServer`'s own event stream (`ingest()`). **Unverified contract:** `onEvent` delivers raw forwarded pi events of every type, and the design assumes a clean assistant-text event is extractable; which `eventType`/field carries the final reply, and how deltas are distinguished from final text, MUST be established during implementation — mirroring fragmented deltas or mis-attributed tool output would be worse than not mirroring, replacing upstream's `mirror-follow.ts` (which had to tail Claude Code's own on-disk session `.jsonl` because it had no API into the session — pi-dashboard's event stream makes that unnecessary). **Redaction applies only on the wall leg, not the `sendToSession` leg** — the target session needs full-fidelity transcript to reason correctly, so it always receives the unredacted batch; only what's later mirrored to the wall (`ingest()`) is scrubbed. This is a deliberate boundary, not an oversight (see the dedicated requirement in `voice-assistant-copilot-control`).
-
-**4b. Live wall — embed the vendored wall's OWN static UI via `live-server-preview`, no custom React view.** The vendored `runWall(cfg, { port })`/`WallServer` binds its own loopback port per active project (already vendored, already serves upstream's own `wall/public/*` — no reimplementation; the assets are patched ONLY for path-prefix relativity, see the confirmed risk below — upstream's URLs are root-absolute and its live feed is SSE via `EventSource('/events')`, not a WebSocket), and a `session-card-action-bar` "View live wall" action registers it via `startLiveServer({ host: "127.0.0.1", port })` (same call `CanvasServerChip` makes). `LiveServerViewer` renders it in a reverse-proxied iframe on the dashboard's own origin. **This removes the need for a `content-view`/`command-route` claim for the wall entirely** — no custom wall React UI, no relay-through-plugin-channel event forwarding to a bespoke component. Redaction (`wall/redaction.ts`) applies inside the vendored `WallServer` exactly as upstream ships it, before anything reaches the iframe.
-
-Four properties of this mechanism were verified in source and constrain the design — an earlier draft of this decision asserted the opposite of the first two and was corrected during doubt-review:
-
-- **The popout is NOT `TabActions`/`window.open`.** `EditorPane.tsx` computes `tabActionTarget` as `isPseudoTabViewer(activeTab.viewer) ? null` — live-server tabs (like diff/terminal) expose **no** `TabActions` action; only real files and `url:` tabs do. The only popout is `LiveServerViewer`'s own inline `<a target="_blank">` to `${getApiBase()}${path}` — i.e. the dashboard's **main origin** `/live/<id>/…`. That is the same main-origin-popout category `AgentToolRenderer` moved OFF `window.open` for, so we inherit whatever Electron/PWA/mobile behaviour that link has; we do NOT get to claim the `openExternal` path. No new popout is built here.
-- **`/live/:id/*` has no per-request auth.** `live-server-proxy.ts` registers `fastify.all("/live/:id/*", forward)` with **no `preHandler`**; the only global `onRequest` hooks are the conditional model-proxy gate, and `/live/` is in the CSP `SKIP_PREFIXES`. The WS *upgrade* is ticket-gated (`routeScopeForUrl` → `"live"`), the HTTP surface is not. The wall is therefore reachable by anyone who can reach the dashboard origin, protected only by the unguessability of the target id. This change is the first to put **meeting PII** behind that surface, so the exposure is specified explicitly rather than inherited silently (see Risks and the `voice-assistant-meeting-wall` exposure requirement).
-- **The registry is user-visible and persistent.** `createLiveServerManager` persists every registration via `preferencesStore.setLiveServers(...)` and reseeds from `getLiveServers()` on boot; registered targets appear in the user's own "Saved targets" picker. Ephemeral per-project wall ports and per-dictation ingest ports MUST therefore be deregistered on stop, or they accumulate as stale rows pointing at dead ports and pollute a user-facing list. Lifecycle is a requirement, not an implementation detail.
-- **`startLiveServer` returns a proxied path; it does not open a tab.** Mounting the viewer is a separate client concern (the editor-pane pseudo-tab registry). The action-bar button must therefore both register the target and mount the pseudo-tab; if no host client API exposes the latter to a plugin, the button falls back to the main-origin link. This is called out as an implementation risk rather than assumed away.
-- **Sandbox attributes, quoted exactly:** `sandbox="allow-scripts allow-forms allow-popups"`, with **no** `allow-same-origin` (opaque origin). The load-bearing property — the iframe cannot read the dashboard token or call dashboard APIs — holds. But `allow-popups` means the vendored third-party wall UI can spawn popups; an earlier draft quoted only `allow-scripts` and would have understated that.
-
-**4f. Batch consumption is per-capture and await-driven, and vendored code runs behind a fault boundary.** Two problems with the obvious "just run `runPoll(cfg, 60)` in-process", both surfaced by doubt-review:
-
-*Problem 1 — a continuous in-server loop is a known-bad shape here.* This server has already been starved once by a polling loop (the openspec poller's `slow tick` incidents, documented in `unstick-dashboard-server`), so "just run the poll loop in-process" deserves scrutiny.
-
-*Resolution — keep `runPoll` vendored and used exactly as intended, and be precise about what made the prior incident bad.* Batching **inherently requires a time window**: `TranscriptWriter` annotates *per line* (topic/urgency/question/command), while `poll.ts` performs the *long-poll batching of reaction-worthy lines*. There is therefore no "batch event" to subscribe to without a window, and any claim to consume batches with no timer at all is incoherent — an earlier draft of this decision asserted exactly that and was wrong. `poll.ts` stays **vendored and unmodified**, and the plugin awaits `runPoll(cfg, windowSeconds)` as its intended consumer contract (a caller polls it; that is what it is for). No reimplementation, no carve-out needed.
-
-What makes this different from the starvation incident is the shape, not the absence of a loop:
-- **Per-capture, not global.** One consumer exists per ACTIVE `{ projectRoot, targetSessionId }` pair, and only while that capture runs — not one server-wide interval firing forever regardless of demand.
-- **Await-driven, so ticks cannot overlap.** The consumer awaits each batch before requesting the next, which is precisely what the openspec poller did not do when it piled up overlapping ticks. To be accurate rather than flattering: a long-poll `runPoll(cfg, windowSeconds)` still **returns every window** whether or not a reaction-worthy line arrived, so this is not "only runs when there is work" — the real guarantee is no overlap, per-capture scope, and bounded teardown.
-- **No heavy synchronous work added by us on the loop body.** Per-line keyword matching is in-memory (decision 4e) and knowledge-base queries are excluded from the per-line path. **Caveat, stated rather than assumed:** `runPoll`'s own internals (JSONL read/parse/regex per window) are not yet vendored and therefore not yet measurable, so this is a property to VERIFY under sustained load, not one to claim. If it does not hold, the child-process option below is the guard, not a fallback.
-- **Bounded by teardown.** The consumer is stopped by every teardown path in 4g, so it cannot outlive its capture.
-
-If profiling during implementation shows the awaited loop still contends for the event loop, capture+batching move into a child process with only forwarding left in-server — pre-agreed rather than improvised. Note this **changes the fault boundary below rather than preserving it**: items 1–2 no longer apply to the moved modules (the in-server side no longer holds those sockets/streams), and child IPC framing/parse errors plus child stderr become new paths that must be handled at the same per-pair granularity.
-
-*Problem 2 — crash propagation.* Decision 2 runs third-party code (`soniox-rt.ts`, `TranscriptWriter`, `WallServer`, `knowledge/*`) **in-process** in the server that hosts every other project's sessions. An unhandled rejection in vendored code takes the whole dashboard down. In-process was treated as a pure win; it is also a hazard.
-
-*Resolution:* every entry point into vendored code is wrapped at the plugin boundary so a failure degrades **that one `{ projectRoot, targetSessionId }` pair** to an error state. A synchronous `try/catch` around calls is **not sufficient on its own** — it catches none of the async paths that actually crash a Node server — so the boundary is explicitly all four of:
-
-1. `try/catch` (incl. `await`) around every synchronous and promise-returning call into vendored code.
-2. An `'error'` listener attached to **every** EventEmitter/stream the vendored modules expose or return — the wall's WS server, the Soniox socket, transcript streams. An emitter with no `error` listener throws to `uncaughtException` and takes the process down; this is the most likely real crash path.
-3. `child.on('error')` **and** exit/close handling on spawned recorders. `spawn()` reports failures asynchronously — a `try/catch` around the `spawn()` call catches only argument errors, not ENOENT for a missing `sox`. An earlier draft claimed child-process failure was inherently "a non-zero exit to handle"; that is only true once these handlers exist.
-4. Promise rejections originating inside vendored callbacks routed back to the owning pair, so they surface as that capture's error state rather than a process-level `unhandledRejection`.
-5. A process-level `uncaughtException`/`unhandledRejection` **backstop** that attributes an error to a capture pair where possible and fails only that pair. This is required because items 1–4 cannot catch a synchronous throw inside a vendored callback scheduled via `setImmediate`/`nextTick`/`setTimeout` — that surfaces as `uncaughtException`, not a rejection. Additionally, `'error'` listeners MUST be attached at construction, since an emitter can error synchronously during connect (a Soniox socket failing to open) before a later-attached listener exists.
-
-This does not make vendored code trusted — it makes its blast radius one capture.
-
-**4g. Lifecycle, backpressure, and device contention — the server is long-running and shared.** Consequences of hosting capture inside the dashboard, each specified rather than assumed:
-
-- **Teardown on abnormal exit.** `ServerPluginContext` already exposes `onSessionEnded`, which the earlier draft never used. Capture for a pair is torn down when its target session ends, not only on an explicit stop click. Spawned `sox`/`parec` children are killed by process group so a `SIGKILL`ed or restarted dashboard (`/api/restart` is a documented, routine operation) cannot orphan a live microphone. Registered live-server targets are deregistered in the same teardown (decision 4b).
-- **Capture-state eviction.** The `Map<"projectRoot::sessionId", CaptureState>` is bounded by explicit removal on stop, on session end, and on error-state entry — never left to accumulate for the server's lifetime.
-- **Backpressure, with "coalesce" defined.** `sendToSession` returns a boolean immediately; it does not wait for the session to finish reasoning. So: at most **one batch in flight per pair**. Batches produced while one is in flight are **merged in arrival order into a single pending payload** (append, not replace — no line is dropped by merging), which is dispatched when the in-flight batch completes. The pending payload is bounded by a **configurable** line/byte cap in `set-copilot.config.json` — documented default **200 lines OR 32 KB, whichever trips first** — and **on overflow the oldest lines are dropped and an explicit truncation marker is inserted into the payload**, so loss is visible in the session rather than silent. The cap is configurable because the right value depends on meeting length and model context; the default is what tests assert against. This is the one place content loss is permitted, and it is deliberate: the alternative — unbounded growth — fails the whole server, and silent dropping would contradict the fail-open discipline dictation follows. The wall still receives every line regardless of session backpressure; only the session leg coalesces.
-- **Device contention.** Dictation (`runCapture({micOnly:true})`) and meeting-copilot (`runCapture({})`) target the same OS microphone — and the host has **one** physical device while the architecture allows many concurrent pairs, so contention is **host-wide, not per-project**. The guard is therefore keyed on the capture device for the whole dashboard: a start that would contend with any active capture on that device is refused with an explicit reason naming the holder, and starting an already-running capture for a pair is idempotent, not a second recorder. (Genuinely independent devices are out of scope for v1; the refusal is conservative rather than attempting multi-device arbitration.) **Compose with upstream's guard, do not duplicate it:** `runtime-dir.ts` already implements a PID-file liveness claim — `claimRuntimeDir` throws `RuntimeDirBusyError` (carrying the owner PID) when the dir has a live owner, and `poll.ts` uses `captureAlive` to detect a dead recorder. That guard is per-runtime-dir, i.e. per pair; the plugin's host-wide device guard sits ABOVE it, and a `RuntimeDirBusyError` surfacing from a start is mapped to the same "refused, holder named" outcome rather than treated as an unexpected error.
-- **Transcript retention.** Transcripts are scratch and MUST NOT land inside the project's git working tree, where they would be an accidental-commit risk for recorded meeting content. **Seam verified (upstream `24a714d`):** `capture.ts` claims its scratch dir through `runtime-dir.ts`'s `claimRuntimeDir({ runtimeDir, output, pid? })` — both the dir and the transcript path are explicit parameters, not CWD-derived inside the claim. Implementation MUST confirm `runCapture`'s `CaptureOptions` threads `runtimeDir`/`output` through (rather than computing them from `process.cwd()` before the claim); if it does, the plugin passes a dir under the dashboard's own scratch root and NO carve-out is needed. If `runCapture` computes the path itself, the fix is to lift that computation into an option — a one-line change recorded beside 4d's, not a rewrite. It is NOT acceptable to silently default to writing inside the project tree.
-- **STT socket ownership — upstream policy ADOPTED, not overridden.** **Seam verified (upstream `24a714d`):** `soniox-rt.ts` owns reconnection and is deliberately **unbounded**: backoff `0.5s, 1s, 2s, 4s, then 8s forever`, with a ~15 s (`32_000 * 15` bytes of 16 kHz s16le) audio ring buffer replayed on reconnect so a drop loses no speech; it emits `"reconnecting" (attempt, reason)` and `"reconnected" (downtimeMs, bufferedBytes)` events. An earlier draft specified "5 attempts, capped 30s, then terminal" — imposing that would require a carve-out AND discard the buffer-and-replay behaviour that is the whole point of upstream's design. So: the plugin adopts upstream's policy as-is and makes it **observable** instead of bounded — `"reconnecting"` flips the pair's badge to a `reconnecting` state with the attempt count, `"reconnected"` clears it, and the operator's stop action is the bound (teardown closes the socket). Auth-expiry/rate-limit responses that upstream surfaces as a terminal socket error (not a reconnectable close) become the pair's error state. The listener for these events is attached at construction (fault-boundary item 2).
-
-**4c. Target a full pi session, not a subagent — not a style choice, an availability constraint.** pi supports two distinct isolation mechanisms: (a) full pi **sessions** — separate OS processes, separate auth, independently addressable by id via `ServerPluginContext.sendToSession`/`onEvent`; (b) the `Agent` **tool** (subagents) — spawned synchronously in-memory *from within* an already-running session's own turn, with an isolated, `inheritContext`-controlled context window (a compressed parent snapshot capped by `maxChars`, or a cold start when `inheritContext: false`), visualized (not created) by `subagents-plugin`. A server-side plugin has no API to invoke the `Agent` tool directly — subagent spawning is a decision the target session's *own model* makes mid-turn, not something external code can trigger. So `sendToSession` (full session) is the only mechanism actually reachable from `registerPlugin(ctx)`; it also happens to be the *stronger* isolation of the two (full context + full tool access, vs. a capped snapshot), traded against landing visibly in the user's own live chat rather than a quiet background worker. See Open Questions for the alternative this forecloses.
-
-**4d. Browser-captured microphone — ADOPTED for v1, scoped strictly to dictation.** The dictation-side remote-mic gap is closed by having the BROWSER capture audio and stream it to the server, as the `browser` capture source from decision 3b. **Codec is specified, not left open:** the client uses an `AudioWorklet` emitting raw PCM at the sample rate the vendored `soniox-rt.ts` already expects from `sox`/`parec`, NOT `MediaRecorder`. `MediaRecorder` emits Opus-in-WebM container frames, which would force a server-side demux+decode step — new heavyweight work in direct conflict with the one-seam carve-out. Raw PCM keeps the server side byte-compatible with the existing path, so the seam stays a source swap rather than a transcode pipeline. **Transport: reuse the existing `"live"` WS-upgrade scope — no new core channel.** `server.ts`'s single `upgrade` handler already dispatches three scopes by URL (`"browser"`, `"terminal"`, `"live"`); `"live"` (`handleLiveServerUpgrade` in `live-server/live-server-proxy.ts`) is a generic, protocol-agnostic raw TCP pipe from `/live/:id/*` to whatever the registered loopback target's own WS endpoint does — its own comment says "WebSocket upgrade forwarding (HMR / dev-server sockets)", i.e. it doesn't know or care what bytes it's carrying. A small companion loopback WS endpoint (its own tiny Node `http`+`ws` server, registered via the same `startLiveServer` call the wall uses, own port) gets genuine binary audio frames tunneled through `/live/<id>/audio-ingest` with **zero core dashboard changes** — already gated by the same upgrade auth check every scope gets, already proven remote/tunnel-safe. A genuinely new 4th `scope` case was considered and rejected: real and precedented, but cross-cutting core work outside this plugin's own package, unnecessary when `"live"` already does the job. The server feeds incoming chunks into the vendored Soniox client (`soniox-rt.ts`) exactly as `capture.ts`'s `sox`/`parec` path does today; the text tail end (`stitchTranscript` → `ctx.sendToSession`) is completely unaffected — pi sessions never receive audio, only text, same as before this decision.
-
-**Explicit v1 boundaries (why this is safe to adopt narrowly):**
-- **Dictation only.** Meeting-copilot's mic+system-audio capture stays server-local, unconditionally — browser-mic cannot capture "the other party" in a call (that would need `getDisplayMedia` tab-audio capture or the meeting app routed through the tab, a materially different problem, not attempted here).
-- **Opt-in, not default** (decision 3b) — avoids surprise mic-permission prompts; server-local dictation is unchanged and remains the default.
-- **Secure-context precondition is detected, not assumed.** `getUserMedia` requires HTTPS or `localhost`; the client checks `window.isSecureContext` before offering the `browser` source and falls back to server-only with an explicit "needs HTTPS" state over plain-`http://` LAN access (see spec scenario).
-- **New code is confined to one seam** (decision 2's carve-out): the audio SOURCE feeding `soniox-rt.ts`. No vendored file is modified; the companion WS server and client capture UI are new, plugin-owned code, not a fork of upstream.
-
-**4e. Knowledge backend: kb-first, vendored adapter as fallback (hybrid).** pi-dashboard already ships a markdown knowledge base (`packages/kb`, `@blackbelt-technology/pi-dashboard-kb`) that subsumes most of what `set-copilot`'s `knowledge/` layer does, and does it better:
-
-| Vendored module | kb equivalent | Verdict |
+| Runner | Spawned by | Does |
 |---|---|---|
-| `knowledge/sources.ts` (glob list) | `resolveAll`/`classifyRef` — filesystem/npm/git/https, priority, dedup, TOFU | kb more capable **on folders kb is allowed to index** — `isAllowedCwd` admits only known folders, so reach is not parity; this is exactly why the fallback exists |
-| `knowledge/markdown-adapter.ts` | `SqliteFtsStore` + `indexSource` — FTS5/BM25, chunking, mtime→sha256 change detection, incremental | kb strictly more capable |
-| `knowledge/run-digest.ts` (precomputed digest) | the kb index *is* the digest, maintained incrementally | kb replaces |
-| retrieval while reasoning | the target session's OWN native `kb_search`/`kb_neighbors`/`kb_get` tools (registered by `packages/kb-extension`) | kb replaces — the plugin never needed to supply this |
-| **decisions** (`docs/decisions/*.md`, `id`/`title`/`status`) | **`status` is in `DEFAULT_FACET_KEYS` out of the box** (alongside `tags`/`author`/`category`/`date`); `title` is in `DEFAULT_SEARCHABLE_KEYS`. `store.facets(["status"])` → `{active: N, superseded: M}`; `store.search(q, { filters: [{key:"status", op:"eq", value:"active"}] })` | **kb strictly more capable** — the vendored adapter has no facet/count concept at all |
+| `capture` | transcriber | `runCapture({ micOnly, maxMinutes, captureFactory })` |
+| `handover` | transcriber (dictation) | `handoverTranscriptOnce` → stitch → `{text, raw}` |
+| `archive` | transcriber (meeting) | `stitchFile` → stitched artifacts |
+| `prompt` | server, before copilot spawn | `renderCopilotPrompt(loadConfig())` + instructions → `policy.md` |
+| `poll` | copilot | `for(;;){ await runPoll(cfg, windowSec); print voice-batch-end }` |
 
-**The one module kb cannot replace is `knowledge/keyword-matcher.ts`** — it is not a search tool. It runs inside `TranscriptWriter`, annotating **every transcript line synchronously at write time** with `topics`, from a precompiled in-memory regex set, and its output is exactly what gates whether a batch is reaction-worthy (i.e. whether to wake the session at all). Routing that through `kb_search` would mean an FTS5 query — which additionally runs a freshness `reindexNow` on every call — per spoken line, on the latency path, to decide whether to do expensive work. Inverted. **The matcher stays**, and its keyword index is seeded from kb when kb is available (kb already holds the titles/headings/tags `autoKeywords` derives), else from the vendored digest.
+**D4. Scratch and status files.**
+- Scratch root is `~/.pi/dashboard/voice/<sha1(projectRoot)[:12]>/`: `dict-<targetSessionId>/` for dictation, `meeting-<meetingId>/` for meetings (new and empty per meeting). It is shared with `voice-wall`.
+- Each extension writes `status.json` (`{ role, phase, detail, counters, updatedAt }`) atomically (temp + rename).
+- The server watches runtime dirs with `fs.watch` (no timers) and maps the files to badges.
+- `claimRuntimeDir` PID liveness stays the per-dir guard.
 
-**Hybrid, not hard replacement.** kb requires `knowledge_base.json` + an index and is admission-guarded per cwd (`isAllowedCwd`: known folders only); the vendored adapter needs only a glob list. Making kb mandatory would add a real precondition to a plugin that otherwise works on a bare config. So: **kb is used when the folder has an indexed kb; the vendored adapter is the fallback when it does not.** Both sit behind one internal `KnowledgeBackend` seam so the copilot flow (decision 4) is backend-agnostic. Cost accepted: two code paths to keep behaviourally aligned (see Risks).
+**D5. Transcriber session.**
+- Spawned with `noTools: true` (no LLM tool surface) and the resolved `transcriberModel` (D20; intended cheap). It does no LLM work in normal operation.
+- Its extension reads `PI_EXT_VOICE_*` (`mode`, `runtimeDir`, `source`, `maxMinutes`, `archive` settings).
+- On `session_start` it spawns the capture child. It reports phases `starting → live → (reconnecting n) → stopping → handing-over | archiving → done | error`.
+- Commands: `/voice-stop` and `/voice-status`.
+- The STT key arrives through `extensionConfig` env, resolved by the server from our `video-transcription` `loadConfig` (same `SONIOX_API_KEY` source as `pi-transcribe`), with `ctx.credentials` as an optional override. With no tools, the session cannot echo it.
+- Upstream `tones.ts` plays the rising tone when the mic is live.
 
-**Split of concerns within the kb path:** the plugin's SERVER imports `packages/kb` directly (as `kb-plugin`'s own `kb-routes.ts` does, proving it works inside the dashboard server process — note its `openStore(cwd)` is a **module-private helper**, not exported from `packages/kb`; `packages/kb` exports `SqliteFtsStore`/`loadConfig`, so the plugin constructs its own store the same way rather than importing `openStore`) so it can use **faceted** queries the tool does not expose — the `kb_search` TOOL's parameters are only `{ query, limit, doc_type, format }`, with **no `filters`**. The SESSION uses its native `kb_search` for open-ended cross-referencing. So decision-shaped queries ("active decisions about X") run server-side with real facet filters, while free-form recall stays in the session where it belongs.
+**D6. Dictation via a short-lived transcriber.**
+- `dict-start` (owner-gated, device guard) → spawn a transcriber (`mode: dictation`, source `server|browser`), correlated by a `runId` nonce, with a 30 s timeout.
+- Triggered from the composer mic (`composer-toolbar-action`, D22), not the session card. The client takes `composer.snapshot()` at start.
+- `dict-end` → `sendToSession(transcriber, "/voice-stop")` → the extension stops capture and runs `handover`. It writes `handover.json` `{text, raw}` and phase `done`.
+- The server reads `handover.json` and returns `{ runId, text: text || raw }` (fail-open) to the requesting client, which calls `composer.insertAtCursor` (delivery `draft`, default) or insert + `composer.submit()` (delivery `send`, ≥ `minSendWords`). Then `abortSpawnedRun({ graceful: true })` ends the transcriber.
+- No live handle (composer unmounted/switched): server retains `{targetSessionId, runId, text}`; next composer for that session offers Insert / Copy / Discard. Delivery `send` with no composer → `sendToSession(target, text)`; `false` → retained the same way.
+- Cancel (`Esc`/cancel affordance, or hold released before `live`) → `/voice-stop` with discard + `composer.restore(snapshot)`.
+- Modes `toggle` (default) / `hold` / `auto` + shortcut `Ctrl+M`. Default is `toggle`, not hold: spawn latency (seconds before `live`) makes push-to-talk feel broken until a warm transcriber exists.
+- **Latency trade-off:** the mic goes live only after the pi session starts (seconds). The badge shows `starting mic` until phase `live` (and the tone). Accepted for v1; a warm transcriber is a v2 option.
 
-**5. One service, many targets.** `registerPlugin(ctx)` runs once at server startup and keeps a `Map<string, CaptureState>` keyed by `${projectRoot}::${targetSessionId}`. This satisfies "enough to run one service in dashboard" while still letting different sessions have independent dictation/copilot state.
+**D7. Browser-mic (dictation only).**
+- Browser: `AudioWorklet` → raw PCM matching `soniox-rt.ts`.
+- The ingest `ws` server lives in the transcriber's capture child (`captureFactory`). Its port goes into `status.json`.
+- The server registers it with `ctx.fastify.inject` (`POST /api/live-server/start`) and returns `/live/<id>/audio-ingest`, which runs over the existing `"live"` scope.
+- `registerWsRoute` was rejected because it is genuinely-local only.
+- Frames are format-validated. The option is hidden when `!isSecureContext`. The row is deleted when the transcriber ends.
 
-**6. Slot mapping:**
-| Feature | Slot |
-|---|---|
-| Dictation controls | `session-card-action-bar` + `session-card-badge` |
-| Meeting-copilot controls | `session-card-action-bar` + `session-card-badge` |
-| Live meeting wall | `session-card-action-bar` "View live wall" button → `startLiveServer` + `LiveServerViewer` embed (client-core mechanism, not a plugin-claimed slot) — no `content-view`/`command-route` claim |
-| Knowledge browser | `sidebar-folder-section` (entry) + `shell-overlay-route` (`/folder/:encodedCwd/voice-assistant-knowledge`) — **folder-scoped, see decision 6b** |
-| Config editor | `settings-section` |
+**D8. Meeting = transcriber + copilot.**
+- Start (owner-gated, device guard):
+  1. preflight;
+  2. `prompt` runner;
+  3. spawn the **copilot** (D9);
+  4. priming + pre-read (D11);
+  5. spawn the **transcriber** (`mode: meeting`, tee on);
+  6. `ensureWall` if `voice-wall` is present;
+  7. running.
+- Stop:
+  1. `/voice-stop` to the transcriber → capture stops → archive (D13) → phase `archived`;
+  2. the server signals the copilot (`/voice-meeting-ended`), which stops its poll child and runs the notes turn;
+  3. the server ends both sessions, stops the wall, and reindexes kb.
+- Dry run follows the same flow without archive or notes.
+- Either session ending unexpectedly stops the meeting and archives what exists.
 
-**6b. The knowledge browser is FOLDER-scoped, not session-scoped.** Knowledge is owned by a directory: kb opens per cwd (`openStore(cwd)`), kb's admission guard `isAllowedCwd` gates per folder, and `set-copilot.config.json` lives at the project root. But `content-view` is a `SessionScopedSlot` in `packages/shared/src/dashboard-plugin/slot-types.ts` — its `SlotPredicateInput` resolves to `DashboardSession | null | undefined`, and it is `multiplicity: "one-active"`, described as "Full-screen content area view **for a session**". Only `sidebar-folder-section` and `worktree-card-section` are in `FolderScopedSlot`. Claiming `content-view` would therefore have made a folder-owned resource reachable only through a live session, rendered the same folder's knowledge as two unrelated views when two sessions share a cwd, and put it in `one-active` contention with unrelated views.
+**D9. Copilot session.**
+- `spawnSession({ cwd: projectRoot, model: resolvedCopilotModel /* D20 */, pluginRef: { voice: { meetingId, runId, role: "copilot" } }, principalOwner, scope: { tools: preset, extensions: [copilotExt], extensionConfig: { voice: { runtimeDir, policyFile, preset, mirror, wallInputAllowed, archiveDir } } } })`.
+- It is fresh per meeting and never reused. Continuity comes from kb (D13).
 
-**Precision, because `shell-overlay-route` is itself in `SessionScopedSlot`:** "folder-scoped" here describes where the DATA comes from, not the slot's predicate class. The route carries no session param, so the slot's `session?` prop is simply absent and its predicate input is `null` — the cwd comes from `params.encodedCwd`. The claim must therefore not register a session predicate (a session-scoped predicate on a session-less route would filter the view out entirely). `kb-plugin`'s `KbSettingsClaim` works for exactly this reason; the design follows it deliberately, not incidentally.
+**D10. Copilot extension.**
+- **Policy:** additive section on every `before_agent_start` (never returns `systemPrompt`; coexistence test with the bridge in both orders).
+- **Poll:** spawns the poll child after the transcriber is live and parses the JSONL (line cap; malformed/unknown → log + drop).
+  - Lines between sentinels form one batch.
+  - A reaction-worthy batch is delivered with `pi.sendUserMessage(batch, { deliverAs: "followUp" })` **only when `ctx.isIdle()`**; otherwise it merges into a pending payload (append; cap 200 lines OR 32 KB; oldest-drop + truncation marker), flushed on `agent_end`.
+  - `{"type":"command"}` lines and name-addressed lines are delivered as `steer` (upstream "instructions skip the queue").
+  - `capture-dead` → status error.
+  - `wall-input` lines are delivered as `[wall operator]: …` only if `wallInputAllowed`; otherwise dropped and logged.
+- **Tools:** `wall_emit` (via `voice-wall/emit`, refuses without a running wall), `meeting_transcript` (stitched since turn N), `copilot_alert` (`ctx.ui.notify` for `notify:true` categories).
+- **Mirror** (opt-in): on `message_end`, final assistant text only, skipping empty text and the filler list → `wall_emit`-equivalent append.
+- **Pre-read detection:** the first final assistant line matching `^Pre-read: (\d+)/(\d+)` → `status.json` phase `ready`.
+- **Commands:** `/voice-meeting-ended` (stop poll, notes turn), `/voice-status`.
 
-`kb-plugin` already solved exactly this for exactly this data, and is the precedent we follow: `FolderKbSection` claims `sidebar-folder-section` (receiving a `FolderDescriptor`, so `folder.cwd` comes free) and `KbSettingsClaim` claims `shell-overlay-route` at `/folder/:encodedCwd/kb`, decoding the cwd from the route param. Putting the cwd **in the URL** is what makes the scope unambiguous, deep-linkable, and refresh-durable.
+**D11. Priming and pre-read.**
+- After the copilot spawns, the server sends one priming message: pre-read the instructions' list plus the N newest archived meetings (kb `category = meeting`, server-side query), and answer `Pre-read: n/total — missing: …`.
+- The transcriber is spawned when the copilot reports `ready`, or after a 120 s timeout (then `pre-read unconfirmed`).
 
-**Presentation: full-bleed page, not a dialog.** No folder-scoped dialog slot exists — `management-modal` is `descriptor-only` and belongs to the extension-ui-system (`ui_modules_list`; props are `Record<string, unknown>`, no React, no folder or session), and `anchored-popover` is `multiplicity: "one"` with trigger-anchored semantics and a `never` predicate input. `shell-overlay-route` is React-only and the plugin owns the whole subtree (`{ params, session?, onBack, pluginContext }`), so a dialog *look* was available — we deliberately chose full-bleed to match `KbSettingsPanel` exactly, since this sits directly alongside the per-folder KB page in the same sidebar section. The back affordance binds to the slot's `onBack` prop rather than a hardcoded route.
+**D12. Copilot isolation.**
+- Presets:
+  - `meeting` = `read, grep, find, ls`, kb read tools, `wall_emit`, `meeting_transcript`, `copilot_alert`, `Agent` (our subagents, for drawings);
+  - `meeting+scripts` (opt-in per project, labelled unconfined) adds `bash`.
+- A deny-first `tool_call` guard blocks tools outside the preset and confines file paths to `projectRoot` (realpath).
+- **Must verify:** subagent tool calls pass through the parent's `tool_call` guard, or subagents inherit the preset. If neither holds, `Agent` is removed from `meeting` and drawings are done inline (recorded in `NOTICE`).
+- The policy carries the playbook rules: act on spoken commands only from speaker `mic`; confidential actions are typed only.
 
-**6c. The wall embed requires a small CORE seam — named, scoped, and owned by this change.** Doubt-review established that a plugin cannot mount the live-server viewer at all today:
+**D13. Archive: our diarization and speaker naming, then kb.** In the transcriber on `/voice-stop` (not dry run):
+1. `archive` runner → stitched sentences with turn numbers, channel per line.
+2. **Speaker naming (ours):** `SonioxClient` (async, diarization) on the tee'd `system` WAV → diarized SRT → `pi-voiceid label` → named SRT. `system` lines get names by time overlap (`startTs`/`ts` vs cue). `mic` lines get the operator name from `transcript.speakers.mic` or a voiceprint match. Unmatched clusters stay `[Speaker n]`. This step is skipped (with a note) when it is disabled, there is no key, or the voiceprint library is empty, and it never blocks the archive.
+3. Write `<projectRoot>/<archiveDir>/<YYYY-MM-DD>-<slug>.md` with frontmatter (`title, date, category: meeting, tags, speakers, meetingId, transcriberSessionId, copilotSessionId`) and a numeric suffix on collision.
+4. Delete the WAVs unless `keepAudio` is set; raw JSONL stays in scratch.
 
-- `startLiveServer` (REST) registers a target and returns a proxied `/live/<id>/` path — it does not mount anything. `CanvasServerChip` proves the two-step shape: register, then `openLiveTarget`.
-- `SplitWorkspaceContext.openLiveTarget(url, opts)` is the only mount path (`dispatch({type:"openFile", path:`live:${url}`, viewer:"live-server"})`), and it is client-internal — never exported through the plugin SDK.
-- `PluginRouter.open(viewId, params)` looks like the intended door but is not: it is viewId-based with no live-target concept, its default implementation is a `console.warn("not wired")` stub, `App.tsx` passes no `pluginRouter`, and **no runtime code consumes it anywhere in the repo**. Wiring it would animate a dead API without delivering the embed. This was briefly adopted as the fix and then rejected on verification.
+Then the copilot writes `-notes.md` (the one-shot write path is granted through `notes-target.json` in the runtime dir), both sessions end, and the server calls `POST /api/kb/reindex` (inject).
+**kb coverage:** preflight checks that `archiveDir` is covered by the folder's kb sources and offers to add it via `PUT /api/kb/config`.
 
-*Chosen resolution — a ref bridge, not a nesting inversion.* `PluginContextProvider` **wraps** `SplitWorkspaceProvider` in `App.tsx` (the plugin provider is the outer of the two), so `openLiveTarget` is not in scope when the plugin context is constructed and cannot simply be passed as a prop. Inverting the nesting would touch every consumer of both providers for one feature. Instead the outer plugin context holds a mutable reference that the inner provider populates on mount and clears on unmount, with a plugin-facing hook delegating through it. Additive, reversible, and confined to opening a live target — explicitly NOT general editor-pane dispatch.
+**D14. Owner gating.**
+- All mutating routes require access to the target session or the folder's meeting.
+- Spawned sessions carry `principalOwner` = the requester.
+- Local operator in single-user mode.
 
-*Cost, stated plainly:* this change now modifies `packages/dashboard-plugin-runtime` and `packages/client`, contradicting the original Impact claim of "no changes to existing dashboard packages". The proposal's Impact section has been corrected rather than the cost hidden. The alternative was a full-page wall with no core change; the embed was judged worth the seam. If the seam proves contentious in review, the fallback is intact and pre-agreed: drop the embed, keep the full-page wall, and the plugin still works.
+**D15. Lifecycle.**
+- The server ends both sessions on stop, `onSessionEnded` of the dictation target, the meeting's sessions ending, `onShutdown`, and plugin disable.
+- Extensions kill their children on `session_shutdown`.
+- Plugin activation reaps live runtime-dir owners under the scratch root (detached children survive a `kill -9` of either the pi process or the dashboard).
+- `maxMinutes` defaults to 240.
 
+**D16. Device guard (server, before spawn).** One server mic per host. A server-local start that contends with any active server-local capture is refused and names the holder. Repeated starts are idempotent. Browser dictation is exempt.
 
-**7. Target-session selection.** The action bar's start action needs a session id to hand text to. Default: the session whose card the action bar renders on (dictation/copilot for "this session"). No cross-session targeting UI in v1 — `sendToSession` accepts any session id, so cross-session targeting is a natural v2 extension, not a v1 requirement.
+**D17. Knowledge (unchanged).** kb first, vendored adapter as fallback. The keyword index is seeded into the runtime dir before capture. Zero kb queries per line. The knowledge browser lists archived meetings.
 
-**Performance thresholds are deliberately out of scope for v1.** No latency/throughput budget is asserted for the dictation or copilot path; v1 tests correctness only. The one performance-adjacent property that IS tested is the absence of event-loop starvation under sustained capture (decision 4f), because that is a host-stability property rather than a feature budget. A latency budget (e.g. p95 dict-end→session) is deferred to a follow-up change once real measurements exist — setting a number now would be a guess, and `performance-optimization` is measure-first by construction.
+**D18. Slots.**
+- Composer toolbar (`composer-toolbar-action`, D22): dictation mic + state (phases from the transcriber's `status.json`), source menu (server/browser).
+- Folder row: Start meeting / Dry run / Stop / Open copilot / Open transcriber, plus phase badge. The wall's folder entry and menu items belong to the wall plugin (D19).
+- Spawned sessions' own cards: role badge (transcriber / copilot) + Stop.
+- Knowledge overlay route.
+- Global `settings-section`: global model defaults (D20), STT key status from our `video-transcription` resolution + optional `ctx.credentials` override, voiceprint library status.
+- `folder-settings-section` (D21): `set-copilot.config.json` editor + per-folder model overrides, for the route's `cwd`.
+
+**D20. Model selection: global default + per-folder override.**
+- Global settings renders two `ui:model-selector` pickers (copilot, transcriber) for the global defaults (`copilotModel`, `transcriberModel` in `configSchema.json`); the folder section (D21) renders two override pickers with an "inherit global (<ref>)" option.
+- Overrides live in the plugin-config store as `folderModels[<cwd>]`, not in `set-copilot.config.json`: model refs name providers local to this host, and the project file is shared via git.
+- Resolution per spawn: `folderModels[cwd][role] ?? global[role] ?? undefined` (undefined → pi default model).
+- Preflight checks the resolved ref against the model registry and names its source on failure; override writes are gated by the known-folder allow-list.
+- Rejected: per-project only (forces re-picking in every folder); storing in `set-copilot.config.json` (leaks host-local provider names into the repo).
+
+**D21. Folder settings plugin sections (core seam).**
+- New slot `folder-settings-section`, props `{ pluginContext, cwd }`, claim `label` required. Declared in `shared/src/dashboard-plugin/slot-types.ts` + `slot-props.ts`; validated in `dashboard-plugin-runtime/src/manifest-validator.ts`; consumer `FolderSettingsSectionSlot` in `slot-consumers.tsx` inside the slot error boundary.
+- `DirectorySettings.tsx` adds a **Plugins** nav group (hidden with zero claims) → `/folder/:cwd/settings/plugins/:pluginId`; page id `plugins` + second segment parsed like global settings' `activePluginId`.
+- Relaxes settings-panel's "folder-scoped settings route SHALL NOT host plugin pages": only `folder-settings-section` claims render there; global `settings-section` pages never do.
+- Why core, not a plugin overlay route: per-folder config is a recurring need (kb-plugin's `/folder/:encodedCwd/kb` overlay is the workaround); one discoverable place beats per-plugin pills.
+- Rejected: folder selector inside the global section (the old D18 design) — the user wants overrides where the folder lives; plugin `shell-overlay-route` per folder — not discoverable from folder settings.
+- Compatibility: additive slot; existing folder pages and the invalid-page fallback unchanged for plugins without the claim. Rollback: drop the slot and the nav group; voice-assistant falls back to a global-section folder selector.
+
+**D22. Composer toolbar action slot (core seam).**
+- New slot `composer-toolbar-action` in `CommandInput`'s input-row trailing cluster, before the inline terminal + morphing send/stop button. Props `{ pluginContext, sessionId, sessionStatus, draft, composer }`; claim requires `ariaLabel`.
+- `composer` handle = bounded writes: `insertAtCursor`, `snapshot`/`restore`, `submit` (honours `Steer | Queue`). No arbitrary replace. Handle inert after unmount/session switch.
+- Never displaced: visible with text, attachments, or while working; not folded into `⋯` at narrow width; 44 px target narrow.
+- Why: every surveyed chat UI (ChatGPT, Codex, Cursor, VS Code Copilot Chat, claude.ai) puts the mic in the composer next to send, inserting into the draft. Their reported bugs — mic hidden with text/attachments (claude.ai), replaced by stop while agent runs (Cursor), "recording" before audio flows (Codex) — become requirements here.
+- Rejected: `composer-panel` (renders below the card; nobody places a mic there); session-card action bar (the old D18 — sends without review, away from where the user types).
+- Compatibility: additive; no claim → composer unchanged. Rollback: drop the slot; dictation falls back to `composer-panel` with `onApplyText`.
+
+**D19. Live wall = the wall plugin's folder page (no own seam).** The wall belongs to the meeting, the meeting to the folder. The wall plugin embeds its app like the OpenSpec board (`add-plugin-app-host`): its own state-only folder entry (`● Live wall →`), its folder-menu items (Live wall · Open wall standalone · Share live wall…) and the page `/folder/<encodedCwd>/wall` in the content area beside the sidebar (`shell-overlay-route`, `presentation: "content"`). Voice-assistant adds no wall menu item; it links to that route from the copilot session header and the meeting toast while a wall runs. Fallback without the app host: `/apps/wall/…` in a named window. With no meeting running: no wall tile and no wall menu items (only the voice-assistant MEETINGS tile and *Start meeting…*); a stale link or reload of `/folder/<cwd>/wall` shows the wall page's empty state (*No live meeting*, *Start meeting…* opening this plugin's start dialog, and the last meeting's wall read-only from its archive) instead of redirecting. The meeting archive therefore keeps `wall-events.jsonl`. Superseded: the live-target bridge and the `/open/wall/…` full-screen frame.
 
 ## Risks / Trade-offs
 
-- **[Risk] `ctx.onEvent` fires for every session's every forwarded event, not just the copilot's target.** → Mitigation: filter by the subscribed `sessionId` at the handler's first line; unsubscribe (`onEvent` returns an unsubscribe fn) when meeting-copilot stops for that session.
-- **[Risk] Sending a large first-batch "policy" message could feel heavy in the target session's chat.** → Mitigation: match upstream's own design — render once, keep it short (alert categories + engagement line), and every subsequent batch is just the raw JSONL lines, exactly as `poll.ts`'s batches already are.
-- **[Risk] Audio capture requires the STT backend + `sox`/`parec` on the dashboard server's host, which may not be where the user expects "meeting audio" to come from (e.g. a remote/headless dashboard deployment).** → Mitigation: config editor and a server-side preflight route surface a clear "audio tooling missing on this host" state instead of failing silently; this is a documented constraint, not a bug to fix in this change.
-- **[Risk] A user accessing the dashboard from a remote browser may assume "Start dictation" captures THEIR microphone**, since every other remote-access path (tunnel, pairing) makes the dashboard feel local. → Mitigation: with decision 3b/4d adopted, this is now a REAL choice, not just a labeling fix — the dict-start control offers an explicit server/browser source picker (defaulting to server, per 3b), and the preflight still surfaces the server's hostname for the server-local option so the two are never confused. Meeting-copilot (no browser-mic option) still needs the hostname-legibility mitigation from before, unchanged.
-- **[Risk] Browser-mic dictation adds new client-side failure modes**: permission denied, no input device, unsupported browser, insecure context (`http://` LAN). → Mitigation: each is a distinct, actionable UI state (never a silent no-op) — enumerated in the dictation-control spec; the source picker itself is hidden (not just disabled) when `window.isSecureContext` is false, since offering a control that can never work is worse than not offering it.
-- **[Risk] The companion audio-ingest WS server is a new always-on listener per active browser-mic dictation session**, unlike the wall's WallServer which only exists while meeting-copilot runs. → Mitigation: bind it lazily on `dict-start` with source `browser` and tear it down on `dict-end`/error, mirroring the wall's own bind-on-start/stop-on-stop lifecycle (design decision 4b) rather than keeping it resident.
-- **[Note] The live wall's embed IS remote-reachable by construction** — `live-server-preview` reverse-proxies it through the dashboard's own main origin (`/live/<id>/…`), so it works over a zrok tunnel or paired neutral shell with no plugin-specific work. **This is reachability, not protection** — see the exposure risk immediately below, which an earlier draft of this note wrongly framed as "remote-safe".
-- **[Risk] ⚠️ The wall's HTTP surface has NO per-request authentication.** `live-server-proxy.ts` registers `fastify.all("/live/:id/*", forward)` with no `preHandler`; the only global `onRequest` hooks are the conditional model-proxy gate, and `/live/` sits in the CSP `SKIP_PREFIXES`. The WS upgrade is ticket-gated; **the HTTP path is not.** Anyone who can reach the dashboard origin — including over the public tunnel — can fetch the wall and its transcript feed knowing only the 8-char target id, which travels in URLs and browser history. Every prior consumer of this mechanism served *dev-server output*; this change is the first to put **live meeting transcripts of third parties** behind it. → Mitigation: (a) the exposure is stated in the `voice-assistant-meeting-wall` capability rather than inherited silently; (b) wall registration is torn down the moment copilot stops, minimising the window; (c) upstream redaction (`wall/redaction.ts`) is the only content control and is documented as regex-grade, not a security boundary. **This is a known accepted limitation of a core mechanism, not something this plugin fixes** — hardening `/live/*` is out of scope here and belongs in a core change; flagged so the decision is explicit and reviewable.
-- **[Risk] ⚠️ Unredacted meeting transcripts persist to disk in the target session's own history.** Redaction is wall-only by design (decision 4); the session receives full fidelity. But `sendToSession` text lands in that session's persistent JSONL under `~/.pi/agent/sessions/`, so spoken meeting content — including anything redaction would have scrubbed from the wall — is written to disk in plaintext and survives long after the meeting. → Mitigation: state it plainly in the copilot capability so the user can decide, rather than discovering it later; the alternative (redacting the session leg too) is rejected because it degrades the reasoning the feature exists to provide.
-- **[Risk] ⚠️ Recorded parties may be unaware.** Meeting-copilot captures the other party's audio via system-audio capture. The plugin cannot obtain consent on their behalf, and jurisdictions differ on whether one-party consent suffices. → Mitigation: a consent/awareness requirement in `voice-assistant-copilot-control` — the operator is shown, at start, that system audio (the other party) is being captured and transcribed, so the choice to inform participants is explicit rather than buried. This is an awareness affordance, not legal advice, and is documented as such.
-- **[Risk] Vendored code drift from upstream fixes to the library modules.** → Mitigation: document the vendored file list + upstream commit SHA in the package README/NOTICE (per scaffold task 1.3).
-- **[Risk] Two knowledge code paths (kb / vendored fallback) can drift behaviourally** — the copilot could alert differently for the same project depending on whether kb happens to be indexed. → Mitigation: both sit behind ONE `KnowledgeBackend` interface with a shared contract test suite run against both implementations; the active backend is surfaced in the UI (knowledge view + copilot status) so a behaviour difference is attributable rather than mysterious.
-- **[Risk] kb's admission guard (`isAllowedCwd`: known folders = active session cwds + pinned dirs) could reject a folder the plugin wants to query**, silently degrading to the fallback. → Mitigation: treat rejection as an explicit "kb unavailable for this folder" backend-selection outcome (logged + surfaced), never as "kb returned no results" — the two are very different and conflating them would hide a misconfiguration.
-- **[Risk] `kb_search` runs a freshness `reindexNow` on every call**, so a session cross-referencing heavily during a live meeting pays reindex cost mid-conversation. → Mitigation: this only affects the session's own tool calls (not the plugin's server-side facet queries, which open the store directly); acceptable because kb's change detection is layered (mtime short-circuit → sha256), so an unchanged tree reindexes to a no-op.
-- **[Risk] `sendToSession` returns `false` when there's no bridge connection for the target session** (session ended, bridge disconnected). → Mitigation: surface this as a dictation/copilot "error" badge state rather than losing the captured text — cache the stitched text so a retry (or a manual copy) is possible.
-- **[Risk] Live-server registrations are PERSISTENT and user-visible, not private plugin transport.** `createLiveServerManager` persists every registration via `preferencesStore.setLiveServers(...)`, reseeds from `getLiveServers()` on boot, and surfaces targets in the user's own "Saved targets" picker. Ephemeral wall ports and per-dictation audio-ingest ports would otherwise accumulate as stale rows pointing at dead ports — unbounded growth in `preferences.json` and pollution of a user-facing list the user never edited. (An earlier draft of this risk claimed a "confirm step" gates registration; that is **false** — `startLiveServer` validates loopback and registers+persists in one call, with no user confirmation.) → Mitigation: deregistration is part of teardown (decision 4g), not left to the user; ports are re-registered per run rather than assumed stable across restarts.
-- **[Risk] The embedded wall iframe is sandboxed `allow-scripts allow-forms allow-popups`, with no `allow-same-origin`** (opaque origin), so it cannot read the dashboard's auth token or call dashboard APIs — by design. Two consequences: the vendored wall UI cannot be re-themed with dashboard CSS tokens (renders with upstream's own `wall.css`), and `allow-popups` means that third-party UI **can** spawn popups. → Accepted for v1 (same isolation every other live-server-preview target gets; popups from an opaque origin still cannot reach the dashboard origin); noted because an earlier draft quoted only `allow-scripts` and understated the sandbox.
-- **[Risk — CONFIRMED, not contingent] The vendored wall UI is NOT prefix-aware and will not work behind `/live/<id>/` unmodified.** Verified by reading upstream `wall/public/*` at `24a714d`: `index.html` loads `/wall.css` and `/wall.js` by root-absolute path; `wall.js` calls `fetch('/api/bootstrap?route=…')` and opens `new EventSource('/events?route=…')` (SSE, not WebSocket — an earlier draft was wrong about the transport) and derives `route` from `location.pathname`, which behind the proxy is `/live/<id>/…`, a route the wall server does not know. `live-server-proxy.ts` rewrites only `Location` response headers, never HTML/JS bodies, so every one of those requests would hit the DASHBOARD origin and 404. `index.html` additionally loads `cytoscape`/`dagre` from `unpkg.com`, so the wall needs CDN reachability even when the dashboard is offline/tunnelled. → Resolution: the "serve upstream's UI unmodified" rule bends here by design, in the smallest way: vendored `index.html`/`wall.js` are patched to relative URLs (`./wall.css`, `./api/bootstrap`, `./events`) and `route` is derived relative to the document base; the patch is recorded as a named deviation beside 4d's carve-out. SSE through `reply.from` streaming and the CDN dependency are verified in manual scenario #51 rather than assumed.
+- **[Risk] Dictation start latency** (a pi session spawn before the mic is live). Visible `starting mic` + tone; warm transcriber in v2.
+- **[Risk] Process count:** 2 pi sessions + 2–3 children per meeting. Bounded by the device guard; cheap model and `noTools` for the transcriber.
+- **[Risk] Spoken prompt injection.** Preset + guard, `mic`-only commands, wall-input gating.
+- **[Risk] Subagents might bypass the guard.** Verified before `Agent` stays in the preset (D12).
+- **[Risk] Audio retention:** tee'd WAVs hold both parties' voices. Deleted after archive by default; `keepAudio` is explicit and disclosed.
+- **[Risk] Meeting PII in the project tree and kb.** Disclosed at start; dry run never archived.
+- **[Risk] Voiceprint misattribution.** Conservative `pi-voiceid` gates (threshold, margin, min segments); unmatched clusters stay anonymous; names are marked as machine-assigned in frontmatter.
+- **[Risk] `status.json` watcher misses** (`fs.watch` semantics differ by platform). Re-read on every session event via `onEvent` as a backstop; no polling timer.
+- **[Risk] `fastify.inject` and the universal guard.** Verified in `add-voice-wall-plugin` 1.4.
+- **[Risk] Upstream drift.** SHA pin, patch, closure script, parser fixtures.
 
 ## Migration Plan
 
-Net-new package; no existing data/state. Rollout: add workspace → `pnpm install` → `npm run build` → `curl -X POST /api/restart` (server entry needs a server restart; no bridge to reload). Rollback: remove the workspace; no persisted state to unwind (runtime dirs are scratch space under the dashboard server's own temp/config dir).
+- Land `add-voice-wall-plugin` first (it provides `./emit`).
+- Add the package, then `pnpm install`, `npm run build`, `curl -X POST :8000/api/restart`.
+- The plugin must be host-trusted.
+- Rollback: disable/remove. Sessions are ended, children reaped, live rows deleted; archived meetings remain as markdown.
 
-## Open Questions
+## Open Questions (v2)
 
-- Should the meeting-copilot's first-batch policy message be resent if the target session is idle for a long stretch (context may have scrolled out of the model's effective attention), or is once-per-copilot-session sufficient for v1? (Leaning: once per start, revisit if false negatives are reported.)
-- Does the knowledge browser need write access in a later version, or stays read-only? (Still open from the original draft; unaffected by this redesign.)
-- **Quiet/background analysis via a subagent, as a v2 alternative to landing every batch in the user's live chat.** The plugin itself cannot spawn a subagent (decision 4c), but it *could* forward batches with instructions that lead the target session's own model to delegate the cross-reference lookup to an isolated `Agent` subagent (e.g. a dedicated `voice-assistant-analyst` subagent type) and only surface the subagent's verdict in the parent turn — trading "user watches the reasoning happen live" for "less chat clutter, isolated `maxChars`-capped context." Not pursued for v1: it adds an extra hop (parent model must decide to delegate) with no clear v1 requirement driving it; revisit if meeting-copilot's batch traffic proves too noisy in the target session's chat.
-- **Should meeting-copilot ever get an analogous browser-audio option** for the mic-only half of its capture (system/other-party audio would still need server-local, per decision 4d's boundary)? Not pursued now — no stated requirement; revisit only if a concrete remote-meeting-copilot use case shows up, since it would only ever be a partial fix (still misses the other party's audio).
+- warm transcriber for dictation;
+- persistent copilot (shared get-or-create helper);
+- high-effort lane via our subagents;
+- `transcript-recover` as a pi-flows flow;
+- transcript split-view page;
+- `app-kit` standalone apps;
+- server-enforced per-box wall cadence;
+- command-word false positives (upstream).

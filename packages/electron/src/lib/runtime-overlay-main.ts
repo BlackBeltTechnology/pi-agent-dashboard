@@ -57,6 +57,7 @@ import {
   undoAttempt,
   watchActivationRequests,
 } from "./runtime-overlay.js";
+import { localTokenHeaders } from "./local-proof-bootstrap.js";
 import { getStoredSpawnedPid, makeServerWatchdog, setSpawnedPid } from "./server-lifecycle.js";
 
 type SpawnableSource = Exclude<LaunchSource, { kind: "attach" }>;
@@ -229,7 +230,7 @@ function switchOnce(targetId: string, ctx: RuntimeSwitchContext): Promise<Switch
     // Restart intent (no `userQuit`): sessions stay up and re-attach.
     stopServer: async () => {
       try {
-        await fetch(`http://localhost:${ctx.port}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(5_000) });
+        await fetch(`http://localhost:${ctx.port}/api/shutdown`, { method: "POST", headers: localTokenHeaders(), signal: AbortSignal.timeout(5_000) });
       } catch {
         /* already stopping */
       }

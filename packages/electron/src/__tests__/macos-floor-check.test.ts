@@ -7,13 +7,23 @@
  * previously it existed only as inline shell in `_electron-build.yml` and was
  * unreachable from any test.
  *
- * See change: upgrade-electron-runtime.
+ * Also covers the extractor canary and the floor-check workflow contract
+ * (fix-ci-pipeline-followups test-plan E1 E3 E4 E5 E6 X1 X2).
+ *
+ * See change: upgrade-electron-runtime, fix-ci-pipeline-followups.
  */
-import { describe, it, expect } from "vitest";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
-  MACOS_FLOOR_MINOS_MAJOR,
+  checkCanary,
   checkMinosFloor,
   extractMinosValues,
+  MACOS_FLOOR_MINOS_MAJOR,
+  producedBinaryVerdict,
   // @ts-expect-error — plain .mjs module, no type declarations by design.
 } from "../../scripts/macos-floor.mjs";
 
@@ -148,4 +158,303 @@ describe("the check degrades to a warning, not a failure, when it cannot measure
     ].join("\n");
     expect(extractMinosValues(legacy)).toEqual(["12.0"]);
   });
+});
+
+// ─── Extractor canary (change: fix-ci-pipeline-followups, #533) ─────────────
+//
+// The produced-binary check tolerates an unextractable / non-numeric minos
+// (::warning:: + exit 0). That tolerance is only safe if the extractor is
+// proven NOT blind on a binary we KNOW carries LC_BUILD_VERSION: the
+// installed Electron prebuilt. `checkCanary` is the pure verdict; the otool
+// exec stays in verify-macos-floor.mjs (this project runs on Linux).
+
+const SAMPLE =
+  "/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron";
+
+describe("E3: a blind extractor fails the canary", () => {
+  const result = checkCanary({
+    otoolOutput: "Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72",
+    samplePath: SAMPLE,
+    expectedMajor: 12,
+  });
+
+  it("reports blind-extractor", () => {
+    expect(result.status).toBe("blind-extractor");
+  });
+
+  it("names the extractor and the sample", () => {
+    expect(result.message).toContain("extractMinosValues");
+    expect(result.message).toContain(SAMPLE);
+  });
+
+  it("maps to ::error:: + exit 1, never a warning", () => {
+    expect(result.level).toBe("error");
+    expect(result.exitCode).toBe(1);
+  });
+});
+
+describe("E5: a non-numeric canary result fails the canary", () => {
+  const result = checkCanary({
+    otoolOutput: otoolFixture("n/a"),
+    samplePath: SAMPLE,
+    expectedMajor: 12,
+  });
+
+  it("is not ok", () => {
+    expect(result.status).not.toBe("ok");
+    expect(result.status).toBe("non-numeric");
+  });
+
+  it("maps to the error verdict, not the produced-binary warning", () => {
+    expect(result.level).toBe("error");
+    expect(result.exitCode).toBe(1);
+    // The produced-binary path maps the same status to a passing warning —
+    // the asymmetry is the point.
+    expect(
+      producedBinaryVerdict(
+        checkMinosFloor({ otoolOutput: otoolFixture("n/a"), expectedMajor: 12 }),
+      ),
+    ).toEqual({ level: "warning", exitCode: 0 });
+  });
+});
+
+describe("X1: the canary cannot run its tool", () => {
+  const result = checkCanary({
+    execFailed: "spawn otool ENOENT",
+    samplePath: SAMPLE,
+    expectedMajor: 12,
+  });
+
+  it("fails with exec-failed naming the extractor and the sample", () => {
+    expect(result.status).toBe("exec-failed");
+    expect(result.message).toContain("extractMinosValues");
+    expect(result.message).toContain(SAMPLE);
+    expect(result.message).toContain("ENOENT");
+  });
+
+  it("maps to ::error:: + exit 1, not the warning+exit-0 produced-binary path", () => {
+    expect(result.level).toBe("error");
+    expect(result.exitCode).toBe(1);
+  });
+});
+
+describe("X2: the canary sample is missing", () => {
+  const result = checkCanary({
+    sampleMissing: true,
+    samplePath: SAMPLE,
+    expectedMajor: 12,
+  });
+
+  it("fails with sample-missing naming the sample path", () => {
+    expect(result.status).toBe("sample-missing");
+    expect(result.message).toContain(SAMPLE);
+    expect(result.message).toMatch(/install\.js/);
+  });
+
+  it("maps to ::error:: + exit 1", () => {
+    expect(result.level).toBe("error");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("does not consult otool output when the sample is missing", () => {
+    // Even a perfect otool text cannot rescue a missing sample.
+    const r = checkCanary({
+      sampleMissing: true,
+      otoolOutput: otoolFixture("12.0"),
+      samplePath: SAMPLE,
+      expectedMajor: 12,
+    });
+    expect(r.status).toBe("sample-missing");
+  });
+});
+
+describe("canary: a mismatching sample also fails", () => {
+  it("maps mismatch to ::error:: + exit 1", () => {
+    const r = checkCanary({
+      otoolOutput: otoolFixture("13.0"),
+      samplePath: SAMPLE,
+      expectedMajor: 12,
+    });
+    expect(r.status).toBe("mismatch");
+    expect(r.level).toBe("error");
+    expect(r.exitCode).toBe(1);
+  });
+});
+
+describe("E4: a passing canary keeps the produced-binary tolerance intact", () => {
+  it("canary ok on a single numeric slice", () => {
+    const r = checkCanary({
+      otoolOutput: otoolFixture("12.0"),
+      samplePath: SAMPLE,
+      expectedMajor: 12,
+    });
+    expect(r.status).toBe("ok");
+    expect(r.level).toBe("ok");
+    expect(r.exitCode).toBe(0);
+  });
+
+  it("produced binary with no minos still warns and passes", () => {
+    const produced = checkMinosFloor({
+      otoolOutput: "Load command 0\n      cmd LC_SEGMENT_64\n  cmdsize 72",
+      expectedMajor: 12,
+    });
+    expect(produced.status).toBe("not-extractable");
+    expect(producedBinaryVerdict(produced)).toEqual({
+      level: "warning",
+      exitCode: 0,
+    });
+  });
+
+  it("produced-binary verdicts for ok / mismatch are unchanged", () => {
+    expect(
+      producedBinaryVerdict(
+        checkMinosFloor({ otoolOutput: otoolFixture("12.0"), expectedMajor: 12 }),
+      ),
+    ).toEqual({ level: "ok", exitCode: 0 });
+    expect(
+      producedBinaryVerdict(
+        checkMinosFloor({ otoolOutput: otoolFixture("13.0"), expectedMajor: 12 }),
+      ),
+    ).toEqual({ level: "error", exitCode: 1 });
+  });
+});
+
+// ─── Workflow contract (_electron-build.yml) ───────────────────────────────
+
+const WORKFLOW_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../../../.github/workflows/_electron-build.yml",
+);
+const workflow = fs.readFileSync(WORKFLOW_PATH, "utf8");
+
+const FLOOR_STEP = "Verify macOS deployment target floor";
+
+/** Split the build job's step list into `{ name, body }` by `- name:` lines. */
+function steps(text: string): { name: string; body: string }[] {
+  const out: { name: string; body: string }[] = [];
+  const re = /^ {6}- name: (.+)$/gm;
+  const marks = [...text.matchAll(re)];
+  marks.forEach((m, i) => {
+    const end = i + 1 < marks.length ? marks[i + 1].index : text.length;
+    out.push({ name: m[1].trim(), body: text.slice(m.index, end) });
+  });
+  return out;
+}
+
+describe("E1: the canary sample is installed before the floor check (darwin)", () => {
+  const all = steps(workflow);
+  const floorIdx = all.findIndex((s) => s.name.startsWith(FLOOR_STEP));
+  const installIdx = all.findIndex(
+    (s) =>
+      /if:\s*matrix\.platform == 'darwin'/.test(s.body) &&
+      /node install\.js/.test(s.body),
+  );
+
+  it("has a darwin step running node install.js", () => {
+    expect(installIdx, "no darwin `node install.js` step").toBeGreaterThanOrEqual(0);
+  });
+
+  it("resolves the electron dir through the tool registry", () => {
+    expect(all[installIdx].body).toContain(
+      "node packages/shared/bin/pi-dashboard-resolve-tool.cjs electron",
+    );
+  });
+
+  it("runs before the floor-check step", () => {
+    expect(floorIdx).toBeGreaterThanOrEqual(0);
+    expect(installIdx).toBeLessThan(floorIdx);
+  });
+});
+
+describe("E6: a missing produced binary fails the floor check", () => {
+  const floor = steps(workflow).find((s) => s.name.startsWith(FLOOR_STEP));
+  const elseBranch = floor?.body.split(/^\s*else\s*$/m)[1]?.split(/^\s*fi\s*$/m)[0] ?? "";
+
+  it("has an else branch for the binary lookup", () => {
+    expect(elseBranch.trim()).not.toBe("");
+  });
+
+  it("errors and exits 1 instead of skipping", () => {
+    expect(elseBranch).toContain("::error::");
+    expect(elseBranch).toMatch(/exit 1/);
+    expect(floor?.body).not.toContain("skipping otool check");
+  });
+
+  it("detaches the mount before exiting", () => {
+    const detach = elseBranch.indexOf("hdiutil detach");
+    expect(detach).toBeGreaterThanOrEqual(0);
+    expect(detach).toBeLessThan(elseBranch.indexOf("exit 1"));
+  });
+});
+
+describe("E6 (behaviour): the binary lookup cannot abort before its error branch", () => {
+  // Under `set -euo pipefail`, `BIN=$(find <missing-dir> … | head -1)` exits
+  // the step at the assignment, skipping the ::error:: + detach branch.
+  // Run the step's own lookup snippet under bash with a stub `hdiutil`.
+  const floor = steps(workflow).find((s) => s.name.startsWith(FLOOR_STEP));
+  const run = (floor?.body ?? "").split(/^ {8}run: \|\n/m)[1] ?? "";
+  const lines = run.split("\n").map((l) => l.replace(/^ {10}/, ""));
+  const from = lines.findIndex((l) => l.startsWith("BIN="));
+  const to = lines.findIndex((l, i) => i > from && l === "fi");
+  const snippet = lines.slice(from, to + 1).join("\n");
+
+  it("extracts the lookup snippet", () => {
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(snippet).toContain("::error::");
+  });
+
+  /** Run the lookup snippet against a temp app laid out by `layout`. */
+  function runLookup(layout: (app: string) => void) {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), "floor-app-"));
+    layout(app);
+    const script = [
+      "set -euo pipefail",
+      'hdiutil() { echo "DETACH-CALLED $*"; }',
+      `APP=${JSON.stringify(app)}`,
+      'MOUNT_POINT="/Volumes/stub"',
+      snippet,
+      'echo "UNREACHABLE"',
+    ].join("\n");
+    const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+    fs.rmSync(app, { recursive: true, force: true });
+    return r;
+  }
+
+  it.runIf(process.platform !== "win32")(
+    "an unrelated file in Contents/MacOS is not mistaken for the main binary",
+    () => {
+      // `find … -type f | head -1` used to pick any file; the lookup must
+      // target the pinned executableName (`pi-dashboard`).
+      const r = runLookup((app) => {
+        fs.mkdirSync(path.join(app, "Contents", "MacOS"), { recursive: true });
+        fs.writeFileSync(path.join(app, "Contents", "MacOS", "helper"), "");
+      });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("::error::");
+      expect(r.stdout).toContain("DETACH-CALLED detach");
+      expect(r.stdout).not.toContain("UNREACHABLE");
+    },
+  );
+
+  it.runIf(process.platform !== "win32")(
+    "a mounted app with no Contents/MacOS emits ::error::, detaches, exits 1",
+    () => {
+      const app = fs.mkdtempSync(path.join(os.tmpdir(), "floor-app-"));
+      fs.mkdirSync(path.join(app, "Contents")); // no MacOS/ inside
+      const script = [
+        "set -euo pipefail",
+        'hdiutil() { echo "DETACH-CALLED $*"; }',
+        `APP=${JSON.stringify(app)}`,
+        'MOUNT_POINT="/Volumes/stub"',
+        snippet,
+        'echo "UNREACHABLE"',
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      fs.rmSync(app, { recursive: true, force: true });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain("::error::");
+      expect(r.stdout).toContain("DETACH-CALLED detach");
+      expect(r.stdout).not.toContain("UNREACHABLE");
+    },
+  );
 });

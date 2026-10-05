@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Composer dictation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>
+  .composer { container-type:inline-size; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:14px; padding:10px 10px 8px; }
+  .composer:focus-within { border-color:var(--accent-blue); }
+  .in-row { display:flex; align-items:flex-end; gap:6px; }
+  .ta { flex:1; min-width:0; min-height:40px; font-size:13px; line-height:1.45; color:var(--text-primary); padding:6px 4px; white-space:pre-wrap; }
+  .ta .ph { color:var(--text-muted); }
+  .ta .partial { color:var(--text-muted); font-style:italic; }
+  .caret { display:inline-block; width:1px; height:15px; background:var(--accent-blue); vertical-align:-2px; }
+  .set-row { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:11px; color:var(--text-secondary); }
+  .chip { border:1px solid var(--border-subtle); border-radius:999px; padding:2px 8px; background:var(--bg-tertiary); white-space:nowrap; }
+  .ib { width:32px; height:32px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; border:1px solid transparent; color:var(--text-secondary); background:transparent; flex:none; position:relative; }
+  .ib:hover { background:var(--bg-hover); color:var(--text-primary); }
+  .send { width:36px; height:36px; border-radius:10px; background:var(--accent-primary); color:#fff; display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .stop { background:var(--severity-error-bg); color:var(--severity-error-fg); border:1px solid var(--severity-error-border); }
+  .slotmark { outline:1px dashed color-mix(in srgb, var(--accent-purple) 60%, transparent); outline-offset:2px; }
+  .mic-split { display:inline-flex; align-items:stretch; border-radius:8px; flex:none; }
+  .mic-split .ib { border-radius:8px 0 0 8px; }
+  .mic-split .caretbtn { width:16px; height:32px; display:inline-flex; align-items:center; justify-content:center; color:var(--text-tertiary); border-radius:0 8px 8px 0; }
+  .mic-starting { color:var(--severity-info-fg); background:var(--severity-info-bg); border-color:var(--severity-info-border); }
+  .mic-rec { color:var(--severity-error-fg); background:var(--severity-error-bg); border-color:var(--severity-error-border); }
+  .mic-proc { color:var(--text-primary); background:var(--bg-tertiary); border-color:var(--border-primary); }
+  .mic-dis { opacity:.5; cursor:not-allowed; }
+  .spin { animation:spin 1s linear infinite; } @keyframes spin { to { transform:rotate(360deg);} }
+  @media (prefers-reduced-motion: reduce) { .spin, .lvl i { animation:none !important; } }
+  .lvl { display:inline-flex; gap:2px; align-items:flex-end; height:12px; }
+  .lvl i { width:2px; background:currentColor; border-radius:1px; animation:lv .9s ease-in-out infinite; }
+  .lvl i:nth-child(2){animation-delay:.15s}.lvl i:nth-child(3){animation-delay:.3s}.lvl i:nth-child(4){animation-delay:.45s}
+  @keyframes lv { 0%,100%{height:3px} 50%{height:12px} }
+  .strip { display:flex; align-items:center; gap:8px; font-size:11px; padding:4px 6px; margin:0 0 6px; border-radius:8px; }
+  .strip.rec { background:var(--severity-error-bg); color:var(--severity-error-fg); }
+  .strip.info { background:var(--severity-info-bg); color:var(--severity-info-fg); }
+  .strip.err { background:var(--severity-error-bg); color:var(--severity-error-fg); }
+  .strip.warn { background:var(--severity-warning-bg); color:var(--severity-warning-fg); }
+  .strip .sp { flex:1; }
+  .kbd { font-family:ui-monospace,monospace; font-size:10px; border:1px solid currentColor; border-radius:4px; padding:0 4px; opacity:.8; }
+  .lnk { text-decoration:underline; cursor:pointer; }
+  .menu { position:absolute; right:0; bottom:40px; width:250px; background:var(--bg-secondary); border:1px solid var(--border-primary); border-radius:10px; box-shadow:0 8px 24px var(--shadow-card); padding:4px; font-size:12px; z-index:2; text-align:left; }
+  .mi { display:flex; gap:8px; align-items:flex-start; padding:8px; border-radius:6px; color:var(--text-primary); min-height:44px; }
+  .mi:hover { background:var(--bg-hover); }
+  .mi small { display:block; color:var(--text-tertiary); font-size:10px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:18px; }
+  .narrow { max-width:360px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Composer dictation</h1>
+      <p class="text-sm" style="color:var(--text-tertiary)">Core slot <code>composer-toolbar-action</code> (D22) — input row, directly before terminal + send/stop. Dashed outline = slot area.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid2" id="grid"></div>
+
+  <p class="caption mt-6"><b>Settings</b> (global): <code>dictation.delivery</code> draft | send (≥3 words) · <code>dictation.mode</code> toggle | hold | auto · <code>dictation.shortcut</code> Ctrl+M. <b>Esc</b> cancels and restores the draft, never aborts the agent.</p>
+  <p class="caption"><b>Prior art:</b> ChatGPT / Codex / Cursor / VS Code put the mic beside send and insert into the draft. Avoided bugs: mic hidden with text or attachments (claude.ai), replaced by stop while the agent runs (Cursor), "recording" before audio flows (Codex).</p>
+</div>
+
+<script>
+const I = {
+  mic:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>',
+  micOff:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28Zm-4.02.17c0-.06.02-.11.02-.17V5a3 3 0 0 0-6 0v.18l5.98 5.99ZM4.27 3 3 4.27l6 6V11a3 3 0 0 0 3 3c.23 0 .44-.03.65-.08l1.66 1.66A5.5 5.5 0 0 1 12 16.1 5.1 5.1 0 0 1 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3Z"/></svg>',
+  spin:'<svg class="spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 3a9 9 0 1 0 9 9" stroke-linecap="round"/></svg>',
+  stopsq:'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+  send:'<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2 21 23 12 2 3v7l15 2-15 2v7Z"/></svg>',
+  stop:'<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+  term:'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-5-6-5M12 19h8" stroke-linecap="round"/></svg>',
+  chev:'<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>',
+};
+const lvl = '<span class="lvl" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
+
+function micBtn(state){
+  const map = {
+    idle:   ['', I.mic, 'Dictate (Ctrl+M)'],
+    starting:['mic-starting', I.spin, 'Starting mic — Esc to cancel'],
+    rec:    ['mic-rec', I.stopsq, 'Stop dictation (Ctrl+M) — Esc to cancel'],
+    proc:   ['mic-proc', I.spin, 'Transcribing — Esc to cancel'],
+    dis:    ['mic-dis', I.micOff, 'Dictation unavailable: speech-to-text not configured'],
+    err:    ['mic-rec', I.mic, 'Dictation failed — Retry'],
+  }[state];
+  return `<span class="mic-split slotmark"><button class="ib ${map[0]}" aria-label="${map[2]}" title="${map[2]}" ${state==='dis'?'aria-disabled="true"':''} ${state==='rec'?'aria-pressed="true"':''}>${map[1]}</button><button class="caretbtn" aria-label="Microphone source" title="Microphone source">${I.chev}</button></span>`;
+}
+
+function composer({title, note, text='', ph=false, partial='', mic='idle', working=false, strip='', attach=false, narrow=false, menu=false}){
+  const ta = ph ? '<span class="ph">Message pi…  (Ctrl+M to dictate)</span>' : `${text}${partial?` <span class="partial">${partial}</span>`:''}<span class="caret"></span>`;
+  const action = working ? `<button class="send stop" aria-label="Stop">${I.stop}</button>` : `<button class="send" aria-label="Send">${I.send}</button>`;
+  const settings = narrow
+    ? `<span class="chip">＋</span><span class="chip">claude-sonnet-4-5</span><span class="chip">⋯</span>`
+    : `<span class="chip">＋</span><span class="chip">claude-sonnet-4-5</span><span class="chip">thinking: medium</span><span class="chip">Steer | <b>Queue</b></span>`;
+  const menuHtml = menu ? `<div class="menu" role="menu" aria-label="Microphone source">
+      <div class="mi" role="menuitemradio" aria-checked="true">● <span>Dashboard host mic<small>robson-mbp — the machine running the dashboard</small></span></div>
+      <div class="mi" role="menuitemradio" aria-checked="false">○ <span>This browser's mic<small>hidden on non-secure (http) origins</small></span></div>
+      <div class="mi" style="border-top:1px solid var(--border-subtle)">⚙ <span>Dictation settings<small>delivery: draft · mode: toggle · Ctrl+M</small></span></div>
+    </div>` : '';
+  return `<section aria-label="${title}" class="${narrow?'narrow':''}">
+    <div class="state-title">${title}</div>
+    <div class="composer">
+      ${strip}
+      ${attach?'<div class="mb-2"><span class="chip">🖼 screenshot.png ✕</span></div>':''}
+      <div class="in-row" style="position:relative">
+        <div class="ta">${ta}</div>
+        ${micBtn(mic)}
+        ${narrow?'':`<button class="ib" aria-label="Terminal">${I.term}</button>`}
+        ${action}
+        ${menuHtml}
+      </div>
+      <div class="set-row">${settings}</div>
+    </div>
+    <p class="caption">${note}</p>
+  </section>`;
+}
+
+const S = [
+  composer({title:'Idle — empty draft', ph:true, note:'Mic sits left of terminal + send. Tooltip names the shortcut.'}),
+  composer({title:'Idle — text + attachment, agent working', text:'also check the retry path', attach:true, working:true, note:'Never displaced: visible with text, attachments, and next to <b>stop</b> while the agent runs (Cursor/claude.ai bugs).'}),
+  composer({title:'Source menu (split caret)', ph:true, menu:true, note:'Server mic names the dashboard host. Browser option hidden when <code>!isSecureContext</code>.'}),
+  composer({title:'Starting mic', text:'refactor the auth middleware to', mic:'starting',
+    strip:`<div class="strip info" role="status">${I.spin}<span>Starting mic on robson-mbp…</span><span class="sp"></span><span class="kbd">Esc</span> cancel</div>`,
+    note:'Not "recording" until the transcriber reports <code>live</code> (Codex bug). Hold released here = cancel.'}),
+  composer({title:'Recording', text:'refactor the auth middleware to', partial:'use the new token…', mic:'rec',
+    strip:`<div class="strip rec" role="status">● ${lvl}<span>Recording · robson-mbp · 0:07</span><span class="sp"></span><span class="kbd">Ctrl+M</span> stop · <span class="kbd">Esc</span> cancel</div>`,
+    note:'Inserted at the caret, existing text kept. Dimmed partial text = v2 (streamed partials); v1 inserts on stop.'}),
+  composer({title:'Processing (hand-over)', text:'refactor the auth middleware to', mic:'proc',
+    strip:`<div class="strip info" role="status">${I.spin}<span>Transcribing…</span><span class="sp"></span><span class="kbd">Esc</span> cancel</div>`,
+    note:'Stitch + hand-over. Esc restores the pre-recording draft.'}),
+  composer({title:'Inserted (delivery: draft)', text:'refactor the auth middleware to use the new token validation helper', note:'Default. User reviews, edits, sends. Mic stays — speak again to append at the caret.'}),
+  composer({title:'Delivery: send', text:'', ph:true, working:true,
+    strip:`<div class="strip info" role="status"><span>Queued: “run the failing tests again”</span><span class="sp"></span><span class="lnk">Undo</span></div>`,
+    note:'Setting <code>dictation.delivery = send</code>: insert + submit through the send path, honouring Steer | Queue. Under 3 words → stays in the draft.'}),
+  composer({title:'Start failed', text:'refactor the auth middleware to', mic:'err',
+    strip:`<div class="strip err" role="alert"><span>Mic didn’t start: transcriber not live after 30 s (spawn).</span><span class="sp"></span><span class="lnk">Retry</span></div>`,
+    note:'Stage-specific, retryable; transcriber is ended.'}),
+  composer({title:'Not configured', ph:true, mic:'dis',
+    strip:`<div class="strip warn" role="note"><span>Speech-to-text not configured.</span><span class="sp"></span><span class="lnk">Open settings</span></div>`,
+    note:'aria-disabled, stays focusable, reason + link (shown on focus/click, not permanently).'}),
+  composer({title:'Retained text (composer was closed)', ph:true,
+    strip:`<div class="strip warn" role="status"><span>Dictation from 14:02 wasn’t inserted: “add a regression test for…”</span><span class="sp"></span><span class="lnk">Insert</span> · <span class="lnk">Copy</span> · <span class="lnk">Discard</span></div>`,
+    note:'Text is never lost: offered when this session’s composer next mounts.'}),
+  composer({title:'Narrow pane / phone', text:'fix the flaky', mic:'idle', narrow:true, working:true, note:'Mic stays in the input row (not folded into ⋯), 44 px target.'}),
+];
+document.getElementById('grid').innerHTML = S.join('');
+</script>
+</body>
+</html>

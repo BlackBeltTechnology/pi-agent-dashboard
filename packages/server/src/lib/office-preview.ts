@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { OFFICE_SIZE_CAPS } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { loadPurify } from "./purify.js";
 
@@ -38,12 +39,11 @@ export interface OfficeCaps {
 }
 
 export const OFFICE_CAPS: OfficeCaps = {
-  docxSizeCap: 40 * 1024 * 1024,
-  // Decks run large (corpus median 4.2 MB, tail 258 MB). Cap at 100 MB so the
-  // extreme tail is size-gated (413) before conversion; download is the escape
-  // hatch (design P5).
-  pptxSizeCap: 100 * 1024 * 1024,
-  sheetSizeCap: 50 * 1024 * 1024,
+  // Size caps are shared with the client (too-large notice names the real
+  // limit). Decks run large; download is the escape hatch (design P5).
+  docxSizeCap: OFFICE_SIZE_CAPS.docx,
+  pptxSizeCap: OFFICE_SIZE_CAPS.pptx,
+  sheetSizeCap: OFFICE_SIZE_CAPS.sheet,
   imageCap: 20,
   htmlByteCap: 2 * 1024 * 1024,
   rowCap: 500,

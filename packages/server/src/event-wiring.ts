@@ -12,6 +12,9 @@ import { mergeSessionMeta, readSessionMeta, type SessionMeta, writeSessionMeta }
 import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
 import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
+import { handlePathGrantRequest } from "./access/agent-grant.js";
+import { announceableGrantStoreId } from "./access/grant-store-id.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
 import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
@@ -326,6 +329,33 @@ export function wireEvents(deps: EventWiringDeps): void {
   // See change: reopen-sessions-after-shutdown.
   const stampedLiveEpoch = new Map<string, number>();
 
+  // Agent path gate (change: ask-agent-file-access-in-chat).
+  // Confirm registry: first-sight record of `agent-path-gate-confirm` prompts a
+  // later `path_grant_request` must bind to.
+  const agentConfirmRegistry = createAgentConfirmRegistry({
+    getTtlMs: () => {
+      try {
+        return Math.max(1, loadConfig().agentPathGate.timeoutSeconds) * 1000;
+      } catch {
+        return 120_000;
+      }
+    },
+  });
+  const FILE_ACCESS_KINDS = ["agent-path-gate", "agent-path-gate-confirm"] as const;
+  /**
+   * Re-derive `awaitingFileAccess` from the pending-prompt registry (live,
+   * replayed and resynced prompts all land there) and broadcast only on change.
+   * `currentTool` is deliberately untouched (D7).
+   */
+  function syncAwaitingFileAccess(sessionId: string): void {
+    const session = sessionManager.get(sessionId);
+    if (!session) return;
+    const awaiting = browserGateway.hasPendingPromptKind(sessionId, FILE_ACCESS_KINDS);
+    if ((session.awaitingFileAccess ?? false) === awaiting) return;
+    sessionManager.update(sessionId, { awaitingFileAccess: awaiting });
+    browserGateway.broadcastSessionUpdated(sessionId, { awaitingFileAccess: awaiting });
+  }
+
   /**
    * Deferred order-key re-resolution. A worktree session registers BEFORE
    * its group identity (`gitWorktree.mainPath`)
@@ -403,9 +433,16 @@ export function wireEvents(deps: EventWiringDeps): void {
   // so a closed socket stops counting even while its reconnect-grace session
   // is still registered. One session remaining keeps the snapshot.
   // See change: redesign-providers-settings-page.
-  piGateway.onDisconnect = () => {
+  piGateway.onDisconnect = (disconnectedSessionId) => {
     if (piGateway.getConnectedSessionIds().length === 0) {
       invalidateCatalogue();
+    }
+    // A gate prompt cannot be answered through a closed bridge: drop the derived
+    // flag now; the replay exit re-derives it from the replayed prompts.
+    // See change: ask-agent-file-access-in-chat (D7).
+    if (disconnectedSessionId && sessionManager.get(disconnectedSessionId)?.awaitingFileAccess) {
+      sessionManager.update(disconnectedSessionId, { awaitingFileAccess: false });
+      browserGateway.broadcastSessionUpdated(disconnectedSessionId, { awaitingFileAccess: false });
     }
   };
 
@@ -503,6 +540,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       type: "preferences_update",
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
+
+    // Announce which grant store this dashboard writes (re-read every time, never
+    // cached) so the bridge's path gate can decide whether "Always allow" is
+    // honest. See change: ask-agent-file-access-in-chat (D3).
+    {
+      const grantStoreId = announceableGrantStoreId();
+      if (grantStoreId) piGateway.sendToSession(sessionId, { type: "dashboard_identity", grantStoreId });
+    }
 
     // Restore the persisted auto-namer stop state to the bridge, so a session
     // stopped before a process restart does not re-spend a full attempt budget
@@ -622,6 +667,8 @@ export function wireEvents(deps: EventWiringDeps): void {
     // (D5), i.e. a session that can never be reclaimed.
     // See change: restore-ask-user-tool-state-on-reconnect (D6b).
     browserGateway.clearPendingRequestsForSession(sessionId);
+    agentConfirmRegistry.clearSession(sessionId);
+    syncAwaitingFileAccess(sessionId);
     replayPromptIds.delete(sessionId);
     // Fan the death out to plugin onSessionEnded subscribers regardless of
     // whether a session record still exists — the automation plugin finalizes
@@ -785,9 +832,14 @@ export function wireEvents(deps: EventWiringDeps): void {
   function reconcileAndRecomputeOnReplayExit(sessionId: string): void {
     const collected = replayPromptIds.get(sessionId);
     browserGateway.reconcilePromptRequests(sessionId, [...(collected ?? [])]);
-    if (browserGateway.hasPendingPromptRequests(sessionId)) {
+    // File-access prompts are excluded from the fold: they must never overwrite the
+    // in-flight tool (`awaitingFileAccess` carries them). See change: ask-agent-file-access-in-chat.
+    if (browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)) {
       sessionManager.update(sessionId, { currentTool: "ask_user" });
     }
+    // Re-derive from the reconciled registry (flag only; `currentTool` keeps its
+    // replay discipline). See change: ask-agent-file-access-in-chat (D7).
+    syncAwaitingFileAccess(sessionId);
     replayPromptIds.delete(sessionId);
   }
   // Debounce flows refresh to prevent infinite loop between sessions in same cwd
@@ -923,6 +975,14 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // Agent path gate: persist an "Always allow" grant bound to a raised confirm
+    // prompt of THIS connection's session. `sessionId` is the gateway's socket key.
+    // See change: ask-agent-file-access-in-chat (D3).
+    if (msg.type === "path_grant_request") {
+      piGateway.sendToSession(sessionId, handlePathGrantRequest(sessionId, msg, { registry: agentConfirmRegistry }));
+      return;
+    }
+
     if (msg.type === "event_forward") {
       // Raw-event fan-out to plugin onEvent subscribers (live + replay).
       // Fired before the core handling so plugins see every forwarded event.
@@ -1029,7 +1089,7 @@ export function wireEvents(deps: EventWiringDeps): void {
       // See change: restore-ask-user-tool-state-on-reconnect (D1/D4).
       const hasPendingPrompt =
         !replayingSessions.has(sessionId) &&
-        browserGateway.hasPendingPromptRequests(sessionId);
+        browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS);
       const updates = extractSessionUpdates(msg.event, hasPendingPrompt);
       if (updates) {
         sessionManager.update(sessionId, updates as Partial<DashboardSession>);
@@ -1316,7 +1376,7 @@ export function wireEvents(deps: EventWiringDeps): void {
             // the same gate `extractSessionUpdates` applies via
             // `hasPendingPrompt` (design D10).
             const applied =
-              updates.currentTool === null && browserGateway.hasPendingPromptRequests(sessionId)
+              updates.currentTool === null && browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS)
                 ? { status: updates.status }
                 : updates;
             // `streaming`/`idle` disagreements mean a run-boundary event was
@@ -2199,6 +2259,19 @@ export function wireEvents(deps: EventWiringDeps): void {
       }
       browserGateway.trackPromptRequest(sessionId, msg as any);
       const promptId = (msg as any).promptId as string | undefined;
+      {
+        const meta = (msg as any).prompt?.metadata as { kind?: unknown; path?: unknown; subject?: unknown } | undefined;
+        if (
+          meta?.kind === "agent-path-gate-confirm" &&
+          promptId &&
+          typeof meta.path === "string" &&
+          typeof meta.subject === "string"
+        ) {
+          // First sight only: a replayed prompt neither re-registers nor extends the TTL.
+          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject });
+        }
+      }
+      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
       if (replayingSessions.has(sessionId)) {
         // Inside the replay window the bridge's re-sent burst is a snapshot;
         // collect the id for the exit reconcile and write nothing — the replay
@@ -2223,7 +2296,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         };
         // Precedence (D3): a genuine in-flight tool wins; only an empty field
         // is folded to "ask_user".
-        if (sessionBefore && !sessionBefore.currentTool) {
+        const promptKind = (msg as any).prompt?.metadata?.kind;
+        const isFileAccessPrompt = typeof promptKind === "string" && (FILE_ACCESS_KINDS as readonly string[]).includes(promptKind);
+        if (sessionBefore && !sessionBefore.currentTool && !isFileAccessPrompt) {
           sessionManager.update(sessionId, { currentTool: "ask_user" });
           browserGateway.broadcastSessionUpdated(sessionId, { currentTool: "ask_user" });
         }
@@ -2280,11 +2355,14 @@ export function wireEvents(deps: EventWiringDeps): void {
 
     if (msg.type === "prompt_dismiss" || msg.type === "prompt_cancel") {
       browserGateway.clearPromptRequest(sessionId, (msg as any).promptId);
+      if (msg.type === "prompt_cancel") agentConfirmRegistry.cancel(sessionId, (msg as any).promptId);
+      else agentConfirmRegistry.settle(sessionId, (msg as any).promptId);
+      if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);
       // Clear only when the registry is now empty AND the field still holds the
       // derived value — a real tool that started meanwhile must not be stomped.
       if (
         !replayingSessions.has(sessionId) &&
-        !browserGateway.hasPendingPromptRequests(sessionId) &&
+        !browserGateway.hasPendingPromptOtherThan(sessionId, FILE_ACCESS_KINDS) &&
         sessionManager.get(sessionId)?.currentTool === "ask_user"
       ) {
         sessionManager.update(sessionId, { currentTool: null });

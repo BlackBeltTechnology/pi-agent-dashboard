@@ -2820,6 +2820,38 @@ Both honor same matching logic. Both work independently of whether `auth.provide
 
 **`GET /api/network-interfaces`** returns detected non-internal IPv4 interfaces with computed CIDRs. Used by the Settings UI "Add Local Network" button. This endpoint uses the legacy `localhostGuard` (localhost-only, not network-guard-aware) since it exposes machine network topology.
 
+### Trust and Credential Boundaries (change: harden-trust-and-credential-boundaries)
+
+Hardens five residual trust / credential-boundary weaknesses from audit. Each mitigates a confirmed finding; none is a standalone RCE.
+
+**Strict local proof (`requireLocalProof`).** Top-level config key, default `false`, read live per request — toggling needs no restart. Off = bare loopback (loopback peer, no forwarding header) stays trusted exactly as today. On = the network guard admits a bare-loopback request only on `observe`-tier `/api/*` REST reads (the `isObserveApiRequest` exception in `localhost-guard.ts`). Everything else needs PROOF, one of:
+- `pi_dash_local` httpOnly `SameSite=Strict` cookie, 30 d, value `HMAC(localToken, "pi-dashboard/local-proof/v1")` — rotating the local token invalidates every proof cookie;
+- `X-Pi-Local-Token` header;
+- authenticated principal (`request.isAuthenticated`).
+
+Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/terminal/*`, `/live/*`), plugin-registered WS scopes (`isPluginScopePeerLocal`), bridge-ticket mint (`decideBridgeTicketMint`), and the route-tier exemption (`tierRefusalFor`). A `127.0.0.1` entry in `trustedNetworks` / `auth.bypassHosts` no longer re-admits a relay under strict — `isTrustedSource` refuses a loopback-range peer without proof.
+
+**Why it exists.** A header-injecting tunnel (zrok) presents as loopback but carries `X-Forwarded-*`, so it already fails `isGenuinelyLocal`. A marker-less relay (`ssh -R`, `socat`) terminates on `127.0.0.1` and injects NO forwarding header — indistinguishable from a same-host browser, so it inherits full unauthenticated access to code-exec routes. Enable `requireLocalProof` when such a relay is used; only zrok-class tunnels are safe without it.
+
+**Denial.** Under strict, a proof-less bare-loopback denial is `403 { success: false, error: "network_not_allowed", reason: "local_proof_required", hint: … }` — same `error` literal as every other network denial, so clients keep branching on `error`; `reason` carries the strict-mode signal and `hint` names `pi-dashboard open`.
+
+**Bootstrap.** `pi-dashboard open [--print]` mints a one-time code (`POST /api/local-proof`, `X-Pi-Local-Token` only, 60 s TTL, single use via `LocalProofCodeStore`) and opens `/auth/local-proof?code=…`, which redeems it, sets the `pi_dash_local` cookie, and redirects `/`. Electron always loads that URL. Server not running → `open` exits `1` ("server not running"). Bootstrap routes register regardless of the flag, so `open` works before strict is toggled.
+
+**Trade-offs (stated, not implied).**
+- `/v1/*` model proxy keeps bare-loopback admission even under strict: local pi processes call it, and a marker-less relay can spend model credentials but cannot execute code.
+- `/api/health` posture disclosure unchanged.
+- A raw `curl -X POST` to `control` / `operate` routes from this host needs `X-Pi-Local-Token` (token at `~/.pi/dashboard/local/token`). `npm run reload` and the CLI `restart` already send it.
+
+**Pairing approval never honors bare loopback (any mode).** `createApprovalGuard` on `POST /api/pair/approve` and `/api/pair/approve-pending` admits only a login session, a valid proof cookie, or `X-Pi-Local-Token`; a device bearer is refused first, and Host admission still applies. Default-off strict does not exempt it. A hand-typed `http://localhost:8000` on an auth-off install must use `pi-dashboard open` or Electron to approve; the dialog shows the hint.
+
+**Credential + trust hardening in the same change.**
+- Login OAuth state carried in a signed `pi_dash_oauth_state` cookie, verified before code exchange; `returnUrl` restricted to same-origin relative paths (closes CSRF + open redirect).
+- Plugin event emission: automation actions declare `emits: string[]`, undeclared types dropped; `emitEventToSession` refuses reserved namespaces `roles:` `role:` `model:` `prompt:` `dashboard:` `ui:` (`RESERVED_EVENT_PREFIXES`); raw `sendExtensionMessage` refuses `plugin_emit_event`.
+- `config.json` written atomically `0600` by one secure-write helper (all eight writers); existing group/world-readable files chmod'ed `0600` at load (parity with `auth.json`, `paired-devices.json`, `local/token`).
+- Same-origin browser exchanges the device bearer once for an httpOnly `pi_dash_device` cookie (`POST /api/device-session`, `Path=/api/`, `SameSite=Strict`); `localStorage` keeps only the non-secret `pi-dashboard:device-paired` marker. Legacy stored bearers are exchanged and removed on startup; WS single-use tickets and the Electron keyring bearer unchanged.
+
+See change: harden-trust-and-credential-boundaries.
+
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 
 Companion to **Network Access Control** above. That section's universal `onRequest` guard is the network plane; this one is the filesystem plane. Both turn a terminal refusal into a remedy an operator can accept. Network plane: `403 network_not_allowed` → `BlockEventBuffer` → "Trust this network". Filesystem plane: a containment refusal → `denialId` → **grant** → next read admitted, no restart. The guard above is not re-explained here; see it for the network plane.
@@ -2886,6 +2918,103 @@ The audit that produced D14 also found a **descriptor leak**: the grant-verified
 The tab reads **eight** stores in place and revokes each against its **own** write path — never migrating them: `access-grants.json` (path grants), `worktree-init-trust.json`, `kb-source-trust.json`, pi's `ProjectTrustStore`, `config.trustedNetworks`, `auth.bypassHosts`, `cors.allowedOrigins`, and `preferencesStore` pinned directories. Revokes: `DELETE /api/access/grants` (`revokeGrant`), `/worktree-trust` (also clears in-memory session trust), `/bypass-hosts` (writes `auth.bypassHosts`; **never** `trustedNetworks`), `/project-trust` (routed through pi's own store — `decision: null` deletes the entry — not written directly), and `/pinned-directory`. KB source trust is revoked at `DELETE /api/kb/source-trust` by the kb-plugin, which owns kb's trust module; the dashboard reads that store for display only. Legacy `kb-source-trust.json` entries are `sha256 → true` with no displayable subject, so the tab renders their opaque hash rather than breaking. Two grant-bearing stores are deliberately excluded: `paired-devices.json` (its own surface) and `auth.bypassUrls` (grants route access, not resource access).
 
 Since revocation invalidates the in-memory set, a revoke takes effect on the **next request with no restart**; the tab refetches after each revoke. This is also why revoke-through-the-tab, not deleting the file, is the supported rollback.
+
+### Agent Path Gate (change: ask-agent-file-access-in-chat)
+
+Bridge-side companion to **Access-Grant Prompts and YOLO** and **Access Grants and Denial Remedies** below/above: those guard the dashboard's own filesystem plane (`/api/file*`, preview loads). This one guards the **agent's** `read` / `write` / `edit` tool calls — a pi session opens files in-process, so without a gate a call outside the session workspace is never denied and the operator is never asked.
+
+**Approve, not sandbox.** Gate asks operator when a covered tool leaves its roots. Does **not** confine: `bash`, `grep`, `find`, `ls`, custom and MCP tools are not covered (shell strings are not reliably parseable). UI copy must not call it a sandbox or confinement. Agent runs as the operator's user and can write `access-grants.json` itself; nothing here defends against a hostile local process.
+
+**Where it lives** (design D1). Pure decision module `packages/extension/src/path-gate/` (`decidePathAccess`, plus `resolve.ts`, `roots.ts`, `grant-cache.ts`, `suppression.ts`, `grant-link.ts`, `handler.ts`, `index.ts`). Registered in `bridge.ts` as its own `tool_call` handler **after** the fan-out admission handler (`fanoutAdmission.onToolCall`), **not** wrapped in the fail-open `safe(...)`. Own `try/catch` maps any internal error — including a throwing `ctx.cwd` getter after session teardown — to `{ block: true, reason }`. In-root calls take no round-trip.
+
+**Gated tools.** `read`, `write`, `edit` only, matched by name.
+
+**Canonicalisation matches the tool** (design D2). `resolveToolPath` reproduces pi's rules: `~` expansion, `@`-prefix strip, Unicode-space normalisation, `file://` URL, win32 shell-path mapping, `..`, resolve against `cwd`. pi's helper is not exported, so the gate carries its own implementation plus a **parity test** importing pi's `dist/core/tools/path-utils.js` by file path; a pi upgrade that changes resolution fails the test. `canonicalizeTarget` then real-paths the **nearest existing ancestor** and re-appends the missing tail. `read` decides on the path pi will open — pi `resolveReadPath` filename-variant fallback (AM/PM narrow-space, NFD, curly-quote, NFD+curly; final name only, same directory) replicated in `path-gate/resolve.ts` `resolveReadTarget`, parity-tested vs pi. `write` / `edit` use plain `resolveToCwd` (no fallback). A variant that is an in-root symlink to an outside file → decided on the outside target; the fallback only changes the final segment within the same directory, so it cannot move a target across a root boundary.
+
+**Roots** (each real-pathed once when computed):
+
+1. session `cwd` + bound **checkout root**, resolved by the same rules as `file-read-containment` (nearest root, worktree / submodule / separate-git-dir binding checks, bounded async probe `PROBE_BOUND_MS` 3 s, fail closed to `cwd`). Probe starts at `session_start`; a decision needing it awaits up to the bound, else uses `cwd` only.
+2. read-only built-ins: pi agent dir, each loaded skill's directory, pi package docs dir, pi-loaded context files.
+3. read+write built-ins: `os.tmpdir()` (+ `/tmp` on POSIX), session dir under `~/.pi/agent/sessions`.
+4. persisted **project-scope** grants from `access-grants.json` — read directly by the bridge, mtime-gated cache, malformed → empty. Works with no dashboard.
+
+Built-in roots are evaluated first, so pi's own `~/.pi/agent` reads never prompt.
+
+**Containment is component-wise** (`isWithin`, `isSubjectWithin`). Never string prefix; case sensitivity probed from the volume. Exact (case-sensitive) match checked first; volume case probe (`volumeCaseInsensitive`, shared) consulted only when exact check fails → case-sensitive macOS volume never folds; hot path probe-free. Grant cache signature = mtime+size+ino+ctime (atomic rename rewrite seen). `canonical-subject.ts` + `forbidden-subjects.ts` moved to `packages/shared/src/` with server re-exports; browser client MUST NOT import them (the Access page's agent-prompt label reads `via` from the API) — a client-side import guard test enforces it.
+
+**Verdicts** (design D4). First prompt `ctx.ui.select`, metadata `{ kind: "agent-path-gate", path, access, sensitive }`, always chat-placed (never widget-bar):
+
+- title `Agent wants to <tool> outside its workspace: <canonical path>` plus `  ⚠ sensitive location` when flagged. Title carries path + sensitive flag — TUI shows title + options only; metadata = dashboard-card detail. Body (dashboard card, `metadata.message`): canonical path, tool name, session cwd; byte count / edit count for `write` / `edit`; sensitive line when flagged; note when Always allow withheld.
+- options `Allow once`, `Deny`, and — when permitted — `Always allow <dir>…`. Nothing preselected.
+
+Second prompt (Always-allow only) `ctx.ui.confirm`, metadata `{ kind: "agent-path-gate-confirm", path, subject }`, names the **subject** — the target itself when it is a directory, else its containing directory; never an ancestor — states it persists and is revocable in Settings ▸ Access.
+
+| Answer | Result |
+|---|---|
+| `Allow once` | this call runs; next call to same path asks again (single-call, never remembered) |
+| `Deny` | block |
+| first prompt dismissed (`undefined`) | block (treated as Deny) |
+| `Always allow` → confirm `true` | grant request; this call runs |
+| `Always allow` → confirm `false` / dismissed | block (treated as Deny) |
+
+**One time budget.** Both prompts draw from one `agentPathGate.timeoutSeconds` (default 120); the confirm gets only the remaining time; the gate cancels any open prompt via PromptBus on expiry. Per-session **mutex** — at most one gate prompt per session open.
+
+**Always-allow is a bound, single-use grant** (design D3). On confirm the bridge sends `path_grant_request { requestId, sessionId, promptId, path, subject }` — it never writes the store. Server keeps a bounded confirm registry (`access/agent-confirm-registry.ts`): records `{ promptId, sessionId, path, subject, expiresAt }` when it forwards a `prompt_request` whose metadata `kind` is `agent-path-gate-confirm` — **first sight only** (a replayed `prompt_request` neither re-registers nor extends `expiresAt`). `prompt_cancel` / session end removes the entry; `prompt_dismiss` marks it settled, redeemable 5 s only. A request is accepted only if the WS connection is bound to `sessionId`, an unexpired unused entry exists for `promptId`, and both `path` and `subject` match by `isSameSubject` (canonical, not string equality); the entry is consumed single-use. The server then **re-derives** the subject from the confirmed PATH at grant time by the same rule (the target itself when it is a directory, else its containing directory; never an ancestor), refuses unless it equals the confirmed subject (a directory created, renamed or symlink-swapped between prompt and grant is never persisted under an unseen name), applies `isUngrantableSubject`, calls `recordGrant({ subject, scope: "project", origin: sessionId, via: "agent-prompt" })`, and replies `path_grant_result { requestId, ok, subject | error }`.
+
+**Same-store gate** (`access/grant-store-id.ts`). Server ensures `~/.pi/dashboard/grant-store-id` exists — exclusive-create `O_EXCL`, `0600`, random 128-bit token; an existing file is never overwritten. On every bridge (re)registration it **re-reads** the file and sends `dashboard_identity { grantStoreId }` (never a cached value). The bridge reads its own file and offers Always allow only when the two are equal. Missing frame / missing local file / mismatch → not offered, card note "can't be remembered here". The offer is re-evaluated on every `dashboard_identity`. This proves the connected server writes the very store the gate reads — **not** operator presence.
+
+**Fail closed** (design D5):
+
+| Condition | Result |
+|---|---|
+| ungrantable containing dir / target in `sensitive` | ask; Allow once / Deny only; sensitive flag |
+| recently denied directory (same session, < 120 s) | block, no prompt, reason `recently-denied` |
+| Deny / dismissal / confirm refused | block, reason `denied` |
+| budget expired | block, prompts cancelled, reason `timeout` |
+| `ctx.hasUI === false` | block, no prompt, reason `no-ui` |
+| gate internal error (incl. `ctx.cwd` throws) | block, reason `error` |
+| grant write fails (`ok === false`) | this call runs once (operator did approve); card note "not saved: <error>" |
+
+`forbidden-subjects.ts` lists `whole` (refused exactly: `/`, `$HOME`, system roots) and `sensitive` (refused with descendants: `~/.ssh`, `~/.pi`). They govern what may be **granted**; the gate never hard-blocks on them (hard-block would make `write ~/.pi/agent/AGENTS.md` impossible, pushing operators to disable the gate wholesale).
+
+**Repeat suppression** (`suppression.ts`, `SUPPRESSION_MS` 120 s). Takes precedence over asking, including sensitive targets. Key `D` = **lexical** parent of the canonical target (nearest-existing ancestor + remaining segments, minus the last), so `/w/newproj1/a.txt` keys `/w/newproj1`, never the shared ancestor `/w`. After a Deny, dismissal or timeout for a target whose containing directory is `D`, further gated calls in the **same session** under `D` block **without a prompt** for 120 s. Expiry or an explicit Allow elsewhere does not lift it early. Sessions are independent; exhaustion never degrades to allow.
+
+**Attention + visibility** (design D7). The gate prompt fires while `currentTool` is already `read` / `write` / `edit`, so the `ask_user` fold never marks needs-you; `currentTool` is left untouched (no race with sibling `tool_execution_start` writes). New session field `awaitingFileAccess: boolean`, **derived** from the server's pending-prompt registry: true while any tracked pending prompt of the session has `kind` `agent-path-gate` / `agent-path-gate-confirm`. Tracked on the live fan-out branch, the reconnect **replay** burst, and unicast resync; dropped on answer / dismiss / cancel / session end / **bridge disconnect**, and re-derived at replay exit. The needs-you rollup and urgency predicate become chat-routed `ask_user` state **or** `awaitingFileAccess`. A non-modal toast ("Session ‹name› is waiting for file access → Open") fires when such a prompt is first shown and the operator is not viewing that session; it clears on settlement.
+
+**Observability** (design D8). One log line per non-in-root outcome: `[path-gate] <outcome> tool=<t> access=<r|w> path=<canonical> session=<id> sensitive=<bool>`; outcomes `asked | allowed-once | allowed-always | denied | recently-denied | timeout | no-ui | error`. In-root outcomes are counted, not logged. Counters ride the existing bridge status payload on heartbeat metrics: `pathGateInRoot`, `pathGateAsked`, `pathGateBlocked`. The server logs accepted and refused `path_grant_request`s with the refusal cause.
+
+**Config** (design D6). `DashboardConfig.agentPathGate = { enabled: true, timeoutSeconds: 120 }` (`packages/shared/src/config.ts`, `AgentPathGateConfig`, `DEFAULT_AGENT_PATH_GATE`). Bridge stats the config file each call (signature mtime+size+ino+ctime) and re-parses only on change → toggle applies from next tool call; env override applied every call. `PI_DASHBOARD_AGENT_PATH_GATE=off|on` overrides per process. Settings ▸ Security toggle (`components/settings/AgentPathGateSection.tsx`) — inert under an env override. Disabled → handler returns immediately.
+
+**Residuals / non-goals.** `bash` / `grep` / `find` / `ls` / custom+MCP tools not covered (not a sandbox); TOCTOU symlink swap between gate and open accepted; a same-user process can write `access-grants.json` itself; session-scope grants (server memory) are not shared with the gate (the Access page labels them "dashboard only"); the grant binding proves a **raised** confirm, not operator presence (the server cannot observe answers — browser answers are forwarded unrecorded, TUI answers arrive value-less). Rollback: `agentPathGate.enabled=false` or env `off` — applies from the next tool call; grants already written stay valid for the dashboard's file plane.
+
+```mermaid
+sequenceDiagram
+    participant A as agent tool_call
+    participant G as path-gate (bridge)
+    participant U as operator (chat/TUI)
+    participant S as server
+    A->>G: read, write or edit(path)
+    G->>G: resolve pi-parity, canonicalizeTarget
+    G->>G: decidePathAccess vs roots
+    alt in-root
+        G-->>A: allow, no round-trip
+    else out-of-root
+        G->>U: select Allow once / Deny / Always allow
+        alt Allow once
+            G-->>A: allow, single call
+        else Deny, dismiss or timeout
+            G-->>A: block
+        else Always allow
+            G->>U: confirm exact dir, persists
+            U-->>G: true or false
+            G->>S: path_grant_request promptId, path, subject
+            S->>S: redeem confirm single-use 5 s, re-derive subject
+            S->>S: recordGrant project, via agent-prompt
+            S-->>G: path_grant_result ok
+            G-->>A: allow this call
+        end
+    end
+```
 
 ### Access-Grant Prompts and YOLO (change: add-access-grant-dialog)
 

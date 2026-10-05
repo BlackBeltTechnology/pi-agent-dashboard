@@ -21,7 +21,8 @@ import { type HostAdmissionOptions, isHostAdmitted } from "../auth/host-admissio
 import type { ServerIdentity } from "../auth/identity.js";
 import { signNonce } from "../auth/identity.js";
 import { verifyLocalToken } from "../auth/local-token.js";
-import { isGenuinelyLocal } from "../auth/localhost-guard.js";
+import { createLocalTrustContext, hasLocalProof, type LocalTrustContext } from "../auth/local-proof.js";
+import { isLocallyTrusted } from "../auth/localhost-guard.js";
 import type { PairedDeviceRegistry, PairedDeviceView } from "../pairing/paired-devices.js";
 import type { ApproveResult, PairingManager, PendingDeviceView } from "../pairing/pairing.js";
 import { SUPPORTED_PAIRING_VERSIONS } from "../pairing/pairing.js";
@@ -96,6 +97,8 @@ export function createOperatorGuard(deps: {
   localToken?: string;
   /** Host-admission options, read LIVE per request. */
   hostAdmission: () => HostAdmissionOptions;
+  /** Strict local-proof context (`requireLocalProof`). */
+  localTrust?: LocalTrustContext;
 }) {
   return async function operatorGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const via = (request as any).authVia;
@@ -110,8 +113,42 @@ export function createOperatorGuard(deps: {
     const isOperator =
       via === "session" ||
       (deps.localToken !== undefined && verifyLocalToken(headers, deps.localToken)) ||
-      isGenuinelyLocal(request.ip, headers);
+      isLocallyTrusted({ ip: request.ip, headers }, deps.localTrust);
     if (!isOperator) {
+      reply.code(401).send({ success: false, error: "operator credential required" });
+      return;
+    }
+    if (!isHostAdmitted(request.headers.host, deps.hostAdmission())) {
+      reply.code(403).send({ success: false, error: "host_not_admitted" });
+      return;
+    }
+  };
+}
+
+/**
+ * Approval guard for `POST /api/pair/approve` and `/approve-pending` (D6).
+ *
+ * Stricter than {@link createOperatorGuard}: NO bare-loopback branch in any mode
+ * (the `qr-device-pairing` spec: approval honors no loopback/tunnel exemption).
+ * Admits a login session, a valid local-proof cookie, or a valid
+ * `X-Pi-Local-Token`; a device bearer is refused first; Host admission in
+ * enforce semantics. See change: harden-trust-and-credential-boundaries (D6).
+ */
+function createApprovalGuard(deps: {
+  localToken?: string;
+  hostAdmission: () => HostAdmissionOptions;
+  localTrust?: LocalTrustContext;
+}) {
+  const proofCtx = deps.localTrust ?? (deps.localToken ? createLocalTrustContext(deps.localToken, () => false) : undefined);
+  return async function approvalGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const via = (request as any).authVia;
+    if (via === "device") {
+      reply.code(401).send({ success: false, error: "operator credential required" });
+      return;
+    }
+    const headers = request.headers as Record<string, unknown>;
+    const ok = via === "session" || (proofCtx !== undefined && hasLocalProof(headers, proofCtx));
+    if (!ok) {
       reply.code(401).send({ success: false, error: "operator credential required" });
       return;
     }
@@ -131,6 +168,8 @@ export function registerPairingRoutes(
     registry: PairedDeviceRegistry;
     /** `X-Pi-Local-Token` expected value, when configured. */
     localToken?: string;
+    /** Strict local-proof context (`requireLocalProof`). */
+    localTrust?: LocalTrustContext;
     /** Host-admission options, read LIVE per request (D5 enforce semantics). */
     hostAdmission: () => HostAdmissionOptions;
     /**
@@ -146,7 +185,8 @@ export function registerPairingRoutes(
   },
 ) {
   const { networkGuard, identity, pairing, registry, localToken, hostAdmission } = deps;
-  const operatorGuard = createOperatorGuard({ localToken, hostAdmission });
+  const operatorGuard = createOperatorGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
+  const approvalGuard = createApprovalGuard({ localToken, hostAdmission, localTrust: deps.localTrust });
 
   // ── Server-identity challenge (public) — Task 1.2 ──────────────────────
   // Client sends a nonce; server signs it so the client can verify against the
@@ -220,7 +260,7 @@ export function registerPairingRoutes(
   // the local token, or a genuinely-local caller.
   fastify.post<{ Body: { code?: string; confirmCode?: string; label?: string; tier?: unknown } }>(
     "/api/pair/approve",
-    { preHandler: operatorGuard },
+    { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView>> => {
       const { code, confirmCode, tier } = request.body ?? {};
       if (typeof code !== "string" || typeof confirmCode !== "string") {
@@ -275,7 +315,7 @@ export function registerPairingRoutes(
   // ── Dashboard: approve by pendingId (typed confirm code, operator-only) ─
   fastify.post<{ Body: { pendingId?: unknown; confirmCode?: unknown; label?: unknown } }>(
     "/api/pair/approve-pending",
-    { preHandler: operatorGuard },
+    { preHandler: approvalGuard },
     async (request, reply): Promise<ApiResponse<PairedDeviceView> & { attemptsLeft?: number }> => {
       const { pendingId, confirmCode, label } = request.body ?? {};
       if (typeof pendingId !== "string" || typeof confirmCode !== "string") {

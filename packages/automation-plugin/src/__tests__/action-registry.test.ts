@@ -87,7 +87,7 @@ describe("ActionRegistry", () => {
   it("accepts an event-dispatch action (buildEvent)", () => {
     const reg = new ActionRegistry();
     const ok = reg.register({
-      id: "flows.run", source: "flows", label: "Run",
+      id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"],
       buildEvent: () => ({ eventType: "flow:run", data: {} }),
     });
     expect(ok).toBe(true);
@@ -97,7 +97,7 @@ describe("ActionRegistry", () => {
   it("collectActionRegistry merges published contributions (single + array) with guards", () => {
     const entries = [
       { key: "automation.action.core", value: coreActionContributions() }, // array
-      { key: "automation.action.flows", value: { id: "flows.run", source: "flows", label: "Run", buildEvent: () => ({ eventType: "flow:run" }) } }, // single
+      { key: "automation.action.flows", value: { id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: () => ({ eventType: "flow:run" }) } }, // single
       { key: "automation.action.bad", value: { id: "nodispatch", source: "bad", label: "X" } }, // rejected: bad id + no dispatch
     ];
     const reg = collectActionRegistry(entries, { warn: () => {} });
@@ -109,6 +109,16 @@ describe("ActionRegistry", () => {
   it("collectActionRegistry tolerates non-object contribution values", () => {
     const reg = collectActionRegistry([{ key: "automation.action.junk", value: 42 }], { warn: () => {} });
     expect([...reg.ids()]).toEqual([]);
+  });
+
+  it("buildEvent requires a non-empty emits list; buildPrompt does not (E23)", () => {
+    const reg = new ActionRegistry({ warn: () => {} });
+    const be = () => ({ eventType: "flow:run" });
+    expect(reg.register({ id: "a.noemits", source: "a", label: "A", buildEvent: be })).toBe(false);
+    expect(reg.register({ id: "a.empty", source: "a", label: "A", emits: [], buildEvent: be })).toBe(false);
+    expect(reg.register({ id: "a.ok", source: "a", label: "A", emits: ["flow:run"], buildEvent: be })).toBe(true);
+    expect(reg.register({ id: "a.prompt", source: "a", label: "A", buildPrompt: noopBuild })).toBe(true);
+    expect([...reg.ids()].sort()).toEqual(["a.ok", "a.prompt"]);
   });
 
   it("rejects an action with neither or both of buildPrompt/buildEvent", () => {

@@ -17,8 +17,10 @@
  *
  * Criterion for "runtime plugin that must be bundled":
  *   - the package.json has a `pi-dashboard-plugin` manifest, AND
- *   - `pi-dashboard-plugin.fixture !== true`, AND
- *   - the dir is not bundled as a workspace package (BUNDLED_WORKSPACE_PKGS).
+ *   - `pi-dashboard-plugin.fixture !== true`.
+ * A plugin that is ALSO a bundle workspace (BUNDLED_WORKSPACE_PKGS, e.g.
+ * mcp-client-plugin — a direct server dep) must still be listed: the loader
+ * discovers plugins from resources/plugins/, not from node_modules.
  *
  * If this test fails: add the missing plugin dir to `piDashboard.bundledPlugins`
  * (kb-plugin case), or remove the stale entry (honcho case).
@@ -32,30 +34,30 @@ import { readBundledPluginIds } from "../runtime-overlay/materialize-plugins.mjs
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
 const PACKAGES_DIR = path.join(REPO_ROOT, "packages");
-const BUNDLE_SCRIPT = path.join(
-  REPO_ROOT,
-  "packages",
-  "electron",
-  "scripts",
-  "bundle-server.mjs",
-);
 const SERVER_PKG_JSON = path.join(REPO_ROOT, "packages", "server", "package.json");
+const BUNDLE_SCRIPT = path.join(REPO_ROOT, "packages", "electron", "scripts", "bundle-server.mjs");
 
-/** Extract a `const NAME = [ "a", "b" ]` string-literal array from a source file. */
-function readStringArray(source: string, name: string): string[] {
-  const block = new RegExp(`const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\]`).exec(
-    source,
-  );
-  if (!block) throw new Error(`${name} array not found in bundle-server.mjs`);
-  return [...block[1].matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
+type Pkg = { name: string; dependencies?: Record<string, string> };
+const readPkg = (dir: string): Pkg =>
+  JSON.parse(fs.readFileSync(path.join(PACKAGES_DIR, dir, "package.json"), "utf8"));
+
+/** `const BUNDLED_WORKSPACE_PKGS = [ ... ]` from bundle-server.mjs. */
+function readBundledWorkspacePkgs(): string[] {
+  const src = fs.readFileSync(BUNDLE_SCRIPT, "utf8");
+  const block = /const BUNDLED_WORKSPACE_PKGS\s*=\s*\[([\s\S]*?)\]/.exec(src);
+  if (!block) throw new Error("BUNDLED_WORKSPACE_PKGS not found in bundle-server.mjs");
+  return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 }
 
+/** First-party (`@blackbelt-technology/*`) runtime dependency names of a package dir. */
+const firstPartyDeps = (dir: string): string[] =>
+  Object.keys(readPkg(dir).dependencies ?? {}).filter((d) => d.startsWith("@blackbelt-technology/"));
+
 /** Dir names in packages/* that are non-fixture runtime plugins. */
-function discoverRuntimePluginDirs(excludeWorkspacePkgs: string[]): string[] {
-  const exclude = new Set(excludeWorkspacePkgs);
+function discoverRuntimePluginDirs(): string[] {
   return fs
     .readdirSync(PACKAGES_DIR, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && !exclude.has(e.name))
+    .filter((e) => e.isDirectory())
     .filter((e) => {
       const pkgJson = path.join(PACKAGES_DIR, e.name, "package.json");
       if (!fs.existsSync(pkgJson)) return false;
@@ -68,10 +70,8 @@ function discoverRuntimePluginDirs(excludeWorkspacePkgs: string[]): string[] {
 }
 
 describe("piDashboard.bundledPlugins completeness", () => {
-  const source = fs.readFileSync(BUNDLE_SCRIPT, "utf8");
   const bundled = readBundledPluginIds(SERVER_PKG_JSON);
-  const workspacePkgs = readStringArray(source, "BUNDLED_WORKSPACE_PKGS");
-  const expected = discoverRuntimePluginDirs(workspacePkgs);
+  const expected = discoverRuntimePluginDirs();
 
   it("lists every non-fixture runtime plugin found in packages/*", () => {
     const missing = expected.filter((p) => !bundled.includes(p));
@@ -90,6 +90,35 @@ describe("piDashboard.bundledPlugins completeness", () => {
       return pkg?.repository?.directory !== `packages/${id}`;
     });
     expect(wrong).toEqual([]);
+  });
+
+  // Bundled plugins are copied to resources/plugins/<id>/ WITHOUT node_modules;
+  // their imports resolve only via resources/server/node_modules. A first-party
+  // dep not installed there from workspace source fails at load time
+  // ("Failed to load plugin ... Cannot find module '@blackbelt-technology/...'").
+  it("every first-party dep of a bundled plugin (transitively) is a bundled workspace package", () => {
+    const nameToDir = new Map(
+      fs
+        .readdirSync(PACKAGES_DIR, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && fs.existsSync(path.join(PACKAGES_DIR, e.name, "package.json")))
+        .map((e) => [readPkg(e.name).name, e.name] as const),
+    );
+    const workspaces = new Set(readBundledWorkspacePkgs());
+    const missing = new Set<string>();
+    const seen = new Set<string>();
+    const queue = [...bundled, ...workspaces];
+    while (queue.length > 0) {
+      const dir = queue.shift()!;
+      if (seen.has(dir)) continue;
+      seen.add(dir);
+      for (const dep of firstPartyDeps(dir)) {
+        const depDir = nameToDir.get(dep);
+        if (!depDir) continue; // not a workspace package — comes from the registry
+        if (!workspaces.has(depDir)) missing.add(`${depDir} (needed by ${dir})`);
+        queue.push(depDir);
+      }
+    }
+    expect([...missing].sort(), "add these dirs to BUNDLED_WORKSPACE_PKGS in bundle-server.mjs").toEqual([]);
   });
 
   it("includes kb-plugin", () => {

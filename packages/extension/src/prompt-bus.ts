@@ -132,6 +132,19 @@ export class PromptBus {
    */
   request(options: Omit<PromptRequest, "id">): Promise<PromptResponse> {
     const id = crypto.randomUUID();
+    return this.submit(id, options);
+  }
+
+  /**
+   * Like {@link request} but with a CALLER-chosen id, so the caller can
+   * `cancel(id)` its own prompt (agent path gate budget expiry). The caller owns
+   * uniqueness. See change: ask-agent-file-access-in-chat.
+   */
+  requestWithId(id: string, options: Omit<PromptRequest, "id">): Promise<PromptResponse> {
+    return this.submit(id, options);
+  }
+
+  private submit(id: string, options: Omit<PromptRequest, "id">): Promise<PromptResponse> {
     const request: PromptRequest = { id, ...options };
 
     return new Promise<PromptResponse>((resolve) => {

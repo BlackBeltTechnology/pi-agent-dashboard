@@ -91,6 +91,17 @@ function nextFromOutcome(outcome: ApprovePendingOutcome): NextState {
   if (outcome.error === "locked_out") return { phase: "locked" };
   if (outcome.error === "expired") return { phase: "expired" };
   if (outcome.error === "no_pending") return { handledElsewhere: true };
+  // 401 from the approval guard: bare loopback is not an operator credential.
+  // See change: harden-trust-and-credential-boundaries (D6).
+  if (outcome.error === "operator credential required" || outcome.error === "Authentication required") {
+    return {
+      formError: i18nT(
+        "pairingApproval.needsOperator",
+        undefined,
+        "Approval needs an operator credential. Open the dashboard with `pi-dashboard open` (or the desktop app), or sign in.",
+      ),
+    };
+  }
   return { formError: i18nT("pairingApproval.failed", undefined, "Couldn't approve this device. Try again.") };
 }
 

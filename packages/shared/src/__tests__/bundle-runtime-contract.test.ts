@@ -45,11 +45,38 @@ describe("bundled server ships the pi runtime (E10)", () => {
     expect(body).not.toMatch(/\bdependencies\b/);
   });
 
-  it("BUNDLED_WORKSPACE_PKGS is server, shared, extension, dashboard-plugin-runtime", () => {
+  // mcp-client-plugin is a direct server dependency: installed from the registry
+  // its `shared ^<base>` misses the bundled `<base>-ci.*` workspace and npm nests a
+  // stale published shared → bundled server boots into RECOVERY MODE.
+  // Plus every first-party dep of a bundled plugin (see bundled-plugins-complete.test.ts).
+  it("BUNDLED_WORKSPACE_PKGS is the server core + every first-party dep of server/bundled plugins", () => {
     const m = bundleSrc.match(/const BUNDLED_WORKSPACE_PKGS = \[([\s\S]*?)\];/);
     expect(m).not.toBeNull();
     const names = [...m![1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-    expect(names).toEqual(["server", "shared", "extension", "dashboard-plugin-runtime"]);
+    expect(names).toEqual([
+      "server",
+      "shared",
+      "extension",
+      "dashboard-plugin-runtime",
+      "mcp-client-plugin",
+      "bus-client",
+      "client-utils",
+      "document-converter",
+      "kb",
+      "mcp-server-plugin",
+      "session-distiller",
+      "system-one",
+    ]);
+  });
+
+  // npm 10 arborist resolves workspace devDependencies even under --omit=dev and
+  // crashes in #loadPeerSet ("reading 'edgesOut'") on mcp-client-plugin's vitest.
+  it("strips devDependencies from bundled workspace package.json copies before npm install", () => {
+    const code = stripComments(bundleSrc);
+    const strip = code.search(/delete\s+\w+\.devDependencies/);
+    const install = code.indexOf('"install", "--omit=dev"');
+    expect(strip).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(strip);
   });
 });
 

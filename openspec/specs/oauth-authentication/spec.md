@@ -2,7 +2,9 @@
 
 ## Purpose
 OAuth2/OIDC authentication for the dashboard. Provider registry (GitHub, Google, Keycloak, generic OIDC), login/callback flow, JWT session cookie, loopback + trusted-host/URL bypass, and redirect-URI resolution.
+
 ## Requirements
+
 ### Requirement: OAuth provider registry
 The auth module SHALL maintain a registry of OAuth2 provider configurations. Each provider entry SHALL include: `clientId`, `clientSecret`, `authorizeUrl`, `tokenUrl`, `userInfoUrl`, and `scopes`. Built-in providers (GitHub, Google, Keycloak) SHALL have well-known URLs pre-configured; only `clientId` and `clientSecret` are required from the user. Keycloak and generic OIDC providers SHALL additionally require an `issuerUrl`.
 
@@ -29,12 +31,14 @@ The auth module SHALL maintain a registry of OAuth2 provider configurations. Eac
 ### Requirement: Localhost and trusted host bypass
 The auth module SHALL skip authentication entirely for requests originating from loopback addresses (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`). Additionally, if `auth.bypassUrls` is configured, the auth module SHALL skip authentication for HTTP requests whose URL starts with any entry in that list. If `auth.bypassHosts` is configured, the auth module SHALL skip authentication for requests originating from any matching IP (exact, wildcard, or CIDR). All bypass rules apply before any cookie/session validation, for both HTTP requests and WebSocket upgrades.
 
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Localhost HTTP request without cookie
-- **WHEN** an HTTP request arrives from `127.0.0.1` with no auth cookie
+- **WHEN** `requireLocalProof` is disabled and an HTTP request arrives from `127.0.0.1` with no auth cookie
 - **THEN** the request SHALL proceed without authentication
 
 #### Scenario: Localhost WebSocket upgrade without cookie
-- **WHEN** a WebSocket upgrade request arrives from `::1` with no auth cookie
+- **WHEN** `requireLocalProof` is disabled and a WebSocket upgrade request arrives from `::1` with no auth cookie
 - **THEN** the upgrade SHALL proceed without authentication
 
 #### Scenario: External HTTP request without cookie
@@ -50,7 +54,7 @@ The auth module SHALL skip authentication entirely for requests originating from
 - **THEN** the request SHALL proceed without authentication
 
 ### Requirement: OAuth login flow
-The auth module SHALL implement the OAuth2 authorization code flow. The `/auth/login` route SHALL display a provider picker page listing all configured providers. If only one provider is configured, it SHALL auto-redirect to that provider's authorize URL.
+The auth module SHALL implement the OAuth2 authorization code flow. The `/auth/login` route SHALL display a provider picker page listing all configured providers. If only one provider is configured, it SHALL auto-redirect to that provider's authorize URL. Every redirect to a provider's authorize URL SHALL set a short-lived, httpOnly, `SameSite=Lax` state cookie carrying an HMAC-signed copy of the `state` nonce (signing key domain-separated from the session-JWT key). A `return` value SHALL be reduced to a same-origin relative path (else `/`) before it is encoded into `state`, and the multi-provider picker SHALL propagate it to each provider link.
 
 #### Scenario: Single provider — auto-redirect
 - **WHEN** a user visits `/auth/login` and only one provider is configured
@@ -64,18 +68,26 @@ The auth module SHALL implement the OAuth2 authorization code flow. The `/auth/l
 - **WHEN** a user visits `/auth/login?return=/some/path`
 - **THEN** the `state` parameter SHALL encode the return URL so the callback can redirect back after login
 
+#### Scenario: Cross-origin return URL reduced at login
+- **WHEN** a user visits `/auth/login?return=https://evil.example/x` (or `//evil.example`, or a malformed percent-encoding)
+- **THEN** the `state` SHALL encode `/` and the request SHALL NOT error
+
 ### Requirement: OAuth callback handling
-The `/auth/callback/:provider` route SHALL exchange the authorization code for an access token, fetch the user's profile (email, display name, username), validate the user against `allowedUsers` (if configured), issue a signed JWT cookie, and redirect to the return URL (or `/`).
+The `/auth/callback/:provider` route SHALL first verify that the `state` nonce matches the signed state cookie set at login (constant-time); a missing or mismatched cookie SHALL redirect to `/auth/login` with an error and SHALL NOT exchange the code or set a session cookie. The state cookie SHALL be cleared on every callback outcome. On a match it SHALL exchange the authorization code for an access token, fetch the user's profile (email, display name, username), validate the user against `allowedUsers` (if configured), issue a signed JWT cookie, and redirect to the return URL re-validated as a same-origin relative path (or `/`).
 
 The access denied page SHALL HTML-escape all user-provided data (email address, username) before interpolating into the HTML response to prevent XSS attacks. The server SHALL use an `escapeHtml()` helper that encodes `&`, `<`, `>`, `"`, and `'` as their HTML entity equivalents.
 
 #### Scenario: Successful callback with valid code
-- **WHEN** the OAuth provider redirects back with a valid `code` and `state`
+- **WHEN** the OAuth provider redirects back with a valid `code` and a `state` matching the state cookie
 - **THEN** the server SHALL exchange the code for an access token, fetch user info, set a JWT cookie, and redirect to `/`
 
 #### Scenario: Callback with return URL in state
-- **WHEN** the callback `state` contains a return URL `/sessions`
+- **WHEN** the callback `state` matches the state cookie and contains a return URL `/sessions`
 - **THEN** after successful auth, the server SHALL redirect to `/sessions` instead of `/`
+
+#### Scenario: Callback with mismatched state
+- **WHEN** the callback `state` does not match the state cookie, or no state cookie is present
+- **THEN** the server SHALL redirect to `/auth/login` with an error, SHALL NOT exchange the code, and SHALL NOT set a session cookie
 
 #### Scenario: Callback with invalid code
 - **WHEN** the token exchange fails (invalid code, expired, etc.)
@@ -330,4 +342,3 @@ The endpoint SHALL remain guarded (it discloses the deployment's public origin) 
 #### Scenario: Log line at register and reload
 - **WHEN** the auth plugin registers, and again on every runtime reload
 - **THEN** exactly one log line SHALL name the resolved base and its tier
-

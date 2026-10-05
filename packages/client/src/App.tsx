@@ -40,6 +40,7 @@ import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
+import { FileAccessToastHost } from "./components/session/FileAccessToastHost.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
 import { TokenStatsBar } from "./components/session/TokenStatsBar.js";
 import { SettingsPanel } from "./components/settings/SettingsPanel.js";
@@ -2904,6 +2905,9 @@ export default function App() {
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}
+              {/* Non-modal "waiting for file access" toast (own tray, both layouts).
+                  See change: ask-agent-file-access-in-chat. */}
+              <FileAccessToastHost sessions={sessions} selectedId={selectedId} onOpen={handleSelect} />
               {/* D22 sign-in dialog: ONE instance for every layout branch (it is
                   `fixed inset-0`, so it need not sit inside the banner slots,
                   which a session route renders twice). */}

@@ -1,94 +1,127 @@
 ## ADDED Requirements
 
-### Requirement: Start/stop dictation capture from the dashboard
-The system SHALL provide a `session-card-action-bar` action named `dict-start` (renames upstream's `ds`) that starts mic-only capture scoped to `{ projectRoot, targetSessionId }`, and an action named `dict-end` (renames upstream's `dd`) that stops it, for a given session — with no `.claude/skills`, no `set-copilot` CLI invocation, and no Claude Code involvement. `dict-start` SHALL accept a capture source of `server` (default, via the vendored `runCapture({ micOnly: true })`) or `browser` (per Requirement "Browser-mic capture source").
+### Requirement: Dictation through a short-lived transcriber session, triggered from the composer
+The system SHALL provide a mic control through the core `composer-toolbar-action` slot. Starting it SHALL spawn a dictation transcriber session for `{ projectRoot, targetSessionId }` (the composer's session) with source `server` (default) or `browser`; stopping it SHALL stop the transcriber, take the stitched text from its hand-over, deliver it per the delivery setting, and end the transcriber. No `.claude/skills`, no `set-copilot` CLI, no Claude Code.
 
-#### Scenario: User starts dictation
-- **WHEN** the user triggers `dict-start` on a session card
-- **THEN** the server starts mic-only capture scoped to that session's project and session id, and the action bar switches to a `dict-end` control
-
-#### Scenario: User stops dictation
-- **WHEN** the user triggers `dict-end` while capture is active
-- **THEN** the server archives the transcript exactly once (vendored `handoverTranscriptOnce`), stitches it into plain text (vendored `stitchTranscript`/`stitchText`), and calls `ctx.sendToSession(targetSessionId, text)` so the text arrives in that pi session as a user message
+#### Scenario: Dictate into the draft
+- **WHEN** the user starts the mic, speaks, then stops it, with delivery `draft`
+- **THEN** the stitched text is inserted into the composer at the caret via `insertAtCursor`, nothing is sent, and the transcriber session has ended
 
 #### Scenario: Stitching fails — fail open
-- **WHEN** stitching the captured transcript throws or yields no text from a non-empty capture
-- **THEN** the server sends the raw transcript text via `sendToSession` instead of discarding the captured speech
+- **WHEN** the hand-over reports an empty stitch for a non-empty capture
+- **THEN** the raw transcript text is delivered instead
 
-### Requirement: Dictation status badge
-The system SHALL show a `session-card-badge` reflecting current dictation state (idle, recording, error) for a session.
+#### Scenario: Silence only
+- **WHEN** nothing was said
+- **THEN** the draft is unchanged, nothing is sent, and the transcriber ends
 
-#### Scenario: Badge reflects active recording
-- **WHEN** dictation capture is running for a session
-- **THEN** the session card shows a "recording" badge state until dictation stops or errors
+#### Scenario: Upstream hook commands never run
+- **WHEN** the project config defines hand-over hook commands
+- **THEN** they are not executed
 
-### Requirement: Delivery failure is surfaced, text is not lost
-The system SHALL detect when `sendToSession` returns `false` (no bridge connection for the target session) and surface an error state instead of discarding the stitched text.
+### Requirement: Delivery mode is a setting — draft by default
+The global plugin config SHALL provide `dictation.delivery: "draft" | "send"` (default `draft`). With `send`, the text SHALL be inserted and then submitted through `composer.submit()` (honouring `Steer | Queue`) only when it has at least `dictation.minSendWords` words (default 3, counting words for languages written without spaces); shorter text SHALL be inserted but not sent.
 
-#### Scenario: Target session has no bridge connection
-- **WHEN** dictation stops and `ctx.sendToSession` returns `false` for the target session
-- **THEN** the action bar shows a delivery-failed state and the stitched text remains available for a retry
+#### Scenario: Send mode submits
+- **WHEN** delivery is `send` and the transcript is "run the failing tests again"
+- **THEN** the text is inserted and submitted as if the user pressed send
 
-### Requirement: Missing audio/STT preflight is surfaced
-The system SHALL run a server-side preflight (STT backend configured, audio capture tooling present on the dashboard server's host) before starting capture, and reflect a failed preflight as a distinct badge/action-bar state.
+#### Scenario: Short transcript is not sent
+- **WHEN** delivery is `send` and the transcript is "okay"
+- **THEN** the text is inserted into the draft and not submitted
 
-#### Scenario: STT backend not configured
-- **WHEN** the user opens dictation controls for a project with no Soniox key and no local whisper model configured
-- **THEN** the action bar shows a "speech-to-text not configured" state instead of a working start button
+#### Scenario: Agent running with send mode
+- **WHEN** delivery is `send`, the session is streaming, and the delivery control is `Queue`
+- **THEN** the dictated prompt is queued, not steered
 
-#### Scenario: Capture location is legible to a remote user
-- **WHEN** the user opens dictation controls from a browser connected to the dashboard remotely (tunnel or paired device)
-- **THEN** the control surfaces which machine's microphone will be captured for the `server` source (the dashboard server's host, not the browser's), so a remote user is not misled into thinking their own local microphone will be used by that source
+### Requirement: Activation modes and shortcut
+The global plugin config SHALL provide `dictation.mode: "toggle" | "hold" | "auto"` (default `toggle`) and `dictation.shortcut` (default `Ctrl+M`, rebindable), active while the composer is focused. `toggle`: click/press starts, again stops. `hold`: recording runs while the button or shortcut is held. `auto`: a press shorter than 500 ms toggles, a longer hold is push-to-talk. The mic button always behaves as a toggle on click. Releasing a hold before the transcriber is `live` SHALL cancel the dictation.
 
-### Requirement: Browser-mic capture source
-The system SHALL support a `browser` dictation capture source that captures audio via the browser's own `getUserMedia` and streams it to the server over a companion loopback WebSocket endpoint reverse-proxied through the dashboard's existing `"live"` WS-upgrade scope (`/live/:id/audio-ingest`), feeding the vendored Soniox client (`soniox-rt.ts`) exactly as the `server` source's `sox`/`parec` path does. The `browser` source SHALL be opt-in (not automatically selected) and SHALL leave server-local dictation and meeting-copilot capture entirely unaffected.
+#### Scenario: Toggle by shortcut
+- **WHEN** mode is `toggle` and the user presses `Ctrl+M` twice in the focused composer
+- **THEN** dictation starts on the first press and stops and delivers on the second
 
-#### Scenario: User selects browser-mic dictation
-- **WHEN** the user chooses the `browser` capture source and triggers `dict-start`
-- **THEN** the browser requests microphone permission, and on grant streams audio to the companion WS endpoint, which the server feeds into the same stitching/handover/`sendToSession` pipeline the `server` source uses
+#### Scenario: Hold released before live
+- **WHEN** mode is `hold` and the user releases the shortcut while the badge still reads `starting mic`
+- **THEN** the dictation is cancelled and the draft is unchanged
 
-#### Scenario: Companion WS endpoint requires no new core dashboard channel
-- **WHEN** the browser connects to `/live/:id/audio-ingest` for a registered audio-ingest loopback target
-- **THEN** the connection is tunneled via the existing `"live"` upgrade scope's raw pipe (`handleLiveServerUpgrade`), with no new `scope` case added to the dashboard's core WS upgrade dispatch
+### Requirement: Cancel restores the draft
+`Esc` while recording or processing, or the control's cancel affordance, SHALL stop the transcriber, discard the transcript, and `restore()` the draft snapshot taken at start. `Esc` SHALL NOT also abort the agent turn.
 
-#### Scenario: Insecure context hides the browser-mic option, does not silently fail it
-- **WHEN** the dashboard is reached over a non-secure context (plain `http://` on a non-`localhost` host, `window.isSecureContext` false)
-- **THEN** the `browser` capture source is not offered as a choice (only `server` is available), rather than being offered and failing silently or with an unclear browser error
+#### Scenario: Esc cancels
+- **WHEN** the user presses `Esc` while recording
+- **THEN** the transcriber ends, no text is inserted, the draft equals its state before recording, and the running agent turn is not aborted
 
-#### Scenario: Microphone permission denied
-- **WHEN** the user selects the `browser` source and denies the microphone permission prompt
-- **THEN** the action bar shows a distinct "microphone permission denied" state, not a generic error, and offers to retry
+### Requirement: Mic stays available
+The mic control SHALL remain visible and usable when the draft has text, attachments are present, or the agent is working, and a later dictation SHALL insert at the caret, so an interrupted dictation can be continued by speaking again.
 
-#### Scenario: No input device available
-- **WHEN** the user selects the `browser` source on a device with no available audio input
-- **THEN** the action bar shows a distinct "no microphone available" state
+#### Scenario: Continue after a stop
+- **WHEN** a first dictation inserted text and the user starts the mic again
+- **THEN** the second transcript is inserted at the caret after the first
 
-#### Scenario: Companion WS endpoint lifecycle mirrors capture lifecycle
-- **WHEN** `dict-end` is triggered (or capture errors) for a `browser`-source dictation session
-- **THEN** the companion loopback WS endpoint for that session is torn down AND its live-server registration is removed, not left resident (the happy path must not leak a stale saved-target row any more than the abnormal path)
+### Requirement: Mic-live state is explicit
+The mic control SHALL show `starting mic` from start until the transcriber reports `live`, then `recording` (with a level indicator when the browser source is used), then `processing` until hand-over completes. It SHALL NOT show `recording` before the transcriber is `live`. A start that does not reach `live` within the spawn timeout SHALL show a retryable error naming the failed stage.
 
-### Requirement: Dictation capture is torn down on abnormal termination
-The system SHALL stop dictation capture — child process, STT connection, and any browser-mic ingest listener with its live-server registration — when the target session ends or the dashboard server exits, not only when the user clicks stop.
+#### Scenario: Spawn latency visible
+- **WHEN** the transcriber session is still starting
+- **THEN** the control reads `starting mic`, not `recording`
 
-#### Scenario: Target session ends mid-dictation
-- **WHEN** the target session ends while dictation is recording
-- **THEN** capture stops via the `onSessionEnded` hook, state for the pair is removed, and any captured text is retained for retrieval rather than silently discarded
+#### Scenario: Start times out
+- **WHEN** the transcriber does not report `live` within the timeout
+- **THEN** the control shows an error naming the stage, offers Retry, and the transcriber is ended
 
-#### Scenario: Server exits mid-dictation
-- **WHEN** the dashboard server is killed or restarted while dictation is recording
-- **THEN** the spawned recorder process terminates with it rather than being orphaned holding the microphone
+### Requirement: Text is never lost
+If the composer that started dictation has unmounted, switched session, or its handle is inert when the text arrives, the server SHALL retain the text keyed by target session and `runId`; the next composer mounted for that session SHALL offer it (Insert / Copy / Discard). With delivery `send`, the server SHALL instead deliver via `sendToSession`; `false` SHALL be treated as delivery-failed and the text retained the same way.
 
-#### Scenario: Ingest listener does not outlive the capture
-- **WHEN** browser-mic dictation ends for any reason, including a dropped browser connection
-- **THEN** the companion ingest listener is closed and its live-server registration removed
+#### Scenario: Composer closed mid-dictation
+- **WHEN** the user navigates away before hand-over completes, with delivery `draft`
+- **THEN** reopening that session's composer shows the retained text with Insert / Copy / Discard
 
-### Requirement: Ingest validates the audio format against the server-local path
-The companion ingest endpoint SHALL validate that incoming audio matches the same sample format the server-local `sox`/`parec` path feeds the vendored STT client, rather than trusting the client. The exact format is whatever the vendored client requires and is fixed during implementation.
+#### Scenario: Send fallback fails
+- **WHEN** delivery is `send`, the composer is gone, and `sendToSession` returns `false`
+- **THEN** the text is retained and offered as above
 
-#### Scenario: Ingest accepts the matching format
-- **WHEN** the browser streams audio in the same format the server-local capture path produces
-- **THEN** the ingest endpoint accepts it and transcription proceeds identically to server-local capture
+### Requirement: Preflight
+The system SHALL check, before spawning, that config is present and current-version, an STT key resolves, the resolved transcriber model is available, and (server source) capture tooling exists on the dashboard host, and SHALL show which machine's microphone the server source uses.
 
-#### Scenario: Ingest rejects a format mismatch
-- **WHEN** the browser streams audio whose sample format does not match that contract
-- **THEN** the ingest endpoint rejects the stream with an explicit error surfaced to the user, rather than forwarding malformed audio to the STT client
+#### Scenario: No STT key
+- **WHEN** no key resolves
+- **THEN** the mic control is `aria-disabled` with the reason "speech-to-text not configured" and a link to settings
+
+#### Scenario: Remote user sees the capture host
+- **WHEN** the dashboard is used remotely
+- **THEN** the mic control's source menu names the dashboard host as the server microphone location
+
+### Requirement: Browser-mic source
+The `browser` source SHALL capture with `getUserMedia` + `AudioWorklet` (raw PCM in the format the vendored STT client expects) and stream to a loopback ingest endpoint inside the transcriber's capture child, reached at `/live/<id>/audio-ingest` over the existing `"live"` WS scope. Plugin-owned WS routes SHALL NOT be used. The option SHALL be hidden in a non-secure context. The source is chosen from a menu on the mic control and remembered per browser.
+
+#### Scenario: Remote dictation
+- **WHEN** a user on a phone over the tunnel selects `browser` and dictates
+- **THEN** their phone's audio is transcribed and inserted into the composer draft
+
+#### Scenario: Insecure context
+- **WHEN** `window.isSecureContext` is false
+- **THEN** only the server source is offered
+
+#### Scenario: Permission denied or no device
+- **WHEN** permission is denied or no input exists
+- **THEN** a distinct state is shown
+
+#### Scenario: Format mismatch
+- **WHEN** frames do not match the expected format
+- **THEN** ingest rejects them with an explicit error
+
+#### Scenario: Ingest lifecycle
+- **WHEN** the transcriber ends for any reason
+- **THEN** its ingest live-server registration is removed
+
+### Requirement: Dictation is owner-gated and torn down with its target
+Start/stop SHALL require access to the target session; if the target session ends during dictation, the transcriber SHALL be stopped and the text retained.
+
+#### Scenario: Other user
+- **WHEN** a principal without access triggers dictation start
+- **THEN** it is rejected
+
+#### Scenario: Target ends
+- **WHEN** the target session ends mid-dictation
+- **THEN** the transcriber stops and the captured text is retained

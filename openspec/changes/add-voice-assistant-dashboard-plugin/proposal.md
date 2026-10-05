@@ -1,53 +1,86 @@
 ## Why
 
-`set-copilot` (github.com/tatargabor/set-copilot) provides real-time voice dictation and a meeting copilot — this plugin, `voice-assistant`, is a pi-dashboard port of it, but its capture/STT/wall/knowledge engine is genuinely reusable — its own `src/index.ts` is documented as *"Library entry — for programmatic use... Import from here when writing a custom KnowledgeAdapter or embedding capture."* Only the "intelligence" half is Claude-Code-specific: dictation handoff and meeting-copilot analysis both work by shelling `set-copilot` CLI subcommands from `.claude/skills/*` files and having the Claude Code session itself read CLI stdout / long-poll a monitor loop.
+`set-copilot` (github.com/tatargabor/set-copilot) provides real-time voice dictation and a meeting copilot. Its capture/STT/transcript/knowledge engine is reusable; only the "intelligence" half is Claude-Code-specific (`.claude/skills/*` shelling `set-copilot` CLI subcommands and the Claude Code session reading stdout). pi-dashboard already ships the substitute: `ServerPluginContext.sendToSession(sessionId, text)` pushes text into a running pi session and `ctx.onEvent` streams what it says back. One server-side plugin can own capture + STT + knowledge cross-reference and drive dictation/meeting-copilot for any targeted pi session through those APIs.
 
-pi-dashboard already has everything that mechanism was standing in for: a typed server with a live session registry and an existing, already-shipped way to push text into a running pi session and read back what it says — `ServerPluginContext.sendToSession(sessionId, text)` (routed over the bridge's extension-command dispatch to the target session) and `ctx.onEvent((sessionId, event) => …)` (the forwarded pi-event stream every session already produces). That is a strictly more capable substitute for "print to stdout and hope the skill notices" and "tail a Claude Code session's `.jsonl` transcript file for a Stop hook to mirror." One server-side service, not a `.claude/skills` install per project and not a bridge extension loaded into every session, can own audio capture + STT + wall + knowledge cross-reference, and drive dictation/meeting-copilot for whichever pi session the user targets purely through APIs pi-dashboard already has.
+**Revised 2026-10-03** against current `HEAD` and upstream `set-copilot@32b6a7d` (was `24a714d`). The recheck found the earlier "vendor the library surface and call it in-process" plan unbuildable: `runCapture()` calls `process.exit`, installs `SIGINT`/`SIGTERM` handlers, and reads config from `process.cwd()`; `runPoll()` returns `void` and writes batches to `process.stdout`; `loadConfig()` merges the project's `.env` into `process.env`. These were already true at `24a714d`. All vendored entrypoints therefore run in child processes. **Revised again 2026-10-04:** those children are owned by separately spawned pi sessions (a transcriber, and a copilot for meetings), not by the dashboard server. The live wall moved to its own package (`add-voice-wall-plugin`).
 
 ## What Changes
 
-- Vendor `set-copilot`'s **library surface** (the export set of its own `src/index.ts` — `runCapture`, `runPoll`, `runWall`/`WallServer`, `TranscriptWriter`, `stitchTranscript`/`stitchText`, `handoverTranscriptOnce`, `loadConfig`, the knowledge adapter + keyword matcher, `renderCopilotPrompt`) into `packages/voice-assistant-plugin/src/vendor/set-copilot/` — no upstream npm dependency, no vendoring of `cli.ts`, `.claude/skills/`, or `hooks/` (those are the Claude-Code-specific parts this change replaces).
-- Add a **server-only** plugin entry (`src/server/index.ts`) — a single `registerPlugin(ctx)` instance for the whole dashboard — that owns per-project/per-session capture state (dictation and meeting-copilot are each keyed by `{ projectRoot, targetSessionId }`, so multiple concurrent captures share one process without needing one service per session).
-- **Design departure from the original proposal draft (not a breaking change — nothing existing is affected): no bridge entry, no `.claude/skills` install, no shelling out to a `set-copilot` CLI, and no invocation of Claude Code anywhere.** Session control is 100% through the dashboard's existing `ctx.sendToSession` (dictation handoff, meeting-copilot transcript batches) and `ctx.onEvent` (reading the target session's own reasoning/replies back, to mirror onto the wall). This is "the bridge" the dashboard already has, not new bridge code.
-- Add client surfaces wired to server routes (not a bridge): dictation controls and meeting-copilot controls (`session-card-action-bar` + `session-card-badge`, session-scoped), the knowledge browser (`sidebar-folder-section` + `shell-overlay-route` at `/folder/:encodedCwd/voice-assistant-knowledge`, **folder-scoped** — knowledge belongs to a folder, not a session, so this follows `kb-plugin`'s existing per-folder pattern rather than claiming `content-view`), and the config editor (`settings-section`). The live wall is NOT a plugin-claimed slot — it opens through the dashboard's core `live-server-preview` mechanism from an action-bar button (see What Changes below).
-- Add `configSchema.json` for plugin-level settings (default STT backend, default target-session behavior).
-- **Knowledge is kb-first with the vendored adapter as fallback.** pi-dashboard's own markdown KB (`@blackbelt-technology/pi-dashboard-kb`) supersedes most of `set-copilot`'s `knowledge/` layer — including decisions, since `status` is a kb **default facet key** (`store.facets(["status"])`, `filters:[{key:"status",op:"eq",value:"active"}]`), which the vendored adapter cannot do at all. When a folder has an indexed kb the plugin uses it; otherwise it falls back to the vendored adapter, so no new setup precondition is introduced. The target session meanwhile uses its OWN native `kb_search`/`kb_neighbors`/`kb_get` tools for open-ended cross-referencing.
-- **Dictation supports a second, explicit capture source: the browser's own microphone**, for genuine remote dictation (as opposed to remotely controlling the dashboard server's local mic). Streamed over a companion loopback WS endpoint reusing the dashboard's existing `"live"` reverse-proxy scope (`live-server-preview`'s transport) — zero core dashboard changes. Server-local capture remains the default; browser-mic is opt-in per click. Meeting-copilot is unaffected (still server-local only, since it also needs the other party's audio, which a browser tab cannot capture).
+"Copilot" always means set-copilot's meeting-copilot **role**, played by a pi session; no Anthropic or Claude Code tooling is used. **Voice handling and agent control are pi-dashboard's own system.** set-copilot contributes vendored mechanics (realtime capture/STT, sentence building, fast lane, poll, stitch, policy rendering) and field lessons. Its Claude-Code control plane (skills, Monitor loop, forks, mirror-follow, Stop hooks) is replaced; see design § "Own-system mapping".
+
+- New package `packages/voice-assistant-plugin`:
+  - client and server entries; host-trusted; no bridge;
+  - two pi extensions (**transcriber**, **copilot**), loaded only into the sessions it spawns;
+  - vendors `set-copilot@32b6a7d` engine modules with one patch (`captureFactory`).
+- **Transcription runs in a separately spawned transcriber pi session** (no tools, cheap model):
+  - its extension owns the capture child and publishes `status.json`;
+  - it stops on `/voice-stop`;
+  - the dashboard server hosts no vendored or audio code.
+- **Dictation** (chat composer mic): a short-lived transcriber per dictation, server mic by default or opt-in browser mic over the `"live"` scope. The stitched text is inserted into the composer draft (default) or sent (setting `dictation.delivery`), then the transcriber ends. Modes toggle/hold/auto, shortcut `Ctrl+M`, `Esc` cancels and restores the draft.
+- **Meetings** (folder row) = **copilot session + meeting transcriber**, both fresh per meeting and owner-stamped:
+  - start order: preflight → policy → copilot spawn → priming/pre-read → transcriber → wall;
+  - the copilot extension runs its own poll child and feeds batches into its own session (follow-up when idle, steering for spoken commands);
+  - it injects the policy every turn and provides `wall_emit`, `meeting_transcript` and `copilot_alert`;
+  - drawings are done with **our subagents**;
+  - a deny-first tool guard with a `meeting` preset; `bash` only through an unconfined opt-in;
+  - mirror off by default; wall input gated.
+- **Archive with our speaker naming:** the transcriber stitches the transcript, then diarizes the tee'd system audio with `video-transcription` (Soniox async) and names speakers with `pi-voiceid`. It writes `docs/meetings/<date>-<slug>.md`. The copilot writes notes, and kb-plugin reindexes. The next meeting's priming lists earlier meetings. The audio is deleted unless `keepAudio` is set.
+- **Model selection:** copilot and transcriber models picked with `ui:model-selector` — global defaults in Settings › Plugins › Voice assistant, optional per-folder override in Folder settings › Plugins › Voice assistant (stored in plugin config, not the project file).
+- **Project config in folder settings:** the `set-copilot.config.json` editor moves to the folder section (no folder selector).
+- STT key from `video-transcription`'s configuration (shared with `pi-transcribe`), with an optional `ctx.credentials` override.
+- Owner gating, host-wide device guard, activation orphan reap.
+- Core seam: `composer-toolbar-action` slot — plugin controls in the composer input row before send/stop, with a bounded draft handle (`insertAtCursor`/`snapshot`/`restore`/`submit`).
+- Core seam: `folder-settings-section` slot — plugins contribute per-folder settings pages at `/folder/<cwd>/settings/plugins/<pluginId>` (relaxes settings-panel's "folder settings host no plugin pages").
 
 ## Capabilities
 
 ### New Capabilities
-- `voice-assistant-plugin-scaffold`: The `packages/voice-assistant-plugin` package — manifest, vendored library-surface layout (server entry only), build/workspace wiring.
-- `voice-assistant-dictation-control`: Start/stop mic-only capture for a project from the dashboard, from either the dashboard server's own local microphone (default) or the browser's own microphone (opt-in, for remote dictation); on stop, the stitched dictated text is handed to a user-selected target pi session via `sendToSession` — no CLI, no skill, no Claude Code.
-- `voice-assistant-meeting-wall`: Live transcript + alerts feed. The vendored `WallServer` binds its own loopback port and serves upstream's own wall UI (`wall/public/*`) as-is; the dashboard embeds it via the existing `live-server-preview` mechanism (sandboxed iframe) with `LiveServerViewer`'s own main-origin popout link — no custom React wall UI, no `content-view`/`command-route` claim. Because `/live/:id/*` carries no per-request auth, the wall's transcript surface is treated as reachable by anyone who can reach the dashboard origin, and the capability carries explicit exposure + registry-lifecycle requirements.
-- `voice-assistant-copilot-control`: Start/stop meeting-copilot capture; the server runs a per-capture batch consumer in-process and forwards reaction-worthy transcript batches (+ rendered alert/engagement policy) to a target pi session via `sendToSession`; the target session's own replies are captured via `onEvent` and mirrored to the wall.
-- `voice-assistant-knowledge-backend`: Backend selection + the shared `KnowledgeBackend` seam — kb (via `@blackbelt-technology/pi-dashboard-kb`, with faceted decision queries) when the folder has an indexed kb, the vendored `set-copilot` adapter otherwise; plus seeding the per-line keyword-matcher index from whichever backend is active.
-- `voice-assistant-knowledge-browser`: Read-only **folder-scoped** view of configured knowledge sources and recorded decisions, reached from a `sidebar-folder-section` entry and rendered as a full-bleed `shell-overlay-route` page (the same pattern `kb-plugin` uses for per-folder KB settings), showing which backend is active and — on the kb path — decisions grouped by `status` facet.
-- `voice-assistant-live-target-bridge`: **A core dashboard change** — a client API letting a plugin mount a registered live-server target in the split viewer. Required because the wall's embed is otherwise undeliverable: `startLiveServer` only returns a path, `openLiveTarget` is client-internal, and `PluginRouter.open` is a dead viewId API. Implemented as a mutable reference the inner `SplitWorkspaceProvider` populates on mount, because `PluginContextProvider` is rendered outside it.
-- `voice-assistant-config-editor`: View/edit a project's `set-copilot.config.json`, folder-scoped (the `settings-section` slot receives no session, so the folder is chosen explicitly, never inferred from "the active session").
+- `voice-assistant-plugin-scaffold`: package, trusted manifest, two extensions, vendored surface, `video-transcription` dependency.
+- `voice-assistant-transcriber-session`: spawned transcriber, capture child ownership, `status.json`, `/voice-stop`, key source, runtime dirs, time limit, device guard, reap, reconnect.
+- `voice-assistant-dictation-control`: dictation through a short-lived transcriber, mic-live state, browser mic, owner gating.
+- `voice-assistant-copilot-control`: meeting = transcriber + copilot, start/stop sequence, self-polled batches, backpressure, mirror/wall-input, disclosure.
+- `voice-assistant-copilot-session`: fresh copilot, extension, policy injection, tools, our subagents for drawings, preset + guard, pre-read, notes.
+- `voice-assistant-meeting-archive`: stitched archive, our diarization and speaker naming, audio retention, notes, kb coverage and reindex, prior meetings.
+- `voice-assistant-knowledge-backend`, `voice-assistant-knowledge-browser`, `voice-assistant-config-editor`.
+- Live wall: the wall plugin embeds its app as a folder page `/folder/<cwd>/wall` (folder entry + menu items, content area, via `add-plugin-app-host`); voice-assistant only links to it from the copilot session header and the meeting toast (no core seam of its own; the earlier live-target bridge is dropped).
+- `composer-toolbar-actions`: core `composer-toolbar-action` slot, bounded composer handle, never-displaced placement.
+- `folder-settings-plugin-sections`: core `folder-settings-section` slot, folder-settings Plugins nav group, per-plugin error isolation.
+
+### Removed from this change
+- `voice-assistant-meeting-wall` → `add-voice-wall-plugin`.
+- `voice-assistant-capture-runtime` → superseded by `voice-assistant-transcriber-session` (server-owned runners dropped).
 
 ### Modified Capabilities
-(none — net-new plugin package)
+- `settings-panel`: the folder-scoped settings route accepts `plugins/<pluginId>` for plugins claiming `folder-settings-section` (was: never hosts plugin pages).
+
+## References
+
+Field material from Tatár Gábor (ITLine), kept verbatim in `references/` (see `references/README.md`):
+- `2026-10-03-set-copilot-playbook.md`: how set-copilot ran on a real client call (config, instructions, knowledge layout, 14 lessons).
+- `2026-10-03-set-copilot-architecture.html`: the signal-path architecture with 15 figures (capture, STT, sentence building, fast lane, poll, forks, wall, mirror, dictation, stitch).
+
+These describe upstream behaviour. Where they assume Claude Code, our own system takes over (design § "Own-system mapping").
+
+## Dependencies
+
+- **`add-voice-wall-plugin`** — optional at runtime (wall features hidden, `wall_emit` refuses), but a **build-time** dependency: the copilot extension imports its `./emit` subpath. Land it first.
+- **`add-plugin-app-host`** — optional: the embedded wall page (`/folder/<cwd>/wall`); without it the link opens the wall standalone.
+- **kb-plugin** routes (`GET/PUT /api/kb/config`, `POST /api/kb/reindex`) — existing; used via `ctx.fastify.inject`.
 
 ## Discipline Skills
 
-Tasks in this change trigger the following `eng-disciplines` skills:
-
-- **`security-hardening`** — the change captures microphone and system audio, holds a third-party STT credential, writes meeting transcripts to disk, forwards unredacted transcript text into pi sessions (where it persists in session JSONL), and serves a transcript wall over `/live/:id/*`, which has **no per-request auth guard** (`live-server-proxy.ts` registers `fastify.all` with no `preHandler`). Untrusted-input, secrets, and PII checkpoints all fire.
-- **`performance-optimization`** — the meeting-copilot batch consumer and the audio/transcript path run inside the long-running dashboard server, which has a documented event-loop-starvation history. Backpressure between transcript batches and the target session is a budget, not a nicety.
-- **`observability-instrumentation`** — new REST routes, a new companion WS ingest endpoint, spawned OS child processes, and a long-lived external STT socket; each needs to be diagnosable at runtime.
-- **`node-inspect-debugger`** — the audio ingest path is opaque runtime state (WS frames, child-process stdio) where `console.log` is insufficient.
-- **`doubt-driven-review`** — applied during planning; adopted decisions 4b/4d/4e and 6b were each corrected as a result.
-- **`review-code`** — non-trivial multi-package change; runs before commit.
-- **`systematic-debugging`** and **`code-simplification`** apply conditionally, if a bug surfaces mid-implementation or the vendoring seam ends up heavier than the carve-out justifies.
+- **`security-hardening`** — spoken prompt injection into a tool-capable copilot session (preset + guard), meeting PII archived into the project tree and kb, microphone/system-audio capture, STT credential (now in `ctx.credentials`, injected into children via env), unredacted transcripts persisted in the target session's JSONL, wall-input lines forwarded into a tool-capable session, browser audio ingest through `/live/*`.
+- **`performance-optimization`** — the server-side batch reader + backpressure path; host-stability (no event-loop starvation) is tested, latency budgets deferred.
+- **`observability-instrumentation`** — children, STT reconnect state, ingest endpoint, new REST routes.
+- **`node-inspect-debugger`** — child stdio protocol and WS ingest frames are opaque runtime state.
+- **`doubt-driven-review`** — applied in planning and in this revision (child-process pivot, wall split); re-apply on the `runCapture` source-seam carve-out before it lands.
+- **`review-code`** — before commit. **`systematic-debugging`**, **`code-simplification`** conditionally.
 
 ## Impact
 
-- New workspace: `packages/voice-assistant-plugin/` — client + server entries only (no `bridge` field in the manifest).
-- `pnpm-workspace.yaml` registration for the new package.
-- **This change DOES modify core packages** (revised after review — an earlier draft claimed it did not): `packages/dashboard-plugin-runtime` gains the live-target bridge on the plugin context, `packages/client` populates it from `SplitWorkspaceProvider` and exposes the plugin-facing hook. Scoped to opening a live-server target — no general editor-pane dispatch is exposed. Without it the meeting wall cannot be embedded at all, only opened as a full page.
-- Rollback: the bridge is additive and optional — an unpopulated reference degrades to a logged no-op, so reverting the plugin leaves core in a working state, and reverting the bridge leaves the plugin able to fall back to the full-page wall.
-- No dependency on the upstream `set-copilot` npm package; vendored TypeScript source (its own runtime deps — `ws` — added to the new package). Two named deviations from "vendor as-is", both verified against upstream `24a714d` during planning: the `audio.ts` source seam for browser-mic (design 4d) and a relative-URL patch to `wall/public` so the wall works behind the `/live/<id>/` prefix (design 4b) — upstream's wall assets and its SSE feed use root-absolute URLs. The wall UI also loads `cytoscape`/`dagre` from `unpkg.com`, so it needs CDN reachability.
-- New workspace dependency on `@blackbelt-technology/pi-dashboard-kb` (already in this monorepo, already opened server-side by `kb-plugin`'s own routes) for the kb knowledge path. kb remains OPTIONAL at runtime — absent/unindexed kb falls back to the vendored adapter.
-- Requires a speech-to-text backend (Soniox key or local whisper) and, for **server-local** capture, platform audio tooling (`sox`/`parec`) on the machine the **dashboard server** runs on (same single-machine assumption upstream `set-copilot` makes, just relocated from "wherever Claude Code runs" to "wherever the dashboard server runs"). **Browser-mic dictation** needs neither `sox`/`parec` nor server-host audio hardware, but does need a secure browser context (HTTPS or `localhost`) and per-use microphone permission in the browser.
-- No `.claude/skills/`, no `hooks/`, no per-project `npx set-copilot init` step — the plugin is usable the moment the dashboard server loads it and a project has a `set-copilot.config.json` (or the config editor creates one).
+- New package `packages/voice-assistant-plugin/` (client + server + transcriber/copilot pi extensions). Depends on `packages/video-transcription` (key resolution, Soniox async diarization, `pi-voiceid`); speaker naming needs ffmpeg and the speaker-embedding model that package already resolves. Must be host-trusted (`priority <= 100`) to spawn copilot sessions.
+- Writes archived meetings into the project (`docs/meetings/` by default) and triggers kb-plugin reindex via its routes; may add the archive dir to the folder's kb sources with user consent. `pnpm-workspace.yaml` already globs `packages/*`; apply `add-new-plugin-package-checklist` instead.
+- **Core changes:** the `composer-toolbar-action` and `folder-settings-section` slots (D21, D22). Wall embedding comes from `add-plugin-app-host` (dependency), not from this change.
+- `/live/*` is now inside the universal network guard (`add-universal-network-guard`), so the browser-mic ingest path gets `/api`-equivalent network policy for HTTP and the existing ticket gate for the WS upgrade. Plugin WS routes (`ctx.registerWsRoute`) were considered and rejected for ingest: they are genuinely-local only, which defeats remote dictation.
+- Requires an STT backend (Soniox key or local whisper) and, for server-local capture, `sox`/`parec` on the dashboard host. Browser-mic needs a secure context.
+- Rollback: disable/remove the package; children are reaped, no persisted state besides `ctx.credentials` entries and scratch dirs under `~/.pi/dashboard/voice/`. Without `add-plugin-app-host`, the Live wall link falls back to the wall's standalone URL `/apps/wall/…`.
