@@ -17,7 +17,7 @@
  */
 import { expect, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { ensureGitSession, gotoDashboard } from "./helpers/index.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 const PAIRED_KEY = "pi-dashboard:device-paired";
@@ -76,23 +76,39 @@ test.describe("pairing QR — /pair landing handshake", () => {
     expect(deviceCookie?.httpOnly, "httpOnly device cookie set").toBe(true);
     const sessions = await page.evaluate(async () => (await fetch("/api/sessions")).status);
     expect(sessions).toBe(200);
+    // Known session first (spawned while the page still authenticates normally), so
+    // the list has something to render after the cookie-only reload below.
+    const known = await ensureGitSession(page);
+    const knownId = await known.getAttribute("data-session-id");
+    expect(knownId, "a known session exists").toBeTruthy();
+
     // After a reload the dashboard authenticates by cookie only: it mints a ticket
-    // WITHOUT an Authorization header and opens a ticketed /ws.
-    const [ticketReq, ws] = await Promise.all([
-      page.waitForRequest((r) => r.url().includes("/api/ws-ticket"), { timeout: 20_000 }),
-      page.waitForEvent("websocket", { predicate: (w) => new URL(w.url()).pathname === "/ws", timeout: 20_000 }),
-      page.reload(),
-    ]);
-    expect(ticketReq.headers().authorization, "ticket mint carries no bearer header").toBeUndefined();
-    expect(ws.url(), "socket carries the single-use ticket").toContain("ticket=");
-    // The upgrade SUCCEEDED: the server sends session-state frames on an accepted
-    // browser socket, and the socket stays open (a refused upgrade closes at once).
-    // Note: this harness reaches the server from loopback, which the guard admits
-    // regardless of the ticket; ticket admission itself is unit-covered
-    // (device-cookie.test.ts, ws-ticket.test.ts).
-    const frame = await ws.waitForEvent("framereceived", { timeout: 20_000 });
-    expect(() => JSON.parse(String(frame.payload))).not.toThrow();
-    expect(ws.isClosed(), "ticketed /ws stays open").toBe(false);
+    // WITHOUT an Authorization header and opens a ticketed /ws. Frames are collected
+    // from the moment the socket object exists (a late listener would miss the burst).
+    const frames: string[] = [];
+    const sockets: import("@playwright/test").WebSocket[] = [];
+    page.on("websocket", (w) => {
+      if (new URL(w.url()).pathname !== "/ws") return;
+      sockets.push(w);
+      w.on("framereceived", (f) => frames.push(String(f.payload)));
+    });
+    const ticketReq = page.waitForRequest((r) => r.url().includes("/api/ws-ticket"), { timeout: 20_000 });
+    await page.reload();
+    expect((await ticketReq).headers().authorization, "ticket mint carries no bearer header").toBeUndefined();
+    await expect.poll(() => sockets.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(sockets[0]!.url(), "socket carries the single-use ticket").toContain("ticket=");
+    // The upgrade SUCCEEDED: an accepted browser socket delivers state frames and
+    // stays open (a refused upgrade closes at once). This harness reaches the server
+    // from loopback, which the guard admits regardless of the ticket; ticket admission
+    // itself is unit-covered (device-cookie.test.ts, ws-ticket.test.ts).
+    await expect.poll(() => frames.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(() => JSON.parse(frames[0]!)).not.toThrow();
+    expect(sockets[0]!.isClosed(), "ticketed /ws stays open").toBe(false);
+    // The list RENDERS from that socket's session state.
+    await expect(
+      page.locator(`[data-testid="session-card-desktop"][data-session-id="${knownId}"]`),
+      "session card rendered over the cookie-authenticated ticketed /ws",
+    ).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("pairing-dialog")).toHaveCount(0);
 
     // 6. The REAL paired-devices registry mutated — the phone is now a revocable
