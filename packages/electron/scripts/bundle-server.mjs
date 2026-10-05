@@ -117,6 +117,14 @@ for (const pkg of BUNDLED_WORKSPACE_PKGS) {
     path.join(SERVER_BUNDLE, "packages", pkg),
     { recursive: true, dereference: false, filter: excludeNodeModules },
   );
+  // The install below is --omit=dev, but npm 10's arborist still resolves
+  // workspace devDependencies and crashes in #loadPeerSet ("Cannot read
+  // properties of null (reading 'edgesOut')") on mcp-client-plugin's vitest.
+  // Dev deps never ship, so drop them from the bundled copy.
+  const pkgJsonPath = path.join(SERVER_BUNDLE, "packages", pkg, "package.json");
+  const pkgJson = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+  delete pkgJson.devDependencies;
+  writeFileSync(pkgJsonPath, `${JSON.stringify(pkgJson, null, 2)}\n`);
 }
 
 // ── copy first-party plugins ───────────────────────────────────────────────────────

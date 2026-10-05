@@ -54,6 +54,16 @@ describe("bundled server ships the pi runtime (E10)", () => {
     const names = [...m![1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
     expect(names).toEqual(["server", "shared", "extension", "dashboard-plugin-runtime", "mcp-client-plugin"]);
   });
+
+  // npm 10 arborist resolves workspace devDependencies even under --omit=dev and
+  // crashes in #loadPeerSet ("reading 'edgesOut'") on mcp-client-plugin's vitest.
+  it("strips devDependencies from bundled workspace package.json copies before npm install", () => {
+    const code = stripComments(bundleSrc);
+    const strip = code.search(/delete\s+\w+\.devDependencies/);
+    const install = code.indexOf('"install", "--omit=dev"');
+    expect(strip).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(strip);
+  });
 });
 
 describe("local builder arch-cache invalidation (E13)", () => {
