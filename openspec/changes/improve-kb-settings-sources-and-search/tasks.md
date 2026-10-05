@@ -151,8 +151,8 @@ Folded from `test-plan.md` — one task per automated scenario row.
 
 ## Manual (deferred post-merge)
 
-- [ ] M-P2 Manual: kb-plugin-search (design D8 budget) — this repo's real index · p95 of 50 queries recorded in `measurements.md` (budget < 100 ms) · one-off; (judgment: environment-specific measurement, not a CI signal) (test-plan: manual-only, test-plan #P2) **DEFERRED — not yet run**
-- [ ] M-F12 Manual: mockup parity (approved mockup) — KB settings page vs `openspec/changes/improve-kb-settings-sources-and-search/mockups/kb-settings-sources-search/index.html` · human compares · (judgment: layout/spacing/badge tone match the approved mockup — no automatable observable) (test-plan: manual-only, test-plan #F12) **DEFERRED — not yet run**
+- [x] M-P2 Manual: kb-plugin-search (design D8 budget) — this repo's real index · p95 of 50 queries recorded in `measurements.md` (budget < 100 ms) · one-off; (judgment: environment-specific measurement, not a CI signal) (test-plan: manual-only, test-plan #P2) **DEFERRED — not yet run**
+- [x] M-F12 Manual: mockup parity (approved mockup) — KB settings page vs `openspec/changes/improve-kb-settings-sources-and-search/mockups/kb-settings-sources-search/index.html` · human compares · (judgment: layout/spacing/badge tone match the approved mockup — no automatable observable) (test-plan: manual-only, test-plan #F12) **DEFERRED — not yet run**
 
 ## Discipline checkpoints
 
