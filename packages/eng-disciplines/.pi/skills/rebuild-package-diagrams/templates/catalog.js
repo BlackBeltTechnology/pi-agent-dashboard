@@ -168,7 +168,6 @@
     const shown = hit.slice(0, 400);
     $("list").innerHTML = shown.map(listRow).join("") + (hit.length > shown.length ? `<li class="more">${hit.length - shown.length} more — refine the search</li>` : "") +
       (hit.length ? "" : `<li class="more">No match</li>`);
-    $("topnav").innerHTML = D.ifml ? `<a class="chip ifml${state.view.startsWith("ifml:") ? " active" : ""}" href="${link({ view: "ifml:all" })}">IFML</a>` : "";
     const bar = $("selbar");
     bar.hidden = !state.sel.length;
     bar.innerHTML = state.sel.length
@@ -343,7 +342,8 @@
       <h3>Open questions</h3>${questionsTable(questionsFor(u.allRefs))}
       <h3>Entities</h3><div class="chips">${u.entities.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("")}</div>
       <div class="er" data-er="${esc(u.entities.join("|"))}"></div>
-      <h3>Related use cases</h3>${relatedHtml([u])}`;
+      <h3>Related use cases</h3>${relatedHtml([u])}
+      ${archSection((r) => r === u.id)}`;
   }
 
   const listOr = (items, none = "<li>None</li>") => items.join("") || none;
@@ -355,7 +355,8 @@
       <h3>Flow steps</h3><ul>${listOr(steps)}</ul>
       ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(id)}` : ""}
       <h3>Use cases</h3><div class="chips">${listOr(backlinks((u) => u.refSource[id]).map(ucChip), "None")}</div>
-      <h3>Requirements mentioning it</h3><ul>${listOr((itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`))}</ul>`;
+      <h3>Requirements mentioning it</h3><ul>${listOr((itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`))}</ul>
+      ${archSection((r) => r === id)}`;
   }
   function viewItem(id) {
     const it = D.items[id];
@@ -402,13 +403,14 @@
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.reqKeys.includes(key)).map(ucChip).join("") || "None"}</div>
       <h3>Rules, quirks and gaps</h3><div class="chips">${r.refs.map((x) => `<a class="chip" href="${link({ view: `item:${x}` })}">${x}</a>`).join("") || "None"}</div>
       <h3>Questions</h3>${questionsTable(questionsFor(r.refs))}
-      ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(key)}` : ""}`;
+      ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(key)}` : ""}
+      ${archSection((x) => x === `spec:${key}`)}`;
   }
 
   function viewCap(cap) {
     const c = D.capabilities[cap];
     if (!c) return viewHome();
-    return `<h2>${esc(cap)}</h2><p class="lede text">${md(c.purpose)}</p>
+    return `<h2>${esc(cap)}</h2><p class="lede text">${md(c.purpose)}</p>${archSection((r) => r === `cap:${cap}` || r.startsWith(`spec:${cap}#`))}
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.reqKeys.some((k) => k.startsWith(`${cap}#`))).map(ucChip).join("") || "None"}</div>
       <h3>Rules, quirks and gaps (${capItems(cap).length})</h3>${itemsTable(capItems(cap))}
       <h3>Questions</h3>${questionsTable(questionsFor(capItems(cap)))}
@@ -463,7 +465,7 @@
     const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
     const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
     const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
-    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}
       <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
       <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
       ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
@@ -730,8 +732,110 @@
     return ks.length ? `<div class="chips">${ks.map((k) => `<a class="chip" href="${link({ view: `req:${k.replace(/#/g, "~")}` })}">${esc(k.split("#")[1])}</a>`).join("")}</div>` : "";
   }
 
+  // ---------- architecture (C4 / C5) ----------
+  const A = D.arch;
+  const archById = A ? Object.fromEntries(A.model.elements.map((e) => [e.id, e])) : {};
+  const ARCH_TERMS = { person: ["Person", "User"], system: ["Software System", "System"], container: ["Container", "Component"], component: ["Component", "Element"], node: ["Deployment Node", "Deployment Node"] };
+  const archChip = (id) => `<a class="chip arch" href="${link({ view: `archel:${id}` })}">${esc(archById[id]?.name || id)}</a>`;
+  /** Architecture elements whose refs satisfy `pred`, as a section (empty without a model or a hit). */
+  function archSection(pred) {
+    if (!A) return "";
+    const ids = A.model.elements.filter((e) => (e.refs || []).some(pred)).map((e) => e.id);
+    return ids.length ? `<h3>Architecture</h3><div class="chips">${ids.map(archChip).join("")}</div>` : "";
+  }
+  const archViewLabel = (v) => (v.id === "c5" ? "C5 model" : v.title.replace(/^C4 · /, ""));
+  const archViewChip = (v, cur) => `<a class="chip arch${v.id === cur ? " active" : ""}" href="${link({ view: `arch:${v.id}` })}">${esc(archViewLabel(v))}</a>`;
+  const ARCH_LEDE = {
+    c4: "C4 model (c4model.com): people, software systems, containers (separately runnable/deployable units), components inside a container, deployment nodes. Relations between nested parts are lifted to the level shown",
+    c5: "C5 model (softwarearchitecturemodels.com): a System is composed of Components (deployable units, = C4 containers), a Component of Elements (= C4 components); dotted arrows: a Deployment Node deploys a Component",
+  };
+  function archRefChip(r) {
+    if (r.startsWith("cap:")) return capLink(r.slice(4));
+    if (scrById[r]) return scrChip(r);
+    if (ucById[r]) return ucChip(r);
+    return refChip(r);
+  }
+  function archTable(ids) {
+    const rows = ids.map((id) => archById[id]).filter(Boolean).map((e) => [archChip(e.id), `${ARCH_TERMS[e.kind][0]} / ${ARCH_TERMS[e.kind][1]}${e.external ? " (external)" : ""}`, esc(e.tech || ""), (e.refs || []).map(archRefChip).join("")]);
+    return rowsTable(["Element", "C4 / C5", "Technology", "Refs"], rows);
+  }
+  function viewArch(id) {
+    if (!A) return viewHome();
+    const v = A.views.find((x) => x.id === id) || A.views[0];
+    const c4 = A.views.filter((x) => x.id !== "c5");
+    return `<h2>Architecture</h2><p class="lede"><b>${esc(v.title)}</b> — ${ARCH_LEDE[v.id === "c5" ? "c5" : "c4"]}. Click a box to open it.</p>
+      <div class="chips"><span class="badge via">C4</span>${c4.map((x) => archViewChip(x, v.id)).join("")}</div>
+      <div class="chips"><span class="badge via">C5</span>${A.views.filter((x) => x.id === "c5").map((x) => archViewChip(x, v.id)).join("")}<button class="chip" data-dl="dsl">Download Structurizr DSL</button><button class="chip" data-dl="c4">Download Mermaid C4</button></div>
+      <div class="er" data-arch="${esc(v.id)}"></div>
+      <h3>Elements</h3>${archTable(Object.values(v.nodes))}`;
+  }
+  /** Header buttons: Architecture and IFML (each only when the package has it). */
+  function renderTopnav() {
+    const btn = (on, cls, view, text) => (on ? `<a class="chip ${cls}${state.view.startsWith(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML");
+  }
+  function archFacts(e) {
+    const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
+    const rows = [
+      ["C4", ARCH_TERMS[e.kind][0] + (e.external ? " (external)" : "")],
+      ["C5", ARCH_TERMS[e.kind][1]],
+      ["Technology", esc(e.tech || "")],
+      ["Part of", e.parent ? archChip(e.parent) : ""],
+      ["Deployed on", hostedOn.map(archChip).join("")],
+      ["Hosts", (e.hosts || []).map(archChip).join("")],
+    ];
+    return `<table>${rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
+  }
+  function archRelRows(e) {
+    const rel = (A.model.relations || []).filter((r) => r.from === e.id || r.to === e.id);
+    return rel.map((r) => [r.from === e.id ? "→" : "←", archChip(r.from === e.id ? r.to : r.from), esc(r.label || ""), esc(r.tech || ""), (r.cites || []).map((c) => `<span class="cite">${esc(c)}</span>`).join(" ")]);
+  }
+  function viewArchEl(id) {
+    const e = archById[id];
+    if (!e) return viewHome();
+    const children = A.model.elements.filter((x) => x.parent === id).map((x) => x.id);
+    const views = A.views.filter((v) => Object.values(v.nodes).includes(id));
+    return `<h2>${esc(e.name)}</h2>${e.description ? `<p class="lede text">${md(e.description)}</p>` : ""}
+      ${archFacts(e)}
+      <div class="chips"><span class="badge via">shown in</span>${views.map((v) => archViewChip(v, "")).join("")}</div>
+      ${children.length ? `<h3>Contains (${children.length})</h3>${archTable(children)}` : ""}
+      <h3>Relations</h3>${rowsTable(["", "With", "What", "Technology", "Cites"], archRelRows(e))}
+      <h3>Code</h3>${(e.cites || []).length ? `<div class="cite">${e.cites.map(esc).join(" · ")}</div>` : "<p>No cite.</p>"}
+      <h3>Package refs</h3><div class="chips">${listOr((e.refs || []).map(archRefChip), "None")}</div>`;
+  }
+  let archSeq = 0;
+  async function drawArch() {
+    const el = document.querySelector("[data-arch]");
+    if (!el || !A) return;
+    const v = A.views.find((x) => x.id === el.dataset.arch) || A.views[0];
+    if (!window.mermaid) { el.innerHTML = `<div class="notice">Diagram viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(v.mermaid)}</pre>`; return; }
+    try {
+      const { svg } = await window.mermaid.render(`arch${++archSeq}`, v.mermaid);
+      el.innerHTML = svg;
+      wireArchClicks(el, v);
+    } catch (err) { el.innerHTML = `<div class="notice">Architecture render failed: ${esc(err.message || err)}</div><pre>${esc(v.mermaid)}</pre>`; }
+  }
+  function wireArchClicks(el, v) {
+    for (const g of el.querySelectorAll("g.node, g.cluster")) {
+      const m = (g.id || "").match(/(?:^|-)(n\d+)(?:-|$)/);
+      const target = m && v.nodes[m[1]];
+      if (!target) continue;
+      g.style.cursor = "pointer";
+      g.addEventListener("click", (ev) => { ev.stopPropagation(); location.hash = link({ view: `archel:${target}` }); });
+    }
+  }
+  const downloadArch = (kind) => (kind === "dsl" ? downloadText(A.dsl, "workspace.dsl", "text/plain") : downloadText(A.c4, "c4.md", "text/markdown"));
+  function downloadText(text, ext, type) {
+    const url = URL.createObjectURL(new Blob([text], { type }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${D.meta.title.replace(/[^\w.-]+/g, "_")}.${ext}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
@@ -739,18 +843,27 @@
     $("main").innerHTML = fn(viewArg(state.view));
     renderTabs();
     renderList();
+    renderTopnav();
     const flow = $("flow");
     if (flow) void drawFlow(flow.dataset.uc);
     void drawEr();
     void drawIfml();
     void drawIfmlJs();
+    void drawArch();
     if (state.focus) document.getElementById(state.focus)?.scrollIntoView({ block: "start" });
   }
 
+  /** XMI / Structurizr / Mermaid C4 download buttons; true when handled. */
+  function handleDownload(t) {
+    if ("xmi" in t.dataset) downloadXmi();
+    else if (t.dataset.dl) downloadArch(t.dataset.dl);
+    else return false;
+    return true;
+  }
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi]");
+    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi],[data-dl]");
     if (!t) return;
-    if ("xmi" in t.dataset) { downloadXmi(); return; }
+    if (handleDownload(t)) return;
     if (t.dataset.tab) { state.tab = t.dataset.tab; renderTabs(); renderList(); return; }
     if (t.dataset.flow) { void drawFlow(t.dataset.flow); return; }
     if ("clear" in t.dataset) { go({ sel: [], view: "" }); return; }

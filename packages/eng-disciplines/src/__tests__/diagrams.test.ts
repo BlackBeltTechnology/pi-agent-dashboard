@@ -630,6 +630,112 @@ describe("use-case catalog and site", () => {
     expect(html).not.toMatch(/<script[^>]+src=["']https?:/);
     expect(embedded(html).viewers).toEqual({ bpmn: true, mermaid: true, ifml: false });
   });
+
+  // ---------- architecture (C4 / C5) ----------
+  const archModel = (over: { elements?: unknown[]; relations?: unknown[] } = {}) => ({
+    elements: [
+      { id: "planner", kind: "person", name: "Planner", refs: ["UC-01"] },
+      { id: "app", kind: "system", name: "Plantifier" },
+      { id: "erp", kind: "system", name: "ERP", external: true },
+      { id: "ui", kind: "container", name: "Desktop app", parent: "app", tech: "HTA + AngularJS", cites: ["js/order.js:1-9"] },
+      { id: "db", kind: "container", name: "Database", parent: "app", tech: "MS SQL" },
+      { id: "ordermod", kind: "component", name: "Order screen", parent: "ui", refs: ["BR-001", "cap:orders", "spec:orders#Add single and unique orders"], cites: ["js/order.js:3"] },
+      { id: "erpcon", kind: "component", name: "ERP connector", parent: "ui" },
+      { id: "ws", kind: "node", name: "Windows workstation", hosts: ["ui"] },
+      { id: "srv", kind: "node", name: "DB server", hosts: ["db"] },
+      ...(over.elements ?? []),
+    ],
+    relations: [
+      { from: "planner", to: "ordermod", label: "adds orders" },
+      { from: "ordermod", to: "db", label: "stores orders", tech: "ODBC" },
+      { from: "erpcon", to: "erp", label: "imports orders" },
+      { from: "ordermod", to: "erpcon", label: "asks for ERP orders" },
+      ...(over.relations ?? []),
+    ],
+  });
+  const writeArch = (m: unknown) => writeFileSync(join(pkg, "diagrams", "architecture.json"), JSON.stringify(m));
+  const appDir = () => {
+    const a = join(dir, "archapp");
+    mkdirSync(join(a, "js"), { recursive: true });
+    writeFileSync(join(a, "js", "order.js"), `${Array.from({ length: 20 }, (_, i) => `line${i + 1}`).join("\n")}\n`);
+    return a;
+  };
+
+  it("check-architecture passes a valid model and refuses a broken one", () => {
+    writeUc([uc()]);
+    writeArch(archModel());
+    const ok = run(dir, "check-architecture", pkg, "--app", appDir());
+    expect(ok.stderr).toBe("");
+    expect(ok.code).toBe(0);
+    writeArch(
+      archModel({
+        elements: [
+          { id: "badcomp", kind: "component", name: "Bad", parent: "app" },
+          { id: "badnode", kind: "node", name: "N", hosts: ["ordermod"] },
+          { id: "badref", kind: "container", name: "R", parent: "app", refs: ["BR-999"], cites: ["js/order.js:99"] },
+          { id: "ui", kind: "container", name: "dup", parent: "app" },
+        ],
+        relations: [{ from: "planner", to: "ghost", label: "x" }],
+      }),
+    );
+    const bad = run(dir, "check-architecture", pkg, "--app", appDir());
+    expect(bad.code).toBe(1);
+    for (const x of ["badcomp", "badnode", "ordermod", "BR-999", "js/order.js:99", "duplicate", "ghost"]) expect(bad.stderr).toContain(x);
+    const out = join(dir, "arch-bad.html");
+    rmSync(out, { force: true });
+    expect(run(dir, "build-site", pkg, out).code).toBe(1);
+    expect(existsSync(out)).toBe(false);
+    rmSync(join(pkg, "diagrams", "architecture.json"));
+  });
+
+  it("arch writes Structurizr DSL and Mermaid C4", () => {
+    writeUc([uc()]);
+    writeArch(archModel());
+    const out = join(dir, "archout");
+    const r = run(dir, "arch", pkg, out);
+    rmSync(join(pkg, "diagrams", "architecture.json"));
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const dsl = read(join(out, "workspace.dsl"));
+    for (const x of ["workspace", "person", "softwareSystem", "container", "component", "deploymentNode", "containerInstance", "systemContext", "views"]) expect(dsl).toContain(x);
+    const c4 = read(join(out, "c4.md"));
+    expect(c4).toContain("C4Context");
+    expect(c4).toContain("C4Container");
+  });
+
+  it("build-site embeds the architecture with lifted C4/C5 views, none without the file", () => {
+    writeUc([uc()]);
+    writeArch(archModel());
+    const out = join(dir, "arch.html");
+    const r = run(dir, "build-site", pkg, out);
+    rmSync(join(pkg, "diagrams", "architecture.json"));
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const a = embedded(read(out)).arch;
+    expect(a.model.elements).toHaveLength(9);
+    expect(a.dsl).toContain("workspace");
+    const view = (id: string) => a.views.find((v: { id: string }) => v.id === id);
+    for (const id of ["c4-context", "c4-container", "c4-component:ui", "c4-deployment", "c5"]) expect(view(id)?.mermaid, id).toMatch(/^flowchart/);
+    const pairs = (id: string) => view(id).edges.map((e: { from: string; to: string }) => `${e.from}>${e.to}`);
+    // component -> external lifted to system -> external, once; no self-loop from component -> component
+    expect(pairs("c4-context").filter((p: string) => p === "app>erp")).toHaveLength(1);
+    expect(pairs("c4-context")).toContain("planner>app");
+    expect(pairs("c4-context")).not.toContain("app>app");
+    expect(pairs("c4-container")).toContain("ui>db");
+    expect(pairs("c4-container")).not.toContain("ui>ui");
+    expect(pairs("c4-component:ui")).toContain("erpcon>erp");
+    expect(pairs("c4-component:ui")).toContain("ordermod>db");
+    expect(pairs("c5")).toContain("ws>ui");
+    // a container hosted on two nodes appears in both (one instance per node), both open the container
+    writeArch(archModel({ elements: [{ id: "ws2", kind: "node", name: "Second PC", hosts: ["ui"] }] }));
+    expect(run(dir, "build-site", pkg, out).code).toBe(0);
+    rmSync(join(pkg, "diagrams", "architecture.json"));
+    const dep = embedded(read(out)).arch.views.find((v: { id: string }) => v.id === "c4-deployment");
+    expect(Object.values(dep.nodes).filter((x) => x === "ui")).toHaveLength(2);
+    const none = join(dir, "noarch.html");
+    expect(run(dir, "build-site", pkg, none).code).toBe(0);
+    expect(embedded(read(none)).arch).toBeNull();
+  });
 });
 
 describe("skill text", () => {

@@ -150,6 +150,18 @@ still produced and checked.
 - `use-cases.json` passes `check-use-cases`; nothing on a diagram lacks a package ref.
 - `catalog.html` opens offline, a multi-select merge shows flows + ER + shared markers.
 
+## Architecture (C4 and C5)
+
+Optional `PKG/diagrams/architecture.json` (people, systems, containers, components, deployment
+nodes, relations; each with `cites` and `refs`; mapping: `references/architecture-mapping.md`):
+
+1. `$D check-architecture PKG --app <appDir>` — nesting, hosts, relation ends, refs; with `--app`
+   every cite must exist in the code (file and line range). `build-site` refuses a broken model.
+2. `$D arch PKG PKG/diagrams/architecture` — `workspace.dsl` (Structurizr) + `c4.md` (Mermaid C4).
+3. Catalog: Architecture button; views `#view=arch:c4-context|c4-container|c4-component:<id>|c4-deployment|c5`;
+   element pages `#view=archel:<id>`; rules, requirements, capabilities, screens and use cases
+   link back to the elements that reference them.
+
 ## IFML (OMG Interaction Flow Modeling Language 1.0)
 
 With a UI model (`PKG/ui/screens/*.json`):

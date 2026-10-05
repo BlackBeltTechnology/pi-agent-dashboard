@@ -11,8 +11,9 @@
 //   ifml-diff <packageDir> <file.xmi> [--apply] -> element diff vs the package UI model (exit 1 if different);
 //                                               --apply merges additions/renames/guards/validations, never deletes
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
 import { buildIfml, checkIfmlXmi, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
@@ -28,6 +29,8 @@ const USAGE = `usage:
   diagrams.mjs check-ifml <file.xmi>
   diagrams.mjs ifml-to-ui <file.xmi> <outDir>
   diagrams.mjs ifml-diff <packageDir> <file.xmi> [--apply]
+  diagrams.mjs check-architecture <packageDir> [--app <appDir>]
+  diagrams.mjs arch <packageDir> <outDir>
   build-site also takes [--ifml-js <file>] [--ifml-css <file>]...`;
 
 function die(msg, code = 2) {
@@ -112,6 +115,22 @@ const COMMANDS = {
     writeUi(outDir, graphToUi(parseIfmlXmi(xml)));
     return 0;
   },
+  "check-architecture": ([pkg, flag, app]) => {
+    if (flag && (flag !== "--app" || !app)) die(USAGE);
+    const model = readArch(pkg);
+    if (!model) die(`diagrams: no diagrams/architecture.json in ${pkg}`);
+    return report(checkArch(pkg, model, app ?? null));
+  },
+  arch: ([pkg, outDir]) => {
+    const model = readArch(pkg);
+    if (!model) die(`diagrams: no diagrams/architecture.json in ${pkg}`);
+    const errors = checkArch(pkg, model);
+    if (errors.length) return report(errors);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "workspace.dsl"), toStructurizr(model, packageTitle(pkg)));
+    writeFileSync(join(outDir, "c4.md"), toMermaidC4(model, packageTitle(pkg)));
+    return 0;
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -125,7 +144,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

@@ -3,6 +3,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { archViews, checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
 import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 
@@ -126,6 +127,8 @@ export function buildCatalog(pkgDir) {
   const ui = readUi(pkgDir);
   errors.push(...checkUi(pkgDir, ui));
   const title = packageTitle(pkgDir);
+  const arch = readArch(pkgDir);
+  if (arch) errors.push(...checkArch(pkgDir, arch));
   const data = {
     meta: { title, built: new Date().toISOString().slice(0, 10) },
     capabilities,
@@ -141,6 +144,7 @@ export function buildCatalog(pkgDir) {
       return { ...full, uiActions: uiActionsOf(full, ui, errors) };
     }),
     ...ifmlData(ui, title),
+    arch: arch && !errors.length ? { model: arch, views: archViews(arch), dsl: toStructurizr(arch, title), c4: toMermaidC4(arch, title) } : null,
   };
   return { data, errors };
 }
