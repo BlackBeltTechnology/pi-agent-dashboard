@@ -38,21 +38,36 @@
 - [ ] 4.13 Test: the add-account level select has a visible label and a hint mentioning an External audience for other organizations. Exemplar `panel.test.tsx` (test-plan #E11); verify it fails
 - [ ] 4.14 Implement the revoke confirm via `useUiPrimitive` `ui:confirm-dialog`, the two-line row, alias feedback, level descriptions, add-account label/hint, the i18n'd summary and the step-3 `audienceHelp` text (design D5/D6); verify 4.8–4.13 and existing panel/wizard tests pass
 
-## 5. i18n
+## 5. Consent hint
 
-- [ ] 5.1 Test: `catalog["zh-CN"]` and `catalog.hu` contain every key `errorKey` returns plus `summaryProject`/`summaryClient`/`summaryNotConfigured`. Exemplar `packages/gmail-plugin/src/client/__tests__/client-entry.test.tsx` catalog parity (test-plan #E4); verify it fails, then add the keys to `src/i18n.ts` and verify it plus `npm run i18n:parity` pass
+- [ ] 5.1 Test: while a flow is waiting the panel shows the "tick every permission (Select all)" hint next to the `ui:oauth-flow` view, and not when no flow is active. Triple: waiting add-account flow · render · hint visible. Exemplar `packages/gmail-plugin/src/client/__tests__/panel.test.tsx` (test-plan #E12); verify it fails
+- [ ] 5.2 Test: a flow error `scope_missing` shows the "Gmail permission was not granted, add again with every permission ticked" sentence with `data-step=""`. Exemplar `panel.test.tsx` "a start failure maps to its wizard step" (test-plan #E13); verify it fails
+- [ ] 5.3 Implement the plugin-owned hint and the `scope_missing` sentence (design D8); verify 5.1–5.2 pass
 
-## 6. E2E
+## 6. Gmail 403 classification (bridge)
 
-- [ ] 6.1 Update the revoke scenario in `tests/e2e/gmail-plugin.spec.ts` (exemplar: its own F4 block): click Revoke and confirm in the dialog, so the row disappears and the fake records `revokes==1`; dismissing the dialog instead leaves the row and `revokes==0`. Triple: one connected fake account · Revoke + confirm/dismiss · row + revoke count (test-plan #F8). Verify via the `run-dashboard-e2e-local-changes` harness
+- [ ] 6.1 Test: a modern `SERVICE_DISABLED` ErrorInfo for `projects/603220229616` yields `api_disabled` whose message names the project and the `gcloud services enable gmail.googleapis.com` command; legacy `accessNotConfigured` yields `api_disabled` without a number. Exemplar `packages/gmail-plugin/src/bridge/__tests__/tools.test.ts` "X6 — Gmail 429" (test-plan #E14); verify it fails
+- [ ] 6.2 Test: `ACCESS_TOKEN_SCOPE_INSUFFICIENT` and legacy `insufficientPermissions` yield `scope_insufficient` with the re-authenticate instruction. Exemplar `tools.test.ts` X6 (test-plan #E15); verify it fails
+- [ ] 6.3 Test: `SERVICE_DISABLED` with consumer `projects/abc`, `projects/1;rm -rf`, numeric `12345` or missing yields `api_disabled` and the message contains none of those values. Exemplar `tools.test.ts` X6 (test-plan #E16); verify it fails
+- [ ] 6.4 Test: `SERVICE_DISABLED` with `metadata.service` `drive.googleapis.com` yields `gmail_error`. Exemplar `tools.test.ts` X6 (test-plan #E17); verify it fails
+- [ ] 6.5 Test: the 403 bodies `not json`, `{}`, `{error:"x"}`, `{error:{details:"x"}}`, mistyped ErrorInfo fields, and `{error:{message:"SECRET-TEXT",details:[]}}` each reject a `GmailToolError` `gmail_error` (never a raw TypeError), and no message contains `SECRET-TEXT`. Exemplar `tools.test.ts` X6 (test-plan #X8); verify it fails
+- [ ] 6.6 Implement the guarded 403 branch in `GmailApi.call` (`packages/gmail-plugin/src/bridge/gmail-api.ts`, design D9); verify 6.1–6.5 and all existing bridge tests pass
 
-## 7. Docs
+## 7. i18n
 
-- [ ] 7.1 Update `packages/gmail-plugin/README.md` (audience section + error table incl. `org_internal`, `admin_policy_enforced`) and the DOX rows in `packages/gmail-plugin/src/client/AGENTS.md`, `src/server/AGENTS.md`, `scripts/theme-token-guard.mjs.AGENTS.md`, and `tests/e2e/gmail-plugin.spec.ts.AGENTS.md` (`See change: improve-gmail-settings-ux`); verify the rows are present
-- [ ] 7.2 Delegate the `docs/gmail-plugin.md` audience/multi-org note to DocScribe (caveman style); verify the section exists
+- [ ] 7.1 Test: `catalog["zh-CN"]` and `catalog.hu` contain every key `errorKey` returns plus `summaryProject`/`summaryClient`/`summaryNotConfigured` and the consent-hint key. Exemplar `packages/gmail-plugin/src/client/__tests__/client-entry.test.tsx` catalog parity (test-plan #E4); verify it fails, then add the keys to `src/i18n.ts` and verify it plus `npm run i18n:parity` pass
 
-## 8. Verification
+## 8. E2E
 
-- [ ] 8.1 `cd packages/gmail-plugin && npx vitest run`, `npx vitest run scripts/__tests__/theme-token-guard.test.mjs` and `npm run quality:changed` all green
-- [ ] 8.2 Manual (test-plan: manual-only, #F9): after `npm run build` and `/api/restart`, open `/settings/plugins/gmail` in all 9 named themes × light/dark. Check borders use the theme colour, ok badge is green, re-auth badge amber, errors red, and the focus ring is visible
-- [ ] 8.3 Manual (test-plan: manual-only, #X7): with a real Internal-audience client, add an account from another Workspace org and report `org_internal` in the disclosure. The guidance should say to switch to External and add a test user; after doing that, the account connects
+- [ ] 8.1 Update the revoke scenario in `tests/e2e/gmail-plugin.spec.ts` (exemplar: its own F4 block): click Revoke and confirm in the dialog, so the row disappears and the fake records `revokes==1`; dismissing the dialog instead leaves the row and `revokes==0`. Triple: one connected fake account · Revoke + confirm/dismiss · row + revoke count (test-plan #F8). Verify via the `run-dashboard-e2e-local-changes` harness
+
+## 9. Docs
+
+- [ ] 9.1 Update `packages/gmail-plugin/README.md` (audience section + error table incl. `org_internal`, `admin_policy_enforced`, `scope_missing`; tool error codes `api_disabled`, `scope_insufficient`) and the DOX rows in `packages/gmail-plugin/src/client/AGENTS.md`, `src/server/AGENTS.md`, `scripts/theme-token-guard.mjs.AGENTS.md`, `src/bridge/AGENTS.md` (`gmail-api.ts` 403 codes), and `tests/e2e/gmail-plugin.spec.ts.AGENTS.md` (`See change: improve-gmail-settings-ux`); verify the rows are present
+- [ ] 9.2 Delegate the `docs/gmail-plugin.md` audience/multi-org note to DocScribe (caveman style); verify the section exists
+
+## 10. Verification
+
+- [ ] 10.1 `cd packages/gmail-plugin && npx vitest run`, `npx vitest run scripts/__tests__/theme-token-guard.test.mjs` and `npm run quality:changed` all green
+- [ ] 10.2 Manual (test-plan: manual-only, #F9): after `npm run build` and `/api/restart`, open `/settings/plugins/gmail` in all 9 named themes × light/dark. Check borders use the theme colour, ok badge is green, re-auth badge amber, errors red, and the focus ring is visible
+- [ ] 10.3 Manual (test-plan: manual-only, #X7): with a real Internal-audience client, add an account from another Workspace org and report `org_internal` in the disclosure. The guidance should say to switch to External and add a test user; after doing that, the account connects

@@ -12,6 +12,8 @@ The plugin SHALL NOT execute cloud CLI commands. An uploaded client SHALL be acc
 
 Because Google reports some sign-in errors on its own page without redirecting back, the settings SHALL, while a sign-in is waiting, offer a way to report the error code Google displayed. The selectable codes SHALL be a fixed list (at least `org_internal`, `access_denied`, `admin_policy_enforced`); selecting one SHALL cancel the waiting sign-in and show the plain-language fix for that code, opening the relevant wizard step when the fix is in the wizard. The reported code SHALL remain displayed after the cancelled sign-in settles. Every sign-in error SHALL be shown as a human-readable sentence; an unrecognised error SHALL get a generic sentence, never only a bare code.
 
+While a sign-in is waiting, the Gmail settings SHALL tell the user to grant every requested permission on Google's consent screen, because Google may show the Gmail permission unticked. A sign-in whose grant lacks the level's Gmail permission SHALL be explained as the Gmail permission not being granted, with the instruction to retry and tick it.
+
 When setup is complete and the wizard is collapsed, its summary SHALL identify the configured client (its project when known, otherwise its client id) so the user can find the audience setting again.
 
 #### Scenario: Web client rejected
@@ -31,6 +33,15 @@ When setup is complete and the wizard is collapsed, its summary SHALL identify t
 - **WHEN** a sign-in is waiting and the user reports that Google showed `admin_policy_enforced`
 - **THEN** the waiting sign-in is cancelled
 - **AND** the settings explain that the account's Workspace admin must trust the OAuth client, showing the configured client id
+
+#### Scenario: Gmail permission left unticked
+- **WHEN** the user completes Google consent without ticking the Gmail permission
+- **THEN** no account is stored
+- **AND** the settings say the Gmail permission was not granted and ask the user to add the account again with every permission ticked
+
+#### Scenario: Waiting sign-in tells the user to tick every permission
+- **WHEN** a sign-in is waiting for the user
+- **THEN** the Gmail settings show, next to the sign-in link, that every permission on Google's consent screen must be granted
 
 #### Scenario: Cancel settling does not erase the reported code
 - **WHEN** the user reports `org_internal` and the cancelled sign-in then settles as cancelled
@@ -83,3 +94,23 @@ The Gmail settings section SHALL take every color from declared dashboard theme 
 #### Scenario: Scope limit still stated
 - **WHEN** the user views the accounts list
 - **THEN** the section states that levels are enforced by the plugin, not by Google, and that any dashboard session can use every account within its level
+
+### Requirement: Actionable Gmail API errors
+When the Gmail API answers HTTP 403, a Gmail tool SHALL classify the failure from Google's machine-readable error reason only and SHALL NOT echo Google's free-text message. A disabled Gmail API SHALL fail with code `api_disabled` and a message naming the Google Cloud project number and the command or console page that enables the Gmail API. A token lacking the required Gmail scope SHALL fail with code `scope_insufficient` and tell the user to re-authenticate the account with every permission granted. Any other 403, or a 403 whose body cannot be parsed, SHALL keep failing with the generic `gmail_error` code. The project number SHALL be included only when it consists of digits; otherwise the `api_disabled` message SHALL omit it.
+
+#### Scenario: Gmail API disabled on the project
+- **WHEN** a Gmail tool call returns 403 with reason `SERVICE_DISABLED` for consumer `projects/603220229616`
+- **THEN** the tool fails with code `api_disabled`
+- **AND** the message names project `603220229616` and how to enable the Gmail API
+
+#### Scenario: Token lacks the Gmail scope
+- **WHEN** a Gmail tool call returns 403 with reason `ACCESS_TOKEN_SCOPE_INSUFFICIENT`
+- **THEN** the tool fails with code `scope_insufficient` and tells the user to re-authenticate with every permission granted
+
+#### Scenario: API disabled with an unusable project reference
+- **WHEN** a Gmail tool call returns 403 with reason `SERVICE_DISABLED` and a consumer that is not `projects/<digits>`
+- **THEN** the tool fails with code `api_disabled` and the message contains no project reference from the response
+
+#### Scenario: Unknown or malformed 403
+- **WHEN** a Gmail tool call returns 403 with an unknown reason, a non-JSON body, or a body whose fields have unexpected types
+- **THEN** the tool fails with code `gmail_error` and the message contains none of the response body text
