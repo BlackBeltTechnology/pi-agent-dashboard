@@ -97,3 +97,8 @@ td.idc { white-space: nowrap; }
 .stat { font-size: 22px; font-weight: 600; }
 .related td:last-child { width: 1%; white-space: nowrap; }
 @media (max-width: 800px) { .layout { grid-template-columns: 1fr; height: auto; } .side { max-height: 45vh; } }
+.chip.scr { border-color: #1f6f43; }
+ol.effects { margin: .4rem 0 .4rem 1.2rem; padding: 0; }
+ol.effects li { margin: .2rem 0; }
+li.flag { color: #b03a1a; }
+.scroll { overflow-x: auto; }

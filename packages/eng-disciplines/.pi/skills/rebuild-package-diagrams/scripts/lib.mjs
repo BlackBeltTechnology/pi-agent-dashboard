@@ -1,5 +1,5 @@
 // Pure parsers and gates for rebuild-package-diagrams. See change: add-rebuild-package-diagrams.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------- extract-model ----------
@@ -270,12 +270,21 @@ function useCaseErrors(uc, ctx) {
     ...bad(uc.entities, (e) => ctx.entities.has(e), "entity not in model:"),
   ];
   if (uc.bpmn && !existsSync(join(ctx.pkgDir, "diagrams", uc.bpmn))) errors.push(`${uc.id}: bpmn not found: ${uc.bpmn}`);
+  errors.push(...bad(uc.screens, (s) => ctx.screens.has(s), "unknown screen"));
+  for (const f of uc.altFlows ?? []) {
+    if (!f.bpmn || !existsSync(join(ctx.pkgDir, "diagrams", f.bpmn))) errors.push(`${uc.id}: alternate flow not found: ${f.bpmn}`);
+  }
   return errors;
 }
 
 /** Violations of diagrams/use-cases.json against the package. */
 export function checkUseCases(pkgDir, useCases, model) {
-  const ctx = { pkgDir, resolve: packageResolver(pkgDir), entities: new Set(model.entities.map((e) => e.name)) };
+  const ctx = {
+    pkgDir,
+    resolve: packageResolver(pkgDir),
+    entities: new Set(model.entities.map((e) => e.name)),
+    screens: new Set(readUi(pkgDir).screens.map((s) => s.id)),
+  };
   const seen = new Set();
   const errors = [];
   for (const uc of useCases) {
@@ -299,4 +308,56 @@ export function checkQuestions(pkgDir, questions) {
     }
   }
   return errors;
+}
+
+// ---------- UI model (ui/screens/*.json, ui/forms/*.json) ----------
+
+const readJsonDir = (dir) =>
+  existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith(".json"))
+        .sort()
+        .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")))
+    : [];
+
+/** UI model of a package: {screens: [...], forms: {id: record}}; empty when ui/ is absent. */
+export function readUi(pkgDir) {
+  const forms = Object.fromEntries(readJsonDir(join(pkgDir, "ui", "forms")).map((f) => [f.id, f]));
+  return { screens: readJsonDir(join(pkgDir, "ui", "screens")), forms };
+}
+
+const UI_ID_RE = /^(BR|QUIRK|GAP)-\d+$/;
+
+function uiRefOk(ref, resolve) {
+  const m = String(ref).match(UC_SPEC_RE);
+  if (m) return resolve.spec(m[1], m[2].trim());
+  return UI_ID_RE.test(ref) && resolve.id(ref);
+}
+
+/** Every ref an action carries: guards, refs, effect refs. */
+const actionRefs = (a) => [...(a.guards ?? []), ...(a.refs ?? []), ...(a.effects ?? []).flatMap((e) => e.refs ?? [])];
+
+function screenErrors(s, ui, resolve, unique) {
+  const errors = [
+    ...unique(s.id, s.id),
+    ...(s.forms ?? []).filter((f) => !ui.forms[f.form]).map((f) => `${s.id}: form record missing ${f.form}`),
+  ];
+  for (const a of s.actions ?? []) {
+    errors.push(...unique(a.id, s.id));
+    errors.push(...actionRefs(a).filter((r) => !uiRefOk(r, resolve)).map((r) => `${s.id} ${a.id}: dangling ref ${r}`));
+  }
+  for (const d of s.dialogs ?? []) errors.push(...unique(d.id, s.id));
+  return errors;
+}
+
+/** Violations of the UI model: duplicate screen/action/dialog ids, dangling refs, missing form records. */
+export function checkUi(pkgDir, ui) {
+  const resolve = packageResolver(pkgDir);
+  const seen = new Map();
+  const unique = (id, where) => {
+    if (seen.has(id)) return [`${where}: duplicate id ${id} (also in ${seen.get(id)})`];
+    seen.set(id, where);
+    return [];
+  };
+  return ui.screens.flatMap((s) => screenErrors(s, ui, resolve, unique));
 }

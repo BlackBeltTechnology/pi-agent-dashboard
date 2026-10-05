@@ -1,9 +1,9 @@
 // build-site: assemble a rebuild package + its diagrams into one self-contained HTML catalog.
-// See change: add-rebuild-package-diagrams.
+// See change: add-rebuild-package-diagrams, add-catalog-questions, add-catalog-ui-model.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CARD, checkQuestions, extractModel, parseCatalog, parseRoles, parseSpec, readIf, renderEr } from "./lib.mjs";
+import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 const REF_RE = /\b(?:BR|QUIRK|GAP)-\d+\b/g;
@@ -65,6 +65,9 @@ function bpmnFor(diagDir, uc) {
   return { bpmnXml: xml || null, roles: parseRoles(readIf(join(dirname(file), "package.yaml"))) };
 }
 
+/** Alternate flows of a use case (e.g. derived from code): [{label, bpmn, bpmnXml, roles}]. */
+const altFlowsFor = (diagDir, uc) => (uc.altFlows ?? []).map((f) => ({ ...f, ...bpmnFor(diagDir, f) }));
+
 /** Capabilities of a rule/quirk/gap: `Capabilities:` list, `Spec: capabilities/<cap>/…`, or `Affects: <cap> (…)`. */
 function itemCapabilities(item, known) {
   const f = item.fields;
@@ -104,6 +107,9 @@ export function buildCatalog(pkgDir) {
   const qPath = join(diagDir, "questions.json");
   const questions = existsSync(qPath) ? JSON.parse(readFileSync(qPath, "utf8")) : [];
   errors.push(...checkQuestions(pkgDir, questions));
+  errors.push(...checkUseCases(pkgDir, useCases, model));
+  const ui = readUi(pkgDir);
+  errors.push(...checkUi(pkgDir, ui));
   const title = (readIf(join(pkgDir, "README.md")).match(/^# (.+)$/m)?.[1] ?? "Rebuild package").trim();
   const data = {
     meta: { title, built: new Date().toISOString().slice(0, 10) },
@@ -112,10 +118,11 @@ export function buildCatalog(pkgDir) {
     entities,
     er: readEr(diagDir, model, errors),
     questions,
+    ui,
     useCases: useCases.map((uc) => {
       const b = bpmnFor(diagDir, uc);
       const docRefs = b.bpmnXml ? [...new Set(b.bpmnXml.match(REF_RE) ?? [])] : [];
-      return { ...uc, ...b, bpmnRefs: docRefs.filter((r) => items[r]) };
+      return { ...uc, ...b, altFlows: altFlowsFor(diagDir, uc), bpmnRefs: docRefs.filter((r) => items[r]) };
     }),
   };
   return { data, errors };

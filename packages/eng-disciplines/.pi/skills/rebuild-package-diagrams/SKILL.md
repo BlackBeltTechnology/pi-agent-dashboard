@@ -90,6 +90,14 @@ still produced and checked.
    (key|high|medium|low), status?, source?, claim?, note?, codeCite?, refs: ["BR-…"],
    group?}]` (e.g. the open questions of a doc↔package comparison); `build-site` refuses
    dangling refs and duplicate ids.
+   Optional UI model `PKG/ui/screens/*.json` (screen/dialog records: actions with trigger,
+   handler, `guards`, `refs`, `effects[{kind, step, target, cite, refs}]`, dialogs,
+   navigation, `forms[{form}]`) and `PKG/ui/forms/*.json` (form records: fields with labels,
+   type, required, editable, computed, validations, views, `definedIn` cites). `build-site`
+   refuses duplicate screen/action/dialog ids, dangling guard/ref/effect refs and screen form
+   refs without a record. In `use-cases.json`, optional `screens: ["SCR-…"]` and
+   `altFlows: [{label, bpmn}]` (e.g. a flow derived from code) are gated by
+   `check-use-cases` and `build-site` (unknown screen, missing file).
 2. Build with the viewer libraries inlined (offline, single file, ~5 MB):
    `$D build-site PKG PKG/diagrams/catalog.html --bpmn-js <bpmn-navigated-viewer.production.min.js>
    --bpmn-css <diagram-js.css> --bpmn-css <bpmn.css> --bpmn-css <bpmn-font/css/bpmn-embedded.css>

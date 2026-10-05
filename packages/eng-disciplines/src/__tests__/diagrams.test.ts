@@ -337,6 +337,77 @@ describe("use-case catalog and site", () => {
     expect(existsSync(out)).toBe(false);
   });
 
+  const screen = (over: Record<string, unknown> = {}) => ({
+    id: "SCR-order",
+    kind: "route",
+    name: "Orders",
+    template: "html/order.htm",
+    scope: [],
+    forms: [{ form: "FRM-line", region: "new lines" }],
+    actions: [
+      {
+        id: "ACT-add",
+        label: "Add",
+        guards: ["BR-001"],
+        refs: ["spec:orders#Add single and unique orders"],
+        effects: [{ kind: "write", step: "Store order", target: "data.add", refs: ["QUIRK-002"] }],
+      },
+    ],
+    dialogs: [{ id: "DLG-sure", kind: "confirm", message: "sure?" }],
+    ...over,
+  });
+  const writeUi = (screens: unknown[], forms: Record<string, unknown> = { "FRM-line": { id: "FRM-line", fields: [{ key: "qty" }] } }) => {
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    mkdirSync(join(pkg, "ui", "screens"), { recursive: true });
+    mkdirSync(join(pkg, "ui", "forms"), { recursive: true });
+    screens.forEach((s, i) => writeFileSync(join(pkg, "ui", "screens", `s${i}.json`), JSON.stringify(s)));
+    for (const [id, f] of Object.entries(forms)) writeFileSync(join(pkg, "ui", "forms", `${id}.json`), JSON.stringify(f));
+  };
+
+  it("build-site embeds the UI model and alternate flows; empty UI model without ui/", () => {
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    writeUc([uc()]);
+    const out0 = join(dir, "site-noui.html");
+    expect(run(dir, "build-site", pkg, out0).code).toBe(0);
+    expect(embedded(read(out0)).ui).toEqual({ screens: [], forms: {} });
+    writeUi([screen()]);
+    writeFileSync(join(pkg, "diagrams", "bpmn", "add", "code.bpmn"), "<bpmn:definitions id='code'/>");
+    writeUc([uc({ screens: ["SCR-order"], altFlows: [{ label: "from code", bpmn: "bpmn/add/code.bpmn" }] })]);
+    const out = join(dir, "site-ui.html");
+    const r = run(dir, "build-site", pkg, out);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const data = embedded(read(out));
+    expect(data.ui.screens[0]).toMatchObject({ id: "SCR-order", actions: [{ id: "ACT-add", guards: ["BR-001"] }] });
+    expect(data.ui.forms["FRM-line"].fields[0].key).toBe("qty");
+    expect(data.useCases[0].screens).toEqual(["SCR-order"]);
+    expect(data.useCases[0].altFlows[0]).toMatchObject({ label: "from code", bpmnXml: "<bpmn:definitions id='code'/>" });
+  });
+
+  it("build-site refuses dangling UI refs, a missing form record and duplicate ids", () => {
+    writeUc([uc()]);
+    writeUi([
+      screen({ forms: [{ form: "FRM-nope" }], actions: [{ id: "ACT-x", label: "x", guards: ["BR-999"], effects: [{ kind: "call", refs: ["spec:orders#Nope"] }] }] }),
+      screen({ id: "SCR-two", forms: [], actions: [{ id: "ACT-x", label: "y" }] }),
+    ]);
+    const out = join(dir, "site-bad-ui.html");
+    const r = run(dir, "build-site", pkg, out);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.code).toBe(1);
+    for (const s of ["SCR-order", "BR-999", "FRM-nope", "spec:orders#Nope", "duplicate", "ACT-x"]) expect(r.stderr).toContain(s);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("check-use-cases refuses an unknown screen and a missing alternate flow", () => {
+    writeUi([screen()]);
+    writeUc([uc({ screens: ["SCR-nope"], altFlows: [{ label: "from code", bpmn: "bpmn/missing.bpmn" }] })]);
+    const r = run(dir, "check-use-cases", pkg);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.code).toBe(1);
+    for (const s of ["UC-01", "SCR-nope", "bpmn/missing.bpmn"]) expect(r.stderr).toContain(s);
+  });
+
   it("build-site inlines viewer libraries", () => {
     writeUc([uc()]);
     writeFileSync(join(dir, "fake-bpmn.js"), "window.FAKE_BPMN_LIB=1;");

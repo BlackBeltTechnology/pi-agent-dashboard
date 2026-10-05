@@ -18,6 +18,34 @@
   const backlinks = (pred) => D.useCases.filter(pred).map((u) => u.id);
   const itemReqs = {};
   for (const [k, r] of Object.entries(reqs)) for (const ref of r.refs) (itemReqs[ref] = itemReqs[ref] || []).push(k);
+  const UI = D.ui || { screens: [], forms: {} };
+  const scrById = Object.fromEntries(UI.screens.map((x) => [x.id, x]));
+  const uiRefs = buildUiRefIndex(); // ref (BR-1 | cap#Req) -> [{scr, act, how}]
+  const formScreens = buildFormScreens();
+  function buildFormScreens() {
+    const out = {};
+    for (const x of UI.screens) for (const f of x.forms || []) out[f.form] = uniq([...(out[f.form] || []), x.id]); // one screen may use a form in several regions
+    return out;
+  }
+  const screenUcs = (sid) => D.useCases.filter((u) => (u.screens || []).includes(sid)).map((u) => u.id);
+
+  /** Which UI actions guard, reference or have an effect on a rule/quirk/gap or requirement. */
+  function buildUiRefIndex() {
+    const out = {};
+    const add = (ref, entry) => {
+      const k = String(ref).replace(/^spec:/, "").trim();
+      (out[k] = out[k] || []).push(entry);
+    };
+    for (const x of UI.screens) for (const a of x.actions || []) for (const [ref, how] of actionRefPairs(a)) add(ref, { scr: x.id, act: a, how });
+    return out;
+  }
+  function actionRefPairs(a) {
+    return [
+      ...(a.guards || []).map((g) => [g, "guard"]),
+      ...(a.refs || []).map((r) => [r, "ref"]),
+      ...(a.effects || []).flatMap((e) => (e.refs || []).map((r) => [r, `effect: ${e.step || e.kind}`])),
+    ];
+  }
 
   function buildReqIndex() {
     const out = {};
@@ -107,7 +135,15 @@
     ["GAP", "Gaps", () => kindRows("GAP")],
     ["q", "Questions", () => questions.slice().sort((a, b) => bySeverity(a.id, b.id)).map((q) => ({ id: q.id, label: q.text, sub: [q.severity, q.status, q.group].filter(Boolean).join(" · "), view: `q:${q.id}` }))],
     ["ent", "Entities", () => Object.entries(D.entities).map(([k, e]) => ({ id: "", label: k, sub: e.capabilities.join(", "), view: `ent:${k}` }))],
+    ...uiTabs(),
   ];
+  function uiTabs() {
+    if (!UI.screens.length) return [];
+    return [
+      ["scr", "Screens", () => UI.screens.map((x) => ({ id: x.id, label: x.name, sub: [x.kind, x.route || x.template].filter(Boolean).join(" · "), view: `scr:${x.id}` }))],
+      ["form", "Forms", () => Object.values(UI.forms).map((f) => ({ id: f.id, label: f.formKey || f.id, sub: `${(f.fields || []).length} fields${f.variant ? ` · ${f.variant}` : ""}`, view: `form:${f.id}` }))],
+    ];
+  }
   function kindRows(kind) {
     return Object.values(D.items).filter((i) => i.kind === kind).sort((a, b) => byId(a.id, b.id))
       .map((i) => ({ id: i.id, label: i.title || i.statement, sub: i.title ? "" : "", view: `item:${i.id}` }));
@@ -141,6 +177,8 @@
     if (r.view.startsWith("item:")) return D.items[id].body.toLowerCase().includes(q);
     if (r.view.startsWith("q:")) return `${qById[id].claim || ""} ${qById[id].note || ""} ${(qById[id].refs || []).join(" ")}`.toLowerCase().includes(q);
     if (r.view.startsWith("ent:")) return D.entities[id].fields.some((f) => f.name.toLowerCase().includes(q));
+    if (r.view.startsWith("scr:")) return JSON.stringify(scrById[id]).toLowerCase().includes(q);
+    if (r.view.startsWith("form:")) return JSON.stringify(UI.forms[id]).toLowerCase().includes(q);
     return false;
   }
   function clip(s, n) { s = String(s || ""); return s.length > n ? `${s.slice(0, n - 1)}…` : s; }
@@ -155,6 +193,28 @@
   }
   const sevBadge = (q) => `<span class="badge sev-${esc(q.severity)}">${esc(q.severity)}</span>`;
   const itemLink = (id) => `<a href="${link({ view: `item:${id}` })}">${id}</a>`;
+  const scrChip = (sid) => `<a class="chip scr" href="${link({ view: `scr:${sid}` })}">${esc(sid)} ${esc(scrById[sid]?.name || "")}</a>`;
+  const formChip = (fid) => `<a class="chip" href="${link({ view: `form:${fid}` })}">${esc(fid)}</a>`;
+  /** A BR/QUIRK/GAP id or spec:<cap>#<Req> as a link. */
+  function refChip(r) {
+    if (D.items[r]) return `<a class="chip" href="${link({ view: `item:${r}` })}">${r}</a>`;
+    const k = String(r).replace(/^spec:/, "").trim();
+    return reqs[k] ? `<a class="chip" href="${link({ view: `req:${k.replace(/#/g, "~")}` })}">${esc(k.split("#")[1])}</a>` : `<span class="chip">${esc(r)}</span>`;
+  }
+  /** UI actions pointing at a ref, as a table. */
+  function uiActionsTable(key) {
+    const rows = uiRefs[key] || [];
+    if (!rows.length) return "<p>None.</p>";
+    return `<table><tr><th>Screen</th><th>Action</th><th>How</th></tr>${rows.map((r) => `<tr><td>${scrChip(r.scr)}</td><td><a href="${link({ view: `scr:${r.scr}` })}">${esc(r.act.label || r.act.id)}</a> <span class="cite">${esc(r.act.id)}</span></td><td><span class="badge via">${esc(r.how)}</span></td></tr>`).join("")}</table>`;
+  }
+  /** Screens (and their forms) of a set of use cases; shared marker when >1 use case lists the screen. */
+  function screensHtml(list) {
+    const count = {};
+    for (const u of list) for (const sid of u.screens || []) count[sid] = (count[sid] || 0) + 1;
+    const ids = Object.keys(count).filter((sid) => scrById[sid]).sort();
+    if (!ids.length) return "<p>No screen recorded.</p>";
+    return ids.map((sid) => `<div class="chips">${scrChip(sid)}${count[sid] > 1 && list.length > 1 ? ` <span class="badge shared">shared ×${count[sid]}</span>` : ""}${(scrById[sid].forms || []).map((f) => formChip(f.form)).join("")}</div>`).join("");
+  }
   const capLink = (c) => `<a class="chip" href="${link({ view: `cap:${c}` })}">${esc(c)}</a>`;
   /** Question table; `usedBy(qid)` optionally returns use-case ids for a shared marker. */
   function questionsTable(ids, usedBy) {
@@ -180,7 +240,7 @@
     const n = (k) => Object.values(D.items).filter((i) => i.kind === k).length;
     const flows = D.useCases.filter((u) => u.bpmnXml).length;
     return `<h2>${esc(D.meta.title)}</h2><p class="lede">Built ${D.meta.built}. Tick use cases on the left to merge them; every item links to what references it.</p>
-      <div class="grid">${[["Use cases", D.useCases.length], ["Drawn flows", flows], ["Capabilities", Object.keys(D.capabilities).length], ["Requirements", Object.keys(reqs).length], ["Rules", n("BR")], ["Quirks", n("QUIRK")], ["Gaps", n("GAP")], ["Questions", questions.length], ["Entities", Object.keys(D.entities).length]]
+      <div class="grid">${[["Use cases", D.useCases.length], ["Drawn flows", flows], ["Capabilities", Object.keys(D.capabilities).length], ["Requirements", Object.keys(reqs).length], ["Rules", n("BR")], ["Quirks", n("QUIRK")], ["Gaps", n("GAP")], ["Questions", questions.length], ["Entities", Object.keys(D.entities).length], ...(UI.screens.length ? [["Screens", UI.screens.length], ["Forms", Object.keys(UI.forms).length]] : [])]
         .map(([l, v]) => `<div class="card"><div class="stat">${v}</div>${l}</div>`).join("")}</div>
       <h3>Use cases</h3><table><tr><th>ID</th><th>Use case</th><th>Actor</th><th>Flow</th><th></th></tr>${D.useCases.map((u) =>
         `<tr><td class="idc">${u.id}</td><td><a href="${link({ view: `uc:${u.id}` })}">${esc(u.name)}</a></td><td>${esc(u.actor)}</td><td>${u.bpmnXml ? "BPMN" : "—"}</td><td>${selectButton(u.id)}</td></tr>`).join("")}</table>`;
@@ -219,6 +279,7 @@
     return `<h2>Merged view</h2><p class="lede">${sel.length} use case${sel.length > 1 ? "s" : ""} — union of flows, requirements, rules and entities. Items used by more than one selected use case are marked <span class="badge shared">shared</span>.</p>
       <div class="chips">${sel.map((u) => `<span class="chip uc">${u.id} ${esc(u.name)} <button class="x" data-toggle="${u.id}" aria-label="Remove ${u.id}">×</button></span>`).join("")}</div>
       <h3>Flows</h3>${flowsHtml(sel)}
+      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml(sel)}` : ""}
       <h3>Requirements (${Object.keys(reqCount).length})</h3>${reqHtml || "<p>None listed.</p>"}
       <h3>Rules, quirks and gaps (${Object.keys(refCount).length})</h3>${refRows ? `<table><tr><th>ID</th><th>Statement</th><th>Used by / source</th></tr>${refRows}</table>` : "<p>None.</p>"}
       <h3>Open questions (${mergeQs.length})</h3>${questionsTable(mergeQs, (qid) => usedBy((u) => (qById[qid].refs || []).some((r) => u.refSource[r])))}
@@ -241,13 +302,21 @@
       `<tr><td>${ucChip(u.id)}</td><td>${kinds(common, "r:")} requirements · ${kinds(common, "i:")} rules/quirks/gaps · ${kinds(common, "e:")} entities</td><td>${Math.round(score * 100)}%</td><td>${selectButton(u.id)}</td></tr>`).join("")}</table>`;
   }
 
+  /** Main + alternate flows of the given use cases: [{key, label, xml, roles}]. */
+  function flowEntries(list) {
+    return list.flatMap((u) => [
+      ...(u.bpmnXml ? [{ key: u.id, label: `${u.id} ${u.name}`, xml: u.bpmnXml, roles: u.roles || [] }] : []),
+      ...(u.altFlows || []).map((f, i) => ({ key: `${u.id}@${i}`, label: `${u.id} ${f.label}`, xml: f.bpmnXml, roles: f.roles || [] })).filter((f) => f.xml),
+    ]);
+  }
+  const flowByKey = (key) => flowEntries(D.useCases).find((f) => f.key === key);
   function flowsHtml(list) {
-    const drawn = list.filter((u) => u.bpmnXml);
+    const drawn = flowEntries(list);
     const missing = list.filter((u) => !u.bpmnXml).map((u) => u.id);
     if (!drawn.length) return `<p>No flow drawn for ${missing.join(", ")}.</p>`;
     if (!D.viewers.bpmn) return `<div class="notice">BPMN viewer not embedded (build without <code>--bpmn-js</code>). ${drawn.length} flow(s) available as XML in the source package.</div>`;
-    return `<div class="flowtabs">${drawn.map((u, i) => `<button data-flow="${u.id}" aria-pressed="${i === 0}">${u.id} ${esc(u.name)}</button>`).join("")}</div>
-      <div class="flow" id="flow" data-uc="${drawn[0].id}"></div><div class="legend" id="legend"></div>
+    return `<div class="flowtabs">${drawn.map((f, i) => `<button data-flow="${f.key}" aria-pressed="${i === 0}">${esc(f.label)}</button>`).join("")}</div>
+      <div class="flow" id="flow" data-uc="${drawn[0].key}"></div><div class="legend" id="legend"></div>
       <div class="flowinfo card" id="flowinfo">Click a task or gateway to see its package references.</div>
       ${missing.length ? `<p class="meta">No flow drawn for ${missing.join(", ")}.</p>` : ""}`;
   }
@@ -257,6 +326,7 @@
     if (!u) return viewHome();
     return `<h2>${u.id} ${esc(u.name)}</h2><p class="lede">Actor: <b>${esc(u.actor)}</b> · Trigger: ${esc(u.trigger)}</p>${selectButton(u.id)}
       <h3>Flow</h3>${flowsHtml([u])}
+      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml([u])}` : ""}
       <h3>Requirements</h3>${u.reqKeys.map((k) => reqs[k] ? `<details class="card"><summary>${esc(reqs[k].name)} <span class="cite">${esc(reqs[k].cap)}</span></summary><div class="text">${md(reqs[k].text)}</div>${cites(reqs[k].cites)}${scenariosHtml(reqs[k])}</details>` : "").join("")}
       <h3>Rules, quirks and gaps</h3><table><tr><th>ID</th><th>Statement</th><th>Source</th></tr>${u.allRefs.map((r) => `<tr><td class="idc"><a href="${link({ view: `item:${r}` })}">${r}</a><br>${kindBadge(r)}</td><td>${md(clip(D.items[r].statement, 600))}</td><td><span class="badge via">${u.refSource[r]}</span></td></tr>`).join("")}</table>
       <h3>Open questions</h3>${questionsTable(questionsFor(u.allRefs))}
@@ -272,6 +342,7 @@
     return `<h3>Capabilities</h3><div class="chips">${listOr((it.capabilities || []).map(capLink), "None")}</div>
       <h3>Questions</h3>${questionsTable((itemQuestions[id] || []).slice().sort(bySeverity))}
       <h3>Flow steps</h3><ul>${listOr(steps)}</ul>
+      ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(id)}` : ""}
       <h3>Use cases</h3><div class="chips">${listOr(backlinks((u) => u.refSource[id]).map(ucChip), "None")}</div>
       <h3>Requirements mentioning it</h3><ul>${listOr((itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`))}</ul>`;
   }
@@ -319,7 +390,8 @@
       <div class="card text">${md(r.text)}</div>${cites(r.cites)}${scenariosHtml(r)}
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.reqKeys.includes(key)).map(ucChip).join("") || "None"}</div>
       <h3>Rules, quirks and gaps</h3><div class="chips">${r.refs.map((x) => `<a class="chip" href="${link({ view: `item:${x}` })}">${x}</a>`).join("") || "None"}</div>
-      <h3>Questions</h3>${questionsTable(questionsFor(r.refs))}`;
+      <h3>Questions</h3>${questionsTable(questionsFor(r.refs))}
+      ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(key)}` : ""}`;
   }
 
   function viewCap(cap) {
@@ -344,6 +416,76 @@
       ${rels.length ? `<table><tr><th>From</th><th>Card.</th><th>To</th><th>Label</th><th>Evidence</th></tr>${rels.map((r) => `<tr><td>${esc(r.from)}</td><td>${esc(r.cardinality)}${r.confidence === "confirmed" ? "" : " (inferred)"}</td><td>${esc(r.to)}</td><td>${esc(r.label)}</td><td>${esc(r.evidence)}</td></tr>`).join("")}</table>` : "<p>No ER relation drawn.</p>"}
       <h3>Fields (${e.fields.length})</h3><table><tr><th>Field</th><th>Type</th><th>Required</th><th>Nullable</th></tr>${e.fields.map((f) => `<tr><td><code>${esc(f.name)}</code></td><td>${esc(f.type)}</td><td>${f.required ? "yes" : ""}</td><td>${f.nullable ? "yes" : ""}</td></tr>`).join("")}</table>
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.entities.includes(name)).map(ucChip).join("") || "None"}</div>`;
+  }
+
+  const citeSpan = (c) => (c ? ` <span class="cite">${esc(c)}</span>` : "");
+  function effectsHtml(a) {
+    const rows = (a.effects || []).map((e) => `<li><span class="badge via">${esc(e.kind)}</span> <b>${esc(e.step || "")}</b> ${md(e.target || "")}${citeSpan(e.cite)} ${(e.refs || []).map(refChip).join("")}</li>`);
+    return rows.length ? `<ol class="effects">${rows.join("")}</ol>` : "";
+  }
+  function actionCard(a) {
+    const trig = a.trigger ? `${esc(a.trigger.kind || "")}${citeSpan(a.trigger.cite)}` : "—";
+    const handler = a.handler ? `<code>${esc(a.handler.name)}</code>${citeSpan(a.handler.cite)}` : "—";
+    const guards = (a.guards || []).length ? `<div class="chips"><span class="badge k-GAP">guards</span>${a.guards.map(refChip).join("")}</div>` : "";
+    return `<details class="card" id="${esc(a.id)}"><summary>${esc(a.label || a.id)} <span class="cite">${esc(a.id)}</span></summary>
+      <table><tr><th>Trigger</th><td>${trig}</td></tr><tr><th>Handler</th><td>${handler}</td></tr></table>
+      ${guards}${effectsHtml(a)}<div class="chips">${(a.refs || []).map(refChip).join("")}</div></details>`;
+  }
+  const rowsTable = (head, rows) => (rows.length ? `<table><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</table>` : "<p>None.</p>");
+  function screenFacts(x) {
+    const rows = [
+      ["Kind", esc(x.kind)],
+      ["Route", x.route && esc(x.route)],
+      ["Template", esc(x.template)],
+      ["Controller", x.controller && esc(x.controller)],
+      ["Opened by", x.opener && `${md(x.opener.trigger || "")}${citeSpan(x.opener.cite)}`],
+      ["Confidence", x.confidence && esc(x.confidence)],
+    ];
+    return `<table>${rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
+  }
+  function viewScreen(sid) {
+    const x = scrById[sid];
+    if (!x) return viewHome();
+    const fields = (x.fields || []).map((f) => [`<code>${esc(f.key)}</code>`, esc(f.label), esc(f.type), f.required ? "yes" : "", esc(f.binding) + citeSpan(f.cite)]);
+    const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
+    const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
+    const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}
+      <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
+      <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
+      ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
+      <h3>Actions (${(x.actions || []).length})</h3>${(x.actions || []).map(actionCard).join("")}
+      <h3>Dialogs (${dialogs.length})</h3>${rowsTable(["ID", "Kind", "Message", "Buttons", "From"], dialogs)}
+      <h3>Navigation</h3>${rowsTable(["To", "Trigger", "Cite"], nav)}
+      ${unmapped ? `<details class="card"><summary>Not modelled (${(x.unmapped || []).length})</summary><ul>${unmapped}</ul></details>` : ""}`;
+  }
+  function fieldLabel(l) {
+    if (!l || typeof l !== "object") return esc(l);
+    return Object.entries(l).filter(([, v]) => v).map(([lang, v]) => `${esc(v)} <span class="cite">${esc(lang)}</span>`).join("<br>");
+  }
+  const fieldEditable = (e) => (e && typeof e === "object" ? `when <code>${esc(e.when)}</code>` : esc(e ?? ""));
+  function fieldCheck(c) {
+    if (c.kind === "validation") return `<li><code>${esc(c.when)}</code> → ${esc(c.message)}</li>`;
+    return `<li class="flag">unrecognized: <code>${esc(JSON.stringify(c.raw))}</code></li>`;
+  }
+  function fieldRow(f) {
+    const label = fieldLabel(f.label);
+    const editable = fieldEditable(f.editable);
+    const checks = (f.conditions || []).filter((c) => c.kind !== "init").map(fieldCheck).join("");
+    const flags = (f.flags || []).map((x) => `<span class="badge sev-high">${esc(x)}</span>`).join(" ");
+    return [`<code>${esc(f.key)}</code><br>${flags}`, label, esc(f.type ?? ""), f.required ? "yes" : "", editable, f.computed ? "yes" : "", esc((f.views || []).join(", ")), checks ? `<ul>${checks}</ul>` : "", `<span class="cite">${esc((f.definedIn || []).join(" · "))}</span>`];
+  }
+  function viewForm(fid) {
+    const f = UI.forms[fid];
+    if (!f) return viewHome();
+    const views = (f.views || []).map((v) => `${esc(v.id)}${citeSpan(v.cite)}`).join(" · ");
+    return `<h2>${esc(fid)}</h2><table>
+        ${f.variant ? `<tr><th>Variant</th><td>${esc(f.variant)}</td></tr>` : ""}
+        ${f.layers ? `<tr><th>Config layers</th><td>${esc(f.layers.join(" → "))}</td></tr>` : ""}
+        ${f.merge ? `<tr><th>Merged at</th><td><span class="cite">${esc(f.merge)}</span></td></tr>` : ""}
+        ${views ? `<tr><th>Views</th><td>${views}</td></tr>` : ""}</table>
+      <h3>Screens</h3><div class="chips">${listOr((formScreens[fid] || []).map(scrChip), "None")}</div>
+      <h3>Fields (${(f.fields || []).length})</h3><div class="scroll">${rowsTable(["Key", "Label", "Type", "Required", "Editable", "Computed", "Views", "Validations", "Defined in"], (f.fields || []).map(fieldRow))}</div>`;
   }
 
   // ---------- diagrams ----------
@@ -375,13 +517,14 @@
   async function drawFlow(id) {
     const host = $("flow");
     if (!host || !window.BpmnJS) return;
-    const u = ucById[id];
+    const u = flowByKey(id);
+    if (!u) return;
     for (const b of document.querySelectorAll("[data-flow]")) b.setAttribute("aria-pressed", String(b.dataset.flow === id));
     if (viewer) viewer.destroy();
     host.innerHTML = "";
     viewer = new window.BpmnJS({ container: host });
     try {
-      await viewer.importXML(u.bpmnXml);
+      await viewer.importXML(u.xml);
     } catch (e) {
       host.innerHTML = `<div class="notice">Flow has no layout or failed to load: ${esc(e.message || e)}. Run the bpmn-package-explorer pipeline on it first.</div>`;
       return;
@@ -411,7 +554,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
