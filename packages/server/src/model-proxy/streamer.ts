@@ -1,15 +1,17 @@
 /**
- * Wrapper around pi-ai's streamSimple for model proxy route handlers.
+ * Wrapper around the model runtime's streamSimple for model proxy route handlers.
  *
- * Resolves model credentials from the InternalRegistry, then delegates
- * to pi-ai's streamSimple. Returns an AsyncIterable of pi-ai StreamEvents.
+ * Resolves (and, if needed, refreshes) model credentials through the
+ * InternalRegistry facade, then delegates to the runtime's streamSimple WITHOUT
+ * an `apiKey` override: the runtime applies the provider's own auth path.
+ * Per-model custom headers are still passed. Returns an AsyncIterable of pi-ai
+ * StreamEvents.
  *
- * See change: add-dashboard-model-proxy, task 6.1.
+ * See changes: add-dashboard-model-proxy (task 6.1), collapse-model-proxy-onto-modelruntime (D5).
  */
-import type { PiAiModule } from "./internal-registry.js";
-import { getModelRegistry } from "./registry-singleton.js";
+import { getModelRegistry, type RuntimeStreamSimpleFn, type StreamSimpleOptions } from "./registry-singleton.js";
 
-type PiAiStreamSimple = PiAiModule["streamSimple"];
+type PiAiStreamSimple = RuntimeStreamSimpleFn;
 
 export interface StreamCompletionOpts {
   model: unknown;
@@ -42,29 +44,31 @@ function toPiAiContext(opts: RouteStreamOpts) {
 }
 
 /**
- * Adapt route-level `streamSimple` opts to pi-ai's
+ * Adapt route-level `streamSimple` opts to the runtime's
  * `streamSimple(model, context, options)` call; the full opts object doubles
- * as the options (apiKey/headers/signal/maxTokens/temperature).
+ * as the options (headers/signal/maxTokens/temperature). An `apiKey` in it is
+ * dropped by `getStreamSimpleFn()`, never forwarded to the runtime.
  */
 export function callPiAiStreamSimple<O extends RouteStreamOpts>(
   fn: PiAiStreamSimple,
   opts: O,
 ): ReturnType<PiAiStreamSimple> {
-  return fn(opts.model, toPiAiContext(opts), opts);
+  return fn(opts.model, toPiAiContext(opts), opts as StreamSimpleOptions);
 }
 
 export interface RegistryLike {
-  getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
+  getApiKeyAndHeaders(model: unknown, signal?: AbortSignal): Promise<{ apiKey: string; headers: Record<string, string> }>;
 }
 
 /**
- * Stream a completion from the upstream provider via pi-ai's streamSimple.
+ * Stream a completion from the upstream provider via the runtime's streamSimple.
  *
- * Resolves API key + headers from the registry, then calls streamSimple.
+ * Resolves auth + headers through the registry (refresh-once, named errors),
+ * then calls streamSimple with the headers and no `apiKey` override.
  * The returned iterable yields pi-ai's AssistantMessageEvent objects.
  *
  * @param opts - stream options
- * @param piAiStreamSimple - pi-ai's streamSimple function
+ * @param piAiStreamSimple - the runtime's streamSimple function
  * @param registryOverride - optional registry for testing (defaults to getModelRegistry())
  */
 export async function streamCompletion(
@@ -73,10 +77,11 @@ export async function streamCompletion(
   registryOverride?: RegistryLike,
 ): Promise<ReturnType<PiAiStreamSimple>> {
   const registry = registryOverride ?? (await getModelRegistry());
-  const { apiKey, headers } = await registry.getApiKeyAndHeaders(opts.model);
+  const { headers } = opts.signal
+    ? await registry.getApiKeyAndHeaders(opts.model, opts.signal)
+    : await registry.getApiKeyAndHeaders(opts.model);
 
   const options = {
-    apiKey,
     headers,
     ...(opts.maxTokens != null ? { maxTokens: opts.maxTokens } : {}),
     ...(opts.temperature != null ? { temperature: opts.temperature } : {}),

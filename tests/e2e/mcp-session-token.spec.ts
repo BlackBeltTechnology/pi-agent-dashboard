@@ -15,11 +15,11 @@ import { BASE_URL } from "./lifecycle.js";
 // mcp-server plugin exactly as a real bridge receives it, attributed to the
 // socket key, and honoured by /mcp's auth boundary.
 //
-// What the docker harness CANNOT host is a real pi-mcp-adapter inside a
-// harness session (the image does not install it), so the env-assignment +
-// header-command leg inside a real pi process is verified at L1 (F2/F3/F4,
-// mcp-token-delivery.test.ts) and by the qa process-surface probe (X9), not
-// here. Every assertion below exercises live server behaviour.
+// The in-pi leg — the bridge registering `pi-dashboard` with pi's built-in
+// MCP (`pi.registerMcpServer`) using this token + URL — is verified at L1
+// (mcp-token-delivery.test.ts, E1–E5/E16) and against a real harness session
+// in mcp-builtin-registration.spec.ts (X1/X2). Every assertion below exercises
+// live server behaviour. See change: migrate-mcp-to-pi-builtin.
 //
 // The dashboard port is NEVER hardcoded: the `page` fixture baseURL comes from
 // `.pi-test-harness.json#dashboardPort` (see fixtures.ts / global-setup.ts).
@@ -56,6 +56,9 @@ class BridgeSession {
     if (!this.bearer) this.bearer = await pairDeviceBearer(BASE_URL);
     return this.bearer;
   }
+
+  /** The `/mcp` URL delivered with the last mint (migrate-mcp-to-pi-builtin D1). */
+  url: string | null = null;
 
   /** Connect, register, and await the mint reply on the session-private lane. */
   async connectAndMint(piGatewayPort: number): Promise<string> {
@@ -97,9 +100,10 @@ class BridgeSession {
       const timer = setTimeout(() => reject(new Error("mint reply timeout")), 10_000);
       ws.addEventListener("message", (ev) => {
         try {
-          const msg = JSON.parse(String(ev.data)) as { type?: string; token?: unknown };
+          const msg = JSON.parse(String(ev.data)) as { type?: string; token?: unknown; url?: unknown };
           if (msg.type === "mcp_token_minted" && typeof msg.token === "string") {
             clearTimeout(timer);
+            this.url = typeof msg.url === "string" ? msg.url : null;
             resolve(msg.token);
           }
         } catch {
@@ -155,41 +159,57 @@ async function mcpCall(
 }
 
 test.describe("wired per-session MCP credential (wire-mcp-session-token)", () => {
-  test("#F6 works out of the box — provisioned entry + minted session credential, no hand-editing", async ({ request }) => {
+  test("#F6 works out of the box — no provisioned mcp.json entry; the mint carries token + /mcp URL", async ({ request }) => {
     test.fixme(true, "https://github.com/BlackBeltTechnology/pi-agent-dashboard/issues/683"); // quarantine: see issue #683
-    // The harness container's mcp.json is NEVER hand-edited. The dashboard's
-    // own provisioning wrote the entry on boot; the effective view proves the
-    // auth transport is present and carries no credential at rest.
-    // Host-side fetch (the bridge-credential helper's pattern): the specs dial
-    // the published dashboard port directly.
-    const raw = (await (
-      await fetch(`${BASE_URL}/api/mcp-client/effective`)
-    ).json()) as {
+    // Nothing is provisioned into mcp.json any more: the Pi-global effective
+    // view must hold no dashboard-written `pi-dashboard` entry (it would shadow
+    // the bridge's per-session registration), and no credential at rest.
+    const effective = (await (await fetch(`${BASE_URL}/api/mcp-client/effective`)).json()) as {
       servers?: Array<{ name: string; entry: Record<string, unknown> }>;
     };
-    const effective = raw;
     const entry = effective.servers?.find((s) => s.name === "pi-dashboard")?.entry;
-    expect(entry, "pi-dashboard entry must be provisioned out of the box").toBeTruthy();
-    const cmd = entry?.requestHeadersCommand as
-      | { command: string; args: string[]; env: Record<string, string> }
-      | undefined;
-    expect(cmd, "the D2 auth transport must be provisioned").toBeTruthy();
-    expect(cmd?.env).toEqual({ PI_DASHBOARD_MCP_TOKEN: "${PI_DASHBOARD_MCP_TOKEN}" });
-    for (const arg of cmd?.args ?? []) expect(arg).not.toContain("${");
+    expect(entry?.requestHeadersCommand, "no provisioned header-command entry").toBeUndefined();
     expect(JSON.stringify(effective)).not.toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
 
-    // A session's bridge mints over the private lane and the provisioned
-    // endpoint serves a full tools/list to that credential — with zero
-    // operator action anywhere in between.
+    // A session's bridge mints over the private lane: the reply carries the
+    // loopback `/mcp` URL the bridge registers, and the endpoint serves a full
+    // tools/list to that credential — zero operator action in between.
     const port = (await health(request)).piGatewayPort;
     expect(port).toBeTruthy();
     const session = new BridgeSession("e2e-mcp-f6", "/tmp/e2e-mcp-f6");
     try {
       const token = await session.connectAndMint(port!);
+      expect(session.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
       const { status, body } = await mcpCall(request, token, "tools/list");
       expect(status).toBe(200);
       const names = ((body.result as { tools?: Array<{ name: string }> }).tools ?? []).map((t) => t.name);
       expect(names).toEqual(ADVERTISED_TOOLS);
+    } finally {
+      session.close();
+    }
+  });
+
+  // migrate-mcp-to-pi-builtin D1/D2: nothing provisioned, the mint carries the
+  // loopback /mcp URL the bridge registers with pi's built-in MCP, and that
+  // credential is served (the exact advertised set is #F6's, quarantined).
+  test("#F7 the mint carries the /mcp URL and nothing is provisioned into mcp.json", async ({ request }) => {
+    const effective = (await (await fetch(`${BASE_URL}/api/mcp-client/effective`)).json()) as {
+      servers?: Array<{ name: string; entry: Record<string, unknown> }>;
+    };
+    const entry = effective.servers?.find((s) => s.name === "pi-dashboard")?.entry;
+    expect(entry?.requestHeadersCommand, "no provisioned header-command entry").toBeUndefined();
+    expect(JSON.stringify(effective)).not.toMatch(/mcp_[A-Za-z0-9_-]{10,}/);
+
+    const port = (await health(request)).piGatewayPort;
+    expect(port).toBeTruthy();
+    const session = new BridgeSession("e2e-mcp-f7", "/tmp/e2e-mcp-f7");
+    try {
+      const token = await session.connectAndMint(port!);
+      expect(session.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
+      const { status, body } = await mcpCall(request, token, "tools/list");
+      expect(status).toBe(200);
+      const names = ((body.result as { tools?: Array<{ name: string }> }).tools ?? []).map((t) => t.name);
+      expect(names).toContain("list_sessions");
     } finally {
       session.close();
     }

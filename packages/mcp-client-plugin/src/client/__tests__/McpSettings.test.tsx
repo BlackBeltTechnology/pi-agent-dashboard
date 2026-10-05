@@ -1,22 +1,18 @@
 /**
- * Global settings section (change extract-mcp-client-plugin, tasks 7.2 + 7.3):
- * provenance badges, sorted rows, parse-error + empty + skeleton states, the
- * adapter pill/banner/read-only agreement, and the row enable/disable write
- * (persist + revert-on-failure).
+ * Global settings section (change migrate-mcp-to-pi-builtin): Pi-global rows
+ * with description / transport / exposure / auth mode / provenance badge,
+ * live state from `/live` (state unknown when absent), the needs-auth sign-in
+ * hint, parse-error rows, the adapter-leftover flag + one-click convert, and
+ * the row enable toggle (persist + revert-on-failure).
+ * Test-plan: E21 (description + auth modes), E28 (row enable toggle).
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AdapterVerdict } from "../../core/types.js";
 import { invalidateEffective } from "../hooks.js";
 import { McpSettings } from "../McpSettings.js";
 
 vi.mock("@blackbelt-technology/dashboard-plugin-runtime", () => ({
   useT: () => (_key: string, _params?: unknown, fallback?: string) => fallback ?? _key,
-  // The global settings form (task 7.6) is a host draft source; these list
-  // tests only exercise the section, so its hooks are inert stubs here.
-  usePluginConfig: () => ({}),
-  usePluginSend: () => () => Promise.resolve(),
-  useSettingsDraftSource: () => {},
 }));
 
 function jsonOk(body: unknown): Response {
@@ -27,19 +23,6 @@ function jsonErr(status: number, body: unknown): Response {
   return { ok: false, status, json: async () => body } as unknown as Response;
 }
 
-const PI_PROV = [{ layer: "pi-global", path: "/h/.pi/agent/mcp.json", label: "Pi global", writable: true }];
-const SHARED_PROV = [
-  {
-    layer: "shared",
-    path: "/team/shared.json",
-    label: "team-shared",
-    importKind: "file",
-    writable: false,
-  },
-];
-
-const OK: AdapterVerdict = { kind: "ok", installed: "2.21.0", floor: "2.20.0" };
-
 /** No jest-dom in this project's vitest setup — read the DOM property. */
 function isDisabled(testid: string): boolean {
   return (screen.getByTestId(testid) as HTMLInputElement).disabled;
@@ -48,40 +31,88 @@ function isChecked(testid: string): boolean {
   return (screen.getByTestId(testid) as HTMLInputElement).checked;
 }
 
-type Server = { name: string; entry: Record<string, unknown>; provenance: Array<Record<string, unknown>> };
+function server(
+  name: string,
+  entry: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    name,
+    provenance: "pi-global",
+    entry,
+    transport: typeof entry.url === "string" ? "http" : "stdio",
+    enabled: entry.enabled !== false,
+    exposure: "codemode",
+    active: entry.enabled !== false,
+    ignoredKeys: [],
+    adapterLeftovers: [],
+    ...extra,
+  };
+}
 
 interface ViewShape {
-  cwd: string;
-  servers: Server[];
-  settings: Record<string, unknown>;
-  layerErrors: Array<{ path: string; message: string }>;
-  adapter: AdapterVerdict;
+  scope: "global";
+  servers: Array<Record<string, unknown>>;
+  layers: Array<Record<string, unknown>>;
 }
 
 function view(over: Partial<ViewShape> = {}): ViewShape {
-  return { cwd: "", servers: [], settings: {}, layerErrors: [], adapter: OK, ...over };
+  return { scope: "global", servers: [], layers: [], ...over };
 }
 
-/** GET /effective → `current`; PUT .../disabled flips it so the refetch converges. */
-function makeFetch(current: ViewShape) {
+const LIVE_OK = { ok: true, servers: {}, errors: [] };
+
+/**
+ * Serves GET /effective (`current`), GET /live (`live`), GET /schema; the
+ * enabled PUT flips the row in `current` so the refetch converges; records
+ * every mutating call.
+ */
+function makeFetch(current: ViewShape, live: unknown = LIVE_OK) {
   let state = current;
-  return vi.fn(async (url: string, init?: RequestInit) => {
+  const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: test fetch router, one branch per route
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    if (u.includes("/effective")) return jsonOk(state);
-    if (u.includes("/disabled")) {
-      const body = JSON.parse(String(init?.body)) as { disabled: boolean };
-      const raw = u.split("/servers/")[1]?.split("/disabled")[0] ?? "";
-      const name = decodeURIComponent(raw);
+    const method = init?.method ?? "GET";
+    const record = (body: Record<string, unknown> = {}): void => {
+      calls.push({ url: u, method, body });
+    };
+    if (method === "GET" && u.includes("/effective")) return jsonOk(state);
+    if (method === "GET" && u.includes("/live")) return jsonOk(live);
+    if (method === "GET" && u.includes("/schema")) return jsonOk({});
+    if (method === "PUT" && u.includes("/enabled")) {
+      record(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      const name = decodeURIComponent(u.split("/servers/")[1]?.split("/enabled")[0] ?? "");
+      const enabled = (JSON.parse(String(init?.body)) as { enabled: boolean }).enabled;
       state = {
         ...state,
-        servers: state.servers.map((s: Server) =>
-          s.name === name ? { ...s, entry: { ...s.entry, disabled: body.disabled } } : s,
+        servers: state.servers.map((s) => (s.name === name ? { ...s, entry: { ...(s.entry as object), enabled }, enabled } : s)),
+      };
+      return jsonOk({ ok: true, action: "written" });
+    }
+    if (method === "POST" && u.includes("/convert")) {
+      record(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      const name = decodeURIComponent(u.split("/servers/")[1]?.split("/convert")[0] ?? "");
+      state = {
+        ...state,
+        servers: state.servers.map((s) =>
+          s.name === name
+            ? {
+                ...s,
+                entry: { url: "https://x/mcp", enabled: false },
+                enabled: false,
+                adapterLeftovers: [],
+                ignoredKeys: [],
+              }
+            : s,
         ),
       };
       return jsonOk({ ok: true });
     }
-    throw new Error(`unexpected request: ${u}`);
+    throw new Error(`unexpected request: ${method} ${u}`);
   });
+  vi.stubGlobal("fetch", fetchMock);
+  return { fetchMock, calls };
 }
 
 afterEach(() => {
@@ -91,136 +122,170 @@ afterEach(() => {
   invalidateEffective();
 });
 
-describe("adapter status drives pill + banner + read-only", () => {
-  it("below-floor: pill and banner name the same installed version and floor", async () => {
-    vi.stubGlobal(
-      "fetch",
-      makeFetch(
-        view({ adapter: { kind: "below-floor", installed: "2.19.0", floor: "2.20.0" } }),
-      ),
-    );
-    render(<McpSettings />);
-    const pill = await screen.findByTestId("mcp-adapter-pill");
-    const banner = screen.getByTestId("mcp-adapter-banner");
-    for (const el of [pill, banner]) {
-      expect(el.textContent).toContain("2.19.0");
-      expect(el.textContent).toContain("2.20.0");
-    }
-    expect(screen.getByTestId("mcp-adapter-upgrade")).toBeTruthy();
-    expect(isDisabled("mcp-add-server")).toBe(true);
-  });
-
-  it("absent: banner offers install and existing servers still render read-only", async () => {
-    vi.stubGlobal(
-      "fetch",
-      makeFetch(
-        view({
-          adapter: { kind: "absent", floor: "2.20.0" },
-          servers: [{ name: "iMCP", entry: { command: "/bin/imcp" }, provenance: PI_PROV }],
-        }),
-      ),
-    );
-    render(<McpSettings />);
-    expect(await screen.findByTestId("mcp-adapter-install")).toBeTruthy();
-    expect(screen.getByTestId("mcp-server-row-iMCP")).toBeTruthy();
-    expect(isDisabled("mcp-server-toggle-iMCP")).toBe(true);
-  });
-});
-
-describe("server list (task 7.2)", () => {
-  it("renders pi-global as editable, shared as locked View-only, sorted by name", async () => {
-    vi.stubGlobal(
-      "fetch",
-      makeFetch(
-        view({
-          servers: [
-            { name: "zeta", entry: { url: "https://z/mcp" }, provenance: SHARED_PROV },
-            { name: "alpha", entry: { command: "/bin/a", disabled: true }, provenance: PI_PROV },
-          ],
-        }),
-      ),
-    );
-    render(<McpSettings />);
-    await screen.findByTestId("mcp-server-row-alpha");
-
-    const list = screen.getByTestId("mcp-server-list");
-    const rows = list.querySelectorAll("li[data-testid^='mcp-server-row-']");
-    expect((rows[0] as HTMLElement).dataset.testid).toBe("mcp-server-row-alpha");
-
-    expect(screen.getByTestId("mcp-badge-alpha-Pi global")).toBeTruthy();
-    expect(screen.getByTestId("mcp-server-action-alpha").textContent).toBe("Edit");
-    expect(isDisabled("mcp-server-toggle-alpha")).toBe(false);
-
-    const sharedBadge = screen.getByTestId("mcp-badge-zeta-Shared");
-    expect(sharedBadge.querySelector("svg")).toBeTruthy(); // lock icon
-    expect(screen.getByTestId("mcp-server-action-zeta").textContent).toBe("View");
-    expect(isDisabled("mcp-server-toggle-zeta")).toBe(true);
-  });
-
-  it("shows a parse-error row while other layers still render", async () => {
-    vi.stubGlobal(
-      "fetch",
-      makeFetch(
-        view({
-          servers: [{ name: "keep", entry: { command: "/bin/k" }, provenance: PI_PROV }],
-          layerErrors: [{ path: "/broken/mcp.json", message: "Unexpected token }" }],
-        }),
-      ),
-    );
-    render(<McpSettings />);
-    const err = await screen.findByTestId("mcp-layer-error");
-    expect(err.textContent).toContain("/broken/mcp.json");
-    expect(err.textContent).toContain("Unexpected token");
-    expect(screen.getByTestId("mcp-server-row-keep")).toBeTruthy();
-  });
-
-  it("shows the empty state with Add + docs when no layer defines a server", async () => {
-    vi.stubGlobal("fetch", makeFetch(view()));
-    render(<McpSettings />);
-    await screen.findByTestId("mcp-empty");
-    expect(screen.getByTestId("mcp-empty-add")).toBeTruthy();
-    expect(screen.getByTestId("mcp-docs-link")).toBeTruthy();
-  });
-
-  it("renders skeleton rows until the effective view arrives", () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
-    render(<McpSettings />);
-    expect(screen.getByTestId("mcp-list-skeleton")).toBeTruthy();
-  });
-
-  it("504 adapter-timeout names the timeout and offers retry + a link to the field", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonErr(504, { error: "adapter-timeout", timeoutMs: 10000 })),
-    );
-    render(<McpSettings />);
-    const notice = await screen.findByTestId("mcp-timeout");
-    expect(notice.textContent).toContain("10000");
-    expect(screen.getByTestId("mcp-timeout-retry")).toBeTruthy();
-    expect(screen.getByTestId("mcp-timeout-link").getAttribute("href")).toBe("#mcp-adapter-timeout");
-  });
-});
-
-describe("row enable/disable (task 7.3)", () => {
-  it("persists the disabled flag at global scope and converges", async () => {
-    const fetchMock = makeFetch(
+describe("rows: description, auth modes, badges (test-plan E21)", () => {
+  it("shows description and provider/header/OAuth auth modes; provider has no sign-in hint", async () => {
+    makeFetch(
       view({
-        servers: [{ name: "srv", entry: { command: "/bin/s" }, provenance: PI_PROV }],
+        servers: [
+          server("radius", { url: "https://r/mcp", auth: { provider: "radius" }, description: "Radius docs" }),
+          server("hdr", { url: "https://h/mcp", headers: { Authorization: "Bearer t" } }),
+          server("apikey", { url: "https://k/mcp", headers: { "X-Api-Key": "k" } }),
+        ],
       }),
     );
+    render(<McpSettings />);
+    await screen.findByTestId("mcp-server-row-radius");
+
+    // description shown on the row that carries one
+    expect(screen.getByTestId("mcp-server-description-radius").textContent).toBe("Radius docs");
+
+    // auth modes
+    expect(screen.getByTestId("mcp-authmode-radius").textContent).toBe("auth: radius");
+    expect(screen.getByTestId("mcp-authmode-hdr").textContent).toBe("header");
+    expect(screen.getByTestId("mcp-authmode-apikey").textContent).toBe("OAuth");
+
+    // provider auth: NO sign-in hint anywhere
+    expect(screen.queryByTestId("mcp-signin-hint-radius")).toBeNull();
+
+    // provenance badge
+    expect(screen.getByTestId("mcp-badge-radius-Pi global")).toBeTruthy();
+    // transport + exposure render
+    expect(screen.getByTestId("mcp-transport-radius").textContent).toBe("url");
+    expect(screen.getByTestId("mcp-exposure-radius").textContent).toBe("codemode");
+  });
+});
+
+describe("rows: live state (from /live)", () => {
+  it("shows pi state + tool count, 'state unknown' when absent, and the needs-auth hint for OAuth rows", async () => {
+    makeFetch(
+      view({
+        servers: [
+          server("conn", { command: "/bin/c" }),
+          server("ghost", { command: "/bin/g" }),
+          server("oauth", { url: "https://o/mcp" }),
+        ],
+      }),
+      {
+        ok: true,
+        servers: {
+          conn: { state: "connected", tools: 3 },
+          oauth: { state: "needs-auth", tools: 0 },
+        },
+        errors: [],
+      },
+    );
+    render(<McpSettings />);
+    await screen.findByTestId("mcp-server-row-conn");
+
+    expect(screen.getByTestId("mcp-live-conn").textContent).toContain("connected");
+    expect(screen.getByTestId("mcp-live-conn").textContent).toContain("3");
+    // absent from /live → state unknown
+    expect(screen.getByTestId("mcp-live-ghost").textContent).toContain("state unknown");
+
+    // needs-auth on an OAuth (no header/auth) row → sign-in hint naming /mcp login
+    expect(screen.getByTestId("mcp-signin-hint-oauth").textContent).toContain("/mcp login oauth");
+    // the connected stdio row has no hint
+    expect(screen.queryByTestId("mcp-signin-hint-conn")).toBeNull();
+  });
+
+  it("live ok:false renders every row as state unknown", async () => {
+    makeFetch(view({ servers: [server("srv", { command: "/bin/s" })] }), {
+      ok: false,
+      reason: "timeout",
+      message: "timed out",
+    });
+    render(<McpSettings />);
+    expect((await screen.findByTestId("mcp-live-srv")).textContent).toContain("state unknown");
+  });
+});
+
+describe("parse-error row", () => {
+  it("names the path + message and states that pi skips the file", async () => {
+    makeFetch(
+      view({
+        layers: [
+          { layer: "pi-global", path: "/h/.pi/agent/mcp.json", exists: true, ok: false, message: "Unexpected token }" },
+        ],
+      }),
+    );
+    render(<McpSettings />);
+    const row = await screen.findByTestId("mcp-layer-error");
+    expect(row.textContent).toContain("/h/.pi/agent/mcp.json");
+    expect(row.textContent).toContain("Unexpected token");
+    expect(row.textContent).toContain("skips");
+  });
+});
+
+describe("adapter leftovers: ignored-by-pi flag + convert", () => {
+  it("flags the ignored keys and converts on one click", async () => {
+    const { calls } = makeFetch(
+      view({
+        servers: [
+          server("legacy", { url: "https://x/mcp", disabled: true, directTools: ["a"], lifecycle: "lazy" }, {
+            adapterLeftovers: ["disabled", "directTools", "lifecycle"],
+            ignoredKeys: ["disabled", "directTools", "lifecycle"],
+          }),
+        ],
+      }),
+    );
+    render(<McpSettings />);
+    const flag = await screen.findByTestId("mcp-leftovers-legacy");
+    expect(flag.textContent).toContain("ignored by pi");
+    expect(flag.textContent).toContain("directTools");
+
+    fireEvent.click(screen.getByTestId("mcp-convert-legacy"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("mcp-leftovers-legacy")).toBeNull(),
+    );
+    const convert = calls.find((c) => c.method === "POST");
+    expect(convert?.url).toContain("/servers/legacy/convert");
+    expect(convert?.body).toEqual({ scope: "global" });
+  });
+});
+
+describe("row enable toggle (test-plan E28)", () => {
+  it("writes enabled:false at global scope, pending until the write, then disabled", async () => {
+    let releaseWrite: (value: unknown) => void = () => {};
+    const gate = new Promise((resolve) => {
+      releaseWrite = resolve;
+    });
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: test fetch router, one branch per route
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && u.includes("/effective")) {
+        return jsonOk(
+          view({ servers: [server("srv", { command: "/bin/s" })] }),
+        );
+      }
+      if (method === "GET" && u.includes("/live")) return jsonOk(LIVE_OK);
+      if (method === "GET" && u.includes("/schema")) return jsonOk({});
+      if (method === "PUT" && u.includes("/enabled")) {
+        await gate;
+        return jsonOk({ ok: true, action: "written" });
+      }
+      throw new Error(`unexpected request: ${method} ${u}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
+
     render(<McpSettings />);
     const toggle = await screen.findByTestId("mcp-server-toggle-srv");
     expect(isChecked("mcp-server-toggle-srv")).toBe(true);
 
     fireEvent.click(toggle);
-    await waitFor(() => expect(isChecked("mcp-server-toggle-srv")).toBe(false));
+    // pending: the switch is disabled until the write completes
+    expect(isDisabled("mcp-server-toggle-srv")).toBe(true);
+    expect(toggle.getAttribute("aria-busy")).toBe("true");
 
-    const put = fetchMock.mock.calls.find(([u]) => String(u).includes("/disabled"));
-    if (!put) throw new Error("no disabled PUT was issued");
+    releaseWrite(undefined);
+    await waitFor(() => expect(isChecked("mcp-server-toggle-srv")).toBe(false));
+    const put = fetchMock.mock.calls.find(
+      ([u, init]) => String(u).includes("/enabled") && (init as RequestInit | undefined)?.method === "PUT",
+    );
+    if (!put) throw new Error("no enabled PUT was issued");
     expect(JSON.parse(String((put[1] as RequestInit).body))).toEqual({
       scope: "global",
-      disabled: true,
+      enabled: false,
     });
   });
 
@@ -228,11 +293,12 @@ describe("row enable/disable (task 7.3)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {
-        if (String(url).includes("/effective")) {
-          return jsonOk(
-            view({ servers: [{ name: "srv", entry: { command: "/bin/s" }, provenance: PI_PROV }] }),
-          );
+        const u = String(url);
+        if (u.includes("/effective")) {
+          return jsonOk(view({ servers: [server("srv", { command: "/bin/s" })] }));
         }
+        if (u.includes("/live")) return jsonOk(LIVE_OK);
+        if (u.includes("/schema")) return jsonOk({});
         return jsonErr(500, { error: "write-failed", message: "disk full" });
       }),
     );
@@ -244,5 +310,27 @@ describe("row enable/disable (task 7.3)", () => {
     expect(error.textContent).toContain("disk full");
     expect(isChecked("mcp-server-toggle-srv")).toBe(true); // reverted
     expect(isDisabled("mcp-server-toggle-srv")).toBe(false);
+  });
+});
+
+describe("section chrome", () => {
+  it("renders skeleton rows until the effective view arrives", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    render(<McpSettings />);
+    expect(screen.getByTestId("mcp-list-skeleton")).toBeTruthy();
+  });
+
+  it("Add server is enabled and a generic load error renders", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes("/effective")) return jsonErr(500, { error: "boom", message: "boom" });
+        throw new Error(`unexpected request: ${u}`);
+      }),
+    );
+    render(<McpSettings />);
+    expect(await screen.findByTestId("mcp-error")).toBeTruthy();
+    expect(isDisabled("mcp-add-server")).toBe(false);
   });
 });

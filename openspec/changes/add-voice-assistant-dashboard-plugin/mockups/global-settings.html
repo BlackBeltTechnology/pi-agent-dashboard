@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Global settings</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
+  label { font-size: 12px; color: var(--text-secondary); display:block; margin-bottom: 4px; }
+  input, select { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 0.375rem; padding: 6px 8px; font-size: 13px; color: var(--text-primary); }
+  .field { margin-bottom: 14px; }
+  .hint { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-2xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-4">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Settings › Plugins › Voice assistant</h1>
+      <p class="text-sm" style="color:var(--text-tertiary)">/settings/plugins/voice-assistant — global <code>settings-section</code> (host-wide only)</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-2 py-1 rounded border text-xs" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+    </nav>
+  </header>
+
+  <form class="panel p-5">
+    <fieldset class="field" style="border:1px solid var(--border-primary); border-radius: 0.5rem; padding: 10px 12px;">
+      <legend class="text-xs px-1" style="color:var(--text-secondary)">Default models <span style="color:var(--text-muted)">— ui:model-selector, from GET /api/models</span></legend>
+      <div class="field">
+        <label for="m-copilot">Copilot</label>
+        <select id="m-copilot"><option>anthropic/claude-sonnet-4-5</option><option>pi default</option></select>
+      </div>
+      <div class="field" style="margin-bottom:4px">
+        <label for="m-trans">Transcriber</label>
+        <select id="m-trans"><option>google/gemini-2.5-flash</option><option>pi default</option></select>
+        <p class="hint">The transcriber does no LLM work — pick a cheap model.</p>
+      </div>
+      <p class="hint">Applies to every folder without an override. Override per folder in <a href="config-editor.html" style="color:var(--accent-blue)">Folder settings › Plugins › Voice assistant</a>.</p>
+    </fieldset>
+
+    <div class="field">
+      <label for="key">Soniox API key</label>
+      <input id="key" type="password" value="••••••••••••" />
+      <p class="hint" style="color:var(--severity-success-fg)">✓ Set — source: plugin credential store (overrides video-transcription .env)</p>
+    </div>
+
+    <div class="field">
+      <label>Voiceprint library</label>
+      <p class="text-sm" style="color:var(--text-primary)">7 speakers enrolled <span style="color:var(--text-muted)">— ~/.pi/voiceid/library</span></p>
+      <p class="hint"><a href="#" style="color:var(--accent-blue)">How to enroll with pi-voiceid →</a></p>
+    </div>
+
+    <fieldset class="field" style="border:1px solid var(--border-primary); border-radius: 0.5rem; padding: 10px 12px;">
+      <legend class="text-xs px-1" style="color:var(--text-secondary)">Meetings</legend>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+        <div class="field">
+          <label for="arch">Archive directory</label>
+          <input id="arch" value="docs/meetings" />
+          <p class="hint">Relative to each project root. Files are never committed.</p>
+        </div>
+        <div class="field">
+          <label for="prior">Prior meetings to pre-read</label>
+          <input id="prior" type="number" min="0" max="10" value="3" />
+          <p class="hint">Newest archived meetings given to a new copilot.</p>
+        </div>
+        <div class="field">
+          <label for="maxm">Maximum length (minutes)</label>
+          <input id="maxm" type="number" min="5" value="240" />
+          <p class="hint">The meeting stops and archives automatically when this is reached.</p>
+        </div>
+      </div>
+      <label class="check" style="font-size:13px; color:var(--text-primary); display:flex; gap:10px; margin-bottom:10px"><input type="checkbox" checked style="width:16px; margin-top:3px" /> <span>Name speakers from the voiceprint library<span class="hint" style="display:block">Diarizes the remote audio after the meeting. Skipped when the library is empty.</span></span></label>
+      <label class="check" style="font-size:13px; color:var(--text-primary); display:flex; gap:10px; margin-bottom:10px"><input type="checkbox" style="width:16px; margin-top:3px" /> <span>Keep recorded audio by default<span class="hint" style="display:block">Off: scratch audio is deleted after archiving. Can be changed per meeting in the start dialog.</span></span></label>
+      <div class="field" style="margin-bottom:0">
+        <label>Projects allowed to give the copilot a shell (<code>meeting+scripts</code>)</label>
+        <div class="text-sm p-2 rounded" style="background:var(--bg-tertiary); color:var(--text-primary)"><code>~/Project/acme-erp</code> <button type="button" class="text-xs ml-2 underline" style="color:var(--accent-blue)">Remove</button></div>
+        <p class="hint" style="color:var(--severity-warning-fg)">! Unconfined: the copilot can run any command the project allows, prompted by what is said in the meeting.</p>
+      </div>
+    </fieldset>
+
+    <p class="text-xs p-2 rounded" role="note" style="background:var(--bg-tertiary); color:var(--text-secondary)">Project config (language, STT backend, knowledge sources, alerts) lives in each folder's settings.</p>
+
+    <div class="flex items-center gap-2 mt-5">
+      <button type="submit" class="text-sm px-4 py-1.5 rounded" style="background:var(--accent-primary); color:white">Save</button>
+      <button type="button" class="text-sm px-4 py-1.5 rounded border" style="border-color:var(--border-primary); color:var(--text-secondary)">Revert</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>

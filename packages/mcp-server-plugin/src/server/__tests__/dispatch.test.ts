@@ -768,3 +768,28 @@ describe("fixed body fields are not client-overridable", () => {
     expect(opts.payload).toEqual({ action: "stop_after_turn" });
   });
 });
+
+// Every tools/call result is an MCP CallToolResult. Context- and session-bound
+// tools used to return the handler's raw object as `result`, which a strict
+// client (pi's built-in MCP: `content` → LLM blocks) reads as EMPTY content —
+// found by the X2 harness run (migrate-mcp-to-pi-builtin). The raw value now
+// rides as JSON text, exactly like the REST binder's envelope mapping.
+describe("tools/call always answers a CallToolResult", () => {
+  it("a context tool's raw value is wrapped as JSON text content", async () => {
+    const d = deps({ invokeTool: vi.fn(async () => ({ sessions: [{ id: "s1" }], total: 1 })) });
+    const r = await dispatchRpc(req("tools/call", { name: "list_sessions", arguments: {} }), MODERN, deviceCaller, d);
+    expect(r.status).toBe(200);
+    const result = (r.body as { result: { content: Array<{ type: string; text: string }>; isError?: boolean } }).result;
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0].type).toBe("text");
+    expect(JSON.parse(result.content[0].text)).toEqual({ sessions: [{ id: "s1" }], total: 1 });
+  });
+
+  it("a value that already is a CallToolResult passes through unchanged", async () => {
+    const already = { content: [{ type: "text", text: "hi" }], isError: true };
+    const d = deps({ invokeTool: vi.fn(async () => already) });
+    const r = await dispatchRpc(req("tools/call", { name: "list_sessions", arguments: {} }), MODERN, deviceCaller, d);
+    expect((r.body as { result: unknown }).result).toEqual(already);
+  });
+});

@@ -78,6 +78,7 @@ import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
+import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
 import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
@@ -236,6 +237,10 @@ interface Config {
   allowedHosts?: string[];
   /** Host-gate rollout mode; `PI_DASHBOARD_HOST_GATE` overrides it server-side. */
   hostGate?: { mode: HostGateMode };
+  /** Agent path gate (ask before out-of-workspace read/write/edit). See change: ask-agent-file-access-in-chat. */
+  agentPathGate?: { enabled: boolean; timeoutSeconds: number };
+  /** Computed by GET /api/config (never persisted): `PI_DASHBOARD_AGENT_PATH_GATE` as set on the server. */
+  agentPathGateEnvOverride?: "on" | "off" | null;
   openspec?: {
     enabled?: boolean;
     pollIntervalSeconds?: number;
@@ -295,7 +300,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
-  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security",
+  trustedNetworks: "security", auth: "security", allowedHosts: "security", hostGate: "security", agentPathGate: "security",
   modelProxy: "providers",
   openspec: "openspec",
   devBuildOnReload: "developer", keeperLog: "developer",
@@ -380,8 +385,14 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   if (JSON.stringify(config.allowedHosts ?? []) !== JSON.stringify(original.allowedHosts ?? [])) {
     partial.allowedHosts = config.allowedHosts ?? [];
   }
-  if ((config.hostGate?.mode ?? "report") !== (original.hostGate?.mode ?? "report")) {
-    partial.hostGate = { mode: config.hostGate?.mode ?? "report" };
+  if ((config.hostGate?.mode ?? "enforce") !== (original.hostGate?.mode ?? "enforce")) {
+    partial.hostGate = { mode: config.hostGate?.mode ?? "enforce" };
+  }
+  // Agent path gate: two flat fields, written whole (server shallow-merges the sub-object).
+  {
+    const a = config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
+    const b = original.agentPathGate ?? { enabled: true, timeoutSeconds: 120 };
+    if (a.enabled !== b.enabled || a.timeoutSeconds !== b.timeoutSeconds) partial.agentPathGate = { enabled: a.enabled, timeoutSeconds: a.timeoutSeconds };
   }
   /**
    * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
@@ -2308,11 +2319,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     panel draft; the section itself never writes.
                     See change: add-host-allowlist-admission. */}
                 <AllowedHostsSection
-                  mode={config.hostGate?.mode ?? "report"}
+                  mode={config.hostGate?.mode ?? "enforce"}
                   allowedHosts={config.allowedHosts ?? []}
                   onModeChange={(mode) => update((c) => { c.hostGate = { mode }; })}
                   onAllowedHostsChange={(hosts) => update((c) => { c.allowedHosts = hosts; })}
                   onNavigate={navigate}
+                />
+                <AgentPathGateSection
+                  value={config.agentPathGate ?? { enabled: true, timeoutSeconds: 120 }}
+                  envOverride={config.agentPathGateEnvOverride ?? null}
+                  onChange={(next) => update((c) => { c.agentPathGate = next; })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
                   {/* A route, not a duplicate (D2): Security keeps the words an

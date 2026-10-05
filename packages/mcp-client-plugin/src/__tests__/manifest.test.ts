@@ -1,7 +1,7 @@
 /**
  * Manifest validation for the mcp-client-plugin `pi-dashboard-plugin` block.
- * Covers task 1.1 (id, claims, adapter requirement, config schema).
- * See change: extract-mcp-client-plugin.
+ * Covers id, claims, no adapter requirement, no config schema.
+ * See change: migrate-mcp-to-pi-builtin; earlier: extract-mcp-client-plugin.
  */
 
 import { readFileSync } from "node:fs";
@@ -32,9 +32,11 @@ describe("mcp-client-plugin manifest", () => {
     expect(v.client).toBeTruthy();
   });
 
-  it("requires pi-mcp-adapter and no other first-party plugin declares it here", () => {
+  it("declares no pi-mcp-adapter requirement or dependency (built-in MCP only)", () => {
     const v = validateManifest(manifest, "mcp-client");
-    expect(v.requires?.piExtensions).toContain("pi-mcp-adapter");
+    expect(v.requires?.piExtensions ?? []).not.toContain("pi-mcp-adapter");
+    expect(Object.keys((pkg.dependencies ?? {}) as Record<string, string>)).not.toContain("pi-mcp-adapter");
+    expect(Object.keys((pkg.dependencies ?? {}) as Record<string, string>)).not.toContain("strip-json-comments");
   });
 
   it("declares the settings-section + both folder slots + the MCP folder overlay", () => {
@@ -55,8 +57,8 @@ describe("mcp-client-plugin manifest", () => {
     expect(overlay.depth).toBe(2);
   });
 
-  it("declares the host config schema for adapterLoadTimeoutMs", () => {
+  it("declares no plugin config schema (the adapter timeout setting is gone)", () => {
     const v = validateManifest(manifest, "mcp-client");
-    expect(v.configSchema).toBe("./configSchema.json");
+    expect(v.configSchema).toBeUndefined();
   });
 });

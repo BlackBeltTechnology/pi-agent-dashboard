@@ -8,17 +8,20 @@ Unified primitive for spawning the dashboard server across all callers (extensio
 
 ### Requirement: Single shared dashboard-server spawn primitive
 
-All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts)` exported from `packages/shared/src/server-launcher.ts`. No source file outside this module AND `node-spawn.ts` MAY construct `node --import <loader> <cli>` argv directly. Internally, `launchDashboardServer` SHALL delegate argv construction to `spawnNodeScript` in `packages/shared/src/platform/node-spawn.ts`, which itself uses the shared pure helper `buildNodeImportArgvParts({ loader, entry, args })`. The `restart-helper.ts` `node -e` orchestrator (which runs in a fresh process and cannot call `launchDashboardServer` directly) SHALL also call `buildNodeImportArgvParts` for argv construction.
+All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts)` exported from `packages/shared/src/server-launcher.ts`. No source file under `packages/*/src/` outside this module AND `node-spawn.ts` MAY construct dashboard-server `node --import <loader> <cli>` argv directly. Two exceptions are deliberate: the pre-loader CLI wrapper `packages/server/bin/pi-dashboard.mjs`, specified by `dashboard-server` "CLI bin entry resolves jiti at runtime", and per-line `ban:raw-node-import-ok` opt-outs for non-server Node children. Internally, `launchDashboardServer` SHALL delegate argv construction to `spawnNodeScript` in `packages/shared/src/platform/node-spawn.ts`, which itself uses the shared pure helper `buildNodeImportArgvParts({ loader, entry, args })`. The `restart-helper.ts` `node -e` orchestrator (which runs in a fresh process and cannot call `launchDashboardServer` directly) SHALL also call `buildNodeImportArgvParts` for argv construction.
 
-**Env merge contract (clarified).** `launchDashboardServer` SHALL internally compute the spawn env as `ToolResolver.buildSpawnEnv(process.env)` (yielding PATH augmented with managed-dir, bundled-node, and pi-bin prepends), then overlay any caller-supplied `opts.env` on top with caller-wins semantics. **Callers MUST NOT pass `env: { ...process.env }` (or any equivalent that re-supplies the full `process.env`), because doing so overlays the raw, un-augmented `PATH` back over the augmented base, defeating the entire purpose of `buildSpawnEnv`.** Callers SHALL pass `env` only when they intend to inject narrow overrides (e.g. `DASHBOARD_STARTER`, `ELECTRON_RUN_AS_NODE`); for all other cases, `env` SHALL be omitted.
+**Env merge contract (clarified).** `launchDashboardServer` SHALL internally compute the spawn env as `ToolResolver.buildSpawnEnv(process.env)` (yielding PATH augmented with managed-dir, bundled-node, and pi-bin prepends), then overlay any caller-supplied `opts.env` on top with caller-wins semantics. **Callers MUST NOT pass `env: { ...process.env }` (or any equivalent that re-supplies the full `process.env`), because doing so overlays the raw, un-augmented `PATH` back over the augmented base, defeating the entire purpose of `buildSpawnEnv`.** Callers SHALL pass `env` only to inject narrow overrides (e.g. `DASHBOARD_STARTER`, `ELECTRON_RUN_AS_NODE`), or, as Electron's `spawnFromSource` does, an env built from `ToolResolver.buildSpawnEnv(process.env)` plus such overrides. In all other cases `env` SHALL be omitted.
 
 #### Scenario: Entry-script URL-wrapping rule preserved
 
-- **WHEN** the loader is jiti AND the host platform is POSIX
-- **THEN** the entry script is passed as a raw path (jiti's resolver mishandles `file://` URL entries on POSIX)
-- **AND WHEN** the host platform is Windows OR the loader is tsx
+- **WHEN** the loader is jiti or tsx, on any host platform
+- **THEN** the entry script is passed as a raw path (tsx rejects `file://` entries on every OS; jiti misnormalises `file:///` entries on Windows)
+- **AND WHEN** the loader is neither jiti nor tsx AND the host platform is Windows
 - **THEN** the entry script is URL-wrapped via `toFileUrl()`
-- **AND** this rule is owned by `shouldUrlWrapEntry(loader)` in `node-spawn.ts` and pinned by tests in both `node-spawn.test.ts` and `server-launcher.test.ts`
+- **AND WHEN** the loader is neither jiti nor tsx AND the host platform is POSIX
+- **THEN** the entry script is passed as a raw path
+- **AND** the loader position is always URL-wrapped via `toFileUrl()`
+- **AND** this rule is owned by `shouldUrlWrapEntry(loader, platform)` in `node-spawn.ts` and pinned by tests in `node-spawn.test.ts` and `node-spawn-jiti-contract.test.ts`; `server-launcher.test.ts` pins only that the launcher forwards `cliPath` unchanged to `spawnNodeScript`
 
 #### Scenario: Extension auto-spawn
 
@@ -43,7 +46,7 @@ All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts
 #### Scenario: CLI `pi-dashboard start`
 
 - **WHEN** `cmdStart` runs in `packages/server/src/cli.ts`
-- **THEN** it calls `launchDashboardServer({ cliPath, stdio: { logFile }, healthTimeoutMs: 30000, starter: "Standalone", port })` **without** an `env` field
+- **THEN** it calls `launchDashboardServer({ cliPath, extraArgs: args, stdio: { logFile }, healthTimeoutMs: 30000, starter: "Standalone", port })` **without** an `env` field
 - **AND** the spawned child therefore inherits the augmented PATH from `ToolResolver.buildSpawnEnv(process.env)` (managed-dir + bundled-node + pi-bin prepended), not the raw `process.env.PATH`
 - **AND** the regression-prevention test `cli-env-no-clobber.test.ts` SHALL fail if `packages/server/src/cli.ts` contains `env: { ...process.env }` anywhere
 
@@ -57,13 +60,13 @@ All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts
 
 - **WHEN** the repo-lint test `no-raw-node-import` runs
 - **THEN** the `ALLOWLIST` constant contains exactly `packages/shared/src/platform/node-spawn.ts` and `packages/shared/src/server-launcher.ts`
-- **AND** no source file in `packages/{extension,server,electron}/src/` contains the `ban:raw-node-import-ok` marker
+- **AND** the only `ban:raw-node-import-ok` marker in `packages/{extension,server,electron}/src/` is the worker `execArgv` line in `packages/server/src/attachments/fit-worker-pool.ts`, which is not a dashboard-server spawn
 
 #### Scenario: Restart orchestrator spawn
 
 - **WHEN** the `/api/restart` orchestrator (`restart-helper.ts`) re-spawns the new server inside its embedded `node -e` script
 - **THEN** the spawn argv is constructed via `buildNodeImportArgvParts` (the same builder used by `launchDashboardServer`)
-- **AND** the env passed to the spawned `node -e` orchestrator process is `{ ...process.env }` (the orchestrator itself runs as a detached node process; its own env is inherited from the dying server; this is distinct from the env the orchestrator then passes to the new server child, which the orchestrator-embedded script handles via the same `launchDashboardServer` env contract)
+- **AND** the env passed to the spawned `node -e` orchestrator process is `buildRestartEnv(process.env, <configured serverHeap.maxOldSpaceMb>)`: a copy of the dying server's env with the configured heap ceiling re-stamped (see "The dashboard server's heap ceiling is config-derived"). The orchestrator hands this env to the new server unchanged.
 
 ### Requirement: Readiness policy with four termination conditions
 
@@ -118,41 +121,6 @@ The absolute log-file path is **caller-owned**. Conventions in the migrated tree
 - **WHEN** `launchDashboardServer({ stdio: { logFile } })` runs
 - **THEN** the log file contains the header line for this launch on the first byte after the previous run's content (append mode preserves history)
 - **AND** the parent process closes its copy of the fd after `spawn`
-
-### Requirement: Unified jiti resolution via `ToolResolver`
-
-`ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for each entry of `["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"]`, primary then legacy) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, legacy fallback). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the same `JitiResolver` test-injection seam currently exposed by `pickJitiRegisterUrl` / `pickJitiFromAnchor`, carried over so existing tests port without rewrite.
-
-#### Scenario: Managed pi present (upstream)
-
-- **WHEN** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` exists and resolves `jiti/package.json`
-- **THEN** `resolveJiti()` returns a `file://` URL pointing at the upstream `jiti/lib/jiti-register.mjs`
-
-#### Scenario: Managed pi present (legacy fork)
-
-- **WHEN** managed pi is the legacy `@mariozechner/pi-coding-agent` shipping `@mariozechner/jiti`
-- **THEN** `resolveJiti()` falls through to the legacy package and returns its register URL
-
-#### Scenario: System pi only
-
-- **WHEN** managed pi is absent but `which("pi")` resolves and pi's tree contains jiti
-- **THEN** `resolveJiti()` returns the system pi's `jiti-register.mjs` as a `file://` URL
-
-#### Scenario: Anchor walk-up (Electron packaged)
-
-- **WHEN** `process.argv[1]` is empty or a flag (packaged Electron) and `opts.anchor` is a valid `cliPath` inside a `node_modules` tree containing jiti
-- **THEN** `resolveJiti({ anchor: cliPath })` returns the jiti URL resolved from that tree
-
-#### Scenario: Windows drive-letter wrapping
-
-- **WHEN** the resolved jiti path begins with `B:\` or any other URL-scheme-colliding drive letter
-- **THEN** `resolveJiti()` returns `file:///B:/.../jiti-register.mjs` (drive letter URL-wrapped, backslashes normalised to forward slashes)
-
-#### Scenario: All sources missing
-
-- **WHEN** none of managed, system, anchor, or argv yield a jiti path
-- **THEN** `resolveJiti()` returns null
-- **AND** `launchDashboardServer` raises `JitiNotFoundError` when its caller did not supply a usable anchor
 
 ### Requirement: Removed predecessors
 
@@ -404,3 +372,39 @@ The respawn SHALL read the ceiling from configuration at restart time, so a
 #### Scenario: Restart does not duplicate an existing pin
 - **WHEN** the restart respawn would re-apply a ceiling the environment already pins
 - **THEN** the operator's pin SHALL remain in effect and SHALL NOT be shadowed by the re-stamp
+
+### Requirement: Unified jiti resolution via `ToolResolver` anchored at earendil pi
+
+`ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for `@earendil-works/pi-coding-agent` only) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, namespaced-jiti fallback; `@mariozechner/jiti` is a loader package, unrelated to the dropped pi fork). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the `JitiResolver` test-injection seam.
+
+#### Scenario: Managed pi present (upstream)
+
+- **WHEN** `~/.pi-dashboard/node_modules/@earendil-works/pi-coding-agent` exists and resolves `jiti/package.json`
+- **THEN** `resolveJiti()` returns a `file://` URL pointing at the upstream `jiti/lib/jiti-register.mjs`
+
+#### Scenario: Managed legacy fork is not an anchor
+
+- **WHEN** `~/.pi-dashboard/node_modules/` contains only `@mariozechner/pi-coding-agent`
+- **THEN** `resolveJiti()` SHALL NOT anchor at it
+- **AND** resolution SHALL continue with system pi, `opts.anchor`, then `process.argv[1]`
+
+#### Scenario: System pi only
+
+- **WHEN** managed pi is absent but `which("pi")` resolves and pi's tree contains jiti
+- **THEN** `resolveJiti()` returns the system pi's `jiti-register.mjs` as a `file://` URL
+
+#### Scenario: Anchor walk-up (Electron packaged)
+
+- **WHEN** `process.argv[1]` is empty or a flag (packaged Electron) and `opts.anchor` is a valid `cliPath` inside a `node_modules` tree containing jiti
+- **THEN** `resolveJiti({ anchor: cliPath })` returns the jiti URL resolved from that tree
+
+#### Scenario: Windows drive-letter wrapping
+
+- **WHEN** the resolved jiti path begins with `B:\` or any other URL-scheme-colliding drive letter
+- **THEN** `resolveJiti()` returns `file:///B:/.../jiti-register.mjs` (drive letter URL-wrapped, backslashes normalised to forward slashes)
+
+#### Scenario: All sources missing
+
+- **WHEN** none of managed, system, anchor, or argv yield a jiti path
+- **THEN** `resolveJiti()` returns null
+- **AND** `launchDashboardServer` raises `JitiNotFoundError` when its caller did not supply a usable anchor

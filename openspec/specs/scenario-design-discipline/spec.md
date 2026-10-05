@@ -2,17 +2,19 @@
 
 ## Purpose
 TBD - created by archiving change elevate-scenario-design-to-eng-disciplines. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: scenario-design ships inside the published eng-disciplines package
 
-The `scenario-design` skill SHALL live under `packages/eng-disciplines/.pi/skills/scenario-design/` and SHALL be registered in that package's `pi.skills[]` manifest so any pi session that loads `@blackbelt-technology/pi-dashboard-eng-disciplines` discovers it by natural-language trigger. The skill directory SHALL contain only its canonical files (`SKILL.md` + `references/*.md`) and SHALL NOT carry orphan per-file `*.AGENTS.md` doc sidecars — its DOX detail lives inline in `packages/eng-disciplines/AGENTS.md`, matching the package's 8 sibling skills.
+The `scenario-design` skill SHALL live under `packages/eng-disciplines/.pi/skills/scenario-design/` and SHALL be registered in that package's `pi.skills[]` manifest so any pi session that loads `@blackbelt-technology/pi-dashboard-eng-disciplines` discovers it by natural-language trigger. The skill directory SHALL contain only its canonical files (`SKILL.md` + `references/*.md`) and SHALL NOT carry orphan per-file `*.AGENTS.md` doc sidecars — its DOX detail lives inline in `packages/eng-disciplines/AGENTS.md`, like its sibling skills.
 
 #### Scenario: eng-disciplines session discovers scenario-design
 
 - **WHEN** a pi session loads the eng-disciplines package
 - **THEN** `scenario-design` appears in the available-skills list
 - **AND** its NL triggers ("design test scenarios", "find edge cases", "is this spec testable") load the full SKILL.md body
-- **AND** the skill count registered in `pi.skills[]` is 9 (previous 8 + scenario-design)
+- **AND** `scenario-design` is one entry of the package's `pi.skills[]` (the total count is not fixed; sibling skills are added over time)
 
 #### Scenario: exactly one source of the skill exists
 
@@ -58,4 +60,3 @@ The skill SHALL treat the test-plan output location as a parameter ("write to yo
 - **WHEN** comparing the moved skill to the original
 - **THEN** the Triple (`input · trigger · observable`), the ISTQB technique cheatsheet, the "scenario ≠ smoke" rule, and the STOP-and-ask clarification gate are preserved
 - **AND** the guardrails (never invent a missing value; never write app/test code; offer, don't auto-fold) are preserved
-

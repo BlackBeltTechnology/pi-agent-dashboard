@@ -32,8 +32,10 @@ All other requests SHALL receive a **403 with a self-describing JSON body** of t
 
 The existing `localhostGuard` export SHALL be preserved for backward compatibility.
 
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Loopback IP allowed
-- **WHEN** a request arrives from `127.0.0.1` with no proxy-forwarding header
+- **WHEN** `requireLocalProof` is disabled and a request arrives from `127.0.0.1` with no proxy-forwarding header
 - **THEN** the guard SHALL allow the request regardless of trustedNetworks or authentication
 
 #### Scenario: Relayed loopback not allowed by loopback alone
@@ -111,6 +113,8 @@ required for a route to be protected.
 
 ### Requirement: WebSocket upgrade respects trusted networks
 The WebSocket upgrade handler in `server.ts` SHALL check trusted networks in addition to genuine-local, local-IPC token, ticket and auth. A connection SHALL be allowed without authentication when `isTrustedSource(remoteAddress, headers, trustedNetworks)` is `true`. The `validateWsUpgrade` function SHALL accept the trusted networks list and the upgrade headers and SHALL use `isTrustedSource`.
+
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
 #### Scenario: WebSocket from trusted network without auth
 - **WHEN** a WebSocket upgrade arrives from `192.168.1.42` with `trustedNetworks: ["192.168.1.0/24"]` and no auth cookie
@@ -239,7 +243,7 @@ The top-level `config.trustedNetworks` field SHALL remain readable and SHALL con
 ### Requirement: auth.bypassHosts honored without OAuth providers
 The config module SHALL treat `config.auth.bypassHosts` and `config.auth.bypassUrls` as first-class configuration fields that are honored at load time regardless of whether `config.auth.providers` is present or non-empty. Specifically, `loadConfig()` SHALL produce a non-empty `resolvedTrustedNetworks` array whenever `config.auth.bypassHosts` contains entries, even if `config.auth.providers` is `{}` or absent. The existing merge semantics (deduplication, precedence, wildcard/CIDR/exact-IP formats) SHALL continue to apply.
 
-The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no OAuth routes registered, no `onRequest` hook installed, no cookie plugin initialized. The bypassHosts behaviour SHALL be served entirely through `resolvedTrustedNetworks` and the network guard.
+The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no OAuth routes registered, no `onRequest` hook installed. Cookie parsing (`@fastify/cookie`) SHALL be registered once at server level, independent of providers, and SHALL NOT by itself authenticate any request. The bypassHosts behaviour SHALL be served entirely through `resolvedTrustedNetworks` and the network guard.
 
 #### Scenario: bypassHosts configured without providers
 - **WHEN** config contains `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and no top-level `trustedNetworks`
@@ -269,12 +273,14 @@ The auth plugin SHALL continue to no-op when `providerRegistry.size === 0`: no O
 #### Scenario: Auth plugin stays inactive with bypassHosts-only config
 - **WHEN** the server starts with `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }`
 - **THEN** no OAuth routes (`/auth/login`, `/auth/callback`, etc.) SHALL be registered
-- **AND** no cookie plugin SHALL be registered
+- **AND** the auth plugin SHALL register no cookie plugin of its own (the server-level cookie parser is unaffected)
 - **AND** `request.isAuthenticated` SHALL default to `false` for all requests
 - **AND** the network guard SHALL still admit requests from `192.168.1.0/24` via `resolvedTrustedNetworks`
 
 ### Requirement: WebSocket upgrade admits bypassHosts trust without OAuth
 The WebSocket upgrade handler in `server.ts` SHALL admit a connection from an IP matching `resolvedTrustedNetworks` regardless of whether OAuth is configured. When `config.authConfig` is absent or its resolved provider registry is empty, the upgrade SHALL NOT require a JWT cookie; the IP match alone SHALL be sufficient to proceed.
+
+When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
 
 #### Scenario: WebSocket upgrade from bypassHosts-only trusted network
 - **WHEN** config is `{ "auth": { "providers": {}, "bypassHosts": ["192.168.1.0/24"] } }` and a WebSocket upgrade request arrives from `192.168.1.42` with no auth cookie
@@ -293,6 +299,8 @@ provider registry is empty, `request.isAuthenticated` SHALL default to `false`
 non-trusted, non-exception in-jurisdiction requests. Enforcement SHALL NOT depend
 on the conditional OAuth `onRequest` hook being registered.
 
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: plugin route denied over tunnel with auth off
 - **WHEN** auth is not configured and a proxied/tunneled request (forwarding headers present, so not genuine-local) arrives at `POST /api/plugins/automation/create` from an untrusted IP
 - **THEN** the guard SHALL deny the request with 403, write no automation file, and spawn no agent
@@ -302,7 +310,7 @@ on the conditional OAuth `onRequest` hook being registered.
 - **THEN** the guard SHALL deny the request with 403
 
 #### Scenario: loopback allowed with auth off
-- **WHEN** auth is not configured and a genuine-local loopback request arrives at a guarded route
+- **WHEN** `requireLocalProof` is disabled and auth is not configured and a genuine-local loopback request arrives at a guarded route
 - **THEN** the guard SHALL allow the request
 
 ### Requirement: Guard jurisdiction and in-namespace public exceptions
@@ -558,6 +566,8 @@ Every decision that admits or exempts a request because its source IP matches `t
 
 This applies to: the HTTP network guard and universal hook, the OAuth `onRequest` bypass-host skip, the WebSocket upgrade with auth configured, the WebSocket upgrade with auth not configured, and the device-tier exemption.
 
+When `requireLocalProof` is enabled, `isTrustedSource` SHALL additionally return `false` for a loopback-range peer that presents no local proof (local token or local-proof cookie), as specified by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Tunnel request with loopback trusted entry is denied
 - **GIVEN** `trustedNetworks: ["127.0.0.1"]`, auth not configured
 - **WHEN** `GET /api/sessions` arrives from peer `127.0.0.1` carrying `X-Forwarded-For: 203.0.113.9`
@@ -589,7 +599,7 @@ This applies to: the HTTP network guard and universal hook, the OAuth `onRequest
 - **THEN** the request SHALL be admitted via `isAuthenticated` and device-tier checks SHALL apply (no trusted-network tier exemption)
 
 #### Scenario: Genuine local request unaffected
-- **WHEN** a request arrives from peer `127.0.0.1` with no forwarding header
+- **WHEN** `requireLocalProof` is disabled and a request arrives from peer `127.0.0.1` with no forwarding header
 - **THEN** it SHALL be admitted by the genuine-local condition, independent of `trustedNetworks`
 
 #### Scenario: LAN trusted CIDR unaffected

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Stop, archive, outcome</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>
+  .card { background:var(--bg-primary); border:1px solid var(--border-subtle); border-radius:12px; box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); padding:10px 12px; }
+  .card-title { font-size:13px; font-weight:700; color:var(--text-primary); }
+  .card-meta { font-size:11px; color:var(--text-secondary); }
+  .bar-btn { font-size:11px; padding:2px 8px; min-height:24px; border-radius:4px; border:1px solid; background:transparent; cursor:pointer; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Stop → archive → outcome</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">Stop sequence (D8): <code>/voice-stop</code> → speaker naming → archive → <code>/voice-meeting-ended</code> notes turn → end sessions → stop wall → reindex.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <!-- A · confirm -->
+    <section aria-label="Stop confirmation">
+      <div class="state-title">A · Stop confirmation</div>
+      <div class="scrim">
+        <div class="dialog" style="max-width:420px" role="alertdialog" aria-modal="true" aria-labelledby="s-h" aria-describedby="s-d">
+          <div class="dlg-head"><h2 id="s-h" class="text-base font-bold" style="color:var(--text-primary)">Stop meeting?</h2></div>
+          <div class="dlg-body" id="s-d">
+            <ul class="disclose text-sm" style="padding-left:18px; color:var(--text-primary); line-height:1.6">
+              <li>Capture stops after <b>42 min</b>.</li>
+              <li>The transcript is archived to <code>docs/meetings/</code>, and the copilot then writes notes.</li>
+              <li>Copilot, transcriber and live wall close.</li>
+            </ul>
+          </div>
+          <div class="dlg-foot">
+            <button class="btn-secondary" autofocus>Keep running</button>
+            <button class="btn-danger">Stop and archive</button>
+          </div>
+        </div>
+      </div>
+      <p class="caption">A stop cannot be undone: once capture stops it can't resume into the same meeting. So it gets a confirmation with a specific verb (<i>Stop and archive</i>), and focus starts on the safe option (Nielsen #5 error prevention; NN/g confirmation dialogs). A <b>dry run</b> uses the same dialog with <i>Stop dry run</i> and the archive line removed.</p>
+    </section>
+
+    <!-- B · progress -->
+    <section aria-label="Stop progress">
+      <div class="state-title">B · Progress popover (activate the pill while stopping)</div>
+      <div class="menu p-3" style="max-width:340px" role="status" aria-live="polite">
+        <div class="text-sm font-bold mb-2" style="color:var(--text-primary)">Finishing meeting · acme-erp</div>
+        <ol class="steps">
+          <li data-s="done"><span class="ic ok">✓</span>Capture stopped · 42:07</li>
+          <li data-s="done"><span class="ic ok">✓</span>Speakers named · 3 of 4</li>
+          <li data-s="now"><span class="ic"><span class="spin"></span></span>Archiving transcript</li>
+          <li data-s="todo"><span class="ic">○</span>Copilot writes notes</li>
+          <li data-s="todo"><span class="ic">○</span>Closing sessions and live wall</li>
+          <li data-s="todo"><span class="ic">○</span>Reindexing knowledge base</li>
+        </ol>
+        <p class="text-xs mt-3" style="color:var(--text-secondary)">You can close this; it finishes in the background.</p>
+      </div>
+      <p class="caption">A stepper for a multi-step background process: done, current and remaining steps, with an explicit "you can leave" line (Nielsen #1; NN/g progress indicators: anything over 10 s needs a determinate indicator). It is <code>aria-live=polite</code>, so screen readers hear each step.</p>
+    </section>
+
+    <!-- C · outcome toasts -->
+    <section aria-label="Outcome toasts" class="lg:col-span-2">
+      <div class="state-title">C · Outcome toasts (persist until dismissed)</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="toast" role="status">
+          <span class="ok font-bold" aria-hidden="true">✓</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold">Meeting archived</div>
+            <div class="mono text-xs mt-1" style="color:var(--text-secondary); overflow-wrap:anywhere">docs/meetings/2026-10-05-sprint-42-planning.md</div>
+            <div class="text-xs mt-1" style="color:var(--text-secondary)">Speakers: Anna K., Béla T. <span title="machine-assigned">(auto)</span>, Speaker 3</div>
+            <div class="flex gap-3 mt-2 text-xs"><button class="link">Open transcript</button><button class="link">Open notes</button></div>
+          </div>
+          <button class="btn-ghost" aria-label="Dismiss" style="padding:2px 6px">✕</button>
+        </div>
+        <div class="toast" role="status">
+          <span class="warn font-bold" aria-hidden="true">!</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold">Archived without speaker names</div>
+            <div class="text-xs mt-1" style="color:var(--text-secondary)">The voiceprint library is empty, so lines are labelled <i>mic</i> / <i>Speaker n</i>.</div>
+            <div class="flex gap-3 mt-2 text-xs"><button class="link">Open transcript</button><a class="link" href="global-settings.html">Enroll voices</a></div>
+          </div>
+          <button class="btn-ghost" aria-label="Dismiss" style="padding:2px 6px">✕</button>
+        </div>
+        <div class="toast" role="status">
+          <span class="warn font-bold" aria-hidden="true">!</span>
+          <div class="flex-1 min-w-0">
+            <div class="font-bold">Archived. Notes were not written.</div>
+            <div class="text-xs mt-1" style="color:var(--text-secondary)">The copilot turn failed (model timeout). The transcript is safe and indexed.</div>
+            <div class="flex gap-3 mt-2 text-xs"><button class="link">Open transcript</button><button class="link">Open copilot</button></div>
+          </div>
+          <button class="btn-ghost" aria-label="Dismiss" style="padding:2px 6px">✕</button>
+        </div>
+      </div>
+      <p class="caption">Each outcome says what succeeded first, then what didn't, then the next step. Naming and notes failures never block the archive (spec), so they are amber warnings, not errors. Toasts carrying links persist until dismissed (WCAG 2.2.1 timing adjustable). Machine-assigned names carry an <i>(auto)</i> marker, mirroring the frontmatter flag.</p>
+    </section>
+
+    <!-- D · spawned session cards -->
+    <section aria-label="Spawned session cards" class="lg:col-span-2">
+      <div class="state-title">D · The meeting's own sessions in the session list (D18 role badge + Stop)</div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="card">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="card-title flex-1 truncate">Sprint 42 planning: copilot</span>
+            <span class="role">◆ meeting copilot</span>
+          </div>
+          <div class="card-meta">anthropic/claude-sonnet-4-5 · tools: meeting · pre-read 7/7</div>
+          <div class="flex gap-1.5 mt-2">
+            <button class="bar-btn" style="border-color:var(--severity-error-border); color:var(--severity-error-fg)">■ Stop meeting</button>
+            <button class="bar-btn" style="border-color:var(--border-primary); color:var(--text-secondary)">▣ Live wall</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="card-title flex-1 truncate">Sprint 42 planning: transcriber</span>
+            <span class="role">≋ meeting transcriber</span>
+          </div>
+          <div class="card-meta">mic + system · robson-mbp · 1,204 lines · no tools</div>
+          <div class="flex gap-1.5 mt-2">
+            <button class="bar-btn" style="border-color:var(--severity-error-border); color:var(--severity-error-fg)">■ Stop meeting</button>
+          </div>
+        </div>
+      </div>
+      <p class="caption">Both sessions show <i>whose</i> they are, so nobody prompts the transcriber by mistake or ends it as a stray session. <b>Stop meeting</b> on either card runs the same full stop sequence; ending one session alone would leave the other running (Gestalt common region; Nielsen #2 match the user's model: "the meeting", not two processes).</p>
+    </section>
+
+  </div>
+</div>
+</body>
+</html>

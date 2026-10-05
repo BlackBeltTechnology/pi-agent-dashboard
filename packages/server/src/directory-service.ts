@@ -44,6 +44,7 @@ import type { HeadInfo } from "./git-worktree/git-operations.js";
 import { resolveConfigRoot } from "./git-worktree/git-operations.js";
 import type { HydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec/openspec-change-watcher.js";
+import { createPiResourcesWatcher, type PiResourcesWatcher, type PiWatchFn } from "./pi/pi-resources-watcher.js";
 import {
   effectiveMtimeOr,
   perChangeArtifactPaths,
@@ -183,6 +184,17 @@ export interface DirectoryService {
   getOpenSpecData(cwd: string): OpenSpecData | undefined;
   /** Force refresh: bypasses the mtime gate. Still honors the semaphore. */
   refreshOpenSpec(cwd: string): Promise<OpenSpecData>;
+  /**
+   * Gated force-refresh for the browser-initiated `openspec_refresh` message
+   * (D1). Applies the same admission chain as `getOrPollOpenSpec`, in its
+   * order: `enabled:false` → opted out → tracked → `<cwd>/openspec/` root,
+   * the fs probe deliberately LAST so an untracked cwd never touches the
+   * filesystem. Any gate failure resolves `null` with NO cache write, NO
+   * spawn and NO fs probe; a pass delegates to `refreshOpenSpec` (whose
+   * un-gated contract its four internal callers depend on stays untouched).
+   * See change: harden-server-request-surfaces (D1).
+   */
+  refreshOpenSpecGated(cwd: string): Promise<OpenSpecData | null>;
   /** Gated poll: respects `changeDetection` config and the semaphore. Returns cached data. */
   pollDirectoryGated(cwd: string): Promise<OpenSpecData>;
   /**
@@ -196,7 +208,14 @@ export interface DirectoryService {
    * See change: fix-connect-snapshot-frame-loss (D6).
    */
   getOrPollOpenSpec(cwd: string): { hit?: OpenSpecData; poll?: Promise<OpenSpecData> };
-  getPiResources(cwd: string): PiResourcesResult | undefined;
+  /**
+   * Cached pi-resources for `cwd` (stale-while-revalidate). `stale` = a watch
+   * event invalidated it or it is ≥ 5 min old: the caller serves it AND starts
+   * a background `refreshPiResources`. `undefined` = cold (never scanned).
+   * See change: optimize-polling-hot-paths (D9).
+   */
+  getPiResources(cwd: string): { data: PiResourcesResult; stale: boolean } | undefined;
+  /** Scan now (deduped per cwd) and store the result. */
   refreshPiResources(cwd: string): Promise<PiResourcesResult>;
   /**
    * Subscribe to OpenSpec updates. The optional `serialized` arg carries the
@@ -331,6 +350,10 @@ export interface DirectoryServiceOptions {
    * attribute-openspec-poll-eventloop-stalls.
    */
   folderHeadReadHead?: (cwd: string) => Promise<HeadInfo> | HeadInfo;
+  /** Test seam: injected `fs.watch` / home dir for the pi-resources invalidator. */
+  piResourcesWatch?: { watch?: PiWatchFn; homeDir?: string };
+  /** Test seam: clock for pi-resources staleness / idle release. */
+  now?: () => number;
   /**
    * Shared in-memory recorder for session-hydration timings. When set,
    * `loadSessionEvents` records a sample per call and the same instance is
@@ -585,12 +608,31 @@ export function createDirectoryService(
   let folderHeadEntryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const caches = new Map<string, DirCache>();
-  const piResourcesCache = new Map<string, PiResourcesResult>();
+  // pi-resources: scanned on demand, never on a timer. Entries are revalidated
+  // in the background when stale (watch event or ≥ 5 min). Map order = LRU.
+  // See change: optimize-polling-hot-paths (D9).
+  interface PiResourcesEntry {
+    data: PiResourcesResult;
+    scannedAt: number;
+    lastRequestedAt: number;
+    stale: boolean;
+  }
+  const PI_RESOURCES_STALE_MS = 5 * 60_000;
+  const PI_RESOURCES_WATCH_IDLE_MS = 10 * 60_000;
+  const PI_RESOURCES_MAX_WATCHED = 16;
+  const PI_RESOURCES_MAX_DATA = 64;
+  const piResourcesNow = options.now ?? Date.now;
+  const piResourcesCache = new Map<string, PiResourcesEntry>();
+  const piResourcesInFlight = new Map<string, Promise<PiResourcesResult>>();
+  const piResourcesVersion = new Map<string, number>();
+  const piResourcesWatcher: PiResourcesWatcher = createPiResourcesWatcher({
+    onInvalidate: (cwd) => invalidatePiResources(cwd),
+    ...options.piResourcesWatch,
+  });
 
   const semaphore: Semaphore = createSemaphore(cfg.maxConcurrentSpawns);
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let piResourcesTimer: ReturnType<typeof setInterval> | null = null;
   let onChangeCallback: ((cwd: string, data: OpenSpecData, serialized?: string) => void) | null = null;
   const scheduledPhaseTimers = new Set<ReturnType<typeof setTimeout>>();
   // cwds for which the current poll cycle broadcast a transitional
@@ -1111,6 +1153,29 @@ export function createDirectoryService(
   }
 
   /**
+   * Gated sibling of `refreshOpenSpec` for browser-initiated `openspec_refresh`
+   * (D1): applies `getOrPollOpenSpec`'s admission chain in its order —
+   * `enabled:false` → opted out → tracked → `<cwd>/openspec/` root, the fs
+   * probe deliberately LAST so an untracked cwd never touches the filesystem
+   * (same X8 ordering) — and resolves `null` on any gate failure WITHOUT
+   * writing the cache, spawning, or probing the fs. Silence matches
+   * `openspec_get`'s no-broadcast rule for gated answers: the client only
+   * renders folders for tracked cwds, so a gated broadcast has no consumer.
+   * On a pass it delegates to `refreshOpenSpec` — a separate method, NOT a
+   * gate inside `refreshOpenSpec`, because that contract is load-bearing for
+   * its four internal callers (server.ts group re-order,
+   * session/session-bootstrap cold boot, `POST /api/openspec/init`, task
+   * toggle), none of which takes a caller-supplied cwd.
+   * See change: harden-server-request-surfaces (D1).
+   */
+  async function refreshOpenSpecGated(cwd: string): Promise<OpenSpecData | null> {
+    if (cfg.enabled === false) return null;
+    if (isOptedOutCwd(cwd)) return null;
+    if (!isTrackedCwd(cwd) || !hasOpenSpecRoot(cwd)) return null;
+    return refreshOpenSpec(cwd);
+  }
+
+  /**
    * Called from `OpenSpecChangeWatcher` when a relevant artifact under
    * `<cwd>/openspec/changes/` is touched. Runs the gated poll and (when the
    * resulting data differs from the cached snapshot) invokes the broadcast
@@ -1393,10 +1458,122 @@ export function createDirectoryService(
     return { hit: placeholder, poll };
   }
 
-  async function refreshPiResourcesInternal(cwd: string): Promise<PiResourcesResult> {
-    const data = await scanPiResources(cwd);
-    piResourcesCache.set(cwd, data);
-    return data;
+  /** Mark one cwd (or, for `undefined`, every cwd) stale. */
+  function invalidatePiResources(cwd: string | undefined): void {
+    if (cwd === undefined) {
+      for (const [key, entry] of piResourcesCache) {
+        entry.stale = true;
+        piResourcesVersion.set(key, (piResourcesVersion.get(key) ?? 0) + 1);
+      }
+      return;
+    }
+    const entry = piResourcesCache.get(cwd);
+    if (entry) entry.stale = true;
+    piResourcesVersion.set(cwd, (piResourcesVersion.get(cwd) ?? 0) + 1);
+  }
+
+  /** Release watchers beyond the caps, oldest first; drop data beyond its cap. */
+  function enforcePiResourcesBounds(): void {
+    // Map order is LRU (oldest first): `touchPiResources` re-inserts on access.
+    let watched = 0;
+    for (const key of piResourcesCache.keys()) if (piResourcesWatcher.has(key)) watched++;
+    for (const key of piResourcesCache.keys()) {
+      if (watched <= PI_RESOURCES_MAX_WATCHED) break;
+      if (piResourcesWatcher.has(key)) {
+        piResourcesWatcher.detach(key);
+        const entry = piResourcesCache.get(key);
+        if (entry) entry.stale = true; // unwatched ⇒ cannot be trusted fresh
+        watched--;
+      }
+    }
+    for (const key of [...piResourcesCache.keys()]) {
+      if (piResourcesCache.size <= PI_RESOURCES_MAX_DATA) break;
+      piResourcesWatcher.detach(key);
+      piResourcesCache.delete(key);
+      piResourcesVersion.delete(key);
+    }
+  }
+
+  /** Keep a requested cwd's watches attached and mark it most-recently-used. */
+  function touchPiResources(cwd: string): void {
+    const entry = piResourcesCache.get(cwd);
+    if (entry) {
+      entry.lastRequestedAt = piResourcesNow();
+      piResourcesCache.delete(cwd);
+      piResourcesCache.set(cwd, entry);
+    }
+    try {
+      if (!piResourcesWatcher.hasGlobal()) piResourcesWatcher.attachGlobal();
+      if (piResourcesWatcher.has(cwd)) piResourcesWatcher.reconcile(cwd);
+      else piResourcesWatcher.attach(cwd);
+    } catch { /* watch is an optimisation; the 5-minute bound still applies */ }
+    enforcePiResourcesBounds();
+  }
+
+  /**
+   * Reconcile watcher attachment for every cached cwd: attach subdirs that now
+   * exist, release watchers of entries idle > 10 min (KEEP their data — served
+   * stale and revalidated on the next request). Runs at the top of every poll
+   * timer firing, before its in-flight / `enabled` gates, so it also runs with
+   * OpenSpec disabled. No timer of its own. See change: optimize-polling-hot-paths.
+   */
+  function reconcilePiResources(): void {
+    const now = piResourcesNow();
+    // Newest first: only the most recently requested non-idle cwds keep watches,
+    // so the cap holds across ticks and never thrashes attach/detach.
+    let watchBudget = PI_RESOURCES_MAX_WATCHED;
+    for (const [cwd, entry] of [...piResourcesCache].reverse()) {
+      try {
+        const idle = now - entry.lastRequestedAt > PI_RESOURCES_WATCH_IDLE_MS;
+        if (!idle && watchBudget > 0) {
+          watchBudget--;
+          if (piResourcesWatcher.has(cwd)) piResourcesWatcher.reconcile(cwd);
+          else piResourcesWatcher.attach(cwd);
+        } else if (piResourcesWatcher.has(cwd)) {
+          piResourcesWatcher.detach(cwd);
+          entry.stale = true; // unwatched ⇒ cannot be trusted fresh
+        }
+      } catch { /* best-effort */ }
+    }
+    enforcePiResourcesBounds();
+    if (!piResourcesCache.size && piResourcesWatcher.hasGlobal()) {
+      // Nobody is viewing anything: release the shared global watches too.
+      try { piResourcesWatcher.detachAll(); } catch { /* best-effort */ }
+    }
+  }
+
+  function refreshPiResourcesInternal(cwd: string): Promise<PiResourcesResult> {
+    const inFlight = piResourcesInFlight.get(cwd);
+    if (inFlight) return inFlight;
+    // Attach BEFORE scanning so an edit during the scan is not missed.
+    touchPiResources(cwd);
+    const startVersion = piResourcesVersion.get(cwd) ?? 0;
+    const run = scanPiResources(cwd)
+      .then((data) => {
+        const now = piResourcesNow();
+        piResourcesCache.delete(cwd);
+        piResourcesCache.set(cwd, {
+          data,
+          scannedAt: now,
+          lastRequestedAt: now,
+          // An invalidation that landed during the scan leaves the result stale.
+          stale: (piResourcesVersion.get(cwd) ?? 0) !== startVersion,
+        });
+        enforcePiResourcesBounds();
+        return data;
+      })
+      .catch((err) => {
+        // A failed COLD scan never enters the cache, so nothing else would ever
+        // release the watchers `touchPiResources` attached for it.
+        if (!piResourcesCache.has(cwd)) {
+          try { piResourcesWatcher.detach(cwd); } catch { /* best-effort */ }
+          piResourcesVersion.delete(cwd);
+        }
+        throw err;
+      })
+      .finally(() => piResourcesInFlight.delete(cwd));
+    piResourcesInFlight.set(cwd, run);
+    return run;
   }
 
   // ── Scheduler ────────────────────────────────────────────────────
@@ -1416,6 +1593,10 @@ export function createDirectoryService(
     // first use this tick (P1: at most one spawn per tick). See change:
     // add-openspec-init-affordances.
     sigGeneration++;
+    // pi-resources watch reconciliation rides this tick (no timer of its own).
+    // Before the in-flight / `enabled` gates below so it runs with OpenSpec
+    // disabled. See change: optimize-polling-hot-paths (D9).
+    try { reconcilePiResources(); } catch (err) { console.warn("[pi-resources] reconcile failed:", err); }
     // Folder-HEAD poll runs every tick regardless of openspec enablement and
     // regardless of an in-flight openspec tick. The HEAD reads are now async +
     // non-blocking (change: attribute-openspec-poll-eventloop-stalls) — the
@@ -1481,31 +1662,20 @@ export function createDirectoryService(
     }
   }
 
-  let piResourcesInFlight = false;
-  async function schedulePiResourcesTick() {
-    if (piResourcesInFlight) return;
-    piResourcesInFlight = true;
-    try {
-      await Promise.all(computeKnownDirectories().map(async (cwd) => {
-        try { await refreshPiResourcesInternal(cwd); }
-        catch { /* ignore, next tick retries */ }
-      }));
-    } finally {
-      piResourcesInFlight = false;
-    }
-  }
-
   function installTimers() {
     if (pollTimer) clearInterval(pollTimer);
-    if (piResourcesTimer) clearInterval(piResourcesTimer);
     pollTimer = setInterval(scheduleOpenSpecTick, cfg.pollIntervalSeconds * 1000);
-    // Pi resources change far less often; poll at 5× the openspec interval.
-    piResourcesTimer = setInterval(schedulePiResourcesTick, cfg.pollIntervalSeconds * 5 * 1000);
   }
 
   function stopTimers() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    if (piResourcesTimer) { clearInterval(piResourcesTimer); piResourcesTimer = null; }
+    try { piResourcesWatcher.detachAll(); } catch { /* best-effort */ }
+    // Unwatched ⇒ cannot be trusted fresh: an edit made while polling was
+    // stopped is otherwise served as fresh after a restart re-attaches.
+    for (const [cwd, entry] of piResourcesCache) {
+      entry.stale = true;
+      piResourcesVersion.set(cwd, (piResourcesVersion.get(cwd) ?? 0) + 1);
+    }
     for (const t of scheduledPhaseTimers) clearTimeout(t);
     scheduledPhaseTimers.clear();
   }
@@ -1525,11 +1695,15 @@ export function createDirectoryService(
     invalidateOpenSpecSignatureCache,
 
     refreshOpenSpec,
+    refreshOpenSpecGated,
     pollDirectoryGated,
     getOrPollOpenSpec,
 
-    getPiResources(cwd: string): PiResourcesResult | undefined {
-      return piResourcesCache.get(cwd);
+    getPiResources(cwd: string): { data: PiResourcesResult; stale: boolean } | undefined {
+      const entry = piResourcesCache.get(cwd);
+      if (!entry) return undefined;
+      touchPiResources(cwd);
+      return { data: entry.data, stale: entry.stale || piResourcesNow() - entry.scannedAt >= PI_RESOURCES_STALE_MS };
     },
 
     async refreshPiResources(cwd: string): Promise<PiResourcesResult> {

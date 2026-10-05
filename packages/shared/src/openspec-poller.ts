@@ -176,8 +176,13 @@ export function deriveArtifactStatus(
 
   const artifacts = [
     { id: "proposal", status: proposalDone ? "done" : "ready" },
-    { id: "design", status: designDone ? "done" : "ready" },
-    { id: "specs", status: skipSpecs ? "skipped" : specsDone ? "done" : "ready" },
+    // design/specs `requires: [proposal]` in spec-driven: without proposal.md
+    // the CLI reports them `blocked`, not `ready`.
+    { id: "design", status: designDone ? "done" : proposalDone ? "ready" : "blocked" },
+    {
+      id: "specs",
+      status: skipSpecs ? "skipped" : specsDone ? "done" : proposalDone ? "ready" : "blocked",
+    },
     {
       id: "tasks",
       status: tasksAuthored ? "done" : proposalDone && designDone && specsDone ? "ready" : "blocked",

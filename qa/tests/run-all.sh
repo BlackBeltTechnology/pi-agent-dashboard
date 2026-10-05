@@ -33,8 +33,9 @@ TESTS=(
   "34-session-heap-ceiling.sh"  # the configured ceiling binds the spawned pi and nothing below it (#X3, #X6–#X8, #X10, #X12). See change: bound-session-heap-and-gc-telemetry.
   "35-plugin-install-load.sh"   # clean prefix: discovery non-empty + browser enabled + no load error + no path outside the prefix (#X7–#X11). See change: fix-browser-plugin-vendor-specifier-resolution.
   "36-access-grant-dialog.sh"   # kill switch, env YOLO without a browser, ~/.SSH folding, case-sensitive volume (#X12, #X11, #E18, #E19). Hermetic: own temp $HOME + port. See change: add-access-grant-dialog.
-  # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
-  # one moves ~1 GB through a socket, the other soaks for ten minutes.
+  "39-cli-open.sh"              # `pi-dashboard open --print` mints the one-time local-proof URL; server down -> exit 1 (#X15). See change: harden-trust-and-credential-boundaries.
+  # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
+  # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )
 
 PASSED=0

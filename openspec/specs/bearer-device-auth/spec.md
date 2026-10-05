@@ -23,6 +23,16 @@ require revoking it and issuing a new token. Registry rows written before
 SHALL read as `"operate"` (the access they were issued with). Rewriting the
 registry SHALL preserve fields it does not understand.
 
+Revocation SHALL accept only an **operator** credential — the same admission
+rule as direct token issuance: an authenticated dashboard login session, a
+valid `X-Pi-Local-Token`, or a genuinely local (loopback, non-forwarded)
+caller. A request authenticated only by a paired-device bearer SHALL NOT
+revoke any registry row, including its own, regardless of the caller's network
+position — a device bearer arriving over loopback SHALL be refused on the
+strength of the credential alone.
+
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Token issued and recorded
 - **WHEN** a device successfully redeems a pairing code
 - **THEN** an opaque bearer token is returned and a registry entry with `source: "pairing"` and the chosen tier is created for the device
@@ -62,10 +72,31 @@ registry SHALL preserve fields it does not understand.
 - **WHEN** paired devices are listed
 - **THEN** each row SHALL include its `tier`
 
+#### Scenario: Paired device cannot revoke a sibling
+- **GIVEN** two paired devices A and B exist in the registry
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>`
+- **THEN** the server SHALL respond `401`
+- **AND** device B's registry row SHALL remain and its token SHALL continue to verify
+
+#### Scenario: Paired device cannot revoke itself
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of A>`
+- **THEN** the server SHALL respond `401` and device A's row SHALL remain
+
+#### Scenario: Loopback device bearer cannot revoke
+- **WHEN** a request authenticated only by device A's bearer sends `DELETE /api/paired-devices/<id of B>` from `127.0.0.1` with no forwarding headers
+- **THEN** the server SHALL respond `401` and device B's row SHALL remain
+
+#### Scenario: Operator revokes over a tunnel
+- **WHEN** a request carrying an authenticated dashboard login session sends `DELETE /api/paired-devices/<id>` from a non-local address
+- **THEN** the server SHALL revoke the row and respond `200`
+
 ### Requirement: Bearer auth branch for REST
-The server SHALL accept a valid bearer token via `Authorization: Bearer` as an
-authentication source feeding the existing `request.isAuthenticated` decision,
-WITHOUT altering the loopback, trusted-network, or cookie paths. The durable
+The server SHALL accept a valid bearer token via `Authorization: Bearer`, or via
+the httpOnly `SameSite=Strict` device cookie a same-origin browser obtains by
+exchanging its bearer (`POST /api/device-session`, cookie scoped to `path=/api/`), as an authentication source feeding the existing `request.isAuthenticated` decision,
+WITHOUT altering the loopback, trusted-network, or OAuth cookie paths. A request
+admitted by the device cookie SHALL carry the same `authVia = "device"` marker
+and tier as the bearer, and revoking the device SHALL invalidate both. The durable
 bearer token authenticates REST only; WebSocket upgrades authenticate via a
 short-lived single-use ticket (see "WebSocket auth via single-use ticket before
 upgrade") and the durable bearer SHALL NOT ride the socket.
@@ -79,28 +110,49 @@ upgrade") and the durable bearer SHALL NOT ride the socket.
 - **THEN** it mints a single-use ticket from an authenticated REST call and presents that ticket on the upgrade, never the durable bearer token
 
 #### Scenario: Existing paths unaffected
-- **WHEN** a user relies only on loopback or the OAuth cookie
+- **WHEN** `requireLocalProof` is disabled and a user relies only on loopback or the OAuth cookie
 - **THEN** authentication behaves exactly as before this change
 
 #### Scenario: Invalid bearer rejected
 - **WHEN** a request presents an unknown or revoked bearer token and matches no other allow path
 - **THEN** the server responds 401
 
+#### Scenario: Device cookie authenticates like the bearer
+
+- **WHEN** a same-origin browser presents a valid device cookie and no `Authorization` header
+- **THEN** the request is marked authenticated with `authVia = "device"` and the device's tier
+
+#### Scenario: Revoked device cookie rejected
+
+- **WHEN** a request presents the device cookie of a revoked device and matches no other allow path
+- **THEN** the server responds 401
+
 ### Requirement: Genuine-local trust via IPC allowlist, not a network address check
 Auth exemption for local tooling SHALL be granted by an allowlist of genuine local
-IPC — a dedicated Unix domain socket, or an explicit local token — NOT by matching
-the TCP loopback address. The TCP loopback address SHALL NOT be auth-exempt for
-any connection reachable through a listener or reverse proxy. This SHALL be
-enforced at every call site (network guard, `onRequest` hook, and the WebSocket
-upgrade handler).
+IPC — a dedicated Unix domain socket, or an explicit local token — or by a
+genuinely-local TCP request: loopback peer AND no proxy-forwarding header
+(`x-forwarded-*`, `x-real-ip`, `forwarded`). A loopback request carrying a
+forwarding header SHALL NOT be auth-exempt. A marker-less reverse tunnel
+terminating on loopback is indistinguishable from a genuinely-local request at
+the socket level; it is closed only when `auth.requireLocalProof` is enabled, in
+which case a bare genuinely-local request SHALL be exempt only for
+`observe`-tier routes, and `control`/`operate` routes plus browser WebSocket
+upgrades SHALL additionally require the local token, a local-proof cookie, or
+another credential. This SHALL be enforced at every call site (network guard,
+`onRequest` hook, and the WebSocket upgrade handlers) through one shared
+predicate.
 
 #### Scenario: Tunnel request is not auto-trusted
-- **WHEN** a request reaches the server via a tunnel/reverse proxy (presenting as `127.0.0.1`) with no valid bearer/cookie
+- **WHEN** a request reaches the server via a header-injecting tunnel/reverse proxy (presenting as `127.0.0.1` with an `x-forwarded-*`, `x-real-ip`, or `forwarded` header) with no valid bearer/cookie
 - **THEN** the server SHALL NOT auth-exempt it and SHALL respond 401
 
 #### Scenario: Unmarked tunnel is not auto-trusted
-- **WHEN** a request arrives over a tunnel that injects no proxy marker (e.g. an SSH reverse tunnel)
-- **THEN** the server SHALL still require a credential, because trust is not derived from the loopback address
+- **WHEN** `auth.requireLocalProof` is enabled and a request arrives over a tunnel that injects no proxy marker (e.g. an SSH reverse tunnel) for a `control`/`operate` route
+- **THEN** the server SHALL still require a credential (local token, local-proof cookie, or other), because trust is not derived from the loopback address alone
+
+#### Scenario: Unmarked tunnel under default configuration
+- **WHEN** `auth.requireLocalProof` is not enabled and a request arrives over a tunnel that injects no proxy marker
+- **THEN** it SHALL be treated as genuinely local, and operator documentation SHALL state that only header-injecting tunnels are safe without `requireLocalProof`
 
 #### Scenario: Genuine local IPC still bypasses
 - **WHEN** a local tool connects over the dedicated Unix domain socket (or presents the local token)
@@ -112,7 +164,7 @@ upgrade handler).
 
 #### Scenario: Existing same-host callers migrated, not broken
 - **WHEN** D10 lands
-- **THEN** the pi bridge, terminal, editor, and model-proxy SHALL already connect via the local IPC allowlist (Unix socket / local token), not via bare TCP-loopback trust
+- **THEN** the pi bridge and model-proxy SHALL connect via the local IPC allowlist (Unix socket / local token); the same-desktop browser (terminal and editor views) SHALL be admitted as genuinely local, or via the local-proof cookie when `auth.requireLocalProof` is enabled
 
 ### Requirement: WebSocket auth via single-use ticket before upgrade
 A client SHALL obtain a short-lived, single-use WebSocket ticket from an
@@ -169,6 +221,8 @@ the global Host-admission gate mode. It SHALL NOT be a public pairing prefix.
 The minted token SHALL be indistinguishable from a pairing-minted token to
 every consumer (REST bearer branch, `/mcp` device caller resolution).
 
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Operator mints a token
 - **WHEN** an operator-authenticated request on an admitted host posts `{ "label": "claude-code" }`
 - **THEN** the server SHALL respond `200` with the plaintext token and a device view carrying `source: "manual"`
@@ -185,7 +239,7 @@ every consumer (REST bearer branch, `/mcp` device caller resolution).
 - **AND** no registry row SHALL be created
 
 #### Scenario: Local browser mints with authentication enabled
-- **WHEN** authentication is enabled and a loopback, non-forwarded request with no cookie posts a valid label
+- **WHEN** `requireLocalProof` is disabled and authentication is enabled and a loopback, non-forwarded request with no cookie posts a valid label
 - **THEN** the server SHALL respond `200` with a token
 
 #### Scenario: Label is required
@@ -251,6 +305,8 @@ genuinely local or trusted-network address SHALL NOT be tier-refused (that
 network position is already fully trusted). The gate SHALL only refuse; it
 SHALL NOT admit a request that existing admission rules reject.
 
+When `requireLocalProof` is enabled, the genuinely-local (loopback, non-forwarded) condition in this requirement is narrowed by the "Opt-in local proof for loopback trust" requirement of `trust-and-credential-boundaries`; with it disabled (the default) this requirement is unchanged.
+
 #### Scenario: Observe bearer cannot restart
 - **WHEN** a request bearing an `observe` device token calls `POST /api/restart`
 - **THEN** the server SHALL respond 403 with `WWW-Authenticate` containing `error="insufficient_scope"` and `scope="operate"`
@@ -269,7 +325,7 @@ SHALL NOT admit a request that existing admission rules reject.
 - **THEN** no route SHALL be refused on tier grounds
 
 #### Scenario: Loopback bearer is not tier-refused
-- **WHEN** a request from a genuinely local address bears an `observe` device token and calls `POST /api/restart`
+- **WHEN** `requireLocalProof` is disabled and a request from a genuinely local address bears an `observe` device token and calls `POST /api/restart`
 - **THEN** the request SHALL NOT be refused on tier grounds
 
 #### Scenario: Unlisted route fails closed

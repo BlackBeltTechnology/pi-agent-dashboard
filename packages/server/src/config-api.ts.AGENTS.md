@@ -7,3 +7,5 @@ Config REST helpers: `readRawConfig` (the config file's RAW JSON, unknown keys i
 Adds `migrateSubagentTickThrottle()` — the one-shot boot rewrite of a materialized `subagentTickThrottleMs: 0` to `DEFAULT_SUBAGENT_TICK_THROTTLE_MS`, marked by `subagentTickThrottleMigrated`. The MARKER, not the value, decides: a `0` written after the marker exists is a deliberate opt-out and is kept. Goes through `writeConfigPartial` (the only merge-preserving writer, so unrelated user keys survive). Called from `cli.ts` `main()` beside `ensureConfig()` — never from `loadConfig`, which every bridge process calls and which must never write. See change: heal-orphaned-tool-cards-on-session-end.
 
 `serverHeap` value change now sets `restartRequired` (`/api/restart` re-reads + re-stamps the ceiling); `coldStartRequired` REMOVED from `WriteConfigResult` and the PUT response. See change: guard-server-heap-and-store-coupling (D5).
+
+`writeConfigPartial` shallow-merges `agentPathGate` over the raw file; drops computed `agentPathGateEnvOverride`. See change: ask-agent-file-access-in-chat.

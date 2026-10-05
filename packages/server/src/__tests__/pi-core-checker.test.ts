@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { _internal, CORE_PACKAGE_NAMES, PiCoreChecker } from "../pi/pi-core-checker.js";
 
 describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
@@ -33,9 +33,9 @@ describe("PiCoreChecker._internal.looksLikePiEcosystem", () => {
 });
 
 describe("pi-core whitelist excludes the upstream pi-model-proxy (E12)", () => {
-	it("CORE_PACKAGE_NAMES has 3 entries; DISPLAY_NAMES has no pi-model-proxy key", () => {
-		// See change: remove-pi-model-proxy-upstream-references.
-		expect(CORE_PACKAGE_NAMES).toHaveLength(3);
+	it("CORE_PACKAGE_NAMES has 2 entries; DISPLAY_NAMES has no pi-model-proxy key", () => {
+		// See change: remove-pi-model-proxy-upstream-references, drop-mariozechner-pi-fork.
+		expect(CORE_PACKAGE_NAMES).toHaveLength(2);
 		expect(CORE_PACKAGE_NAMES).not.toContain("@blackbelt-technology/pi-model-proxy");
 		expect(Object.keys(_internal.DISPLAY_NAMES)).not.toContain(
 			"@blackbelt-technology/pi-model-proxy",
@@ -49,11 +49,7 @@ describe("PiCoreChecker.getStatus", () => {
 
 	beforeEach(() => {
 		tmpManagedDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-core-test-"));
-		// Disable the default pi.dev fetcher in this block so existing
-		// tests (which mock fetchLatest only) aren't surprised by live
-		// network calls. The pi.dev integration tests in the next describe
-		// block inject `fetchPiDevRelease` explicitly and therefore bypass
-		// this env. See change: improve-pi-update-detection.
+		// Belt-and-braces: keep any default network fetcher offline.
 		originalOffline = process.env.PI_OFFLINE;
 		process.env.PI_OFFLINE = "1";
 	});
@@ -133,7 +129,6 @@ describe("PiCoreChecker.getStatus", () => {
 				JSON.stringify({
 					dependencies: {
 						"@earendil-works/pi-coding-agent": { version: "0.85.1" },
-						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
 						"@blackbelt-technology/pi-agent-dashboard": { version: "0.5.0" },
 						"@blackbelt-technology/pi-model-proxy": { version: "0.2.0" },
 					},
@@ -142,7 +137,7 @@ describe("PiCoreChecker.getStatus", () => {
 			managedDir: path.join(tmpManagedDir, "nope"),
 		});
 		const status = await checker.getStatus();
-		expect(status.packages).toHaveLength(3);
+		expect(status.packages).toHaveLength(2);
 		expect(
 			status.packages.some((p) => p.name === "@blackbelt-technology/pi-model-proxy"),
 		).toBe(false);
@@ -283,131 +278,93 @@ describe("PiCoreChecker.getStatus", () => {
 	});
 });
 
-describe("PiCoreChecker pi.dev integration", () => {
+describe("PiCoreChecker without the legacy fork (drop-mariozechner-pi-fork)", () => {
+	const EARENDIL = "@earendil-works/pi-coding-agent";
+	const FORK = "@mariozechner/pi-coding-agent";
+	type Where = "absent" | "global" | "managed";
 	let tmpManagedDir: string;
+	let fetchSpy: ReturnType<typeof vi.spyOn>;
 
-	beforeEach(async () => {
-		tmpManagedDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-core-pidev-"));
-		const { _resetDynamicPiAliases } = await import("../pi/pi-core-checker.js");
-		_resetDynamicPiAliases();
+	beforeEach(() => {
+		tmpManagedDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-core-nofork-"));
+		fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("no network in tests"));
 	});
 
-	it("prefers pi.dev for @mariozechner/pi-coding-agent latestVersion", async () => {
-		let npmCalled = false;
-		const checker = new PiCoreChecker({
-			npmList: async () =>
-				JSON.stringify({
-					dependencies: {
-						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
-					},
-				}),
-			fetchLatest: async () => {
-				npmCalled = true;
-				return "0.73.1"; // npm registry says 0.73.1 …
-			},
-			fetchPiDevRelease: async () => ({ version: "0.74.0" }), // … but pi.dev says 0.74.0
-			managedDir: tmpManagedDir,
-		});
-		const status = await checker.getStatus();
-		const pi = status.packages.find((p) => p.name === "@mariozechner/pi-coding-agent")!;
-		expect(pi.latestVersion).toBe("0.74.0");
-		expect(pi.updateAvailable).toBe(true);
-		expect(npmCalled).toBe(false);
+	afterEach(() => {
+		fetchSpy.mockRestore();
 	});
 
-	it("falls back to npm registry when pi.dev returns undefined", async () => {
-		let npmCalled = false;
-		const checker = new PiCoreChecker({
-			npmList: async () =>
-				JSON.stringify({
-					dependencies: {
-						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
-					},
-				}),
-			fetchLatest: async () => {
-				npmCalled = true;
-				return "0.73.1";
-			},
-			fetchPiDevRelease: async () => undefined, // pi.dev unreachable / skipped
-			managedDir: tmpManagedDir,
-		});
-		const status = await checker.getStatus();
-		const pi = status.packages.find((p) => p.name === "@mariozechner/pi-coding-agent")!;
-		expect(pi.latestVersion).toBe("0.73.1");
-		expect(npmCalled).toBe(true);
-	});
-
-	it("falls back to npm registry when pi.dev throws", async () => {
-		const checker = new PiCoreChecker({
-			npmList: async () =>
-				JSON.stringify({
-					dependencies: {
-						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
-					},
-				}),
-			fetchLatest: async () => "0.73.1",
-			fetchPiDevRelease: async () => {
-				throw new Error("network down");
-			},
-			managedDir: tmpManagedDir,
-		});
-		const status = await checker.getStatus();
-		const pi = status.packages.find((p) => p.name === "@mariozechner/pi-coding-agent")!;
-		expect(pi.latestVersion).toBe("0.73.1");
-	});
-
-	it("does NOT call pi.dev for non-pi packages", async () => {
-		let piDevCalled = false;
-		const checker = new PiCoreChecker({
-			npmList: async () =>
-				JSON.stringify({
-					dependencies: {
-						"@blackbelt-technology/pi-agent-dashboard": { version: "0.4.0" },
-					},
-				}),
-			fetchLatest: async () => "0.5.0",
-			fetchPiDevRelease: async () => {
-				piDevCalled = true;
-				return { version: "99.99.99" };
-			},
-			managedDir: tmpManagedDir,
-		});
-		const status = await checker.getStatus();
-		const dash = status.packages.find((p) => p.name === "@blackbelt-technology/pi-agent-dashboard")!;
-		expect(dash.latestVersion).toBe("0.5.0");
-		expect(piDevCalled).toBe(false);
-	});
-
-	it("records pi.dev's packageName as a trusted alias", async () => {
-		const checker = new PiCoreChecker({
-			npmList: async () =>
-				JSON.stringify({
-					dependencies: {
-						"@mariozechner/pi-coding-agent": { version: "0.70.6" },
-					},
-				}),
-			fetchLatest: async () => "0.70.6",
-			fetchPiDevRelease: async () => ({
-				version: "0.74.0",
-				packageName: "@earendil-works/pi-coding-agent",
-			}),
-			managedDir: tmpManagedDir,
-		});
-		await checker.getStatus();
-
-		// After the alias is recorded, a second discovery that finds the
-		// renamed package should accept it through the whitelist gate.
-		writeManagedPackage(tmpManagedDir, "@earendil-works/pi-coding-agent", "0.74.0");
-		checker.invalidate();
-		const status2 = await checker.getStatus();
-		const aliased = status2.packages.find((p) => p.name === "@earendil-works/pi-coding-agent");
-		expect(aliased).toBeDefined();
-		expect(aliased!.currentVersion).toBe("0.74.0");
-	});
-
-	function writeManagedPackage(managedDir: string, name: string, version: string) {
-		const dir = path.join(managedDir, "node_modules", name);
+	function writeManagedPackage(name: string, version: string) {
+		const dir = path.join(tmpManagedDir, "node_modules", name);
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version }));
 	}
+
+	function makeChecker(
+		earendil: Where,
+		fork: Where,
+		fetchLatest: (name: string) => Promise<string | null> = async () => null,
+	) {
+		const globalDeps: Record<string, { version: string }> = {};
+		if (earendil === "global") globalDeps[EARENDIL] = { version: "1.0.0" };
+		if (fork === "global") globalDeps[FORK] = { version: "0.73.1" };
+		if (earendil === "managed") writeManagedPackage(EARENDIL, "1.0.0");
+		if (fork === "managed") writeManagedPackage(FORK, "0.73.1");
+		return new PiCoreChecker({
+			npmList: async () => JSON.stringify({ dependencies: globalDeps }),
+			fetchLatest,
+			managedDir: tmpManagedDir,
+		});
+	}
+
+	function piDevCalls(): number {
+		return fetchSpy.mock.calls.filter((c: unknown[]) => String(c[0]).includes("pi.dev")).length;
+	}
+
+	// E3 — 9-combo decision table.
+	const wheres: Where[] = ["absent", "global", "managed"];
+	for (const earendil of wheres) {
+		for (const fork of wheres) {
+			it(`E3: earendil=${earendil} × fork=${fork} — fork never listed`, async () => {
+				const status = await makeChecker(earendil, fork).getStatus(true);
+				const names = status.packages.map((p) => p.name);
+				expect(names).not.toContain(FORK);
+				if (earendil === "absent") {
+					expect(names).not.toContain(EARENDIL);
+				} else {
+					const row = status.packages.find((p) => p.name === EARENDIL);
+					expect(row?.installSource).toBe(earendil);
+				}
+			});
+		}
+	}
+
+	it("E4: earendil display name is 'pi (core agent)'; no 'legacy fork' string", async () => {
+		const status = await makeChecker("global", "global").getStatus(true);
+		const row = status.packages.find((p) => p.name === EARENDIL);
+		expect(row?.displayName).toBe("pi (core agent)");
+		expect(JSON.stringify(status)).not.toContain("legacy fork");
+		expect(Object.values(_internal.DISPLAY_NAMES).join("|")).not.toContain("legacy fork");
+	});
+
+	it("E5: latest version comes from npm only; no pi.dev request", async () => {
+		const status = await makeChecker("global", "global", async (name) =>
+			name === EARENDIL ? "1.0.2" : null,
+		).getStatus(true);
+		const row = status.packages.find((p) => p.name === EARENDIL);
+		expect(row?.latestVersion).toBe("1.0.2");
+		expect(row?.updateAvailable).toBe(true);
+		expect(piDevCalls()).toBe(0);
+	});
+
+	it("X1: npm failure leaves latestVersion null with no pi.dev fallback", async () => {
+		const status = await makeChecker("global", "global", async () => {
+			throw new Error("network down");
+		}).getStatus(true);
+		const row = status.packages.find((p) => p.name === EARENDIL);
+		expect(row?.latestVersion).toBeNull();
+		expect(row?.updateAvailable).toBe(false);
+		expect(status.packages.map((p) => p.name)).not.toContain(FORK);
+		expect(piDevCalls()).toBe(0);
+	});
 });

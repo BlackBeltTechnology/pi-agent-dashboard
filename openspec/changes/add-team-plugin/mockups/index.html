@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="hu" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Csapat: mockup (add-team-plugin)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<!-- Mockup-only controls: not part of the app. English on purpose (reviewer-facing). -->
+<div class="mock-bar" role="region" aria-label="Mockup controls">
+  <strong>Mockup controls</strong>
+  <label>Screen
+    <select id="mScreen">
+      <option value="#/">Team grid (current project)</option>
+      <option value="#/?target=_ws">Team grid: own workspace</option>
+      <option value="#/agent/shared:backend/c/c1?target=billing">Conversation (busy, billing-api)</option>
+      <option value="#/agent/shared:backend?target=billing">Agent: conversation list</option>
+      <option value="#/agent/private:szovegiro/c/c8?target=_ws">Conversation (stale persona, own workspace)</option>
+      <option value="#/agent/shared:backend/c/c3?target=billing">Conversation (archived)</option>
+      <option value="#/agent/shared:kodbiralo/c/c7?target=crm">Conversation (agent unassigned from crm-web)</option>
+      <option value="#/personas/new">Persona editor: new</option>
+      <option value="#/personas/private:szovegiro">Persona editor: edit own</option>
+      <option value="#/personas/new?fork=shared:kodbiralo">Persona editor: fork</option>
+      <option value="#/signin">Sign-in</option>
+      <option value="#/signin-unavailable">Sign-in unavailable</option>
+      <option value="#/not-admitted">Not admitted (single-user)</option>
+    </select>
+  </label>
+  <label>Host
+    <select id="mHost"><option value="standalone">standalone (/apps/team/)</option><option value="embedded">dashboard content area (/team/)</option><option value="folder">dashboard folder view (/folder/:cwd/team/)</option></select>
+  </label>
+  <label>Role
+    <select id="mRole"><option value="admin">admin</option><option value="member">member</option></select>
+  </label>
+  <label>Mode
+    <select id="mMode"><option value="multi">multi-user (OIDC)</option><option value="single">single-user (local operator)</option></select>
+  </label>
+  <label>Projects
+    <select id="mProjects"><option value="some">billing-api, crm-web, régi-portál (missing)</option><option value="none">none (private workspace only)</option></select>
+  </label>
+  <label><input type="checkbox" id="mLimit"> Conversation limit reached</label>
+  <label>Grid
+    <select id="mGrid"><option value="normal">loaded</option><option value="loading">loading</option><option value="error">list error</option><option value="empty">no agents in project</option></select>
+  </label>
+  <label>Conversation
+    <select id="mConvo">
+      <option value="ready">ready</option>
+      <option value="spawn">ensuring: fresh spawn</option>
+      <option value="resume">ensuring: resume</option>
+      <option value="reconnect">socket dropped</option>
+      <option value="spawn_timeout">error: spawn_timeout</option>
+      <option value="guard_unavailable">error: guard_unavailable</option>
+    </select>
+  </label>
+</div>
+
+<div id="app" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
+
+<dialog id="confirmDialog" aria-labelledby="dlgTitle" aria-describedby="dlgBody">
+  <h2 id="dlgTitle"></h2>
+  <div id="dlgBody"></div>
+  <div class="dialog-actions">
+    <button type="button" class="btn btn-secondary" id="dlgCancel"></button>
+    <button type="button" class="btn btn-danger" id="dlgOk"></button>
+  </div>
+</dialog>
+
+<div class="sr-only" role="status" aria-live="polite" id="announce"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="mockup.js"></script>
+</body>
+</html>

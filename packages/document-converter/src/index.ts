@@ -7,14 +7,14 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { runEngine, type EngineConfig } from "./engine.js";
+import { type EngineConfig, runEngine } from "./engine.js";
 import { mapOcrCodes } from "./ocr.js";
-import { ingestDocType } from "./routing.js";
 import {
   buildProvenance,
   sha256File,
   stampProvenance,
 } from "./provenance.js";
+import { ingestDocType } from "./routing.js";
 import type {
   ConvertToMarkdownOptions,
   ConvertToMarkdownResult,
@@ -32,8 +32,10 @@ export interface DocumentConverterConfig {
   image: string;
   /** Staging dir where ingest writes `.md` for kb. Created on demand. */
   stagingDir: string;
-  /** Extra host dirs to bind-mount path-identically. */
+  /** Extra host roots: request paths under them are admitted (mounted on demand). */
   mounts?: string[];
+  /** Workspace root admitting request paths (default `process.cwd()`). */
+  workspaceRoot?: string;
   /** Test hook: inject the engine config (e.g. a fake runner). */
   engine?: Partial<EngineConfig>;
 }
@@ -42,7 +44,9 @@ export interface DocumentConverterConfig {
 export function createDocumentConverter(config: DocumentConverterConfig) {
   const engineCfg = (extraMounts: string[] = []): EngineConfig => ({
     image: config.image,
-    mounts: [config.stagingDir, ...(config.mounts ?? []), ...extraMounts],
+    writable: [config.stagingDir],
+    mounts: [...(config.mounts ?? []), ...extraMounts],
+    workspaceRoot: config.workspaceRoot,
     ...config.engine,
   });
 
@@ -164,16 +168,16 @@ function replaceExt(name: string, ext: string): string {
   return name.replace(/\.[^.]+$/, "") + ext;
 }
 
-export { DocConverterError } from "./errors.js";
 export type { DocConverterErrorCode } from "./errors.js";
-export * from "./types.js";
+export { DocConverterError } from "./errors.js";
+export { mapOcrCodes, SUPPORTED_LANGUAGES } from "./ocr.js";
+export { buildProvenance, provenanceFrontmatter, sha256File, stampProvenance } from "./provenance.js";
+export { docTypeOf, ingestDocType, isIngestable } from "./routing.js";
 export type {
   DocumentFrontmatter,
-  Provenance,
   NanoBananaConfig,
-  TableProfiles,
+  Provenance,
   TableProfile,
+  TableProfiles,
 } from "./schema.js";
-export { mapOcrCodes, SUPPORTED_LANGUAGES } from "./ocr.js";
-export { docTypeOf, isIngestable, ingestDocType } from "./routing.js";
-export { buildProvenance, stampProvenance, provenanceFrontmatter, sha256File } from "./provenance.js";
+export * from "./types.js";

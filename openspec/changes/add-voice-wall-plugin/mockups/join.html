@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-wall — /apps/wall join & access states</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<link rel="stylesheet" href="wall.css" />
+<script src="theme-init.js"></script>
+<style>
+  .center { min-height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:8px; padding:28px 20px; }
+  .center h2 { font-size:17px; font-weight:700; color:var(--text-primary); margin:0; }
+  .center p { font-size:13px; color:var(--text-secondary); max-width:42ch; margin:0; line-height:1.5; }
+  .strip { display:flex; align-items:center; gap:10px; padding:8px 16px; font-size:12px; flex-wrap:wrap; border-bottom:1px solid var(--border-primary); }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-6xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">/apps/wall — join & access states</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">What a participant sees when opening <code>/apps/wall/#/s/&lt;token&gt;</code>. The page is served by the dashboard; data comes from <code>/api/plugins/voice-wall/*</code> admitted by the share-token guard seam.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+
+    <section aria-label="Connecting">
+      <p class="frame-label">1 · Connecting</p>
+      <div class="frame"><div class="center" role="status" aria-live="polite">
+        <span class="spin" style="--pill-accent:var(--accent-blue); width:18px; height:18px"></span>
+        <h2>Joining the live wall…</h2>
+        <p>Checking the link with the meeting host.</p>
+      </div></div>
+      <p class="caption">The token sits in the URL <b>fragment</b>, which browsers never send to servers or put in Referer headers. The app sends it as a header on its own requests (same idea as the shell's hash-routing contract).</p>
+    </section>
+
+    <section aria-label="Expired">
+      <p class="frame-label">2 · Link expired</p>
+      <div class="frame"><div class="center">
+        <h2>This link has expired</h2>
+        <p>It was valid until the meeting ended at 15:42. Ask the host for a new link if the meeting is still running.</p>
+      </div></div>
+      <p class="caption">Each dead-end says <i>why</i> and <i>who can help</i>, never a generic 403 (Nielsen #9). No dashboard chrome or login page is shown to anonymous viewers.</p>
+    </section>
+
+    <section aria-label="Revoked">
+      <p class="frame-label">3 · Revoked (mid-meeting)</p>
+      <div class="frame"><div class="center">
+        <h2>The host stopped sharing this wall</h2>
+        <p>You were disconnected. If you still need access, ask the host for a new link.</p>
+      </div></div>
+      <p class="caption">An open viewer is pushed out instantly on revoke: the SSE stream closes with a <code>revoked</code> reason and the app swaps to this state. No polling until the next refresh.</p>
+    </section>
+
+    <section aria-label="Meeting ended">
+      <p class="frame-label">4 · Meeting ended</p>
+      <div class="frame"><div class="center">
+        <h2>The meeting has ended</h2>
+        <p>Thanks for joining. The wall is no longer live and its content is not kept here.</p>
+      </div></div>
+      <p class="caption">The ended state does not leave the last board on screen. A shared room screen shouldn't keep showing content after the meeting.</p>
+    </section>
+
+    <section aria-label="Invalid link">
+      <p class="frame-label">5 · Invalid link</p>
+      <div class="frame"><div class="center">
+        <h2>This link doesn't work</h2>
+        <p>It may be incomplete. Copy it again from the message you received, or scan the QR code on the room screen.</p>
+      </div></div>
+      <p class="caption">Invalid, expired and revoked tokens get the same generic server response (no oracle). The <i>wording</i> differs only where the app already knows the reason, from its own stored state or the stream's close reason.</p>
+    </section>
+
+    <section aria-label="Connection lost">
+      <p class="frame-label">6 · Connection lost (transient)</p>
+      <div class="frame">
+        <div class="strip c-warn" role="status" style="border-radius:0; border-width:0 0 1px 0">
+          <span class="spin" style="--pill-accent:var(--accent-orange)"></span> Reconnecting… the board below may be out of date.
+        </div>
+        <div class="center" style="min-height:240px; opacity:.55"><p>(last known board)</p></div>
+      </div>
+      <p class="caption">Stale content stays visible but is visibly dimmed, and a banner says it may be outdated (Nielsen #1). It recovers automatically and resyncs from the event log.</p>
+    </section>
+  </div>
+
+  <h2 class="state-title mt-10">Identity strip (top of the app)</h2>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <section aria-label="Viewer">
+      <p class="frame-label">A · Viewer via link</p>
+      <div class="frame"><div class="strip" style="color:var(--text-secondary)">
+        <span>Viewing only</span><span class="flex-1"></span><button class="link">Sign in to type</button>
+      </div></div>
+      <p class="caption"><i>Sign in to type</i> goes to the dashboard's own sign-in (<code>/auth/*</code>, same origin) and returns to <code>/apps/wall/</code>. No separate client or PKCE flow.</p>
+    </section>
+    <section aria-label="Signed in allowed">
+      <p class="frame-label">B · Signed in, allowed to type</p>
+      <div class="frame"><div class="strip" style="color:var(--text-secondary)">
+        <span class="avatar" style="width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;background:var(--tint-purple-bg);color:var(--tint-purple-fg);border:1px solid var(--tint-purple-border)">AK</span>
+        <span style="color:var(--text-primary)">anna.k@acme.example</span><span class="tag t-q">can type</span><span class="flex-1"></span><button class="link">Sign out</button>
+      </div></div>
+    </section>
+    <section aria-label="Signed in not allowed">
+      <p class="frame-label">C · Signed in, not on the list</p>
+      <div class="frame"><div class="strip" style="color:var(--text-secondary)">
+        <span style="color:var(--text-primary)">bela.t@acme.example</span><span>· viewing only</span><span class="flex-1"></span><span>Ask the host to let you type</span>
+      </div></div>
+      <p class="caption">Signing in alone grants nothing extra. The meeting owner's per-meeting allow-list decides who may type (least privilege).</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

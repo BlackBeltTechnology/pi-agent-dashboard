@@ -47,6 +47,8 @@ export const DENYLIST: readonly DenylistEntry[] = [
   { pattern: "/api/plugins/flows/", reason: "plugin-internal" },
   { pattern: "/api/tools/", reason: "tool-registry UI" },
   { pattern: "/api/ws-ticket", reason: "transport credential" },
+  { pattern: "/api/local-proof", reason: "mints a one-time local-proof bootstrap code; host-local credential" },
+  { pattern: "/api/device-session", reason: "exchanges the device bearer for an httpOnly cookie; browser credential plumbing" },
   { pattern: "/api/pair/challenge", reason: "pairing ceremony" },
   { pattern: "/api/pair/payload", reason: "pairing ceremony" },
   { pattern: "/api/pair/poll", reason: "pairing ceremony" },

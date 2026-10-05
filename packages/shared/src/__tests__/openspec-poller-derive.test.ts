@@ -103,6 +103,22 @@ describe("deriveArtifactStatus", () => {
     expect(r.isComplete).toBe(false);
   });
 
+  // spec-driven: design and specs both `requires: [proposal]`. Without
+  // proposal.md the CLI reports them `blocked`, not `ready` — a stray change
+  // dir holding only a note file (or just .openspec.yaml) hit this and broke
+  // poller/CLI parity on develop.
+  it("missing proposal.md + no design/specs evidence → design and specs blocked (matches CLI)", () => {
+    const dir = makeChangeDir(false);
+    const r = deriveArtifactStatus(dir, { completedTasks: 0, totalTasks: 0 }, {
+      design: designProbe(false),
+      specs: specsProbe(false),
+    });
+    expect(status(r.artifacts, "proposal")).toBe("ready");
+    expect(status(r.artifacts, "design")).toBe("blocked");
+    expect(status(r.artifacts, "specs")).toBe("blocked");
+    expect(status(r.artifacts, "tasks")).toBe("blocked");
+  });
+
   it("design evidence absent → design ready (no design.md, no checkboxes)", () => {
     const dir = makeChangeDir(true);
     const r = deriveArtifactStatus(dir, { completedTasks: 0, totalTasks: 5 }, {

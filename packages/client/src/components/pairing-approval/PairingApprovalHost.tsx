@@ -18,7 +18,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type GrantPromptStore, grantPromptStore } from "../../lib/access-grants/grant-prompt-store.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { getDeviceBearer } from "../../lib/pairing/device-auth.js";
+import { getDeviceBearer, isDevicePaired } from "../../lib/pairing/device-auth.js";
 import type { PendingPairing } from "../../lib/pairing/pairing-approval-api.js";
 import * as pairingApi from "../../lib/pairing/pairing-approval-api.js";
 import { type PairingApprovalStore, pairingApprovalStore } from "../../lib/pairing/pairing-approval-store.js";
@@ -59,7 +59,7 @@ export function PairingApprovalHost({
    *  response resolving late can never erase a newer pending device. */
   const fetchSeq = useRef(0);
   const refresh = useCallback(async () => {
-    if (getBearer()) return;
+    if (getBearer() || isDevicePaired()) return;
     const seq = ++fetchSeq.current;
     try {
       const list = await api.listPending();

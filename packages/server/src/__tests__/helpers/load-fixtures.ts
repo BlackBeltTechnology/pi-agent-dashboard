@@ -182,6 +182,14 @@ export interface FakeDirectoryService {
   service: DirectoryService;
   /** vi spy over `refreshOpenSpec` — `.mock.calls` is the invocation counter. */
   refreshOpenSpec: ReturnType<typeof vi.fn>;
+  /**
+   * vi spy over `refreshOpenSpecGated` (the browser `openspec_refresh` entry
+   * point since harden-server-request-surfaces D1). Delegates to
+   * `refreshOpenSpec` exactly like the real service, so the `refreshOpenSpec`
+   * counter keeps observing handler-driven refreshes and the reject spec
+   * propagates through both.
+   */
+  refreshOpenSpecGated: ReturnType<typeof vi.fn>;
   /** vi spy over `pollDirectoryGated` — `.mock.calls` is the invocation counter. */
   pollDirectoryGated: ReturnType<typeof vi.fn>;
 }
@@ -198,6 +206,10 @@ export function makeFakeDirectoryService(spec: FakeDirectoryServiceSpec = {}): F
       ? Promise.reject(spec.refresh.reject)
       : Promise.resolve(spec.refresh?.resolve ?? emptyOpenSpecData()),
   );
+  // Gated sibling (harden-server-request-surfaces D1): the handler's entry
+  // point. Delegates to `refreshOpenSpec` like the real service, so existing
+  // counters/specs keep working unchanged.
+  const refreshOpenSpecGated = vi.fn((cwd: string): Promise<OpenSpecData | null> => refreshOpenSpec(cwd));
   const pollDirectoryGated = vi.fn((_cwd: string): Promise<OpenSpecData> =>
     spec.poll && "reject" in spec.poll
       ? Promise.reject(spec.poll.reject)
@@ -207,12 +219,13 @@ export function makeFakeDirectoryService(spec: FakeDirectoryServiceSpec = {}): F
     knownDirectories: () => dirs,
     getOpenSpecData: () => undefined,
     refreshOpenSpec,
+    refreshOpenSpecGated,
     pollDirectoryGated,
     cancelLoad: vi.fn(),
     loadSessionEvents: vi.fn(async () => ({ success: false, error: "cancelled" as const })),
     onDirectoryAdded: vi.fn(async () => ({ sessions: [], openspecData: emptyOpenSpecData() })),
   } as unknown as DirectoryService;
-  return { service, refreshOpenSpec, pollDirectoryGated };
+  return { service, refreshOpenSpec, refreshOpenSpecGated, pollDirectoryGated };
 }
 
 export interface LoadGatewayExOpts {

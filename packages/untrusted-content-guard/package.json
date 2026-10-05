@@ -34,14 +34,10 @@
     "htmlparser2": "^10.1.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=1.0.0",
-    "@mariozechner/pi-coding-agent": ">=0.73.1"
+    "@earendil-works/pi-coding-agent": ">=1.0.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-coding-agent": {
-      "optional": true
-    },
-    "@mariozechner/pi-coding-agent": {
       "optional": true
     }
   },

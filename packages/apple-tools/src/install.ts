@@ -183,10 +183,12 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
 
   // 5. Config writes (suppressed in check mode).
   if (!check) {
+    // Merge-only: `command` is refreshed; operator-set `enabled` / `exposure`
+    // / `toolExposure` survive. pi's built-in MCP needs no package entry, so
+    // `settings.json` is never touched (a `pi-mcp-adapter` package entry would
+    // DISABLE the built-in). See change: migrate-mcp-to-pi-builtin (D4).
     const mcp = env.mcps.ensureServerEntry("iMCP", { command: resolved }, { kind: "global" });
     if (!mcp.ok) return relayConfigFailure(mcp.refusal);
-    const pkg = env.mcps.ensureAdapterPackage();
-    if (!pkg.ok) return relayConfigFailure(pkg.refusal);
   } else {
     // Predict a config failure the write would hit (unparseable existing file
     // or a malformed post-patch entry).
@@ -194,8 +196,8 @@ export function runInstaller(env: InstallerEnv, opts: RunOptions = {}): InstallR
     if (predicted) return predicted;
   }
 
-  // 6. Terminal success. The installer never claims READY — only a live adapter
-  //    round-trip (a granted tool call) can distinguish READY from pending.
+  // 6. Terminal success. The installer never claims READY — only a live
+  //    round-trip through pi's built-in MCP (a granted tool call) can distinguish READY from pending.
   //
   //    In check mode with the app absent, `state` is a PREDICTION of what a
   //    write run would reach. Reporting it as "provisioned", or naming the
@@ -242,9 +244,6 @@ function predictConfigWritability(env: InstallerEnv, resolvedPath: string): Inst
   });
   if (!status.mcpJson.ok) {
     return fail("CONFIG_UNPARSEABLE", status.mcpJson.message ?? "mcp.json would be refused");
-  }
-  if (!status.settingsJson.ok) {
-    return fail("CONFIG_UNPARSEABLE", status.settingsJson.message ?? "settings.json would be refused");
   }
   return null;
 }

@@ -14,7 +14,9 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import fastifyCookie from "@fastify/cookie";
+import * as pluginEventSeam from "./plugin-event-seam.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
@@ -50,6 +52,7 @@ import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { createCorsDenialObserver } from "./access/cors-denial.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
+import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
@@ -59,12 +62,14 @@ import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
-import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
+import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
+import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   type CorsOriginOptions,
@@ -79,6 +84,7 @@ import {
   evaluateHostGate,
   type HostGateContext,
   HostGateState,
+  hostGateBootLine,
   hostGateEnvWarning,
   resolveHostGateMode,
 } from "./auth/host-gate.js";
@@ -92,6 +98,7 @@ import {
   setNetworkDenialObserver,
 } from "./auth/localhost-guard.js";
 import { createMutationOriginGate } from "./auth/mutation-origin-gate.js";
+import { setOAuthRegistryRuntimeSource } from "./auth/provider-auth-registry.js";
 import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { beginFlow, pluginFlowProvider } from "./auth/begin-flow.js";
 import { createPluginCredentialStore } from "./auth/plugin-credential-store.js";
@@ -123,8 +130,10 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
+  liveRequireLocalProof,
   livePublicBaseUrls,
   liveTrustedNetworks,
+  rawConfigHasHostGateMode,
 } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
@@ -160,6 +169,7 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { getServerModelRuntime } from "./model-proxy/server-model-runtime.js";
 import { callPiAiStreamSimple } from "./model-proxy/streamer.js";
 import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
@@ -183,6 +193,7 @@ import { createMetaPersistence } from "./persistence/meta-persistence.js";
 import { migrateCustomEntryFallbackOverrides } from "./persistence/migrate-custom-entry-fallback.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
 import { createPreferencesStore } from "./persistence/preferences-store.js";
+import { loadHostProjectTrust } from "./pi/host-project-trust.js";
 import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway } from "./pi/pi-gateway.js";
@@ -219,6 +230,11 @@ import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
 import { registerPreferencesDisplayRoutes } from "./routes/preferences-display-routes.js";
 import { registerPreferencesWorktreeInitRoutes } from "./routes/preferences-worktree-init-routes.js";
+import {
+  createMcpClientConfigService,
+  createRealConfigIO,
+} from "@blackbelt-technology/pi-dashboard-mcp-client-plugin/core";
+import { countReloads, type RadiusMcpService } from "./auth/radius-mcp.js";
 import { registerProviderAuthRoutes } from "./routes/provider-auth-routes.js";
 import { registerProviderRoutes } from "./routes/provider-routes.js";
 import { invalidateRecommendedCache, registerRecommendedRoutes } from "./routes/recommended-routes.js";
@@ -568,6 +584,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
   // for same-host process callers, independent of the forgeable loopback IP.
   const localToken = ensureLocalToken();
+  // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
+  // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
+  const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
+  const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
     registry: pairedDeviceRegistry,
     getFingerprint: () => serverIdentity.fingerprint,
@@ -1329,6 +1349,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
+  // pi's project-trust rule as a SESSION applies it (recorded decision, else
+  // `defaultProjectTrust`), consumed by mcp-client to decide whether a
+  // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
+  // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
+  pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
   // Host services consumed by mcp-server-plugin. Registered HERE because the
   // plugin must verify a device bearer WITHOUT going through the global
   // `onRequest` hook — `/mcp` deliberately does not trust
@@ -1453,6 +1478,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
   });
 
+  // Name the grant store this dashboard writes (exclusive-create, never overwritten);
+  // announced to each bridge on registration. See change: ask-agent-file-access-in-chat.
+  ensureGrantStoreId();
   wireEvents({
     onBridgeRegister: (sid, identity) => {
       const outcome = extensionReloadGuard.onRegister(sid, identity);
@@ -1593,6 +1621,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const wsUpgradeRejectLog = createWsUpgradeRejectLogger();
   const hostGateBootWarning = hostGateEnvWarning(process.env.PI_DASHBOARD_HOST_GATE);
   if (hostGateBootWarning) console.error(hostGateBootWarning);
+  console.log(
+    hostGateBootLine(
+      process.env.PI_DASHBOARD_HOST_GATE,
+      rawConfigHasHostGateMode(),
+      resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+    ),
+  );
   const getHostGateCtx = (): HostGateContext => ({
     admission: {
       allowedHosts: liveAllowedHosts(),
@@ -1763,10 +1798,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Decorate isAuthenticated once, up front, so both the bearer branch and the
   // OAuth plugin can read/set it without racing on the decorator.
   fastify.decorateRequest("isAuthenticated", false);
+  // Cookie parsing/setting for the whole server, with or without OAuth providers
+  // (login state, local-proof and device-session cookies). Registered once here;
+  // BEFORE registerBearerAuth so its hook can read cookies.
+  // See change: harden-trust-and-credential-boundaries (D0).
+  await fastify.register(fastifyCookie);
   // Bearer device-auth branch — registered BEFORE the OAuth plugin so its
   // onRequest hook runs first and OAuth can early-return when already
   // authenticated. Additive (D5/D7); independent of whether OAuth is on.
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
+  registerDeviceSessionRoutes(fastify, {
+    registry: pairedDeviceRegistry,
+    // `Secure` iff the resolved public origin is https (request.protocol is always
+    // "http" behind a proxy), mirroring `pi_dash_token`.
+    isSecure: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base.startsWith("https:"),
+  });
   // Principal-resolver dispatch (identity plane, D2). Registered AFTER the
   // device-bearer branch and BEFORE the OAuth plugin so a valid Keycloak
   // bearer authenticates instead of being rejected by the cookie hook. Inert
@@ -1809,6 +1855,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
+      localTrust,
     });
   }
   // `/auth/status` is what the client's WS-refusal handler polls to tell
@@ -1874,6 +1921,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     "onRequest",
     createRouteTierGate({
       getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localTrust,
     }),
   );
 
@@ -1882,7 +1930,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // new lifecycle/extension-ui routes can carry it as a preHandler.
   const networkGuard = createNetworkGuard(
     () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
-    { localToken },
+    { localToken, localTrust },
   );
 
   // Session control REST API (wraps WebSocket-only operations)
@@ -1900,6 +1948,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionArchive,
     pendingArchiveIntents,
     networkGuard,
+    localTrust,
     // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
     // three bridge forwards plus the shared force-kill ladder.
     handleLifecycle: (sessionId, action, extras) =>
@@ -2367,7 +2416,31 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerLiveServerRoutes(fastify, liveServerManager, { networkGuard });
   registerLiveServerProxy(fastify, liveServerManager);
 
-  registerProviderAuthRoutes(fastify, { piGateway, browserGateway });
+  // ONE model runtime for the provider-auth flow listing AND the model proxy,
+  // injected so auth/ never imports model-proxy/.
+  // See change: collapse-model-proxy-onto-modelruntime (D6).
+  setOAuthRegistryRuntimeSource(getServerModelRuntime);
+  // Radius MCP follow-up: the writer is the mcp-client `./core` service, built
+  // lazily over the host's known-folder cwds + pi's project-trust rule so its
+  // `-`/`_` cross-folder collision check is live. Reload goes through
+  // `dispatchReload` and counts only real reloads.
+  // See change: add-radius-provider-login (D5, D6).
+  let radiusMcpService: RadiusMcpService | undefined;
+  registerProviderAuthRoutes(fastify, {
+    piGateway,
+    browserGateway,
+    radiusMcp: {
+      service: () => {
+        radiusMcpService ??= createMcpClientConfigService({
+          configIO: createRealConfigIO(),
+          knownCwds: pluginServiceRegistry.get("host.knownFolderCwds") as () => string[],
+          isProjectTrusted: pluginServiceRegistry.get("host.isProjectTrusted") as (cwd: string) => boolean,
+        });
+        return radiusMcpService;
+      },
+      reload: () => countReloads(reloadFanOutTargets(), dispatchReload),
+    },
+  });
   // Ungated model-introspection surface for in-session agents (GET /api/models).
   // Registered unconditionally (not behind modelProxy.enabled), subject only to
   // the dashboard's own auth gate — same posture as /api/provider-auth/status.
@@ -2382,12 +2455,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
     networkGuard,
     identity: serverIdentity,
     pairing: pairingManager,
     registry: pairedDeviceRegistry,
     localToken,
+    localTrust,
     hostAdmission: () => getHostGateCtx().admission,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
@@ -2423,6 +2498,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           authorization: request.headers.authorization,
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
+          localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
         });
         if (!verdict.allow) {
@@ -2550,6 +2626,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // without a restart (D15). Mirrors the per-route guard at 1499.
       trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
       localToken,
+      localTrust,
       getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
@@ -2755,6 +2832,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       {
         const { setSpawnDashboardPiPort } = await import("./spawn-process/process-manager.js");
         setSpawnDashboardPiPort(config.piPort);
+        // Pin spawned sessions to the transport actually served (read lazily,
+        // after the gateway starts) — never to another instance's socket.
+        // See change: fix-gateway-socket-stale-owner (D6).
+        const { setSpawnGatewayTransport } = await import("./spawn-process/process-manager.js");
+        setSpawnGatewayTransport(() => {
+          const { listeners } = piGateway.bridgeListeners();
+          const t = piGateway.transport();
+          if (listeners.includes("unix") && t?.transport === "unix") return { transport: "unix", path: t.path };
+          if (listeners.includes("loopback-fallback")) return { transport: "loopback-fallback" };
+          return { transport: "tcp" };
+        });
       }
 
       // Claim (or attach to) this HOME's rendezvous BEFORE the gateway starts
@@ -2806,23 +2894,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
         });
         console.log(`[pi-gateway] ${policy.reason}`);
-        // TCP first: `startOnSocket` installs the shared WebSocketServer, and
-        // `start()` refuses to run after it rather than orphan the listener.
-        if (policy.tcp) piGateway.start(policy.tcp.port, policy.tcp.host);
-        if (policy.socketPath) {
-          try {
-            await piGateway.startOnSocket(policy.socketPath);
-          } catch (err) {
-            // A refused socket bind (a live incumbent — D9) must not leave the
-            // gateway with no listener at all. Fall back to loopback, never to
-            // discovery.
-            console.error(`[pi-gateway] socket bind refused: ${err}`);
-            if (!policy.tcp) {
-              console.warn(`[pi-gateway] falling back to 127.0.0.1:${config.piPort}`);
-              piGateway.start(config.piPort, "127.0.0.1");
-            }
-          }
-        }
+        const { startGatewayListeners } = await import("./pi/gateway-listeners.js");
+        await startGatewayListeners(piGateway, policy, { piPort: config.piPort });
       }
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
@@ -3193,28 +3266,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
               // See change: automation-emit-configured-event.
-              emitEventToSession: (sessionId, eventType, data) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                if (typeof eventType !== "string" || eventType.length === 0) return false;
-                return piGateway.sendToSession(sessionId, {
-                  type: "plugin_emit_event",
-                  sessionId,
-                  eventType,
-                  data: data ?? {},
-                });
-              },
+              emitEventToSession: (sessionId, eventType, data) =>
+                pluginEventSeam.emitEventToSession(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m),
+                  sessionId, eventType, data,
+                ),
               // Raw server→extension control message to one session's bridge
               // socket — the `credentials_updated` lane, WITHOUT the
               // `pi.events` re-emit `plugin_emit_event` does. mcp-server-plugin
               // delivers the minted session token over this; a credential must
               // never ride the shared bus. Same trust gate as
               // emitEventToSession. See change: wire-mcp-session-token (D5).
-              sendExtensionMessage: (sessionId, msg) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                return piGateway.sendToSession(sessionId, msg as Parameters<typeof piGateway.sendToSession>[1]);
-              },
+              sendExtensionMessage: (sessionId, msg) =>
+                pluginEventSeam.sendExtensionMessage(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m as Parameters<typeof piGateway.sendToSession>[1]),
+                  sessionId, msg,
+                ),
               provide: (name, value) => { pluginServiceRegistry.set(name, value); },
               consume: <T = unknown>(name: string) =>
                 pluginServiceRegistry.get(name) as T | undefined,
@@ -3256,9 +3325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch { /* start fresh */ }
                 rawConfig.plugins = { ...(rawConfig.plugins as Record<string, unknown> ?? {}), [id]: merged };
                 const fs = (await import('node:fs')).default;
-                const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
-                fs.writeFileSync(tmpFile, `${JSON.stringify(rawConfig, null, 2)}\n`);
-                fs.renameSync(tmpFile, CONFIG_FILE);
+                writeConfigFileSecure(CONFIG_FILE, `${JSON.stringify(rawConfig, null, 2)}\n`);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',
                   id,
@@ -3441,7 +3508,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               registration.admitOrigins,
               corsOpts(),
             ) ||
-            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders)
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders, localTrust)
           ) {
             console.error(
               `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -3527,6 +3594,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           consumeTicket,
           headers: wsHeaders,
           localToken,
+          localTrust,
           requireIdentityTicket,
         });
         if (!upgradeAuth.ok) {

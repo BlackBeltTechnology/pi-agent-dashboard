@@ -393,7 +393,7 @@ function npxBinaryDef(deps?: StrategyDeps): ToolDefinition {
 
 // ── Module definitions ──────────────────────────────────────────────────────
 
-/** Sibling probe for an aliased package name (pi: `@earendil-works/*` + `@mariozechner/*`). */
+/** Sibling probe across a list of package names for one canonical module. */
 function moduleDefWithAliases(
   canonicalName: string,
   pkgNames: readonly string[],
@@ -642,7 +642,7 @@ function makeNodeScriptToArgv(deps?: StrategyDeps): ToolDefinition["toArgv"] {
  * exact failure mode the immutable-bundle architecture eliminates.
  */
 function piExecutorDef(deps?: StrategyDeps): ToolDefinition {
-  const piPkgAliases = ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"];
+  const piPkgAliases = ["@earendil-works/pi-coding-agent"];
   const cliEntry = path.join("dist", "cli.js");
 
   const winStrategies = [
@@ -917,19 +917,19 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
   registry.register(
     moduleDefWithAliases(
       "pi-coding-agent",
-      ["@earendil-works/pi-coding-agent", "@mariozechner/pi-coding-agent"],
+      ["@earendil-works/pi-coding-agent"],
       path.join("dist", "index.js"),
       deps,
     ),
   );
 
   // pi-ai module — used by model-proxy to call upstream LLM providers.
-  // Aliases: @earendil-works/pi-ai (preferred) + @mariozechner/pi-ai (legacy fallback).
+  // Package: @earendil-works/pi-ai only (see change: drop-mariozechner-pi-fork).
   // See change: add-dashboard-model-proxy.
   registry.register(
     moduleDefWithAliases(
       "pi-ai",
-      ["@earendil-works/pi-ai", "@mariozechner/pi-ai"],
+      ["@earendil-works/pi-ai"],
       path.join("dist", "index.js"),
       deps,
     ),

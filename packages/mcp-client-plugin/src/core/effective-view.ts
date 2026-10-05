@@ -1,239 +1,197 @@
 /**
- * mcp-client-plugin · CORE effective-view reader.
+ * mcp-client-plugin · CORE effective-view reader over pi's two MCP layers.
  *
- * Reads the adapter's full layer stack through the adapter port (never a
- * hand-rolled discovery walk), classifies every server's provenance by the
- * adapter's `kind` + Pi-path equality, and REDACT SERVER-SIDE every secret
- * value that is not defined in the requested scope's writable Pi-owned layer —
- * so the client never receives an inherited credential.
+ * Mirrors pi 1.0.0 `loadMcpConfig`: the Pi-global layer loads first, then —
+ * only when pi trusts the project — `<cwd>/.pi/mcp.json`, whose entries
+ * REPLACE global entries of the same name as a whole. Each entry is checked
+ * with the mirrored pi rules; an entry pi would reject or drop (invalid,
+ * `-`/`_` collision, project `auth`) is shown inactive with pi's message. An
+ * untrusted project's entries are shown inactive ("project not trusted").
  *
- * See change: extract-mcp-client-plugin (design D1, D2).
+ * Secrets: in a project view, a GLOBAL entry's secret values are redacted
+ * server-side (`headers`/`env` → `{redacted, keys}`, `oauth.clientSecret` →
+ * `{redacted}`) — the folder surface must never receive an inherited
+ * credential. Own-layer entries are returned verbatim (the client masks them).
+ *
+ * See change: migrate-mcp-to-pi-builtin (D3); earlier: extract-mcp-client-plugin.
  */
 
-import { parseJsonc } from "./config-writer.js";
+import { type LayerPaths, readLayer } from "./layers.js";
 import { getByName, isPlainObject, setByName } from "./path-utils.js";
-import type { AdapterPort, ConfigDiscoveryPath, ConfigIO, Scope } from "./types.js";
-
-export type LayerKind = "pi-global" | "pi-folder" | "shared" | "other";
-
-export interface ProvenanceLayer {
-  layer: LayerKind;
-  path: string | null;
-  label: string;
-  importKind?: string;
-  /** Pi-owned layers are writable; shared/other are read-only. */
-  writable: boolean;
-}
-
-export interface EffectiveServerView {
-  name: string;
-  entry: Record<string, unknown>;
-  provenance: ProvenanceLayer[];
-  /**
-   * The requested scope's WRITABLE layer's own entry, unmerged. The folder
-   * surface needs it to tell an override from an inheritance (the merged
-   * `entry` cannot: a non-secret inherited key looks identical to an own one).
-   * Undefined when the writable layer does not define the server. Own-layer
-   * credentials are therefore present — same exposure as `entry`, which keeps
-   * its own-layer secrets unredacted by design (the route is networkGuard-gated).
-   */
-  own?: Record<string, unknown>;
-}
-
-export interface SettingSource {
-  value: unknown;
-  source: "pi-global" | "shared" | "default";
-  path?: string;
-}
-
-export interface LayerParseError {
-  path: string;
-  message: string;
-}
-
-export interface EffectiveView {
-  cwd: string;
-  servers: EffectiveServerView[];
-  settings: Record<string, SettingSource>;
-  layerErrors: LayerParseError[];
-}
-
-export interface EffectiveViewReader {
-  getEffectiveView(scope: Scope, opts: { timeoutMs: number }): Promise<EffectiveView>;
-}
-
-export interface EffectiveViewDeps {
-  configIO: ConfigIO;
-  adapter: AdapterPort;
-  scratchCwd: string;
-}
-
-/** Scalar secret fields (dotted path). */
-const SCALAR_SECRET_PATHS: string[][] = [["bearerToken"], ["oauth", "clientSecret"]];
-/** Record-valued secret fields (dotted path) — replaced by a key-name marker. */
-const RECORD_SECRET_PATHS: string[][] = [["env"], ["headers"], ["requestHeadersCommand", "env"]];
+import {
+  adapterLeftovers,
+  authModeOf,
+  displayExposure,
+  ignoredKeys,
+  mcpNamespace,
+  transportOf,
+  validatePiEntry,
+} from "./pi-rules.js";
+import type { ConfigIO, EffectiveServerView, EffectiveView, LayerStatus, Provenance, Scope } from "./types.js";
 
 /** Credential-name pattern for record keys (key NAMES are never secret). */
 export function isSecretKey(name: string): boolean {
   return /authorization|token|key|secret/i.test(name);
 }
 
-interface LayerRead {
-  path: string;
-  label: string;
-  exists: boolean;
-  servers: Record<string, unknown> | null;
-  settings: Record<string, unknown> | null;
-  error?: string;
-}
+// Adapter-era leftovers (`bearerToken`, `requestHeadersCommand.env`) are
+// ignored by pi but can still hold a credential, so they are redacted too.
+const RECORD_SECRET_PATHS: string[][] = [["env"], ["headers"], ["requestHeadersCommand", "env"]];
+const SCALAR_SECRET_PATHS: string[][] = [["oauth", "clientSecret"], ["bearerToken"]];
 
-function readLayer(io: ConfigIO, discovery: ConfigDiscoveryPath): LayerRead {
-  const base: LayerRead = {
-    path: discovery.path,
-    label: discovery.label,
-    exists: discovery.exists,
-    servers: null,
-    settings: null,
-  };
-  const raw = io.readFile(discovery.path);
-  if (raw === null || raw.trim() === "") return { ...base, servers: {}, settings: {} };
-  try {
-    const parsed = parseJsonc(raw);
-    if (!isPlainObject(parsed)) return { ...base, error: `${discovery.path} is not a JSON object` };
-    const rawServers = isPlainObject(parsed.mcpServers)
-      ? (parsed.mcpServers as Record<string, unknown>)
-      : isPlainObject(parsed["mcp-servers"])
-        ? (parsed["mcp-servers"] as Record<string, unknown>)
-        : {};
-    const settings = isPlainObject(parsed.settings) ? (parsed.settings as Record<string, unknown>) : {};
-    return { ...base, servers: rawServers, settings };
-  } catch (e) {
-    return { ...base, error: (e as Error).message };
-  }
-}
-
-function redactSecrets(
-  merged: Record<string, unknown>,
-  own: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const entry = { ...merged } as Record<string, unknown>;
-  for (const path of SCALAR_SECRET_PATHS) {
-    if (getByName(merged, path) !== undefined && getByName(own, path) === undefined) {
-      setByName(entry, path, { redacted: true });
-    }
-  }
+/** Replace secret values with markers (key names kept). */
+export function redactEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...entry };
   for (const path of RECORD_SECRET_PATHS) {
-    const value = getByName(merged, path);
-    if (isPlainObject(value) && getByName(own, path) === undefined) {
-      setByName(entry, path, {
-        redacted: true,
-        keys: Object.keys(value).map((k) => ({ name: k, secret: isSecretKey(k) })),
-      });
+    const v = getByName(entry, path);
+    if (isPlainObject(v)) {
+      // Copy the parent first: the shallow copy shares nested objects with the raw entry.
+      const parent = path.slice(0, -1);
+      if (parent.length > 0) setByName(out, parent, { ...(getByName(entry, parent) as Record<string, unknown>) });
+      setByName(out, path, { redacted: true, keys: Object.keys(v).map((k) => ({ name: k, secret: isSecretKey(k) })) });
     }
   }
-  return entry;
-}
-
-function classify(
-  name: string,
-  layers: LayerRead[],
-  cwd: string,
-  adapter: Pick<AdapterPort, "getPiGlobalConfigPath" | "getProjectPiConfigPath">,
-  provenance: Map<string, { kind: string; path: string; importKind?: string }>,
-): ProvenanceLayer[] {
-  const piGlobal = adapter.getPiGlobalConfigPath();
-  const piFolder = adapter.getProjectPiConfigPath(cwd);
-  const defining = layers.filter((l) => l.servers !== null && Object.hasOwn(l.servers, name));
-  if (defining.length === 0) {
-    const p = provenance.get(name);
-    return [
-      {
-        layer: "other",
-        path: p?.path ?? null,
-        label: p?.importKind ?? "package or plugin",
-        writable: false,
-      },
-    ];
-  }
-  const adapterProv = provenance.get(name);
-  return defining.map((l) => {
-    if (l.path === piGlobal) return { layer: "pi-global" as const, path: l.path, label: l.label, writable: true };
-    if (l.path === piFolder) return { layer: "pi-folder" as const, path: l.path, label: l.label, writable: true };
-    const importKind = adapterProv?.kind === "import" ? adapterProv.importKind : undefined;
-    return {
-      layer: "shared" as const,
-      path: l.path,
-      label: importKind ?? l.label,
-      ...(importKind ? { importKind } : {}),
-      writable: false,
-    };
-  });
-}
-
-function deriveSettings(
-  effective: Record<string, unknown> | undefined,
-  layers: LayerRead[],
-  adapter: Pick<AdapterPort, "getPiGlobalConfigPath">,
-): Record<string, SettingSource> {
-  const piGlobal = adapter.getPiGlobalConfigPath();
-  const out: Record<string, SettingSource> = {};
-  for (const [key, value] of Object.entries(effective ?? {})) {
-    const globalLayer = layers.find(
-      (l) => l.path === piGlobal && l.settings !== null && Object.hasOwn(l.settings, key),
-    );
-    if (globalLayer) {
-      out[key] = { value, source: "pi-global", path: piGlobal };
-      continue;
-    }
-    const sharedLayer = layers.find(
-      (l) => l.path !== piGlobal && l.settings !== null && Object.hasOwn(l.settings, key),
-    );
-    if (sharedLayer) {
-      out[key] = { value, source: "shared", path: sharedLayer.path };
-      continue;
-    }
-    out[key] = { value, source: "default" };
+  for (const path of SCALAR_SECRET_PATHS) {
+    if (getByName(entry, path) === undefined) continue;
+    // Copy the parent object first: `setByName` mutates in place and the
+    // shallow copy above still shares nested objects with the raw entry.
+    const parent = path.slice(0, -1);
+    if (parent.length > 0) setByName(out, parent, { ...(getByName(entry, parent) as Record<string, unknown>) });
+    setByName(out, path, { redacted: true });
   }
   return out;
 }
 
+export interface EffectiveViewDeps {
+  configIO: ConfigIO;
+  paths: LayerPaths;
+  isProjectTrusted?: (cwd: string) => boolean;
+}
+
+export interface EffectiveViewReader {
+  getEffectiveView(scope: Scope): EffectiveView;
+}
+
+function describe(
+  name: string,
+  raw: unknown,
+  provenance: Provenance,
+  redact: boolean,
+): EffectiveServerView {
+  const entry = isPlainObject(raw) ? (raw as Record<string, unknown>) : {};
+  const piError = validatePiEntry(name, raw);
+  const enabled = entry.enabled !== false;
+  const view: EffectiveServerView = {
+    name,
+    provenance,
+    entry: redact ? redactEntry(entry) : { ...entry },
+    transport: transportOf(entry),
+    enabled,
+    exposure: displayExposure(entry.exposure),
+    active: piError === null && enabled,
+    ignoredKeys: ignoredKeys(entry),
+    adapterLeftovers: adapterLeftovers(entry),
+  };
+  const auth = authModeOf(entry);
+  if (auth) view.authMode = auth;
+  if (piError) {
+    view.piError = piError;
+    view.inactiveReason = "invalid-entry";
+  } else if (!enabled) {
+    view.inactiveReason = "disabled";
+  }
+  return view;
+}
+
+function deactivate(v: EffectiveServerView, reason: EffectiveServerView["inactiveReason"], message?: string): void {
+  v.active = false;
+  v.inactiveReason = reason;
+  if (message) v.piError = message;
+}
+
 export function createEffectiveViewReader(deps: EffectiveViewDeps): EffectiveViewReader {
-  const { configIO, adapter, scratchCwd } = deps;
+  const { configIO, paths } = deps;
 
-  async function getEffectiveView(scope: Scope, opts: { timeoutMs: number }): Promise<EffectiveView> {
-    const cwd = scope.kind === "project" ? scope.cwd : scratchCwd;
-    const config = await adapter.loadMcpConfig(undefined, cwd, { timeoutMs: opts.timeoutMs });
-    const provenance = await adapter.getServerProvenance(undefined, cwd, { timeoutMs: opts.timeoutMs });
-    const discovered = adapter.getConfigDiscoveryPaths(undefined, cwd);
-    const layers = discovered.map((d) => readLayer(configIO, d));
-    const layerErrors: LayerParseError[] = layers
-      .filter((l) => l.error !== undefined)
-      .map((l) => ({ path: l.path, message: l.error as string }));
+  function getEffectiveView(scope: Scope): EffectiveView {
+    const globalPath = paths.globalPath();
+    const g = readLayer(configIO, globalPath);
+    const layers: LayerStatus[] = [
+      { layer: "pi-global", path: globalPath, exists: g.exists, ok: g.ok, ...(g.ok ? {} : { message: g.message }) },
+    ];
+    const isProject = scope.kind === "project";
 
-    const writablePath =
-      scope.kind === "project" ? adapter.getProjectPiConfigPath(cwd) : adapter.getPiGlobalConfigPath();
-    const writableServers = layers.find((l) => l.path === writablePath)?.servers ?? null;
+    // Global layer, in pi's load order (collisions within the file: first wins).
+    const byName = new Map<string, EffectiveServerView>();
+    const loadedNs = new Map<string, string>(); // namespace → loaded name
+    if (g.ok) {
+      for (const [name, raw] of Object.entries(g.servers)) {
+        const v = describe(name, raw, "pi-global", isProject);
+        if (!v.piError) {
+          const clash = loadedNs.get(mcpNamespace(name));
+          if (clash) deactivate(v, "name-collision", `server "${name}" conflicts with "${clash}"`);
+          else loadedNs.set(mcpNamespace(name), name);
+        }
+        byName.set(name, v);
+      }
+    }
 
-    const servers: EffectiveServerView[] = Object.entries(config.mcpServers ?? {}).map(([name, entry]) => {
-      const merged = entry as unknown as Record<string, unknown>;
-      const ownRaw =
-        writableServers !== null && Object.hasOwn(writableServers, name) ? writableServers[name] : undefined;
-      const own = isPlainObject(ownRaw) ? (ownRaw as Record<string, unknown>) : undefined;
-      return {
-        name,
-        entry: redactSecrets(merged, own),
-        provenance: classify(name, layers, cwd, adapter, provenance),
-        ...(own ? { own } : {}),
-      };
-    });
+    if (scope.kind === "global") {
+      return { scope: "global", servers: sortByName([...byName.values()]), layers };
+    }
+
+    const cwd = scope.cwd;
+    const trusted = deps.isProjectTrusted?.(cwd) === true;
+    const projectPath = paths.projectPath(cwd);
+    const pl = readLayer(configIO, projectPath);
+    layers.push({ layer: "pi-folder", path: projectPath, exists: pl.exists, ok: pl.ok, ...(pl.ok ? {} : { message: pl.message }) });
+
+    const folderRows: EffectiveServerView[] = [];
+    if (pl.ok) {
+      for (const [name, raw] of Object.entries(pl.servers)) {
+        const v = describe(name, raw, "pi-folder", false);
+        const global = byName.get(name);
+        if (!trusted) {
+          // pi never reads this file: the global entry (if any) stays in effect.
+          deactivate(v, "project-not-trusted");
+          folderRows.push(v);
+          continue;
+        }
+        if (v.piError) {
+          // pi drops an invalid project entry; the global one stays in effect.
+          folderRows.push(v);
+          continue;
+        }
+        {
+          const clash = loadedNs.get(mcpNamespace(name));
+          if (clash && clash !== name) {
+            deactivate(v, "name-collision", `server "${name}" conflicts with "${clash}"`);
+            folderRows.push(v);
+            continue;
+          }
+          if (isPlainObject(raw) && raw.auth !== undefined && v.transport === "http") {
+            deactivate(v, "global-only-auth", `server "${name}": auth is only allowed in the global mcp.json`);
+            folderRows.push(v);
+            continue;
+          }
+        }
+        if (global) v.overridesGlobal = true;
+        loadedNs.set(mcpNamespace(name), name);
+        byName.set(name, v); // whole-entry replace
+      }
+    }
 
     return {
+      scope: "project",
       cwd,
-      servers,
-      settings: deriveSettings(config.settings as Record<string, unknown> | undefined, layers, adapter),
-      layerErrors,
+      trusted,
+      servers: sortByName([...byName.values(), ...folderRows]),
+      layers,
     };
   }
 
   return { getEffectiveView };
+}
+
+function sortByName(rows: EffectiveServerView[]): EffectiveServerView[] {
+  return rows.sort((a, b) => (a.name === b.name ? a.provenance.localeCompare(b.provenance) : a.name < b.name ? -1 : 1));
 }

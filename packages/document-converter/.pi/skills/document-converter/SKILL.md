@@ -30,7 +30,11 @@ Do NOT read the vendored Python under `engine/document_converter/`.
 
 ```ts
 import { createDocumentConverter } from "@blackbelt-technology/pi-dashboard-document-converter";
-const dc = createDocumentConverter({ image: "pi-doc-engine:0.1.0", stagingDir: "/abs/kb-staging" });
+const dc = createDocumentConverter({
+  image: "pi-doc-engine:0.1.0",
+  stagingDir: "/abs/kb-staging",
+  mounts: ["/docs"],   // files outside cwd need a root (mounts or workspaceRoot), else PATH_NOT_ALLOWED
+});
 
 await dc.convertToMarkdown("/docs/report.pdf");                       // digital PDF (auto: native-first)
 await dc.convertToMarkdown("/docs/scan.pdf", {                        // scanned HU PDF
@@ -79,5 +83,5 @@ All stages read/write one unified schema (`./schema`): template vars ·
 ## Errors
 
 Every method rejects with `DocConverterError` (`.code`, `.stderr`, `.exitCode`):
-`UNSUPPORTED_FORMAT`, `OCR_LANG_UNSUPPORTED`, `INGEST_FAILED`, `PRODUCE_FAILED`,
+`UNSUPPORTED_FORMAT`, `PATH_NOT_ALLOWED`, `OCR_LANG_UNSUPPORTED`, `INGEST_FAILED`, `PRODUCE_FAILED`,
 `DOCKER_UNAVAILABLE`, … Surface `.code` + `.stderr`; do not retry blindly.

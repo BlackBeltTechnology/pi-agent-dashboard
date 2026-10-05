@@ -28,6 +28,12 @@ describe("bridge plugin_emit_event relay", () => {
     expect(emit).toHaveBeenCalledWith("flow:run", { flowName: "test:x", task: "go" });
   });
 
+  it("generic relay preserved for non-reserved custom events (X14)", () => {
+    const emit = vi.fn();
+    onPluginEmitEvent({ emit }, { eventType: "custom:x", data: { a: 1 } });
+    expect(emit).toHaveBeenCalledWith("custom:x", { a: 1 });
+  });
+
   it("defaults data to {} when absent", () => {
     const emit = vi.fn();
     onPluginEmitEvent({ emit }, { eventType: "flow:abort" });

@@ -1,30 +1,32 @@
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiArrowLeft, mdiCrosshairsGps, mdiFileCompare, mdiLinkOff, mdiPaperclip, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiRefresh, mdiSourceFork, mdiViewGridOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { useEffect, useRef, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
-import { CountBadges } from "./CountBadges.js";
-import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
+import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
+import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
-import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
-import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
-import { MobileActionMenu } from "../shell/MobileActionMenu.js";
+import { AttachmentTrace } from "../openspec/AttachmentTrace.js";
 import { ArtifactLettersButton } from "../openspec/openspec-helpers.js";
+import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
 // FlowLaunchDialog removed: flow launching is owned entirely by
 // flows-plugin's command-route claims (/flows, /flows:new, etc.) and
 // SessionFlowActionsClaim. See change: pluginize-flows-via-registry.
 import { SearchableSelectDialog, type SelectOption } from "../primitives/SearchableSelectDialog.js";
-import { useOptionalSessionDiff } from "../diff/SessionDiffContext.js";
+import { MobileActionMenu } from "../shell/MobileActionMenu.js";
+import { LayoutModeSwitch } from "../split/LayoutModeSwitch.js";
 import { useOptionalSplitWorkspace } from "../split/SplitWorkspaceContext.js";
 import { TagChip } from "../tags/TagChip.js";
 import { TagEditor } from "../tags/TagEditor.js";
-import { YoloSessionIndicator } from "../access-grant/YoloIndicators.js";
+import { CountBadges } from "./CountBadges.js";
+import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 
 interface Props {
   session?: DashboardSession;
@@ -202,8 +204,9 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
   // present, render the artifact-letters pill + task counter inside the
   // existing mobile-header-attached-chip span.
   // See change: add-attached-proposal-header-summary.
-  const attachedChange = session.attachedProposal
-    ? mobileActions?.openspecChanges?.find((c) => c.name === session.attachedProposal)
+  const attachmentResolution = useAttachmentResolution(session, mobileActions?.openspecChanges);
+  const attachedChange = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd
+    ? attachmentResolution.change
     : undefined;
   const readArtifact = onReadArtifact ?? mobileActions?.onReadArtifact;
   // Row 1: back + name + attach button + kebab. Always present.
@@ -278,6 +281,7 @@ function MobileHeader({ session, showBack, onBack, isRenaming, onConfirmRename, 
       >
         <Icon path={mdiPaperclip} size={0.4} />
         <span className="truncate min-w-0">{session.attachedProposal}</span>
+        <AttachmentTrace resolution={attachmentResolution} sessionCwd={session.cwd} />
         {attachedChange && attachedChange.artifacts.length > 0 && (
           <span className="flex-shrink-0">
             <ArtifactLettersButton
@@ -342,6 +346,9 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   // See change: pluginize-flows-via-registry.
 
   const attached = session?.attachedProposal;
+  // Resolve against active + archived data (hook must run before the mobile early return).
+  // See change: resolve-archived-attached-proposal.
+  const desktopResolution = useAttachmentResolution(session, openspecChanges);
   const openspecOptions: SelectOption[] = (openspecChanges || []).map(c => {
     const stateLabels: Record<string, string> = {
       "no-tasks": "Planning",
@@ -402,9 +409,8 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
 
   // Desktop attached-change lookup for the artifact-letters pill + task counter.
   // See change: add-attached-proposal-header-summary.
-  const desktopAttachedChange = attached
-    ? openspecChanges?.find((c) => c.name === attached)
-    : undefined;
+  const desktopAttachedChange =
+    desktopResolution?.kind === "active" && session && desktopResolution.cwd === session.cwd ? desktopResolution.change : undefined;
 
   // Resume / Fork affordance gate: only render when the session is dead-but-resumable
   // AND a parent callback was supplied. The render gate replaces the dimmed elapsed-
@@ -492,10 +498,11 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {/* OpenSpec + Flow buttons */}
       <span className="flex-1" />
-      {onAttachProposal && openspecChanges && openspecChanges.length > 0 && (
+      {onAttachProposal && ((openspecChanges && openspecChanges.length > 0) || attached) && (
         attached ? (
           <span className="text-[10px] flex items-center gap-1 mr-2">
             <span className="text-blue-400"><Icon path={mdiPaperclip} size={0.4} className="inline mr-0.5" />{attached}</span>
+            <AttachmentTrace resolution={desktopResolution} sessionCwd={session.cwd} />
             {desktopAttachedChange && desktopAttachedChange.artifacts.length > 0 && (
               <ArtifactLettersButton
                 artifacts={desktopAttachedChange.artifacts}

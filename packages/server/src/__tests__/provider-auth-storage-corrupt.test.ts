@@ -339,3 +339,73 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     try { fs.rmSync(path.join(authDir, "auth.json.tmp"), { force: true }); } catch { /* gone */ }
   });
 });
+
+/**
+ * The model runtime's credential store on corrupt / torn auth.json
+ * (test-plan #X4, #X13). See change: collapse-model-proxy-onto-modelruntime (D1).
+ */
+describe("DashboardCredentialStore — corrupt and torn auth.json", () => {
+  beforeEach(async () => {
+    vi.restoreAllMocks();
+    (await storage())._resetQuarantineDedupForTests();
+    try { fs.rmSync(authPath, { force: true }); } catch { /* absent */ }
+    for (const f of quarantineFiles()) fs.rmSync(quarantinePath(f), { force: true });
+  });
+
+  async function store() {
+    const { DashboardCredentialStore } = await import("../auth/dashboard-credential-store.js");
+    return new DashboardCredentialStore();
+  }
+
+  // #X4 — a runtime-triggered write over unparseable content is refused and
+  // the original bytes survive in a quarantine copy.
+  it("X4: modify on corrupt auth.json is refused, bytes preserved and quarantined", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const corrupt = '{"anthropic":{"type":"oauth","access":"a","refre';
+    writeAuthFile(corrupt);
+    const fn = vi.fn(async () => ({ type: "oauth" as const, access: "new", refresh: "r", expires: Date.now() + 3_600_000 }));
+
+    await expect((await store()).modify("anthropic", fn)).rejects.toThrow(/corrupt/);
+    expect(fn).not.toHaveBeenCalled();
+    expect(authFileBytes().toString("utf-8")).toBe(corrupt);
+    const backups = quarantineFiles();
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+    expect(fs.readFileSync(quarantinePath(backups[0]), "utf-8")).toBe(corrupt);
+  });
+
+  // #X13 — the unlocked read observes a torn in-place write; the locked
+  // re-read sees the completed file. Valid credential returned, nothing
+  // quarantined.
+  it("X13: a torn unlocked read is retried under the lock and returns the valid credential", async () => {
+    const { createRequire } = await import("node:module");
+    const lockfile = createRequire(import.meta.url)("proper-lockfile") as typeof import("proper-lockfile");
+    writeAuthFile('{"anthropic":{"type":"api_key","ke');
+    // pi is mid-write and holds the lock; it finishes, then releases.
+    const release = await lockfile.lock(authPath, { stale: 30_000, realpath: false, onCompromised: () => {} });
+    const finish = (async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      writeAuthFile('{"anthropic":{"type":"api_key","key":"sk-valid"}}');
+      await release();
+    })();
+
+    await expect((await store()).read("anthropic")).resolves.toEqual({ type: "api_key", key: "sk-valid" });
+    await finish;
+    expect(quarantineFiles()).toEqual([]);
+  });
+
+  it("X13: list retries a torn read under the lock too, without quarantining", async () => {
+    const { createRequire } = await import("node:module");
+    const lockfile = createRequire(import.meta.url)("proper-lockfile") as typeof import("proper-lockfile");
+    writeAuthFile('{"openai":{"type":"api_key","ke');
+    const release = await lockfile.lock(authPath, { stale: 30_000, realpath: false, onCompromised: () => {} });
+    const finish = (async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      writeAuthFile('{"openai":{"type":"api_key","key":"sk-o"}}');
+      await release();
+    })();
+
+    await expect((await store()).list()).resolves.toEqual([{ providerId: "openai", type: "api_key" }]);
+    await finish;
+    expect(quarantineFiles()).toEqual([]);
+  });
+});

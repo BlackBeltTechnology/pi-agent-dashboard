@@ -82,3 +82,80 @@ describe("batchGenerate", () => {
     expect(byName.b.skipped).toBeUndefined();
   });
 });
+
+describe("backend selection (opt-in pi)", () => {
+  const spyLoader = () => {
+    const calls = { n: 0 };
+    const loadPi = async () => {
+      calls.n++;
+      throw new Error("must not load pi");
+    };
+    return { calls, loadPi };
+  };
+
+  it("E1 defaults to gemini and never loads pi", async () => {
+    const { calls, loadPi } = spyLoader();
+    let ran = 0;
+    const runner: NanoBananaRunner = async () => {
+      ran++;
+      return { code: 0, stderr: "" };
+    };
+    const res = await generateImage({ prompt: "x", env: { GEMINI_API_KEY: "k" }, runner, loadPi });
+    expect(ran).toBe(1);
+    expect(res.ok).toBe(true);
+    expect(res.backend).toBe("gemini");
+    expect(calls.n).toBe(0);
+  });
+
+  it("E2 no Gemini key does not fall back to pi", async () => {
+    const { calls, loadPi } = spyLoader();
+    const res = await generateImage({ prompt: "x", env: {}, baseDir: tmp(), packageDir: tmp(), loadPi });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("GEMINI_API_KEY");
+    expect(res.error).toContain("--backend pi");
+    expect(calls.n).toBe(0);
+  });
+
+  it("E3 NANO_BANANA_BACKEND does not switch library callers", async () => {
+    const { calls, loadPi } = spyLoader();
+    const prev = process.env.NANO_BANANA_BACKEND;
+    process.env.NANO_BANANA_BACKEND = "pi";
+    try {
+      let ran = 0;
+      const runner: NanoBananaRunner = async () => {
+        ran++;
+        return { code: 0, stderr: "" };
+      };
+      await generateImage({ prompt: "x", env: { GEMINI_API_KEY: "k" }, runner, loadPi });
+      expect(ran).toBe(1);
+      expect(calls.n).toBe(0);
+    } finally {
+      if (prev === undefined) delete process.env.NANO_BANANA_BACKEND;
+      else process.env.NANO_BANANA_BACKEND = prev;
+    }
+  });
+
+  it("E4 invalid backend fails before mkdir or generation", async () => {
+    const { calls, loadPi } = spyLoader();
+    const dir = tmp();
+    let ran = 0;
+    const runner: NanoBananaRunner = async () => {
+      ran++;
+      return { code: 0, stderr: "" };
+    };
+    const res = await generateImage({
+      prompt: "x",
+      cliKey: "k",
+      output: path.join(dir, "new-dir", "a.png"),
+      backend: "openai" as never,
+      runner,
+      loadPi,
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain("gemini");
+    expect(res.error).toContain("pi");
+    expect(fs.existsSync(path.join(dir, "new-dir"))).toBe(false);
+    expect(ran).toBe(0);
+    expect(calls.n).toBe(0);
+  });
+});

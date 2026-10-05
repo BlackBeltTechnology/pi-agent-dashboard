@@ -17,6 +17,8 @@ vi.mock("../../lib/pairing/pair-protocol.js", () => ({
 const storeDeviceBearer = vi.fn();
 vi.mock("../../lib/pairing/device-auth.js", () => ({
   storeDeviceBearer: (...a: any[]) => storeDeviceBearer(...a),
+  // The cookie exchange is covered in device-auth-cookie.test.ts; here it just stores.
+  finishDevicePairing: async (...a: any[]) => storeDeviceBearer(...a),
 }));
 
 import { encodePayloadString } from "../../lib/pairing/pairing-qr.js";

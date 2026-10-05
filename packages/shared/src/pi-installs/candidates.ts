@@ -26,11 +26,17 @@ import path from "node:path";
 import { readPkgVersion } from "./installs.js";
 import { isBelow } from "./versions.js";
 
-/** Package aliases probed at every location, upstream-first (chain order). */
-export const PI_PKG_ALIASES = [
-	"@earendil-works/pi-coding-agent",
-	"@mariozechner/pi-coding-agent",
-] as const;
+/** Package names probed at every location (chain order). Earendil only. */
+export const PI_PKG_ALIASES = ["@earendil-works/pi-coding-agent"] as const;
+
+/**
+ * Scope-agnostic manifest-name test: `pi-coding-agent` or `@<scope>/pi-coding-agent`.
+ * Used where a manifest is READ (version / engines walk-ups), never to choose
+ * which package to discover or resolve. See change: drop-mariozechner-pi-fork.
+ */
+export function isPiCodingAgentName(name: string | undefined | null): boolean {
+	return typeof name === "string" && /^(?:@[^/]+\/)?pi-coding-agent$/.test(name);
+}
 
 /** Entry the `pi` executor override must point at. */
 export const PI_SPAWN_ENTRY = path.join("dist", "cli.js");
@@ -126,7 +132,7 @@ function withDefaults(deps: EnumerateDeps = {}): Resolved {
 	};
 }
 
-/** Probe both aliases under `<base>/node_modules`, upstream-first. */
+/** Probe every alias under `<base>/node_modules`, in chain order. */
 function probeNodeModules(base: string, d: Resolved): string | null {
 	for (const alias of PI_PKG_ALIASES) {
 		const pkgDir = path.join(base, "node_modules", alias);
@@ -135,7 +141,7 @@ function probeNodeModules(base: string, d: Resolved): string | null {
 	return null;
 }
 
-/** Probe both aliases directly under `<root>` (npm-global root layout). */
+/** Probe every alias directly under `<root>` (npm-global root layout). */
 function probeRoot(root: string, d: Resolved): string | null {
 	for (const alias of PI_PKG_ALIASES) {
 		const pkgDir = path.join(root, alias);

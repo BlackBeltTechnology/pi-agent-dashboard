@@ -34,6 +34,18 @@ function promptMessage(prompt: PromptRequest): string {
     : "";
 }
 
+/**
+ * `select` question as the terminal shows it. A `select` may carry
+ * `metadata.plainMessage` (plain text, no markdown): the TUI renders only the
+ * question + options, so decision context a dashboard card shows from metadata
+ * (agent path gate: session cwd, "can't be remembered here") must ride the question.
+ * See change: ask-agent-file-access-in-chat.
+ */
+function selectQuestion(prompt: PromptRequest): string {
+  const plain = prompt.metadata?.plainMessage;
+  return typeof plain === "string" && plain ? `${prompt.question}\n\n${plain}` : prompt.question;
+}
+
 /** Create the PromptBus adapter that presents supported prompts in Pi's TUI. */
 export function createTuiPromptAdapter(
   ui: TuiPromptUi,
@@ -53,7 +65,7 @@ export function createTuiPromptAdapter(
           let answer: string | boolean | undefined;
 
           if (prompt.type === "select" && prompt.options && ui.select) {
-            answer = await ui.select(prompt.question, prompt.options, {
+            answer = await ui.select(selectQuestion(prompt), prompt.options, {
               signal: controller.signal,
             });
           } else if (prompt.type === "input" && ui.input) {

@@ -3,7 +3,7 @@ import { clearAccessToken } from "@blackbelt-technology/pi-dashboard-client-util
 import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBase } from "../lib/api/api-context.js";
-import { appendWsTicket, getApiBearer, mintWsTicket } from "../lib/pairing/device-auth.js";
+import { appendWsTicket, getApiBearer, isDevicePaired, mintWsTicket } from "../lib/pairing/device-auth.js";
 
 export type ConnectionStatus = "connected" | "connecting" | "offline" | "auth_required";
 
@@ -267,7 +267,7 @@ export function useWebSocket(url: string, onIdentityExpired?: () => void | Promi
   // present only that. Browsers with neither (cookie/loopback auth) skip
   // ticketing — unchanged path.
   const connect = useCallback(() => {
-    if (getApiBearer()) {
+    if (getApiBearer() || isDevicePaired()) {
       mintWsTicket("browser")
         .then((ticket) => openSocket(ticket ? appendWsTicket(url, ticket) : url))
         .catch(() => openSocket(url));

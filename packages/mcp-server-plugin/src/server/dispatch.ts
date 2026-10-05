@@ -568,7 +568,7 @@ async function dispatchToolCall(
   }
 
   try {
-    return rpcResult(id, await executeTool(tool, args, caller, deps, ctx));
+    return rpcResult(id, toCallToolResult(await executeTool(tool, args, caller, deps, ctx)));
   } catch (err) {
     // A binder argument failure is invalid-params, never an internal error.
     if (err instanceof ToolArgumentError) {
@@ -588,6 +588,20 @@ const UNSAFE_PATH_CHARS = /[/?#%]/;
  * member handlers; `rest` rows run `fastify.inject` with the caller's identity;
  * `session` rows forward a bridge message.
  */
+/**
+ * Every `tools/call` result is an MCP `CallToolResult`. A binder value that
+ * already carries a `content` array (the REST envelope mapping) passes through;
+ * any other value (context / session binders return raw objects) rides as JSON
+ * text — a strict client such as pi's built-in MCP reads only `content`, and
+ * saw an EMPTY result before. See change: migrate-mcp-to-pi-builtin.
+ */
+export function toCallToolResult(value: unknown): unknown {
+  if (typeof value === "object" && value !== null && Array.isArray((value as { content?: unknown }).content)) {
+    return value;
+  }
+  return { content: [{ type: "text", text: JSON.stringify(value ?? null) }] };
+}
+
 async function executeTool(
   tool: GeneratedTool,
   args: Record<string, unknown>,

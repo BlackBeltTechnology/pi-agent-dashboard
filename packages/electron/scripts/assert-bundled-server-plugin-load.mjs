@@ -74,6 +74,25 @@ export function pluginLoadProblems(logText, { plugin = PLUGIN_ID } = {}) {
   return problems;
 }
 
+/**
+ * The last `lines` lines of the server log, so a red gate shows WHY the plugin
+ * never loaded instead of only that it did not. Pure for unit testing.
+ */
+export function logTail(text, lines = 80) {
+  const trimmed = text.replace(/\n+$/, "");
+  if (!trimmed) return "(server.log empty or missing)";
+  return trimmed.split("\n").slice(-lines).join("\n");
+}
+
+/** Print the tail of the bundled server's log (before the temp HOME is removed). */
+function dumpServerLog(home) {
+  const log = join(home, ".pi", "dashboard", "server.log");
+  const text = existsSync(log) ? readFileSync(log, "utf-8") : "";
+  console.error(`── tail of ${log} ──`);
+  console.error(logTail(text));
+  console.error("── end of server.log ──");
+}
+
 /** A port the OS says is free. */
 function freePort() {
   return new Promise((res, rej) => {
@@ -171,11 +190,15 @@ async function main() {
 
     const problems = pluginLoadProblems(text);
     for (const p of problems) console.error(`✗ ${p}`);
-    if (problems.length > 0) return 1;
+    if (problems.length > 0) {
+      dumpServerLog(home);
+      return 1;
+    }
     console.log(`✓ bundled server: 'Loaded plugin "${PLUGIN_ID}"', zero 'Failed to load plugin'`);
     return 0;
   } catch (err) {
     console.error(`✗ bundled server plugin-load gate failed: ${err.message}`);
+    dumpServerLog(home);
     return 1;
   } finally {
     // Stop the detached daemon this HOME owns, then drop the temp state.

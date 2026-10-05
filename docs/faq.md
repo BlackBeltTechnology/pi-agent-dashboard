@@ -360,10 +360,12 @@ Common keys:
 - `devBuildOnReload` (default `false`)
 - `askUserPromptTimeoutSeconds` (default `300`; `≤0` = wait indefinitely)
 - `allowedHosts` (default `[]`) — bare hostnames the dashboard may answer on (e.g. reverse-proxy name). No scheme/port. Applies live.
-- `hostGate.mode` (default `"report"`) — `"report"` logs `[host-gate] would-refuse` + proceeds; `"enforce"` refuses unlisted hosts. Applies live.
+- `hostGate.mode` (default `"enforce"`) — `"enforce"` refuses unlisted hosts; `"report"` logs `[host-gate] would-refuse` + proceeds. Absent → `"enforce"`; unrecognised value → `"report"` (typo cannot lock out). Opt out: `hostGate.mode: "report"` or `PI_DASHBOARD_HOST_GATE=report`. Applies live. Boot line `[host-gate] mode=<m> source=env|config|default` names resolved mode.
+- `agentPathGate.enabled` (default `true`) — bridge `tool_call` gate for agent `read`/`write`/`edit` outside session roots; out-of-root asks in-chat. `false` → handler returns immediately. Applies from the next tool call.
+- `agentPathGate.timeoutSeconds` (default `120`) — one budget shared by the file-access select and its Always-allow confirm; expiry cancels open prompts and blocks.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
-Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once).
+Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once), `PI_DASHBOARD_AGENT_PATH_GATE` (`off`|`on`; overrides `agentPathGate.enabled`; Settings ▸ Security ▸ Agent file access toggle inert under env override).
 
 Live-reconfigurable via `PUT /api/config` — partial merge, secrets preserved as `***`. Port/piPort changes set `restartRequired: true`.
 
@@ -419,16 +421,18 @@ See change: warn-unreachable-trusted-networks.
 
 ## I got 'This address is not allowed'?
 
-Host-admission gate refused the request's `Host` header (issue #637; `hostGate.mode: "enforce"` or `PI_DASHBOARD_HOST_GATE=enforce`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
+Host-admission gate refused the request's `Host` header (issue #637; default `hostGate.mode: "enforce"`). Gate keys on `Host`, not `Origin` — a DNS-rebinding page is same-origin and sends no `Origin`.
 
-Three ways in (the 403 page lists all):
+Locked out? Check `server.log` for boot line `[host-gate] mode=<m> source=env|config|default`, then add the host to `allowedHosts`/`publicBaseUrls`, or opt out (`hostGate.mode: "report"` / `PI_DASHBOARD_HOST_GATE=report`).
+
+Ways in (the 403 page lists all):
 - open `http://localhost:<port>` from the host machine
 - add the bare name to `allowedHosts` in `~/.pi/dashboard/config.json` (applies live)
 - add the full URL to `publicBaseUrls`
 
-Before flipping to `enforce`, check what would break: Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals, or `grep -F '[host-gate] would-refuse' server.log`. Report-only mode logs every name.
+`report` mode logs every `[host-gate] would-refuse` name + proceeds. Settings ▸ Security ▸ Allowed hostnames ▸ Recent refusals also lists refused names.
 
-See change: add-host-allowlist-admission.
+See change: add-host-allowlist-admission, harden-server-request-surfaces.
 
 ## Plugin pages 403 `network_not_allowed` after upgrade?
 
@@ -482,6 +486,37 @@ Remedy:
 Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `127.0.0.1`. Forwarded client IP deliberately not trusted (`trustProxy` false).
 
 See change: fix-trusted-network-tunnel-bypass.
+
+## Why do control routes 403 `local_proof_required` after enabling `requireLocalProof`?
+
+`requireLocalProof` on. Bare loopback (loopback peer, no `X-Forwarded-*`) no longer admits everything.
+
+Without proof:
+- `observe`-tier `GET /api/*` reads.
+- `/api/health`.
+
+Needs proof:
+- `control` / `operate` REST routes.
+- Browser WS (`/ws`, `/ws/terminal/*`, `/live/*`).
+- Plugin-registered WS scopes.
+- Bridge-ticket mint.
+- Route-tier exemption.
+- Pairing approval (`POST /api/pair/approve`, `/approve-pending`).
+
+Proof = `pi_dash_local` cookie (httpOnly, `SameSite=Strict`, 30 d), `X-Pi-Local-Token`, or a logged-in principal.
+
+Fix an interactive browser: run `pi-dashboard open`. Electron does this itself.
+Fix a script / `curl -X POST` on this host: send the local token. Value at `~/.pi/dashboard/local/token`, header `X-Pi-Local-Token`. `npm run reload` and CLI `restart` already send it.
+
+When to enable: only header-injecting tunnels (zrok) are safe without it. Marker-less relays (`ssh -R`, `socat`) terminate on `127.0.0.1` with no forwarding header, look like bare loopback, and get full code-exec access. Enable `requireLocalProof` when such a relay is used.
+
+`127.0.0.1` in `trustedNetworks` does NOT re-admit a relay under strict.
+Pairing approval never honors bare loopback in ANY mode — even default-off. Hand-typed `http://localhost:8000` on an auth-off install: use `pi-dashboard open` or Electron.
+Rotating `~/.pi/dashboard/local/token` invalidates every proof cookie — re-run `pi-dashboard open`.
+`/v1/*` model proxy stays bare-loopback-trusted (local pi processes call it; no code exec).
+Toggle applies live — no restart.
+
+See change: harden-trust-and-credential-boundaries.
 
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
@@ -2338,7 +2373,7 @@ Safe to delete manually:
 rm -rf ~/.pi-dashboard
 ```
 
-Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting the dir removes all of it.
+Legacy scope `@mariozechner/pi-coding-agent` (pre-0.74 rename) lives there too; deleting dir removes all of it. Fork no longer recognised by dashboard — not listed, not updated, not resolved. Fix: `npm i -g @earendil-works/pi-coding-agent`.
 
 Cross-refs:
 - docs/electron-immutable-bundle.md
@@ -2987,18 +3022,18 @@ Cross-refs:
 
 ## How do I reach Apple Calendar / Contacts / Reminders from pi?
 
-macOS ≥ 15.3. iMCP menu-bar app + `pi-mcp-adapter`.
+macOS ≥ 15.3. iMCP menu-bar app + pi's BUILT-IN MCP (pi ≥ 1.0.0).
 
 Steps:
 1. `pi install npm:@blackbelt-technology/pi-dashboard-apple-tools`.
-2. `pi-apple-tools-install` — provisions iMCP config (writes `mcp.json` + `settings.json`).
+2. `pi-apple-tools-install` — writes ONE file: `~/.pi/agent/mcp.json` key `mcpServers.iMCP`.
 3. Grant permissions in **iMCP menu-bar app**. Manual, unautomatable.
 
 Provisioning states (`pi-apple-tools-install --check`): `CONFIG_WRITE_FAILED` · `READY_PENDING_GRANTS` · `READY`. `READY_PENDING_GRANTS` = everything wired, permissions still needed. Manual remediation, not re-running installer.
 
-Reached via `pi-mcp-adapter` — loaded as `packages[]` entry in `~/.pi/agent/settings.json`.
+`READY` = live round trip through pi's built-in MCP. iMCP tools reached as `mcp__iMCP__*`; `codemode` by default, `deferred` via `tool_search`. NO `pi-mcp-adapter`. NO `settings.json` write. Operator-set `enabled`/`exposure`/`toolExposure` + unknown keys preserved.
 
-See change: add-apple-tools-imcp-plugin.
+See change: migrate-mcp-to-pi-builtin.
 
 Cross-refs:
 - packages/apple-tools/README.md
@@ -3184,6 +3219,39 @@ See change: expand-mcp-tiered-surface.
 Cross-refs:
 - docs/architecture.md
 - packages/server/src/routes/pairing-routes.ts
+
+## Why are the dashboard MCP tools missing in a pi session?
+
+Cause order (check in order):
+
+1. `pi-mcp-adapter` installed → disables pi's built-in MCP (adapter takes `/mcp`). Fix: remove `pi-mcp-adapter` from `~/.pi/agent/settings.json#packages`, reload sessions.
+2. Operator `pi-dashboard` entry in `~/.pi/agent/mcp.json` → SHADOWS the per-session registration. Fix: delete that entry (startup migration removes only the provisioned signature, keeps an operator entry).
+3. Registration refused → log `mcp.dashboard_registration_unavailable session=<id> reason=<api-missing|register-failed|no-url>`; doctor `mcp-builtin` row names it.
+4. `tool_search` disabled (`-builtin:`) → `deferred` server unreachable.
+
+pi ≥ 1.0.0 required. pi sessions reach `/mcp` in the LEGACY era: request/response tools work, `subscriptions/listen` streaming does NOT.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Endpoint
+- packages/mcp-server-plugin/src/server/legacy-entry-migration.ts
+- packages/extension/src/mcp-token-delivery.ts
+
+## Why is my mcp.json server ignored?
+
+pi parses `mcp.json` with strict `JSON.parse`; ONE syntax error (comment, trailing comma) skips the WHOLE file. Check:
+
+- Comments / trailing commas anywhere → rewrite as strict JSON. Doctor names it.
+- Project `<cwd>/.pi/mcp.json` in an UNTRUSTED folder → project layer not loaded. Trust the folder in the session.
+- Adapter `disabled: true` key → pi ignores unknown keys, so the server stays ACTIVE. Convert to `enabled: false` (one click, Settings → MCP).
+- Two names differing only `-`/`_` → pi rejects the second.
+
+See change: migrate-mcp-to-pi-builtin.
+
+Cross-refs:
+- docs/architecture.md §MCP Client Plugin
+- packages/mcp-client-plugin/src/core/pi-rules.ts
 
 ## Why is a subagent or tool card stuck `running` after the session ended?
 

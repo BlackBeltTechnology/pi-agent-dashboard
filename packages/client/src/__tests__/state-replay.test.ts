@@ -647,3 +647,53 @@ describe("codemode image attachments (E19)", () => {
     expect(cards[0].images).toEqual([{ data: PNG, mimeType: "image/png" }]);
   });
 });
+
+// E6 (reduce half): transcript rebuild of a nested-call record.
+// See change: render-nested-tool-calls (D1, D3).
+describe("replay → reduce: nested-call record (E6)", () => {
+  it("rebuilds the root's nested list from the synthesized end", () => {
+    const entries = [
+      {
+        type: "message",
+        id: "a1",
+        parentId: null,
+        timestamp: "2025-01-01T00:00:00Z",
+        message: {
+          role: "assistant",
+          content: [{ type: "toolCall", id: "call_1", name: "codemode", arguments: { code: "…" } }],
+        },
+      },
+      {
+        type: "message",
+        id: "r1",
+        parentId: "a1",
+        timestamp: "2025-01-01T00:00:01Z",
+        message: {
+          role: "toolResult",
+          toolCallId: "call_1",
+          toolName: "codemode",
+          content: [{ type: "text", text: "ok" }],
+          nestedCalls: {
+            calls: [
+              { id: "call_1/1", name: "codemode", status: "ok", durationMs: 4 },
+              { id: "call_1/1/1", name: "bash", status: "error", error: "exit 1" },
+              { id: "call_1/2", name: "write", status: "unfinished", argumentsBytes: 9000 },
+            ],
+            complete: false,
+          },
+        },
+      },
+    ];
+    const events = replayEntriesAsEvents("sess-1", entries);
+    const end = events.find((e) => e.event.eventType === "tool_execution_end");
+    expect(end?.event.data.nestedCalls).toBeDefined();
+
+    const state = events.reduce((s, e) => reduceEvent(s, e.event), createInitialState());
+    const row = state.messages.find((m) => m.role === "toolResult" && m.toolCallId === "call_1");
+    expect(row?.nestedComplete).toBe(false);
+    const byId = new Map((row?.nested ?? []).map((n) => [n.id, n]));
+    expect(byId.get("call_1/1")?.status).toBe("complete");
+    expect(byId.get("call_1/1/1")).toMatchObject({ status: "error", parentId: "call_1/1", error: "exit 1" });
+    expect(byId.get("call_1/2")).toMatchObject({ status: "unfinished", argumentsBytes: 9000 });
+  });
+});

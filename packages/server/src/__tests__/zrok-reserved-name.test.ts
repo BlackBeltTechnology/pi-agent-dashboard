@@ -54,6 +54,10 @@ vi.mock("node:fs", async (importOriginal) => {
     writeFileSync: vi.fn(() => {
       if (writeShouldFail) throw new Error("EACCES: permission denied");
     }),
+    // writeConfigFileSecure (tmp write → chmod → rename) runs under this mock.
+    renameSync: vi.fn(),
+    chmodSync: vi.fn(),
+    unlinkSync: vi.fn(),
   };
   return { ...actual, default: def, ...def };
 });

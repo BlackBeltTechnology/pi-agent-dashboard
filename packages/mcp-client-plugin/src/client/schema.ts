@@ -3,30 +3,32 @@
  *
  * Turns the published JSON Schema (`GET /api/mcp-client/schema`, authored at
  * `schema/mcp-config.schema.json`) into the editor's field list: widget
- * selection, transport tagging, secret/atomic markers — plus the pure helpers
- * the editor and its tests share (deep clone/equality, redaction sentinels,
- * patch computation, save validation).
+ * selection, transport tagging, secret markers — plus the pure helpers the
+ * editor and its tests share (clone/equality, redaction sentinels, the
+ * whole-entry save builder, save validation).
  *
  * `widgetFor` always ends in a concrete widget or the JSON fallback, so no
  * schema field can ever be silently dropped (spec: any field without a widget
- * falls back to a validated JSON editor).
+ * falls back to a validated JSON editor). The exposure `codemode-deferred`
+ * alias resolves for DISPLAY only — an unchanged draft keeps the stored value.
  *
- * See change: extract-mcp-client-plugin (tasks 7.4, 7.5).
+ * See change: migrate-mcp-to-pi-builtin.
  */
+import { displayExposure, MCP_EXPOSURE_ALIASES } from "../core/pi-rules.js";
 
-export type Transport = "command" | "url" | "socket";
+export type Transport = "command" | "url";
 
 export interface JsonSchema {
   type?: string;
   enum?: (string | number)[];
-  const?: unknown;
   items?: JsonSchema;
   properties?: Record<string, JsonSchema>;
+  additionalProperties?: JsonSchema | boolean;
   oneOf?: JsonSchema[];
   $ref?: string;
   "x-transport"?: string;
   "x-secret"?: boolean;
-  "x-atomic"?: boolean;
+  "x-global-only"?: boolean;
   [key: string]: unknown;
 }
 
@@ -36,7 +38,6 @@ export type WidgetKind =
   | "boolean"
   | "enum"
   | "string-list"
-  | "toggle-list"
   | "nested-group"
   | "record"
   | "json";
@@ -49,10 +50,16 @@ export interface FieldSchema {
   widget: WidgetKind;
   transport: Transport | null;
   secret: boolean;
-  atomic: boolean;
-  enumValues?: (string | number)[];
-  /** A `const: false` branch exists (`oauth`) — renders an enable checkbox. */
-  unionFalse?: boolean;
+  /** `x-global-only`: pi reads the field only from the global file. */
+  globalOnly: boolean;
+  enumValues?: string[];
+  /** For a record of enums (`toolExposure`): the canonical value options. */
+  valueEnum?: string[];
+  /**
+   * Display resolver for stored aliases (`codemode-deferred` → `codemode`):
+   * the control shows the resolved value but keeps the stored one unchanged.
+   */
+  displayResolver?: (value: unknown) => string;
   /** Sub-widgets of a nested group. */
   children?: FieldSchema[];
 }
@@ -66,13 +73,20 @@ export function defsOf(doc: Record<string, unknown>): Record<string, JsonSchema>
     : {};
 }
 
+/** Canonical enum options: the stored alias (`codemode-deferred`) is display-only. */
+function canonicalEnumValues(values: (string | number)[]): string[] {
+  return values
+    .filter((v): v is string => typeof v === "string")
+    .filter((v) => !(v in MCP_EXPOSURE_ALIASES));
+}
+
 /** Resolve a `$ref: "#/$defs/X"` node, keeping the referencing node's markers. */
 function resolveRef(schema: JsonSchema, defs: Record<string, JsonSchema>): JsonSchema {
   if (typeof schema.$ref !== "string") return schema;
   const target = defs[schema.$ref.split("/").pop() ?? ""];
   if (!target) return schema;
   const merged: Record<string, unknown> = { ...target };
-  for (const key of ["x-transport", "x-secret", "x-atomic"] as const) {
+  for (const key of ["x-transport", "x-secret", "x-global-only"] as const) {
     if (schema[key] !== undefined) merged[key] = schema[key];
   }
   return merged as JsonSchema;
@@ -80,27 +94,6 @@ function resolveRef(schema: JsonSchema, defs: Record<string, JsonSchema>): JsonS
 
 function isObjectSchema(s: JsonSchema): boolean {
   return s.type === "object" && s.properties !== undefined && Object.keys(s.properties).length > 0;
-}
-
-/** The object schema a nested group renders from: the field itself, or its `oneOf` object branch. */
-function groupSourceOf(resolved: JsonSchema, defs: Record<string, JsonSchema>): JsonSchema {
-  if (isObjectSchema(resolved)) return resolved;
-  for (const branch of resolved.oneOf ?? []) {
-    const candidate = resolveRef(branch, defs);
-    if (isObjectSchema(candidate)) return candidate;
-  }
-  return resolved;
-}
-
-/** A `boolean | string[]` union (`toggle-list`) or an atomic object union (`nested-group`). */
-function unionWidget(s: JsonSchema, defs: Record<string, JsonSchema>): WidgetKind {
-  const branches = (s.oneOf ?? []).map((b) => resolveRef(b, defs));
-  if (branches.some((b) => b.type === "boolean") &&
-      branches.some((b) => b.type === "array" && b.items?.type === "string")) {
-    return "toggle-list";
-  }
-  if (branches.some(isObjectSchema) && s["x-atomic"] === true) return "nested-group";
-  return "json";
 }
 
 /** The non-union widget for a concrete `type`; unknown shapes → "json". */
@@ -115,8 +108,7 @@ function simpleWidget(s: JsonSchema): WidgetKind {
     case "array":
       return s.items?.type === "string" ? "string-list" : "json";
     case "object":
-      if (s["x-atomic"] === true) return isObjectSchema(s) ? "nested-group" : "record";
-      return "json";
+      return isObjectSchema(s) ? "nested-group" : "record";
     default:
       return "json";
   }
@@ -126,9 +118,19 @@ function simpleWidget(s: JsonSchema): WidgetKind {
 export function widgetFor(schema: JsonSchema, defs: Record<string, JsonSchema> = {}): WidgetKind {
   const s = resolveRef(schema, defs);
   if (Array.isArray(s.enum)) return "enum";
-  if (Array.isArray(s.oneOf)) return unionWidget(s, defs);
-  if (s.const !== undefined) return "json";
+  if (Array.isArray(s.oneOf)) return "json";
   return simpleWidget(s);
+}
+
+function enumExtras(resolved: JsonSchema): Pick<FieldSchema, "enumValues" | "displayResolver"> {
+  if (!Array.isArray(resolved.enum)) return {};
+  const extras: Pick<FieldSchema, "enumValues" | "displayResolver"> = {
+    enumValues: canonicalEnumValues(resolved.enum),
+  };
+  if (resolved.enum.some((v) => typeof v === "string" && v in MCP_EXPOSURE_ALIASES)) {
+    extras.displayResolver = displayExposure;
+  }
+  return extras;
 }
 
 function fieldFor(
@@ -143,66 +145,51 @@ function fieldFor(
     path: [...parents, name],
     schema: resolved,
     widget: widgetFor(prop, defs),
-    transport: resolved["x-transport"] === "command" || resolved["x-transport"] === "url" ||
-        resolved["x-transport"] === "socket"
-      ? resolved["x-transport"]
-      : null,
+    transport:
+      resolved["x-transport"] === "command" || resolved["x-transport"] === "url"
+        ? resolved["x-transport"]
+        : null,
     secret: resolved["x-secret"] === true,
-    atomic: resolved["x-atomic"] === true,
+    globalOnly: resolved["x-global-only"] === true,
   };
-  if (Array.isArray(resolved.enum)) field.enumValues = resolved.enum;
-  if (Array.isArray(resolved.oneOf) && resolved.oneOf.some((b) => b.const === false)) {
-    field.unionFalse = true;
+  Object.assign(field, enumExtras(resolved));
+  // A record of enum values (`toolExposure`): rows render a select.
+  const additional = resolved.additionalProperties;
+  if (field.widget === "record" && additional && typeof additional === "object") {
+    const valueSchema = resolveRef(additional, defs);
+    if (Array.isArray(valueSchema.enum)) {
+      field.valueEnum = canonicalEnumValues(valueSchema.enum);
+      if (valueSchema.enum.some((v) => typeof v === "string" && v in MCP_EXPOSURE_ALIASES)) {
+        field.displayResolver = displayExposure;
+      }
+    }
   }
   if (field.widget === "nested-group") {
-    const source = groupSourceOf(resolved, defs);
-    field.children = Object.entries(source.properties ?? {}).map(([child, childProp]) =>
+    field.children = Object.entries(resolved.properties ?? {}).map(([child, childProp]) =>
       fieldFor(child, childProp, defs, [...parents, name]),
     );
   }
   return field;
 }
 
-/** The field list, in schema order, from one `$defs` definition. */
-export function fieldsForDef(doc: Record<string, unknown>, defName: string): FieldSchema[] {
-  const defs = defsOf(doc);
-  const props = defs[defName]?.properties ?? {};
-  return Object.entries(props).map(([name, prop]) => fieldFor(name, prop, defs, []));
-}
-
 /** The editor's field list, in schema order, from `$defs.ServerEntry`. */
 export function fieldsOf(doc: Record<string, unknown>): FieldSchema[] {
-  return fieldsForDef(doc, "ServerEntry");
-}
-
-/** Every `x-atomic === true` field, DERIVED from the schema (never hardcoded). */
-export function atomicFieldsOf(doc: Record<string, unknown>): string[] {
-  return fieldsOf(doc)
-    .filter((f) => f.atomic)
-    .map((f) => f.name);
+  const defs = defsOf(doc);
+  const props = defs.ServerEntry?.properties ?? {};
+  return Object.entries(props).map(([name, prop]) => fieldFor(name, prop, defs, []));
 }
 
 // ─── transport grouping ──────────────────────────────────────────────────────
 
 /**
- * Fields scoped to one transport. `x-transport` tags only the three primary
- * fields; the companions (args/env for command, headers/auth/… for url) are the
- * spec's tab groups (the url tab hides command/args/env, shows url/headers/auth).
+ * Fields scoped to one transport. `x-transport` tags the two primary fields;
+ * the companions are the spec's tab groups (the url tab hides command/args/env,
+ * shows url/headers/auth/oauth). Saving drops the INACTIVE transport's keys,
+ * so the stored entry always carries one transport.
  */
 export const TRANSPORT_FIELDS: Record<Transport, readonly string[]> = {
   command: ["command", "args", "env", "cwd"],
-  url: [
-    "url",
-    "headers",
-    "auth",
-    "bearerToken",
-    "bearerTokenEnv",
-    "bearerTokenStore",
-    "oauth",
-    "requestHeadersCommand",
-    "httpTransport",
-  ],
-  socket: ["socket"],
+  url: ["url", "headers", "auth", "oauth"],
 };
 
 export function visibleUnderTransport(name: string, tab: Transport): boolean {
@@ -222,12 +209,22 @@ export function isSecretKeyName(name: string): boolean {
   return SECRET_KEY_PATTERN.test(name);
 }
 
-// ─── redaction sentinels ─────────────────────────────────────────────────────
-
-interface RedactedRecord {
-  redacted: true;
-  keys?: Array<{ name: string; secret: boolean }>;
+/**
+ * A `${NAME}` reference or a leading `!` (a command) is shown AS WRITTEN —
+ * it is not itself a secret (spec: values that reference a secret are not
+ * masked).
+ */
+export function isLiteralValue(value: unknown): boolean {
+  return typeof value === "string" && (value.startsWith("!") || /\$\{[^}]+\}/.test(value));
 }
+
+/** Whether a record value renders masked: secret field / credential key, and not a literal. */
+export function isMaskedValue(fieldSecret: boolean, key: string, value: unknown): boolean {
+  if (isLiteralValue(value)) return false;
+  return fieldSecret || isSecretKeyName(key);
+}
+
+// ─── redaction sentinels ─────────────────────────────────────────────────────
 
 /** `{ redacted: true }` (scalar) or `{ redacted: true, keys: [...] }` (record). */
 export function isRedacted(value: unknown): boolean {
@@ -239,25 +236,10 @@ export function isRedacted(value: unknown): boolean {
   );
 }
 
-/** The known key names of a redacted record (empty for scalars). */
-export function redactedKeys(value: unknown): Array<{ name: string; secret: boolean }> {
-  return isRedacted(value) ? ((value as RedactedRecord).keys ?? []) : [];
-}
-
-/** Counts for the atomic-override note ("N inherited keys incl. K secrets"). */
-export function atomicCounts(baseline: unknown): { count: number; secrets: number } {
-  if (isRedacted(baseline)) {
-    const keys = redactedKeys(baseline);
-    return { count: keys.length, secrets: keys.filter((k) => k.secret).length };
-  }
-  if (baseline !== null && typeof baseline === "object" && !Array.isArray(baseline)) {
-    const keys = Object.keys(baseline);
-    return { count: keys.length, secrets: keys.filter(isSecretKeyName).length };
-  }
-  return { count: 0, secrets: 0 };
-}
-
-/** Recursively remove redaction sentinels — a sentinel is never sent to the server. */
+/**
+ * Recursively remove redaction sentinels — a marker the server sent in a
+ * project view must never be sent back (an override is a WHOLE entry).
+ */
 export function stripRedacted<T>(value: T): T | undefined {
   if (isRedacted(value)) return undefined;
   if (Array.isArray(value)) return value.map((entry) => stripRedacted(entry)) as unknown as T;
@@ -272,7 +254,7 @@ export function stripRedacted<T>(value: T): T | undefined {
   return value;
 }
 
-// ─── draft + patch model ─────────────────────────────────────────────────────
+// ─── draft model ─────────────────────────────────────────────────────────────
 
 export function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value ?? null)) as T;
@@ -290,21 +272,26 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * `set` = keys whose (sentinel-stripped) draft value differs from baseline;
- * `unset` = keys the operator removed. Untouched unknown fields are preserved.
+ * The WHOLE entry a save writes: every draft key (unknown ones included —
+ * pi preserves them), redaction sentinels stripped, the INACTIVE transport's
+ * keys dropped, `auth` dropped at project scope (pi reads it only from the
+ * global file).
  */
-export function computePatch(
+export function buildEntry(
   draft: Record<string, unknown>,
-  baseline: Record<string, unknown>,
-): { set: Record<string, unknown>; unset: string[] } {
-  const set: Record<string, unknown> = {};
-  for (const key of Object.keys(draft)) {
-    const value = stripRedacted(draft[key]);
-    if (value === undefined) continue;
-    if (!deepEqual(value, stripRedacted(baseline[key]))) set[key] = value;
+  tab: Transport,
+  scope: { kind: "global" } | { kind: "project"; cwd: string },
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(draft)) {
+    const cleaned = stripRedacted(value);
+    if (cleaned === undefined) continue;
+    out[key] = cleaned;
   }
-  const unset = Object.keys(baseline).filter((key) => !(key in draft));
-  return { set, unset };
+  const inactive: Transport = tab === "url" ? "command" : "url";
+  for (const field of TRANSPORT_FIELDS[inactive]) delete out[field];
+  if (scope.kind === "project") delete out.auth;
+  return out;
 }
 
 export function getPath(obj: unknown, path: string[]): unknown {
@@ -356,7 +343,10 @@ function validateNumber(field: FieldSchema, value: unknown, ctx: ValidationCtx):
 }
 
 function validateEnum(field: FieldSchema, value: unknown, ctx: ValidationCtx): void {
-  if (value !== undefined && !(field.enumValues ?? []).includes(value as string | number)) {
+  if (value === undefined) return;
+  // A stored alias (`codemode-deferred`) validates against its display form.
+  const check = field.displayResolver ? field.displayResolver(value) : value;
+  if (!(field.enumValues ?? []).includes(check as string)) {
     ctx.errors[field.name] = "Not a valid option";
   }
 }
@@ -368,25 +358,6 @@ function validateList(field: FieldSchema, value: unknown, ctx: ValidationCtx): v
   }
 }
 
-/** One record entry's error, or `null` when the entry is writable. */
-function recordEntryError(
-  field: FieldSchema,
-  key: string,
-  entry: unknown,
-  raw: RawText,
-): string | null {
-  if (key.trim() === "") return "Keys must not be empty";
-  const rowRaw = raw[`${field.name}.${key}`];
-  if (typeof entry !== "string" && rowRaw !== undefined) {
-    try {
-      JSON.parse(rowRaw);
-    } catch {
-      return `Invalid JSON for ${key}`;
-    }
-  }
-  return null;
-}
-
 function validateRecord(field: FieldSchema, value: unknown, ctx: ValidationCtx): void {
   if (value === undefined) return;
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -394,10 +365,19 @@ function validateRecord(field: FieldSchema, value: unknown, ctx: ValidationCtx):
     return;
   }
   for (const [key, entry] of Object.entries(value)) {
-    const error = recordEntryError(field, key, entry, ctx.raw);
-    if (error !== null) {
-      ctx.errors[field.name] = error;
+    if (key.trim() === "") {
+      ctx.errors[field.name] = "Keys must not be empty";
       return;
+    }
+    if (typeof entry === "string") continue;
+    const rowRaw = ctx.raw[`${field.name}.${key}`];
+    if (rowRaw !== undefined) {
+      try {
+        JSON.parse(rowRaw);
+      } catch {
+        ctx.errors[field.name] = `Invalid JSON for ${key}`;
+        return;
+      }
     }
   }
 }
@@ -417,7 +397,6 @@ const VALIDATORS: Partial<Record<WidgetKind, Validator>> = {
   number: validateNumber,
   enum: validateEnum,
   "string-list": validateList,
-  "toggle-list": validateList,
   record: validateRecord,
   json: validateJson,
 };
@@ -430,15 +409,8 @@ function validateField(field: FieldSchema, ctx: ValidationCtx): void {
   VALIDATORS[field.widget]?.(field, getPath(ctx.draft, field.path), ctx);
 }
 
-/**
- * Validate the visible fields of a draft. Returns dotted field name → message
- * (an empty object means the draft is writable). The server re-validates.
- */
-/**
- * Validate every field of a draft against its widget (no transport context).
- * Returns dotted field name → message; an empty object means writable.
- */
-export function validateFields(
+/** Validate every field of a draft against its widget. Empty object = writable. */
+function validateFields(
   fields: FieldSchema[],
   draft: Record<string, unknown>,
   raw: RawText,
@@ -461,13 +433,10 @@ export function validateDraft(
 ): Record<string, string> {
   const errors: Record<string, string> = {};
   const primary = TRANSPORT_FIELDS[tab][0] as string;
-
-  const primaryField = fields.find((f) => f.name === primary);
-  const primaryValue = primaryField ? getPath(draft, primaryField.path) : undefined;
-  if (primaryField && (primaryValue === undefined || primaryValue === null || primaryValue === "")) {
+  const primaryValue = draft[primary];
+  if (primaryValue === undefined || primaryValue === null || primaryValue === "") {
     errors[primary] = "Required";
   }
-
   Object.assign(errors, validateFields(fields, draft, raw));
   return errors;
 }

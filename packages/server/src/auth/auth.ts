@@ -5,7 +5,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import type { AuthConfig, AuthProviderConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { CONFIG_FILE, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import jwt from "jsonwebtoken";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
 
@@ -142,7 +142,7 @@ export function ensureAuthSecret(authConfig: AuthConfig): string {
     if (parsed.auth) {
       parsed.auth.secret = secret;
     }
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(parsed, null, 2) + "\n");
+    writeConfigFileSecure(CONFIG_FILE, JSON.stringify(parsed, null, 2) + "\n");
   } catch (err: any) {
     console.warn(`Failed to persist auth secret: ${err.message}`);
   }

@@ -1,138 +1,92 @@
 ## ADDED Requirements
 
-### Requirement: Start/stop meeting copilot from the dashboard
-The system SHALL provide a `session-card-action-bar` control that starts meeting-copilot capture (mic + system audio via `runCapture({})`) plus a per-capture batch consumer that awaits the vendored `runPoll(cfg, windowSeconds)` for that capture only (design 4f), and a control that stops both, for a session — with no `.claude/skills`, no `set-copilot` CLI, and no Claude Code involvement. Meeting-copilot capture SHALL always use the dashboard server's own local audio devices; the browser-mic capture source available to dictation SHALL NOT apply here, because a browser tab cannot capture the other party's audio in a call.
+### Requirement: A meeting is a transcriber session plus a copilot session
+From the folder row the system SHALL offer Start meeting, Dry run, and (while running) Stop, Open copilot and Open transcriber. The live wall's own folder entry and menu items come from the wall plugin; the copilot session header and the meeting toast SHALL link to the wall page `/folder/<encodedCwd>/wall` while a wall runs. Starting SHALL run: preflight → render policy → spawn the copilot session → priming and pre-read → spawn the meeting transcriber (mic + system audio, audio tee on) → ensure the wall → running. Meetings SHALL capture only the dashboard host's devices.
 
-#### Scenario: Capture source is not selectable for meeting copilot
-- **WHEN** the user opens the meeting-copilot control
-- **THEN** no capture-source picker is offered, and capture uses the dashboard server's own microphone and system audio
+#### Scenario: Phased start
+- **WHEN** the user confirms Start meeting
+- **THEN** the copilot is spawned and primed before the transcriber starts capturing, and the badge shows each phase
 
-#### Scenario: User starts the meeting copilot
-- **WHEN** the user clicks "Start meeting copilot" on a session card for a project with `knowledge.sources` configured
-- **THEN** the server starts capture and that capture's own batch consumer, and begins forwarding reaction-worthy transcript batches to the target session
+#### Scenario: Pre-read timeout does not block
+- **WHEN** the copilot has not confirmed pre-read within 120 seconds
+- **THEN** the transcriber is started and the badge shows "pre-read unconfirmed"
 
-#### Scenario: User stops the meeting copilot
-- **WHEN** the user clicks "Stop meeting copilot" while it is running
-- **THEN** the server stops capture, stops that capture's batch consumer, and unsubscribes its `ctx.onEvent` handler for that session
+#### Scenario: Dry run
+- **WHEN** a dry-run meeting stops
+- **THEN** nothing is archived, no notes are written, and kb is not reindexed
 
-### Requirement: Transcript batches are forwarded to the target session via sendToSession
-The system SHALL forward each reaction-worthy poll batch (lines carrying `topics`, `urgency`, `question`, or `command`, per the vendored `TranscriptWriter`'s own annotations) to the target pi session using `ctx.sendToSession(targetSessionId, message)`. The first batch of a meeting-copilot run SHALL additionally include the rendered policy (`renderCopilotPrompt(cfg)`) as framing context.
+### Requirement: Stop sequence
+Stopping SHALL send `/voice-stop` to the transcriber and wait for `archived` (or `error`), then send `/voice-meeting-ended` to the copilot (stop poll, notes turn), then end both sessions, stop the wall, and request a kb reindex.
 
-#### Scenario: First batch includes policy framing
-- **WHEN** the first reaction-worthy batch after start is forwarded
-- **THEN** the message sent via `sendToSession` includes the rendered alert-category/engagement policy ahead of the batch's transcript lines
+#### Scenario: Normal stop
+- **WHEN** the user stops a meeting
+- **THEN** the archive exists, the notes turn ran, both sessions have ended, the wall is stopped, and one reindex was requested
 
-#### Scenario: Subsequent batches are transcript-only
-- **WHEN** a later reaction-worthy batch is forwarded during the same meeting-copilot run
-- **THEN** the message contains only that batch's transcript/event lines, without repeating the policy framing
+#### Scenario: A session dies
+- **WHEN** either meeting session ends unexpectedly
+- **THEN** the meeting stops, whatever transcript exists is archived, and the badge shows an error
 
-### Requirement: Content forwarded to the target session is full-fidelity, not redacted
-The system SHALL forward transcript batches to the target session via `sendToSession` WITHOUT applying the wall's redaction rules (`wall/redaction.ts`). Redaction is scoped exclusively to what reaches a wall client (per `voice-assistant-meeting-wall`'s Redaction requirement); the reasoning session always receives the full, unredacted transcript, since redaction would degrade its ability to reason correctly about what was actually said.
+### Requirement: Batches reach the copilot through its own poll
+The copilot extension SHALL run the vendored poll in a child process and deliver reaction-worthy batches into its own session with a follow-up user message only when the session is idle; spoken commands and name-addressed lines SHALL be delivered as steering immediately. The server SHALL NOT relay batches.
 
-#### Scenario: A line matching a redaction rule still reaches the session unredacted
-- **WHEN** a transcript line matches a configured redaction rule AND that line is part of a reaction-worthy batch
-- **THEN** the message delivered to the target session via `sendToSession` contains the line's original, unredacted text
-- **AND** only the copy of that content later mirrored onto the wall (via `ingest()`, per `voice-assistant-meeting-wall`) is redacted
+#### Scenario: Idle copilot
+- **WHEN** a reaction-worthy batch arrives while the copilot is idle
+- **THEN** it is delivered as one follow-up message
 
-### Requirement: Meeting copilot status badge
-The system SHALL show a `session-card-badge` reflecting meeting copilot state (idle, listening, error) for a session.
+#### Scenario: Busy copilot
+- **WHEN** a batch arrives mid-turn
+- **THEN** it is merged into a pending payload and delivered on turn end
 
-#### Scenario: Badge reflects active copilot session
-- **WHEN** the meeting copilot is running for a session
-- **THEN** the session card shows a "listening" badge state until it is stopped or errors
+#### Scenario: Spoken command
+- **WHEN** a `{"type":"command"}` line arrives mid-turn
+- **THEN** it is delivered as steering without waiting for the turn to end
 
-### Requirement: Missing knowledge configuration is surfaced
-The system SHALL detect when NEITHER knowledge backend can serve a project — no indexed kb for the folder AND no `knowledge.sources` configured in `set-copilot.config.json` — and reflect that as a distinct state before starting capture. An indexed kb alone SHALL be sufficient; configured `knowledge.sources` alone SHALL also be sufficient.
+#### Scenario: Quiet batch
+- **WHEN** a batch has no annotated line
+- **THEN** nothing is delivered
 
-#### Scenario: Neither backend available
-- **WHEN** the user opens the meeting copilot control for a project with no indexed kb and an empty or missing `knowledge.sources`
-- **THEN** the action bar shows a "knowledge required" state instead of a working start button, offering both remedies (index the folder with kb, or configure `knowledge.sources`)
+### Requirement: Bounded pending payload
+The pending payload SHALL be capped (default 200 lines OR 32 KB); on overflow the oldest lines SHALL be dropped and a truncation marker inserted.
 
-#### Scenario: kb alone is sufficient
-- **WHEN** the project has an indexed kb but no `knowledge.sources` configured
-- **THEN** the meeting copilot control is available, using the kb backend
+#### Scenario: Overflow
+- **WHEN** pending content exceeds the cap
+- **THEN** the delivered message carries a truncation marker and the newest lines
 
-#### Scenario: Configured sources alone are sufficient
-- **WHEN** the project has `knowledge.sources` configured but no indexed kb
-- **THEN** the meeting copilot control is available, using the vendored fallback backend
+### Requirement: Full-fidelity copilot input
+Content delivered to the copilot SHALL NOT be wall-redacted.
 
-### Requirement: Delivery failure does not silently drop a batch
-The system SHALL detect when `ctx.sendToSession` returns `false` for a forwarded batch and surface a copilot error state rather than continuing to poll into a disconnected target.
+#### Scenario: Redaction-matching line
+- **WHEN** a line matches a wall redaction rule
+- **THEN** the copilot receives it unredacted
 
-#### Scenario: Target session disconnects mid-meeting
-- **WHEN** `sendToSession` returns `false` while forwarding a batch
-- **THEN** the badge switches to an error state and the batch consumer stops forwarding further batches to that session until the user restarts the copilot against a connected target
+### Requirement: Mirror off by default; wall input gated
+The copilot's chat SHALL NOT appear on the wall unless mirroring was enabled at start (then only final, non-filler assistant text). `wall-input` lines SHALL be delivered only when the wall plugin allow-lists the project, prefixed `[wall operator]:`.
 
-### Requirement: Recorded parties are surfaced to the operator at start
-Meeting copilot captures system audio — the other party's speech — and transcribes it. The system SHALL make that explicit to the operator at the moment capture starts, so the choice to inform participants is deliberate rather than buried in documentation.
+#### Scenario: Default
+- **WHEN** a meeting runs without mirroring
+- **THEN** only `wall_emit` events reach the wall
 
-#### Scenario: Start makes the capture scope explicit
-- **WHEN** the user starts meeting copilot
-- **THEN** the confirmation makes clear that BOTH the local microphone and system audio (the other party) are captured and transcribed, and where the transcript is sent
+#### Scenario: Wall input not allowed
+- **WHEN** a `wall-input` line arrives for a non-allow-listed project
+- **THEN** it is dropped and logged
 
-#### Scenario: Awareness is not a silent default
-- **WHEN** meeting copilot is running
-- **THEN** an active-capture indicator remains visible for the duration, rather than the capture being discoverable only from the original click
+### Requirement: Knowledge required
+The system SHALL show "knowledge required" when neither an indexed admissible kb nor `knowledge.sources` is available; either alone SHALL suffice.
 
-### Requirement: Forwarded transcript text persists in the target session's history
-Because forwarding is full-fidelity (see the redaction requirement above) and pi sessions persist their transcripts to disk, unredacted meeting content is written to the target session's own on-disk history. The system SHALL make this consequence explicit rather than implicit.
+#### Scenario: Neither
+- **WHEN** a folder has neither
+- **THEN** Start meeting is replaced by that state with both remedies
 
-#### Scenario: On-disk persistence is disclosed
-- **WHEN** the user starts meeting copilot for a target session
-- **THEN** the interface discloses that forwarded transcript content becomes part of that session's persistent history, and is not removed when the meeting ends
+### Requirement: Disclosure at start
+The start dialog SHALL state that mic and system audio (the other party) are captured, recorded to scratch audio for speaker naming (deleted after archive unless kept), transcribed, sent to a new copilot session whose history persists, and archived to the shown path and indexed (or not, for a dry run).
 
-### Requirement: Batch forwarding applies backpressure
-`sendToSession` returns immediately and does not wait for the target session to finish reasoning. The system SHALL therefore keep at most one batch in flight per `{ projectRoot, targetSessionId }` pair, and SHALL coalesce batches produced while the session is mid-turn rather than queueing them without bound.
+#### Scenario: Dialog content
+- **WHEN** the user opens Start meeting
+- **THEN** all of the above is shown with the resolved archive path
 
-#### Scenario: A batch arriving mid-turn does not stack
-- **WHEN** a new reaction-worthy batch is produced while the previous batch is still being processed by the target session
-- **THEN** it is coalesced with any other pending content rather than dispatched as an additional concurrent message
+### Requirement: Owner gating
+All meeting routes SHALL require that the requester owns or may access the folder's meeting.
 
-#### Scenario: Overflow drops oldest and marks the truncation
-- **WHEN** pending coalesced content exceeds the configured cap
-- **THEN** the oldest lines are dropped, an explicit truncation marker appears in the dispatched payload, and the wall still receives every line
-
-#### Scenario: A long meeting cannot front-run the model
-- **WHEN** batches are produced faster than the target session drains them for a sustained period
-- **THEN** pending content is bounded, and the user is not flooded with a backlog of queued prompts when the session becomes free
-
-### Requirement: Capture is torn down on abnormal termination, not only on explicit stop
-The system SHALL tear down capture — child processes, the STT connection, the wall server, and its live-server registration — when the target session ends, and SHALL ensure spawned recorder processes cannot outlive the dashboard server process.
-
-#### Scenario: Target session ends while copilot is running
-- **WHEN** the target session ends without the user clicking stop
-- **THEN** capture for that pair is stopped and its state removed, via the `onSessionEnded` hook
-
-#### Scenario: Dashboard server is killed
-- **WHEN** the dashboard server process is killed or restarted while capture is active
-- **THEN** spawned audio-capture child processes terminate with it rather than being orphaned holding the microphone
-
-#### Scenario: Live-server registration does not leak
-- **WHEN** capture stops for any reason
-- **THEN** the wall's live-server registration is removed, so no stale target persists in the user's saved-targets list or in `preferences.json`
-
-### Requirement: Concurrent capture of the same device is refused
-Dictation and meeting copilot both capture the same operating-system microphone, and the host has ONE such device while the architecture permits many concurrent capture pairs. The system SHALL therefore refuse a start that would contend for a capture device already held by ANY active capture on the host — including one belonging to a different project — naming the current holder, and SHALL treat a repeated start for an already-running pair as idempotent.
-
-#### Scenario: Copilot start while dictation holds the mic
-- **WHEN** the user starts meeting copilot for a project where dictation is currently capturing
-- **THEN** the start is refused with an explicit reason rather than launching a second recorder
-
-#### Scenario: Contention across projects is also refused
-- **WHEN** the user starts a capture in one project while another project's capture already holds the device
-- **THEN** the start is refused and names the holding project, because the contention is host-wide rather than per-project
-
-#### Scenario: Duplicate start is idempotent
-- **WHEN** the user starts meeting copilot for a pair where it is already running
-- **THEN** no second capture or poll consumer is created
-
-### Requirement: Failures in vendored code do not take down the dashboard
-Vendored third-party modules run in-process in the server that hosts every session. The system SHALL confine a failure originating in vendored code to the affected capture pair.
-
-#### Scenario: Vendored code throws during a batch
-- **WHEN** vendored transcript, wall, or knowledge code raises an unhandled error while processing a batch
-- **THEN** that capture pair enters an error state, and other capture pairs and the dashboard server continue running
-
-#### Scenario: STT connection drops
-- **WHEN** the speech-to-text connection drops, expires, or is rate-limited
-- **THEN** the vendored STT client's own reconnect policy (backoff 0.5s→8s, unbounded, with audio buffered and replayed on reconnect) is left in place, the pair's status surfaces a visible `reconnecting` state carrying the attempt count while the socket is down and clears on reconnect, and a terminal socket error (auth-expiry, rejected credential) puts the pair into an explicit error state; stopping the capture is what ends reconnection
+#### Scenario: Other user
+- **WHEN** another principal calls stop
+- **THEN** it is rejected and the meeting continues

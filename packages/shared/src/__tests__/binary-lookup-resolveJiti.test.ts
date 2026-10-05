@@ -1,17 +1,20 @@
 /**
  * Tests for `ToolResolver.resolveJiti` — ported from the prior
  * `resolve-jiti.test.ts`. Exercises every anchor in the resolution
- * chain (managed-pi upstream/legacy, system-pi, anchor walk-up,
+ * chain (managed earendil pi, system-pi, anchor walk-up,
  * argv fallback, all-miss) plus the URL-shape invariants
  * (`file://` URL output, Windows drive-letter wrapping, upstream
- * jiti chosen before legacy fork).
+ * jiti chosen before `@mariozechner/jiti`).
  *
  * Test seams (`_pathExists`, `_realpath`, `_whichPi`, `_argv1`,
  * `_managedDir`, `resolver`) keep the test pure — no fs / process
  * mutation, no managed-dir on disk.
  */
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { ToolResolver, MANAGED_PI_PACKAGES, JITI_PACKAGES } from "../platform/binary-lookup.js";
 
 const MANAGED_DIR = "/fake/.pi-dashboard";
@@ -24,11 +27,8 @@ function makeResolver(installed: Record<string, string>) {
 }
 
 describe("MANAGED_PI_PACKAGES + JITI_PACKAGES contract", () => {
-  it("upstream pi pkg first, legacy fork fallback", () => {
-    expect(MANAGED_PI_PACKAGES).toEqual([
-      "@earendil-works/pi-coding-agent",
-      "@mariozechner/pi-coding-agent",
-    ]);
+  it("managed pi anchor is earendil-only (drop-mariozechner-pi-fork)", () => {
+    expect(MANAGED_PI_PACKAGES).toEqual(["@earendil-works/pi-coding-agent"]);
   });
 
   it("upstream jiti first, legacy fork fallback", () => {
@@ -60,51 +60,38 @@ describe("ToolResolver.resolveJiti — managed pi", () => {
     expect(url!).not.toContain("@mariozechner");
   });
 
-  it("falls through to legacy managed pi (@mariozechner) when upstream is absent", () => {
-    const legacyPkgJson = path.join(
-      MANAGED_DIR, "node_modules", "@mariozechner", "pi-coding-agent", "package.json",
-    );
-    const jitiPkgJson = "/managed/legacy/node_modules/@mariozechner/jiti/package.json";
-    const url = new ToolResolver().resolveJiti({
-      _managedDir: MANAGED_DIR,
-      _pathExists: (p) =>
-        p === legacyPkgJson ||
-        p === path.join(path.dirname(jitiPkgJson), "lib", "jiti-register.mjs"),
-      _whichPi: () => null,
-      _argv1: undefined,
-      resolver: makeResolver({
-        "@mariozechner/jiti/package.json": jitiPkgJson,
-      }),
-    });
-    expect(url).not.toBeNull();
-    expect(url!).toContain("@mariozechner/jiti");
-  });
-
-  it("prefers upstream pi over legacy when BOTH managed pkgs are present", () => {
-    const upstream = path.join(MANAGED_DIR, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
-    const legacy = path.join(MANAGED_DIR, "node_modules", "@mariozechner", "pi-coding-agent", "package.json");
-    const upstreamJiti = "/managed/upstream/jiti/package.json";
-    const legacyJiti = "/managed/legacy/@mariozechner/jiti/package.json";
-    const calls: string[] = [];
-    const resolver = (spec: string): string => {
-      calls.push(spec);
-      if (spec === "jiti/package.json") return upstreamJiti;
-      if (spec === "@mariozechner/jiti/package.json") return legacyJiti;
-      throw new Error(`nope ${spec}`);
+  // E8 — a managed dir holding only the legacy fork is not a jiti anchor.
+  // Real fs + createRequire: the resolver seam is anchor-blind.
+  // See change: drop-mariozechner-pi-fork (test-plan #E8).
+  it("managed legacy fork is not an anchor; the caller anchor wins", () => {
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "resolve-jiti-fork-")));
+    const writeJiti = (dir: string) => {
+      fs.mkdirSync(path.join(dir, "lib"), { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "jiti", version: "2.6.0" }));
+      fs.writeFileSync(path.join(dir, "lib", "jiti-register.mjs"), "");
     };
+    const managed = path.join(tmp, "managed");
+    const forkDir = path.join(managed, "node_modules", "@mariozechner", "pi-coding-agent");
+    fs.mkdirSync(forkDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(forkDir, "package.json"),
+      JSON.stringify({ name: "@mariozechner/pi-coding-agent", version: "0.73.1" }),
+    );
+    writeJiti(path.join(forkDir, "node_modules", "jiti"));
+    const anchorRoot = path.join(tmp, "anchor");
+    const anchorJiti = path.join(anchorRoot, "node_modules", "jiti");
+    writeJiti(anchorJiti);
+    const anchor = path.join(anchorRoot, "cli.js");
+    fs.writeFileSync(anchor, "");
+
     const url = new ToolResolver().resolveJiti({
-      _managedDir: MANAGED_DIR,
-      _pathExists: (p) =>
-        p === upstream || p === legacy ||
-        p === path.join(path.dirname(upstreamJiti), "lib", "jiti-register.mjs"),
+      anchor,
+      _managedDir: managed,
       _whichPi: () => null,
       _argv1: undefined,
-      resolver,
     });
-    expect(url!).toMatch(/\/jiti\/lib\/jiti-register\.mjs$/);
-    expect(url!).not.toContain("@mariozechner");
-    // Upstream pi anchor produced upstream jiti — legacy pi anchor never tried.
-    expect(calls).toEqual(["jiti/package.json"]);
+    expect(url).toBe(pathToFileURL(path.join(anchorJiti, "lib", "jiti-register.mjs")).href);
+    expect(url!).not.toContain("@mariozechner/pi-coding-agent");
   });
 });
 

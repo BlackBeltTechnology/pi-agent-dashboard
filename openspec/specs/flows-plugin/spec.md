@@ -140,7 +140,7 @@ The availability cache SHALL remain closed-by-default (returns `false` until the
 
 ### Requirement: Flows registers automation actions
 
-The flows plugin SHALL register `flows.run` as an automation action that dispatches by **emitting a configured event** into the run session (not by seeding a slash-command prompt), gated on flows existing in the cwd. The set of "flows in the cwd" SHALL be the live per-session flows list held by the flows-plugin server (`stateStore`, populated by the bridge-forwarded `flows_list`), resolved by mapping the cwd to its running pi session(s) via the plugin `sessionManager` and unioning their reported flows. The gate SHALL NOT be a static filesystem scan of `<cwd>/.pi/flows/flows/`, so package-bundled and event-registered flows (which pi-flows discovers at runtime) are reflected. `flows.run` SHALL declare a `flow` enum field (options = the same live cwd flows list) and a `task` multiline field. Its `buildEvent` SHALL return `{ eventType: "flow:run", data: { flowName, task } }`; a malformed `flow` id SHALL emit nothing (`null`). The run SHALL finalize on `agent_end`.
+The flows plugin SHALL register `flows.run` as an automation action that dispatches by **emitting a configured event** into the run session (not by seeding a slash-command prompt), gated on flows existing in the cwd. The set of "flows in the cwd" SHALL be the live per-session flows list held by the flows-plugin server (`stateStore`, populated by the bridge-forwarded `flows_list`), resolved by mapping the cwd to its running pi session(s) via the plugin `sessionManager` and unioning their reported flows. The gate SHALL NOT be a static filesystem scan of `<cwd>/.pi/flows/flows/`, so package-bundled and event-registered flows (which pi-flows discovers at runtime) are reflected. `flows.run` SHALL declare a `flow` enum field (options = the same live cwd flows list) and a `task` multiline field. It SHALL declare `emits: ["flow:run"]`. Its `buildEvent` SHALL return `{ eventType: "flow:run", data: { flowName, task } }`; a malformed `flow` id SHALL emit nothing (`null`). Its event SHALL declare `completion: { eventType: "flow_complete" }`; run finalization is governed by `automation-run-lifecycle`.
 
 When no running pi session exists for the cwd, the live flows list SHALL be empty and `flows.run` SHALL be reported as unavailable (present-but-disabled) for that cwd.
 
@@ -159,7 +159,7 @@ The flows plugin SHALL NOT register `flows.resume` or `flows.cancel` — pi-flow
 #### Scenario: flows.run emits flow:run
 
 - **WHEN** `flows.run` fires with `payload { flow: "test:x", task: "go" }`
-- **THEN** its `buildEvent` SHALL return `{ eventType: "flow:run", data: { flowName: "test:x", task: "go" } }`.
+- **THEN** its `buildEvent` SHALL return `{ eventType: "flow:run", data: { flowName: "test:x", task: "go" } }` with a `flow_complete` completion declaration, and `flow:run` SHALL be listed in the action's `emits`.
 
 #### Scenario: malformed flow id emits nothing
 

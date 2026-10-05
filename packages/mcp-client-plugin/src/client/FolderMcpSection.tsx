@@ -1,20 +1,20 @@
 /**
  * FolderMcpSection — `sidebar-folder-section` + `worktree-card-section` claim.
  *
- * ONE compact pill per folder cwd: the effective server count, the disabled
- * count when non-zero (warning colour), and an error marker (error colour)
- * whose accessible name names the failing path or the adapter timeout. While
- * the effective view loads it renders a muted placeholder of the same height
- * rather than an empty slot. Activating it opens `/folder/<encodedCwd>/mcp`
- * through the same wouter navigation the kb-plugin pill uses; `placement`
- * picks the raised (sidebar) or flat (worktree card) surface.
+ * ONE compact pill per folder cwd, counted from `/effective`: the active
+ * server count, the off count when non-zero (warning colour; off = disabled
+ * OR inactive), an untrusted state, and an error marker (error colour) whose
+ * accessible name names the failing layer path. While the effective view
+ * loads it renders a muted placeholder of the same height rather than an
+ * empty slot. Activating it opens `/folder/<encodedCwd>/mcp` through the same
+ * wouter navigation the kb-plugin pill uses; `placement` picks the raised
+ * (sidebar) or flat (worktree card) surface.
  *
  * A cwd outside the host's known-folder set is refused by the server (403) and
  * rendered as a muted "not tracked" state. That refusal is cached per cwd in
  * the effective-config store, so a remount never re-asks; the cache is dropped
  * when the host's session list changes (a folder can become known), which is
- * also the moment the pill retries. See change: extract-mcp-client-plugin
- * (tasks 8.1, 8.3).
+ * also the moment the pill retries. See change: migrate-mcp-to-pi-builtin.
  */
 import {
   SlotPill,
@@ -80,28 +80,17 @@ interface PillContent {
 }
 
 interface PillState {
-  timeout: ApiError | null;
   parseErrorPath: string | undefined;
   otherError: Error | null;
   notAllowed: boolean;
   loading: boolean;
   hasView: boolean;
+  untrusted: boolean;
   count: number;
   off: number;
 }
 
 function pillContent(t: Translate, state: PillState): PillContent {
-  if (state.timeout) {
-    const ms = state.timeout.timeoutMs ?? 10000;
-    return {
-      accent: "red",
-      body: (
-        <ErrorMarker
-          name={t("mcpFolderTimeoutAria", { ms }, `MCP config timed out after ${ms} ms`)}
-        />
-      ),
-    };
-  }
   if (state.parseErrorPath !== undefined) {
     const path = state.parseErrorPath;
     return {
@@ -146,6 +135,19 @@ function pillContent(t: Translate, state: PillState): PillContent {
       ),
     };
   }
+  if (state.untrusted) {
+    return {
+      accent: "indigo",
+      body: (
+        <span
+          data-testid="mcp-folder-pill-untrusted"
+          className="text-[var(--text-tertiary)] font-medium"
+        >
+          {t("mcpFolderUntrustedPill", undefined, "untrusted")}
+        </span>
+      ),
+    };
+  }
   return {
     accent: "indigo",
     body: (
@@ -181,18 +183,17 @@ export function FolderMcpSection({
   if (!cwd) return null;
 
   const notAllowed = error instanceof ApiError && error.isNotAllowed;
-  const timeout = error instanceof ApiError && error.isAdapterTimeout ? error : null;
-  const otherError = error && !notAllowed && !timeout ? (error as Error) : null;
+  const otherError = error && !notAllowed ? (error as Error) : null;
   const servers = view?.servers ?? [];
   const { accent, body } = pillContent(t, {
-    timeout,
-    parseErrorPath: view?.layerErrors[0]?.path,
+    parseErrorPath: view?.layers.find((l) => !l.ok)?.path,
     otherError,
     notAllowed,
     loading,
     hasView: view !== null,
+    untrusted: view?.trusted === false,
     count: servers.length,
-    off: servers.filter((s) => s.entry.disabled === true).length,
+    off: servers.filter((s) => !s.enabled || !s.active).length,
   });
 
   return (

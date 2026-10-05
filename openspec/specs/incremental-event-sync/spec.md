@@ -154,6 +154,8 @@ calls ever executed. A late in-flight reconcile response MAY re-insert a key for
 a row that has since left `running`; such a key SHALL be discarded by the next
 tick, so the bound holds.
 
+Nested calls (tool events carrying `parentToolCallId`) are not tool-result rows the reconcile scans and SHALL NOT be reconciled; their terminal state is guaranteed by the root's terminal transition instead.
+
 #### Scenario: Bookkeeping for completed rows is discarded
 - **GIVEN** a long-lived session in which many tool calls have run and reached a terminal state
 - **AND** the tool-result rows for those calls are still present in session state
@@ -202,6 +204,10 @@ tick, so the bound holds.
 - **WHEN** the next reconcile tick prunes vanished keys
 - **THEN** that row's last-attempt time and not-found count SHALL be preserved
 - **AND** its backoff and 404 handling SHALL behave exactly as before the prune
+
+#### Scenario: Nested call is never reconciled
+- **WHEN** a nested call `call_1/1` has been running longer than `STALE_TOOL_MS`
+- **THEN** the client SHALL NOT issue a reconcile request for it
 
 ### Requirement: Drop-site delivery instrumentation
 Both silent event-drop points SHALL be observable. The server fanout SHALL, when it

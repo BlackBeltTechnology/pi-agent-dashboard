@@ -18,6 +18,12 @@
  *   window edge; `"pr"` wins over `"push"` when coalescing.
  *   `reason:"pr"` retries at +5 s / +15 s while the result is `absent`
  *   (GitHub lag); `reason:"push"` never retries.
+ * - Branch-change throttle (change: optimize-polling-hot-paths): generation
+ *   changes caused by a branch change (same session + cwd) start a probe at
+ *   most once per 30 s — a rebase can move the branch many times a minute and
+ *   each would otherwise start a `gh` call. The tuple still resets at once; the
+ *   deferred start probes the LATEST branch. Session/cwd changes are never
+ *   throttled.
  * - Failure: keep the tuple, back off 120 → 240 → 480 → 600 s (cap); log once
  *   on entering failure and once on recovery.
  * - A probe that has not settled after 20 s is treated as a failure (the
@@ -31,6 +37,8 @@ const PR_PROBE_INTERVAL_MS = 120_000;
 const PR_PROBE_MAX_BACKOFF_MS = 600_000;
 const PR_PROBE_TIMEOUT_MS = 20_000;
 const PR_FORCED_WINDOW_MS = 30_000;
+/** Branch-change generations start a probe at most once per window (latest branch wins). */
+const PR_BRANCH_CHANGE_WINDOW_MS = 30_000;
 const PR_OPEN_RETRY_DELAYS_MS = [5_000, 15_000] as const;
 
 /** Wire-shaped PR tuple. `undefined` keys are omitted on the wire. */
@@ -107,6 +115,10 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
   /** A forced request not yet started (in flight, or waiting for the 30 s window). */
   let pendingForce: "push" | "pr" | undefined;
   let windowTimer: Timer | undefined;
+  let branchTimer: Timer | undefined;
+  let lastBranchStart = Number.NEGATIVE_INFINITY;
+  /** The next probe start opens the branch-change window (stamped at the ACTUAL start). */
+  let branchStartPending = false;
   let lastForcedStart = Number.NEGATIVE_INFINITY;
   let failures = 0;
   let failingLogged = false;
@@ -148,6 +160,17 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     const probeKey = key;
     inFlight = true;
     count += 1;
+    // A probe starting now already covers the LATEST branch, so a deferred
+    // branch-change probe is redundant (no duplicate), and the window opens at
+    // this actual start, not when a timer fired.
+    if (branchTimer) {
+      clearTimer(branchTimer);
+      branchTimer = undefined;
+    }
+    if (branchStartPending) {
+      lastBranchStart = now();
+      branchStartPending = false;
+    }
     let settled = false;
     const finish = (r: PrStatusProbe) => {
       if (settled) return;
@@ -246,8 +269,9 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
     disposed = true;
     if (cadenceTimer) clearTimer(cadenceTimer);
     if (windowTimer) clearTimer(windowTimer);
+    if (branchTimer) clearTimer(branchTimer);
     if (probeTimeout) clearTimer(probeTimeout);
-    cadenceTimer = windowTimer = probeTimeout = undefined;
+    cadenceTimer = windowTimer = branchTimer = probeTimeout = undefined;
     clearRetries();
   }
 
@@ -263,11 +287,26 @@ export function createPrStatusScheduler(deps: PrStatusSchedulerDeps): PrStatusSc
       key = nextKey;
       failures = 0;
       clearRetries();
+      if (branchTimer) clearTimer(branchTimer);
+      branchTimer = undefined;
       if (branchOnly) {
         tuple = { ...ALL_NULL };
         deps.onChange();
+        const wait = lastBranchStart + PR_BRANCH_CHANGE_WINDOW_MS - now();
+        if (wait > 0) {
+          // Throttled: the latest branch is probed at the window's edge.
+          branchTimer = setTimer(() => {
+            branchTimer = undefined;
+            branchStartPending = true;
+            pendingStart = true;
+            pump();
+          }, wait);
+          return;
+        }
+        branchStartPending = true;
       } else {
         tuple = { ...UNKNOWN };
+        branchStartPending = true; // an unthrottled start also opens the branch-change window
       }
       pendingStart = true;
       pump();

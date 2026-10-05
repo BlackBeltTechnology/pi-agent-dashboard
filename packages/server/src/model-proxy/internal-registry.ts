@@ -1,24 +1,28 @@
 /**
- * Server-resident model registry built on pi-ai primitives.
+ * Server-resident model registry facade over the server's single pi
+ * `ModelRuntime`.
  *
- * Composes pi-ai's built-in providers with custom providers (~/.pi/agent/providers.json),
- * custom models (~/.pi/agent/models.json), and auth state (~/.pi/agent/auth.json).
- * Only models whose provider has valid auth are exposed.
+ * Composes the runtime's built-in catalogue with custom providers
+ * (~/.pi/agent/providers.json), custom models (~/.pi/agent/models.json), and
+ * auth state (~/.pi/agent/auth.json). Only models whose provider has valid
+ * auth in auth.json are exposed — the runtime's own availability (which counts
+ * ambient env keys) is NOT used for listing. The merged non-built-in providers
+ * are projected onto the runtime (`registerProvider`) so it can route them.
  *
- * See change: add-dashboard-model-proxy, design §1.
+ * See changes: add-dashboard-model-proxy (design §1), collapse-model-proxy-onto-modelruntime (D3, D5).
  */
 import { parseModelId } from "@blackbelt-technology/pi-dashboard-shared/model-id.js";
 import type { InternalAuthStorage } from "./internal-auth-storage.js";
 import { isOauthIncompatible } from "./oauth-compat.js";
+import type { RuntimeProviderConfig, ServerModelRuntime } from "./server-model-runtime.js";
 
 /**
- * Minimal surface expected from pi-ai. Declared in the compatibility seam
- * (`packages/shared/src/piai-compat/types.ts`) and re-exported here for
- * existing importers. On a factory runtime it is SYNTHESIZED by the seam,
- * not the raw module. See change: adopt-piai-factory-api-registry (D1).
+ * The runtime slice the registry reads. `registerProvider` /
+ * `unregisterProvider` are optional so catalogue-only fakes stay valid; without
+ * them custom providers are listed but not projected.
  */
-export type { PiAiModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
-import type { PiAiModule } from "@blackbelt-technology/pi-dashboard-shared/piai-compat/types.js";
+export type RuntimeCatalogue = Pick<ServerModelRuntime, "getProviders" | "getModels"> &
+  Partial<Pick<ServerModelRuntime, "registerProvider" | "unregisterProvider">>;
 
 export interface CustomProviderEntry {
   baseUrl: string;
@@ -70,28 +74,75 @@ export interface InternalRegistryDeps {
   ) => Promise<CustomModelEntry[]>;
 }
 
+/**
+ * Escape a resolved literal for pi's config-value syntax. pi reads a
+ * registered `apiKey` / header value as a TEMPLATE: a leading `!` runs a
+ * shell command and `$NAME` interpolates the environment (and a failed
+ * resolution echoes the value into its error). `$$` and `$!` are pi's escapes
+ * for a literal `$` / `!`. See change: collapse-model-proxy-onto-modelruntime (D3).
+ */
+export function literalConfigValue(value: string): string {
+  const escaped = value.replace(/\$/g, "$$$$");
+  return escaped.startsWith("!") ? `$${escaped}` : escaped;
+}
+
+function literalHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, literalConfigValue(String(v))]));
+}
+
+/** pi `ProviderModelConfig` projection of one merged custom model. */
+function toRuntimeModel(m: any): Record<string, unknown> {
+  return {
+    id: m.id,
+    name: m.name ?? m.id,
+    api: m.api,
+    ...(m.baseUrl ? { baseUrl: m.baseUrl } : {}),
+    reasoning: m.reasoning ?? false,
+    input: m.input ?? ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, ...(m.cost ?? {}) },
+    contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+    ...(m.headers ? { headers: literalHeaders(m.headers) } : {}),
+    ...(m.thinkingLevelMap ? { thinkingLevelMap: m.thinkingLevelMap } : {}),
+    ...(m.compat ? { compat: m.compat } : {}),
+    ...(m.samplingParams ? { samplingParams: m.samplingParams } : {}),
+  };
+}
+
 export class InternalRegistry {
-  private piAi: PiAiModule;
+  private runtime: RuntimeCatalogue;
   private authStorage: InternalAuthStorage;
   private deps: InternalRegistryDeps;
   private cachedModels: any[] | null = null;
   private cachedAllModels: any[] | null = null;
   /** Custom-provider models discovered from providers.json (Approach C). */
   private discoveredCustomModels: CustomModelEntry[] = [];
+  /** Provider ids the runtime ships before any projection — the built-in set. */
+  private builtinIds: ReadonlySet<string>;
+  /** Projected custom providers: id → fingerprint of the registered config. */
+  private registered = new Map<string, string>();
+  /** Providers already reported as unprojectable (one log line each). */
+  private reportedUnroutable = new Set<string>();
+  /** Provider id → fingerprint of a config the runtime rejected: one log line, no per-lookup retry until the config changes. */
+  private rejected = new Map<string, string>();
 
-  constructor(piAi: PiAiModule, authStorage: InternalAuthStorage, deps: InternalRegistryDeps) {
-    this.piAi = piAi;
+  constructor(runtime: RuntimeCatalogue, authStorage: InternalAuthStorage, deps: InternalRegistryDeps) {
+    this.runtime = runtime;
     this.authStorage = authStorage;
     this.deps = deps;
-    // Ensure built-in providers are registered
-    this.piAi.registerBuiltInApiProviders();
+    this.builtinIds = new Set(runtime.getProviders().map((p) => p.id));
   }
 
   /**
    * Models with valid auth (api_key or oauth) in auth.json.
    */
   async getAvailable(): Promise<any[]> {
-    if (this.cachedModels) return this.cachedModels;
+    // Re-project on every lookup (fingerprint-checked, so a no-op when
+    // unchanged): an edited or removed custom key takes effect on the next
+    // request, as when the key was read per request — for routing AND, by
+    // dropping the filtered cache on any projection change, for listing.
+    // See change: collapse-model-proxy-onto-modelruntime (D3).
+    if (this.cachedModels && !this.projectCustomProviders(this.getAllModels())) return this.cachedModels;
     const all = this.getAllModels();
     const auth = this.deps.readAuth();
     const filtered = all.filter((m: any) => this.canRouteModel(m, auth[m.provider]));
@@ -122,15 +173,25 @@ export class InternalRegistry {
     return null;
   }
 
-  async getApiKeyAndHeaders(model: any): Promise<{ apiKey: string; headers: Record<string, string> }> {
-    return this.authStorage.getApiKeyAndHeaders(model);
+  async getApiKeyAndHeaders(model: any, signal?: AbortSignal): Promise<{ apiKey: string; headers: Record<string, string> }> {
+    return this.authStorage.getApiKeyAndHeaders(model, signal);
+  }
+
+  /**
+   * Providers holding an OAuth credential the runtime cannot refresh (no
+   * `auth.oauth`). Diagnostics only. See change: collapse-model-proxy-onto-modelruntime (D5).
+   */
+  getMissingOAuthProviders(): string[] {
+    return this.authStorage.getMissingOAuthProviders();
   }
 
   async refresh(): Promise<void> {
     this.cachedModels = null;
     this.cachedAllModels = null;
-    await this.authStorage.reload();
     await this.discover();
+    // Re-project eagerly so a removed custom provider / field leaves the
+    // runtime now, not at the next listing. See change: collapse-model-proxy-onto-modelruntime (D3).
+    this.getAllModels();
   }
 
   /**
@@ -182,11 +243,11 @@ export class InternalRegistry {
 
     const models: any[] = [];
 
-    // 1. Built-in models from pi-ai (shallow-copied so we can annotate
-    //    oauthCompatible without mutating pi-ai's shared model objects).
-    for (const provider of this.piAi.getProviders()) {
+    // 1. Built-in models from the runtime (shallow-copied so we can annotate
+    //    oauthCompatible without mutating the runtime's shared model objects).
+    for (const provider of this.builtinIds) {
       try {
-        for (const model of this.piAi.getModels(provider)) {
+        for (const model of this.runtime.getModels(provider)) {
           models.push({ ...model, oauthCompatible: !isOauthIncompatible(provider, model.id) });
         }
       } catch {
@@ -279,7 +340,88 @@ export class InternalRegistry {
     }
 
     this.cachedAllModels = deduped;
+    this.projectCustomProviders(deduped);
     return deduped;
+  }
+
+  /**
+   * Project the merged non-built-in providers onto the runtime so
+   * `streamSimple` can route them. A changed provider is UNREGISTERED first
+   * (`registerProvider` merges, so a plain re-register would keep removed
+   * fields such as an `apiKey`); a removed one is unregistered. A provider
+   * with no resolvable api key (e.g. an unset `$ENV`) is skipped before
+   * registration — still listed per the auth rules, not routable.
+   * See change: collapse-model-proxy-onto-modelruntime (D3).
+   */
+  /** Returns whether the projected provider set changed. */
+  private projectCustomProviders(models: any[]): boolean {
+    const { registerProvider, unregisterProvider } = this.runtime;
+    if (!registerProvider || !unregisterProvider) return false;
+    const desired = this.desiredProjection(models);
+    let changed = false;
+
+    for (const id of [...this.rejected.keys()]) if (!desired.has(id)) this.rejected.delete(id);
+    for (const id of [...this.registered.keys()]) {
+      if (desired.has(id)) continue;
+      changed = true;
+      this.registered.delete(id);
+      try {
+        unregisterProvider.call(this.runtime, id);
+      } catch (err) {
+        console.warn(`[model-proxy] custom provider "${id}" unregister failed: ${(err as Error)?.message ?? "unknown error"}`);
+      }
+    }
+    for (const [id, config] of desired) {
+      const fingerprint = JSON.stringify(config);
+      if (this.registered.get(id) === fingerprint || this.rejected.get(id) === fingerprint) continue;
+      changed = true;
+      try {
+        if (this.registered.has(id)) unregisterProvider.call(this.runtime, id);
+        this.registered.delete(id);
+        registerProvider.call(this.runtime, id, config);
+        this.registered.set(id, fingerprint);
+        this.rejected.delete(id);
+      } catch (err) {
+        this.rejected.set(id, fingerprint);
+        console.warn(`[model-proxy] custom provider "${id}" registration failed: ${(err as Error)?.message ?? "unknown error"}`);
+      }
+    }
+    return changed;
+  }
+
+  /** Non-built-in providers of the merged catalogue that hold a resolvable api key → their runtime config. */
+  private desiredProjection(models: any[]): Map<string, RuntimeProviderConfig> {
+    const byProvider = new Map<string, any[]>();
+    for (const m of models) {
+      if (this.builtinIds.has(m.provider)) continue;
+      byProvider.set(m.provider, [...(byProvider.get(m.provider) ?? []), m]);
+    }
+
+    const auth = this.deps.readAuth();
+    const desired = new Map<string, RuntimeProviderConfig>();
+    for (const [id, list] of byProvider) {
+      const cred = auth[id];
+      const key = cred?.type === "api_key" && typeof cred.key === "string" ? cred.key : "";
+      if (!key) {
+        this.reportUnroutable(id);
+        continue;
+      }
+      this.reportedUnroutable.delete(id);
+      desired.set(id, {
+        ...(list[0].baseUrl ? { baseUrl: list[0].baseUrl } : {}),
+        api: list[0].api,
+        apiKey: literalConfigValue(key),
+        models: list.map(toRuntimeModel),
+      });
+    }
+    return desired;
+  }
+
+  /** One log line per unprojectable provider; names the provider only, never a key. */
+  private reportUnroutable(id: string): void {
+    if (this.reportedUnroutable.has(id)) return;
+    this.reportedUnroutable.add(id);
+    console.warn(`[model-proxy] custom provider "${id}" has no resolvable API key; not registered for routing`);
   }
 
   private hasAuth(provider: string, auth: Record<string, any>): boolean {

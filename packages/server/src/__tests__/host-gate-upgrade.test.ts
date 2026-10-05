@@ -179,6 +179,7 @@ describe("#E17 WS enforce refusal", () => {
 
 describe("#E18 WS report mode unchanged", () => {
   it("admits a proxy-name same-origin pair and logs one would-refuse line", async () => {
+    fs.writeFileSync(configFile, JSON.stringify({ hostGate: { mode: "report" } })); // opt-out; default is enforce
     const errors: string[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       errors.push(args.map((a) => String(a)).join(" "));
@@ -234,5 +235,20 @@ describe("#X7 WS enforce regression", () => {
     expect(frames.some((f) => f.includes("sessions_snapshot"))).toBe(true);
     // The snapshot is the LAST bootstrap frame — every earlier frame precedes it.
     expect(frames.findIndex((f) => f.includes("sessions_snapshot"))).toBe(frames.length - 1);
+  }, 30000);
+});
+
+// ─── #X6 — refused upgrade under the enforce DEFAULT ─────────────────────────
+// See change: harden-server-request-surfaces.
+describe("#X6 WS upgrade refused under the default (no hostGate config)", () => {
+  it("non-admissible Host → 403 and the socket is closed", async () => {
+    fs.rmSync(configFile, { force: true });
+    resetConfigSnapshot();
+    handle = await createTestServer();
+    const r = await dial(`ws://127.0.0.1:${handle.httpPort}/ws`, {
+      host: "rebind.example:8000",
+      origin: "http://rebind.example:8000",
+    });
+    expect(r).toEqual({ kind: "status", status: 403 });
   }, 30000);
 });

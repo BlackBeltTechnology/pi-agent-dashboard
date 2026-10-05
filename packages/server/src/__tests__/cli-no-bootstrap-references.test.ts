@@ -66,4 +66,24 @@ describe("cli.ts has no bootstrap-install references (Phase 3.0.b)", () => {
     // The hard-throw branch in runForeground cites "corrupted node_modules".
     expect(src).toMatch(/corrupted node_modules/i);
   });
+
+  // Pin the failure message shape and the tried-strategies list (test-plan #X3)
+  // and the ready-log interpolation (test-plan #X4). Static pin: `runForeground`
+  // is not exported and sits behind `createServer`.
+  // See change: cleanup-stale-fork-specs.
+  it("hard-throw names the corrupted tree, the tried strategies and the reinstall command", () => {
+    const src = fs.readFileSync(CLI_PATH, "utf-8");
+    expect(src).toContain('res.tried?.map((t: any) => t.strategy).join(", ")');
+    expect(src).toContain("This indicates a corrupted node_modules/ tree. Tried: ${tried}.");
+    expect(src).toContain("npm i -g @blackbelt-technology/pi-agent-dashboard");
+    // The failure branch throws; it does not fall back to any install path.
+    const failBranch = src.slice(src.indexOf("} else {\n      const tried"), src.indexOf("Reinstall the dashboard"));
+    expect(failBranch).toContain("throw new Error(");
+    expect(failBranch).not.toMatch(/install\w*\(/i);
+  });
+
+  it("ready log interpolates the resolved source", () => {
+    const src = fs.readFileSync(CLI_PATH, "utf-8");
+    expect(src).toContain("`[bootstrap] ready (pi resolved via ${res.source})`");
+  });
 });

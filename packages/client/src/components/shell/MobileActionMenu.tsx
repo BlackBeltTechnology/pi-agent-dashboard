@@ -1,3 +1,4 @@
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { DashboardSession, ImageContent, OpenSpecChange } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
@@ -17,10 +18,10 @@ import {
   mdiSourceFork,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
 import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { LazyExploreDialog, LazyNewChangeDialog } from "../openspec/lazy-openspec-dialogs.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -75,6 +76,9 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
     estimatedWidth: 256,
     minPopoverHeight: 0,
   });
+  // Workflow actions only for a live-active attachment in the session's own cwd.
+  // See change: resolve-archived-attached-proposal.
+  const attachmentResolution = useAttachmentResolution(session, openspecChanges);
 
   const isAlive = session.status !== "ended";
   const isHidden = !!session.hidden;
@@ -202,7 +206,7 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onArchive
           {/* OpenSpec commands (when a change is attached) */}
           {session.attachedProposal && openspecChanges && (() => {
             const attached = session.attachedProposal;
-            const change = openspecChanges.find((c) => c.name === attached);
+            const change = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd ? attachmentResolution.change : undefined;
             if (!change) return null;
             const state = deriveChangeState(change);
             return (

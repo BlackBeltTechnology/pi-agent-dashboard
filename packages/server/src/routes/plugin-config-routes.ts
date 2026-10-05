@@ -16,6 +16,7 @@ import {
   redactWriteOnly,
   validatePluginConfig,
 } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { FastifyInstance } from "fastify";
 import type { NetworkGuard } from "./route-deps.js";
@@ -34,9 +35,7 @@ function readRawConfig(): Record<string, unknown> {
 
 function writeRawConfig(merged: Record<string, unknown>): void {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
-  fs.writeFileSync(tmpFile, `${JSON.stringify(merged, null, 2)}\n`);
-  fs.renameSync(tmpFile, CONFIG_FILE);
+  writeConfigFileSecure(CONFIG_FILE, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
 function loadSchemaForPlugin(

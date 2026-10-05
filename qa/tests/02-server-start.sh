@@ -304,8 +304,8 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "Unauthenticated POST /mcp refused from loopback (401)"
 
-    # E28: no OAuth callback port is bound. This change implements no OAuth
-    # flow precisely so it cannot contend with pi-mcp-adapter's own callback
+    # E28: no OAuth callback port is bound. The dashboard implements no OAuth
+    # flow precisely so it cannot contend with pi's built-in MCP OAuth callback
     # server. Asserted by enumerating the server process's listening ports and
     # requiring only the two it should own.
     if command -v lsof >/dev/null 2>&1; then
@@ -315,7 +315,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
         case "$PORT" in
           8000|8001) ;;
           *)
-            echo "FAIL: unexpected listening port $PORT — an OAuth callback listener would contend with pi-mcp-adapter"
+            echo "FAIL: unexpected listening port $PORT — an OAuth callback listener would contend with pi's MCP OAuth callback"
             exit 1
             ;;
         esac

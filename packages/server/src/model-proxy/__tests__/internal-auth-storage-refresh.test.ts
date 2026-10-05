@@ -1,483 +1,267 @@
 /**
- * pi 0.84.0 BREAKING: config-form extension OAuth `refreshToken(credentials,
- * signal)` callbacks must accept and honor a concrete abort signal. The
- * dashboard's internal auth storage previously called the callback with the
- * credentials argument alone, so a hung provider refresh could never be
- * cancelled.
+ * `InternalAuthStorage` — the auth facade over the model runtime.
  *
- * See change: update-pi-core-0-84-adopt-apis (test-plan #X4, #X5, #X6).
+ * Driven against a REAL pi-ai `Models` collection over the REAL
+ * `DashboardCredentialStore` and a real `auth.json` in the per-file tmp $HOME
+ * (`pi-models-fixture.ts`). Only the provider's OAuth `refresh` is faked.
+ *
+ * Covers test-plan #X2 (one refresh under concurrency), #X10 (a failed
+ * refresh is attempted once and shared), #X14 (the initiating request's abort
+ * reaches the refresh; nothing written) and the facade half of #E6 (named
+ * missing-OAuth-capability error, api-key providers unaffected).
+ *
+ * Supersedes the pi 0.84.0 refresh-internals suite: refresh signal, timeout
+ * and credential mapping now live in pi's `resolveStoredOAuth`, not here.
+ *
+ * See change: collapse-model-proxy-onto-modelruntime (D1, D5).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readAuthJson } from "../../auth/provider-auth-storage.js";
+import { type FakeRefresh, piModelsOver } from "../../__tests__/helpers/pi-models-fixture.js";
+import { InternalAuthStorage, MissingOAuthCapabilityError } from "../internal-auth-storage.js";
 
-// `writeCredential` names the CAS persist (`writeRefreshedOAuth`) the refresh
-// now uses; the locked snapshot reads the same mocked `readAuthJson` data.
-// See change: harden-auth-json-lock-coordination.
-const writeCredential = vi.fn();
-const readAuthJson = vi.fn();
+const AUTH_DIR = path.join(os.homedir(), ".pi", "agent");
+const AUTH_PATH = path.join(AUTH_DIR, "auth.json");
+const HOUR = 3_600_000;
 
-vi.mock("../../auth/provider-auth-storage.js", () => ({
-  AuthJsonCorruptError: class extends Error {},
-  readAuthJson: (...a: unknown[]) => readAuthJson(...a),
-  readCredentialLocked: async (provider: string) => {
-    const cred = readAuthJson()?.[provider];
-    if (!cred) return { outcome: "removed" };
-    if (cred.type !== "oauth") return { outcome: "replaced" };
-    return { outcome: "ok", credential: cred };
-  },
-  // Default outcome is `written`; a test may still hold the write open.
-  writeRefreshedOAuth: async (provider: string, next: unknown) =>
-    (await writeCredential(provider, next)) ?? { outcome: "written", credential: next },
-}));
+const sha = () => createHash("sha256").update(fs.readFileSync(AUTH_PATH)).digest("hex");
+const expired = () => ({ type: "oauth" as const, access: "old-a", refresh: "r-old", expires: Date.now() - 1 });
+const minted = (access: string) => ({ type: "oauth" as const, access, refresh: "r-new", expires: Date.now() + HOUR });
 
-import { InternalAuthStorage, type PiAiOAuthModule } from "../internal-auth-storage.js";
-
-/** An OAuth credential already past its refresh buffer. */
-function expiredCred() {
-  return { type: "oauth" as const, access: "old-access", refresh: "refresh-tok", expires: Date.now() - 1 };
+function writeAuth(data: Record<string, unknown>): void {
+  fs.writeFileSync(AUTH_PATH, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
 }
 
-function storageWith(oauth: Partial<PiAiOAuthModule>, refreshTimeoutMs?: number) {
-  readAuthJson.mockReturnValue({ anthropic: expiredCred() });
-  return new InternalAuthStorage(
-    {
-      // `isAvailable` is the per-provider capability gate the seam added; the
-      // storage now gates on it instead of on truthiness.
-      // See change: adopt-piai-factory-api-registry (D7).
-      isAvailable: () => true,
-      getOAuthProvider: () => undefined,
-      refreshOAuthToken: async () => ({}),
-      ...oauth,
-    } as PiAiOAuthModule,
-    undefined,
-    refreshTimeoutMs,
-  );
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
-const model = { provider: "anthropic", id: "claude", headers: {} };
+function facade(refresh: FakeRefresh, extra: { apiKey?: string[]; bare?: string[] } = {}) {
+  const { models } = piModelsOver({ oauth: { anthropic: refresh }, ...extra });
+  return new InternalAuthStorage(models as never);
+}
 
-describe("InternalAuthStorage — OAuth refresh abort signal (pi 0.84.x)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+const model = { provider: "anthropic", id: "claude", headers: { "X-Org": "a" } };
 
-  it("X4: provider refreshToken receives a concrete AbortSignal as its 2nd argument", async () => {
-    const refreshToken = vi.fn(async () => ({
-      accessToken: "new-access",
-      refreshToken: "new-refresh",
-      expiresAt: Date.now() + 3600_000,
-    }));
-    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken }) });
-
-    await storage.getApiKeyAndHeaders(model);
-
-    expect(refreshToken).toHaveBeenCalledTimes(1);
-    const [creds, signal] = refreshToken.mock.calls[0] as unknown as [unknown, AbortSignal];
-    expect(creds).toMatchObject({ accessToken: "old-access", refreshToken: "refresh-tok" });
-    expect(signal).toBeInstanceOf(AbortSignal);
-    expect(signal.aborted).toBe(false);
-  });
-
-  it("X4: the generic refreshOAuthToken fallback also receives a signal", async () => {
-    const refreshOAuthToken = vi.fn(async () => ({
-      accessToken: "new-access",
-      expiresAt: Date.now() + 3600_000,
-    }));
-    const storage = storageWith({ getOAuthProvider: () => undefined, refreshOAuthToken });
-
-    await storage.getApiKeyAndHeaders(model);
-
-    expect(refreshOAuthToken).toHaveBeenCalledTimes(1);
-    const args = refreshOAuthToken.mock.calls[0] as unknown as [string, unknown, AbortSignal];
-    expect(args[2]).toBeInstanceOf(AbortSignal);
-  });
-
-  it("X5: an aborted refresh persists nothing", async () => {
-    // Fault injection: a provider that never answers. The storage's own
-    // timeout fires its AbortSignal; a signal-honouring provider rejects.
-    // Without the signal this call would hang forever.
-    const refreshToken = vi.fn(
-      (_creds: unknown, signal: AbortSignal) =>
-        new Promise((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(new Error("aborted")));
-        }),
-    );
-    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken } as never) }, 10);
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow();
-
-    const signal = refreshToken.mock.calls[0][1] as AbortSignal;
-    expect(signal.aborted).toBe(true);
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
-
-  it("X5: a refresh that resolves after its abort still persists nothing", async () => {
-    // A provider that ignores the signal and answers late must not be able to
-    // write a credential the caller already gave up on.
-    const refreshToken = vi.fn(
-      (_creds: unknown, _signal: AbortSignal) =>
-        new Promise((resolve) =>
-          setTimeout(
-            () => resolve({ accessToken: "late", refreshToken: "late", expiresAt: Date.now() + 1000 }),
-            40,
-          ),
-        ),
-    );
-    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken } as never) }, 10);
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow();
-    await new Promise((r) => setTimeout(r, 60));
-
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
-
-  it("X5: a provider that IGNORES its signal still hits the deadline and frees the lock", async () => {
-    // abort() only notifies the provider; it does not settle the promise we
-    // await. A provider that never settles would otherwise hang this call
-    // forever and hold the per-provider refresh lock with it.
-    const refreshToken = vi.fn(() => new Promise(() => {})); // never settles, ignores the signal
-    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken } as never) }, 10);
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/aborted before completing/);
-    expect(writeCredential).not.toHaveBeenCalled();
-
-    // The lock must be released: a SECOND attempt has to reach the provider
-    // again rather than await the first, dead promise forever.
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/aborted before completing/);
-    expect(refreshToken).toHaveBeenCalledTimes(2);
-  });
-
-  it("X6: a failed refresh leaves the previously stored credential intact", async () => {
-    const refreshToken = vi.fn(async () => {
-      throw new Error("provider rejected the refresh");
-    });
-    const storage = storageWith({ getOAuthProvider: () => ({ refreshToken }) });
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(
-      /provider rejected the refresh/,
-    );
-    // Failure must surface, not be swallowed, and must not overwrite storage.
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
+beforeEach(() => {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  fs.rmSync(AUTH_PATH, { force: true });
+  fs.rmSync(`${AUTH_PATH}.lock`, { recursive: true, force: true });
 });
 
-// ── fix-provider-auth-lock-contention: the write is now async and awaited ─────
+describe("facade auth resolution", () => {
+  it("returns the runtime-resolved credential with the model's own headers", async () => {
+    writeAuth({ anthropic: { type: "oauth", access: "live-a", refresh: "r", expires: Date.now() + HOUR } });
+    const storage = facade(async () => minted("never"));
+    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({
+      apiKey: "live-a",
+      headers: { "X-Org": "a" },
+    });
+  });
 
-describe("InternalAuthStorage — refreshed token is persisted before headers are returned", () => {
-  it("X4 awaits the credential write instead of fire-and-forgetting it", async () => {
-    // The write stays in flight until the test releases it; if the refresh does
-    // not await it, the caller gets headers before the token is on disk.
-    let releaseWrite!: () => void;
-    writeCredential.mockReturnValue(new Promise<void>((resolve) => { releaseWrite = resolve; }));
-    try {
-      const refreshToken = vi.fn(async () => ({
-        accessToken: "new-access",
-        refreshToken: "new-refresh",
-        expiresAt: Date.now() + 3600_000,
-      }));
-      const storage = storageWith({ getOAuthProvider: () => ({ refreshToken }) });
+  it("X2: two parallel requests with an expiring credential call refresh exactly once", async () => {
+    writeAuth({ anthropic: expired() });
+    const d = deferred<unknown>();
+    const refresh = vi.fn(() => d.promise);
+    const storage = facade(refresh);
 
-      let settled = false;
-      const settle = () => { settled = true; };
-      const pending = storage.getApiKeyAndHeaders(model);
-      const settlement = pending.then(settle, settle);
+    const a = storage.getApiKeyAndHeaders(model);
+    const b = storage.getApiKeyAndHeaders(model);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    d.resolve(minted("shared-a"));
 
-      await new Promise((r) => setTimeout(r, 20));
-      expect(writeCredential).toHaveBeenCalledWith("anthropic", expect.objectContaining({ access: "new-access" }));
-      expect(settled).toBe(false);
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(ra.apiKey).toBe("shared-a");
+    expect(rb.apiKey).toBe("shared-a");
+  });
 
-      releaseWrite();
-      await expect(pending).resolves.toBeDefined();
-      await settlement;
-    } finally {
-      writeCredential.mockReset();
+  it("X10: a rejected refresh is attempted once and both requests fail with that error", async () => {
+    writeAuth({ anthropic: expired() });
+    const d = deferred<unknown>();
+    const refresh = vi.fn(() => d.promise);
+    const storage = facade(refresh);
+
+    const a = storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
+    const b = storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    d.reject(new Error("invalid_grant"));
+
+    const [ea, eb] = await Promise.all([a, b]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    for (const e of [ea, eb]) {
+      expect(e).toBeInstanceOf(Error);
+      expect((e as Error).message).toMatch(/invalid_grant/);
     }
   });
-});
 
-// ── adopt-piai-factory-api-registry: per-provider OAuth capability (D7) ──────
+  it("X14: aborting the initiating request aborts the refresh signal and writes nothing", async () => {
+    writeAuth({ anthropic: expired() });
+    const before = sha();
+    let refreshSignal: AbortSignal | undefined;
+    const refresh = vi.fn((_c: unknown, signal: AbortSignal) => {
+      refreshSignal = signal;
+      // A provider that honours its signal.
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("refresh aborted")), { once: true });
+      });
+    });
+    const storage = facade(refresh);
+    const controller = new AbortController();
 
-describe("InternalAuthStorage — OAuth capability gate", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    const pending = storage.getApiKeyAndHeaders(model, controller.signal).catch((e: Error) => e);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    controller.abort();
+
+    expect(await pending).toBeInstanceOf(Error);
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(sha()).toBe(before);
+    expect(readAuthJson().anthropic).toMatchObject({ access: "old-a" });
   });
 
-  // test-plan #X2 — the >=0.85 `dist/oauth.js` is `export {};`. Held as a
-  // truthy `{}`, the OLD `if (!this.oauthModule)` guard passed and the next
-  // line threw `TypeError: this.oauthModule.getOAuthProvider is not a
-  // function`. The gate must report unavailable instead.
-  it("X2: an unavailable provider yields a diagnosable error, never a TypeError", async () => {
-    const storage = storageWith({
-      isAvailable: () => false,
-      unavailableReason: () => "dist/oauth.js exports no refresh functions",
-      // Present but never reachable — calling either would be the bug.
-      getOAuthProvider: () => {
-        throw new Error("must not be consulted for an unavailable provider");
-      },
-    });
+  it("X14: a provider that IGNORES its signal still cannot persist after the abort", async () => {
+    writeAuth({ anthropic: expired() });
+    const before = sha();
+    const d = deferred<unknown>();
+    const refresh = vi.fn(() => d.promise);
+    const storage = facade(refresh);
+    const controller = new AbortController();
 
-    const err = await storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).name).not.toBe("TypeError");
-    expect((err as Error).message).toContain("anthropic");
-    expect((err as Error).message).toContain("dist/oauth.js exports no refresh functions");
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
+    const pending = storage.getApiKeyAndHeaders(model, controller.signal).catch((e: Error) => e);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    controller.abort();
+    expect(await pending).toBeInstanceOf(Error);
 
-  it("X2: a null oauth facade still reports diagnosably rather than crashing", async () => {
-    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
-    const storage = new InternalAuthStorage(null);
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/unavailable/);
-  });
-
-  // test-plan #X4 — degradation is PARTIAL. An api-key provider must keep
-  // routing while an OAuth provider with no implementation fails.
-  it("X4: api-key models keep routing while an OAuth provider is unavailable", async () => {
-    readAuthJson.mockReturnValue({
-      anthropic: expiredCred(),
-      openai: { type: "api_key" as const, key: "sk-live" },
-    });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => false,
-      unavailableReason: () => "no reachable OAuth implementation",
-      getOAuthProvider: () => undefined,
-      refreshOAuthToken: async () => ({}),
-    } as PiAiOAuthModule);
-
-    await expect(
-      storage.getApiKeyAndHeaders({ provider: "openai", id: "gpt", headers: {} }),
-    ).resolves.toEqual({ apiKey: "sk-live", headers: {} });
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/unavailable/);
-  });
-
-  // test-plan #X3 — a still-valid credential must not consult the facade at
-  // all, so an unavailable provider whose token is fresh keeps working.
-  it("X3: a credential inside the refresh buffer never reaches the gate", async () => {
-    readAuthJson.mockReturnValue({
-      anthropic: { type: "oauth" as const, access: "fresh", refresh: "r", expires: Date.now() + 3600_000 },
-    });
-    const isAvailable = vi.fn(() => false);
-    const storage = new InternalAuthStorage({
-      isAvailable,
-      getOAuthProvider: () => undefined,
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({
-      apiKey: "fresh",
-      headers: {},
-    });
-    expect(isAvailable).not.toHaveBeenCalled();
+    // The late answer is discarded, never written.
+    d.resolve(minted("LATE"));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(sha()).toBe(before);
   });
 });
 
-// ── adopt-piai-factory-api-registry: opaque credential fields must persist ───
+describe("one completion refreshes at most once (ship-it review rounds 2–3, B1)", () => {
+  /** One completion as the proxy runs it: facade auth, then pi's `streamSimple` (which resolves auth again). */
+  async function completion(storage: InternalAuthStorage, models: any): Promise<string | undefined> {
+    const { apiKey } = await storage.getApiKeyAndHeaders(model);
+    let stopReason: string | undefined;
+    for await (const event of models.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: 0 }] })) {
+      stopReason = (event as { type: string }).type;
+    }
+    expect(stopReason).toBeDefined();
+    return apiKey;
+  }
 
-describe("InternalAuthStorage — opaque OAuth fields survive the refresh write", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it("a refreshed token with < 5 min validity is not refreshed again by the completion's streamSimple", async () => {
+    writeAuth({ anthropic: expired() });
+    const refresh = vi.fn(async () => ({ type: "oauth" as const, access: "short-a", refresh: "r-new", expires: Date.now() + 3 * 60_000 }));
+    const { models } = piModelsOver({ oauth: { anthropic: refresh } });
+    const storage = new InternalAuthStorage(models as never);
+
+    await expect(completion(storage, models)).resolves.toBe("short-a");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // The stream's own resolution saw the same, just-persisted token.
+    await expect(models.getAuth(model, {})).resolves.toMatchObject({ auth: { apiKey: "short-a" } });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  // Finding 3 (persist half): rebuilding a four-field credential drops
-  // provider-specific metadata. `github-copilot` stores `enterpriseUrl` and
-  // reads it back on the NEXT refresh (`copilotEnterpriseDomain(credential)`),
-  // so losing it here permanently redirects that user's refresh to github.com.
-  it("writes enterpriseUrl back alongside the refreshed token", async () => {
-    readAuthJson.mockReturnValue({
-      "github-copilot": {
-        type: "oauth" as const,
-        access: "old",
-        refresh: "r",
-        expires: Date.now() - 1,
-        enterpriseUrl: "ghe.corp.example",
-      },
+  it("a just-persisted token that has already EXPIRED is refreshed again, never served", async () => {
+    writeAuth({ anthropic: expired() });
+    let n = 0;
+    const refresh = vi.fn(async () => {
+      n += 1;
+      // First answer: a token that is already expired by the next resolution.
+      return n === 1
+        ? { type: "oauth" as const, access: "stale-a", refresh: "r1", expires: Date.now() - 1 }
+        : { type: "oauth" as const, access: "fresh-a", refresh: "r2", expires: Date.now() + 3_600_000 };
     });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({
-        refreshToken: async () => ({ accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 }),
-      }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
+    const { models } = piModelsOver({ oauth: { anthropic: refresh } });
+    const storage = new InternalAuthStorage(models as never);
 
-    const out = await storage.getApiKeyAndHeaders({
-      provider: "github-copilot",
-      id: "gpt",
-      headers: {},
-    });
-    expect(out.apiKey).toBe("new-access");
-
-    expect(writeCredential).toHaveBeenCalledWith(
-      "github-copilot",
-      expect.objectContaining({
-        access: "new-access",
-        enterpriseUrl: "ghe.corp.example",
-      }),
-    );
+    await storage.getApiKeyAndHeaders(model);
+    // Inside the debounce window, but the stored token is expired → refresh.
+    await expect(models.getAuth(model, {})).resolves.toMatchObject({ auth: { apiKey: "fresh-a" } });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 });
 
-// ── adopt-piai-factory-api-registry: review round 2 — END-TO-END, not fragments ─
-// Round 2 found the F3/F4 tests were fragmented: one asserted the facade in
-// isolation, one asserted storage persistence, and NEITHER drove
-// storage → facade → runtime. These two do.
+describe("a joined request is not failed by someone else's disconnect (audit)", () => {
+  it("initiator aborts mid-refresh; a still-connected joiner resolves through its own attempt", async () => {
+    writeAuth({ anthropic: expired() });
+    let calls = 0;
+    const refresh = vi.fn((_c: unknown, signal: AbortSignal) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("refresh aborted")), { once: true });
+        });
+      }
+      return Promise.resolve(minted("joiner-a"));
+    });
+    const storage = facade(refresh);
+    const initiator = new AbortController();
 
-describe("InternalAuthStorage — opaque fields reach the RUNTIME, not just disk", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    const first = storage.getApiKeyAndHeaders(model, initiator.signal).catch((e: Error) => e);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    const joiner = storage.getApiKeyAndHeaders(model);
+    initiator.abort();
+
+    expect(await first).toBeInstanceOf(Error);
+    await expect(joiner).resolves.toMatchObject({ apiKey: "joiner-a" });
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
-  // The round-2 probe failure: the storage built a three-field `credentials`
-  // object BEFORE the facade ran, so `enterpriseUrl` never reached
-  // pi-ai's `refresh()` — `copilotEnterpriseDomain(credential)` saw undefined
-  // and the refresh went to github.com instead of the enterprise domain.
-  it("F3 e2e: enterpriseUrl reaches the provider's refresh() call", async () => {
-    readAuthJson.mockReturnValue({
-      "github-copilot": {
-        type: "oauth" as const,
-        access: "old",
-        refresh: "r",
-        expires: Date.now() - 1,
-        enterpriseUrl: "ghe.corp.example",
-      },
-    });
+  it("a joiner's own abort ends its wait without aborting the shared refresh", async () => {
+    writeAuth({ anthropic: expired() });
+    const d = deferred<unknown>();
+    const refresh = vi.fn(() => d.promise);
+    const storage = facade(refresh);
 
-    const seen: any[] = [];
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({
-        refreshToken: async (creds: any) => {
-          seen.push(creds);
-          return { accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 };
-        },
-      }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
+    const first = storage.getApiKeyAndHeaders(model);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    const own = new AbortController();
+    const joiner = storage.getApiKeyAndHeaders(model, own.signal).catch((e: Error) => e);
+    own.abort();
+    expect(await joiner).toBeDefined();
 
-    await storage.getApiKeyAndHeaders({ provider: "github-copilot", id: "gpt", headers: {} });
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0].enterpriseUrl).toBe("ghe.corp.example");
-    // Canonical names are still translated, not left as the storage's aliases.
-    expect(seen[0].accessToken).toBe("old");
-    expect(seen[0].refreshToken).toBe("r");
-    expect(seen[0].expiresAt).toBeLessThan(Date.now());
-  });
-
-  it("F3 e2e: an updated enterpriseUrl returned by the refresh is persisted", async () => {
-    readAuthJson.mockReturnValue({
-      "github-copilot": {
-        type: "oauth" as const,
-        access: "old",
-        refresh: "r",
-        expires: Date.now() - 1,
-        enterpriseUrl: "old.corp.example",
-      },
-    });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({
-        refreshToken: async () => ({
-          accessToken: "new-access",
-          refreshToken: "r2",
-          expiresAt: 4_102_444_800_000,
-          enterpriseUrl: "new.corp.example",
-        }),
-      }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await storage.getApiKeyAndHeaders({ provider: "github-copilot", id: "gpt", headers: {} });
-
-    const written = writeCredential.mock.calls.at(-1)?.[1];
-    expect(written.enterpriseUrl).toBe("new.corp.example");
-    // No stale alias keys leak into auth.json.
-    expect(written).not.toHaveProperty("accessToken");
-    expect(written).not.toHaveProperty("refreshToken");
-    expect(written).not.toHaveProperty("expiresAt");
-  });
-
-  it("F3 e2e: a credential with no opaque fields is unaffected", async () => {
-    readAuthJson.mockReturnValue({
-      anthropic: { type: "oauth" as const, access: "old", refresh: "r", expires: Date.now() - 1 },
-    });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({
-        refreshToken: async () => ({ accessToken: "new-access", refreshToken: "r2", expiresAt: 4_102_444_800_000 }),
-      }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({
-      apiKey: "new-access",
-      headers: {},
-    });
+    d.resolve(minted("first-a"));
+    await expect(first).resolves.toMatchObject({ apiKey: "first-a" });
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("InternalAuthStorage — malformed refresh cannot be persisted (F4, both facades)", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  // Validated at the SINGLE persist site, so the legacy facade path is covered
-  // too — a facade-level check alone left this open.
-  it("F4 e2e: an empty refresh result never reuses the expired access token", async () => {
-    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({ refreshToken: async () => ({}) }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/no access token/);
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
-
-  it("F4 e2e: a blank access token never reuses the expired one", async () => {
-    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({ refreshToken: async () => ({ accessToken: "" }) }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await expect(storage.getApiKeyAndHeaders(model)).rejects.toThrow(/no access token/);
-    expect(writeCredential).not.toHaveBeenCalled();
-  });
-
-  it("F4 e2e: the malformed-refresh error leaks no credential material", async () => {
-    readAuthJson.mockReturnValue({
-      anthropic: { type: "oauth" as const, access: "SECRET_ACCESS", refresh: "SECRET_REFRESH", expires: Date.now() - 1 },
+describe("missing OAuth capability (E6, facade half)", () => {
+  it("names the provider instead of a TypeError or a silent undefined", async () => {
+    writeAuth({
+      noauth: { type: "oauth", access: "a", refresh: "r", expires: Date.now() + HOUR },
+      openai: { type: "api_key", key: "sk-openai" },
     });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      getOAuthProvider: () => ({ refreshToken: async () => ({}) }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
+    const storage = facade(async () => minted("x"), { apiKey: ["openai"], bare: ["noauth"] });
 
-    const err = await storage.getApiKeyAndHeaders(model).catch((e: Error) => e);
-    expect((err as Error).message).not.toContain("SECRET_ACCESS");
-    expect((err as Error).message).not.toContain("SECRET_REFRESH");
+    const err = await storage.getApiKeyAndHeaders({ provider: "noauth", id: "m" }).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(MissingOAuthCapabilityError);
+    expect(err).not.toBeInstanceOf(TypeError);
+    expect((err as Error).message).toMatch(/missing OAuth capability/);
+    expect(storage.getMissingOAuthProviders()).toEqual(["noauth"]);
+
+    // api-key providers keep routing.
+    await expect(storage.getApiKeyAndHeaders({ provider: "openai", id: "gpt" })).resolves.toMatchObject({
+      apiKey: "sk-openai",
+    });
   });
 
-  it("a genuinely rotated token still persists with provider expiry fallbacks", async () => {
-    readAuthJson.mockReturnValue({ anthropic: expiredCred() });
-    const storage = new InternalAuthStorage({
-      isAvailable: () => true,
-      // No expiresAt returned: the 1-hour default is acceptable ONCE a new
-      // access token exists (that is the distinction F4 draws).
-      getOAuthProvider: () => ({ refreshToken: async () => ({ accessToken: "fresh" }) }),
-      refreshOAuthToken: async () => ({}),
-    } as unknown as PiAiOAuthModule);
-
-    await expect(storage.getApiKeyAndHeaders(model)).resolves.toEqual({ apiKey: "fresh", headers: {} });
-    expect(writeCredential).toHaveBeenCalledWith(
-      "anthropic",
-      expect.objectContaining({ access: "fresh", refresh: "refresh-tok" }),
-    );
+  it("no stored credential → a named 'No credentials' error, never an ambient key", async () => {
+    writeAuth({});
+    const storage = facade(async () => minted("x"), { apiKey: ["openai"] });
+    await expect(storage.getApiKeyAndHeaders({ provider: "openai", id: "gpt" })).rejects.toThrow(/No credentials/);
   });
 });

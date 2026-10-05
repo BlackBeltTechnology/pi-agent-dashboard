@@ -10,7 +10,92 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Security
+
+- **Trust and credential boundaries hardened** (B5/B14/B15/B25/B4).
+  - Login OAuth: signed `pi_dash_oauth_state` cookie is verified before the code
+    exchange (CSRF / code-injection); `returnUrl` is constrained to same-origin paths
+    (open redirect).
+  - New opt-in `requireLocalProof` (default `false`, unchanged behaviour): bare
+    loopback then admits only `observe`-tier REST reads; control/operate routes and
+    WebSockets need the `pi_dash_local` cookie (`pi-dashboard open` / Electron), the
+    local token, or a login. Only header-injecting tunnels (zrok) are safe without it;
+    `ssh -R` / `socat` relays are not. `/v1/*` keeps its admission.
+  - **Behaviour change:** pairing approval (`/api/pair/approve`, `/approve-pending`)
+    no longer honors bare loopback in any mode; hand-typed `http://localhost:8000` on an
+    auth-off install must use `pi-dashboard open` (or the desktop app) to approve.
+  - Plugin event emission: automation `buildEvent` actions must declare `emits`;
+    reserved host namespaces (`roles:`, `role:`, `model:`, `prompt:`, `dashboard:`,
+    `ui:`) and the raw `plugin_emit_event` lane are refused.
+  - `config.json` (holds the auth secret) is written and tightened to `0600`.
+  - Same-origin browsers exchange the paired-device bearer for an httpOnly
+    `pi_dash_device` cookie; `localStorage` keeps only a non-secret marker.
+
+- **Untrusted-content ingestion hardened** (B11/B12/B13/B26).
+  - `document-converter`: every absolute request path must lie under a configured
+    root (`stagingDir`, `mounts`, or the new optional `workspaceRoot`, default
+    `cwd`), outside a sensitive-directory denylist (`/etc`, `/root`, `~/.ssh`,
+    `~/.pi`, …); violations reject with the new `PATH_NOT_ALLOWED` code before
+    docker runs. Read-only inputs mount `:ro`. **Compatibility:** callers
+    converting files outside `cwd` must pass `mounts: [dir]` or `workspaceRoot`.
+  - KB remote sources: https fetches are https-only with a connect-time
+    non-public-address check (incl. IPv6-embedded IPv4, rebinding, per-hop
+    redirect re-validation), size/time caps and 2xx-only; git sources allow only
+    https/ssh/`git@` URLs with transport, redirect and submodule hardening.
+    **Compatibility:** `http://`/`ssh://` refs in the https resolver now fail;
+    git sources relying on redirects (renamed repos) fail with a clear error.
+    A cached git clone whose configured `origin` differs from the source URL is
+    refused on refresh (remove the cache entry and retry) instead of being fetched.
+  - KB archive extraction lists and validates entries first (no `..`, absolute or
+    link entries), extracts into a stage dir and swaps atomically, so a failed
+    refresh keeps the previous cache. Also fixes `.tar.bz2` extraction.
+  - Spreadsheet preview: `xlsx` moves from npm `0.18.5` (prototype pollution,
+    ReDoS) to the official SheetJS build `0.20.3`. **The server package now
+    depends on a `https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz` tarball —
+    air-gapped or mirror-only installs must allowlist `cdn.sheetjs.com`.**
+- Oversized office previews (docx/pptx/xlsx, HTTP 413) now show the real size
+  limit with an "Open raw" link instead of the generic "can't preview" fallback.
+- **BREAKING: the host-admission gate now defaults to `enforce`.** With no
+  `PI_DASHBOARD_HOST_GATE` and no `hostGate.mode`, a request whose `Host` is not
+  loopback, an IP literal, `*.local`, a `publicBaseUrls` / `cors.allowedOrigins` /
+  live-tunnel host, or an `allowedHosts` entry now gets the self-describing `403`
+  page instead of a log line. Opt out with `hostGate.mode: "report"` in
+  `config.json` or `PI_DASHBOARD_HOST_GATE=report`. An unrecognised `mode` still
+  loads as `report`. The boot log names the resolved mode and its source.
+- `openspec_refresh` now applies the same gates as `openspec_get` (enabled,
+  per-folder opt-out, tracked folder, `openspec/` present); an untracked folder
+  no longer spawns the CLI.
+- Revoking a paired device (`DELETE /api/paired-devices/:id`) is operator-only,
+  and the operator guard now refuses a paired-device bearer even over loopback
+  (also tightens `POST /api/paired-devices`). The `POST /api/pair/approve` label
+  is bounded to 1..64 UTF-8 bytes like the mint label.
+- `git-operations` no longer builds shell strings: every git/gh call carrying a
+  branch, ref, path or PR title runs as an argv array with no shell. A missing
+  `git` / `gh` binary reports `git_not_found` / `gh_not_found`.
+
 ### Added
+
+- **`@blackbelt-technology/pi-dashboard-app-kit`** — new library for a standalone SPA
+  served from its own origin that talks to a dashboard host. It reads the
+  dashboard URL at runtime (`/config.json`), sets the identity mode from the login
+  descriptor (`oidc` / `none`, fail-closed otherwise), builds the OIDC PKCE client
+  config, attaches the bearer only to the dashboard origin, never sends cookies, and
+  opens reconnecting sockets with a fresh single-use ticket on every attempt. The
+  `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
+
+- **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
+  providers page (Account badge) and signs in through the usual
+  browser/device-code choice. It stays hidden while `models.json` points
+  `radius` at a custom gateway. After signing in, the dashboard offers to add
+  the Radius MCP server to the global `mcp.json` (as pi's `/login` does) and
+  reloads sessions. `RADIUS_API_KEY` keeps working as "Radius (API Key)".
+
+- **nano-banana: opt-in pi image backend.** `pi-nano-banana --backend pi` (or
+  `NANO_BANANA_BACKEND=pi`; library `backend: "pi"`) generates and edits images
+  through pi 1.0.0's model runtime with the OpenRouter credential pi already
+  holds (`/login openrouter` or `OPENROUTER_API_KEY`) — no `GEMINI_API_KEY`.
+  Default stays Gemini; a missing Gemini key never falls back to pi. The CLI
+  prints the model and an estimated cost.
 
 - **pi 1.0.0 surfaces.** Sign in with ChatGPT (`openai` OAuth) from the
   providers page; OAuth rows show **Subscription** or **Account**
@@ -81,6 +166,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
+  (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients
+  that accept compression (undici `fetch`, pi's built-in MCP client), so
+  `tools/list` failed with "Unexpected end of JSON input". And `list_sessions`,
+  `send_prompt`, `spawn_session`, `abort` and session-bound tools returned
+  their raw object instead of an MCP `CallToolResult`, which strict clients
+  read as empty content; the value now rides as JSON text. See change:
+  migrate-mcp-to-pi-builtin.
+
 - **Plugin config updates reach the plugin UI live.** A plugin server entry's
   `ctx.updatePluginConfig` broadcast omitted the plugin `id`, so the client
   stored the new config under `"undefined"` and the plugin's settings UI kept
@@ -120,12 +214,42 @@ see [`docs/release-process.md`](docs/release-process.md).
   `pi-ai <0.87.0` cap is gone). Standalone npm consumers on an older pi get an
   install-time peer warning and must upgrade pi. The pi 0.84.2 dispatch/reload
   gate and the legacy (global-registry) pi-ai generation are removed.
-- **pi-mcp-adapter 5.0.0; dashboard MCP entry moves to `mcp-adapter.json`.** pi
-  1.0.0's built-in MCP reads `~/.pi/agent/mcp.json`; the dashboard's entry there
-  (adapter-only auth) made every session warn "pi-dashboard: needs sign-in".
-  With adapter >= 3 the entry is now written to `~/.pi/agent/mcp-adapter.json`
-  and the dashboard's own stale `mcp.json` entry is removed (a user-authored
-  entry under that key is left alone). Adapter 2.x installs are unchanged.
+- **BREAKING (pi fork): `@mariozechner/pi-coding-agent` is no longer a recognised pi.**
+  The legacy fork (and `@mariozechner/pi-ai` / `pi-tui`) drops out of the
+  Packages UI, version and update checks (`POST /api/pi-core/update` rejects
+  it with 400), module resolution and the published peer ranges. A fork `pi`
+  on PATH may still spawn, but its sessions only get the below-floor warning.
+  Fix: `npm i -g @earendil-works/pi-coding-agent`. The pi.dev latest-version
+  check is removed too; the npm registry is the only latest-version source.
+- **BREAKING: `pi-mcp-adapter` is dropped; the dashboard uses pi's built-in
+  MCP.** The bridge now registers the dashboard server per session with
+  `pi.registerMcpServer("pi-dashboard", …)` once the session token arrives (the
+  server sends the `/mcp` URL with the mint reply) and unregisters it on
+  `session_shutdown`; the token lives only in that in-memory registration, so it
+  no longer reaches `process.env` and every subprocess. No `mcp.json` write, no
+  header command. On server start the previously provisioned `pi-dashboard`
+  entry is removed from `~/.pi/agent/mcp.json` (an operator-authored entry under
+  that key is kept and warned about — it shadows the registration). **Migration,
+  in order:** (1) remove `pi-mcp-adapter` from `~/.pi/agent/settings.json`
+  `packages[]` — while it is installed it takes `/mcp` and disables the
+  built-in, so the dashboard's MCP tools stop until it is gone; (2) convert
+  servers turned off with the adapter's `disabled: true` to `enabled: false` —
+  pi ignores the unknown key, so such a server becomes ACTIVE (one-click
+  **Convert** in Settings → MCP); (3) fix any `mcp.json` with comments or
+  trailing commas — pi parses strict JSON and skips the whole file (the doctor
+  names it); (4) reload sessions. Adapter users lose adapter-only features
+  (host-config discovery, rmux, lifecycle modes, `approveTools`, output guard,
+  trace, sampling, elicitation, MCP Prompts, MCP Apps UI). Requires pi ≥ 1.0.0.
+  pi sessions reach `/mcp` in the legacy protocol era, so request/response tools
+  work but `subscriptions/listen` streaming does not. **BREAKING (`mcp-client`
+  plugin):** rebuilt on pi's two `mcp.json` layers (global + trusted folder;
+  project entry replaces global whole); the adapter worker, version floor,
+  global-settings form, `adapterLoadTimeoutMs` and the shared/import layers are
+  removed. `strip-json-comments` and `pi-mcp-adapter` are dropped. **BREAKING
+  (`apple-tools`):** writes the `iMCP` entry with `exposure`/`toolExposure`
+  instead of `directTools` and no longer adds `pi-mcp-adapter` to
+  `settings.json#packages` (it writes only `mcp.json`). See change:
+  migrate-mcp-to-pi-builtin.
 
 - **Composer strip redesign.** Every strip group (OpenSpec, Git, plugin groups
   such as Quota, Status) is now one labelled `role="group"` container, spaced

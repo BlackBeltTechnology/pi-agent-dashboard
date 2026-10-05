@@ -159,6 +159,19 @@ describe("PairingApprovalHost", () => {
     expect(screen.queryByTestId("pairing-dialog")).toBeNull();
   });
 
+  it("F6: a cookie-paired browser (marker, no bearer) never fetches", async () => {
+    localStorage.setItem("pi-dashboard:device-paired", "1");
+    try {
+      const h = setup();
+      h.setList([entry("aaa")]);
+      h.connect();
+      await h.hint();
+      expect(h.api.listPending).not.toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem("pi-dashboard:device-paired");
+    }
+  });
+
   it.each([
     ["network error", async () => Promise.reject(new TypeError("Failed to fetch"))],
     ["HTTP 500", async () => Promise.reject(Object.assign(new Error("HTTP 500"), { status: 500 }))],

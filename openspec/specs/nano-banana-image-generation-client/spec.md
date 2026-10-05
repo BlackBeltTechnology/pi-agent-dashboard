@@ -6,7 +6,7 @@ Provide a programmatic wrapper around the `@the-focus-ai/nano-banana` image-gene
 ## Requirements
 
 ### Requirement: Gemini API Key Resolution
-The client SHALL resolve a Gemini API key from an ordered set of sources and SHALL fail image generation when no key can be found.
+On the Gemini backend (the default; see `nano-banana-pi-backend`) the client SHALL resolve a Gemini API key from an ordered set of sources and SHALL fail image generation when no key can be found. The pi backend SHALL NOT resolve a Gemini key.
 
 #### Scenario: Explicit key takes precedence
 - **WHEN** an explicit key is passed (e.g. `--api-key` / `cliKey`)
@@ -28,38 +28,43 @@ The client SHALL resolve a Gemini API key from an ordered set of sources and SHA
 - **THEN** the package directory `.env` is searched last for `GEMINI_API_KEY` then `GOOGLE_API_KEY`
 
 #### Scenario: No key found
-- **WHEN** no key is resolved from any source
+- **WHEN** no key is resolved from any source on the Gemini backend
 - **THEN** generation returns `ok: false`
-- **AND** the error instructs the caller to set `GEMINI_API_KEY` in the environment, a gitignored `.env`, or pass `apiKey`/`--api-key`
+- **AND** the error instructs the caller to set `GEMINI_API_KEY` in the environment, a gitignored `.env`, or pass `apiKey`/`--api-key`, and mentions the opt-in alternative `backend: "pi"` (CLI `--backend pi` / `NANO_BANANA_BACKEND=pi`) with an OpenRouter credential in pi
+- **AND** pi SHALL NOT be imported
 
 ### Requirement: Single Image Generation and Editing
-The client SHALL generate a single image from a text prompt and SHALL edit an existing image when an input file is provided, invoking the underlying CLI with the corresponding arguments.
+The client SHALL generate a single image from a text prompt and SHALL edit an existing image when an input file is provided. On the Gemini backend it invokes the underlying CLI with the corresponding arguments; on the pi backend it calls pi's model runtime (see `nano-banana-pi-backend`).
 
 #### Scenario: Generate from prompt
-- **WHEN** a prompt is provided without an input file
+- **WHEN** a prompt is provided without an input file on the Gemini backend
 - **THEN** the CLI is invoked with the prompt as the first argument
 - **AND** `--output`, `--model`, and `--flash` are appended only when the respective options are set
 
 #### Scenario: Edit an existing image
-- **WHEN** an input `file` is provided
+- **WHEN** an input `file` is provided on the Gemini backend
 - **THEN** the CLI receives `--file <path>` and treats the prompt as the edit instruction
 
 #### Scenario: CLI invocation
-- **WHEN** an image is generated
+- **WHEN** an image is generated on the Gemini backend
 - **THEN** the underlying `@the-focus-ai/nano-banana` package is spawned via `npx -y` with the built argument vector
 - **AND** the resolved key is passed as `GEMINI_API_KEY` in the child environment
 
+#### Scenario: No spawn on the pi backend
+- **WHEN** an image is generated on the pi backend
+- **THEN** no child process is spawned
+
 #### Scenario: Output directory creation
-- **WHEN** an `output` path is set
-- **THEN** the parent directory of the resolved output path is created recursively before invocation
+- **WHEN** an `output` path is set and the `backend` value is valid
+- **THEN** the parent directory of the resolved output path is created recursively before generation on either backend; `backend` validation runs first, so an invalid value creates nothing
 
 ### Requirement: Single Generation Result and Failure Handling
-The client SHALL report success only when the CLI exits successfully and any expected output file exists, and SHALL otherwise report a bounded error message.
+On the Gemini backend the client SHALL report success only when the CLI exits successfully and any expected output file exists, and SHALL otherwise report a bounded error message. Pi-backend results and failures follow `nano-banana-pi-backend`. On either backend the client SHALL resolve, never reject, for generation failures.
 
 #### Scenario: Successful generation
-- **WHEN** the CLI exits with code 0
+- **WHEN** the CLI exits with code 0 on the Gemini backend
 - **AND** either no output path was requested or the output file exists
-- **THEN** the result is `ok: true` with the `output` path
+- **THEN** the result is `ok: true` with the `output` path and `backend: "gemini"`
 
 #### Scenario: Failure with stderr
 - **WHEN** the CLI exits non-zero or the expected output file is missing
@@ -69,9 +74,10 @@ The client SHALL report success only when the CLI exits successfully and any exp
 #### Scenario: Failure without stderr
 - **WHEN** the CLI fails and produces no stderr
 - **THEN** the error falls back to `exit code <code> (key via <source>)`
+- **AND** every result of a generation that ran on this backend, success or failure, carries `backend: "gemini"`
 
 ### Requirement: Bounded-Concurrency Batch Generation
-The client SHALL run many generation jobs with a bounded number of concurrent workers, aggregate per-job results, and optionally skip jobs whose output already exists.
+The client SHALL run many generation jobs with a bounded number of concurrent workers, aggregate per-job results, and optionally skip jobs whose output already exists. The backend is resolved once per batch (see `nano-banana-pi-backend`).
 
 #### Scenario: Concurrency limit
 - **WHEN** a batch of jobs runs
@@ -81,7 +87,7 @@ The client SHALL run many generation jobs with a bounded number of concurrent wo
 #### Scenario: Skip existing outputs
 - **WHEN** `force` is not set and a job's output file already exists
 - **THEN** that job is not regenerated
-- **AND** its result is `ok: true` with `skipped: true`
+- **AND** its result is `ok: true` with `skipped: true` and no `backend`
 
 #### Scenario: Force regeneration
 - **WHEN** `force` is set
@@ -90,4 +96,4 @@ The client SHALL run many generation jobs with a bounded number of concurrent wo
 #### Scenario: Per-job progress and aggregation
 - **WHEN** each job completes
 - **THEN** an optional `onResult` callback is invoked with that job's result
-- **AND** the batch returns one result per job, each carrying the job `name` and its `ok`/`output`/`error`/`skipped` fields
+- **AND** the batch returns one result per job, each carrying the job `name` and its `ok`/`output`/`error`/`skipped` fields, plus `backend` for jobs that ran

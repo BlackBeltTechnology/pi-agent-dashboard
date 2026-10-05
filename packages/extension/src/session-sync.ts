@@ -9,12 +9,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { replayEntriesAsEvents } from "@blackbelt-technology/pi-dashboard-shared/state-replay.js";
 import type { FlowInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { UsageTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import * as minimatchNS from "minimatch";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, filterHiddenCommands, getCurrentModelString, safeCwd } from "./bridge-context.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
 import { detectSessionSource } from "./source-detector.js";
-import { detectIsGitRepo, gatherGitInfo } from "./vcs-info.js";
+import { detectIsGitRepo } from "./vcs-info.js";
 
 // minimatch's entry shape varies by version/runtime (v10 exposes a named
 // `minimatch`; v3/CJS-interop exposes it as the default). A namespace import
@@ -197,10 +198,10 @@ export function sendStateSync(
   // D3: re-mint after EVERY re-register — this is the path a dashboard
   // restart actually takes (onReconnect → sendStateSync, registerReason
   // "reattach"): the server's in-memory token registry died with the old
-  // process, so without this the session env keeps a stale credential
+  // process, so without this the registration keeps a stale credential
   // forever. Ordered after session_register on the SAME socket, so the
   // gateway's connection-key attribution is established; the reply
-  // (mcp_token_minted) rewrites process.env and the server-side re-mint
+  // (mcp_token_minted) re-registers pi-dashboard with pi's MCP and the server-side re-mint
   // invalidates the stale row (D4). Idempotent with the session_start-driven
   // mint — last mint wins. See change: wire-mcp-session-token (D3/D6;
   // CodeRabbit round 1).
@@ -235,6 +236,12 @@ export function handleSessionChange(
   bc: BridgeContext,
   ctx: any,
   getFlowsList: () => FlowInfo[],
+  /**
+   * Full usage totals of the incoming session's baseline snapshot — the same
+   * snapshot the bridge's usage drain cursor was set from (`UsageDrain.baseline`).
+   * See change: count-non-message-usage.
+   */
+  usageSeed?: UsageTotals,
 ): void {
   bc.connection.send({ type: "session_unregister", sessionId: bc.sessionId });
 
@@ -247,6 +254,7 @@ export function handleSessionChange(
   bc.lastGitBranch = undefined;
   bc.lastGitPrJson = undefined;
   bc.lastGitWorktreeJson = undefined;
+  bc.lastGitStatusJson = undefined;
   bc.lastSessionName = bc.pi.getSessionName() ?? "";
   bc.lastModel = getCurrentModelString(bc);
   bc.lastThinkingLevel = (bc.pi as any).getThinkingLevel?.() ?? undefined;
@@ -288,31 +296,19 @@ export function handleSessionChange(
     registerReason: "spawn",
     // See change: gate-session-worktree-button-on-git.
     isGitRepo: detectIsGitRepo(cwd),
+    ...(usageSeed ? { usageSeed } : {}),
   });
 
   replaySessionEntries(bc);
   bc.connection.send({ type: "replay_complete", sessionId: bc.sessionId });
 
-  // Send git info
-  const gitInfo = gatherGitInfo(cwd);
-  if (gitInfo) {
-    // New sessionId ⇒ new PR generation: tuple resets to unknown and the
-    // scheduler probes immediately (async). The register update carries the
-    // cached tuple (unknown fields omitted).
-    // See change: redesign-composer-session-strip (D5).
-    bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: gitInfo.gitBranch });
-    const pr = bc.prStatus?.tuple() ?? {};
-    bc.lastGitBranch = gitInfo.gitBranch;
-    bc.lastGitPrJson = JSON.stringify(pr);
-    bc.lastGitWorktreeJson = gitInfo.gitWorktree ? JSON.stringify(gitInfo.gitWorktree) : "null";
-    bc.connection.send({
-      type: "git_info_update",
-      sessionId: bc.sessionId,
-      ...gitInfo,
-      ...pr,
-      gitWorktree: gitInfo.gitWorktree ?? null,
-    });
-  }
+  // Git info: the tracker's synchronous FIRST evaluation (cached facts + HEAD
+  // branch, status omitted), then a fast-lane probe for status. A new sessionId
+  // is a new PR generation (tuple resets to unknown, probed async) and the
+  // status diff cache is reset so the resumed session's first status is never
+  // diffed away against the previous session's. See changes:
+  // redesign-composer-session-strip (D5), optimize-polling-hot-paths (D4).
+  bc.gitTracker?.evaluateFirst(bc, cwd);
 
   const commands = filterHiddenCommands(bc.pi.getCommands());
   bc.connection.send({ type: "commands_list", sessionId: bc.sessionId, commands });

@@ -14,17 +14,25 @@ run-name: "sync-release-version ${{ inputs.correlation || 'manual' }}"
 # thing that keeps it true. Same script a human runs locally:
 # `npm run sync-release -w site`.
 #
-# Triggers:
-#   - `release: { types: [published, edited] }` — the normal path.
-#   - `workflow_dispatch` — manual refresh (e.g. after retroactively
-#     editing a release).
+# Trigger: `workflow_dispatch` ONLY.
+#   - Normal path: publish.yml's `site-redeploy` job dispatches this workflow
+#     (binding its wait to the `correlation` input), then dispatches
+#     `deploy-site.yml` as a separate step.
+#   - There is deliberately NO `release:` trigger. Pipeline releases are
+#     created under the default Actions token, whose events start no
+#     workflow; a prerelease published by hand from its draft WOULD start a
+#     run, but that run is incomplete: this workflow commits with
+#     GITHUB_TOKEN, and a GITHUB_TOKEN push cannot start `deploy-site.yml`
+#     (its `paths:` filter never sees this commit). So the site would not
+#     redeploy.
 #
-# After committing, the regular `deploy-site.yml` workflow picks up the
-# change via its `paths: ["site/**"]` filter and redeploys automatically.
+# Manual recovery (hand-published draft, or a retroactively edited release):
+# TWO dispatches from the Actions UI —
+#   1. dispatch `sync-release-version` (this workflow), wait for it to commit;
+#   2. dispatch `deploy-site`.
+# See change: fix-ci-pipeline-followups.
 
 on:
-  release:
-    types: [published, edited]
   workflow_dispatch:
     inputs:
       correlation:

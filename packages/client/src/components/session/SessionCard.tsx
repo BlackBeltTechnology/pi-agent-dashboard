@@ -35,25 +35,28 @@ export const sourceBadgeColors = sourceBadgeColorsExt;
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ClosedReason, CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { isMergePrimary } from "../../lib/git/merge-primary.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
 import { useMobile } from "../../hooks/useMobile.js";
 import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../../lib/git/git-status-cache.js";
+import { isMergePrimary } from "../../lib/git/merge-primary.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
-import { useCardSectionActions, useCardSectionVisible } from "../../lib/state/CardSectionsContext.js";
+import { useAttachmentResolution } from "../../lib/openspec/useAttachmentResolution.js";
+import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { useCardSectionActions, useCardSectionVisible } from "../../lib/state/CardSectionsContext.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
 import { CollapseSummary } from "../chat/collapse-summary.js";
 import { CwdGonePill } from "../folder/CwdGonePill.js";
+import { AttachmentTrace, isLiveActive } from "../openspec/AttachmentTrace.js";
 import { OpenSpecActivityBadge } from "../openspec/OpenSpecActivityBadge.js";
 import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
@@ -65,12 +68,11 @@ import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 import { ContextUsageBar } from "./ContextUsageBar.js";
 import { PiBelowFloorWarning } from "./PiBelowFloorWarning.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
-import type { HistoryLoadPhase } from "../../lib/replay/history-load-phase.js";
 import type { ContextUsageInfo } from "./SessionList.js";
-import { SessionSubcard } from "./SessionSubcard.js";
 import { SessionStatusChip } from "./SessionStatusChip.js";
-import type { SubcardMenuTarget } from "./SubcardLegendMenu.js";
+import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
+import type { SubcardMenuTarget } from "./SubcardLegendMenu.js";
 
 /**
  * The card's single activity slot. Precedence:
@@ -106,7 +108,7 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
   // See change: stop-discarding-known-session-state.
   if (session.status === "ended") return <EndedReasonPill session={session} />;
 
-  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
+  if (session.awaitingFileAccess === true || (session.currentTool === "ask_user" && !hasWidgetBarPrompt)) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
     return <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5"><StatusGlyph status="needs-you" path={mdiCommentQuestion} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;
@@ -200,6 +202,7 @@ export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; co
 // server transitions, so it must use the very numbers the server fires on.
 // Re-exported so existing `SessionCard` import sites keep working.
 export { HOST_PRESSURE_DEGRADED_MS, HOST_PRESSURE_UNRESPONSIVE_MS };
+
 /** Local re-render cadence; the sidebar has no ticker of its own. */
 const HOST_PRESSURE_TICK_MS = 5_000;
 
@@ -919,8 +922,12 @@ export function SessionCard({
   // (outlines their primary) and to the worktree actions (fills Merge).
   // See change: redesign-composer-session-strip.
   const working = session.status === "streaming" || isRetrying === true;
-  const attachedChange = session.attachedProposal
-    ? openspecChanges?.find((c) => c.name === session.attachedProposal)
+  // Resolve against active + archived data. Lifecycle state (Merge emphasis)
+  // only for a live-active attachment in this session's own cwd.
+  // See change: resolve-archived-attached-proposal.
+  const attachmentResolution = useAttachmentResolution(session, openspecChanges);
+  const attachedChange = attachmentResolution?.kind === "active" && attachmentResolution.cwd === session.cwd
+    ? attachmentResolution.change
     : undefined;
   const mergeIsPrimary = isMergePrimary({
     hasWorktree: !!session.gitWorktree,
@@ -1058,6 +1065,7 @@ export function SessionCard({
           >
             <Icon path={mdiPaperclip} size={0.4} />
             <span className="truncate">{session.attachedProposal}</span>
+            <AttachmentTrace resolution={attachmentResolution} sessionCwd={session.cwd} />
           </div>
         )}
         {/* OpenSpec activity badge */}
@@ -1421,10 +1429,18 @@ export function SessionCard({
             : openspecInitialized === undefined
               ? true
               : Boolean(openspecInitialized) || Boolean(openspecPending);
-        if (!open && !disabled) return null;
+        // An attached session keeps its trace (archived / not found / in main
+        // checkout) even when its own cwd has no openspec dir — e.g. a removed
+        // worktree (ABSENT). Only an explicit user opt-out hides it.
+        // See change: resolve-archived-attached-proposal.
+        const attachedTrace = !!session.attachedProposal && readiness?.state !== "GLOBAL_OFF" && readiness?.state !== "OPTED_OUT";
+        if (!open && !disabled && !attachedTrace) return null;
+        // BROKEN / STALE normally swaps in the inert panel, but an attachment that
+        // is not live-active in this cwd (archived / missing / main-checkout / still resolving) must stay reachable (+ Detach).
+        const showAttachmentTrace = attachedTrace && !isLiveActive(attachmentResolution, session.cwd);
         return (
           <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")} menu={menuFor("openspec")}>
-            {disabled && readiness ? (
+            {disabled && readiness && !showAttachmentTrace ? (
               <OpenSpecDisabledPanel
                 reason={readiness.reason ?? (readiness.state === "BROKEN" ? "cli-failed" : "missing-skills")}
                 onSeekToFolder={onSeekToFolderOpenSpec ? () => onSeekToFolderOpenSpec(session.cwd) : undefined}

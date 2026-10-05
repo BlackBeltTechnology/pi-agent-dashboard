@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDocumentConverter } from "../index.js";
+import { afterEach, describe, expect, it, } from "vitest";
 import type { EngineRunner } from "../engine.js";
+import { createDocumentConverter } from "../index.js";
 
 const tmps: string[] = [];
 async function workdir(): Promise<string> {
@@ -16,13 +17,15 @@ afterEach(async () => {
 });
 
 /** Fake runner that records the parsed request and returns a canned ok payload. */
-function recordingRunner(payload: object): { runner: EngineRunner; reqs: any[] } {
+function recordingRunner(payload: object): { runner: EngineRunner; reqs: any[]; argvs: string[][] } {
   const reqs: any[] = [];
-  const runner: EngineRunner = async (_argv, stdin) => {
+  const argvs: string[][] = [];
+  const runner: EngineRunner = async (argv, stdin) => {
+    argvs.push(argv);
     reqs.push(JSON.parse(stdin));
     return { stdout: JSON.stringify({ ok: true, ...payload }), stderr: "", exitCode: 0 };
   };
-  return { runner, reqs };
+  return { runner, reqs, argvs };
 }
 
 describe("facade: convertToMarkdown", () => {
@@ -36,6 +39,7 @@ describe("facade: convertToMarkdown", () => {
     const dc = createDocumentConverter({
       image: "pi-doc-engine:test",
       stagingDir: staging,
+      workspaceRoot: dir,
       engine: { runner },
     });
 
@@ -76,6 +80,7 @@ describe("facade: convertToMarkdown", () => {
     const dc = createDocumentConverter({
       image: "x",
       stagingDir: join(dir, "staging"),
+      workspaceRoot: dir,
       engine: { runner },
     });
     await expect(
@@ -85,36 +90,66 @@ describe("facade: convertToMarkdown", () => {
   });
 });
 
+describe("facade: confinement (D1)", () => {
+  it("E13 creates a non-existent staging dir first and mounts it rw", async () => {
+    const dir = await workdir();
+    const staging = join(dir, "staging");
+    const pdf = join(dir, "a.pdf");
+    await writeFile(pdf, "x");
+    const { runner, argvs } = recordingRunner({ markdown: "# A" });
+    const dc = createDocumentConverter({ image: "x", stagingDir: staging, workspaceRoot: dir, engine: { runner } });
+    await dc.convertToMarkdown(pdf);
+    expect(existsSync(staging)).toBe(true);
+    const argv = argvs[0].join(" ");
+    expect(argv).toMatch(new RegExp(`-v [^ ]+:${staging}(?: |$)`));
+  });
+
+  it("rejects a request outside the workspace with PATH_NOT_ALLOWED before the engine runs", async () => {
+    const dir = await workdir();
+    const { runner, reqs } = recordingRunner({ output: "x" });
+    const dc = createDocumentConverter({ image: "x", stagingDir: join(dir, "staging"), workspaceRoot: dir, engine: { runner } });
+    await expect(dc.renderPdf(join(dir, "in.md"), { output: "/root/.ssh/authorized_keys" })).rejects.toMatchObject({
+      code: "PATH_NOT_ALLOWED",
+    });
+    expect(reqs).toHaveLength(0);
+  });
+});
+
 describe("facade: produce", () => {
   it("forwards the nano_banana flag and template to the engine on renderDocx", async () => {
-    const { runner, reqs } = recordingRunner({ output: "/out.docx" });
+    const dir = await workdir();
+    const { runner, reqs } = recordingRunner({ output: join(dir, "out.docx") });
     const dc = createDocumentConverter({
       image: "x",
-      stagingDir: "/staging",
+      stagingDir: join(dir, "staging"),
+      workspaceRoot: dir,
       engine: { runner },
     });
-    await dc.renderDocx("/in.md", {
-      output: "/out.docx",
+    await dc.renderDocx(join(dir, "in.md"), {
+      output: join(dir, "out.docx"),
       template: "default",
       nanoBanana: { enabled: true, style: "ros-3d" },
     });
     expect(reqs[0]).toMatchObject({
       command: "renderDocx",
-      input: "/in.md",
-      output: "/out.docx",
+      input: join(dir, "in.md"),
+      output: join(dir, "out.docx"),
       template: "default",
       nano_banana: { enabled: true, style: "ros-3d" },
     });
   });
 
   it("returns the extract result with a document_meta path", async () => {
-    const { runner } = recordingRunner({ output: "/edit.md", meta: "/document_meta.xml" });
+    const dir = await workdir();
+    const meta = join(dir, "document_meta.xml");
+    const { runner } = recordingRunner({ output: join(dir, "edit.md"), meta });
     const dc = createDocumentConverter({
       image: "x",
-      stagingDir: "/staging",
+      stagingDir: join(dir, "staging"),
+      workspaceRoot: dir,
       engine: { runner },
     });
-    const res = await dc.extractForEdit("/in.docx", "/edit.md");
-    expect(res).toEqual({ output: "/edit.md", meta: "/document_meta.xml" });
+    const res = await dc.extractForEdit(join(dir, "in.docx"), join(dir, "edit.md"));
+    expect(res).toEqual({ output: join(dir, "edit.md"), meta });
   });
 });

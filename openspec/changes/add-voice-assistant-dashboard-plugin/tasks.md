@@ -1,170 +1,265 @@
-## 1. Scaffold the plugin package
+> **Revised 2026-10-04.**
+> - Transcription runs in a separately spawned **transcriber** pi session.
+> - Meetings add a **copilot** pi session that runs its own poll.
+> - The server only coordinates.
+> - Voice handling and agent control are our own system (`video-transcription`, `pi-voiceid`, subagents, pi sessions).
+> - References: `references/`.
+> - Land `add-voice-wall-plugin` first (`./emit`).
 
-- [ ] 1.1 Run the `dashboard-plugin-scaffold` skill in `new` mode: id `voice-assistant`, display name "voice-assistant", **server entry yes, bridge entry NO**, configSchema yes, slots `session-card-badge`, `session-card-action-bar`, `sidebar-folder-section`, `shell-overlay-route`, `settings-section` (the wall uses none of these — it opens via the core `live-server-preview` mechanism, not a plugin claim; the knowledge browser is folder-scoped per design 6b, so NO `content-view`/`command-route` claim).
-- [ ] 1.2 Register `packages/voice-assistant-plugin` as a pnpm workspace member; run `pnpm install` at repo root.
-- [ ] 1.3 Add `NOTICE`/README documenting: upstream repo `tatargabor/set-copilot`, MIT license, the vendored commit SHA (planning verified against `24a714dd8f03433ed2fcd1461cdf2cb5813dff2a`; re-pin to whatever is actually copied), the explicit exclusion list (`cli.ts`, `doctor.ts`, `diagnostics.ts`, `mirror-follow.ts`, `mirror-format.ts`, `mirror-policy.ts`, `skill-install.ts`, `replay*.ts`, `*.test.ts`, `.claude/skills/`, `hooks/`), and the named deviations from "vendor as-is": (a) the `audio.ts` source seam (design 4d), (b) the `wall/public` relative-URL patch (design 4b confirmed risk).
+## 1. Scaffold
 
-## 2. Vendor the set-copilot library surface
+- [ ] 1.1 `dashboard-plugin-scaffold` (`new`):
+  - id `voice-assistant`, server yes, bridge NO, configSchema;
+  - host-trusted priority (`<= 100`);
+  - slots `composer-toolbar-action`, `session-card-badge`, `session-card-action-bar`, `sidebar-folder-section`, `shell-overlay-route`, `settings-section`, `folder-settings-section`.
+- [ ] 1.2 `extension/transcriber/` and `extension/copilot/` (no `pi` manifest key, so pi never loads them globally); runtime path resolution for `scope.extensions`.
+- [ ] 1.3 Dependencies: `@blackbelt-technology/pi-dashboard-video-transcription`, `@blackbelt-technology/pi-dashboard-kb`, `@blackbelt-technology/pi-dashboard-voice-wall-plugin` (`./emit`), `ws`.
+- [ ] 1.4 `add-new-plugin-package-checklist` registrations; `pnpm install`.
+- [ ] 1.5 `NOTICE` + README: upstream pin `32b6a7d4116d184528107f33fd31f148177bf73e`, file list, exclusions, `capture-source.patch`, own-system mapping, scratch root, archive/PII/audio-retention notes, `references/`.
 
-- [ ] 2.1 Copy `config.ts` → `src/vendor/set-copilot/config.ts` (exports `loadConfig`, `normalizeKeywords`, `DEFAULT_ALERTS`, `DEFAULT_DETECT`, `DEFAULT_DEFERRED_MARKERS`, `DEFAULT_COMPLETE_WORDS`, `CopilotConfig` and friends).
-- [ ] 2.2 Copy `capture.ts` (`runCapture`, `CaptureOptions`) and its direct imports `soniox-rt.ts`, `whisper-local.ts`, `tones.ts`, `handover.ts`, `audio.ts` (`startDualCapture`/`DualChannelCapture` — the recorder spawn; the browser-mic seam of design 4d plugs in here), `runtime-dir.ts` (`claimRuntimeDir`/`RuntimeDirBusyError`/`captureAlive` — also imported by `poll.ts`), and `fast-lane.ts` (imported by `transcript-writer.ts` and `config.ts`) into `src/vendor/set-copilot/`.
-- [ ] 2.3 Copy `transcript-writer.ts` (`TranscriptWriter`, `TranscriptLine`, `SilenceEvent`), `transcript-build.ts` (`stitchTranscript`, `stitchText`, `parseLines`, `renderPlain`), `transcript-stitch-run.ts` (`stitchFile`, `artifactPaths`) into `src/vendor/set-copilot/`.
-- [ ] 2.4 Copy `poll.ts` (`runPoll`) into `src/vendor/set-copilot/`.
-- [ ] 2.5 Copy `copilot-prompt.ts` (`renderCopilotPrompt`, `renderAlerts`) into `src/vendor/set-copilot/`.
-- [ ] 2.6 Copy `knowledge/types.ts`, `knowledge/markdown-adapter.ts`, `knowledge/sources.ts`, `knowledge/keyword-matcher.ts`, `knowledge/run-digest.ts` into `src/vendor/set-copilot/knowledge/`. Note per design 4e: `types.ts` + `keyword-matcher.ts` are PRIMARY (used on both backend paths); `markdown-adapter.ts`, `sources.ts`, `run-digest.ts` serve the no-kb FALLBACK path only.
-- [ ] 2.7 Copy `wall/index.ts` (`runWall`, `wallEventsPath`), `wall/server.ts` (`WallServer`), `wall/categories.ts`, `wall/types.ts`, and their direct imports `wall/director.ts`, `wall/emit.ts`, `wall/event-source.ts`, `wall/redaction.ts`, `wall/routing.ts`, `wall/channels.ts`, `wall/layout.ts`, `wall/feed-script.ts`, and `wall/public/{index.html,wall.js,wall.css,wall-core.mjs,text-format.mjs,text-render.mjs}` into `src/vendor/set-copilot/wall/`.
-- [ ] 2.7b Patch the vendored `wall/public/index.html` + `wall.js` for proxy-prefix relativity (design 4b confirmed risk): `/wall.css`→`./wall.css`, `/wall.js`→`./wall.js`, `fetch('/api/bootstrap…')`→`./api/bootstrap…`, `new EventSource('/events…')`→`./events…`, and derive `route` relative to the document base instead of raw `location.pathname`. Keep the patch to URL strings only; record it in `NOTICE` (1.3). Note `index.html` pulls `cytoscape`/`dagre` from `unpkg.com` — leave as-is but document the CDN dependency.
-- [ ] 2.8 Copy `recovery-ledger.ts` — REQUIRED: `transcript-stitch-run.ts` imports `appendEntry`/`fingerprintFile`/`ledgerPath`/`makeEntry` from it (verified upstream; an earlier draft left this conditional).
-- [ ] 2.9 Add `ws` as a direct dependency of `packages/voice-assistant-plugin` (matches upstream's own dependency for `wall/server.ts`), and `@blackbelt-technology/pi-dashboard-kb` (workspace) for the kb knowledge path.
-- [ ] 2.10 Fix relative imports after the move; confirm (via `tsc --noEmit` or the package's build) that no vendored module imports `cli.ts`, `doctor.ts`, `mirror-follow.ts`, or `mirror-policy.ts`.
+## 2. Vendor
 
-## 3. Server entry — capture + session-prompt orchestration (`src/server/index.ts`)
+- [ ] 2.1 `scripts/vendor-set-copilot.mjs` (closure, copy, patch, NOTICE; fail on excluded modules).
+- [ ] 2.2 Run at pin; `tsc --noEmit` clean.
+- [ ] 2.3 `capture-source.patch` (`captureFactory`); `doubt-driven-review` before sections 4 and 7 build on it.
 
-- [ ] 3.1 Define `CaptureState` keyed by `` `${projectRoot}::${targetSessionId}` `` holding: capture handle, capture source (`server`/`browser`), `WallServer` instance, poll-loop abort controller, `onEvent` unsubscribe fn, last-known badge status.
-- [ ] 3.2a Scratch-dir redirect (design 4g, seam verified): `capture.ts` claims its dir via `claimRuntimeDir({ runtimeDir, output })` — explicit parameters. Confirm `CaptureOptions` threads `runtimeDir`/`output` through to that call; if `runCapture` derives them from `process.cwd()` first, lift the derivation into an option (one-line change, record beside 4d). Pass a dir under the dashboard's own scratch root. Writing meeting transcripts inside the project's git working tree is NOT an acceptable default.
-- [ ] 3.2b STT reconnect (design 4g, seam verified): `soniox-rt.ts` reconnects UNBOUNDED (backoff 0.5s→8s forever, ~15 s audio replay buffer) and emits `"reconnecting"`/`"reconnected"`. Do NOT add a plugin-side bound. Attach listeners at construction; map `"reconnecting"` → pair badge `reconnecting` (with attempt count), `"reconnected"` → clear, terminal socket error → pair error state.
-- [ ] 3.2 Implement `dict-start` (renames upstream's `ds`) for source `server`: call vendored `runCapture({ micOnly: true })` scoped to a runtime dir derived from `{ projectRoot, targetSessionId }` (substitute pi session id for upstream's `$CLAUDE_CODE_SESSION_ID` convention).
-- [ ] 3.3 Implement `dict-end` (renames upstream's `dd`): call vendored `handoverTranscriptOnce` then `stitchTranscript`/`stitchText`; on stitch failure/empty result, fall back to the raw transcript text (fail-open, per design decision 3). Call `ctx.sendToSession(targetSessionId, text)`; on `false`, set an error/delivery-failed state and retain the text for retry. Shared by both capture sources.
-- [ ] 3.4 Implement meeting-copilot start: call vendored `runCapture({})` (mic + system), then run a **per-capture, await-driven** batch consumer over the vendored `runPoll(cfg, windowSeconds)` — used as-is, unmodified (design 4f). One consumer per active pair, started with capture and stopped by every teardown path; NOT a server-wide fixed-interval poller, and no heavy synchronous work in the loop body.
-- [ ] 3.4b Refuse a start that contends for the capture device already held by ANY active capture on this host (dictation or copilot, any project — the host has one microphone), naming the current holder in the error; make a repeated start for an already-running pair idempotent — no second recorder, no second consumer. Compose with upstream's per-runtime-dir PID guard: map a `RuntimeDirBusyError` (carries owner PID) from `claimRuntimeDir` to the same refused-with-holder outcome instead of treating it as an unexpected failure.
-- [ ] 3.5 On each reaction-worthy batch (lines with `topics`/`urgency`/`question`/`command`), compose a message: first batch of the run prepends `renderCopilotPrompt(cfg)`; later batches are transcript-only. Call `ctx.sendToSession(targetSessionId, message)`; on `false`, set the copilot badge to error and stop forwarding further batches for that session.
-- [ ] 3.5b Apply backpressure: at most ONE batch in flight per `{ projectRoot, targetSessionId }`. Batches produced while one is in flight MERGE in arrival order into a single pending payload (append, never replace), dispatched when the in-flight batch completes. Bound the pending payload by line/byte cap; on overflow drop OLDEST lines and insert an explicit truncation marker so loss is visible, never silent (design 4g). The wall leg still receives every line regardless.
-- [ ] 3.6 Implement meeting-copilot stop: stop capture, stop the batch consumer, unsubscribe the `ctx.onEvent` handler, stop the `WallServer`, **deregister its live-server target**, and delete the `CaptureState` entry.
-- [ ] 3.6b Wire `ctx.onSessionEnded` to run the same teardown for every capture pair bound to the ended session — dictation and copilot alike (design 4g). This hook exists on `ServerPluginContext` and was previously unused.
-- [ ] 3.6c Spawn recorder children in their own process group and kill the group on teardown, so a killed/restarted dashboard (`/api/restart` is routine) cannot orphan a process holding the microphone. Register a process-exit handler that tears down every active capture.
-- [ ] 3.6d Fault boundary around vendored code — all FOUR paths, since a sync `try/catch` alone catches none of the real crash modes (design 4f): (1) `try/catch` incl. `await` on every call in; (2) an `'error'` listener on EVERY emitter/stream vendored code exposes or returns (wall WS, Soniox socket, transcript streams) — an emitter with no `error` listener kills the process; (3) `child.on('error')` plus exit/close handling on recorders (`spawn` reports ENOENT asynchronously — a try/catch around `spawn()` will NOT catch a missing `sox`); (4) route rejections from vendored callbacks back to the owning pair so they never become process-level `unhandledRejection`. Degrade ONLY that pair.
-- [ ] 3.6e Treat a terminal STT socket error (auth-expiry, rejected credential) as an explicit pair error state; plain drops are handled by upstream's own reconnect+replay (3.2b) and surfaced as `reconnecting`, not as an error. Teardown (stop / session-end / process-exit) closes the socket and is the only bound on reconnection.
-- [ ] 3.7 Subscribe via `ctx.onEvent((sessionId, event) => …)` scoped to the active target session id; extract assistant text from forwarded events and `ingest()` it into that project's `WallServer` as a copilot event. FIRST establish which `eventType`/field carries the FINAL assistant reply and how deltas are distinguished (design 4 unverified contract) — mirroring fragmented deltas or tool output would be worse than not mirroring.
-- [ ] 3.8 Bind one vendored `WallServer` (via `runWall(cfg, { port })`) to its own loopback port per active project, when meeting-copilot starts; stop it when meeting-copilot stops. Serve upstream's own `wall/public/*` UI unmodified — no custom React wall component. Expose the bound port through a status endpoint the client's "View live wall" action reads.
-- [ ] 3.8b Verify the patched wall (2.7b) end-to-end behind `/live/<id>/`: assets load under the prefix, `./api/bootstrap` returns, and the `EventSource` SSE stream flows through `@fastify/reply-from` without buffering (SSE needs streamed, un-buffered responses — check `reply.from` passes `text/event-stream` through unchanged). Confirm from an opaque-origin iframe (no cookies/tickets presented — the HTTP path has no auth, so this should just work).
-- [ ] 3.9 Implement `GET /api/plugins/voice-assistant/config` and `PUT /api/plugins/voice-assistant/config` taking an EXPLICIT folder param (the `settings-section` slot receives no session — never infer the folder from an active session), using the vendored `loadConfig`/config types for parse/validate. Reject folders outside the known-folder allow-list, enforce path containment on write, and apply the same request-auth guard other plugin REST routes use.
-- [ ] 3.9b Mask the STT API credential on read and preserve the on-disk secret when the masked field is saved unchanged — never return the key in readable form to the browser.
-- [ ] 3.10 Implement a read-only knowledge endpoint over the `KnowledgeBackend` seam (section 4) taking an explicit folder param, returning the resolved sources, the decisions, and the ACTIVE BACKEND id so the client can attribute results. Same allow-list + auth guard as 3.9.
-- [ ] 3.11 Implement a preflight check (STT backend configured: Soniox key present or whisper model path exists; audio tooling present: `sox`/`parec` resolvable) exposed through a status endpoint the client badges consume — a server-side equivalent of upstream's `doctor.ts`, not a vendored copy of it. Include the dashboard server's own hostname in the response so the client can show WHICH machine's mic will be captured (design.md remote-access risk).
+## 3. Runners (`src/runner/*`)
 
-## 4. Knowledge backend seam (kb-first, vendored fallback)
+- [ ] 3.1 `capture`: `runCapture({micOnly, maxMinutes, captureFactory})`.
+- [ ] 3.2 `captureFactory` implementations:
+  - (a) browser ingest `ws` (frame validation, port to stderr);
+  - (b) per-channel WAV tee (meeting).
+- [ ] 3.3 `handover`, `archive` (`stitchFile`), `prompt` (`policy.md`), `poll` (loop + sentinel).
+- [ ] 3.4 Shared spawn helper: `detached`, env allowlist, `SET_COPILOT_DIR`, key, `error`/`exit` listeners, stderr ring.
 
-- [ ] 4.1 Define the internal `KnowledgeBackend` interface (resolve sources, resolve decisions, optional facet counts, build keyword-index seed) — one contract, two implementations, no backend branching in the copilot flow.
-- [ ] 4.2 Implement the kb-backed backend using `@blackbelt-technology/pi-dashboard-kb`: construct the folder's store from the package's exported `SqliteFtsStore`/`loadConfig` (mirroring `kb-plugin`'s `kb-routes.ts` — its `openStore` is a module-private helper, NOT an export of `packages/kb`), use `store.search(q, { filters })` with a `status` equality `Filter` for decisions and `store.facets(["status"])` for counts. NOTE: use the store API directly — the `kb_search` TOOL exposes no `filters` param.
-- [ ] 4.3 Implement the fallback backend over the vendored `knowledge/sources.ts` (`resolveSources`) + `knowledge/markdown-adapter.ts`, with no facet counts.
-- [ ] 4.4 Implement backend selection: kb when the folder is kb-admissible AND its index is populated; fallback otherwise. Record kb-admission rejection as an explicit "kb unavailable" outcome (logged + surfaced), never as an empty result.
-- [ ] 4.5 Seed `knowledge/keyword-matcher.ts`'s index from the ACTIVE backend at meeting-copilot start (kb: indexed titles/headings/tags; fallback: vendored digest). Assert no knowledge-base query is issued per transcript line.
+## 4. Transcriber extension (D5–D7, D13)
 
-## 5. Client — dictation & copilot controls
+- [ ] 4.1 Read `PI_EXT_VOICE_*`; inert without config.
+- [ ] 4.2 On `session_start`, spawn capture; atomic `status.json` phases; reconnect parsing; play the live tone.
+- [ ] 4.3 `/voice-stop`:
+  - dictation → handover → `handover.json`;
+  - meeting → archive pipeline (4.4).
+- [ ] 4.4 Archive pipeline:
+  1. stitch;
+  2. our `SonioxClient` async diarization on the system WAV;
+  3. `pi-voiceid label` (library via `PI_VOICEPRINT_STORE` default);
+  4. overlap-based naming + `mic` operator name;
+  5. write `docs/meetings/<date>-<slug>.md` with frontmatter (collision suffix);
+  6. delete WAVs unless `keepAudio`;
+  6a. copy the runtime dir's `wall-events.jsonl` (if any) next to the meeting note as `docs/meetings/<date>-<slug>.wall.jsonl` (read-only replay for the wall's empty state, D19);
+  7. phase `archived`.
 
-- [ ] 5.1 `session-card-action-bar` claim: `dict-start`/`dict-end` buttons, disabled/relabeled per preflight state (from 3.11) and delivery-failure state (from 3.3). Title/tooltip states the capture host for the `server` source ("captures the microphone on <hostname>") so a remote user isn't misled into thinking it's their own mic. Source picker (`server` default / `browser`) — see section 7 for the `browser` leg.
-- [ ] 5.2 `session-card-badge` claim: dictation status (idle/recording/error), annotated with active source when `browser`.
-- [ ] 5.3 `session-card-action-bar` claim: start/stop meeting-copilot buttons, disabled/relabeled per preflight and "knowledge sources required" state.
-- [ ] 5.4 `session-card-badge` claim: meeting-copilot status (idle/listening/error).
+  Naming errors fall back to channel labels plus a note.
+- [ ] 4.5 `/voice-status`; `session_shutdown` kills the capture group.
 
-## 6. Client — live wall (embed via live-server-preview, no custom UI)
+## 5. Copilot extension (D10–D12)
 
-- [ ] 6.1 `session-card-action-bar` claim: "View live wall" button, visible/enabled only while a `WallServer` port is bound for that project (per 3.8's status endpoint).
-- [ ] 6.2 On click, call `startLiveServer({ host: "127.0.0.1", port })` (same client API `CanvasServerChip` uses) to register the target and obtain the proxied `/live/<id>/` path. NOTE: `startLiveServer` returns a path — it does NOT mount a tab. Mounting the `LiveServerViewer` pseudo-tab is a separate step; if no host client API exposes pseudo-tab mounting to a plugin, fall back to navigating to the returned main-origin path and record the limitation.
-- [ ] 6.3 Do NOT rely on `TabActions` for popout — `EditorPane` computes `tabActionTarget` as `null` for pseudo-tab viewers, so live-server tabs expose no system-open action. The only popout is `LiveServerViewer`'s own inline `<a target="_blank">` to the main-origin `/live/<id>/…` path; verify that link behaves acceptably in Electron/PWA/mobile and record the result (design 4b).
-- [ ] 6.4 Surface the wall's exposure where it is opened: the wall URL is reachable by anyone who can reach the dashboard origin (`/live/:id/*` has no `preHandler`), and redaction is content reduction, not access control.
-- [ ] 6.5 Deregister the wall's live-server target on stop so no stale row persists in `preferences.json` or the user's saved-targets picker.
+- [ ] 5.1 Read `PI_EXT_VOICE_*`; inert without config.
+- [ ] 5.2 `before_agent_start`: additive policy section; bridge coexistence.
+- [ ] 5.3 Poll child (started on server signal `/voice-transcriber-live` or when `status.json` shows the transcriber `live`):
+  - parser;
+  - follow-up when `ctx.isIdle()`, pending merge otherwise, flush on `agent_end`;
+  - commands/name-addressed as `steer`;
+  - `capture-dead` → error;
+  - `wall-input` gating.
+- [ ] 5.4 Tools: `wall_emit`, `meeting_transcript`, `copilot_alert`.
+- [ ] 5.5 Mirror (opt-in) on `message_end`; filler list.
+- [ ] 5.6 Pre-read detection → `status.json` `ready`.
+- [ ] 5.7 Deny-first guard (preset name gate, project-root path gate, one-shot notes write from `notes-target.json`).
+- [ ] 5.8 **Verify** that subagent tool calls hit the guard or are restricted to the preset; if not, drop `Agent` from `meeting` and record it in `NOTICE` (test-plan #51).
+- [ ] 5.9 `/voice-meeting-ended`: stop poll, notes turn; `session_shutdown` kills the poll group.
 
-## 7. Browser-mic dictation (source `browser`, v1)
+## 6. Server coordinator (D4, D6, D8, D11, D14–D16)
 
-- [ ] 7.1 Server: implement a tiny companion loopback `http`+`ws` server (own port) exposing `/audio-ingest`, started lazily on `dict-start` with source `browser` for `{ projectRoot, targetSessionId }`, stopped on `dict-end`/error (mirrors the wall's bind-on-start/stop-on-stop lifecycle, design decision 4b/risk).
-- [ ] 7.2 Server: register that port via the SAME `startLiveServer`-backed mechanism the wall uses, so `/live/:id/audio-ingest` tunnels through the dashboard's existing `"live"` WS-upgrade scope (`handleLiveServerUpgrade`) — no new core `scope` case.
-- [ ] 7.3 Server: feed incoming binary chunks from `/audio-ingest` into the vendored Soniox client (`soniox-rt.ts`), producing the same `TranscriptWriter` output the `sox`/`parec` path produces, so `dict-end` (3.3) is unaffected.
-- [ ] 7.4 Client: capture-source picker on the dictation action-bar (server default, browser opt-in). Hide (not just disable) the `browser` option when `window.isSecureContext` is false.
-- [ ] 7.5 Client: on `browser` source selected + `dict-start`, call `getUserMedia({audio:true})` and stream **raw PCM via an `AudioWorklet`** at the sample rate `soniox-rt.ts` already expects — NOT `MediaRecorder` (which emits Opus-in-WebM and would force a server-side demux/decode step, breaking the one-seam carve-out; design 4d).
-- [ ] 7.5a Client: convert `AudioWorklet`'s Float32 samples to the signed-integer PCM format/sample-rate `soniox-rt.ts` expects, and frame to the expected size; the ingest endpoint validates the sample format rather than trusting the client (design 4d).
-- [ ] 7.5b Client: obtain a live-scope WS ticket before connecting over a remote origin — the `"live"` upgrade path is ticket-gated, so an unauthenticated tunnel client would otherwise fail the upgrade with no clear reason.
-- [ ] 7.6 Client: distinct UI states — permission denied, no input device, unsupported browser, insecure context (hidden per 7.4, not a failure state) — never a silent no-op.
-- [ ] 7.7 Client: tear down the browser-side stream and the companion WS connection on `dict-end` or navigation away, mirroring 7.1's server-side lifecycle.
+- [ ] 6.1 State: dictation pairs, folder meetings; `fs.watch` on runtime dirs → status, with an `onEvent` backstop.
+- [ ] 6.2 Key resolution via `video-transcription` `loadConfig` plus `ctx.credentials` override.
+- [ ] 6.3 Device guard; owner gating; preflight route (config version, key, tooling, knowledge, kb coverage, ffmpeg + speaker model for naming, resolved copilot/transcriber model in registry).
+- [ ] 6.3a `resolveRoleModel(cwd, role)`: folder override → global default → pi default; used by every transcriber/copilot spawn (D20).
+- [ ] 6.4 Dictation:
+  - spawn transcriber (nonce, 30 s);
+  - `dict-end` → `/voice-stop` → read `handover.json` → return `{runId, text}` to the client (fail-open);
+  - no live composer: retain by `{targetSessionId, runId}`; delivery `send` fallback `sendToSession` (false → retain);
+  - cancel → discard;
+  - graceful abort.
+- [ ] 6.5 Browser ingest registration via `ctx.fastify.inject`; delete on end.
+- [ ] 6.6 Meeting start:
+  1. `prompt` runner;
+  2. spawn copilot;
+  3. priming (prior meetings from kb);
+  4. wait for `ready` or 120 s;
+  5. spawn transcriber;
+  6. `ensureWall`;
+  7. signal the copilot to start polling.
+- [ ] 6.7 Meeting stop:
+  1. `/voice-stop` → wait for `archived`;
+  2. `/voice-meeting-ended` → wait for the notes turn end (timeout);
+  3. abort both;
+  4. `stopWall`;
+  5. `POST /api/kb/reindex`.
 
-## 8. Client — knowledge browser & config editor
+  Dry run skips archive, notes and reindex.
+- [ ] 6.8 Teardown on `onSessionEnded` (target or meeting sessions), `onShutdown`, disable; activation reap.
+- [ ] 6.9 kb coverage offer (`PUT /api/kb/config`); config + credential routes (`networkGuard`, `isAllowedCwd`, containment, `config-migrate`).
 
-- [ ] 8.1 `sidebar-folder-section` claim (entry point): a per-folder row alongside `kb-plugin`'s `FolderKbSection`, reading `folder.cwd` from the injected `FolderDescriptor`, navigating to the overlay route below. Present regardless of whether a session is running in that folder.
-- [ ] 8.2 `shell-overlay-route` claim at `/folder/:encodedCwd/voice-assistant-knowledge` (design 6b): decode the cwd from `params.encodedCwd` (mirror `kb-plugin`'s `decodeFolderPath`), render an explicit invalid-folder message when it does not decode, and wire the back affordance to the slot's `onBack` prop. Full-bleed page matching `KbSettingsPanel`'s structure — NOT a centered dialog.
-- [ ] 8.3 Folder page body: read-only list of resolved sources and decisions (id/title/status) via the backend seam, an ACTIVE-BACKEND indicator (kb vs fallback, with a path to index the folder when on fallback), decisions grouped by `status` facet with counts on the kb path (flat list on fallback), empty state when neither backend has content.
-- [ ] 8.4 `settings-section` claim: config editor reading/writing via the server REST routes from 3.9, preserving unrecognized fields on save, offering to create a default file when none exists.
-- [ ] 8.5 `configSchema.json` for plugin-level settings (default STT backend hint, default target-session behavior note).
+## 7. Browser-mic client
 
-## 9. Core seam — plugin live-target bridge (design 6c)
+- [ ] 7.1 Source picker (hidden when insecure), `AudioWorklet` PCM, live-scope ticket, failure states, teardown.
 
-- [ ] 9.1 Add a mutable live-target reference to `PluginContextProvider` in `packages/dashboard-plugin-runtime`, plus a plugin-facing hook that delegates through it and an availability check plugins can read before choosing embed vs fallback.
-- [ ] 9.2 Populate the reference from `SplitWorkspaceProvider` in `packages/client` on mount (delegating to the existing `openLiveTarget`, NOT duplicating it) and clear it on unmount. Do NOT invert the provider nesting.
-- [ ] 9.3 Unpopulated reference degrades to a logged no-op — never a throw, never a silent success.
-- [ ] 9.4 Scope guard: the bridge exposes ONLY opening a live-server target; no editor-pane reducer access, no arbitrary tab kinds, no unrelated split state.
-- [ ] 9.5 Wire the wall's "View live wall" action (6.2) through the new hook, with the full-page main-origin link as the fallback when the capability is unavailable.
+## 8. Client
+
+- [ ] 8.1 Composer mic (`composer-toolbar-action`, D22): states idle / `starting mic` / `recording` (+ level for browser) / `processing` / error+Retry; source menu (server host named, browser hidden when insecure); `insertAtCursor` or insert+`submit` per `dictation.delivery`; `Esc` cancel → `restore`; modes toggle/hold/auto + `Ctrl+M`; retained-text offer (Insert / Copy / Discard) on mount.
+- [ ] 8.2 Folder row: Start meeting / Dry run / Stop / Open copilot / Open transcriber; phase badge. (Live wall entry + menu items are the wall plugin's.)
+- [ ] 8.3 Start dialog: disclosure (capture, audio tee + deletion, copilot session, archive path + indexing), mirror toggle, preset, `keepAudio`, kb coverage offer.
+- [ ] 8.4 Role badge on spawned session cards (transcriber / copilot) + Stop.
+- [ ] 8.5 "Live wall" links in the copilot session header and meeting toast → `/folder/<encodedCwd>/wall` (wall plugin page, `add-plugin-app-host`), fallback `/apps/wall/…`; hidden without `voiceWall` or a running wall (D19).
+- [ ] 8.6 Knowledge overlay with archived meetings.
+- [ ] 8.7 Global settings section: global copilot/transcriber model defaults (`ui:model-selector`, D20), link to folder settings, key source/status, voiceprint library status (count, store path) with a link to `pi-voiceid` enrollment docs.
+- [ ] 8.7a Folder settings section (`folder-settings-section`, label "Voice assistant", D21): `set-copilot.config.json` editor for `cwd` (no folder selector) + per-folder model overrides with "inherit global (<ref>)".
+- [ ] 8.8 `configSchema.json`:
+  - `dictation.delivery` (`draft`|`send`, default `draft`), `dictation.minSendWords` (3), `dictation.mode` (`toggle`|`hold`|`auto`, default `toggle`), `dictation.shortcut` (`Ctrl+M`);
+  - `transcriberModel`, `copilotModel` (global defaults), `folderModels` (per-cwd override map), `archiveDir`, `priorMeetings`;
+  - `mirrorFiller[]`, backpressure cap, poll window, `maxMinutes`;
+  - `keepAudio`, `speakerNaming`, `scriptsProjects[]`.
+
+## 9. (removed) Core seam — live-target bridge
+
+Superseded by `add-plugin-app-host` (D19). No tasks.
+
+## 9c. Core seam — composer toolbar actions (D22)
+
+- [ ] 9c.1 `composer-toolbar-action` slot id in `slot-types.ts`, props in `slot-props.ts`; `manifest-validator.ts` requires `ariaLabel`.
+- [ ] 9c.2 `ComposerToolbarActionSlot` consumer + bounded `composer` handle (`insertAtCursor`, `snapshot`/`restore`, `submit` via the send path); inert after unmount/session switch.
+- [ ] 9c.3 `CommandInput.tsx`: render the slot in the input-row trailing cluster before terminal + action button; never folded into `⋯`; never hidden by draft/attachments/working state.
+- [ ] 9c.4 DOX rows (`CommandInput.tsx.AGENTS.md`, runtime/shared AGENTS); `docs/` slot list via DocScribe.
+
+## 9b. Core seam — folder settings plugin sections (D21)
+
+- [ ] 9b.1 `folder-settings-section` slot id in `slot-types.ts`, props `{ pluginContext, cwd }` in `slot-props.ts`; `manifest-validator.ts` requires `label`.
+- [ ] 9b.2 `FolderSettingsSectionSlot` consumer in `slot-consumers.tsx` (error boundary; only route `cwd`).
+- [ ] 9b.3 `DirectorySettings.tsx`: Plugins nav group (hidden with zero enabled claims), route `/folder/:cwd/settings/plugins/:pluginId`, invalid-page fallback for non-claiming/disabled plugins.
+- [ ] 9b.4 Update `settings-panel` main spec on archive; DOX rows for touched files; `docs/plugin-ui-primitives.md`/architecture slot list via DocScribe.
 
 ## 10. Tests (folded from test-plan.md — manifest is the source of truth)
 
-> The `see <path>` anchors below are STYLE references (harness setup, mocking pattern, assertion idiom to copy) — not files to add tests to. New tests live under `packages/voice-assistant-plugin/src/**/__tests__/` (L1), `tests/e2e/voice-assistant-*.spec.ts` (L3), and a new `qa/tests/` script (L2).
+> L1 in `packages/voice-assistant-plugin/src/**/__tests__/` and `extension/**/__tests__/` (fake pi extension host, fake recorder/STT, fake diarizer/voiceid); L3 `tests/e2e/voice-assistant-*.spec.ts`; L2 `qa/tests/`.
 
-- [ ] 10.1 [L1] idle pair · dict-start then dict-end with non-empty transcript · exactly one sendToSession with stitched text, state back to idle (test-plan #1; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.2 [L1] idle pair · dict-end with no preceding dict-start · no sendToSession, no throw, state stays idle (test-plan #2; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.3 [L1] buffered transcript · stitch throws · fail-open, raw transcript sent instead of dropped (test-plan #3; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.4 [L1] recording, target disconnected · dict-end, sendToSession returns false · error state AND text retained for retry (test-plan #4; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.5 [L1] silence-only capture · dict-end · empty-result path, no empty prompt sent (test-plan #5; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.6 [L1] preflight flags {STT × audio tooling × knowledge} · start requested · each reachable combo yields its specified allow/block outcome (test-plan #6; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.7 [L1] neither kb-indexed nor knowledge.sources · copilot start · blocked; either alone · allowed (test-plan #7; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.8 [L1] copilot running for pair P · P's target session ends without stop · onSessionEnded tears down capture+consumer+wall+registration, map entry removed (test-plan #8; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.9 [L1] capture active · dashboard process exits · recorder child dies with it (process-group kill), no orphan on the mic (test-plan #9; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.10 [L1] copilot already running for P · second start for P · idempotent, no second recorder or consumer (test-plan #10; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.11 [L1] dictation active in project A · copilot start in project B, same host · refused, error names the holder (contention is host-wide) (test-plan #11; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.12 [L1] pending payload at cap-1 / cap / cap+1 (default 200 lines, 32 KB) · next batch merges · at/below dispatches whole, above drops oldest AND inserts truncation marker (test-plan #12; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.13 [L1] two batches produced while one in flight · in-flight completes · both merge in arrival order, dispatch once, no line lost by merging (test-plan #13; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.14 [L1] session-leg coalescing dropping oldest · same capture · wall leg still receives every line (test-plan #14; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.15 [L1] STT client emits `reconnecting`(n) then `reconnected` · pair status observed · badge shows `reconnecting` with attempt count, clears on reconnect, capture stays alive; a terminal socket error instead → pair error state; teardown closes the socket (test-plan #15; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.16 [L1] vendored code raises inside a batch · error surfaces · only that pair errors, other pairs and host keep running (test-plan #16; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.17 [L1] vendored emitter emits 'error' with no other listener · error emitted · construction-time listener catches it, no uncaughtException (test-plan #17; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.18 [L1] sox binary absent · recorder spawn · async ENOENT caught via child.on('error') not try/catch around spawn(); pair errors (test-plan #18; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.19 [L1] vendored callback throws synchronously in a setImmediate · callback runs · process-level backstop attributes it to the pair, host survives (test-plan #19; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.20 [L1] batch of routine chit-chat only · batch produced · no sendToSession call at all (test-plan #20; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.21 [L1] first batch vs later batch · each forwarded · first prepends rendered policy, later are transcript-only (test-plan #21; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.22 [L1] line that wall-redaction would scrub · batch forwarded · session gets it unredacted, wall copy redacted (test-plan #22; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.23 [L1] sustained batch production · loop runs · exactly one awaited consumer per active pair, no overlapping ticks, no KB query in loop body (test-plan #23; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.24 [L1] transcript line arrives · per-line matching runs · keyword-matcher only, zero KB queries, on BOTH backend paths (test-plan #24; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.25 [L1] folder {kb-indexed × admissible} · backend selection · indexed+admissible→kb, no index→fallback, admission-rejected→explicit 'kb unavailable' not empty result (test-plan #25; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.26 [L1] same fixture folder · identical queries on both backends · both satisfy one shared KnowledgeBackend contract suite (test-plan #26; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.27 [L1] decisions with status frontmatter · kb active · grouped by status with counts; fallback active · flat list, no counts (test-plan #27; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.28 [L1] config PUT with traversal/symlink/absolute path escaping folder root · write attempted · rejected, nothing written outside (test-plan #28; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.29 [L1] config+knowledge routes × {unauthenticated, folder outside allow-list} · request made · rejected before any disk read/write (test-plan #29; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.30 [L1] config with STT credential · GET then PUT with masked field unchanged · response masks secret, on-disk secret preserved, mask never written back (test-plan #30; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.31 [L1] config with fields the editor does not expose · save · unexposed fields round-trip untouched (test-plan #31; see `packages/kb-plugin/src/server/__tests__/kb-routes.test.ts`)
-- [ ] 10.32 [L1] SplitWorkspaceProvider unmounted/not-yet-mounted · plugin calls live-target bridge · logged no-op, no throw, availability check reports unavailable (test-plan #32; see `packages/kb-plugin/src/client/__tests__/useKbStats.test.tsx`)
-- [ ] 10.33 [L1] SplitWorkspaceProvider mounts then unmounts · bridge inspected · populated on mount, cleared on unmount (test-plan #33; see `packages/kb-plugin/src/client/__tests__/useKbStats.test.tsx`)
-- [ ] 10.34 [L1] encodedCwd param that does not decode · knowledge overlay renders · explicit invalid-folder message, not an empty list (test-plan #34; see `packages/kb-plugin/src/client/__tests__/KbSettings.test.tsx`)
-- [ ] 10.35 [L1] browser audio whose sample format mismatches the server-local contract · streamed to ingest · rejected with explicit error, malformed audio never reaches STT (test-plan #35; see `packages/server/src/attachments/__tests__/attachment-ingest.test.ts`)
-- [ ] 10.36 [L3] dictation start→recording→stop · action-bar/badge observed · converges idle→recording→idle; error and delivery-failed visually distinct (test-plan #36; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.37 [L3] page over non-secure context · dictation controls render · browser-mic option hidden, not shown-and-failing (test-plan #37; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.38 [L3] browser-mic with {permission denied, no device, unsupported browser} · start attempted · each a distinct visible state, never a silent no-op (test-plan #38; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.39 [L3] two sessions in one folder · knowledge overlay opened from each · both reach the same folder-scoped route (test-plan #39; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.40 [L3] folder with knowledge, no running session · sidebar inspected · folder entry present, overlay lists knowledge normally (test-plan #40; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.41 [L3] live-target bridge unavailable · 'View live wall' activated · falls back to full-page main-origin /live/<id>/ URL, button never inert (test-plan #41; see `tests/e2e/bus-client-goal-plugin-action.spec.ts`)
-- [ ] 10.42 [L3] copilot stopped · wall URL re-requested · no longer resolves (registration removed), exposure window bounded (test-plan #42; see `tests/e2e/bus-client-goal-plugin-action.spec.ts`)
-- [ ] 10.43 [L3] copilot start · confirmation rendered · discloses system-audio capture of the other party AND persistence into session history (test-plan #43; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.44 [L3] settings section opened with no session running anywhere · rendered · folder selector present, editor fully functional (test-plan #44; see `tests/e2e/plugin-settings-pages.spec.ts`)
-- [ ] 10.45 [L2] dashboard restarted with a wall/ingest target registered · restart · no stale registration accumulates in preferences.json (test-plan #45; see `qa/tests/02-server-start.sh`)
-- [ ] 10.46 [L2] sox/parec absent on host · plugin preflight · reports missing dependency, blocks server-local capture, names the capture host (test-plan #46; see `qa/tests/02-server-start.sh`)
-- [ ] 10.47 [L2] sustained capture with continuous batch production · soak window · no slow-tick event-loop starvation in server logs, host stays responsive (test-plan #47; see `qa/tests/02-server-start.sh`)
+- [ ] 10.1 [L1] test-plan #1: dict-start → transcriber spawned (noTools, transcriber ext, owner, nonce) → live → dict-end sends /voice-stop …
+- [ ] 10.2 [L1] test-plan #2: dict-end without start · nothing spawned or sent
+- [ ] 10.3 [L1] test-plan #3: handover.json with empty text, non-empty raw · raw sent
+- [ ] 10.4 [L1] test-plan #4: sendToSession false · delivery-failed, text retained
+- [ ] 10.5 [L1] test-plan #5: Silence-only dictation · nothing sent, transcriber ended
+- [ ] 10.6 [L1] test-plan #6: Preflight {config version × key resolves × tooling × knowledge × kb covers archive × ffmpeg/model for naming} …
+- [ ] 10.7 [L1] test-plan #7: Knowledge gate · neither blocked; kb or sources alone allowed
+- [ ] 10.8 [L1] test-plan #8: Either meeting session ends unexpectedly · meeting stops, partial archive, other session ended
+- [ ] 10.9 [L1] test-plan #9: onShutdown during meeting · both sessions aborted
+- [ ] 10.10 [L1] test-plan #10: Second start for running folder meeting / dictation pair · idempotent
+- [ ] 10.11 [L1] test-plan #11: Device guard: server dictation in A vs meeting in B · refused naming A; browser dictation exempt
+- [ ] 10.12 [L1] test-plan #12: Copilot ext pending payload cap−1/cap/cap+1 · whole / whole / oldest dropped + marker
+- [ ] 10.13 [L1] test-plan #13: Copilot ext: batch while idle → sendUserMessage(followUp); batch while busy → pending, flushed on agent_end as…
+- [ ] 10.14 [L1] test-plan #14: {"type":"command"} / name-addressed line mid-turn · delivered as steer immediately
+- [ ] 10.15 [L1] test-plan #15: Transcriber: reconnect lines then transcript · status.json reconnecting (n) → live; terminal error → error
+- [ ] 10.16 [L1] test-plan #16: Capture child exits 1 · transcriber phase error with stderr tail; pi process survives
+- [ ] 10.17 [L1] test-plan #17: Server module graph · no vendored capture/poll/handover/stitch-run, no loadConfig
+- [ ] 10.18 [L1] test-plan #18: sox absent · transcriber error naming the tool
+- [ ] 10.19 [L1] test-plan #19: Child env allowlist; dashboard env untouched; key only via extensionConfig; transcriber spawn has noTools
+- [ ] 10.20 [L1] test-plan #20: Quiet batch · nothing delivered
+- [ ] 10.21 [L1] test-plan #21: Delivered batch contains transcript lines only (policy not prepended)
+- [ ] 10.22 [L1] test-plan #22: Redaction-matching line delivered unredacted to copilot
+- [ ] 10.23 [L1] test-plan #23: Copilot ext poll parser: lines+sentinel / capture-dead / garbage / over-long / unknown
+- [ ] 10.24 [L1] test-plan #24: Mirror {off,on} × {substantive final, filler, empty, delta, tool output} · only on+substantive final appended
+- [ ] 10.25 [L1] test-plan #25: wall-input × {not allowed, allowed} · dropped+logged / [wall operator]: follow-up
+- [ ] 10.26 [L1] test-plan #26: Zero kb queries per transcript line
+- [ ] 10.27 [L1] test-plan #27: Backend selection kb / fallback / "kb unavailable"
+- [ ] 10.28 [L1] test-plan #28: Both knowledge backends pass one suite
+- [ ] 10.29 [L1] test-plan #29: Status-faceted decisions on kb; flat on fallback
+- [ ] 10.30 [L1] test-plan #30: Config PUT path escape rejected
+- [ ] 10.31 [L1] test-plan #31: Routes × {untrusted unauth, folder outside allow-list} rejected before I/O
+- [ ] 10.32 [L1] test-plan #32: Key resolution: video-transcription config used; ctx.credentials override wins; GET reports source + set/unset…
+- [ ] 10.33 [L1] test-plan #33: Old config migrated, unknown fields preserved
+- [ ] 10.34 [L1] test-plan #34: Upstream hand-over hook commands never executed
+- [ ] 10.35 [L1] test-plan #35: Bridge mount states
+- [ ] 10.36 [L1] test-plan #36: Bridge provider stack with FolderEditorView
+- [ ] 10.37 [L1] test-plan #37: Undecodable encodedCwd
+- [ ] 10.38 [L1] test-plan #38: Ingest format mismatch rejected
+- [ ] 10.39 [L1] test-plan #39: Ingest port in status.json → live row; transcriber end → row deleted
+- [ ] 10.40 [L1] test-plan #40: Activation reap of live owners; runtime dir outside scratch refused
+- [ ] 10.41 [L1] test-plan #41: Meeting start order: copilot spawned + primed before transcriber spawn; wall after
+- [ ] 10.42 [L1] test-plan #42: Spawn timeout (either role) · abort, no children left
+- [ ] 10.43 [L1] test-plan #43: Two meetings · different sessions and runtime dirs
+- [ ] 10.44 [L1] test-plan #44: Pre-read line → ready; timeout → transcriber started, "unconfirmed"
+- [ ] 10.45 [L1] test-plan #45: Policy additive on before_agent_start; bridge coexistence both orders
+- [ ] 10.46 [L1] test-plan #46: Policy present after many turns
+- [ ] 10.47 [L1] test-plan #47: wall_emit valid / invalid / no wall / array
+- [ ] 10.48 [L1] test-plan #48: copilot_alert notify / non-notify
+- [ ] 10.49 [L1] test-plan #49: meeting_transcript since turn N
+- [ ] 10.50 [L1] test-plan #50: Guard × {in-preset, bash under meeting, foreign ext tool, MCP/codemode, path escape incl. symlink, bash under …
+- [ ] 10.51 [L1] test-plan #51: Subagent started by copilot calls out-of-preset tool · blocked (else Agent removed from preset — recorded)
+- [ ] 10.52 [L1] test-plan #52: Owner gating × {owner, other principal, local operator}
+- [ ] 10.53 [L1] test-plan #53: Stop sequence: /voice-stop → archived → /voice-meeting-ended → notes → both ended → wall stopped → one reindex
+- [ ] 10.54 [L1] test-plan #54: Dry run · no archive, notes, reindex
+- [ ] 10.55 [L1] test-plan #55: Archive name collision suffix
+- [ ] 10.56 [L1] test-plan #56: Notes turn one-shot write path only
+- [ ] 10.57 [L1] test-plan #57: Notes failure does not block archive/reindex
+- [ ] 10.58 [L1] test-plan #58: kb coverage {covered, offer→PUT /api/kb/config, no kb warn}
+- [ ] 10.59 [L1] test-plan #59: Prior meetings 0/3/5 → priming lists 0/3/newest 3
+- [ ] 10.60 [L1] test-plan #60: maxMinutes reached → normal stop path
+- [ ] 10.61 [L1] test-plan #61: Speaker naming: enrolled voices named by overlap; unenrolled [Speaker n]; mic operator name; frontmatter marks…
+- [ ] 10.62 [L1] test-plan #62: Diarization/labelling error or empty library · archive with channel labels + note
+- [ ] 10.63 [L1] test-plan #63: keepAudio off · no WAV remains after archive; on · WAV kept in scratch only
+- [ ] 10.64 [L1] test-plan #64: status.json write → badge updated without timer; fs.watch miss recovered on next onEvent
+- [ ] 10.65 [L1] test-plan #65: Dictation badge starting mic until transcriber live, then recording
+- [ ] 10.66 [L3] test-plan #66: Dictation badge starting mic→recording→idle; delivery-failed distinct
+- [ ] 10.67 [L3] test-plan #67: Non-secure context hides browser option
+- [ ] 10.68 [L3] test-plan #68: Browser-mic failure states distinct
+- [ ] 10.69 [L3] test-plan #69: Shared folder-scoped knowledge route
+- [ ] 10.70 [L3] test-plan #70: Folder rows without a session
+- [ ] 10.71 [L3] test-plan #71: Live wall link (copilot header, toast) hidden (no plugin / no wall) / opens `/folder/<cwd>/wall` / fallback `/apps/wall/…`
+- [ ] 10.72 [L3] test-plan #72: Start dialog disclosure incl. audio recording + deletion + archive path
+- [ ] 10.73 [L3] test-plan #73: Meeting phases on folder row and both session cards
+- [ ] 10.74 [L3] test-plan #74: Knowledge view lists archived meetings
+- [ ] 10.75 [L3] test-plan #75: Settings without session: key source + voiceprint library status
+- [ ] 10.76 [L2] test-plan #76: Restart during browser dictation · no stale row, no orphan
+- [ ] 10.77 [L2] test-plan #77: No sox/parec · preflight blocks server capture
+- [ ] 10.78 [L2] test-plan #78: Sustained meeting with fake recorder · no slow tick; dashboard health responsive (server only coordinates)
 
 ### Manual verification (deferred post-merge by ship-change)
 
-- [ ] 10.48 real microphone on a real host · dictate a paragraph and stop · transcription accurate enough to be usable (test-plan #48) (test-plan: manual-only)
-- [ ] 10.49 real two-party call with system audio · run meeting copilot · other party's speech captured and attributed to the right speaker (test-plan #49) (test-plan: manual-only)
-- [ ] 10.50 wall rendered in the embedded iframe · observe · upstream wall.css renders legibly inside the dashboard shell (test-plan #50) (test-plan: manual-only)
-- [ ] 10.51 patched wall behind /live/<id>/ · open the wall · assets + `./api/bootstrap` resolve under the prefix, the `EventSource` SSE feed streams through `reply.from` un-buffered, and the unpkg CDN scripts load from the sandboxed iframe (test-plan #51) (test-plan: manual-only)
-- [ ] 10.52 popout link in Electron, PWA, and mobile browser · activate · main-origin /live/<id>/ link behaves acceptably in each shell (test-plan #52) (test-plan: manual-only)
+- [ ] 10.84 [L1] test-plan #84: Model resolution {override × global × unset} per role · override → global → pi default
+- [ ] 10.85 [L1] test-plan #85: Resolved model ref missing from registry · preflight blocks, names role + ref + source
+- [ ] 10.86 [L1] test-plan #86: Folder override write/clear · unknown folder rejected; "inherit" removes entry; set-copilot.config.json untouched
+- [ ] 10.87 [L3] test-plan #87: Global settings shows default pickers; Folder settings › Plugins › Voice assistant shows override "inherit global (<ref>)"; save persists
+- [ ] 10.88 [L1] test-plan #88: folder-settings-section claim without label rejected by manifest validator
+- [ ] 10.89 [L1] test-plan #89: Folder settings Plugins group {0 claims → hidden · claim → entry · disabled → hidden + fallback}
+- [ ] 10.90 [L1] test-plan #90: /folder/:cwd/settings/plugins/<id> {claiming → section with cwd · global-only plugin → invalid-page fallback}
+- [ ] 10.91 [L1] test-plan #91: Folder section render error isolated by slot error boundary
+- [ ] 10.92 [L1] test-plan #92: composer-toolbar-action {no claim → unchanged · claim → before send/stop · no ariaLabel → rejected}
+- [ ] 10.93 [L1] test-plan #93: composer handle insertAtCursor at caret / unfocused append / snapshot+restore / stale handle no-op
+- [ ] 10.94 [L1] test-plan #94: submit() honours Steer|Queue while streaming
+- [ ] 10.95 [L1] test-plan #95: Delivery {draft · send ≥3 words · send <3 words · send while streaming+Queue}
+- [ ] 10.96 [L1] test-plan #96: Cancel (Esc / hold released before live) · transcriber ended, draft restored, agent turn not aborted
+- [ ] 10.97 [L1] test-plan #97: Composer gone at hand-over {draft → retained+offered · send → sendToSession · send false → retained}
+- [ ] 10.98 [L3] test-plan #98: Mic visible with text, attachment, while streaming, and at narrow width (not in ⋯)
+- [ ] 10.99 [L3] test-plan #99: Mic states starting mic→recording→processing→idle; start timeout → stage error + Retry; second dictation appends at caret
+- [ ] 10.79 test-plan #79: Real mic dictation quality and start latency (test-plan: manual-only)
+- [ ] 10.80 test-plan #80: Real two-party call: capture, alerts, wall, archive with named speakers (test-plan: manual-only)
+- [ ] 10.81 test-plan #81: kill -9 dashboard and, separately, a transcriber pi process during a meeting · orphans reaped, mic released (test-plan: manual-only)
+- [ ] 10.82 test-plan #82: Browser dictation over zrok from a phone (test-plan: manual-only)
+- [ ] 10.83 test-plan #83: Playbook leak check on a dry run (test-plan: manual-only)
+
 ## 11. Discipline checkpoints
 
-- [ ] 11.1 Spawn `nodejs-expert` for review of the server entry (capture process lifecycle, poll-loop async control, `onEvent`/`sendToSession` usage, per-session state map cleanup, companion WS server lifecycle).
-- [ ] 11.2 Spawn `react-expert` for review of the client claims (dictation/copilot action bars + badges, capture-source picker).
-- [ ] 11.3 Spawn `Audit` for the config read/write route (path containment, allow-list, request auth), the vendored capture/STT-key handling (no key/secret logged or relayed to the client), the browser-mic companion WS endpoint (auth/scoping of `/live/:id/audio-ingest`, no unauthenticated audio ingestion path), AND the wall exposure boundary (`/live/:id/*` carries no `preHandler` — confirm the disclosure + teardown mitigations are actually in place).
-- [ ] 11.4 Spawn `DocScribe` to add `packages/voice-assistant-plugin/AGENTS.md` (per-file tree, including the vendored subtree) and a `docs/architecture.md` mention of the new plugin, its `sendToSession`/`onEvent` usage, and the browser-mic transport's reuse of the `"live"` WS scope.
-- [ ] 11.5 Invoke the `security-hardening` discipline skill before the wall/ingest/config surfaces land: untrusted input (browser-supplied audio frames), secrets (STT credential), and PII (meeting transcripts on disk and in session history) all trip its checkpoints.
-- [ ] 11.6 Invoke the `performance-optimization` discipline skill on the batch/audio path: assert no plugin-owned polling timer, measure that batch handling does not block the event loop (this server has a documented starvation history), and validate the backpressure bound under a sustained-load simulation.
-- [ ] 11.7 Invoke the `observability-instrumentation` discipline skill for the new REST routes, the WS ingest endpoint, spawned child processes, and the external STT socket — each needs a diagnosable runtime signal.
+- [ ] 11.1 `nodejs-expert`: extensions' child ownership, poll/backpressure in the extension, coordinator sequencing, `fs.watch` status.
+- [ ] 11.2 `react-expert`: folder row, start dialog, badges, AudioWorklet, bridge hook.
+- [ ] 11.3 `Audit`: guard + subagents, spoken injection, wall-input, transcriber `noTools` + key path, ingest under `/live/*`, archive PII, audio retention, kb config write.
+- [ ] 11.4 `security-hardening` before 4.4, 5.7 and 6.9.
+- [ ] 11.5 `performance-optimization`: soak; confirm the server event loop is untouched by audio and batches.
+- [ ] 11.6 `observability-instrumentation`: phases, spawn/exit, pre-read, batch delivery/coalesce/truncate, naming outcome, archive + reindex, guard blocks (tool name only).
+- [ ] 11.7 `doubt-driven-review`: `capture-source.patch`, subagent guard coverage, the notes one-shot write.
+- [ ] 11.8 `DocScribe`: package `AGENTS.md`; `docs/architecture.md` (transcriber/copilot sessions, own-system mapping, kb archive).
+- [ ] 11.9 `review-code` before commit.
 
 ## 12. Build & verify
 
-- [ ] 12.1 `npm run build && curl -X POST http://localhost:8000/api/restart` (server + client changes; no `npm run reload` needed — no bridge entry).
-- [ ] 12.2 Manually verify on a project with `set-copilot.config.json` + `knowledge.sources` configured and a valid STT backend: dictation start/stop (both `server` and `browser` sources) delivers text into the target session's chat; meeting-copilot start/stop forwards batches and mirrors the target session's replies into the wall; "View live wall" embeds correctly AND its viewer's own inline "Open" link resolves to the main-origin `/live/<id>/` path (NOT `TabActions`, which is absent for pseudo-tabs); knowledge browser and config editor round-trip correctly.
-- [ ] 12.3 Manually verify graceful states: missing STT config, missing audio tooling, neither-knowledge-backend-available, a target session with no bridge connection (delivery-failed / error badges, no lost dictated text), AND browser-mic states (insecure-context hidden picker, permission denied, no device).
-- [ ] 12.4 Manually verify BOTH knowledge paths on the same project: with kb indexed (facet-grouped decisions, kb indicator) and with kb absent/unindexed (fallback indicator, flat decisions) — copilot alerts remain equivalent across both.
+- [ ] 12.1 `npm test`; `npm run quality:changed`.
+- [ ] 12.2 `npm run build && curl -X POST http://localhost:8000/api/restart`.
+- [ ] 12.3 Manual: dictation (server + browser), including start latency; a dry run with the leak check; a real meeting through archive with named speakers and notes; the next meeting's priming lists it.

@@ -4,9 +4,11 @@
  */
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isPiCodingAgentName } from "@blackbelt-technology/pi-dashboard-shared/pi-installs/candidates.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { getCurrentModelString } from "./bridge-context.js";
-import { gatherGitInfo, gatherGitStatus } from "./vcs-info.js";
+import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { GitInfo } from "./vcs-info.js";
 
 /**
  * Send model_update if model or thinking level has changed since last send.
@@ -41,30 +43,31 @@ export function sendSessionNameIfChanged(bc: BridgeContext): void {
   });
 }
 
+/** Cached git state handed to the change-detector (no git spawn happens here). */
+export interface GitSnapshot {
+  info: GitInfo;
+  /** Absent when the status probe was inconclusive (or not yet run). */
+  status?: GitStatus;
+}
+
 /**
  * Send git_info_update if branch, PR tuple, worktree or status changed since
- * last send. The ONE change-detector: the git-poll tick, reconnect and the
- * PR-status scheduler's probe completion all call it. The PR tuple comes from
- * the async scheduler's cache — no `gh` runs here.
- * See change: redesign-composer-session-strip (D5).
+ * last send. The ONE change-detector: the git probe-result path, the sync first
+ * evaluation and the PR-status scheduler's `onChange` all call it with CACHED
+ * state — it never spawns git. The PR tuple comes from the async scheduler's
+ * cache. See changes: redesign-composer-session-strip (D5),
+ * optimize-polling-hot-paths.
  */
-export function sendGitInfoIfChanged(bc: BridgeContext, cwd: string): void {
-  const info = gatherGitInfo(cwd);
-  if (!info) return;
-  // Sync: may reset the tuple (branch change → all-null) and START a probe;
-  // never waits for it.
-  bc.prStatus?.observe({ sessionId: bc.sessionId, cwd, branch: info.gitBranch });
+export function sendGitInfoIfChanged(bc: BridgeContext, snap: GitSnapshot): void {
+  const { info, status } = snap;
   const pr = bc.prStatus?.tuple() ?? {};
   const nextPrJson = JSON.stringify(pr);
   // Worktree state diff: serialise to a stable string. `"null"` marks an
   // explicit "cwd is not a worktree" so a subsequent transition into a
   // worktree still counts as a change.
   const nextWorktreeJson = info.gitWorktree ? JSON.stringify(info.gitWorktree) : "null";
-  // Working-tree dirtiness + drift, gathered on the same tick (one extra
-  // `git status` — cheap; git is already running here). Serialised for a
-  // stable change-diff; `"null"` = inconclusive probe this tick.
+  // Serialised for a stable change-diff; `"null"` = inconclusive/unknown status.
   // See change: add-session-uncommitted-indicator-and-commit.
-  const status = gatherGitStatus(cwd);
   const nextStatusJson = status ? JSON.stringify(status) : "null";
   if (
     info.gitBranch === bc.lastGitBranch &&
@@ -118,25 +121,27 @@ const PI_PKG = "@earendil-works/pi-coding-agent";
  * `ERR_PACKAGE_PATH_NOT_EXPORTED` (pi 0.80.2 is such a package). So we resolve
  * the always-present `"."` entry instead, then walk up to the nearest
  * `package.json` whose `name` matches — the `name` check avoids grabbing an
- * ancestor workspace manifest under hoisted/linked layouts. Returns `undefined`
+ * ancestor workspace manifest under hoisted/linked layouts. `matchName`
+ * defaults to the exact `pkgName`; a caller may pass a broader predicate
+ * (e.g. `isPiCodingAgentName`). Returns `undefined`
  * (not throw) when no matching manifest is found; a truly-uninstalled package
  * still throws from `resolveEntry`, which the caller catches.
  *
  * `resolveEntry`/`readFile`/`fileExists` are injectable for tests.
  */
 export function readPkgVersionByWalkUp(
-  pkgName: string | readonly string[],
+  pkgName: string,
   resolveEntry: (spec: string) => string,
   readFile: (p: string) => string = (p) => readFileSync(p, "utf8"),
   fileExists: (p: string) => boolean = existsSync,
+  matchName: (name: string) => boolean = (name) => name === pkgName,
 ): string | undefined {
-  const names = typeof pkgName === "string" ? [pkgName] : pkgName;
-  let dir = dirname(resolveEntry(names[0]));
+  let dir = dirname(resolveEntry(pkgName));
   for (let i = 0; i < 10; i++) {
     const candidate = join(dir, "package.json");
     if (fileExists(candidate)) {
       const parsed = JSON.parse(readFile(candidate)) as { name?: string; version?: string };
-      if (parsed.name !== undefined && names.includes(parsed.name)) {
+      if (parsed.name !== undefined && matchName(parsed.name)) {
         return typeof parsed.version === "string" ? parsed.version : undefined;
       }
     }
@@ -146,13 +151,6 @@ export function readPkgVersionByWalkUp(
   }
   return undefined;
 }
-
-/**
- * Both pi package identities a bridge can be running inside. The dashboard's
- * resolver prefers earendil, but a hoisted/transitive `.bin/pi` (e.g.
- * pi-flows') or a user-launched session can point at the mariozechner build.
- */
-const PI_PKG_NAMES = [PI_PKG, "@mariozechner/pi-coding-agent"] as const;
 
 /** Injectable filesystem probes for {@link readRunningPiVersion}. */
 export interface ReadRunningPiVersionFs {
@@ -168,8 +166,10 @@ export interface ReadRunningPiVersionFs {
  *
  * Why argv, not a by-name resolution: this monorepo hoists a pinned earendil
  * copy at the root, so by-name resolution can read the hoisted NEW version
- * while the session actually runs an OLD host pi (or a `@mariozechner` build)
- * — reporting a supported pi for a session that is below the floor.
+ * while the session actually runs an OLD host pi (or a pi-coding-agent build
+ * under another scope) — reporting a supported pi for a session that is below
+ * the floor. The manifest match is scope-agnostic (`isPiCodingAgentName`), so
+ * any running pi reports its true version. See change: drop-mariozechner-pi-fork.
  * `process.argv[1]` is the entry node was started with, so the walk-up always
  * lands on the manifest of the running copy.
  *
@@ -207,10 +207,11 @@ export function readRunningPiVersion(
       entry = argv1;
     }
     return readPkgVersionByWalkUp(
-      PI_PKG_NAMES,
+      PI_PKG,
       () => entry,
       fs.readFile ?? ((p) => readFileSync(p, "utf8")),
       fs.fileExists ?? existsSync,
+      isPiCodingAgentName,
     );
   } catch {
     return undefined;
@@ -222,30 +223,32 @@ export function readRunningPiVersion(
  * sent value (including the first read). The version is the RUNNING pi, read
  * argv-anchored via {@link readRunningPiVersion} — never a by-name resolution,
  * which can read a hoisted newer copy. An unknown version (`undefined`) is not
- * sent. A read failure logs a warning and skips the send; the next poll tick
- * retries. `readVersion` is injectable for tests.
+ * sent. A read failure logs a warning, skips the send and returns `false` so the
+ * poll cadence retries on the next tick; `true` = the read succeeded.
+ * `readVersion` is injectable for tests.
  * See change: update-pi-core-1-0-adopt-apis (D2).
  */
 export function sendPiVersionIfChanged(
   bc: BridgeContext,
   readVersion: () => string | undefined = readRunningPiVersion,
-): void {
+): boolean {
   let version: string | undefined;
   try {
     version = readVersion();
   } catch (e) {
     console.warn("[dashboard] pi version read failed:", e);
-    return;
+    return false;
   }
-  if (!version) return;
+  if (!version) return false;
   const key = `${bc.sessionId}\u0000${version}`;
-  if (key === lastPiVersionKey) return;
+  if (key === lastPiVersionKey) return true;
   lastPiVersionKey = key;
   bc.connection.send({
     type: "pi_version_update",
     sessionId: bc.sessionId,
     version,
   });
+  return true;
 }
 
 /** Test-only: clear the module-scoped pi-version cache. */

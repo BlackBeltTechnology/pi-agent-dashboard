@@ -67,25 +67,31 @@ import {
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
 import { createFollowupBuffer } from "./followup-buffer.js";
-import { runGitPollTick } from "./git-poll.js";
-import { createPrStatusScheduler, handleGitInfoRefresh, type PrStatusScheduler } from "./pr-status.js";
+import { createPollingHolder, drainDisposables, ensureDisposable, feedPollingEvent, routeGitInfoRefresh, scheduleModelRecheckOnSelect, teardownPreviousIncarnation } from "./bridge-polling.js";
+import { createGitPollState, runGitPollTick } from "./git-poll.js";
+import { createGitTracker, type GitTracker } from "./git-tracker.js";
+import { createPrStatusScheduler, type PrStatusScheduler } from "./pr-status.js";
 import * as git from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
-import { handleMcpTokenMinted, MCP_TOKEN_ENV_VAR } from "./mcp-token-delivery.js";
+import { createMcpDashboardRegistrar, type McpRegistrationApi, type McpTokenMintedPayload } from "./mcp-token-delivery.js";
 import { createPluginRequestClient, installPluginRequest } from "./plugin-request-client.js";
 import { COALESCE_WINDOW_MS, flushesParkedText, MessageUpdateCoalescer } from "./message-update-coalescer.js";
 import { reportRefresh } from "./model-refresh.js";
-import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
+import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
 import { provisionOpenspecCli } from "./openspec-cli-shim.js";
+import { createPathGate } from "./path-gate/index.js";
+import { Suppression } from "./path-gate/suppression.js";
 import { emitPendingPrompts } from "./pending-prompt-emitter.js";
 import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
-import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
+import { getOwnPgid, scanChildProcessesAsync } from "./process-scanner.js";
+import { createProcessScanScheduler } from "./process-scan-scheduler.js";
+import { pollCost } from "./poll-cost.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
@@ -99,6 +105,7 @@ import { launchServer } from "./server-launcher.js";
 import { loadServerPins, notePinEndpoint, serverPinsPath } from "./server-pin-store.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
+import { UsageDrain, drainUsageAndSend, makeCacheWarmingDecisionHandler, sendShutdownUsageThenUnregister } from "./usage-drain.js";
 import { detectSessionSource } from "./source-detector.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
@@ -137,8 +144,7 @@ const GIT_POLL_INTERVAL = 30_000;
 // 30 s floor because PowerShell Get-CimInstance is expensive and can flash consoles;
 // Unix uses 5 s / 5 s so legitimate bash subprocesses surface while still
 // running. See change: tighten-process-list-ux.
-const PROCESS_SCAN_INTERVAL = process.platform === "win32" ? 10_000 : 5_000; // platform-branch-ok: top-level cadence tuning; Windows uses costly PowerShell Get-CimInstance
-const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: matches PROCESS_SCAN_INTERVAL's Windows-safe defaults
+const PROCESS_MIN_ELAPSED_MS = process.platform === "win32" ? 30_000 : 5_000; // platform-branch-ok: Windows-safe default (costly PowerShell Get-CimInstance)
 
 
 
@@ -153,12 +159,21 @@ interface BridgeState {
   hasUI?: boolean;
   /** Monotonic generation counter — stale listeners bail out when mismatched */
   generation?: number;
+  /** Path-gate denial map; process-global so a /reload keeps the 120 s suppression. */
+  pathGateSuppression?: Suppression;
   /** The pi instance that owns the bridge (used to detect subagent re-entry) */
   pi?: ExtensionAPI;
   /** All connection instances from any bridge incarnation (for cleanup) */
   connections?: ConnectionManager[];
   /** All interval timers from any bridge incarnation (for cleanup) */
   timers?: ReturnType<typeof setInterval>[];
+  /**
+   * Teardown callbacks for schedulers/watchers owned by a bridge incarnation
+   * (process-scan scheduler, git probe scheduler, git-dir watcher). Drained on
+   * re-init, `state.cleanup` and `session_shutdown`.
+   * See change: optimize-polling-hot-paths.
+   */
+  disposables?: Array<() => void>;
   /** True when the agent is currently in a turn (between agent_start and agent_end) */
   isAgentStreaming?: boolean;
   /**
@@ -232,27 +247,12 @@ function initBridge(pi: ExtensionAPI) {
   // `session_shutdown{reason:"reload"}` releases `prev.pi`, so the reloaded
   // main session (a fresh ExtensionAPI) is not mistaken for a subagent.
   // See change: fix-terminal-session-dashboard-reload (D4).
-  if (isBridgeReentry(prev, pi)) {
+  // Re-init teardown (cleanup, connections, timers, disposables) runs only for a
+  // genuine re-init; a subagent re-entry returns here untouched. Seam:
+  // `bridge-polling.ts`. See change: optimize-polling-hot-paths (D11).
+  if (!teardownPreviousIncarnation(prev, () => isBridgeReentry(prev, pi))) {
     return;
   }
-
-  prev.cleanup?.();
-  prev.cleanup = undefined;
-
-  // Disconnect ALL orphaned connections from previous bridge incarnations
-  if (prev.connections) {
-    for (const conn of prev.connections) {
-      conn.disconnect();
-    }
-  }
-  prev.connections = [];
-  // Clear ALL orphaned timers
-  if (prev.timers) {
-    for (const t of prev.timers) {
-      clearInterval(t);
-    }
-  }
-  prev.timers = [];
 
   // Bump generation so stale listeners from previous initBridge calls bail out
   const generation = (prev.generation ?? 0) + 1;
@@ -266,6 +266,15 @@ function initBridge(pi: ExtensionAPI) {
   let sessionId: string = prev.sessionId ?? crypto.randomUUID();
   let attachedChange: string | null = prev.attachedChange ?? null;
   let sessionReady = false; // true after session_start has run
+  // Non-message usage drain cursor (usage / compaction / branch_summary
+  // entries → `usage_recorded`). Baselined at every session_start (init,
+  // reload, new/fork/resume) from the same snapshot as `usageSeed`; a
+  // reconnect never touches it. See change: count-non-message-usage.
+  const usageDrain = new UsageDrain();
+  function drainUsage(ctx: any): void {
+    if (!sessionReady) return;
+    drainUsageAndSend(usageDrain, (ctx ?? cachedCtx)?.sessionManager, (m) => connection.send(m));
+  }
   let lastSessionFile: string | undefined;
   let lastSessionDir: string | undefined;
   let lastFirstMessage: string | undefined;
@@ -322,7 +331,12 @@ function initBridge(pi: ExtensionAPI) {
 
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let gitPollTimer: ReturnType<typeof setInterval> | null = null;
-  let processScanTimer: ReturnType<typeof setInterval> | null = null;
+  // Adaptive async process-scan scheduler (replaces the fixed setInterval).
+  // See change: optimize-polling-hot-paths.
+  const polling = createPollingHolder();
+  // Per-session git tracker (facts cache, HEAD branch, async status probe);
+  // renewed at every session_start / session change. See change:
+  // optimize-polling-hot-paths.
   let previousProcessPids: string = ""; // JSON-stringified PID set for diff
   const trackedPgids = new Set<number>(); // PGIDs captured during bash tool calls
   // PIDs of subprocesses the bridge has spawned itself (dashboard server,
@@ -350,6 +364,39 @@ function initBridge(pi: ExtensionAPI) {
     const index = timers ? timers.indexOf(timer as unknown as ReturnType<typeof setInterval>) : -1;
     if (index !== -1) timers!.splice(index, 1);
   };
+  // One-shot timers leave the registry when they fire as well as when they
+  // are cleared, so a long-lived session never accumulates dead handles.
+  const setRegisteredTimeout = (fn: () => void, ms: number): ReturnType<typeof setTimeout> => {
+    const timer = setTimeout(() => {
+      unregisterTimer(timer);
+      fn();
+    }, ms);
+    getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
+    return timer;
+  };
+  const clearRegisteredTimeout = (timer: ReturnType<typeof setTimeout>): void => {
+    clearTimeout(timer);
+    unregisterTimer(timer);
+  };
+  const registerDisposable = (fn: () => void): void => {
+    (getBridgeState().disposables ??= []).push(fn);
+  };
+  // ONE stable disposer, (re-)ensured on every session_start: a shutdown drains
+  // and empties the list, and this incarnation may start a new session after it.
+  const disposePolling = () => polling.disposeAll();
+  const ensurePollingDisposable = () => ensureDisposable(getBridgeState(), disposePolling);
+  ensurePollingDisposable();
+  /** Dispose the previous tracker and start a fresh one for the incoming session. */
+  function renewGitTracker(): GitTracker {
+    ensurePollingDisposable();
+    return polling.replaceGitTracker(createGitTracker({
+      getBc: () => syncBc(),
+      applyBc: (bc) => applyBc(bc),
+      isActive,
+      setTimer: setRegisteredTimeout,
+      clearTimer: clearRegisteredTimeout,
+    }));
+  }
   const prStatus: PrStatusScheduler = createPrStatusScheduler({
     probe: (cwd) => git.prStatusAsync({ cwd }),
     // A reload starts a new bridge incarnation; the old scheduler must not
@@ -357,22 +404,10 @@ function initBridge(pi: ExtensionAPI) {
     // redesign-composer-session-strip (doubt-review #2).
     alive: isActive,
     onChange: () => {
-      if (isActive() && cachedCwd) sendGitInfoIfChanged(cachedCwd);
+      if (isActive()) polling.gitTracker?.sendCached();
     },
-    // One-shot timers leave the registry when they fire as well as when they
-    // are cleared, so a long-lived session never accumulates dead handles.
-    setTimer: (fn, ms) => {
-      const timer = setTimeout(() => {
-        unregisterTimer(timer);
-        fn();
-      }, ms);
-      getBridgeState().timers!.push(timer as unknown as ReturnType<typeof setInterval>);
-      return timer;
-    },
-    clearTimer: (timer) => {
-      clearTimeout(timer);
-      unregisterTimer(timer);
-    },
+    setTimer: setRegisteredTimeout,
+    clearTimer: clearRegisteredTimeout,
   });
   let lastGitWorktreeJson: string | undefined; // see change: add-worktree-spawn-dialog
   let lastGitStatusJson: string | undefined; // see change: add-session-uncommitted-indicator-and-commit
@@ -439,6 +474,24 @@ function initBridge(pi: ExtensionAPI) {
   // latest snapshot of each running subagent for the resync responder (D2).
   // See change: fix-subagent-live-detail-reliability.
   const subagentFrameBuffer = new SubagentFrameBuffer();
+
+  // Dashboard MCP server registration with pi's built-in MCP. The bearer lives
+  // only in this registrar and pi's registration — never in process.env.
+  // See change: migrate-mcp-to-pi-builtin (D1).
+  const mcpRegistrar = createMcpDashboardRegistrar({
+    pi: pi as unknown as McpRegistrationApi,
+    sessionId: () => sessionId,
+    reportUnavailable: (reason) => {
+      connection.send({
+        type: "plugin_pi_message",
+        sessionId,
+        pluginId: "mcp-server",
+        messageType: "mcp/registration-unavailable",
+        payload: { reason },
+      });
+    },
+    log: console,
+  });
 
   // Bound the Agent-tick rate on the `tool_execution_update` carrier. That
   // carrier has no throttle anywhere on its path, so its rate is the
@@ -1135,6 +1188,33 @@ function initBridge(pi: ExtensionAPI) {
     pluginRequests.failAll("disconnected");
   };
 
+  // Agent path gate: asks the operator before read/write/edit leave the session's
+  // roots. Created before the connection so the close handler can reset it.
+  // See change: ask-agent-file-access-in-chat.
+  const pathGate = createPathGate({
+    suppression: (getBridgeState().pathGateSuppression ??= new Suppression()),
+    getSessionId: () => sessionId,
+    getPromptBus: () => promptBus,
+    send: (m) => connection.sendIfOpen(m),
+    readConfig: () => loadConfig().agentPathGate,
+    getCwd: () => cachedCwd ?? process.cwd(),
+    getSessionDir: () => {
+      try {
+        return cachedCtx?.sessionManager?.getSessionDir?.();
+      } catch {
+        return undefined;
+      }
+    },
+    log: (line) => console.log(line),
+    notify: (message) => {
+      try {
+        cachedCtx?.ui?.notify?.(message, "warning");
+      } catch {
+        /* best effort */
+      }
+    },
+  });
+
   let connection = new ConnectionManager({
     url: dashboardUrl,
     // fix-bridge-mdns-migration-hijack (D5): every migration decision —
@@ -1190,6 +1270,7 @@ function initBridge(pi: ExtensionAPI) {
     onClose: () => {
       if (connection !== primaryConnection) return;
       pluginLaneDown();
+      pathGate.reset();
     },
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
@@ -1262,24 +1343,14 @@ function initBridge(pi: ExtensionAPI) {
         pluginRequests.handleReply(msg);
         return;
       }
+      // Agent path gate: grant-store identity + grant results (never re-emitted).
+      if (pathGate.onServerMessage(msg as { type?: string })) return;
       if (msg.type === "mcp_token_minted") {
-        // D5: the minted MCP bearer arrives on the session-private lane. The
-        // delivery module assigns it to this process's env and triggers the
-        // D6 recovery seam; it has NO pi dependency, so the plaintext can
-        // never reach pi.events (F4) or a log line (X5).
-        handleMcpTokenMinted(msg as { type: "mcp_token_minted"; token?: unknown }, {
-          assignEnv: (token) => {
-            process.env[MCP_TOKEN_ENV_VAR] = token;
-          },
-          reconnect: () => {
-            // D6 recovery trigger. Shipped pi-mcp-adapter (≤ 2.31) exposes no
-            // programmatic reconnect for a config-defined entry; recovery
-            // completes via the adapter's lazyConnect on the entry's next
-            // use, presenting the fresh env per request. See
-            // mcp-token-delivery.ts and the change's design record.
-          },
-          log: console,
-        });
+        // The minted MCP bearer (+ /mcp url) arrives on the session-private
+        // lane and is registered with pi's built-in MCP — never placed in
+        // process.env, a log line, or pi.events.
+        // See change: migrate-mcp-to-pi-builtin (D1).
+        mcpRegistrar.onMinted(msg as McpTokenMintedPayload);
         return;
       }
       // Reload auth credentials when dashboard notifies of changes
@@ -1358,7 +1429,7 @@ function initBridge(pi: ExtensionAPI) {
       // Forced PR-status probe after a worktree Push / Open PR. The server
       // only targets bridges whose cwd is inside the worktree. See change:
       // redesign-composer-session-strip (D5).
-      if (handleGitInfoRefresh(msg, prStatus)) return;
+      if (routeGitInfoRefresh(msg, { prStatus, gitTracker: polling.gitTracker })) return;
       // Route flow management actions from dashboard buttons
       if (msg.type === "flow_management" && pi.events) {
         if (msg.action === "run") {
@@ -1649,7 +1720,10 @@ function initBridge(pi: ExtensionAPI) {
         const activeId = (pi as any).getCurrentSessionId?.();
         const activeCtx = activeId ? (pi as any).getCtx?.(activeId) : (cachedCtx as any);
         if (activeCtx?.cwd) {
-          sendGitInfoIfChanged(activeCtx.cwd);
+          // First evaluation again: the server lost its git state with the connection.
+          const gbc = syncBc();
+          polling.gitTracker?.evaluateFirst(gbc, activeCtx.cwd);
+          applyBc(gbc);
           sendCwdMissingIfChanged(activeCtx.cwd);
         }
       } catch { /* probe failure non-fatal */ }
@@ -2124,6 +2198,7 @@ function initBridge(pi: ExtensionAPI) {
       dashboardSpawned,
       selfSpawnedPgids,
       prStatus,
+      gitTracker: polling.gitTracker ?? undefined,
     };
   }
   /** Sync BridgeContext mutations back to local variables */
@@ -2236,7 +2311,6 @@ function initBridge(pi: ExtensionAPI) {
     void namer.maybeName();
   }
 
-  function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
 
@@ -2293,6 +2367,8 @@ function initBridge(pi: ExtensionAPI) {
   // - `session_start`: dedicated handler → session_register protocol message
   // - session change (new/fork/resume): handled inside session_start via event.reason
   // - `session_shutdown`: dedicated handler → disconnect/cleanup
+  // - `cache_warming_decision`: dedicated observe-only handler → usage drain
+  //   (`usage_recorded`), never `event_forward`. See change: count-non-message-usage.
 
   // Unified EventBus rename map for the emit intercept (flow + subagent events)
   const EVENT_BUS_MAP: Record<string, string> = { ...FLOW_EVENT_MAP, ...SUBAGENT_EVENT_MAP };
@@ -2313,6 +2389,8 @@ function initBridge(pi: ExtensionAPI) {
       // change exists to prevent.
       // See change: coalesce-bridge-message-update-snapshots.
       if (flushesParkedText(eventType)) coalescer.flush();
+      // Adaptive process-scan cadence hooks. See change: optimize-polling-hot-paths.
+      feedPollingEvent(eventType, event, polling);
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -2347,6 +2425,8 @@ function initBridge(pi: ExtensionAPI) {
         // (A.1), retry-forever-with-stop-control, update-pi-core-0-85-adopt-apis.
         getBridgeState().isAgentStreaming = false;
         abortLatch.clear(sessionId);
+        // Drain point. See change: count-non-message-usage.
+        drainUsage(ctx);
         const retryEnd = retryTracker.observeAgentSettled(sessionId);
         if (retryEnd) {
           sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
@@ -2440,6 +2520,11 @@ function initBridge(pi: ExtensionAPI) {
         const enriched = { ...event, thinkingLevel: (pi as any).getThinkingLevel?.() };
         const msg = mapEventToProtocol(sessionId, enriched);
         connection.send(msg);
+        // A TUI-initiated model change otherwise waits for the 30 s tick. The
+        // 50 ms deferral lets pi's ctx.model reflect the new model first (same
+        // as the dashboard-initiated setModel path). See change:
+        // optimize-polling-hot-paths (D8).
+        scheduleModelRecheckOnSelect(setRegisteredTimeout, sendModelUpdateIfChanged);
         return;
       }
 
@@ -2844,6 +2929,18 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     return fanoutAdmission.onToolCall(event);
   }));
+  // Agent path gate — registered AFTER the fan-out admission handler (and after the
+  // bridge's own forwarder) and deliberately NOT wrapped in the fail-open `safe()`:
+  // its own try/catch maps any internal error to a block. Stale bridge instances
+  // (after reload) pass through. See change: ask-agent-file-access-in-chat (D1).
+  pi.on("tool_call", ((event: any, ctx: any) => {
+    if (!isActive()) return undefined;
+    return pathGate.handler(event, ctx);
+  }) as any);
+  pi.on("before_agent_start", safe((event: any) => {
+    if (!isActive()) return;
+    pathGate.onBeforeAgentStart(event);
+  }));
   // Release permits on `tool_execution_end` — the ONE signal pi emits on the
   // normal, blocked AND aborted paths. NEVER `tool_result`: an aborted call
   // skips the path that produces it, so a permit released there would leak on
@@ -2980,6 +3077,10 @@ function initBridge(pi: ExtensionAPI) {
     // Bail out if a newer bridge instance has taken over
     if (!isActive()) return;
     const newSessionId = ctx.sessionManager.getSessionId();
+    pathGate.onSessionStart();
+    // Re-arm MCP registration for the (replacement) session; its mint below
+    // registers pi-dashboard again. See change: migrate-mcp-to-pi-builtin (D1).
+    mcpRegistrar.onSessionStart();
 
     // On session switch/fork (0.65.0+: event.reason replaces session_switch/session_fork events),
     // unregister the old session before re-registering the new one.
@@ -2989,13 +3090,25 @@ function initBridge(pi: ExtensionAPI) {
     // emitted after `replay_complete` below.
     // See change: fix-terminal-session-dashboard-reload (D4).
     const reloadDelivered = consumePendingReloadOnSessionStart(reason, newSessionId);
-    if ((reason === "new" || reason === "fork" || reason === "resume") && sessionId && sessionId !== newSessionId) {
+    // Baseline + seed from ONE snapshot, before any register goes out: the
+    // drain forwards only entries appended after this point, and the register
+    // carries this snapshot's full totals. Undefined on a failed read.
+    // See change: count-non-message-usage.
+    let usageSeed: ReturnType<UsageDrain["baseline"]> | undefined;
+    try {
+      usageSeed = usageDrain.baseline(ctx.sessionManager);
+    } catch (err) {
+      console.error("[dashboard] usage baseline failed:", err);
+    }
+    const sessionChanged =
+      (reason === "new" || reason === "fork" || reason === "resume") && !!sessionId && sessionId !== newSessionId;
+    if (sessionChanged) {
       // Clear any latched abort for the OUTGOING session id. Otherwise a
       // latched old session that is resumed later would have its first
       // legitimate turn aborted by the agent_start/message_start latch hooks.
       // See change: unify-error-retry-lifecycle.
       abortLatch.clear(sessionId);
-      handleSessionChange(ctx);
+      handleSessionChange(ctx, usageSeed);
     }
 
     cachedHasUI = ctx.hasUI;
@@ -3506,6 +3619,9 @@ function initBridge(pi: ExtensionAPI) {
       // Fact-forwarding: server decides auto-hide. See change:
       // auto-hide-headless-worker-sessions.
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),
+      // Applied server-side only for an id it has no record of.
+      // See change: count-non-message-usage.
+      ...(usageSeed ? { usageSeed } : {}),
     });
 
     // The register above just went out (live socket, or buffered for the
@@ -3519,8 +3635,8 @@ function initBridge(pi: ExtensionAPI) {
 
     // D3: mint-on-registration. Ask the mcp-server plugin for this session's
     // /mcp credential now that the socket is (re)registered — the reply
-    // arrives on the session-private lane (mcp_token_minted) and lands in
-    // process.env before the first MCP use, and re-lands after every
+    // arrives on the session-private lane (mcp_token_minted) and registers
+    // pi-dashboard with pi's built-in MCP, and re-registers after every
     // reconnect, which is what makes a dashboard restart self-heal. Ordered
     // after session_register on the SAME socket, so the server's
     // connection-key attribution is already established when it arrives.
@@ -3749,8 +3865,14 @@ function initBridge(pi: ExtensionAPI) {
       }
     }).catch(() => { stopSpinner(); });
 
-    // Send initial git info + the session's pi version
-    sendGitInfoIfChanged(startCwd);
+    // Send initial git info + the session's pi version. A session change already
+    // ran the first evaluation (and renewed the tracker) in handleSessionChange;
+    // doing it again would double the synchronous git work.
+    if (!sessionChanged) {
+      const gbc = syncBc();
+      renewGitTracker().evaluateFirst(gbc, startCwd);
+      applyBc(gbc);
+    }
     sendCwdMissingIfChanged(startCwd);
     sendPiVersionIfChanged();
 
@@ -3785,6 +3907,13 @@ function initBridge(pi: ExtensionAPI) {
           // chose not to parallelize. See change:
           // bound-subagent-fanout-under-host-pressure (D7).
           ...fanoutAdmission.counters,
+          // Agent path gate counters (in-root decisions are counted, not logged).
+          pathGateInRoot: pathGate.counters.inRoot,
+          pathGateAsked: pathGate.counters.asked,
+          pathGateBlocked: pathGate.counters.blocked,
+          // Poll-cost counters (summed across sessions on /api/health).
+          // See change: optimize-polling-hot-paths.
+          ...pollCost,
         },
       });
     }, HEARTBEAT_INTERVAL);
@@ -3793,27 +3922,37 @@ function initBridge(pi: ExtensionAPI) {
     // Start git + name/model polling
     startGitPollTimer(ctx);
 
-    // Start process scanner (detect stalled child processes)
-    // Captures new child PGIDs during active bash calls, then checks tracked PGIDs
-    processScanTimer = setInterval(() => {
-      if (!isActive()) return;
-      const processes = scanChildProcesses(
-        process.pid,
-        trackedPgids,
-        PROCESS_MIN_ELAPSED_MS,
-        { excludedPgids: selfSpawnedPgids },
-      );
-      const currentPids = JSON.stringify(processes.map((p) => p.pid).sort());
-      if (currentPids !== previousProcessPids) {
+    // Start the adaptive process scanner (detect stalled child processes).
+    // One async `ps -A` per scan; fast while the agent/tools run, idle
+    // otherwise. session_start re-runs: dispose the previous scheduler first so
+    // schedules never stack. See change: optimize-polling-hot-paths.
+    ensurePollingDisposable();
+    const scheduler = createProcessScanScheduler({
+      platform: process.platform,
+      setTimer: setRegisteredTimeout,
+      clearTimer: clearRegisteredTimeout,
+      scan: async () => {
+        if (!isActive()) return { changed: false };
+        const processes = await scanChildProcessesAsync(
+          process.pid,
+          trackedPgids,
+          PROCESS_MIN_ELAPSED_MS,
+          { excludedPgids: selfSpawnedPgids },
+        );
+        if (!isActive() || polling.processScan !== scheduler) return { changed: false };
+        const currentPids = JSON.stringify(processes.map((p) => p.pid).sort());
+        if (currentPids === previousProcessPids) return { changed: false };
         previousProcessPids = currentPids;
         connection.send({
           type: "process_list",
           sessionId,
           processes: processes.map((p) => ({ pid: p.pid, pgid: p.pgid, command: p.command, elapsedMs: p.elapsedMs })),
         });
-      }
-    }, PROCESS_SCAN_INTERVAL);
-    getBridgeState().timers!.push(processScanTimer);
+        return { changed: true };
+      },
+    });
+    polling.replaceProcessScan(scheduler);
+    scheduler.start();
 
     // Register flow event listeners (pi-flows emits these via pi.events)
     registerFlowEventListeners(syncBc(), () => sessionReady, getFlowsList);
@@ -3827,7 +3966,7 @@ function initBridge(pi: ExtensionAPI) {
   }));
 
   // Shared handler for session changes (new/fork/resume)
-  function handleSessionChange(ctx: any) {
+  function handleSessionChange(ctx: any, usageSeed?: ReturnType<UsageDrain["baseline"]>) {
     // Clear attachedChange on a real session switch (new/fork/resume): it is
     // persisted globally + restored at activate, so without this the previous
     // session's attached change would leak into the new session's prompt until
@@ -3870,8 +4009,9 @@ function initBridge(pi: ExtensionAPI) {
       bridgeFollowUp.reset();
       emitQueueUpdate();
     }
+    renewGitTracker();
     const bc = syncBc();
-    _handleSessionChange(bc, ctx, getFlowsList);
+    _handleSessionChange(bc, ctx, getFlowsList, usageSeed);
     applyBc(bc);
     // A new session id needs its own `pi_version_update` (below-floor flag).
     // After applyBc, so syncBc() carries the NEW session id.
@@ -3891,15 +4031,25 @@ function initBridge(pi: ExtensionAPI) {
     // connection.connect(); an un-guarded ctx.cwd throw here skips connect()
     // (#393). See change: fix-bridge-resume-disconnect.
     cachedCwd = safeCwd(ctx);
-    gitPollTimer = setInterval(() => runGitPollTick({
-      isActive,
-      cachedCwd: () => cachedCwd,
-      sendGitInfoIfChanged,
-      sendCwdMissingIfChanged,
-      sendSessionNameIfChanged,
-      sendModelUpdateIfChanged,
-      sendPiVersionIfChanged,
-    }), GIT_POLL_INTERVAL);
+    const pollState = createGitPollState();
+    gitPollTimer = setInterval(() => {
+      // runGitPollTick handles a rejecting git tick itself; this catch is the
+      // last line so the interval callback can never raise an unhandled rejection.
+      runGitPollTick({
+        isActive,
+        cachedCwd: () => cachedCwd,
+        tickGit: (cwd) => {
+          const gbc = syncBc();
+          polling.gitTracker?.tick(gbc, cwd);
+          applyBc(gbc);
+        },
+        sendCwdMissingIfChanged,
+        sendSessionNameIfChanged,
+        sendModelUpdateIfChanged,
+        sendPiVersionIfChanged: () => _sendPiVersionIfChanged(syncBc()),
+        state: pollState,
+      }).catch((err) => console.error("[dashboard] git poll tick failed:", err));
+    }, GIT_POLL_INTERVAL);
     getBridgeState().timers!.push(gitPollTimer);
   }
 
@@ -3910,6 +4060,9 @@ function initBridge(pi: ExtensionAPI) {
     if (!isActive()) return;
     cachedCtx = ctx;
     if (!sessionReady) return;
+    // Drain point: compaction / usage entries recorded during the turn.
+    // See change: count-non-message-usage.
+    drainUsage(ctx);
 
     // Send firstMessage update after first turn if not previously sent
     if (!lastFirstMessage) {
@@ -3926,11 +4079,24 @@ function initBridge(pi: ExtensionAPI) {
 
   }));
 
-  pi.on("session_shutdown", safe(async (event: any) => {
+  // Control event (never `event_forward`): an idle cache refresh's usage
+  // entry lands before the NEXT decision, so each decision is a drain point.
+  // Observe-only — returns no override and never throws (pi falls back to
+  // its own decision on a handler failure, but we never give it one).
+  // See change: count-non-message-usage.
+  pi.on("cache_warming_decision", makeCacheWarmingDecisionHandler((ctx: any) => {
+    if (!isActive()) return;
+    drainUsage(ctx);
+  }) as any);
+
+  pi.on("session_shutdown", safe(async (event: any, ctx: any) => {
     if (!isActive()) return;
     // Let the reloaded instance (fresh ExtensionAPI) pass the re-entry guard.
     // See change: fix-terminal-session-dashboard-reload (D4).
     releaseBridgeOwnerOnShutdown(getBridgeState(), event?.reason);
+    // Remove this session's pi-dashboard MCP registration (a reloaded
+    // instance re-registers on its own mint). See change: migrate-mcp-to-pi-builtin (D1).
+    mcpRegistrar.onSessionShutdown();
     getBridgeState().isAgentStreaming = false;
     stopMetricsMonitor();
     if (heartbeatTimer) {
@@ -3941,10 +4107,17 @@ function initBridge(pi: ExtensionAPI) {
       clearInterval(gitPollTimer);
       gitPollTimer = null;
     }
-    connection.send({
-      type: "session_unregister",
-      sessionId,
-    });
+    drainDisposables(getBridgeState());
+    // Flush undrained entry usage BEFORE session_unregister (which ends the
+    // session server-side), on every shutdown reason: quit, reload and
+    // session replacement (new/resume/fork). See change: count-non-message-usage.
+    sendShutdownUsageThenUnregister(
+      () => drainUsage(ctx),
+      () => connection.send({
+        type: "session_unregister",
+        sessionId,
+      }),
+    );
 
     // Drop retained subagent frames/snapshots on shutdown.
     // See change: fix-subagent-live-detail-reliability.
@@ -3993,6 +4166,7 @@ function initBridge(pi: ExtensionAPI) {
     s.hasUI = cachedHasUI;
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     if (gitPollTimer) { clearInterval(gitPollTimer); gitPollTimer = null; }
+    drainDisposables(s);
     // Disable the admission sampler's private event-loop histogram. A bridge
     // re-init (/reload, session replacement) constructs a fresh sampler; without
     // this the superseded 20 ms-resolution monitor runs until process exit.

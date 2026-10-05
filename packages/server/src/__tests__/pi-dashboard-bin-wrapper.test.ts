@@ -58,6 +58,30 @@ describe("bin/pi-dashboard.mjs wrapper", () => {
     }
   });
 
+  // `start` with no resolvable jiti: the corrupted-install message, no tsx
+  // fallback (test-plan #X1). See change: cleanup-stale-fork-specs.
+  it("`start` with no jiti exits 1 with the corrupted-install message", () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), "pi-dashboard-bin-start-"));
+    try {
+      const isolatedWrapper = path.join(tmp, "pi-dashboard.mjs");
+      writeFileSync(isolatedWrapper, readFileSync(wrapperPath, "utf-8"));
+
+      const result = spawnSync(process.execPath, [isolatedWrapper, "start"], {
+        encoding: "utf-8",
+        env: { ...process.env, NODE_PATH: "" },
+        timeout: 10_000,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr.startsWith("pi-dashboard: cannot find jiti.")).toBe(true);
+      expect(result.stderr).toContain("corrupted");
+      expect(result.stderr).toContain("npm install -g @blackbelt-technology/pi-agent-dashboard");
+      expect(result.stderr).not.toMatch(/tsx/i);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("resolves jiti from process.argv[1] anchor and re-execs cli.ts", () => {
     // Repo root has jiti at node_modules/jiti — wrapper invoked with its
     // real path SHOULD walk createRequire(realpath(argv[1])) up into the

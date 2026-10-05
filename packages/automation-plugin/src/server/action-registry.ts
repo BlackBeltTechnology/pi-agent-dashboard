@@ -85,6 +85,12 @@ export interface ActionRegistration {
     payload: Record<string, unknown>;
     automation: DiscoveredAutomation;
   }) => string;
+  /**
+   * Event types `buildEvent` may emit (REQUIRED, non-empty, for `buildEvent`
+   * actions). The engine refuses any other type; reserved host namespaces are
+   * refused regardless. See change: harden-trust-and-credential-boundaries (D3).
+   */
+  emits?: string[];
   /** Produce the event emitted into the run session. `null` emits nothing. */
   buildEvent?: (args: {
     payload: Record<string, unknown>;
@@ -113,6 +119,10 @@ export class ActionRegistry {
     }
     if (!reg.buildPrompt === !reg.buildEvent) {
       this.warn(`[action-registry] rejected "${reg.id}": exactly one of buildPrompt/buildEvent required`);
+      return false;
+    }
+    if (reg.buildEvent && !(Array.isArray(reg.emits) && reg.emits.length > 0)) {
+      this.warn(`[action-registry] rejected "${reg.id}": buildEvent actions must declare a non-empty \`emits\` list`);
       return false;
     }
     if (this.byId.has(reg.id)) {

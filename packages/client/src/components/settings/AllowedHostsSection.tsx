@@ -292,12 +292,12 @@ export function AllowedHostsSection({
                 ? t(
                     "settings.hostGate.consequence.enforce",
                     undefined,
-                    "Unlisted hosts get 403. Everything under Currently admitted keeps working.",
+                    "Unlisted hosts get 403 (the default). Everything under Currently admitted keeps working. Choose Report only to log instead.",
                   )
                 : t(
                     "settings.hostGate.consequence.report",
                     undefined,
-                    "Unlisted hosts are logged and still served. Check Recent refusals below, then switch to Enforce.",
+                    "Opt-out: unlisted hosts are logged and still served. The default is Enforce; check Recent refusals below, then switch back.",
                   )}
             </p>
           </div>

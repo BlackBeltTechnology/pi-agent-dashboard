@@ -372,6 +372,8 @@ function BurstBodyItem({
     <ToolCallStep
       toolName={msg.toolName ?? "unknown"}
       toolCallId={msg.toolCallId ?? msg.id}
+      nested={msg.nested}
+      nestedComplete={msg.nestedComplete}
       args={msg.args}
       status={msg.toolStatus ?? "complete"}
       result={msg.result}

@@ -10,25 +10,28 @@
  * interaction, not a flow.
  *
  * The build is deliberately late and injectable:
- *   - `await import("@earendil-works/pi-coding-agent")` is ~330 ms and pulls the
- *     whole SDK (TUI, WASM) into module-load order; it runs off the request path
- *     behind {@link oauthRegistryReady}.
- *   - every failure mode (`import()` throws, `create()` returns an empty
- *     provider list, an unknown shape) degrades to an EMPTY registry rather
+ *   - the runtime is the server's SINGLE `ModelRuntime` (the one the model
+ *     proxy uses), injected via {@link setOAuthRegistryRuntimeSource}; loading
+ *     it pulls the whole SDK, so it runs off the request path behind
+ *     {@link oauthRegistryReady}.
+ *   - every failure mode (`import()` throws, `create()` rejects or returns an
+ *     empty provider list, an unknown shape) degrades to an EMPTY registry rather
  *     than a dead route: every other route keeps serving, `/handlers` answers
  *     `{ ids: [] }`, and {@link getRegistryError} names the cause — with the
  *     resolved version — so `/api/health` can explain why sign-in is
  *     unavailable.
  *
- * See change: delegate-provider-oauth-to-pi-ai (D1, D3, D6).
+ * See changes: delegate-provider-oauth-to-pi-ai (D1, D3, D6),
+ * collapse-model-proxy-onto-modelruntime (D6: one runtime, one failure domain).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OAuthLoginFlow, OAuthRegistryEntry } from "./pi-oauth-types.js";
+import { applyRadiusOverride, setAgentDirSource } from "./radius-override.js";
 
-/** Package the registry is built from — the only pi-ai surface the server uses. */
+/** Package the runtime comes from (version diagnostics only). */
 const PI_PACKAGE = "@earendil-works/pi-coding-agent";
 
 /**
@@ -43,36 +46,9 @@ export const FLOW_TYPE_HINT: Readonly<Record<string, "auth_code" | "device_code"
   openai: "auth_code",
   "openai-codex": "auth_code",
   openrouter: "auth_code",
-};
-
-/**
- * The only per-provider exclusion left in the dashboard. `radius` is bundled by
- * `builtinProviders()` but its OAuth targets a gateway URL taken from pi's own
- * settings, which the dashboard does not manage.
- */
-const EXCLUDED_PROVIDER_IDS: ReadonlySet<string> = new Set(["radius"]);
-
-/**
- * Credential store handed to `ModelRuntime.create()`.
- *
- * The dashboard owns `auth.json` writes itself (locked, backed-up, with
- * clobber refusal), so the runtime must never touch credentials: this store
- * reads as empty and refuses every mutation. `create()` with an empty store
- * performs no network I/O — `refreshOnCreate` defaults to false.
- */
-const EMPTY_READONLY_STORE = {
-  async read(): Promise<undefined> {
-    return undefined;
-  },
-  async list(): Promise<readonly never[]> {
-    return [];
-  },
-  async modify(): Promise<undefined> {
-    throw new Error("provider-auth registry credential store is read-only");
-  },
-  async delete(): Promise<void> {
-    throw new Error("provider-auth registry credential store is read-only");
-  },
+  // Radius login starts with a browser/device `select`, like Codex.
+  // See change: add-radius-provider-login.
+  radius: "auth_code",
 };
 
 /** The slice of pi-ai's `Provider` this module consumes. */
@@ -81,34 +57,41 @@ interface PiProviderLike {
   auth?: { oauth?: OAuthLoginFlow };
 }
 
-/** The slice of `ModelRuntime` this module consumes. */
-interface PiRuntimeLike {
-  getProviders(): readonly PiProviderLike[];
+/**
+ * The server's single model runtime, as `server-model-runtime.ts` hands it out.
+ * INJECTED (never imported) so `auth/` does not import `model-proxy/`: the
+ * runtime's credential store imports `provider-auth-storage.ts`, which imports
+ * this module. See change: collapse-model-proxy-onto-modelruntime (D6).
+ */
+interface RuntimeHandleLike {
+  /** Provider shapes are checked at runtime by {@link mapProviders}'s filter. */
+  runtime: { getProviders(): readonly unknown[] };
+  version?: string;
+  /** pi's `getAgentDir` (honours `PI_CODING_AGENT_DIR`); locates `models.json`. */
+  getAgentDir?: () => string;
 }
 
-/** The slice of the pi-coding-agent index this module consumes. */
-interface PiCodingAgentModule {
-  ModelRuntime?: {
-    create(options: {
-      modelsPath: string | null;
-      credentials: unknown;
-    }): Promise<PiRuntimeLike>;
-  };
-  VERSION?: string;
+export type RuntimeSource = () => Promise<RuntimeHandleLike>;
+
+let runtimeSource: RuntimeSource | undefined;
+
+/**
+ * Wire the server's single runtime in. Called once at boot by `server.ts`
+ * before any provider-auth surface asks; resets the memoized build.
+ */
+export function setOAuthRegistryRuntimeSource(source: RuntimeSource | undefined): void {
+  runtimeSource = source;
+  readyPromise = undefined;
 }
-
-type ModuleLoader = () => Promise<unknown>;
-
-const defaultLoadModule: ModuleLoader = () => import(PI_PACKAGE);
 
 type OAuthProvider = PiProviderLike & { auth: { oauth: OAuthLoginFlow } };
 
 const isOAuthProvider = (p: PiProviderLike): p is OAuthProvider =>
-  p?.auth?.oauth != null && !EXCLUDED_PROVIDER_IDS.has(p.id);
+  p?.auth?.oauth != null;
 
 /**
  * Project the runtime's provider list onto the registry. Pure and exported so
- * the id-set / flow-type-hint / exclusion rules are testable without the SDK.
+ * the id-set / flow-type-hint rules are testable without the SDK.
  */
 export function mapProviders(
   providers: readonly PiProviderLike[],
@@ -127,9 +110,14 @@ export function mapProviders(
 let snapshot: OAuthRegistryEntry[] = [];
 let snapshotError: string | null = null;
 
-/** Sync registry view. Empty until {@link oauthRegistryReady} settles. */
+/**
+ * Sync registry view. Empty until {@link oauthRegistryReady} settles. NOT a pure
+ * snapshot read: `radius` is dropped while `models.json` declares a custom
+ * Radius gateway (re-checked at most once a second).
+ * See change: add-radius-provider-login (D2).
+ */
 export function getOAuthRegistry(): OAuthRegistryEntry[] {
-  return snapshot;
+  return applyRadiusOverride(snapshot);
 }
 
 /**
@@ -177,9 +165,10 @@ export function resolveVersionFallback(): string {
 }
 
 export interface OAuthRegistryInitDeps {
-  /** Resolves the pi-coding-agent module. Injectable to drive the failure
+  /** Supplies the server's single runtime. Defaults to the source wired by
+   * {@link setOAuthRegistryRuntimeSource}. Injectable to drive the failure
    * branches (`X10`) without touching the real SDK. */
-  loadModule?: ModuleLoader;
+  getRuntime?: RuntimeSource;
   /** Resolved version used only in the failure message. */
   readVersion?: () => string;
   /** Sink for the one-shot failure line. Defaults to `console.error`. */
@@ -187,32 +176,34 @@ export interface OAuthRegistryInitDeps {
 }
 
 /**
- * Build the registry, once. Never rejects: every failure is absorbed into an
- * empty snapshot plus {@link getRegistryError}. Exported (with injectable
- * deps) so the degradation paths are testable and re-runnable.
+ * Build the registry from the shared runtime. Never rejects: every failure
+ * (including a failed `ModelRuntime.create`, which the proxy reports too) is
+ * absorbed into an empty snapshot plus {@link getRegistryError}. Exported
+ * (with injectable deps) so the degradation paths are testable and re-runnable.
  */
 export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promise<void> {
-  const loadModule = deps.loadModule ?? defaultLoadModule;
+  const getRuntime = deps.getRuntime ?? runtimeSource;
   const readVersion = deps.readVersion ?? resolveVersionFallback;
   const log = deps.log ?? ((message: string) => console.error(message));
 
   let version = readVersion();
   try {
-    const mod = (await loadModule()) as PiCodingAgentModule;
-    if (typeof mod?.VERSION === "string" && mod.VERSION) version = mod.VERSION;
-
-    const ModelRuntime = mod?.ModelRuntime;
-    if (typeof ModelRuntime?.create !== "function") {
-      throw new Error(`ModelRuntime.create is not exported by ${PI_PACKAGE}`);
+    if (!getRuntime) throw new Error("the server model runtime is not wired (setOAuthRegistryRuntimeSource)");
+    let handle: RuntimeHandleLike;
+    try {
+      handle = await getRuntime();
+    } catch (err) {
+      const reported = (err as { version?: unknown } | null)?.version;
+      if (typeof reported === "string" && reported) version = reported;
+      throw err;
     }
-    const runtime = await ModelRuntime.create({
-      modelsPath: null,
-      credentials: EMPTY_READONLY_STORE,
-    });
+    if (typeof handle?.version === "string" && handle.version) version = handle.version;
+    setAgentDirSource(typeof handle?.getAgentDir === "function" ? handle.getAgentDir : undefined);
+    const runtime = handle?.runtime;
     if (typeof runtime?.getProviders !== "function") {
       throw new Error("ModelRuntime.getProviders is not a function");
     }
-    const entries = mapProviders(runtime.getProviders());
+    const entries = mapProviders(runtime.getProviders() as readonly PiProviderLike[]);
     if (entries.length === 0) {
       throw new Error("the runtime exposes no provider with an OAuth login");
     }
@@ -220,6 +211,7 @@ export async function initOAuthRegistry(deps: OAuthRegistryInitDeps = {}): Promi
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const detail = `${message} (pi-coding-agent ${version})`;
+    setAgentDirSource(undefined);
     setRegistry([], detail);
     log(`[provider-auth] OAuth registry unavailable: ${detail}`);
   }

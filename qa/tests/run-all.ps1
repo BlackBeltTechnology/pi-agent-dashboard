@@ -15,11 +15,14 @@ $tests = @(
     "22-worktree-separator.ps1",   # `.worktrees/` entries classify in-tree on `\` separators. See change: manage-worktrees-filter-cleanup.
     "32-origin-gate.ps1"   # header-less mutation allowed, cross-site mutation 403 (#X5). See change: fix-ws-origin-cswsh.
     "35-plugin-install-load.ps1"   # clean prefix: discovery non-empty + browser enabled + no load error + no path outside the prefix (#X7–#X11). See change: fix-browser-plugin-vendor-specifier-resolution.
+    "40-agent-path-gate-windows.ps1",   # path-gate + canonical-subject vitest suites natively on win32; exit 77 = no checkout (#X14). See change: ask-agent-file-access-in-chat.
+    "38-poll-cost.ps1"   # the scan never lists the bridge-auto-started server PID (#X11); exit 77 = SKIP when the server was not bridge-started. See change: optimize-polling-hot-paths.
 )
 
 $passed = 0
 $failed = 0
 $skipped = 0
+$preconditionSkipped = 0
 $results = @()
 
 Write-Host "========================================"
@@ -47,6 +50,12 @@ foreach ($test in $tests) {
         if ($LASTEXITCODE -eq 0) {
             $passed++
             $results += "PASS  $test"
+        } elseif ($LASTEXITCODE -eq 77) {
+            # Convention: a script that cannot establish its own precondition exits 77.
+            # Loud but NOT a suite failure: the check could not be established on this
+            # server (e.g. it was not bridge-started), unlike a missing script.
+            $preconditionSkipped++
+            $results += "SKIP  $test (precondition not met - not run)"
         } else {
             $failed++
             $results += "FAIL  $test"
@@ -70,7 +79,7 @@ foreach ($r in $results) {
 }
 $total = $passed + $failed
 Write-Host "========================================"
-Write-Host "  Total: $total  Passed: $passed  Failed: $failed  Skipped: $skipped"
+Write-Host "  Total: $total  Passed: $passed  Failed: $failed  Skipped: $skipped  Precondition-skipped: $preconditionSkipped"
 Write-Host "========================================"
 
 # Fail the suite if anything was skipped or failed — skipped tests mean the

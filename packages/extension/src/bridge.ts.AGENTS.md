@@ -32,3 +32,9 @@ Creates per-bridge `prStatus` (`createPrStatusScheduler`, probe `git.prStatusAsy
 Pass-through list gains `agent_before_settle` (forwarded via `redactBeforeSettleContext`, no status effect). Terminal reload comment: no pi version gate. See change: update-pi-core-1-0-adopt-apis.
 
 `sendPiVersionIfChanged()` also fires on reconnect (after `sendStateSync`) and after a session switch (after `applyBc`). See change: update-pi-core-1-0-adopt-apis (review B1/B2).
+
+Owns a `UsageDrain` (`usage-drain.ts`): `session_start` baselines ONE `getEntries()` snapshot before any register and sends it as `usageSeed` (init register + `handleSessionChange`). Drain points `turn_end`, `agent_settled`, `cache_warming_decision` (dedicated observe-only handler, never `event_forward`), `session_shutdown` (drain BEFORE `session_unregister`). See change: count-non-message-usage.
+
+Poll-cost wiring: adaptive async process-scan scheduler (`processScan`) replaces the 5 s `setInterval`; per-session `gitTracker` renewed at session_start/change (`renewGitTracker`); `disposables` (`bridge-polling.ts` `drainDisposables`) drained on re-init (after the re-entry return), `state.cleanup`, `session_shutdown`; `...pollCost` in heartbeat metrics; `model_select` defers `sendModelUpdateIfChanged` 50 ms via the timer registry; tool events feed the scan scheduler + `gitTracker.onToolEnd`. See change: optimize-polling-hot-paths.
+
+Creates `createPathGate` before the connection; registers its `tool_call` handler right after the fan-out admission handler (NOT `safe`-wrapped; stale instance passes through); `before_agent_start` captures skills/context files; `session_start` → `onSessionStart`; routes `dashboard_identity`/`path_grant_result`; `onClose` → `pathGate.reset()`; heartbeat metrics `pathGateInRoot/Asked/Blocked`. See change: ask-agent-file-access-in-chat.

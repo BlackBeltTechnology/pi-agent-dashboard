@@ -17,9 +17,10 @@
  */
 import { expect, test } from "./fixtures.js";
 import { operatorHeaders } from "./helpers/bridge-credential.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { ensureGitSession, gotoDashboard } from "./helpers/index.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
+const PAIRED_KEY = "pi-dashboard:device-paired";
 
 /** Build the bare `pi:pair:v1.<base64url>` copy-string the QR fragment carries. */
 function encodePayloadString(payload: unknown): string {
@@ -62,8 +63,53 @@ test.describe("pairing QR — /pair landing handshake", () => {
     // 5. The phone's next poll collects the minted bearer, stores it, and lands
     //    on the dashboard (window.location.href = "/").
     await page.waitForURL((url) => new URL(url).pathname === "/", { timeout: 20_000 });
-    const bearer = await page.evaluate((k) => localStorage.getItem(k), BEARER_KEY);
-    expect(bearer, "device bearer persisted after approval").toBeTruthy();
+    // Same-origin browsers exchange the bearer for an httpOnly cookie: no durable
+    // bearer in JS-readable storage, only the non-secret marker (T-F8).
+    // See change: harden-trust-and-credential-boundaries (D5).
+    const stored = await page.evaluate(
+      ([b, m]) => ({ bearer: localStorage.getItem(b), marker: localStorage.getItem(m) }),
+      [BEARER_KEY, PAIRED_KEY] as const,
+    );
+    expect(stored.bearer, "no JS-readable device bearer").toBeNull();
+    expect(stored.marker, "paired marker persisted after approval").toBe("1");
+    const deviceCookie = (await page.context().cookies()).find((c) => c.name === "pi_dash_device");
+    expect(deviceCookie?.httpOnly, "httpOnly device cookie set").toBe(true);
+    const sessions = await page.evaluate(async () => (await fetch("/api/sessions")).status);
+    expect(sessions).toBe(200);
+    // Known session first (spawned while the page still authenticates normally), so
+    // the list has something to render after the cookie-only reload below.
+    const known = await ensureGitSession(page);
+    const knownId = await known.getAttribute("data-session-id");
+    expect(knownId, "a known session exists").toBeTruthy();
+
+    // After a reload the dashboard authenticates by cookie only: it mints a ticket
+    // WITHOUT an Authorization header and opens a ticketed /ws. Frames are collected
+    // from the moment the socket object exists (a late listener would miss the burst).
+    const frames: string[] = [];
+    const sockets: import("@playwright/test").WebSocket[] = [];
+    page.on("websocket", (w) => {
+      if (new URL(w.url()).pathname !== "/ws") return;
+      sockets.push(w);
+      w.on("framereceived", (f) => frames.push(String(f.payload)));
+    });
+    const ticketReq = page.waitForRequest((r) => r.url().includes("/api/ws-ticket"), { timeout: 20_000 });
+    await page.reload();
+    expect((await ticketReq).headers().authorization, "ticket mint carries no bearer header").toBeUndefined();
+    await expect.poll(() => sockets.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(sockets[0]!.url(), "socket carries the single-use ticket").toContain("ticket=");
+    // The upgrade SUCCEEDED: an accepted browser socket delivers state frames and
+    // stays open (a refused upgrade closes at once). This harness reaches the server
+    // from loopback, which the guard admits regardless of the ticket; ticket admission
+    // itself is unit-covered (device-cookie.test.ts, ws-ticket.test.ts).
+    await expect.poll(() => frames.length, { timeout: 20_000 }).toBeGreaterThan(0);
+    expect(() => JSON.parse(frames[0]!)).not.toThrow();
+    expect(sockets[0]!.isClosed(), "ticketed /ws stays open").toBe(false);
+    // The list RENDERS from that socket's session state.
+    await expect(
+      page.locator(`[data-testid="session-card-desktop"][data-session-id="${knownId}"]`),
+      "session card rendered over the cookie-authenticated ticketed /ws",
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("pairing-dialog")).toHaveCount(0);
 
     // 6. The REAL paired-devices registry mutated — the phone is now a revocable
     //    dashboard client.

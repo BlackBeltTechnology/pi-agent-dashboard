@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseEtime, scanChildProcesses, captureChildPgids, scanTrackedProcesses, killProcessByPgid, scanWindowsProcesses, getOwnPgid, __resetOwnPgidCacheForTests, type SpawnSyncFn } from "../process-scanner.js";
+import {
+  parseEtime,
+  parseProcessSnapshot,
+  scanFromSnapshot,
+  scanChildProcesses,
+  scanChildProcessesAsync,
+  killProcessByPgid,
+  getOwnPgid,
+  __resetOwnPgidCacheForTests,
+  type SpawnSyncFn,
+} from "../process-scanner.js";
+import { pollCost, __resetPollCostForTests } from "../poll-cost.js";
 import type { SpawnSyncReturns } from "node:child_process";
 
 function mockResult(stdout: string, status = 0): SpawnSyncReturns<string> {
@@ -10,10 +21,17 @@ function fail(): SpawnSyncReturns<string> {
   return mockResult("", 1);
 }
 
-/** Helper: ps -eo pid=,ppid= output for a set of pid→ppid pairs */
-function psChildOutput(pairs: [number, number][]): string {
-  return pairs.map(([pid, ppid]) => `  ${pid}  ${ppid}`).join("\n") + "\n";
+/** `ps -A -o pid=,ppid=,pgid=,etime=,args=` fixture rows: [pid, ppid, pgid, etime, args]. */
+function snap(rows: Array<[number, number, number, string, string]>): string {
+  return rows.map(([pid, ppid, pgid, etime, args]) => `  ${pid}  ${ppid}  ${pgid} ${etime} ${args}`).join("\n") + "\n";
 }
+
+/** Spawn mock that serves one snapshot and counts calls. */
+function psMock(stdout: string) {
+  const fn = vi.fn((cmd: string) => (cmd === "ps" ? mockResult(stdout) : fail()));
+  return fn as unknown as SpawnSyncFn & ReturnType<typeof vi.fn>;
+}
+
 
 describe("parseEtime", () => {
   it("parses mm:ss format", () => expect(parseEtime("02:15")).toBe(135000));
@@ -25,177 +43,182 @@ describe("parseEtime", () => {
   it("returns 0 for invalid format", () => expect(parseEtime("garbage")).toBe(0));
 });
 
-describe("captureChildPgids", () => {
-  it("captures PGIDs of leaf children", () => {
-    const mock: SpawnSyncFn = (cmd, args) => {
-      // getChildPids for parent 100: finds child 200
-      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,ppid=") {
-        return mockResult(psChildOutput([[200, 100], [300, 999]]));
-      }
-      // getChildPids for child 200: no grandchildren (same ps call, no match)
-      // ps -p 200 -o pgid=
-      if (cmd === "ps" && args[0] === "-p" && args[1] === "200") {
-        return mockResult("  200\n");
-      }
-      return fail();
-    };
-    const tracked = new Set<number>();
-    captureChildPgids(100, tracked, { _spawnSync: mock });
-    expect(tracked.has(200)).toBe(true);
+describe("single-snapshot Unix scan (optimize-polling-hot-paths)", () => {
+  beforeEach(() => __resetPollCostForTests());
+
+  it("E1: no children → [] after exactly one spawn", () => {
+    const mock = psMock(snap([[1, 0, 1, "10:00", "/sbin/init"], [100, 1, 100, "05:00", "pi"]]));
+    expect(scanChildProcesses(100, new Set(), 0, { _spawnSync: mock, _platform: "linux" })).toEqual([]);
+    expect(mock).toHaveBeenCalledTimes(1);
   });
 
-  it("does nothing on Windows", () => {
-    const origPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    try {
-      const tracked = new Set<number>();
-      captureChildPgids(100, tracked);
-      expect(tracked.size).toBe(0);
-    } finally {
-      if (origPlatform) Object.defineProperty(process, "platform", origPlatform);
-    }
+  it("E2: k=5 children (2 with grandchildren) → one spawn, leaf-only result", () => {
+    const mock = psMock(snap([
+      [100, 1, 100, "05:00", "pi"],
+      [201, 100, 201, "01:00", "node a"],
+      [202, 100, 202, "01:00", "node b"],
+      [203, 100, 203, "01:00", "node c"],
+      [204, 100, 204, "01:00", "bash wrapper1"],
+      [205, 100, 205, "01:00", "bash wrapper2"],
+      [304, 204, 204, "01:00", "node g1"],
+      [305, 205, 205, "01:00", "node g2"],
+    ]));
+    const tracked = new Set<number>();
+    const out = scanChildProcesses(100, tracked, 0, { _spawnSync: mock, _platform: "linux" });
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect(out.map((p) => p.pid).sort()).toEqual([201, 202, 203, 304, 305].sort());
+    expect([...tracked].sort()).toEqual([201, 202, 203, 204, 205]);
+  });
+
+  it("E3: args with spaces stay intact", () => {
+    const mock = psMock(snap([[100, 1, 100, "05:00", "pi"], [200, 100, 200, "01:10", "node /a b/c.js --flag x"]]));
+    const out = scanChildProcesses(100, new Set(), 0, { _spawnSync: mock, _platform: "linux" });
+    expect(out[0].command).toBe("node /a b/c.js --flag x");
+  });
+
+  it("E4: empty-args (zombie) row keeps the tree edge", () => {
+    const text = "  100  1  100 05:00 pi\n  200  100  200 01:00\n  300  200  300 01:00 node real\n";
+    const rows = parseProcessSnapshot(text);
+    expect(rows.find((r) => r.pid === 200)?.args).toBe("");
+    const out = scanFromSnapshot(rows, 100, new Set(), 0);
+    expect(out.map((p) => p.pid)).toEqual([300]);
+  });
+
+  it("E5: excluded × tracked × alive decision table", () => {
+    const rows = parseProcessSnapshot(snap([
+      [100, 1, 100, "05:00", "pi"],
+      [500, 100, 500, "01:00", "node server"],
+    ]));
+    const tracked = new Set([600]);
+    const excluded = new Set([500, 700]);
+    const out = scanFromSnapshot(rows, 100, tracked, 0, excluded);
+    expect(out).toEqual([]);
+    expect(tracked.has(500)).toBe(false); // refused at capture
+    expect(tracked.has(600)).toBe(false); // dead tracked reaped
+    expect(excluded.has(500)).toBe(true); // alive excluded kept
+    expect(excluded.has(700)).toBe(false); // dead excluded reaped
+  });
+
+  it("E6: minElapsedMs boundary (00:04 / 00:05 / 00:06 at 5000)", () => {
+    const rows = parseProcessSnapshot(snap([
+      [100, 1, 100, "05:00", "pi"],
+      [201, 100, 201, "00:04", "a"],
+      [202, 100, 202, "00:05", "b"],
+      [203, 100, 203, "00:06", "c"],
+    ]));
+    expect(scanFromSnapshot(rows, 100, new Set(), 5000).map((p) => p.pid)).toEqual([202, 203]);
+  });
+
+  it("tracked PGID survives reparenting to PID 1 and bash/sh wrappers are hidden", () => {
+    const rows = parseProcessSnapshot(snap([
+      [300, 1, 200, "02:00", "node vitest"],
+      [200, 1, 200, "02:00", "/bin/bash -c npm test"],
+      [400, 1, 400, "01:00", "node vite"],
+    ]));
+    const out = scanFromSnapshot(rows, 100, new Set([200]), 0);
+    expect(out.map((p) => p.command)).toEqual(["node vitest"]);
+  });
+
+  it("X1: ps failure → [] and trackedPgids unchanged", () => {
+    const tracked = new Set([42]);
+    expect(scanChildProcesses(100, tracked, 0, { _spawnSync: () => fail(), _platform: "linux" })).toEqual([]);
+    expect(scanChildProcesses(100, tracked, 0, { _spawnSync: () => { throw new Error("boom"); }, _platform: "linux" })).toEqual([]);
+    expect([...tracked]).toEqual([42]);
+  });
+
+  it("E2/2.2: async variant gives the identical result and never rejects", async () => {
+    const text = snap([[100, 1, 100, "05:00", "pi"], [200, 100, 200, "01:00", "node x"]]);
+    const sync = scanChildProcesses(100, new Set(), 0, { _spawnSync: psMock(text), _platform: "linux" });
+    const exec = vi.fn(async () => ({ stdout: text }));
+    const async_ = await scanChildProcessesAsync(100, new Set(), 0, { _execFile: exec as any, _platform: "linux" });
+    expect(async_).toEqual(sync);
+    expect(exec).toHaveBeenCalledTimes(1);
+    const bad = await scanChildProcessesAsync(100, new Set(), 0, { _execFile: (async () => { throw new Error("x"); }) as any, _platform: "linux" });
+    expect(bad).toEqual([]);
+  });
+
+  it("1.2: two scans advance pollProcScanRuns/Spawns to 2", () => {
+    const mock = psMock(snap([[100, 1, 100, "05:00", "pi"]]));
+    scanChildProcesses(100, new Set(), 0, { _spawnSync: mock, _platform: "linux" });
+    scanChildProcesses(100, new Set(), 0, { _spawnSync: mock, _platform: "linux" });
+    expect(pollCost.pollProcScanRuns).toBe(2);
+    expect(pollCost.pollProcScanSpawns).toBe(2);
   });
 });
 
-describe("scanTrackedProcesses", () => {
-  it("returns alive processes matching tracked PGIDs", () => {
-    const mock: SpawnSyncFn = (cmd) => {
-      if (cmd === "ps") {
-        return mockResult(
-          "  300  200 02:00 node vitest\n  200  200 02:00 /bin/bash -c npm test\n  400  400 01:00 node vite\n"
-        );
-      }
-      return fail();
-    };
-    const tracked = new Set([200]);
-    const result = scanTrackedProcesses(tracked, 0, { _spawnSync: mock });
-    expect(result.some((p) => p.command === "node vitest")).toBe(true);
-    expect(result.some((p) => p.command.includes("bash"))).toBe(false);
-    expect(result.some((p) => p.pgid === 400)).toBe(false);
+describe("single-snapshot Windows scan (optimize-polling-hot-paths)", () => {
+  const NOW = 1_700_000_000_000;
+  const cim = (rows: Array<{ pid: number; ppid: number; cmd: string; agoMs: number }>) =>
+    JSON.stringify(rows.map((r) => ({
+      ProcessId: r.pid, ParentProcessId: r.ppid, CommandLine: r.cmd,
+      CreationDate: new Date(NOW - r.agoMs).toISOString(),
+    })));
+  const win = (stdout: string, extra: object = {}) => {
+    const spawn = vi.fn().mockReturnValue({ status: 0, stdout });
+    return { spawn, opts: { _spawnSync: spawn, _platform: "win32", _now: () => NOW, ...extra } as any };
+  };
+
+  it("E7: win32 never spawns ps; PowerShell once", () => {
+    const { spawn, opts } = win(cim([{ pid: 200, ppid: 100, cmd: "node", agoMs: 120_000 }]));
+    scanChildProcesses(100, new Set(), 0, opts);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(String(spawn.mock.calls[0][0]).toLowerCase()).toContain("powershell");
+    expect(spawn.mock.calls.some((c: any[]) => c[0] === "ps")).toBe(false);
   });
 
-  it("removes dead PGIDs from tracked set", () => {
-    const mock: SpawnSyncFn = (cmd) => {
-      if (cmd === "ps") return mockResult("  500  500 01:00 node other\n");
-      return fail();
-    };
-    const tracked = new Set([300]);
-    scanTrackedProcesses(tracked, 0, { _spawnSync: mock });
-    expect(tracked.has(300)).toBe(false);
+  it("E8: single-object JSON is a one-element list", () => {
+    const one = JSON.stringify({ ProcessId: 200, ParentProcessId: 100, CommandLine: "node", CreationDate: new Date(NOW - 60_000).toISOString() });
+    const { opts } = win(one);
+    expect(scanChildProcesses(100, new Set(), 0, opts).map((p) => p.pid)).toEqual([200]);
   });
 
-  it("filters by minElapsedMs", () => {
-    const mock: SpawnSyncFn = (cmd) => {
-      if (cmd === "ps") return mockResult("  300  200 00:05 node vitest\n");
-      return fail();
-    };
-    const tracked = new Set([200]);
-    const result = scanTrackedProcesses(tracked, 30000, { _spawnSync: mock });
-    expect(result).toHaveLength(0);
+  it("E9: tree + exclusion by PID; no wrapper-name filter", () => {
+    const { spawn, opts } = win(
+      cim([
+        { pid: 200, ppid: 100, cmd: "cmd.exe", agoMs: 60_000 },
+        { pid: 300, ppid: 200, cmd: "node leaf", agoMs: 60_000 },
+        { pid: 400, ppid: 100, cmd: "node server", agoMs: 60_000 },
+        { pid: 500, ppid: 100, cmd: "bash.exe", agoMs: 60_000 },
+      ]),
+      { excludedPgids: new Set([400]) },
+    );
+    const out = scanChildProcesses(100, new Set(), 0, opts);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    expect(out.map((p) => p.pid).sort()).toEqual([300, 500]);
   });
 
-  it("returns empty on Windows", () => {
-    const origPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    try {
-      const tracked = new Set([200]);
-      expect(scanTrackedProcesses(tracked, 0)).toEqual([]);
-    } finally {
-      if (origPlatform) Object.defineProperty(process, "platform", origPlatform);
+  it("E9b: dead excluded PIDs are reaped", () => {
+    const excluded = new Set([900]);
+    const { opts } = win(cim([{ pid: 200, ppid: 100, cmd: "node", agoMs: 60_000 }]), { excludedPgids: excluded });
+    scanChildProcesses(100, new Set(), 0, opts);
+    expect(excluded.has(900)).toBe(false);
+  });
+
+  it("E10: minElapsedMs boundary (29 s / 31 s at 30000)", () => {
+    const { opts } = win(cim([
+      { pid: 201, ppid: 100, cmd: "a", agoMs: 29_000 },
+      { pid: 202, ppid: 100, cmd: "b", agoMs: 31_000 },
+    ]));
+    expect(scanChildProcesses(100, new Set(), 30_000, opts).map((p) => p.pid)).toEqual([202]);
+  });
+
+  it("X2: non-zero exit, malformed JSON, throw → []", () => {
+    for (const spawn of [
+      vi.fn().mockReturnValue({ status: 1, stdout: "" }),
+      vi.fn().mockReturnValue({ status: 0, stdout: "not json" }),
+      vi.fn().mockImplementation(() => { throw new Error("ETIMEDOUT"); }),
+    ]) {
+      expect(scanChildProcesses(100, new Set(), 0, { _spawnSync: spawn, _platform: "win32" } as any)).toEqual([]);
     }
   });
-});
 
-describe("scanChildProcesses (combined)", () => {
-  it("captures and returns processes in one call", () => {
-    let callCount = 0;
-    const mock: SpawnSyncFn = (cmd, args) => {
-      // Phase 1 (capture): getChildPids finds child 200 of parent 100
-      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,ppid=") {
-        callCount++;
-        // First call: find children of 100 → 200
-        // Second call: find children of 200 → none (leaf)
-        if (callCount === 1) return mockResult(psChildOutput([[200, 100], [999, 888]]));
-        if (callCount === 2) return mockResult(psChildOutput([[999, 888]])); // no children of 200
-        // Phase 2: full process list
-        return mockResult("  200  200 02:00 node vitest\n  999  888 01:00 unrelated\n");
-      }
-      // Phase 1: get PGID for captured PID 200
-      if (cmd === "ps" && args[0] === "-p" && args[1] === "200" && args[2] === "-o" && args[3] === "pgid=") {
-        return mockResult("  200\n");
-      }
-      // Phase 2: full scan
-      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,pgid=,etime=,args=") {
-        return mockResult("  200  200 02:00 node vitest\n  999  888 01:00 unrelated\n");
-      }
-      return fail();
-    };
-
-    const tracked = new Set<number>();
-    const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mock });
-    expect(tracked.has(200)).toBe(true);
-    expect(result.some(p => p.command === "node vitest")).toBe(true);
-    expect(result.some(p => p.pgid === 888)).toBe(false); // unrelated PGID not tracked
-  });
-
-  it("returns empty on Windows", () => {
-    const origPlatform = Object.getOwnPropertyDescriptor(process, "platform");
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    try {
-      const tracked = new Set<number>();
-      expect(scanChildProcesses(100, tracked, 0)).toEqual([]);
-    } finally {
-      if (origPlatform) Object.defineProperty(process, "platform", origPlatform);
-    }
-  });
-});
-
-describe("excludedPgids exclusion set (tighten-process-list-ux)", () => {
-  it("captureChildPgids refuses to track an excluded PGID", () => {
-    const mock: SpawnSyncFn = (cmd, args) => {
-      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,ppid=") {
-        return mockResult(psChildOutput([[200, 100]]));
-      }
-      if (cmd === "ps" && args[0] === "-p" && args[1] === "200") {
-        return mockResult("  200\n");
-      }
-      return fail();
-    };
-    const tracked = new Set<number>();
-    const excluded = new Set<number>([200]);
-    captureChildPgids(100, tracked, { _spawnSync: mock, excludedPgids: excluded });
-    expect(tracked.has(200)).toBe(false);
-    expect(tracked.size).toBe(0);
-  });
-
-  it("scanTrackedProcesses skips an alive process whose PGID is excluded (defense-in-depth)", () => {
-    const mock: SpawnSyncFn = (cmd) => {
-      if (cmd === "ps") {
-        return mockResult("  300  200 02:00 node vitest\n");
-      }
-      return fail();
-    };
-    const tracked = new Set([200]);
-    const excluded = new Set([200]);
-    const result = scanTrackedProcesses(tracked, 0, { _spawnSync: mock, excludedPgids: excluded });
-    expect(result).toHaveLength(0);
-    // PGID is alive, so it stays in tracked (still alive) and excluded.
-    expect(tracked.has(200)).toBe(true);
-    expect(excluded.has(200)).toBe(true);
-  });
-
-  it("scanTrackedProcesses reaps a dead PGID from the excludedPgids set", () => {
-    // ps output reports other processes only — the excluded PGID is dead.
-    const mock: SpawnSyncFn = (cmd) => {
-      if (cmd === "ps") {
-        return mockResult("  500  500 01:00 node other\n");
-      }
-      return fail();
-    };
-    const tracked = new Set<number>();
-    const excluded = new Set<number>([777]);
-    scanTrackedProcesses(tracked, 0, { _spawnSync: mock, excludedPgids: excluded });
-    expect(excluded.has(777)).toBe(false);
+  it("async win32 variant matches the sync result", async () => {
+    const text = cim([{ pid: 200, ppid: 100, cmd: "node", agoMs: 60_000 }]);
+    const sync = scanChildProcesses(100, new Set(), 0, win(text).opts);
+    const asyncOut = await scanChildProcessesAsync(100, new Set(), 0, {
+      _execFile: (async () => ({ stdout: text })) as any, _platform: "win32", _now: () => NOW,
+    });
+    expect(asyncOut).toEqual(sync);
   });
 });
 
@@ -212,26 +235,6 @@ describe("killProcessByPgid", () => {
       ["/PID", "1234", "/T", "/F"],
       expect.any(Object),
     );
-  });
-});
-
-describe("Windows process scanning", () => {
-  it("scanChildProcesses parses Get-CimInstance JSON on win32", () => {
-    const cimOutput = JSON.stringify([
-      { ProcessId: 200, CommandLine: "node server.js", CreationDate: new Date(Date.now() - 120000).toISOString() },
-    ]);
-    const mockSpawn = vi.fn().mockReturnValue({ status: 0, stdout: cimOutput });
-    const tracked = new Set<number>();
-    const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].pid).toBe(200);
-  });
-
-  it("returns empty when PowerShell fails", () => {
-    const mockSpawn = vi.fn().mockReturnValue({ status: 1, stdout: "" });
-    const tracked = new Set<number>();
-    const result = scanChildProcesses(100, tracked, 0, { _spawnSync: mockSpawn, _platform: "win32" } as any);
-    expect(result).toEqual([]);
   });
 });
 
@@ -265,28 +268,5 @@ describe("getOwnPgid (classify-process-list-entries)", () => {
     const mock: SpawnSyncFn = () => { calls++; return mockResult("  1\n"); };
     expect(getOwnPgid({ _spawnSync: mock, _pid: 5, _platform: "win32" })).toBeUndefined();
     expect(calls).toBe(0);
-  });
-});
-
-describe("pi own-PGID exclusion end-to-end (classify-process-list-entries)", () => {
-  it("refuses pi's own pgid at capture and keeps a different-pgid child", () => {
-    // pi pid=100 pgid=131. Two children: one shares pi's pgid (plumbing),
-    // one has its own pgid (user/subagent task).
-    const PI_PGID = 131;
-    const mock: SpawnSyncFn = (cmd, args) => {
-      // capture: children of 100 → 200 (shares pi pgid), 300 (own pgid)
-      if (cmd === "ps" && args[0] === "-eo" && args[1] === "pid=,ppid=") {
-        return mockResult(psChildOutput([[200, 100], [300, 100]]));
-      }
-      if (cmd === "ps" && args[0] === "-p" && args[1] === "200,300") {
-        return mockResult(`  ${PI_PGID}\n  300\n`);
-      }
-      return fail();
-    };
-    const tracked = new Set<number>();
-    const excluded = new Set<number>([PI_PGID]);
-    captureChildPgids(100, tracked, { _spawnSync: mock, excludedPgids: excluded });
-    expect(tracked.has(PI_PGID)).toBe(false);
-    expect(tracked.has(300)).toBe(true);
   });
 });

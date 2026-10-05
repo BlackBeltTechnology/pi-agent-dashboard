@@ -10,7 +10,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import { classifyCarrierLoss } from "../session/death-reason.js";
 import { createHostPressureTracker, type HostPressure } from "../session/host-pressure-tracker.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
+import { normalizeUsageSeed, type SessionManager } from "../session/memory-session-manager.js";
 import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
@@ -86,7 +86,19 @@ export interface PiGatewayOptions {
 }
 
 export interface PiGateway {
-  start(port: number, host?: string): void;
+  start(port: number, host?: string, opts?: { kind?: "tcp" | "loopback" }): void;
+  /**
+   * Serve bridges on `127.0.0.1:<port>` because the unix socket cannot be
+   * used. Requires the local token or a ticket — no tokenless grace — and
+   * resolves once listening, rejecting if the port is unavailable.
+   * See change: fix-gateway-socket-stale-owner (D5).
+   */
+  startLoopbackFallback(port: number, reason: "occupied" | "unsupported"): Promise<void>;
+  /** Every active bridge listener, for `/api/health` (D7). No path, no pid. */
+  bridgeListeners(): {
+    listeners: Array<"unix" | "tcp" | "loopback" | "loopback-fallback">;
+    fallbackReason?: "occupied" | "unsupported";
+  };
   /**
    * Bind the local unix-domain socket. Async and REFUSABLE: a path with a
    * live listener aborts with `GatewaySocketConflictError` rather than
@@ -173,6 +185,9 @@ export function createPiGateway(
   /** The UDS listener, when this instance serves bridges over a socket (D1). */
   let socketServer: http.Server | null = null;
   let socketPath: string | null = null;
+  /** What the TCP `wss` is for (health, spawn pinning). See D7. */
+  let tcpKind: "tcp" | "loopback" | "loopback-fallback" | null = null;
+  let fallbackReason: "occupied" | "unsupported" | undefined;
 
   // Map sessionId → WebSocket
   const connections = new Map<string, WebSocket>();
@@ -874,6 +889,10 @@ export function createPiGateway(
                 // normalization as the untrusted inputs above.
                 // See change: fix-spawn-correlation-ttl-coupling (D3).
                 dashboardSpawned: msg.dashboardSpawned === true,
+                // Untrusted socket input: normalized to finite non-negative
+                // numbers or dropped. Applied by `register` only for an id the
+                // server has no record of. See change: count-non-message-usage.
+                usageSeed: normalizeUsageSeed(msg.usageSeed),
               });
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 
@@ -1014,6 +1033,70 @@ export function createPiGateway(
       });
   };
 
+  const startTcp = (
+    port: number,
+    host: string | undefined,
+    tcpOpts: { kind: "tcp" | "loopback" | "loopback-fallback"; requireLocalCredential?: boolean },
+  ) => {
+    // A listener already exists (socket transport): replacing `wss` here
+    // would orphan it and silently re-route socket upgrades into the TCP
+    // server's client set. Both transports are meant to SHARE one
+    // WebSocketServer (D10), so refuse the ordering that cannot.
+    if (wss) {
+      throw new Error(
+        "pi-gateway: start() after startOnSocket() would orphan the socket listener; " +
+          "start the TCP listener first, or serve the socket transport alone",
+      );
+    }
+    // Every TCP upgrade passes the bridge-auth gate; the unix socket does
+    // not (the kernel already decided — D5). `verifyClient` refuses BEFORE
+    // the socket exists, so no unauthenticated bridge connection is ever
+    // accepted and then closed.
+    const bridgeAuth = options?.bridgeAuth;
+    const verifyClient = bridgeAuth
+      ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
+          // A unix-socket peer is exempt (D5): the socket is 0600 inside a
+          // 0700 directory, so the kernel decided before we were asked, and
+          // there is no address to authenticate anyway. The gate below is
+          // written for TCP and hardcodes `transport: "tcp"` — running it
+          // here would refuse every local bridge in any deployment that also
+          // enables TCP, which is the shipped container.
+          if (unixUpgrades.has(info.req)) {
+            done(true);
+            return;
+          }
+          const verdict = decideBridgeUpgrade({
+            transport: "tcp",
+            remoteAddress: info.req.socket.remoteAddress ?? undefined,
+            headers: info.req.headers,
+            url: info.req.url,
+            secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
+            // The fallback has no tokenless grace: a squatter must not register.
+            requireTicketOnLoopback: tcpOpts.requireLocalCredential ? true : bridgeAuth.requireTicketOnLoopback,
+            consumeTicket: bridgeAuth.consumeTicket,
+            verifyLocalToken: bridgeAuth.verifyLocalToken,
+          });
+          const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
+          if (!verdict.allow) {
+            // Logged server-side only: the client is told nothing beyond
+            // "401", so the named cause is not an oracle.
+            log(`[pi-gateway] ${verdict.reason}`);
+            done(false, 401, "unauthorised bridge upgrade");
+            return;
+          }
+          if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
+          if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
+          done(true);
+        }
+      : undefined;
+    wss = new WebSocketServer(
+      host ? { port, host, verifyClient } : { port, verifyClient },
+    );
+    attachConnectionHandler(wss, "tcp");
+    tcpKind = tcpOpts.kind;
+    startHeartbeat();
+  };
+
   return {
     set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
       onEvent = handler;
@@ -1071,7 +1154,14 @@ export function createPiGateway(
     },
     transport() {
       if (socketPath) return { transport: "unix" as const, path: socketPath };
-      const addr = socketServer?.address() ?? wss?.address();
+      // `ws` throws on address() in noServer mode (e.g. after a failed socket
+      // bind); this accessor must never throw.
+      let addr: ReturnType<http.Server["address"]> = null;
+      try {
+        addr = socketServer?.address() ?? wss?.address() ?? null;
+      } catch {
+        addr = null;
+      }
       if (addr && typeof addr === "object") return { transport: "tcp" as const, port: addr.port };
       return null;
     },
@@ -1085,11 +1175,24 @@ export function createPiGateway(
      * per-bridge property rather than a per-server mode (D10).
      */
     async startOnSocket(path: string) {
+      let createdWss = false;
       if (!wss) {
         wss = new WebSocketServer({ noServer: true });
         attachConnectionHandler(wss, "unix");
+        createdWss = true;
       }
-      const server = await bindGatewaySocket({ socketPath: path });
+      let server: http.Server;
+      try {
+        server = await bindGatewaySocket({ socketPath: path });
+      } catch (err) {
+        // A refused bind must leave no half-started listener behind: a stale
+        // `noServer` wss makes `start()` refuse and `transport()` throw.
+        if (createdWss) {
+          wss?.close();
+          wss = null;
+        }
+        throw err;
+      }
       // Capture the CURRENT wss: routing socket upgrades through a mutable
       // binding would send them to whatever server a later start() installed.
       const target = wss;
@@ -1107,62 +1210,34 @@ export function createPiGateway(
       socketPath = path;
       startHeartbeat();
     },
-    start(port: number, host?: string) {
-      // A listener already exists (socket transport): replacing `wss` here
-      // would orphan it and silently re-route socket upgrades into the TCP
-      // server's client set. Both transports are meant to SHARE one
-      // WebSocketServer (D10), so refuse the ordering that cannot.
-      if (wss) {
-        throw new Error(
-          "pi-gateway: start() after startOnSocket() would orphan the socket listener; " +
-            "start the TCP listener first, or serve the socket transport alone",
-        );
+    start(port: number, host?: string, startOpts?: { kind?: "tcp" | "loopback" }) {
+      startTcp(port, host, { kind: startOpts?.kind ?? "tcp" });
+    },
+    async startLoopbackFallback(port: number, reason: "occupied" | "unsupported") {
+      if (!options?.bridgeAuth) {
+        // Fail closed: the fallback is only defensible behind an auth gate.
+        throw new Error("pi-gateway: the loopback fallback requires bridge auth");
       }
-      // Every TCP upgrade passes the bridge-auth gate; the unix socket does
-      // not (the kernel already decided — D5). `verifyClient` refuses BEFORE
-      // the socket exists, so no unauthenticated bridge connection is ever
-      // accepted and then closed.
-      const bridgeAuth = options?.bridgeAuth;
-      const verifyClient = bridgeAuth
-        ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
-            // A unix-socket peer is exempt (D5): the socket is 0600 inside a
-            // 0700 directory, so the kernel decided before we were asked, and
-            // there is no address to authenticate anyway. The gate below is
-            // written for TCP and hardcodes `transport: "tcp"` — running it
-            // here would refuse every local bridge in any deployment that also
-            // enables TCP, which is the shipped container.
-            if (unixUpgrades.has(info.req)) {
-              done(true);
-              return;
-            }
-            const verdict = decideBridgeUpgrade({
-              transport: "tcp",
-              remoteAddress: info.req.socket.remoteAddress ?? undefined,
-              headers: info.req.headers,
-              url: info.req.url,
-              secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
-              requireTicketOnLoopback: bridgeAuth.requireTicketOnLoopback,
-              consumeTicket: bridgeAuth.consumeTicket,
-              verifyLocalToken: bridgeAuth.verifyLocalToken,
-            });
-            const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
-            if (!verdict.allow) {
-              // Logged server-side only: the client is told nothing beyond
-              // "401", so the named cause is not an oracle.
-              log(`[pi-gateway] ${verdict.reason}`);
-              done(false, 401, "unauthorised bridge upgrade");
-              return;
-            }
-            if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
-            if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
-            done(true);
-          }
-        : undefined;
-      wss = new WebSocketServer(
-        host ? { port, host, verifyClient } : { port, verifyClient },
-      );
-      attachConnectionHandler(wss, "tcp");
-      startHeartbeat();
+      startTcp(port, "127.0.0.1", { kind: "loopback-fallback", requireLocalCredential: true });
+      const server = wss as WebSocketServer;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once("listening", resolve);
+          server.once("error", reject);
+        });
+      } catch (err) {
+        server.close();
+        wss = null;
+        tcpKind = null;
+        throw err;
+      }
+      fallbackReason = reason;
+    },
+    bridgeListeners() {
+      const listeners: Array<"unix" | "tcp" | "loopback" | "loopback-fallback"> = [];
+      if (socketServer) listeners.push("unix");
+      if (tcpKind) listeners.push(tcpKind);
+      return { listeners, ...(fallbackReason ? { fallbackReason } : {}) };
     },
 
     stop() {
@@ -1187,6 +1262,8 @@ export function createPiGateway(
       connections.clear();
       wss?.close();
       wss = null;
+      tcpKind = null;
+      fallbackReason = undefined;
       // Remove the socket file on clean shutdown; idempotent w.r.t. a file
       // that is already gone (task 2.5).
       if (socketPath) {
