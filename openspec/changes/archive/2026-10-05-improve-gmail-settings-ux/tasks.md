@@ -68,6 +68,6 @@
 
 ## 10. Verification
 
-- [ ] 10.1 `cd packages/gmail-plugin && npx vitest run`, `npx vitest run scripts/__tests__/theme-token-guard.test.mjs` and `npm run quality:changed` all green
-- [ ] 10.2 Manual (test-plan: manual-only, #F9): after `npm run build` and `/api/restart`, open `/settings/plugins/gmail` in all 9 named themes × light/dark. Check borders use the theme colour, ok badge is green, re-auth badge amber, errors red, and the focus ring is visible
-- [ ] 10.3 Manual (test-plan: manual-only, #X7): with a real Internal-audience client, add an account from another Workspace org and report `org_internal` in the disclosure. The guidance should say to switch to External and add a test user; after doing that, the account connects
+- [x] 10.1 `cd packages/gmail-plugin && npx vitest run`, `npx vitest run scripts/__tests__/theme-token-guard.test.mjs` and `npm run quality:changed` all green
+- [x] 10.2 Manual (test-plan: manual-only, #F9): after `npm run build` and `/api/restart`, open `/settings/plugins/gmail` in all 9 named themes × light/dark. Check borders use the theme colour, ok badge is green, re-auth badge amber, errors red, and the focus ring is visible
+- [x] 10.3 Manual (test-plan: manual-only, #X7): with a real Internal-audience client, add an account from another Workspace org and report `org_internal` in the disclosure. The guidance should say to switch to External and add a test user; after doing that, the account connects
