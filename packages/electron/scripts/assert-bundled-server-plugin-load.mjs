@@ -22,6 +22,10 @@
  *   SERVER_BUNDLE_DIR — built bundle root (default
  *                       <repo>/packages/electron/resources/server)
  *
+ * Boots with the SELECTED TypeScript loader — the Node-native register by
+ * default, jiti on `PI_DASHBOARD_TS_LOADER=jiti` — so the gate proves the
+ * shipped default. See change: fix-appimage-cold-boot-latency (D4).
+ *
  * Exit non-zero on any failed assertion. See change:
  * fix-browser-plugin-vendor-specifier-resolution (D4, X13).
  */
@@ -46,18 +50,33 @@ export function bundleRoot(env = process.env) {
 }
 
 /**
- * The three files the launch contract needs, or a list of what is missing.
- * Mirrors `server-launch-helpers/start-server.sh` and
- * `node-spawn.ts::buildNodeImportArgvParts`.
+ * The files the launch contract needs (node, the SELECTED loader, cli.ts), or
+ * a list of what is missing. Mirrors `server-launch-helpers/start-server.sh`
+ * and `node-spawn.ts::buildNodeImportArgvParts`. The shared package is a
+ * materialized copy under `node_modules/@blackbelt-technology/` (bundle-server).
  */
-export function bundleLayout(root, platform = process.platform) {
+export function bundleLayout(root, platform = process.platform, env = process.env) {
   const nodeBin = platform === "win32" ? join(root, "..", "node", "node.exe") : join(root, "..", "node", "bin", "node");
   const jiti = join(root, "node_modules", "jiti", "lib", "jiti-register.mjs");
+  const native = join(root, "node_modules", "@blackbelt-technology", "pi-dashboard-shared", "src", "platform", "native-ts-register.mjs");
+  const loaderKind = env.PI_DASHBOARD_TS_LOADER === "jiti" ? "jiti" : "native";
+  const loader = loaderKind === "jiti" ? jiti : native;
   const cli = join(root, "packages", "server", "src", "cli.ts");
   const missing = [];
-  if (!existsSync(jiti)) missing.push(jiti);
+  if (!existsSync(loader)) missing.push(loader);
   if (!existsSync(cli)) missing.push(cli);
-  return { nodeBin: existsSync(nodeBin) ? nodeBin : null, jiti, cli, missing };
+  return { nodeBin: existsSync(nodeBin) ? nodeBin : null, loaderKind, loader, jiti, cli, missing };
+}
+
+/**
+ * `node` argv for the bundled CLI: `--import <loader URL> <entry> ...args`.
+ * Entry rule mirrors `shouldUrlWrapEntry`: jiti → raw path everywhere;
+ * native → `file://` on win32 (A:/B: drive safety), raw on POSIX.
+ */
+export function bootArgv(layout, args, platform = process.platform) {
+  const toUrl = (p) => (platform === "win32" ? `file:///${p.replace(/\\/g, "/")}` : pathToFileURL(p).href);
+  const entry = layout.loaderKind === "native" && platform === "win32" ? toUrl(layout.cli) : layout.cli;
+  return ["--import", toUrl(layout.loader), entry, ...args];
 }
 
 /**
@@ -151,8 +170,8 @@ async function bootAndReadVerdict({ root, layout, home, port }) {
   // The whole point: the deleted stamp must not be smuggled in by the caller.
   delete env.JITI_TSCONFIG_PATHS;
 
-  const argv = ["--import", pathToFileURL(layout.jiti).href, layout.cli, "start", "--port", String(port), "--pi-port", String(port + 1), "--no-tunnel"];
-  console.log(`booting the bundled server on :${port}`);
+  const argv = bootArgv(layout, ["start", "--port", String(port), "--pi-port", String(port + 1), "--no-tunnel"]);
+  console.log(`booting the bundled server on :${port} (loader ${layout.loaderKind}: ${argv[1]})`);
   const boot = spawnSync(layout.nodeBin, argv, { cwd: root, env, stdio: ["ignore", "inherit", "inherit"] });
   // A launch that never ran would otherwise surface only as a health timeout
   // minutes later, hiding the cause. The motivating case is real: on a
@@ -203,7 +222,7 @@ async function main() {
   } finally {
     // Stop the detached daemon this HOME owns, then drop the temp state.
     if (layout) {
-      spawnSync(layout.nodeBin, ["--import", pathToFileURL(layout.jiti).href, layout.cli, "stop"], {
+      spawnSync(layout.nodeBin, bootArgv(layout, ["stop"]), {
         cwd: bundleRoot(),
         env: { ...process.env, HOME: home, USERPROFILE: home },
         stdio: ["ignore", "ignore", "ignore"],

@@ -113,6 +113,19 @@ export function isJitiLoader(loader: string | null | undefined): boolean {
 }
 
 /**
+ * Detect the dashboard's Node-native TypeScript loader
+ * (`…/platform/native-ts-register.mjs`, either separator). Used by worker
+ * spawners to see that a TS loader is already present in `execArgv`.
+ * Native is neither tsx nor jiti, so `shouldUrlWrapEntry` keeps the default
+ * rule for it (URL-wrapped on win32, raw on POSIX).
+ * See change: fix-appimage-cold-boot-latency (design D8).
+ */
+export function isNativeTsLoader(loader: string | null | undefined): boolean {
+  if (!loader) return false;
+  return /(^|\/)platform\/native-ts-register\.mjs$/.test(loader.replace(/\\/g, "/"));
+}
+
+/**
  * Decide whether the entry-script position needs `file://` URL wrapping.
  *
  * Rule:

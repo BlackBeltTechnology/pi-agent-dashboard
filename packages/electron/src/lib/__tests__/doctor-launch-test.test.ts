@@ -15,18 +15,18 @@
  * emitted (the actual ERR_UNSUPPORTED_ESM_URL_SCHEME trigger).
  */
 import { describe, it, expect } from "vitest";
-import { buildServerLaunchTestCmd, buildServerLaunchTestEnv } from "../doctor.js";
+import { buildServerLaunchTestCmd, buildServerLaunchTestEnv, selectServerLaunchTestLoader } from "../doctor.js";
 
 describe("buildServerLaunchTestCmd", () => {
   const nodeBin = "/bundled/node";
-  const jitiUrl = "file:///bundled/jiti-register.mjs";
+  const loaderUrl = "file:///bundled/jiti-register.mjs";
 
   // The probe embeds the script inside `-e "..."`, so the inner import quotes
   // are shell-escaped to \". Assert on the unescaped logical `-e` script.
   const unescape = (cmd: string) => cmd.replace(/\\"/g, '"');
 
   it("never emits a raw Windows drive-letter import (the ERR trigger)", () => {
-    const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli: "C:\\Users\\test\\cli.ts" });
+    const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli: "C:\\Users\\test\\cli.ts" });
     // Bug form was `import "C:\…"` — backslash drive path. Must never appear.
     expect(cmd).not.toContain('import "C:\\');
     expect(cmd).not.toContain("C:\\Users");
@@ -34,20 +34,20 @@ describe("buildServerLaunchTestCmd", () => {
   });
 
   it.runIf(process.platform === "win32")("emits file:///C:/… on win32", () => {
-    const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli: "C:\\Users\\test\\cli.ts" });
+    const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli: "C:\\Users\\test\\cli.ts" });
     expect(unescape(cmd)).toContain('import "file:///C:/Users/test/cli.ts"');
   });
 
   it("emits file:// URL form for a POSIX absolute path", () => {
-    const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli: "/Users/test/cli.ts" });
+    const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli: "/Users/test/cli.ts" });
     expect(unescape(cmd)).toContain('import "file:///Users/test/cli.ts"');
     expect(cmd).not.toContain('import "/Users/test');
   });
 
   it("preserves the node/jiti/setTimeout shell template", () => {
-    const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli: "/Users/test/cli.ts" });
+    const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli: "/Users/test/cli.ts" });
     expect(cmd).toBe(
-      `"${nodeBin}" --import "${jitiUrl}" -e "import \\"file:///Users/test/cli.ts\\"; setTimeout(() => process.exit(0), 100)"`,
+      `"${nodeBin}" --import "${loaderUrl}" -e "import \\"file:///Users/test/cli.ts\\"; setTimeout(() => process.exit(0), 100)"`,
     );
   });
 });
@@ -64,5 +64,31 @@ describe("buildServerLaunchTestEnv (#720)", () => {
     const env = buildServerLaunchTestEnv("C:\\b\\node.exe", { Path: "C:\\Git\\cmd" }, "win32");
     expect(pathKeys(env)).toEqual(["PATH"]);
     expect(env.PATH).toBe("C:\\b;C:\\Git\\cmd");
+  });
+});
+
+/**
+ * E30 (Electron half) — the Server launch test probes with the SELECTED
+ * loader: native by default (no "No jiti loader" even when jiti is absent);
+ * the jiti opt-in keeps today's "No jiti loader (install pi)".
+ * See change: fix-appimage-cold-boot-latency (design D4).
+ */
+describe("selectServerLaunchTestLoader (E30)", () => {
+  const NATIVE = "file:///b/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  const deps = (env: NodeJS.ProcessEnv) => ({ env, resolveJiti: () => null, resolveNative: () => NATIVE });
+
+  it("env unset + no jiti → native probe, nothing missing", () => {
+    const sel = selectServerLaunchTestLoader(deps({}));
+    expect(sel).toEqual({ loaderUrl: NATIVE, missing: null });
+    const cmd = buildServerLaunchTestCmd({ nodeBin: "/b/node", loaderUrl: sel.loaderUrl!, testCli: "/b/cli.ts" });
+    expect(cmd).toContain(`--import "${NATIVE}"`);
+    expect(cmd).not.toMatch(/jiti/);
+  });
+
+  it("jiti opt-in + no jiti → 'No jiti loader (install pi)'", () => {
+    expect(selectServerLaunchTestLoader(deps({ PI_DASHBOARD_TS_LOADER: "jiti" }))).toEqual({
+      loaderUrl: null,
+      missing: "No jiti loader (install pi)",
+    });
   });
 });

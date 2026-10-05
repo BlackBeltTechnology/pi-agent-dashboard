@@ -2,8 +2,9 @@
 rem ============================================================================
 rem start-server.cmd  -  manual launch of the bundled dashboard server (Windows)
 rem
-rem Resolves bundled node.exe + bundled jiti loader from THIS script's location
-rem and invokes the same argv shape that the Electron main process uses.
+rem Resolves bundled node.exe + the bundled TypeScript loader from THIS script's
+rem location and invokes the same argv shape that the Electron main process uses.
+rem Loader: Node-native (default) or jiti when PI_DASHBOARD_TS_LOADER=jiti.
 rem No system Node required.
 rem
 rem Usage:
@@ -14,7 +15,7 @@ rem   start-server.cmd restart
 rem
 rem Argv contract: packages/shared/src/platform/node-spawn.ts
 rem   :: buildNodeImportArgvParts
-rem See change: add-bundle-manual-launch-scripts.
+rem See changes: add-bundle-manual-launch-scripts, fix-appimage-cold-boot-latency.
 rem ============================================================================
 setlocal
 
@@ -25,14 +26,18 @@ set "SVR_DIR=%~dp0"
 rem Bundled node lives one level up under resources\node\
 set "NODE_EXE=%SVR_DIR%..\node\node.exe"
 
-rem Build the jiti loader file:// URL.
+rem Build the TypeScript loader file:// URL (native default, jiti opt-in).
 rem URL form requires forward slashes; %~dp0 uses backslashes.
+rem Entry: jiti needs the RAW Windows path (JITI VERSION CONTRACT); the native
+rem loader gets a file:// URL so A:/B: drives are not parsed as URL schemes.
 set "SVR_URL=%SVR_DIR:\=/%"
-set "JITI_URL=file:///%SVR_URL%node_modules/jiti/lib/jiti-register.mjs"
-
-rem Entry passed as raw Windows path. Node's drive-letter heuristic
-rem accepts argv-position drive letters; jiti hook then takes over.
-set "CLI=%SVR_DIR%packages\server\src\cli.ts"
+if /i "%PI_DASHBOARD_TS_LOADER%"=="jiti" (
+  set "LOADER_URL=file:///%SVR_URL%node_modules/jiti/lib/jiti-register.mjs"
+  set "CLI=%SVR_DIR%packages\server\src\cli.ts"
+) else (
+  set "LOADER_URL=file:///%SVR_URL%node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs"
+  set "CLI=file:///%SVR_URL%packages/server/src/cli.ts"
+)
 
 rem If user passed no args, default to "start"
 if "%~1"=="" (
@@ -42,7 +47,7 @@ if "%~1"=="" (
 )
 
 cd /d "%SVR_DIR%"
-"%NODE_EXE%" --import "%JITI_URL%" "%CLI%" %ARGS%
+"%NODE_EXE%" --import "%LOADER_URL%" "%CLI%" %ARGS%
 set "EC=%ERRORLEVEL%"
 
 echo.

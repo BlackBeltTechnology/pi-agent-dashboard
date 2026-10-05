@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -205,11 +206,14 @@ async function performAtomicMdWrite(
 
 // Lazy asciidoctor singleton. First call cost ~Opal init; the server is
 // long-running so we eat it once. See change: render-file-previews.
+// `createRequire`, not a bare `require`: the native TS loader runs this file as
+// ESM, where `require` is undefined (jiti used to inject it). Same pattern as
+// lib/purify.ts. See change: fix-appimage-cold-boot-latency.
+const nativeRequire = createRequire(import.meta.url);
 let asciidoctorInstance: any | null = null;
 function getAsciidoctor(): any {
   if (!asciidoctorInstance) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const factory = require("asciidoctor");
+    const factory = nativeRequire("asciidoctor");
     asciidoctorInstance = factory();
   }
   return asciidoctorInstance;

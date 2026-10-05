@@ -5,7 +5,7 @@
  * See change: fix-windows-entry-script-url.
  */
 import { describe, it, expect, vi } from "vitest";
-import { toFileUrl, spawnNodeScript, isTsxLoader, shouldUrlWrapEntry } from "../platform/node-spawn.js";
+import { toFileUrl, spawnNodeScript, isTsxLoader, isJitiLoader, isNativeTsLoader, shouldUrlWrapEntry } from "../platform/node-spawn.js";
 import * as execModule from "../platform/exec.js";
 
 describe("toFileUrl", () => {
@@ -58,6 +58,27 @@ describe("isTsxLoader", () => {
   it("returns false for undefined / empty", () => {
     expect(isTsxLoader(undefined)).toBe(false);
     expect(isTsxLoader("")).toBe(false);
+  });
+});
+
+// E12 — native-loader identity (segment `platform/native-ts-register.mjs`,
+// either separator). See change: fix-appimage-cold-boot-latency.
+describe("isNativeTsLoader (E12)", () => {
+  const nativeUrl = "file:///x/node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  const nativeWin = "C:\\x\\pi-dashboard-shared\\src\\platform\\native-ts-register.mjs";
+  const otherPkg = "/x/other-pkg/native-ts-register.mjs";
+  const jiti = "file:///a/node_modules/jiti/lib/jiti-register.mjs";
+
+  it("matches the native register by URL and raw Windows path only", () => {
+    expect([nativeUrl, nativeWin, otherPkg, jiti].map(isNativeTsLoader)).toEqual([true, true, false, false]);
+    expect(isNativeTsLoader(undefined)).toBe(false);
+  });
+
+  it("jiti / tsx predicates stay false on the native inputs", () => {
+    for (const l of [nativeUrl, nativeWin]) {
+      expect(isJitiLoader(l)).toBe(false);
+      expect(isTsxLoader(l)).toBe(false);
+    }
   });
 });
 

@@ -33,7 +33,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { shouldUrlWrapEntry, isJitiLoader, isTsxLoader } from "../platform/node-spawn.js";
+import { shouldUrlWrapEntry, isJitiLoader, isTsxLoader, buildNodeImportArgvParts } from "../platform/node-spawn.js";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..");
@@ -101,5 +101,23 @@ describe("jiti behavioural contract for shouldUrlWrapEntry", () => {
           "See change: fix-windows-standalone-spawn.",
       );
     }
+  });
+});
+
+// E13 — the native loader keeps the default entry-wrap rule: URL-wrapped on
+// win32 (A:/B: drive safety), raw on POSIX; loader always `file://`.
+// See change: fix-appimage-cold-boot-latency (design D8).
+describe("native loader entry-wrap (E13)", () => {
+  const native = "file:///x/pi-dashboard-shared/src/platform/native-ts-register.mjs";
+  it.each([
+    ["win32", "B:\\Dev\\cli.ts", "file:///B:/Dev/cli.ts"],
+    ["linux", "/x/cli.ts", "/x/cli.ts"],
+    ["darwin", "/x/cli.ts", "/x/cli.ts"],
+  ] as const)("%s: entry %s → %s", (platform, entry, expected) => {
+    const parts = buildNodeImportArgvParts({ loader: native, entry, platform });
+    expect(parts[0]).toBe("--import");
+    expect(parts[1]).toBe(native);
+    expect(parts[1]!.startsWith("file://")).toBe(true);
+    expect(parts[2]).toBe(expected);
   });
 });
