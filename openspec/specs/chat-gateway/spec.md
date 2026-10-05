@@ -359,6 +359,36 @@ and persisted bindings SHALL prevent a duplicate thread after a restart.
 - **WHEN** a session is hidden (headless worker or plugin-hidden)
 - **THEN** it SHALL be neither listed nor auto-mirrored
 
+### Requirement: Close a conversation from chat
+A whole-message `!close` sent inside a bound thread SHALL be authorized as the chat-local
+verb `close_session` (tier `control`) with the bound session as target. When permitted:
+
+- a thread whose session the gateway started or resumed (`source` `spawn`/`resume`) SHALL
+  have its live session ended through the host's `shutdownSession` hook — the same shutdown
+  the dashboard's Shutdown control performs — before anything else changes; if the host
+  refuses, nothing SHALL change and the author SHALL be told;
+- a thread bound by attach (`source: "attach"`) SHALL only be detached; the session SHALL
+  keep running;
+- in both cases the binding SHALL be removed, the session SHALL stop streaming into chat
+  unless another binding still needs it, the author SHALL get a confirmation, and the
+  thread SHALL be archived when the adapter supports it.
+
+`!close` in a channel root SHALL only reply with a hint, and in an unbound thread SHALL
+reply that there is nothing to close. Text that merely starts with `!close` SHALL remain a
+steer prompt. Deleting channels SHALL NOT be possible from chat.
+
+#### Scenario: Close a gateway-started conversation
+- **WHEN** a `control` user sends `!close` in a thread whose live session the gateway started
+- **THEN** that session SHALL be shut down, the binding removed and the thread archived
+
+#### Scenario: Close an attached thread
+- **WHEN** a `control` user sends `!close` in a thread bound by attach
+- **THEN** the binding SHALL be removed and the thread archived, and the session SHALL keep running
+
+#### Scenario: Observe principal cannot close
+- **WHEN** an `observe` user sends `!close` in a bound thread
+- **THEN** the request SHALL be refused and nothing SHALL change
+
 ### Requirement: Configuration surface
 The gateway SHALL expose configuration for: the Discord bot token, `allowedRoots`, the
 fixed channel→cwd map, the user allowlist and admins, `sessionVisibility`,

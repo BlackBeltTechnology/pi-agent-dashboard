@@ -3116,6 +3116,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) return false;
                 return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
               },
+              // Session-shutdown hook (Chat Gateway `!close`). Reuses the ONE
+              // shutdown body the browser + REST paths share — never a parallel
+              // {type:"shutdown"} send (#449/#452). Same trust gate as above.
+              // See change: chat-gateway-close-command.
+              shutdownSession: async (sessionId) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (!sessionManager.get(sessionId)) return false;
+                await browserGateway.shutdownSession(sessionId);
+                return true;
+              },
               // Terminate an automation run's spawned session. Same trust
               // gate as spawnSession/abortSession. `graceful` sends a clean-
               // exit {type:"shutdown"} hint AND escalates via the kill

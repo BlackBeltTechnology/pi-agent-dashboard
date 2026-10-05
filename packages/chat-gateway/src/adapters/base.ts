@@ -196,6 +196,12 @@ export interface PlatformAdapter {
 		messageId: string,
 		name: string,
 	): Promise<{ threadId: string }>;
+
+	/**
+	 * Archive (close) a thread. Optional — without it `!close` still unbinds.
+	 * See change: chat-gateway-close-command.
+	 */
+	archiveThread?(threadId: string): Promise<void>;
 }
 
 /**

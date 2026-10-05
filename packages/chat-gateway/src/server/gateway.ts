@@ -294,6 +294,8 @@ const THREAD_NAME_LIMIT = 100;
 const SESSIONS_COMMAND = /^\s*!\s*sessions\s*$/i;
 /** Whole-message `!attach <number | id-prefix>`. */
 const ATTACH_COMMAND = /^\s*!\s*attach\s+(\S+)\s*$/i;
+/** Whole-message `!close` (inside a thread). See change: chat-gateway-close-command. */
+const CLOSE_COMMAND = /^\s*!\s*close\s*$/i;
 /** Max rows in a `!sessions` reply (keeps it under Discord's 2000 chars). */
 const LIST_LIMIT = 25;
 
@@ -884,6 +886,67 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     }
   }
 
+  /**
+   * `!close` inside a bound thread. A conversation the gateway STARTED
+   * (`spawn`/`resume`) is shut down like the dashboard Shutdown; an ATTACHED
+   * session is the operator's and only detached. Either way the binding is
+   * dropped and the thread archived. Authorized as `close_session` (control).
+   * See change: chat-gateway-close-command.
+   */
+  /** Drop a binding; stop streaming the session when no other binding needs it. */
+  function unbind(key: string, sessionId: string): void {
+    store.remove(key);
+    if (channelKeyFor(sessionId)) return;
+    unsubscribes.get(sessionId)?.();
+    unsubscribes.delete(sessionId);
+    subscriptions.delete(sessionId);
+  }
+
+  /** Shut down a gateway-started session that is still live. `false` ⇒ host refused. */
+  async function endOwnedSession(binding: Binding, live: boolean): Promise<boolean> {
+    if (binding.source === "attach" || !live) return true;
+    return seam.shutdownSession(binding.sessionId);
+  }
+
+  /** The thread binding `!close` acts on; `null` after telling the author why not. */
+  async function closeTarget(
+    msg: InboundMessage,
+  ): Promise<{ key: string; binding: Binding; threadId: string } | null> {
+    if (!msg.threadId) {
+      await reply(msg.channelId, "Use `!close` inside a thread to close that conversation.");
+      return null;
+    }
+    const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
+    const binding = store.get(key);
+    if (!binding) {
+      await reply(msg.channelId, "Nothing to close here: this thread is not linked to a session.");
+      return null;
+    }
+    return { key, binding, threadId: msg.threadId };
+  }
+
+  async function handleCloseCommand(msg: InboundMessage): Promise<void> {
+    const target = await closeTarget(msg);
+    if (!target) return;
+    const { key, binding, threadId } = target;
+    const session = seam.listSessions().find((s) => s.id === binding.sessionId);
+    if (!(await gateCommand(msg, "close_session", session ?? { id: binding.sessionId, cwd: binding.cwd }))) return;
+    if (!(await endOwnedSession(binding, session !== undefined))) {
+      await reply(msg.channelId, "Could not close the session (the gateway lacks the trust level to shut it down).");
+      return;
+    }
+    unbind(key, binding.sessionId);
+    await reply(
+      msg.channelId,
+      binding.source === "attach"
+        ? "Detached. The session keeps running on the dashboard. Archiving this thread."
+        : "Session closed. Archiving this thread.",
+    );
+    await adapter.archiveThread?.(threadId).catch((err) =>
+      seam.log("warn", `chat-gateway: could not archive thread ${threadId}: ${String(err)}`),
+    );
+  }
+
   /** The workspace channel whose folders contain `cwd` (team-controls only). */
   function workspaceChannelFor(cwd: string): string | undefined {
     if (!team) return undefined;
@@ -1292,6 +1355,10 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // taken for a command. Authorized through the same chokepoint.
       if (SESSIONS_COMMAND.test(msg.text)) {
         await handleSessionsCommand(msg);
+        return;
+      }
+      if (CLOSE_COMMAND.test(msg.text)) {
+        await handleCloseCommand(msg);
         return;
       }
       const attachArg = ATTACH_COMMAND.exec(msg.text)?.[1];

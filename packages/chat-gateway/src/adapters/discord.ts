@@ -331,6 +331,13 @@ export class DiscordAdapter extends BaseAdapter {
     return { threadId: thread.id };
   }
 
+  /** Archive a thread (`!close`). See change: chat-gateway-close-command. */
+  async archiveThread(threadId: string): Promise<void> {
+    const channel = await this.requireClient().channels.fetch(threadId);
+    if (!channel?.isThread()) throw new Error(`[discord] ${threadId} is not a thread`);
+    await channel.setArchived(true, "closed from chat (!close)");
+  }
+
   async sendMessage(channelId: string, content: string): Promise<string> {
     const channel = await this.sendableChannel(channelId);
     const chunks = chunkForDiscord(content);
