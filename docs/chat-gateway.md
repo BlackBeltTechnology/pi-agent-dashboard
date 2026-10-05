@@ -74,15 +74,28 @@ Canonical key format: `platform:channelId:threadId` (threads key independently f
 Precedence ladder:
 1. **Persisted binding**: Reads active binding from `~/.pi/dashboard/chat-gateway/bindings.json`.
    - Active connected session receives prompt.
-   - Ended session resumes automatically from transcript via `resume(continue)`.
+   - Ended session resumes automatically from transcript via `resume(continue)`; triggering message becomes `initialPrompt`.
    - Disconnected live session emits unreachable error into channel (`no bridge connection`).
-2. **Fixed mapping (`fixedMap`)**: Resolves `fixedMap[channelKey]`. If configured and within `allowedRoots`, spawns new session in mapped directory.
-3. **Default directory (`defaultCwd`)**: Falls back to `defaultCwd`. If configured and within `allowedRoots`, spawns new session.
+2. **Fixed mapping (`fixedMap`)**: Resolves `fixedMap[channelKey]`. If configured and within `allowedRoots`, spawns new session in mapped directory; triggering message becomes `initialPrompt`.
+3. **Default directory (`defaultCwd`)**: Falls back to `defaultCwd`. If configured and within `allowedRoots`, spawns new session; triggering message becomes `initialPrompt`.
 4. **Interactive attach**: Attaches to running session when exactly one open session exists within scope.
    - Bound channel: filters running sessions by bound workspace folders (`isWithinWorkspace`). Zero open sessions in range refuses attach, naming bound workspace folders (`This channel is bound to a workspace, but no live session is inside it (<folders>). Nothing was attached.`); prevents adopting out-of-workspace sessions from broader `allowedRoots`.
    - Unbound channel: filters running sessions by `allowedRoots`. Zero open sessions in range refuses attach; prompts operator to configure `fixedMap` or `defaultCwd`.
    - Ambiguous attach: multiple open sessions in scope refuses attach; prevents session hijack.
 5. **Refusal**: Returns explicit reason if candidate directory fails `allowedRoots` or resolution finds no target.
+
+### Spawn / Resume Prompt Delivery & Correlation
+
+- Fresh spawn and resume pass triggering message text to host as `initialPrompt`; `steerPrefix` stripped via `stripSteerPrefix` (fresh session has no turn to steer).
+- Host queues `initialPrompt` per cwd (`pendingInitialPromptRegistry`); dispatches it as the session's first turn once session registers.
+- Spawn reply: `Starting a session in <cwd>… your message will run once it is up.`
+- Resume reply: `Resuming the session… your message will run once it is up.`
+- Binding written on host `onSessionResolved`.
+- Correlation rides plugin-OWNED `pluginRef.chatSpawnToken` (+ `bindSource`).
+- Core-reserved ref keys stripped before owner notify (`CORE_RESERVED_REF_KEYS` in `packages/server/src/pending/pending-plugin-ref-registry.ts`: `spawnToken`, `source`, `sessionId`, `cwd`, `sessionFile`, `name`, …). Plugin must never correlate on them.
+- Regression (pre-fix): no `bindings.json` written; every message spawned an orphan session; `server.log` `[pending-plugin-ref-registry] dropped ref key "spawnToken"`.
+- Troubleshooting: `~/.pi/dashboard/chat-gateway/bindings.json` absent after a spawn + command-log only `spawn_session` entries → correlation broken.
+- See change: fix-chat-gateway-spawn-correlation.
 
 ## L1 Pairing Flow
 
@@ -292,4 +305,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation.

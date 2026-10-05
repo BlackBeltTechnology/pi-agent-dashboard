@@ -506,7 +506,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // placeholder would strand a binding pointing at no session (X8).
       const started = await spawnIn(msg, channelKey, resolved.cwd, resolved.source);
       if (!started) return null;
-      await reply(msg.channelId, `Starting a session in ${resolved.cwd}… answer again in a moment.`);
+      await reply(msg.channelId, `Starting a session in ${resolved.cwd}… your message will run once it is up.`);
       return null;
     }
 
@@ -587,6 +587,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
           "L3 toolPolicy is configured but guardExtension is not — refusing to start an ungated session.",
       };
     }
+    const initialPrompt = stripSteerPrefix(msg.text, config.steerPrefix).trim();
     const token = seam.mintSpawnToken();
     correlator.expect(token, {
       channelKey,
@@ -609,7 +610,14 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       cwd,
       name: `chat:${channelKey}`,
       spawnToken: token,
-      pluginRef: { kind: "chat-gateway", channelKey, spawnToken: token, source },
+      // Correlate through a key the plugin OWNS. `spawnToken` and `source` are
+      // core-reserved: the host's pending-ref registry strips them before
+      // `onSessionResolved`, so a ref keyed on them never binds the spawn.
+      pluginRef: { kind: "chat-gateway", channelKey, chatSpawnToken: token, bindSource: source },
+      // The message that caused the spawn is the session's first turn; without
+      // it the operator's request was dropped and they had to repeat it. A
+      // fresh/resumed session has no in-flight turn, so a steer prefix is moot.
+      ...(initialPrompt ? { initialPrompt } : {}),
       ...(resume ? { resume } : {}),
       ...(guardRef
         ? {
@@ -678,7 +686,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       await reply(msg.channelId, `Resume failed: ${res.message ?? "unknown error"}`);
       return true;
     }
-    await reply(msg.channelId, "Resuming the session… answer again in a moment.");
+    await reply(msg.channelId, "Resuming the session… your message will run once it is up.");
     return true;
   }
 
@@ -856,7 +864,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (running) return;
       running = true;
       offResolved = seam.onSessionResolved((sessionId, pluginRef) => {
-        const token = pluginRef?.spawnToken;
+        const token = pluginRef?.chatSpawnToken;
         if (typeof token !== "string") return;
         const meta = correlator.resolve(token, sessionId);
         if (!meta) return;
