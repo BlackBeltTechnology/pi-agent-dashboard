@@ -93,8 +93,21 @@ describe("pi-dashboard stop (real processes)", () => {
     const port = await freePort();
     await foreignListener(port);
     const r = runStop(outsideTmpHome(), ["--port", String(port), "--pi-port", String(port + 1), "--force"]);
+    expect(r.status).toBe(0);
     expect(r.stdout + r.stderr).toContain("NOT owned by this HOME");
     expect(await waitFor(async () => !(await answers(port)), 6_000)).toBe(true);
+  }, 90_000);
+
+  // E2 (review B1): the real entry point, temp HOME, no port flags — no bind-refusal
+  // warning (main() passes the no-op warn) and the 8000 default is never swept.
+  it("E2: `stop` under a temp HOME prints no [isolation] line and sweeps no production port", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "stop-real-e2-"));
+    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
+    const r = runStop(home, []);
+    expect(r.status).toBe(0);
+    expect(r.stdout + r.stderr).not.toContain("[isolation]");
+    expect(r.stdout).toContain("Dashboard server is not running");
+    expect(r.stdout).not.toContain("held by pid");
   }, 90_000);
 
   it("X6: a temp HOME stops its own dashboard", async () => {
