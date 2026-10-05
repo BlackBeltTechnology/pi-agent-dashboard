@@ -86,7 +86,15 @@ export function createTeam(d: TeamDeps): Team {
       if (!fs.existsSync(d.guardExtensionPath)) {
         d.logger.error("team.guard_missing: spawns will answer 503 guard_unavailable");
       }
-      await mountTeamRoutes(d.fastify, { access, personas, projects, conversations, users, logger: d.logger });
+      await mountTeamRoutes(d.fastify, {
+        access,
+        personas,
+        projects,
+        conversations,
+        users,
+        skills: () => Object.keys(d.config().skillCatalog ?? {}),
+        logger: d.logger,
+      });
       mountAppRoutes(d.fastify, d.distAppDir, d.logger);
       conversations.start(d.sweepEveryMs);
     },

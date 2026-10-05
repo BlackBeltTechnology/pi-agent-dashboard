@@ -20,6 +20,8 @@ export interface RouteDeps {
   projects: ProjectRegistry;
   conversations: ConversationService;
   users: UsersStore;
+  /** Admin skill catalog names (personas pick names only). */
+  skills: () => string[];
   logger: { warn(msg: string): void; error(msg: string): void };
 }
 
@@ -73,7 +75,7 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
       P("/me"),
       wrap((_req, _reply, c) => {
         if (d.access.mode() === "multi") d.users.record(c);
-        return { uk: c.uk, iss: c.iss, sub: c.sub, admin: c.admin, mode: d.access.mode() };
+        return { uk: c.uk, iss: c.iss, sub: c.sub, admin: c.admin, mode: d.access.mode(), maxConversations: d.conversations.limit(), skills: d.skills() };
       }),
     );
 
@@ -108,6 +110,7 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
               cwd,
               project: p ? { id: p.id, name: p.name, available: p.available, source: p.source, agents: counts?.agents ?? 0, active: counts?.active ?? 0 } : null,
               enableable: d.projects.enableable(c, cwd),
+              manageable: !!p && p.source === "folder" && c.admin,
             };
           }),
         };

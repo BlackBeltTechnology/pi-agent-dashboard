@@ -145,6 +145,10 @@ export class ConversationService {
     const v = this.d.config().maxConversations;
     return typeof v === "number" && v >= 1 ? Math.floor(v) : DEFAULT_MAX_CONVERSATIONS;
   }
+  /** Active-conversation cap per user × agent × target (config, default 50). */
+  limit(): number {
+    return this.maxConversations();
+  }
   private idleMs(): number {
     const v = this.d.config().idleMinutes;
     return (typeof v === "number" && v >= 0 ? v : DEFAULT_IDLE_MINUTES) * 60_000;

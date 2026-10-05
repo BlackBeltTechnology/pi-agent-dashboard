@@ -1,0 +1,7 @@
+@import "tailwindcss";
+/* ChatView utilities: scan the dashboard client + shared UI sources (docs/embedding-chat-view.md). */
+@source "../../../client/src";
+@source "../../../client-utils/src";
+@source "../../../dashboard-plugin-runtime/src";
+@import "./tokens.css";
+@import "./app.css";

@@ -1,0 +1,41 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-team-app",
+  "version": "0.8.0",
+  "private": true,
+  "description": "AI Team SPA (Marveen-style Csapat grid, persona editor, conversations). Built to dist/ and copied into team-plugin (served at /apps/team/); also embeddable via the ./app library entry.",
+  "type": "module",
+  "exports": {
+    "./app": {
+      "types": "./src/team-app.tsx",
+      "default": "./src/team-app.tsx"
+    }
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-app-kit": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-web": "^0.8.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "wouter": "^3.9.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.0",
+    "vitest": "^4.0.0"
+  }
+}

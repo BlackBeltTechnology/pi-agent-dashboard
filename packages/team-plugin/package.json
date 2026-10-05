@@ -46,12 +46,21 @@
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
     "configSchema": "./src/configSchema.json",
-    "claims": []
+    "claims": [
+      {
+        "slot": "sidebar-folder-section",
+        "component": "FolderTeamSection"
+      }
+    ],
+    "i18nCatalog": "catalog"
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@fastify/rate-limit": "^11.2.0"
+    "@fastify/rate-limit": "^11.2.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0"
   },
   "peerDependencies": {
     "fastify": "^5.0.0",
@@ -61,6 +70,9 @@
   },
   "devDependencies": {
     "fastify": "^5.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@testing-library/react": "^16.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1"
   }
 }

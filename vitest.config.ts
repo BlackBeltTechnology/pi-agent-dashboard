@@ -99,6 +99,8 @@ export default defineConfig({
       // team-plugin (change: add-team-plugin): personas, project teams, conversations and the
       // isolation guard. Its suites gate owner isolation and path confinement.
       "packages/team-plugin",
+      // team-app (change: add-team-plugin): the Csapat SPA — grid, selector, editor, conversations.
+      "packages/team-app",
       // Owns the pi-mcp-adapter config surface + version floor. See change:
       // extract-mcp-client-plugin.
       "packages/mcp-client-plugin",
