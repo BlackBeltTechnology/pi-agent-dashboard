@@ -3,7 +3,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CARD, extractModel, parseCatalog, parseRoles, parseSpec, readIf, renderEr } from "./lib.mjs";
+import { CARD, checkQuestions, extractModel, parseCatalog, parseRoles, parseSpec, readIf, renderEr } from "./lib.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 const REF_RE = /\b(?:BR|QUIRK|GAP)-\d+\b/g;
@@ -65,6 +65,15 @@ function bpmnFor(diagDir, uc) {
   return { bpmnXml: xml || null, roles: parseRoles(readIf(join(dirname(file), "package.yaml"))) };
 }
 
+/** Capabilities of a rule/quirk/gap: `Capabilities:` list, `Spec: capabilities/<cap>/…`, or `Affects: <cap> (…)`. */
+function itemCapabilities(item, known) {
+  const f = item.fields;
+  const fromList = (f.Capabilities ?? "").split(",").map((s) => s.trim());
+  const fromSpec = [...(f.Spec ?? "").matchAll(/capabilities\/([a-z0-9-]+)\//g)].map((m) => m[1]);
+  const fromAffects = (f.Affects ?? "").split(/[,;]/).map((s) => s.trim().split(/[\s(]/)[0]);
+  return [...new Set([...fromList, ...fromSpec, ...fromAffects])].filter((c) => known.has(c));
+}
+
 /** Assemble the catalog data object. Returns {data, errors}. */
 export function buildCatalog(pkgDir) {
   const errors = [];
@@ -75,6 +84,9 @@ export function buildCatalog(pkgDir) {
     ...parseCatalog(readIf(join(pkgDir, "quirks.md")), "QUIRK"),
     ...parseCatalog(readIf(join(pkgDir, "gaps.md")), "GAP"),
   };
+  const capabilities = readCapabilities(pkgDir);
+  const known = new Set(Object.keys(capabilities));
+  for (const it of Object.values(items)) it.capabilities = itemCapabilities(it, known);
   const ucPath = join(diagDir, "use-cases.json");
   const useCases = existsSync(ucPath) ? JSON.parse(readFileSync(ucPath, "utf8")) : [];
   const entities = Object.fromEntries(
@@ -89,13 +101,17 @@ export function buildCatalog(pkgDir) {
       },
     ]),
   );
+  const qPath = join(diagDir, "questions.json");
+  const questions = existsSync(qPath) ? JSON.parse(readFileSync(qPath, "utf8")) : [];
+  errors.push(...checkQuestions(pkgDir, questions));
   const title = (readIf(join(pkgDir, "README.md")).match(/^# (.+)$/m)?.[1] ?? "Rebuild package").trim();
   const data = {
     meta: { title, built: new Date().toISOString().slice(0, 10) },
-    capabilities: readCapabilities(pkgDir),
+    capabilities,
     items,
     entities,
     er: readEr(diagDir, model, errors),
+    questions,
     useCases: useCases.map((uc) => {
       const b = bpmnFor(diagDir, uc);
       const docRefs = b.bpmnXml ? [...new Set(b.bpmnXml.match(REF_RE) ?? [])] : [];

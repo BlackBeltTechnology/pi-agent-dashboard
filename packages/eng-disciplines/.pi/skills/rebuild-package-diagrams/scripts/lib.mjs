@@ -285,3 +285,18 @@ export function checkUseCases(pkgDir, useCases, model) {
   }
   return errors;
 }
+
+/** Violations of diagrams/questions.json: dangling BR/QUIRK/GAP refs, duplicate ids. */
+export function checkQuestions(pkgDir, questions) {
+  const resolve = packageResolver(pkgDir);
+  const seen = new Set();
+  const errors = [];
+  for (const q of questions) {
+    if (seen.has(q.id)) errors.push(`${q.id}: duplicate question id`);
+    seen.add(q.id);
+    for (const ref of q.refs ?? []) {
+      if (!/^(BR|QUIRK|GAP)-\d+$/.test(ref) || !resolve.id(ref)) errors.push(`${q.id}: dangling ref ${ref}`);
+    }
+  }
+  return errors;
+}

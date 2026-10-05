@@ -86,6 +86,10 @@ still produced and checked.
 
 1. Prerequisites: ER files gated, `use-cases.json` passing `check-use-cases`, each drawn
    `.bpmn` laid out (the `bpmn-package-explorer` pipeline writes DI into the file).
+   Optional question register `PKG/diagrams/questions.json` — `[{id, text, severity
+   (key|high|medium|low), status?, source?, claim?, note?, codeCite?, refs: ["BR-…"],
+   group?}]` (e.g. the open questions of a doc↔package comparison); `build-site` refuses
+   dangling refs and duplicate ids.
 2. Build with the viewer libraries inlined (offline, single file, ~5 MB):
    `$D build-site PKG PKG/diagrams/catalog.html --bpmn-js <bpmn-navigated-viewer.production.min.js>
    --bpmn-css <diagram-js.css> --bpmn-css <bpmn.css> --bpmn-css <bpmn-font/css/bpmn-embedded.css>
@@ -98,7 +102,10 @@ still produced and checked.
    scenarios, rules/quirks/gaps with source `explicit` / `via requirement` / `in flow`,
    ER sub-diagram of their entities, items used by ≥2 selected marked `shared`, related use
    cases ranked by overlap); every item links back to the requirements and use cases that
-   reference it. State is in the URL hash (`#sel=UC-01,UC-03&view=merge`), so views are
+   reference it. Parts are linked both ways: question ↔ rules/quirks/gaps ↔ requirements ↔
+   use cases; rule/quirk/gap → capabilities (from `Capabilities:` / `Spec:` / `Affects:`),
+   questions and the flow steps documenting it; capability → its items and questions;
+   use-case and merged views list open questions (`shared` when ≥2 hit). State is in the URL hash (`#sel=UC-01,UC-03&view=merge`), so views are
    shareable links. Serve over HTTP (or open the file) and put it on the canvas.
 
 ## Pitfalls

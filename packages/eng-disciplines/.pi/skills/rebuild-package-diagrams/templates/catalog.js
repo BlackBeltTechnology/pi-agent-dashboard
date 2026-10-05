@@ -10,6 +10,11 @@
   const reqKey = (cap, name) => `${cap}#${name}`;
   const reqs = buildReqIndex(); // key -> {cap, ...req, refs}
   const ucById = buildUcIndex();
+  const questions = D.questions || [];
+  const qById = Object.fromEntries(questions.map((q) => [q.id, q]));
+  const itemQuestions = {};
+  for (const q of questions) for (const r of q.refs || []) (itemQuestions[r] = itemQuestions[r] || []).push(q.id);
+  const flowSteps = buildFlowSteps(); // ref -> [{uc, name}]
   const backlinks = (pred) => D.useCases.filter(pred).map((u) => u.id);
   const itemReqs = {};
   for (const [k, r] of Object.entries(reqs)) for (const ref of r.refs) (itemReqs[ref] = itemReqs[ref] || []).push(k);
@@ -39,6 +44,28 @@
     }
     return out;
   }
+  /** Flow steps whose BPMN documentation references a BR/QUIRK/GAP id. */
+  function buildFlowSteps() {
+    const out = {};
+    const parser = new DOMParser();
+    for (const uc of D.useCases) {
+      if (!uc.bpmnXml) continue;
+      const doc = parser.parseFromString(uc.bpmnXml, "application/xml");
+      for (const d of doc.getElementsByTagNameNS("*", "documentation")) {
+        const name = d.parentElement?.getAttribute("name") || d.parentElement?.getAttribute("id");
+        for (const ref of uniq(d.textContent.match(REF_RE) || [])) (out[ref] = out[ref] || []).push({ uc: uc.id, name });
+      }
+    }
+    return out;
+  }
+  const questionsFor = (refs) => uniq(refs.flatMap((r) => itemQuestions[r] || [])).sort(bySeverity);
+  const SEV = { key: 0, high: 1, medium: 2, low: 3 };
+  function bySeverity(a, b) {
+    const qa = qById[a]; const qb = qById[b];
+    return (SEV[qa.severity] ?? 9) - (SEV[qb.severity] ?? 9) || a.localeCompare(b);
+  }
+  const capItems = (cap) =>
+    Object.values(D.items).filter((i) => (i.capabilities || []).includes(cap)).map((i) => i.id).sort(byId);
   function uniq(a) { return [...new Set(a)]; }
   function byId(a, b) {
     const [ka, na] = a.split("-"); const [kb, nb] = b.split("-");
@@ -78,6 +105,7 @@
     ["BR", "Rules", () => kindRows("BR")],
     ["QUIRK", "Quirks", () => kindRows("QUIRK")],
     ["GAP", "Gaps", () => kindRows("GAP")],
+    ["q", "Questions", () => questions.slice().sort((a, b) => bySeverity(a.id, b.id)).map((q) => ({ id: q.id, label: q.text, sub: [q.severity, q.status, q.group].filter(Boolean).join(" · "), view: `q:${q.id}` }))],
     ["ent", "Entities", () => Object.entries(D.entities).map(([k, e]) => ({ id: "", label: k, sub: e.capabilities.join(", "), view: `ent:${k}` }))],
   ];
   function kindRows(kind) {
@@ -111,6 +139,7 @@
   function searchBody(r, q) {
     const id = r.view.slice(r.view.indexOf(":") + 1);
     if (r.view.startsWith("item:")) return D.items[id].body.toLowerCase().includes(q);
+    if (r.view.startsWith("q:")) return `${qById[id].claim || ""} ${qById[id].note || ""} ${(qById[id].refs || []).join(" ")}`.toLowerCase().includes(q);
     if (r.view.startsWith("ent:")) return D.entities[id].fields.some((f) => f.name.toLowerCase().includes(q));
     return false;
   }
@@ -124,6 +153,23 @@
   function scenariosHtml(r) {
     return r.scenarios.map((s) => `<div class="scenario"><b>Scenario: ${esc(s.name)}</b><div class="text">${md(s.text)}</div>${cites(s.cites)}</div>`).join("");
   }
+  const sevBadge = (q) => `<span class="badge sev-${esc(q.severity)}">${esc(q.severity)}</span>`;
+  const itemLink = (id) => `<a href="${link({ view: `item:${id}` })}">${id}</a>`;
+  const capLink = (c) => `<a class="chip" href="${link({ view: `cap:${c}` })}">${esc(c)}</a>`;
+  /** Question table; `usedBy(qid)` optionally returns use-case ids for a shared marker. */
+  function questionsTable(ids, usedBy) {
+    if (!ids.length) return "<p>None.</p>";
+    return `<table><tr><th>ID</th><th>Question</th><th>Refs</th>${usedBy ? "<th>Use cases</th>" : ""}</tr>${ids.map((id) => {
+      const q = qById[id];
+      const ucs = usedBy ? usedBy(id) : [];
+      const shared = ucs.length > 1 ? ` <span class="badge shared">shared ×${ucs.length}</span>` : "";
+      return `<tr><td class="idc"><a href="${link({ view: `q:${id}` })}">${id}</a><br>${sevBadge(q)}${shared}</td><td>${md(q.text)}</td><td>${(q.refs || []).map(itemLink).join(", ")}</td>${usedBy ? `<td>${ucs.join(", ")}</td>` : ""}</tr>`;
+    }).join("")}</table>`;
+  }
+  function itemsTable(ids) {
+    if (!ids.length) return "<p>None.</p>";
+    return `<table><tr><th>ID</th><th>Statement</th><th>Questions</th></tr>${ids.map((id) => `<tr><td class="idc">${itemLink(id)}<br>${kindBadge(id)}</td><td>${md(clip(D.items[id].statement, 400))}</td><td>${(itemQuestions[id] || []).map((q) => `<a href="${link({ view: `q:${q}` })}">${q}</a>`).join(", ")}</td></tr>`).join("")}</table>`;
+  }
   function selectButton(id) {
     const on = state.sel.includes(id);
     return `<button class="chip uc" data-toggle="${id}">${on ? "✓ Selected — remove" : "+ Add to merge"}</button>`;
@@ -134,7 +180,7 @@
     const n = (k) => Object.values(D.items).filter((i) => i.kind === k).length;
     const flows = D.useCases.filter((u) => u.bpmnXml).length;
     return `<h2>${esc(D.meta.title)}</h2><p class="lede">Built ${D.meta.built}. Tick use cases on the left to merge them; every item links to what references it.</p>
-      <div class="grid">${[["Use cases", D.useCases.length], ["Drawn flows", flows], ["Capabilities", Object.keys(D.capabilities).length], ["Requirements", Object.keys(reqs).length], ["Rules", n("BR")], ["Quirks", n("QUIRK")], ["Gaps", n("GAP")], ["Entities", Object.keys(D.entities).length]]
+      <div class="grid">${[["Use cases", D.useCases.length], ["Drawn flows", flows], ["Capabilities", Object.keys(D.capabilities).length], ["Requirements", Object.keys(reqs).length], ["Rules", n("BR")], ["Quirks", n("QUIRK")], ["Gaps", n("GAP")], ["Questions", questions.length], ["Entities", Object.keys(D.entities).length]]
         .map(([l, v]) => `<div class="card"><div class="stat">${v}</div>${l}</div>`).join("")}</div>
       <h3>Use cases</h3><table><tr><th>ID</th><th>Use case</th><th>Actor</th><th>Flow</th><th></th></tr>${D.useCases.map((u) =>
         `<tr><td class="idc">${u.id}</td><td><a href="${link({ view: `uc:${u.id}` })}">${esc(u.name)}</a></td><td>${esc(u.actor)}</td><td>${u.bpmnXml ? "BPMN" : "—"}</td><td>${selectButton(u.id)}</td></tr>`).join("")}</table>`;
@@ -169,11 +215,13 @@
     }).join("");
 
     const ents = Object.keys(entCount).sort();
+    const mergeQs = questionsFor(Object.keys(refCount));
     return `<h2>Merged view</h2><p class="lede">${sel.length} use case${sel.length > 1 ? "s" : ""} — union of flows, requirements, rules and entities. Items used by more than one selected use case are marked <span class="badge shared">shared</span>.</p>
       <div class="chips">${sel.map((u) => `<span class="chip uc">${u.id} ${esc(u.name)} <button class="x" data-toggle="${u.id}" aria-label="Remove ${u.id}">×</button></span>`).join("")}</div>
       <h3>Flows</h3>${flowsHtml(sel)}
       <h3>Requirements (${Object.keys(reqCount).length})</h3>${reqHtml || "<p>None listed.</p>"}
       <h3>Rules, quirks and gaps (${Object.keys(refCount).length})</h3>${refRows ? `<table><tr><th>ID</th><th>Statement</th><th>Used by / source</th></tr>${refRows}</table>` : "<p>None.</p>"}
+      <h3>Open questions (${mergeQs.length})</h3>${questionsTable(mergeQs, (qid) => usedBy((u) => (qById[qid].refs || []).some((r) => u.refSource[r])))}
       <h3>Entities (${ents.length})</h3><div class="chips">${ents.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}${shared(entCount[e])}</a>`).join("")}</div>
       <div class="er" data-er="${esc(ents.join("|"))}"></div>
       <h3>Related use cases</h3>${relatedHtml(sel)}`;
@@ -211,20 +259,57 @@
       <h3>Flow</h3>${flowsHtml([u])}
       <h3>Requirements</h3>${u.reqKeys.map((k) => reqs[k] ? `<details class="card"><summary>${esc(reqs[k].name)} <span class="cite">${esc(reqs[k].cap)}</span></summary><div class="text">${md(reqs[k].text)}</div>${cites(reqs[k].cites)}${scenariosHtml(reqs[k])}</details>` : "").join("")}
       <h3>Rules, quirks and gaps</h3><table><tr><th>ID</th><th>Statement</th><th>Source</th></tr>${u.allRefs.map((r) => `<tr><td class="idc"><a href="${link({ view: `item:${r}` })}">${r}</a><br>${kindBadge(r)}</td><td>${md(clip(D.items[r].statement, 600))}</td><td><span class="badge via">${u.refSource[r]}</span></td></tr>`).join("")}</table>
+      <h3>Open questions</h3>${questionsTable(questionsFor(u.allRefs))}
       <h3>Entities</h3><div class="chips">${u.entities.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("")}</div>
       <div class="er" data-er="${esc(u.entities.join("|"))}"></div>
       <h3>Related use cases</h3>${relatedHtml([u])}`;
   }
 
+  const listOr = (items, none = "<li>None</li>") => items.join("") || none;
+  /** Everything that points at a rule/quirk/gap: capabilities, questions, flow steps, use cases, requirements. */
+  function itemLinks(id, it) {
+    const steps = (flowSteps[id] || []).map((st) => `<li><a href="${link({ view: `uc:${st.uc}` })}">${st.uc}</a> › ${esc(st.name)}</li>`);
+    return `<h3>Capabilities</h3><div class="chips">${listOr((it.capabilities || []).map(capLink), "None")}</div>
+      <h3>Questions</h3>${questionsTable((itemQuestions[id] || []).slice().sort(bySeverity))}
+      <h3>Flow steps</h3><ul>${listOr(steps)}</ul>
+      <h3>Use cases</h3><div class="chips">${listOr(backlinks((u) => u.refSource[id]).map(ucChip), "None")}</div>
+      <h3>Requirements mentioning it</h3><ul>${listOr((itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`))}</ul>`;
+  }
   function viewItem(id) {
     const it = D.items[id];
     if (!it) return viewHome();
     const fields = Object.entries(it.fields).filter(([k]) => k !== "Statement");
-    return `<h2>${id} ${kindBadge(id)}</h2>${it.title ? `<p class="lede">${esc(it.title)}</p>` : ""}
-      <div class="card text">${md(it.fields.Statement ? it.statement : it.body)}</div>${cites(it.cites)}
-      ${fields.length ? `<table>${fields.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${md(v)}</td></tr>`).join("")}</table>` : ""}
-      <h3>Use cases</h3><div class="chips">${backlinks((u) => u.refSource[id]).map(ucChip).join("") || "None"}</div>
-      <h3>Requirements mentioning it</h3><ul>${(itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`).join("") || "<li>None</li>"}</ul>`;
+    const title = it.title ? `<p class="lede">${esc(it.title)}</p>` : "";
+    const table = fields.length ? `<table>${fields.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${md(v)}</td></tr>`).join("")}</table>` : "";
+    return `<h2>${id} ${kindBadge(id)}</h2>${title}
+      <div class="card text">${md(it.fields.Statement ? it.statement : it.body)}</div>${cites(it.cites)}${table}
+      ${itemLinks(id, it)}`;
+  }
+
+
+  function questionFacts(q) {
+    const rows = [
+      ["Severity", sevBadge(q)],
+      ["Status", q.status && esc(q.status)],
+      ["Group", q.group && esc(q.group)],
+      ["Source", q.source && esc(q.source)],
+      ["Claim", q.claim && md(q.claim)],
+      ["Note", q.note && md(q.note)],
+      ["Code", q.codeCite && esc(q.codeCite)],
+    ];
+    return `<table>${rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
+  }
+  function viewQuestion(id) {
+    const q = qById[id];
+    if (!q) return viewHome();
+    const refs = q.refs || [];
+    const reqKeys = uniq(refs.flatMap((r) => itemReqs[r] || []));
+    const ucs = backlinks((u) => refs.some((r) => u.refSource[r]));
+    const reqList = reqKeys.map((k) => `<li>${reqLink(k)}</li>`).join("") || "<li>None</li>";
+    return `<h2>${id}</h2><div class="card text">${md(q.text)}</div>${questionFacts(q)}
+      <h3>Rules, quirks and gaps</h3>${itemsTable(refs)}
+      <h3>Use cases affected</h3><div class="chips">${ucs.map(ucChip).join("") || "None"}</div>
+      <h3>Requirements</h3><ul>${reqList}</ul>`;
   }
 
   function viewReq(key) {
@@ -233,7 +318,8 @@
     return `<h2>${esc(r.name)}</h2><p class="lede">Capability <a href="${link({ view: `cap:${r.cap}` })}">${esc(r.cap)}</a></p>
       <div class="card text">${md(r.text)}</div>${cites(r.cites)}${scenariosHtml(r)}
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.reqKeys.includes(key)).map(ucChip).join("") || "None"}</div>
-      <h3>Rules, quirks and gaps</h3><div class="chips">${r.refs.map((x) => `<a class="chip" href="${link({ view: `item:${x}` })}">${x}</a>`).join("") || "None"}</div>`;
+      <h3>Rules, quirks and gaps</h3><div class="chips">${r.refs.map((x) => `<a class="chip" href="${link({ view: `item:${x}` })}">${x}</a>`).join("") || "None"}</div>
+      <h3>Questions</h3>${questionsTable(questionsFor(r.refs))}`;
   }
 
   function viewCap(cap) {
@@ -241,6 +327,8 @@
     if (!c) return viewHome();
     return `<h2>${esc(cap)}</h2><p class="lede text">${md(c.purpose)}</p>
       <h3>Use cases</h3><div class="chips">${backlinks((u) => u.reqKeys.some((k) => k.startsWith(`${cap}#`))).map(ucChip).join("") || "None"}</div>
+      <h3>Rules, quirks and gaps (${capItems(cap).length})</h3>${itemsTable(capItems(cap))}
+      <h3>Questions</h3>${questionsTable(questionsFor(capItems(cap)))}
       <h3>Requirements (${c.requirements.length})</h3>${c.requirements.map((r) => `<details class="card"><summary>${esc(r.name)}</summary><div class="text">${md(r.text)}</div>${cites(r.cites)}${scenariosHtml(r)}
         <p><a href="${link({ view: `req:${reqKey(cap, r.name).replace(/#/g, "~")}` })}">Open requirement</a></p></details>`).join("")}`;
   }
@@ -323,7 +411,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];

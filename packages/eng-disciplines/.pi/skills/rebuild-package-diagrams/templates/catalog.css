@@ -60,6 +60,10 @@ button.chip:hover, a.chip:hover { border-color: var(--accent); }
 .badge.k-BR { background: #e5f3ea; color: var(--br); }
 .badge.k-QUIRK { background: #fbe7e2; color: var(--quirk); }
 .badge.k-GAP { background: #eee7f6; color: var(--gap); }
+.badge.sev-key { background: #1d232a; color: #fff; }
+.badge.sev-high { background: #fbe7e2; color: #a3341f; }
+.badge.sev-medium { background: #fff1dc; color: #8a4b00; }
+.badge.sev-low { background: #eef0f2; color: var(--muted); }
 .badge.via { background: #eef0f2; color: var(--muted); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
 .card.shared { border-left: 4px solid #e0a040; }

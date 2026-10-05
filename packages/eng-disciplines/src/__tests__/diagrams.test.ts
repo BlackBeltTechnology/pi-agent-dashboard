@@ -3,7 +3,7 @@
  * See change: add-rebuild-package-diagrams.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -248,8 +248,8 @@ describe("use-case catalog and site", () => {
       join(pkg, "rules.md"),
       "# Business rules\n\n## BR-001\n- Class: explicit\n- Statement: Order id is required </script><b>x</b>.\n- Capabilities: orders\n<!-- cite: ref=js/order.js:3, confidence=confirmed -->\n",
     );
-    writeFileSync(join(pkg, "quirks.md"), "# Quirks\n\n## QUIRK-002 Odd thing\nBody.\n");
-    writeFileSync(join(pkg, "gaps.md"), "# Gaps\n");
+    writeFileSync(join(pkg, "quirks.md"), "# Quirks\n\n## QUIRK-002 Odd thing\n- Observed: x\n- Spec: capabilities/orders/spec.md, Requirement \"Add\"\n");
+    writeFileSync(join(pkg, "gaps.md"), "# Gaps\n\n## GAP-003 Unknown\n- Unknown: y\n- Affects: orders (BR-001)\n");
     writeFileSync(
       join(pkg, "capabilities", "orders", "spec.md"),
       "# orders Specification\n\n## Purpose\nOrders.\n\n## Requirements\n### Requirement: Add single and unique orders\nThe screen SHALL add (BR-001).\n<!-- cite: ref=js/order.js:10-34, confidence=inferred -->\n\n#### Scenario: Valid line added\n- **WHEN** the line is valid\n- **THEN** the order is stored\n",
@@ -295,8 +295,46 @@ describe("use-case catalog and site", () => {
     expect(req.name).toBe("Add single and unique orders");
     expect(req.scenarios[0].name).toBe("Valid line added");
     expect(data.items["BR-001"].statement).toContain("Order id is required");
+    // capabilities derived from `Capabilities:` / `Spec:` / `Affects:` so every item links to its capability
+    expect(data.items["BR-001"].capabilities).toEqual(["orders"]);
+    expect(data.items["QUIRK-002"].capabilities).toEqual(["orders"]);
+    expect(data.items["GAP-003"].capabilities).toEqual(["orders"]);
     expect(data.useCases[0].bpmnXml).toBe("<bpmn:definitions/>");
     expect(data.viewers).toEqual({ bpmn: false, mermaid: false });
+  });
+
+  it("build-site embeds questions.json with refs; empty register without the file", () => {
+    writeUc([uc()]);
+    const qPath = join(pkg, "diagrams", "questions.json");
+    if (existsSync(qPath)) rmSync(qPath);
+    const out0 = join(dir, "site-noq.html");
+    expect(run(dir, "build-site", pkg, out0).code).toBe(0);
+    expect(embedded(read(out0)).questions).toEqual([]);
+    writeFileSync(qPath, JSON.stringify([{ id: "Q-001", text: "Is the id required?", severity: "high", refs: ["BR-001"] }]));
+    const out = join(dir, "site-q.html");
+    const r = run(dir, "build-site", pkg, out);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    expect(embedded(read(out)).questions[0]).toMatchObject({ id: "Q-001", refs: ["BR-001"] });
+  });
+
+  it("build-site refuses dangling question refs and duplicate ids", () => {
+    writeUc([uc()]);
+    const qPath = join(pkg, "diagrams", "questions.json");
+    writeFileSync(
+      qPath,
+      JSON.stringify([
+        { id: "Q-001", text: "a", severity: "high", refs: ["BR-999"] },
+        { id: "Q-002", text: "b", severity: "low", refs: [] },
+        { id: "Q-002", text: "c", severity: "low", refs: [] },
+      ]),
+    );
+    const out = join(dir, "site-bad-q.html");
+    const r = run(dir, "build-site", pkg, out);
+    rmSync(qPath);
+    expect(r.code).toBe(1);
+    for (const s of ["Q-001", "BR-999", "Q-002", "duplicate"]) expect(r.stderr).toContain(s);
+    expect(existsSync(out)).toBe(false);
   });
 
   it("build-site inlines viewer libraries", () => {
