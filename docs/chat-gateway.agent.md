@@ -39,6 +39,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Spawn/resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`; applied on first register only, never on reattach.
 - Spawn binding written on host `onSessionResolved`; correlate via plugin-OWNED `pluginRef.chatSpawnToken` (+ `bindSource`). Core-reserved keys (`spawnToken`, `source`, `sessionId`, `cwd`, …) stripped before owner notify (`CORE_RESERVED_REF_KEYS`) — never correlate on them.
 - Troubleshooting: `bindings.json` absent after spawn + command-log only `spawn_session` → correlation broken. See change: fix-chat-gateway-spawn-correlation.
+- Thread per conversation (`threadPerConversation`, default true): channel-root guild message (not DM, no `threadId`, not `!disarm`, has `messageId`, adapter has `startThread`) = NEW conversation. Authorized via `team.authorizeRequest` verb `spawn_session`; never routed into channel-root binding. Then `adapter.startThread(channelId, messageId, name)` opens public thread (Discord `autoArchiveDuration: 1440`, needs **Create Public Threads**); name = message text, steer prefix stripped, whitespace collapsed, ≤100 chars. Message re-addressed (`channelId = threadId`, `threadId`, `parentChannelId = root`) → `ensureBinding` spawn with `initialPrompt` → key `discord:<threadId>:<threadId>`. Reply + stream inside thread; follow-ups reuse session. L4/team resolve via parent channel. Refused/DM never thread. `startThread` failure → `warn` `chat-gateway: could not open a thread (...)`, answer in channel root. `false` = one shared channel-root session.
+- Known gap: gateway-spawned sessions revived after dashboard restart may re-register visible (`hidden: false`); `lifecycle.hidden` applies only on fresh spawn-token resolution. Under investigation.
 
 ## L1 Pairing Flow
 - Mints 6-digit code at startup; logged once (`"L1 pairing code <code>"`).
@@ -93,8 +95,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 
 ## Configuration Reference
 - `enabled` (boolean, default true), `token` (string, writeOnly), `allowedRoots` (string[], default []), `fixedMap` (object), `defaultCwd` (string).
-- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `sessionVisibility` (enum `hidden`|`shown`, default `hidden`; settings select `chat-gateway-session-visibility`), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
+- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `threadPerConversation` (boolean, default true; settings checkbox `chat-gateway-thread-per-conversation`), `sessionVisibility` (enum `hidden`|`shown`, default `hidden`; settings select `chat-gateway-session-visibility`), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
 - `toolPolicy` (`allow`, `approval`, `defaultAction: "deny"`), `guardExtension` (string).
 - `teamControls`: `ceiling` (enum, default `observe`), `disarmed` (boolean, default false), `auditRetention` (integer, default 10000, max 1000000).
 - `teamControls.bindings.<id>`: `principals` (map ID → tier), `roles` (map role ID → tier <= control), `mirrorLevel` (enum, default `names-only`), `ceiling` (enum).
-- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions`.
+- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation`.

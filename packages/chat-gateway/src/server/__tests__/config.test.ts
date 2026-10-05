@@ -25,6 +25,11 @@ describe("resolveConfig", () => {
     expect(resolveConfig({ sessionVisibility: "bogus" as any }).sessionVisibility).toBe("hidden");
   });
 
+  it("threadPerConversation defaults to true; only an explicit false turns it off", () => {
+    expect(resolveConfig({}).threadPerConversation).toBe(true);
+    expect(resolveConfig({ threadPerConversation: false }).threadPerConversation).toBe(false);
+  });
+
   it("is total on undefined and non-object input", () => {
     expect(() => resolveConfig(undefined)).not.toThrow();
     // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe

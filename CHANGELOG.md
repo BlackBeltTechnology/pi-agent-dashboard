@@ -83,6 +83,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   opens reconnecting sockets with a fresh single-use ticket on every attempt. The
   `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
 
+- **One Discord thread per conversation.** A new message in a Chat Gateway
+  channel now opens a thread on it and runs that conversation in its own
+  session; reply inside the thread to continue it. The channel stays a clean
+  list of conversations. Turn it off in Settings \ Chat Gateway ("One thread per
+  conversation", `threadPerConversation: false`) to go back to one shared
+  session per channel. If the bot cannot open a thread (missing Create Public
+  Threads), it answers in the channel instead.
+
 - **Discord chat sessions stay off the board.** Sessions the Chat Gateway
   starts or resumes are now hidden by default, like automation runs; turn on
   "show hidden" to see them. Settings \ Chat Gateway "Chat sessions on the

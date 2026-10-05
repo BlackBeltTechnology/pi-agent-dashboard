@@ -315,6 +315,22 @@ export class DiscordAdapter extends BaseAdapter {
 
   // ── Outbound ────────────────────────────────────────────────────────────
 
+  /** Open a public thread on the user's message (needs Create Public Threads). */
+  async startThread(
+    channelId: string,
+    messageId: string,
+    name: string,
+  ): Promise<{ threadId: string }> {
+    const channel = await this.requireClient().channels.fetch(channelId);
+    if (!channel?.isTextBased() || !("messages" in channel)) {
+      throw new Error(`[discord] channel ${channelId} cannot hold threads`);
+    }
+    const message = await channel.messages.fetch(messageId);
+    // 1 day of inactivity before Discord auto-archives; a reply un-archives it.
+    const thread = await message.startThread({ name, autoArchiveDuration: 1440 });
+    return { threadId: thread.id };
+  }
+
   async sendMessage(channelId: string, content: string): Promise<string> {
     const channel = await this.sendableChannel(channelId);
     const chunks = chunkForDiscord(content);

@@ -57,6 +57,12 @@ export interface ChatGatewayConfig {
    */
   sessionVisibility?: "hidden" | "shown";
   /**
+   * Open a platform thread on every NEW conversation (a guild message in the
+   * channel root) and bind its session to that thread. Default `true`; `false`
+   * binds the channel root to one shared session.
+   */
+  threadPerConversation?: boolean;
+  /**
    * L3 tool policy for gateway-SPAWNED sessions (attached sessions stay
    * ungated by design). Present ⇒ the companion guard extension is loaded.
    * Deny-first: a tool in neither list is denied unless `defaultAction` widens
@@ -112,6 +118,7 @@ export interface ResolvedConfig {
   steerPrefix: string;
   editThrottleMs: number;
   sessionVisibility: "hidden" | "shown";
+  threadPerConversation: boolean;
   toolPolicy?: {
     allow?: string[];
     approval?: string[];
@@ -125,6 +132,7 @@ export const CONFIG_DEFAULTS = {
   steerPrefix: "!",
   editThrottleMs: 1000,
   sessionVisibility: "hidden",
+  threadPerConversation: true,
 } as const;
 
 // ── Inbound message ───────────────────────────────────────────────────────
@@ -145,6 +153,8 @@ export interface InboundMessage {
    * configured); without this a thread id is never in `groupChannels`.
    */
   parentChannelId?: string;
+  /** Platform message id (the anchor a conversation thread is opened on). */
+  messageId?: string;
   /** Platform user id of the sender. */
   userId: string;
   /** Display name, for logs only — never an authorization input. */

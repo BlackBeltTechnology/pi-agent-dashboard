@@ -269,6 +269,7 @@ function toInbound(
   const inbound: InboundMessage = {
     platform,
     channelId: m.channelId,
+    ...(m.id ? { messageId: m.id } : {}),
     userId: m.userId,
     text: m.content,
     isDM: md?.isDM === true,
@@ -284,6 +285,9 @@ function toInbound(
   if (roleIds.length > 0) inbound.roleIds = roleIds;
   return inbound;
 }
+
+/** Discord thread-name limit. */
+const THREAD_NAME_LIMIT = 100;
 
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const { seam, adapter, config, store, correlator, platform, team } = deps;
@@ -692,6 +696,26 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     return true;
   }
 
+  /**
+   * Open a thread on the triggering message and return the message re-addressed
+   * INTO it (thread = channel; parent kept for L4/team fallbacks). `null` when
+   * the platform refuses (e.g. missing Create Public Threads): the caller keeps
+   * the channel-root conversation, so the message is never lost.
+   */
+  async function openConversationThread(msg: InboundMessage): Promise<InboundMessage | null> {
+    if (!adapter.startThread || !msg.messageId) return null;
+    const name =
+      stripSteerPrefix(msg.text, config.steerPrefix).trim().replace(/\s+/g, " ").slice(0, THREAD_NAME_LIMIT) ||
+      "conversation";
+    try {
+      const { threadId } = await adapter.startThread(msg.channelId, msg.messageId, name);
+      return { ...msg, channelId: threadId, threadId, parentChannelId: msg.channelId };
+    } catch (err) {
+      seam.log("warn", `chat-gateway: could not open a thread (${String(err)}); answering in the channel`);
+      return null;
+    }
+  }
+
   function subscribeSession(sessionId: string): void {
     if (subscriptions.has(sessionId)) return;
     subscriptions.add(sessionId);
@@ -1059,7 +1083,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         return;
       }
 
-      const key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
+      let key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
 
       // Team-controls: the disarm switch (spec "Disarm switch" — ANY `observe`+
       // principal may disarm from chat; only the DASHBOARD re-arms). The whole
@@ -1071,11 +1095,22 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // verb `disarm`.
       const disarmCommand = team !== undefined && /^\s*!\s*disarm\s*$/i.test(msg.text);
 
+      // Thread per conversation: a guild message in the channel ROOT starts a
+      // NEW conversation — it is authorized as a spawn (never routed into an
+      // older channel-root session) and moved into its own thread once granted.
+      const newConversation =
+        config.threadPerConversation &&
+        !msg.isDM &&
+        !msg.threadId &&
+        !disarmCommand &&
+        typeof msg.messageId === "string" &&
+        typeof adapter.startThread === "function";
+
       // Team-controls chokepoint (X11): every action-bearing request passes
       // through `authorizeRequest` BEFORE any session is spawned or driven.
       let gate: Grant | undefined;
       if (team) {
-        const existing = store.get(key);
+        const existing = newConversation ? undefined : store.get(key);
         const decision = team.authorizeRequest({
           author: {
             id: msg.userId,
@@ -1125,6 +1160,14 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
             "Disarmed. Actions are refused until an operator re-arms from the dashboard.",
           );
           return;
+        }
+      }
+
+      if (newConversation) {
+        const threaded = await openConversationThread(msg);
+        if (threaded) {
+          msg = threaded;
+          key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
         }
       }
 

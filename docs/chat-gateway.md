@@ -96,8 +96,33 @@ Precedence ladder:
 - Regression (pre-fix): no `bindings.json` written; every message spawned an orphan session; `server.log` `[pending-plugin-ref-registry] dropped ref key "spawnToken"`.
 - Spawn and resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`. Keeps Discord sessions off the board by default.
 - Hide applied on FIRST register only (fresh spawn-token resolution, `packages/server/src/event-wiring.ts`). Reattach never re-applies; later operator unhide survives.
+- Known gap: gateway-spawned sessions revived after a dashboard restart may re-register visible (`hidden: false`). `lifecycle.hidden` applies only on fresh spawn-token resolution. Under investigation.
 - Troubleshooting: `~/.pi/dashboard/chat-gateway/bindings.json` absent after a spawn + command-log only `spawn_session` entries → correlation broken.
 - See change: fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions.
+
+### Thread per Conversation
+
+Default (`threadPerConversation: true`): guild message in channel ROOT opens its own conversation thread + session.
+
+NEW conversation when ALL hold:
+- Not a DM (`isDM` false).
+- No `threadId` (message not already in a thread).
+- Not `!disarm`.
+- Has `messageId`.
+- Adapter implements optional `startThread`.
+
+- Authorized via `team.authorizeRequest` as verb `spawn_session`. Never routed into older channel-root binding.
+- Grant first. Then `adapter.startThread(channelId, messageId, name)` opens public thread on the message.
+  - Discord: `message.startThread({ name, autoArchiveDuration: 1440 })`. Needs **Create Public Threads**.
+  - Name = message text, steer prefix stripped, whitespace collapsed, ≤100 chars.
+- Message re-addressed into thread: `channelId = threadId`, `threadId` set, `parentChannelId = root`.
+- Normal `ensureBinding` then spawns with `initialPrompt`. Binding key `discord:<threadId>:<threadId>`.
+- Status reply + answer stream inside thread.
+- Follow-up inside thread reuses its session; no new thread.
+- L4 `groupChannels` + team binding/mirror resolve via parent channel (existing fallback).
+- Refused messages and DMs never open a thread.
+- `startThread` failure → `warn` log `chat-gateway: could not open a thread (...)`. Answer in channel root. Message never lost.
+- `threadPerConversation: false` → previous behaviour: channel root binds one shared session.
 
 ## L1 Pairing Flow
 
@@ -289,6 +314,7 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `allowlist` | `string[]` | `[]` | L1 identity allowlist: Discord user IDs authorized to talk to sessions. |
 | `admins` | `string[]` | `[]` | L2 binding authority: Discord user IDs authorized to bind channels to directories. |
 | `groupChannels` | `string[]` | `[]` | L4 channel allowlist: guild channel IDs opted into gateway interaction. Unlisted guild channels ignored. |
+| `threadPerConversation` | `boolean` | `true` | Open a thread on every new channel-root message; runs each conversation in its own session inside the thread. `false` = one shared session per channel. Settings checkbox `chat-gateway-thread-per-conversation`. |
 | `sessionVisibility` | `string` | `"hidden"` | Board visibility of gateway-spawned/resumed sessions. Enum: `"hidden"`, `"shown"`. `hidden` sets session `hidden: true` on first register; revealed by "show hidden" toggle. Attached sessions never touched. Settings panel select `chat-gateway-session-visibility`. |
 | `steerPrefix` | `string` | `"!"` | Inbound message prefix forcing delivery mode `steer` instead of `followUp`. |
 | `editThrottleMs` | `number` | `1000` | Minimum milliseconds between Discord message edit API calls per channel. Minimum `0`. |
@@ -308,4 +334,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation.

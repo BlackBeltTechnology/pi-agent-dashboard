@@ -79,6 +79,10 @@ export function resolveConfig(raw: ChatGatewayConfig | undefined): ResolvedConfi
     editThrottleMs: normalizeThrottle(src.editThrottleMs),
     // Only an explicit "shown" opts out; anything else stays hidden.
     sessionVisibility: src.sessionVisibility === "shown" ? "shown" : CONFIG_DEFAULTS.sessionVisibility,
+    threadPerConversation:
+      typeof src.threadPerConversation === "boolean"
+        ? src.threadPerConversation
+        : CONFIG_DEFAULTS.threadPerConversation,
     ...(normalizeToolPolicy(src.toolPolicy) === undefined
       ? {}
       : { toolPolicy: normalizeToolPolicy(src.toolPolicy) }),

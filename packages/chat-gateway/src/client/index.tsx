@@ -64,6 +64,9 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const send = usePluginSend();
 
   const [enabled, setEnabled] = useState(config?.enabled ?? true);
+  const [threadPerConversation, setThreadPerConversation] = useState(
+    config?.threadPerConversation ?? true,
+  );
   const [token, setToken] = useState("");
   const [allowedRoots, setAllowedRoots] = useState("");
   const [defaultCwd, setDefaultCwd] = useState("");
@@ -89,6 +92,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
 
   const saved = {
     enabled: config?.enabled ?? true,
+    threadPerConversation: config?.threadPerConversation ?? true,
     allowedRoots: (config?.allowedRoots ?? []).join("\n"),
     defaultCwd: config?.defaultCwd ?? "",
     fixedMap: formatFixedMap(config?.fixedMap ?? {}),
@@ -104,6 +108,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   useEffect(() => {
     const d = dirtyFields.current;
     if (!d.has("enabled")) setEnabled(saved.enabled);
+    if (!d.has("threadPerConversation")) setThreadPerConversation(saved.threadPerConversation);
     if (!d.has("allowedRoots")) setAllowedRoots(saved.allowedRoots);
     if (!d.has("defaultCwd")) setDefaultCwd(saved.defaultCwd);
     if (!d.has("fixedMap")) setFixedMap(saved.fixedMap);
@@ -145,6 +150,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     try {
       const partial: Record<string, unknown> = {
         enabled,
+        threadPerConversation,
         allowedRoots: parseLines(allowedRoots),
         defaultCwd,
         fixedMap: parseFixedMap(fixedMap),
@@ -186,6 +192,16 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           onChange={(e) => markDirty("enabled", setEnabled)(e.target.checked)}
         />
         Enabled
+      </label>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <input
+          type="checkbox"
+          data-testid="chat-gateway-thread-per-conversation"
+          checked={threadPerConversation}
+          onChange={(e) => markDirty("threadPerConversation", setThreadPerConversation)(e.target.checked)}
+        />
+        One thread per conversation (new channel message → new thread + session)
       </label>
 
       <div>
