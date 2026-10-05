@@ -55,7 +55,8 @@ Inbound chat control plane plugin (`@blackbelt-technology/pi-dashboard-chat-gate
 3. Paste bot token into **Discord Bot Token** field.
 4. Save configuration.
 5. Server treats `token` as `writeOnly` schema property. Server redacts token from client payloads; server never logs token.
-6. Config writable without UI: `POST /api/config/plugins/chat-gateway` (shallow merge; `token` `writeOnly`, redacted in response), then `POST /api/restart`.
+6. Config writable without UI: `POST /api/config/plugins/chat-gateway` (shallow merge of a partial body; `token` `writeOnly`, redacted in response), then `POST /api/restart`.
+7. Partial write keeps omitted keys: body merges over stored config; schema defaults fill only keys never stored (`fix-plugin-config-partial-write`).
 
 ## Mandatory Spawn Boundary (`allowedRoots`)
 
@@ -126,6 +127,28 @@ NEW conversation when ALL hold:
 - Refused messages and DMs never open a thread.
 - `startThread` failure → `warn` log `chat-gateway: could not open a thread (...)`. Answer in channel root. Message never lost.
 - `threadPerConversation: false` → previous behaviour: channel root binds one shared session.
+
+### Reach Dashboard Sessions from Discord (`!sessions`, `!attach`, auto-mirror)
+
+Two whole-message commands pull sessions started in the DASHBOARD into chat. Any other text — including steer-prefixed text — is a prompt, not a command.
+
+- `!sessions` — authorized verb `list_sessions` (observe). Replies numbered list (max 25, `LIST_LIMIT`) of live, non-hidden sessions in scope: bound-workspace folders when the channel is bound, else `allowedRoots`. Row = name, status, short id (`id.slice(0,8)`), plus `<#thread>` when attached. Zero → `No live dashboard sessions in this workspace.` Reply ends `` Attach one with `!attach <number>`. `` Last listing cached per channel (`lastListing`) for `!attach <number>`.
+- `!attach <number|id-prefix>` — authorized chat-local verb `attach_session` (observe) with target cwd for the scope check (`CHAT_LOCAL_VERB_TIERS`, `team/tier.ts`). Resolves number from last `!sessions` listing, else unique id-prefix. Opens public thread on the command message named after the session (`attachInThread`), binds `source:"attach"` keyed `discord:<threadId>:<threadId>` (`parentChannelId` = channel), subscribes, confirms `Attached to <name>. Its activity shows here; messages you send here go to that session.`
+  - Already attached → reply points at existing thread; no second thread.
+  - Run inside a thread → refused: `` Run `!attach` in the channel itself, not inside a thread. ``
+  - No match / target cwd out of scope → `` No live session `<arg>` in this workspace. Use `!sessions` to list them. ``
+  - `startThread` missing or fails → `Could not open a thread here (does the bot have Create Public Threads?).`
+- Attached sessions never hidden, never re-policied (`source:"attach"`). Prompts later sent into the thread still authorized as `send_prompt` (control).
+- Code: `packages/chat-gateway/src/server/gateway.ts` (`SESSIONS_COMMAND` `/^\s*!\s*sessions\s*$/i`, `ATTACH_COMMAND` `/^\s*!\s*attach\s+(\S+)\s*$/i`, `scopeFor`, `attachableSessions`, `maybeAutoMirror`). Seam: `onSessionEvent(sessionId)`, `SeamSession.name`, `SeamSession.hidden` (`seam.ts`). Team: `attach_session` tier (`tier.ts`), `boundChannelIds()` (`team/controller.ts`).
+
+Auto-mirror (`mirrorDashboardSessions: true`, default `false`):
+
+- Team-controls only. Settings checkbox "Show dashboard sessions on Discord" (`chat-gateway-mirror-dashboard-sessions`).
+- At gateway start + when a session first appears on host `onEvent` stream: every live, non-hidden, unbound session whose cwd is in a bound workspace gets a `🖥 Dashboard session: <name>` post + thread in that workspace's channel (`workspaceChannelFor`, `maybeAutoMirror`).
+- Considered once per run (`mirrorConsidered`, marked before any await → an event burst cannot open two threads). Persisted bindings → no duplicate thread after restart.
+- Security: sends session activity to Discord at the channel mirror level. Opt-in.
+- Discord UI: open a thread via the "N messages" link under a post or the channel Threads icon.
+- See change: chat-gateway-attach-dashboard-sessions.
 
 ## L1 Pairing Flow
 
@@ -318,6 +341,7 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `admins` | `string[]` | `[]` | L2 binding authority: Discord user IDs authorized to bind channels to directories. |
 | `groupChannels` | `string[]` | `[]` | L4 channel allowlist: guild channel IDs opted into gateway interaction. Unlisted guild channels ignored. |
 | `threadPerConversation` | `boolean` | `true` | Open a thread on every new channel-root message; runs each conversation in its own session inside the thread. `false` = one shared session per channel. Settings checkbox `chat-gateway-thread-per-conversation`. |
+| `mirrorDashboardSessions` | `boolean` | `false` | Opt-in: attach every live, non-hidden session inside a bound workspace into that workspace's channel (one thread each), at gateway start and when first seen on the host event stream. Sends their activity to Discord at the channel's mirror level. Team-controls mode only. Settings checkbox `chat-gateway-mirror-dashboard-sessions`. |
 | `sessionVisibility` | `string` | `"hidden"` | Board visibility of gateway-spawned/resumed sessions. Enum: `"hidden"`, `"shown"`. `hidden` sets session `hidden: true` on first register; revealed by "show hidden" toggle. Attached sessions never touched. Settings panel select `chat-gateway-session-visibility`. |
 | `steerPrefix` | `string` | `"!"` | Inbound message prefix forcing delivery mode `steer` instead of `followUp`. |
 | `editThrottleMs` | `number` | `1000` | Minimum milliseconds between Discord message edit API calls per channel. Minimum `0`. |
@@ -337,4 +361,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation, chat-gateway-attach-dashboard-sessions, fix-plugin-config-partial-write.

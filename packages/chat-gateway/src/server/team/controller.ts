@@ -87,6 +87,8 @@ export interface TeamController {
    */
   syncDisarmFromConfig(disarmed: boolean): void;
   bindingFor(channelId: string, parentChannelId?: string): ResolvedBinding | undefined;
+  /** Every provisioned channel bound to a workspace (auto-mirror target lookup). */
+  boundChannelIds(): string[];
   mirrorLevel(channelId: string, parentChannelId?: string): MirrorLevel;
   /**
    * Record a trusted-gated verb's host no-op (D5). Sticky; returns the reason
@@ -145,6 +147,7 @@ export function createTeamController(deps: TeamControllerDeps): TeamController {
 
   return {
     isDisarmed: () => disarmed,
+    boundChannelIds: () => [...deps.channelBindings().keys()],
     disarm() {
       setDisarmed(true);
     },

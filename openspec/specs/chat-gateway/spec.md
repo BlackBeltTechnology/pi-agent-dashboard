@@ -314,10 +314,55 @@ attaches to SHALL NOT be hidden. Hidden sessions remain revealable via `Show hid
 - **WHEN** the gateway attaches a channel to an existing dashboard session
 - **THEN** that session's `hidden` value SHALL NOT change
 
+### Requirement: Reach dashboard sessions from chat
+Sessions started in the dashboard SHALL be reachable from chat without the gateway starting
+them. Two whole-message commands SHALL be recognised in a bound channel (any other text,
+including steer-prefixed text, is a prompt):
+
+- `!sessions` — authorized as verb `list_sessions` (observe); replies with a numbered list
+  (at most 25) of live, non-hidden sessions whose cwd lies in the channel's bound workspace
+  (else `allowedRoots`), each with name, status, short id and its thread when attached.
+- `!attach <number | id-prefix>` — authorized as the chat-local verb `attach_session`
+  (observe) with the target's cwd for the scope check; opens a thread named after the
+  session on the command message, persists a binding with `source: "attach"` keyed to the
+  thread, subscribes the session and confirms in the thread. A session already attached
+  SHALL get a pointer to its existing thread, not a second one. Run inside a thread, it
+  SHALL be refused with a hint. Every prompt later sent into the thread SHALL still be
+  authorized as `send_prompt`.
+
+Attached sessions SHALL NOT be hidden or otherwise re-policied by the gateway.
+
+When `mirrorDashboardSessions` is `true` (default `false`; team-controls mode), the gateway
+SHALL attach every live, non-hidden, unbound session whose cwd lies in a bound workspace
+into that workspace's channel — at gateway start and when a session is first seen on the
+host's forwarded event stream — by posting a `Dashboard session: <name>` message and
+opening the thread on it. Each session SHALL be considered at most once per gateway run,
+and persisted bindings SHALL prevent a duplicate thread after a restart.
+
+#### Scenario: List then attach by number
+- **WHEN** a permitted user sends `!sessions` then `!attach 1` in the workspace channel root
+- **THEN** the gateway SHALL list the workspace's live sessions and open a thread bound to the first one, without starting a session
+
+#### Scenario: Attach outside the workspace is refused
+- **WHEN** `!attach` names a session whose cwd is outside the channel's workspace
+- **THEN** no thread or binding SHALL be created
+
+#### Scenario: Thread messages drive the attached session
+- **WHEN** a user sends a message inside an attached thread
+- **THEN** it SHALL be delivered to that session via `send_prompt`
+
+#### Scenario: Auto-mirror at start and on a new session
+- **WHEN** `mirrorDashboardSessions` is on and the gateway starts, or a new eligible session emits its first event
+- **THEN** each eligible session SHALL get exactly one thread in its workspace channel
+
+#### Scenario: Hidden sessions are never mirrored
+- **WHEN** a session is hidden (headless worker or plugin-hidden)
+- **THEN** it SHALL be neither listed nor auto-mirrored
+
 ### Requirement: Configuration surface
 The gateway SHALL expose configuration for: the Discord bot token, `allowedRoots`, the
 fixed channel→cwd map, the user allowlist and admins, `sessionVisibility`,
-`threadPerConversation`, and a read view of current bindings.
+`threadPerConversation`, `mirrorDashboardSessions`, and a read view of current bindings.
 Secrets SHALL be stored at rest with restrictive permissions consistent with existing
 dashboard credential handling and SHALL NOT appear in logs or API responses.
 

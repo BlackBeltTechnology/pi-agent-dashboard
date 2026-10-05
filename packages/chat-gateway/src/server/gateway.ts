@@ -21,6 +21,7 @@
  * See change: add-chat-gateway.
  */
 
+import path from "node:path";
 import type { InteractiveResponse, PlatformAdapter, PlatformMessage } from "../adapters/base.js";
 import { chunkForDiscord } from "../adapters/discord-payload.js";
 import type { ResolvedConfig } from "../shared/types.js";
@@ -41,7 +42,7 @@ import {
   toPromptControl,
 } from "./prompts.js";
 import type { BindingStore, SpawnCorrelator } from "./routing.js";
-import type { HostSeam, SpawnOutcome } from "./seam.js";
+import type { HostSeam, SeamSession, SpawnOutcome } from "./seam.js";
 import { createEditThrottle, type EditThrottle, shouldSteer, stripSteerPrefix } from "./stream.js";
 import type { Grant } from "./team/authorize.js";
 import { resolveCwdWithWorkspace, type WorkspaceResolveOutcome } from "./team/binding.js";
@@ -289,6 +290,23 @@ function toInbound(
 /** Discord thread-name limit. */
 const THREAD_NAME_LIMIT = 100;
 
+/** Whole-message `!sessions` (see change: chat-gateway-attach-dashboard-sessions). */
+const SESSIONS_COMMAND = /^\s*!\s*sessions\s*$/i;
+/** Whole-message `!attach <number | id-prefix>`. */
+const ATTACH_COMMAND = /^\s*!\s*attach\s+(\S+)\s*$/i;
+/** Max rows in a `!sessions` reply (keeps it under Discord's 2000 chars). */
+const LIST_LIMIT = 25;
+
+/** The chokepoint's author shape for an inbound message. */
+function authorOf(msg: InboundMessage) {
+  return {
+    id: msg.userId,
+    ...(msg.bot === true ? { isBot: true } : {}),
+    ...(msg.webhook === true ? { isWebhook: true } : {}),
+    ...(msg.roleIds ? { roleIds: msg.roleIds } : {}),
+  };
+}
+
 export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const { seam, adapter, config, store, correlator, platform, team } = deps;
   const now = deps.now ?? Date.now;
@@ -306,6 +324,11 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
   const pendingSpawns = new Map<string, string>();
   /** channelKey → when the spawn started (for the stale-spawn sweep). */
   const pendingSpawnAt = new Map<string, number>();
+  /** channelId → session ids of the last `!sessions` listing (for `!attach <n>`). */
+  const lastListing = new Map<string, string[]>();
+  /** Sessions the auto-mirror already considered this run. */
+  const mirrorConsidered = new Set<string>();
+  let offSessionEvents: (() => void) | null = null;
   /** A spawn that never resolves must not block its channel forever. */
   const SPAWN_TTL_MS = 5 * 60_000;
 
@@ -524,10 +547,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
     // refused `scope_violation`. Attaching to the wrong session is not something
     // a later refusal repairs, so the narrower net is the correct default (11.4).
     const wsFolders = boundWorkspaceFolders(msg);
-    const inScope =
-      wsFolders && wsFolders.length > 0
-        ? (cwd: string) => isWithinWorkspace(cwd, wsFolders)
-        : (cwd: string) => isWithinAllowedRoots(cwd, config.allowedRoots);
+    const inScope = scopeFor(msg);
     const candidates = seam
       .listSessions()
       .filter((s) => typeof s.cwd === "string" && inScope(s.cwd));
@@ -728,6 +748,171 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (b.sessionId === sessionId) return bindingKey(b);
     }
     return undefined;
+  }
+
+  // ── Dashboard sessions in Discord (`!sessions`, `!attach`, auto-mirror) ──
+  // See change: chat-gateway-attach-dashboard-sessions.
+
+  /**
+   * "In range" for this channel: the BOUND WORKSPACE's folders when there is
+   * one, else `allowedRoots` (same rule as the interactive attach, 11.4).
+   */
+  function scopeFor(msg: InboundMessage): (cwd: string) => boolean {
+    const wsFolders = boundWorkspaceFolders(msg);
+    return wsFolders && wsFolders.length > 0
+      ? (cwd: string) => isWithinWorkspace(cwd, wsFolders)
+      : (cwd: string) => isWithinAllowedRoots(cwd, config.allowedRoots);
+  }
+
+  /** Live, non-hidden sessions in scope. Hidden = headless workers / plugin-hidden. */
+  function attachableSessions(inScope: (cwd: string) => boolean): SeamSession[] {
+    return seam
+      .listSessions()
+      .filter((s) => !s.hidden && s.status !== "ended" && typeof s.cwd === "string" && inScope(s.cwd));
+  }
+
+  function sessionLabel(s: SeamSession): string {
+    const raw = s.name ?? (s.cwd ? path.basename(s.cwd) : s.id.slice(0, 8));
+    return raw.replace(/\s+/g, " ").trim().slice(0, THREAD_NAME_LIMIT) || s.id.slice(0, 8);
+  }
+
+  function threadMention(sessionId: string): string | undefined {
+    const key = channelKeyFor(sessionId);
+    const b = key ? store.get(key) : undefined;
+    return b ? `<#${b.threadId ?? b.channelId}>` : undefined;
+  }
+
+  /** The chokepoint for a command verb. `false` ⇒ refused (author already told). */
+  async function gateCommand(msg: InboundMessage, verb: string, target?: SeamSession): Promise<boolean> {
+    if (!team) return true;
+    const decision = team.authorizeRequest({
+      author: authorOf(msg),
+      channelId: msg.channelId,
+      ...(msg.parentChannelId ? { parentChannelId: msg.parentChannelId } : {}),
+      ...(msg.threadId ? { threadId: msg.threadId } : {}),
+      verb,
+      ...(target?.cwd ? { targetCwd: target.cwd, target: target.id } : {}),
+    });
+    if (decision.kind === "refusal") {
+      await reply(msg.channelId, `Refused: ${decision.reason}.`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Open a thread on `anchorId` named after the session, bind it (`attach` —
+   * the session is the operator's: never hidden, never re-policied) and stream
+   * the session there. `null` when the platform cannot open a thread.
+   */
+  async function attachInThread(
+    channelId: string,
+    anchorId: string,
+    s: SeamSession,
+    boundBy: string,
+  ): Promise<string | null> {
+    if (typeof adapter.startThread !== "function" || !s.cwd) return null;
+    const name = sessionLabel(s);
+    let threadId: string;
+    try {
+      ({ threadId } = await adapter.startThread(channelId, anchorId, name));
+    } catch (err) {
+      seam.log("warn", `chat-gateway: could not open a thread for session ${s.id}: ${String(err)}`);
+      return null;
+    }
+    store.set({
+      platform,
+      channelId: threadId,
+      threadId,
+      parentChannelId: channelId,
+      sessionId: s.id,
+      cwd: s.cwd,
+      boundBy,
+      source: "attach",
+      isDM: false,
+      createdAt: now(),
+    });
+    subscribeSession(s.id);
+    await reply(threadId, `Attached to ${name}. Its activity shows here; messages you send here go to that session.`);
+    return threadId;
+  }
+
+  async function handleSessionsCommand(msg: InboundMessage): Promise<void> {
+    if (!(await gateCommand(msg, "list_sessions"))) return;
+    const list = attachableSessions(scopeFor(msg)).slice(0, LIST_LIMIT);
+    lastListing.set(msg.channelId, list.map((s) => s.id));
+    if (list.length === 0) {
+      await reply(msg.channelId, "No live dashboard sessions in this workspace.");
+      return;
+    }
+    const lines = list.map((s, i) => {
+      const where = threadMention(s.id);
+      return `${i + 1}. ${sessionLabel(s)} — ${s.status ?? "unknown"} · \`${s.id.slice(0, 8)}\`${where ? ` · ${where}` : ""}`;
+    });
+    await reply(msg.channelId, `${lines.join("\n")}\nAttach one with \`!attach <number>\`.`);
+  }
+
+  function resolveAttachTarget(msg: InboundMessage, arg: string): SeamSession | undefined {
+    const candidates = attachableSessions(scopeFor(msg));
+    if (/^\d+$/.test(arg)) {
+      const id = lastListing.get(msg.channelId)?.[Number(arg) - 1];
+      return candidates.find((s) => s.id === id);
+    }
+    const matches = candidates.filter((s) => s.id.startsWith(arg));
+    return matches.length === 1 ? matches[0] : undefined;
+  }
+
+  async function handleAttachCommand(msg: InboundMessage, arg: string): Promise<void> {
+    if (msg.threadId) {
+      await reply(msg.channelId, "Run `!attach` in the channel itself, not inside a thread.");
+      return;
+    }
+    const target = resolveAttachTarget(msg, arg);
+    if (!(await gateCommand(msg, "attach_session", target))) return;
+    if (!target) {
+      await reply(msg.channelId, `No live session \`${arg}\` in this workspace. Use \`!sessions\` to list them.`);
+      return;
+    }
+    const existing = threadMention(target.id);
+    if (existing) {
+      await reply(msg.channelId, `Already attached: ${existing}.`);
+      return;
+    }
+    const opened = msg.messageId ? await attachInThread(msg.channelId, msg.messageId, target, msg.userId) : null;
+    if (!opened) {
+      await reply(msg.channelId, "Could not open a thread here (does the bot have Create Public Threads?).");
+    }
+  }
+
+  /** The workspace channel whose folders contain `cwd` (team-controls only). */
+  function workspaceChannelFor(cwd: string): string | undefined {
+    if (!team) return undefined;
+    for (const channelId of team.boundChannelIds()) {
+      const folders = team.bindingFor(channelId)?.binding.folders;
+      if (folders && folders.length > 0 && isWithinWorkspace(cwd, folders)) return channelId;
+    }
+    return undefined;
+  }
+
+  /**
+   * Opt-in auto-mirror: attach a live, non-hidden, unbound session into its
+   * workspace channel. Considered ONCE per gateway run (marked before any await,
+   * so an event burst cannot open two threads); persisted bindings make it
+   * idempotent across restarts.
+   */
+  async function maybeAutoMirror(sessionId: string): Promise<void> {
+    if (!config.mirrorDashboardSessions || mirrorConsidered.has(sessionId)) return;
+    mirrorConsidered.add(sessionId);
+    if (channelKeyFor(sessionId)) return;
+    const s = seam.getSession(sessionId);
+    if (!s || s.hidden || s.status === "ended" || !s.cwd) return;
+    const channelId = workspaceChannelFor(s.cwd);
+    if (!channelId) return;
+    const anchor = await adapter.sendMessage(
+      channelId,
+      `🖥 Dashboard session: ${sessionLabel(s)} (\`${path.basename(s.cwd)}\`)`,
+    );
+    await attachInThread(channelId, anchor, s, "dashboard");
   }
 
   /** Render the next un-answered sub-prompt (or the multiselect submit gate). */
@@ -1015,12 +1200,31 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       for (const b of store.all()) {
         subscribeSession(b.sessionId);
       }
+
+      // Opt-in auto-mirror: newly seen sessions (first forwarded event), plus
+      // every eligible live one right now. See change: chat-gateway-attach-dashboard-sessions.
+      offSessionEvents = seam.onSessionEvent((sessionId) => {
+        void maybeAutoMirror(sessionId).catch((err) =>
+          seam.log("warn", `chat-gateway: auto-mirror failed for ${sessionId}: ${String(err)}`),
+        );
+      });
+      if (config.mirrorDashboardSessions) {
+        for (const s of seam.listSessions()) {
+          await maybeAutoMirror(s.id).catch((err) =>
+            seam.log("warn", `chat-gateway: auto-mirror failed for ${s.id}: ${String(err)}`),
+          );
+        }
+      }
     },
 
     async stop() {
       running = false;
       offResolved?.();
       offResolved = null;
+      offSessionEvents?.();
+      offSessionEvents = null;
+      mirrorConsidered.clear();
+      lastListing.clear();
       for (const off of unsubscribes.values()) off();
       unsubscribes.clear();
       subscriptions.clear();
@@ -1083,6 +1287,19 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
         return;
       }
 
+      // Dashboard sessions: `!sessions` lists, `!attach <n|id>` binds a thread.
+      // Whole-message match, like `!disarm`, so ordinary steer text is never
+      // taken for a command. Authorized through the same chokepoint.
+      if (SESSIONS_COMMAND.test(msg.text)) {
+        await handleSessionsCommand(msg);
+        return;
+      }
+      const attachArg = ATTACH_COMMAND.exec(msg.text)?.[1];
+      if (attachArg !== undefined) {
+        await handleAttachCommand(msg, attachArg);
+        return;
+      }
+
       let key = bindingKey({ platform, channelId: msg.channelId, threadId: msg.threadId });
 
       // Team-controls: the disarm switch (spec "Disarm switch" — ANY `observe`+
@@ -1112,12 +1329,7 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       if (team) {
         const existing = newConversation ? undefined : store.get(key);
         const decision = team.authorizeRequest({
-          author: {
-            id: msg.userId,
-            ...(msg.bot === true ? { isBot: true } : {}),
-            ...(msg.webhook === true ? { isWebhook: true } : {}),
-            ...(msg.roleIds ? { roleIds: msg.roleIds } : {}),
-          },
+          author: authorOf(msg),
           channelId: msg.channelId,
           // Threads carry the thread id as `channelId`; pass the parent so the
           // chokepoint can resolve the binding the operator actually created.

@@ -42,6 +42,7 @@ function fakeCtx(
     sendExtensionMessage: () => false,
     mintSpawnToken: () => "tok",
     onSessionResolved: () => () => {},
+    onEvent: () => () => {},
     sessionManager: { listActive: () => [], listAll: () => [], getSession: () => undefined },
     subscribeSession: opts.frameSeam === false ? undefined : () => () => {},
     // Registered even while inert: the settings panel reads local state, so it

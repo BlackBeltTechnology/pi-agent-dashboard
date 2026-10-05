@@ -54,6 +54,11 @@
       "default": true,
       "description": "Open a Discord thread on every new message in the channel root and run that conversation in its own session inside the thread. false = one shared session for the whole channel."
     },
+    "mirrorDashboardSessions": {
+      "type": "boolean",
+      "default": false,
+      "description": "Show sessions started in the dashboard on Discord: each live, non-hidden session inside a bound workspace gets its own thread in that workspace's channel (existing ones when turned on, new ones as they start). Sends their activity to Discord at the channel's mirror level. You can always attach one by hand with !sessions / !attach."
+    },
     "sessionVisibility": {
       "type": "string",
       "enum": ["hidden", "shown"],

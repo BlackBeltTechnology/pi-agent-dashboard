@@ -26,6 +26,10 @@ export interface SeamSession {
   status?: string;
   /** Transcript path, present when the session is resumable (`mode: continue`). */
   sessionFile?: string;
+  /** Display name, for `!sessions` / attach thread names. */
+  name?: string;
+  /** Auto-hidden (headless worker) or plugin-hidden — never auto-mirrored or listed. */
+  hidden?: boolean;
 }
 
 export interface SeamSpawnOptions {
@@ -76,6 +80,12 @@ export interface HostSeam {
   assignSessionRef(sessionId: string, ref: Record<string, unknown>): boolean;
   /** Persist the plugin allowlist after a successful pairing redemption. */
   persistAllowlist(ids: string[]): void;
+  /**
+   * Fires with the sessionId of EVERY forwarded session event (any session, not
+   * just this plugin's) — the auto-mirror's "first time seen" signal. Rides the
+   * host's generic `onEvent`; the event payload is not read. See change: chat-gateway-attach-dashboard-sessions.
+   */
+  onSessionEvent(handler: (sessionId: string) => void): () => void;
   /** Subscribe to resolution of THIS plugin's own spawned sessions. */
   onSessionResolved(handler: (sessionId: string, pluginRef: Record<string, unknown>) => void): () => void;
   log(level: "info" | "warn" | "error", message: string): void;
@@ -91,6 +101,8 @@ function sessionShape(raw: unknown): SeamSession | null {
     cwd: typeof r.cwd === "string" ? r.cwd : undefined,
     status: typeof r.status === "string" ? r.status : undefined,
     sessionFile: typeof r.sessionFile === "string" ? r.sessionFile : undefined,
+    name: typeof r.name === "string" && r.name.trim() !== "" ? r.name : undefined,
+    hidden: r.hidden === true,
   };
 }
 
@@ -162,6 +174,9 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
       void Promise.resolve(ctx.updatePluginConfig({ allowlist: ids })).catch((err) =>
         ctx.logger.warn(`chat-gateway: could not persist allowlist: ${String(err)}`),
       );
+    },
+    onSessionEvent(handler) {
+      return ctx.onEvent((sessionId) => handler(sessionId));
     },
     onSessionResolved(handler) {
       return ctx.onSessionResolved(handler);
