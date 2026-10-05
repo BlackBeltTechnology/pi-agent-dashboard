@@ -33,6 +33,7 @@ function makeConfig(): ResolvedConfig {
     groupChannels: [],
     steerPrefix: "!",
     editThrottleMs: 0,
+    sessionVisibility: "hidden",
   };
 }
 

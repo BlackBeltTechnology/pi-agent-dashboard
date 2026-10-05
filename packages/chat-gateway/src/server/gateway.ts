@@ -618,6 +618,8 @@ export function createChatGateway(deps: ChatGatewayDeps): ChatGateway {
       // it the operator's request was dropped and they had to repeat it. A
       // fresh/resumed session has no in-flight turn, so a steer prefix is moot.
       ...(initialPrompt ? { initialPrompt } : {}),
+      // Chat sessions stay off the board unless the operator opted in.
+      ...(config.sessionVisibility === "hidden" ? { lifecycle: { hidden: true } } : {}),
       ...(resume ? { resume } : {}),
       ...(guardRef
         ? {

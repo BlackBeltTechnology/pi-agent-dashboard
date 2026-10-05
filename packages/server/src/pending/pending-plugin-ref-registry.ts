@@ -44,10 +44,12 @@ export const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
   "pluginRefs",
 ]);
 
-/** Generic lifecycle declaration; core reads only these two booleans. */
+/** Generic lifecycle declaration; core reads only these booleans. */
 export interface PluginSessionLifecycle {
   recover?: boolean;
   finalizeOnSocketClose?: boolean;
+  /** Hide the owned session on first register. See change: hide-chat-gateway-sessions. */
+  hidden?: boolean;
 }
 
 /** A resolved ownership record handed back on register. */
@@ -193,7 +195,9 @@ export function createPendingPluginRefRegistry(
       const sanitized = sanitizePluginRef(ref, ownerId, keyOwners, warnOnceForKey);
       const hasLifecycle =
         lifecycle !== undefined &&
-        (lifecycle.recover !== undefined || lifecycle.finalizeOnSocketClose !== undefined);
+        (lifecycle.recover !== undefined ||
+          lifecycle.finalizeOnSocketClose !== undefined ||
+          lifecycle.hidden !== undefined);
       if (Object.keys(sanitized).length === 0 && !hasLifecycle) {
         // Nothing to own — do not file (register resolves unowned).
         return false;
