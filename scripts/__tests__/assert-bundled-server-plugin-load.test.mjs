@@ -121,8 +121,9 @@ describe('failure diagnostics: server.log tail', () => {
 /**
  * E31 — the gate boots the SELECTED loader, so it proves the shipped default:
  * native unless PI_DASHBOARD_TS_LOADER=jiti; a missing selected loader is
- * named instead of booting. Entry wrap mirrors node-spawn (native: file:// on
- * win32, raw on POSIX; jiti: raw).
+ * named instead of booting. The entry stays raw for both loaders on every OS
+ * (mirrors `shouldUrlWrapEntry`, design D8 revised); the loader is a
+ * percent-encoded `file://` URL.
  * See change: fix-appimage-cold-boot-latency (design D4).
  */
 describe('selected TS loader (E31)', () => {

@@ -201,8 +201,10 @@ describe("no jiti-loaded module retains import.meta in code position", () => {
  */
 describe("seed 2 survives the native default (E29)", () => {
   it("mainTs still contains packages/server/src/cli.ts", () => {
-    expect(seeds.mainTs).toContain("packages/server/src/cli.ts");
-    expect(files).toContain("packages/server/src/cli.ts");
+    // OS separators: discovery returns `path.relative` results.
+    const cli = path.join("packages", "server", "src", "cli.ts");
+    expect(seeds.mainTs).toContain(cli);
+    expect(files).toContain(cli);
   });
 
   it("tagged seeds relabel exactly the three seed lists", () => {

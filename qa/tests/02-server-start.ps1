@@ -81,7 +81,13 @@ try {
                     exit 1
                 }
                 subst B: /D 2>$null | Out-Null
+                # Native commands do not throw under $ErrorActionPreference: check
+                # the exit code, or a failed mapping surfaces as a vague health timeout.
                 subst B: $prefix
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "FAIL (#X4): subst B: $prefix failed (exit $LASTEXITCODE) — is B: already in use?"
+                    exit 1
+                }
                 try {
                     $bWrapper = "B:" + $wrapper.FullName.Substring($prefix.Length)
                     Write-Host "Launching from the B: drive: $bWrapper"

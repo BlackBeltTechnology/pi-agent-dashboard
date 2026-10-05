@@ -28,7 +28,7 @@
  * Wired into `npm test` via scripts/__tests__/loader-neutral-source.test.mjs.
  * See change: fix-appimage-cold-boot-latency (design D5).
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import nodeModule from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -180,6 +180,24 @@ export function scanSource(source, file) {
 }
 
 /**
+ * The exact on-disk file a relative specifier names (`./helper.js` → that
+ * `helper.js`), checked before `resolveFirstParty`'s TypeScript remapping, so
+ * an existing `.js` module is scanned rather than skipped. Repo-relative, or
+ * null when absent / outside the root.
+ */
+function exactTarget(spec, fromFile, root) {
+  if (!spec.startsWith(".")) return null;
+  const abs = path.resolve(path.dirname(fromFile), spec);
+  try {
+    if (!statSync(abs).isFile()) return null;
+  } catch {
+    return null;
+  }
+  const rel = path.relative(root, abs);
+  return rel.startsWith("..") ? null : rel;
+}
+
+/**
  * Run the gate. `discoverSeeds` is injectable so the fail-closed path is
  * testable. Returns `{ ok, files, violations, error? }`.
  */
@@ -209,13 +227,15 @@ export function runLoaderNeutralGate({ root = repoRoot, discoverSeeds = defaultD
     let source;
     try {
       source = readFileSync(path.join(root, rel), "utf8");
-    } catch {
+    } catch (err) {
+      // Fail closed: a discovered-but-unreadable source was never checked.
+      violations.push({ file: rel, line: 0, rule: "unreadable", message: `cannot read: ${err?.code ?? err}` });
       continue;
     }
     const scan = scanSource(source, rel);
     violations.push(...scan.violations);
     const abs = path.join(root, rel);
-    for (const spec of scan.imports) push(resolveFirstParty(spec, abs, root, byName), true);
+    for (const spec of scan.imports) push(exactTarget(spec, abs, root) ?? resolveFirstParty(spec, abs, root, byName), true);
   }
   for (const rel of viaImport) {
     if (path.extname(rel) === ".tsx") {

@@ -115,7 +115,27 @@ describe("scope (E25)", () => {
   });
 });
 
+describe("import resolution follows the exact on-disk target", () => {
+  it("scans an imported helper.js (not only TS remaps of it)", () => {
+    const root = fixtureRepo({
+      "packages/srv/package.json": JSON.stringify({ name: "srv", type: "module", main: "src/cli.ts", bin: { srv: "bin/srv.mjs" } }),
+      "packages/srv/src/cli.ts": `import { h } from "../lib/helper.js";\nexport const x = h;\n`,
+      "packages/srv/lib/helper.js": `export const h = require("x");\n`,
+    });
+    expect(rulesOf(runLoaderNeutralGate({ root }))).toContain("packages/srv/lib/helper.js:1 require");
+  });
+});
+
 describe("fail closed (E26)", () => {
+  it("a discovered file that cannot be read is a violation, not a clean pass", () => {
+    const root = fixtureRepo({
+      "packages/plug/package.json": JSON.stringify({ name: "plug", "pi-dashboard-plugin": { id: "plug", server: "src/server/missing.ts" } }),
+    });
+    const res = runLoaderNeutralGate({ root });
+    expect(res.ok).toBe(false);
+    expect(rulesOf(res)).toContain("packages/plug/src/server/missing.ts:0 unreadable");
+  });
+
   it("an empty file set is a gate failure", () => {
     const root = fixtureRepo();
     const res = runLoaderNeutralGate({
