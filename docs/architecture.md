@@ -5856,6 +5856,23 @@ Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` 
 
 See change: fix-kb-search-retrieval-quality.
 
+### Sources, trust & dashboard reindex
+
+Settings page `packages/kb-plugin/src/client/KbSettingsPanel.tsx`. Add via `KbSourceAdd`. Kind toggle `Folder | Git repo | URL`. `Browse…` uses host primitive `ui:path-picker` (soft hook — hidden on older hosts). Folder inside cwd stored relative (`docs`); outside stored absolute + `outside folder` badge. GitHub/GitLab/`git@`/`git:` refs auto-select Git. Folder mode refuses `scheme://`, `git@`, `git:`, `npm:` refs. One source per `ref`; ref = index root; duplicate refs erase each other's chunks.
+
+`reindexAll` (`packages/kb-plugin/src/server/kb-routes.ts`) walks `cfg.allSourceSpecs` — all kinds (filesystem/git/https/npm) via engine resolvers. Each source isolated: failure → `error` outcome, job `jobStatus:"error"`, `lastError` `"N source(s) failed: …"` (≤500 chars); untrusted → skipped, job stays idle; failed/skipped source keeps prior chunks. `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server event loop. Reindex gate = saved `allSourceSpecs.length > 0`.
+
+Trust = TOFU, global. Store `~/.pi/dashboard/kb-source-trust.json`, keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`. Grant path: UI trust dialog (`Trust & add` / `Add without trusting` / `Cancel`) → `PUT /api/kb/config` `trustRefs`, or `POST /api/kb/source-trust {ref}`. Server records SAVED spec matched by exact `ref` (404 none, 409 duplicate refs, 400 filesystem, 500 persist failure). `untrustedRefs` in PUT response lists grants that failed. Trust-store write atomic (`tmp`+rename); `recordTrust` returns boolean. Fetch-side SSRF/zip-slip guards from change `harden-untrusted-content-ingestion` (`net-guard.ts`, `archive-guard.ts`).
+
+### KB source & search routes
+
+- `GET /api/kb/sources?cwd=` — per-source kind, files, trusted, outside, last outcome.
+- `GET /api/kb/search?cwd=&q=&limit=&docType=` — read-only test search over SAVED index. Opens existing store only — no init, no migrate, no create. `q` 1–512, `limit` 1–50 (default 10), `docType` `doc|agents|source-md`. No reindex, no verdicts. Stale schema → `needsReindex:true`.
+
+All cwd-guarded (`isAllowedCwd`).
+
+See change: improve-kb-settings-sources-and-search.
+
 ## Pi Gateway Transport & Identity
 
 Bridge↔server gateway transport + identity. Ground truth: `openspec/changes/add-pi-gateway-transport-identity/design.md` (decisions D0–D16), `packages/extension/src/endpoint-resolution.ts`, `packages/server/src/pi/gateway-transport-policy.ts`, `gateway-socket-bind.ts`, `bridge-upgrade-auth.ts`, `provisional-registration.ts`.

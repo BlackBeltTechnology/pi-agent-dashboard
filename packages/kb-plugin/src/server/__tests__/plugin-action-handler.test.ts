@@ -8,16 +8,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is hoisted above module-level const initializers, so the mock fns must
 // live in vi.hoisted to avoid a TDZ hit inside the factory.
-const { reindexAll, applyConfigPatch, isAllowedCwd } = vi.hoisted(() => ({
+const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd } = vi.hoisted(() => ({
   reindexAll: vi.fn(async () => ({ changed: 1, chunks: 2 })),
-  applyConfigPatch: vi.fn(() => ({ ok: true as const, projectPath: "/w/repo/.pi/dashboard/knowledge_base.json" })),
+  applyConfigPatchAndTrust: vi.fn((): { ok: true; projectPath: string; untrustedRefs: string[] } => ({
+    ok: true,
+    projectPath: "/w/repo/.pi/dashboard/knowledge_base.json",
+    untrustedRefs: [],
+  })),
   isAllowedCwd: vi.fn(() => true),
 }));
 
 vi.mock("../kb-routes.js", () => ({
   mountKbRoutes: vi.fn(),
   reindexAll,
-  applyConfigPatch,
+  applyConfigPatchAndTrust,
   isAllowedCwd,
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", () => ({
@@ -48,7 +52,7 @@ const tick = () => new Promise((r) => setImmediate(r));
 describe("kb plugin_action handler", () => {
   beforeEach(() => {
     reindexAll.mockClear();
-    applyConfigPatch.mockClear();
+    applyConfigPatchAndTrust.mockClear();
     isAllowedCwd.mockReturnValue(true);
   });
 
@@ -56,13 +60,30 @@ describe("kb plugin_action handler", () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
     await tick();
-    expect(reindexAll).toHaveBeenCalledWith("/w/repo");
+    expect(reindexAll).toHaveBeenCalledWith("/w/repo", expect.anything());
   });
 
-  it("config.set reaches the applyConfigPatch core", async () => {
+  it("config.set reaches the applyConfigPatchAndTrust core", async () => {
     const { handler } = await setup();
     handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] } } });
-    expect(applyConfigPatch).toHaveBeenCalledWith("/w/repo", { include: ["docs"] });
+    expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { include: ["docs"] });
+  });
+
+  it("E28 config.set with trustRefs passes them through and warns on untrustedRefs", async () => {
+    applyConfigPatchAndTrust.mockReturnValueOnce({ ok: true, projectPath: "/p", untrustedRefs: ["missing"] });
+    const { handler, ctx } = await setup();
+    handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { trustRefs: ["g", "missing"] } } });
+    expect(applyConfigPatchAndTrust).toHaveBeenCalledWith("/w/repo", { trustRefs: ["g", "missing"] });
+    const warns = (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+    expect(warns.some((w) => w.includes("missing"))).toBe(true);
+  });
+
+  it("X8 config.set with trustRefs for a non-admitted cwd is guarded — no core call", async () => {
+    isAllowedCwd.mockReturnValue(false);
+    const { handler, ctx } = await setup();
+    handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/etc", patch: { trustRefs: ["g"] } } });
+    expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
+    expect(ctx.logger.warn as ReturnType<typeof vi.fn>).toHaveBeenCalled();
   });
 
   it("rejects a cwd outside the allow-list — no core call", async () => {

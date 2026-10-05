@@ -35,6 +35,65 @@ export interface KbStats {
 export interface KbReindexResult {
   changed: number;
   chunks: number;
+  /** Per-source outcome of the walk (server-internal; not on the /stats or /reindex wire). */
+  outcomes?: KbSourceOutcome[];
+}
+
+/** Outcome of one source in a reindex walk. `untrusted` = skipped (no trust record); never fatal. */
+export interface KbSourceOutcome {
+  ref: string;
+  status: "ok" | "untrusted" | "error";
+  error?: string;
+  revision?: string;
+  /** Epoch ms the source settled. */
+  at: number;
+}
+
+/** One configured source as shown on the settings page. `GET /api/kb/sources?cwd=`. */
+export interface KbSourceStatus {
+  ref: string;
+  kind: "filesystem" | "npm" | "git" | "https";
+  /** Indexed files under this source's root (0 when unindexed). */
+  files: number;
+  /** `null` for filesystem sources (no trust concept). */
+  trusted: boolean | null;
+  /** Filesystem ref resolving outside the folder. */
+  outside: boolean;
+  lastStatus?: KbSourceOutcome["status"];
+  lastError?: string;
+  revision?: string;
+  lastAt?: number;
+}
+
+export interface KbSourcesResponse {
+  sources: KbSourceStatus[];
+}
+
+export type KbSearchDocType = "doc" | "agents" | "source-md";
+
+export interface KbSearchHit {
+  root: string;
+  path: string;
+  headingPath: string;
+  chunkId: string;
+  snippet: string;
+  score: number;
+  docType: KbSearchDocType;
+  suppressedSections?: number;
+}
+
+/** Response of `GET /api/kb/search?cwd=&q=&limit=&docType=` (saved index, read-only). */
+export interface KbSearchResponse {
+  hits: KbSearchHit[];
+  tookMs: number;
+  /** Index schema predates the engine; rebuild before searching. */
+  needsReindex?: true;
+}
+
+/** Response of `POST /api/kb/source-trust?cwd=`. */
+export interface KbTrustGrantResponse {
+  hash: string;
+  subject: string;
 }
 
 /** Response shape of `POST /api/kb/reindex?cwd=` — the job was registered
@@ -63,6 +122,14 @@ export interface KbConfigPatch {
   dbPath?: string;
   /** When true, kick a reindex after a successful write. */
   reindex?: boolean;
+  /** Refs (of saved remote sources) to trust in the same write. Applied only after a valid write. */
+  trustRefs?: string[];
+}
+
+/** Response of `PUT /api/kb/config` — `untrustedRefs` is additive. */
+export interface KbConfigPutResponse extends KbConfigResponse {
+  /** `trustRefs` entries that could not be granted (unmatched, ambiguous, filesystem, persist failure). */
+  untrustedRefs?: string[];
 }
 
 export type { KbConfig, SourceConfig };

@@ -3,7 +3,7 @@
  * displayable subject field, and read-only behaviour over legacy stores.
  * See change: add-access-grants-and-review (tasks 6.2–6.4).
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -124,5 +124,37 @@ describe("kb trust — reads never rewrite the store (task 6.4)", () => {
     isTrusted(spec);
     listTrustedSources();
     expect(readFileSync(trustFile, "utf8")).toBe(before);
+  });
+});
+
+describe("kb trust — atomic persistence (improve-kb-settings-sources-and-search)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "kb-trust-atomic-"));
+    process.env.KB_SOURCE_TRUST_PATH = join(dir, "kb-source-trust.json");
+  });
+  afterEach(() => {
+    delete process.env.KB_SOURCE_TRUST_PATH;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("E30 recordTrust → true and readable; leaves no tmp file", () => {
+    const spec = npmSpec("npm:atomic-pkg");
+    expect(recordTrust(spec)).toBe(true);
+    expect(isTrusted(spec)).toBe(true);
+    expect(readdirSync(dir)).toEqual(["kb-source-trust.json"]);
+  });
+
+  it("E30 a failed persist returns false and leaves the prior bytes identical", () => {
+    const first = npmSpec("npm:first-pkg");
+    recordTrust(first);
+    const file = join(dir, "kb-source-trust.json");
+    const before = readFileSync(file, "utf8");
+    // Parent path becomes a regular file → mkdir/write of the tmp file fails.
+    process.env.KB_SOURCE_TRUST_PATH = join(file, "nested", "kb-source-trust.json");
+    expect(recordTrust(npmSpec("npm:second-pkg"))).toBe(false);
+    process.env.KB_SOURCE_TRUST_PATH = file;
+    expect(readFileSync(file, "utf8")).toBe(before);
+    expect(isTrusted(npmSpec("npm:second-pkg"))).toBe(false);
   });
 });

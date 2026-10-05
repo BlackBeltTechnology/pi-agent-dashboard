@@ -2,7 +2,7 @@
 // Zero runtime deps. Requires --experimental-sqlite on current Node.
 // better-sqlite3 is a drop-in fallback behind the same KbStore interface.
 
-import { mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts, StorePropertyRow } from "./types.js";
@@ -89,6 +89,10 @@ function toMatch(q: string): string {
 export class SqliteFtsStore implements KbStore {
   private db: DatabaseSync;
   readonly dbPath: string;
+  /** Opened via `openExisting`: SELECT-only handle, must never issue DDL against the saved file. */
+  private readonly existingOnly: boolean;
+  /** fts5vocab view used for document frequencies (persistent in a writer, connection-local TEMP when `existingOnly`). */
+  private vocabTable = "chunks_vocab";
   // Prepared-statement cache: re-preparing per row on a hot insert path (chunks
   // + properties, many per file) is a measurable reindex cost. Cache by SQL.
   private stmts = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
@@ -97,16 +101,52 @@ export class SqliteFtsStore implements KbStore {
     if (!s) { s = this.db.prepare(sql); this.stmts.set(sql, s); }
     return s;
   }
-  constructor(dbPath: string) {
+  /**
+   * `existingOnly` opens a side-effect-free handle for read-only callers: no
+   * `mkdir`, no `journal_mode=WAL` (a mode change rewrites a DELETE-mode file
+   * header), and the caller must NOT call `init()` (no DDL / schema migration).
+   * Prefer {@link SqliteFtsStore.openExisting}.
+   */
+  constructor(dbPath: string, opts: { existingOnly?: boolean } = {}) {
     this.dbPath = dbPath;
-    if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
+    this.existingOnly = opts.existingOnly === true;
+    if (!opts.existingOnly && dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
-    this.db.exec("PRAGMA journal_mode=WAL");
+    if (!opts.existingOnly) this.db.exec("PRAGMA journal_mode=WAL");
     // Let a concurrent reader (e.g. `/stats` during a reindex) wait briefly for a
     // batch's write lock instead of failing with SQLITE_BUSY. See change:
     // fix-kb-index-feedback.
     this.db.exec("PRAGMA busy_timeout=5000");
   }
+  /**
+   * Open an EXISTING db without creating, migrating or re-moding it. Returns
+   * null for a missing or 0-byte file (callers treat that as an empty index).
+   * A read-write handle is used on purpose: a `readOnly` connection cannot
+   * create the WAL `-shm` sidecar once the writer checkpointed and removed it
+   * (SQLITE_CANTOPEN). Callers must only issue SELECTs.
+   */
+  static openExisting(dbPath: string): SqliteFtsStore | null {
+    try {
+      if (statSync(dbPath).size === 0) return null;
+    } catch {
+      return null;
+    }
+    return new SqliteFtsStore(dbPath, { existingOnly: true });
+  }
+
+  /** True when `chunks` exists with the current column set (`start_line`). Read-only probe. */
+  hasCurrentSchema(): { table: boolean; current: boolean } {
+    const cols = (this.db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>).map((c) => c.name);
+    return { table: cols.length > 0, current: cols.includes("start_line") };
+  }
+
+  /** Indexed file count per root. `files` has a (root,path) PK, so this is cheap (no FTS scan). */
+  filesByRoot(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const r of this.db.prepare("SELECT root, COUNT(*) AS n FROM files GROUP BY root").all() as Array<{ root: string; n: number }>) out[r.root] = Number(r.n);
+    return out;
+  }
+
   init() {
     this.migrateChunksSchema();
     this.db.exec(DDL);
@@ -312,7 +352,18 @@ export class SqliteFtsStore implements KbStore {
     const missing = keys.filter((k) => !this.dfCache.has(k));
     if (this.vocabReady === null) {
       try {
-        this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
+        if (this.existingOnly) {
+          // A read-only handle must not write DDL into the saved index. Reuse the
+          // persistent view if a writer already made one; otherwise a TEMP view
+          // (connection-local; lives in the temp database, never in the saved file).
+          const persisted = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chunks_vocab'").get();
+          if (!persisted) {
+            this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp.chunks_vocab_ro USING fts5vocab(main, chunks, 'row')");
+            this.vocabTable = "temp.chunks_vocab_ro";
+          }
+        } else {
+          this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
+        }
         this.vocabReady = true;
       } catch {
         this.vocabReady = false;
@@ -321,7 +372,7 @@ export class SqliteFtsStore implements KbStore {
     if (this.vocabReady && missing.length) {
       const ph = missing.map(() => "?").join(",");
       try {
-        const rows = this.db.prepare(`SELECT term, doc FROM chunks_vocab WHERE term IN (${ph})`).all(...missing) as any[];
+        const rows = this.db.prepare(`SELECT term, doc FROM ${this.vocabTable} WHERE term IN (${ph})`).all(...missing) as any[];
         for (const k of missing) this.dfCache.set(k, 0); // absent term = df 0
         for (const r of rows) this.dfCache.set(String(r.term), Number(r.doc) || 0);
       } catch { /* vocab unusable → leave uncached, treated as df 0 below */ }

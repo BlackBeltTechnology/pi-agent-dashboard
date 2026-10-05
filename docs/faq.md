@@ -3142,6 +3142,38 @@ Check in order:
 
 See change: inject-dox-doctrine-and-describe.
 
+## How do I add a KB source (folder, git repo, or URL) from the dashboard?
+
+Settings → Knowledge Base → add-source row. Toggle kind: `Folder | Git repo | URL`.
+
+- **Folder** — click `Browse…` (host `ui:path-picker`; hidden on older hosts) or type a path. Inside cwd → stored relative (`docs`). Outside cwd → stored absolute + `outside folder` badge.
+- **Git repo** — paste `https://github.com/…`, `https://gitlab.com/…`, `git@…`, or `git:` — kind auto-selects Git. Optional `pin` (branch/tag), `subdir`, `refresh`.
+- **URL** — `https://…` docs source.
+- One source per `ref` (ref = index root). Duplicate ref refused — edit the existing source; two sources sharing a ref erase each other's chunks.
+- Adding a remote source opens trust dialog: `Trust & add` / `Add without trusting` / `Cancel`.
+
+Then reindex from the panel. Reindex runs only when ≥1 saved source.
+
+See change: improve-kb-settings-sources-and-search.
+
+Cross-refs:
+- docs/architecture.md §Sources, trust & dashboard reindex
+- packages/kb-plugin/src/client/KbSettingsPanel.tsx
+
+## Why did my KB source fail or show untrusted after reindex?
+
+Per-source outcomes, dashboard reindex:
+
+- **Untrusted remote source** → skipped; job stays idle; prior chunks kept. Grant via trust dialog, `POST /api/kb/source-trust {ref}`, or `PUT /api/kb/config` `trustRefs`.
+- **Failure** → source marked `error`; job `jobStatus:"error"`; `lastError` `"N source(s) failed: …"` (≤500 chars). Other sources still index; failed source keeps prior chunks.
+- `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server.
+- Trust is TOFU and global (`~/.pi/dashboard/kb-source-trust.json`), keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`.
+- `untrustedRefs` in `PUT /api/kb/config` response = grants that failed. Never assumed success.
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
+See change: improve-kb-settings-sources-and-search.
+
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 
 Connect external MCP client via HTTP transport with bearer authentication.

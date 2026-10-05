@@ -12,10 +12,15 @@
  */
 import type {
   KbConfigPatch,
+  KbConfigPutResponse,
   KbConfigResponse,
   KbReindexResult,
   KbReindexRunning,
+  KbSearchDocType,
+  KbSearchResponse,
+  KbSourcesResponse,
   KbStats,
+  KbTrustGrantResponse,
 } from "../shared/kb-plugin-types.js";
 
 // ── Folder-path codec (base64url, UTF-8 safe) ─────────────────────
@@ -69,11 +74,41 @@ export async function fetchKbConfig(cwd: string, signal?: AbortSignal): Promise<
   return parseJson<KbConfigResponse>(res);
 }
 
-export async function saveKbConfig(cwd: string, patch: KbConfigPatch): Promise<KbConfigResponse> {
+export async function saveKbConfig(cwd: string, patch: KbConfigPatch): Promise<KbConfigPutResponse> {
   const res = await fetch(`/api/kb/config?cwd=${encodeURIComponent(cwd)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  return parseJson<KbConfigResponse>(res);
+  return parseJson<KbConfigPutResponse>(res);
+}
+
+/** Per-source status (file count, trust, outside, last outcome). */
+export async function fetchKbSources(cwd: string, signal?: AbortSignal): Promise<KbSourcesResponse> {
+  const res = await fetch(`/api/kb/sources?cwd=${encodeURIComponent(cwd)}`, { signal });
+  return parseJson<KbSourcesResponse>(res);
+}
+
+/** Grant trust to ONE saved remote source (by exact `ref`). Rejects with the server's `error`. */
+export async function grantSourceTrust(cwd: string, ref: string): Promise<KbTrustGrantResponse> {
+  const res = await fetch(`/api/kb/source-trust?cwd=${encodeURIComponent(cwd)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref }),
+  });
+  return parseJson<KbTrustGrantResponse>(res);
+}
+
+/** Read-only test search over the folder's SAVED index. No `verdicts` param by design. */
+export async function searchKb(
+  cwd: string,
+  q: string,
+  opts: { limit?: number; docType?: KbSearchDocType } = {},
+  signal?: AbortSignal,
+): Promise<KbSearchResponse> {
+  const params = new URLSearchParams({ cwd, q });
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.docType) params.set("docType", opts.docType);
+  const res = await fetch(`/api/kb/search?${params.toString()}`, { signal });
+  return parseJson<KbSearchResponse>(res);
 }
