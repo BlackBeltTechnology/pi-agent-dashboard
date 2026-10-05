@@ -75,6 +75,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **`@blackbelt-technology/pi-dashboard-app-kit`** — new library for a standalone SPA
+  served from its own origin that talks to a dashboard host. It reads the
+  dashboard URL at runtime (`/config.json`), sets the identity mode from the login
+  descriptor (`oidc` / `none`, fail-closed otherwise), builds the OIDC PKCE client
+  config, attaches the bearer only to the dashboard origin, never sends cookies, and
+  opens reconnecting sockets with a fresh single-use ticket on every attempt. The
+  `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
+
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual
   browser/device-code choice. It stays hidden while `models.json` points
