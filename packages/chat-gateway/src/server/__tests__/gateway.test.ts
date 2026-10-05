@@ -396,7 +396,10 @@ describe("chat-gateway orchestrator", () => {
     expect(seam.spawns[0].resume).toEqual({ sessionFile: "/home/pi/.pi/s1.jsonl" });
     expect(seam.spawns[0].cwd).toBe("/repos/proj");
     expect(seam.sentPrompts).toEqual([]);
+    // The message that triggered the resume is delivered, not dropped.
+    expect(seam.spawns[0].initialPrompt).toBe("keep going");
     expect(adapter.sent[0].content).toMatch(/resuming/i);
+    expect(adapter.sent[0].content).not.toMatch(/answer again/i);
   });
 
   it("4.3 resume: an ended session whose cwd left allowedRoots is refused, no spawn", async () => {
@@ -832,6 +835,53 @@ describe("chat-gateway orchestrator", () => {
     expect(seam.sentPrompts).toEqual([
       { sessionId: "sess-thread", text: "again", delivery: "followUp" },
     ]);
+  });
+
+  // Real-host regression: the pending-ref registry strips core-reserved keys
+  // (`spawnToken`, `source`, ...) before notifying the owner. Correlating on a
+  // reserved key meant no spawn was EVER bound: every message started another
+  // orphan session and no prompt ran. The fake seam now strips like the host.
+  it("a fresh spawn binds even though the host strips core-reserved pluginRef keys", async () => {
+    const seam = createFakeSeam();
+    const store = memoryStore();
+    const { gateway } = makeGateway({
+      seam,
+      store,
+      config: baseConfig({ groupChannels: ["c1"], fixedMap: { "discord:c1:-": "/repos/proj" } }),
+    });
+    await gateway.start();
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: false,
+      startedAt: 0,
+    });
+    expect(seam.spawns).toHaveLength(1);
+    seam.resolveSpawn("sess-1", seam.spawns[0].pluginRef ?? {});
+    expect(store.get("discord:c1:-")?.sessionId).toBe("sess-1");
+  });
+
+  it("the message that triggers a spawn RUNS as the session's initial prompt", async () => {
+    const seam = createFakeSeam();
+    const { gateway, adapter } = makeGateway({
+      seam,
+      store: memoryStore(),
+      config: baseConfig({ groupChannels: ["c1"], fixedMap: { "discord:c1:-": "/repos/proj" } }),
+    });
+    await gateway.start();
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "!what is the current branch?",
+      isDM: false,
+      startedAt: 0,
+    });
+    // Steer prefix stripped: a fresh session has no turn to steer.
+    expect(seam.spawns[0].initialPrompt).toBe("what is the current branch?");
+    expect(adapter.sent.at(-1)?.content).not.toMatch(/answer again/i);
   });
 
   it("F7: a second message during the spawn window does not start a second session", async () => {

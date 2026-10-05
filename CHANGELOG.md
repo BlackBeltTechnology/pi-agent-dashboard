@@ -174,6 +174,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Chat Gateway runs your Discord message and keeps the session.** A message
+  in a bound channel started a session but never ran, and every later message
+  started yet another session. The gateway matched spawns on a key the
+  dashboard reserves for itself (`spawnToken`), which the host strips, so no
+  spawn was ever bound. It now uses its own key, and the message that starts
+  (or resumes) a session runs as that session's first prompt instead of asking
+  you to repeat it.
+
 - **Chat Gateway can see the Discord channels it creates.** A provisioned
   workspace channel denied View to `@everyone`, and that deny applied to the
   bot too, so on a real server the bot was locked out of its own channel

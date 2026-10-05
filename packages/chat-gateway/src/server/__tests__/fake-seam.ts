@@ -7,6 +7,30 @@
  */
 import type { HostSeam, SeamSession, SeamSpawnOptions, SpawnOutcome } from "../seam.js";
 
+/**
+ * Copy of `CORE_RESERVED_REF_KEYS` in
+ * `packages/server/src/pending/pending-plugin-ref-registry.ts` (chat-gateway
+ * does not depend on the server package). Keep in sync.
+ */
+const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
+  "sessionId",
+  "cwd",
+  "source",
+  "status",
+  "closedReason",
+  "live",
+  "liveEpoch",
+  "recover",
+  "finalizeOnSocketClose",
+  "spawnToken",
+  "sessionFile",
+  "startedAt",
+  "endedAt",
+  "name",
+  "nameSource",
+  "pluginRefs",
+]);
+
 export interface FakeSeam extends HostSeam {
   /** Live sessions returned by listSessions(). */
   sessions: SeamSession[];
@@ -92,7 +116,14 @@ export function createFakeSeam(): FakeSeam {
       frameHandlers.get(sessionId)?.(frame);
     },
     resolveSpawn(sessionId, pluginRef) {
-      for (const h of resolvedHandlers) h(sessionId, pluginRef);
+      // Mirror the REAL host: the pending-ref registry drops core-reserved keys
+      // before the owner is notified, so a plugin can only correlate through a
+      // key it owns. Passing the raw ref here hid a production bug where the
+      // gateway correlated on `spawnToken` (reserved) and never bound a spawn.
+      const delivered = Object.fromEntries(
+        Object.entries(pluginRef).filter(([k]) => !CORE_RESERVED_REF_KEYS.has(k)),
+      );
+      for (const h of resolvedHandlers) h(sessionId, delivered);
     },
   };
   return seam;
