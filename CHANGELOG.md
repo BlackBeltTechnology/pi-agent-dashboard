@@ -91,6 +91,14 @@ see [`docs/release-process.md`](docs/release-process.md).
   session per channel. If the bot cannot open a thread (missing Create Public
   Threads), it answers in the channel instead.
 
+- **Reach your dashboard sessions from Discord.** In a workspace channel,
+  `!sessions` lists the live sessions in that workspace and `!attach <number>`
+  opens a thread for one: its activity shows there, and your messages in the
+  thread go to it. The new "Show dashboard sessions on Discord" setting (off
+  by default) gives every session in a bound workspace its own thread
+  automatically, existing ones and new ones as they start. It sends their
+  activity to Discord at the channel's mirror level.
+
 - **Discord chat sessions stay off the board.** Sessions the Chat Gateway
   starts or resumes are now hidden by default, like automation runs; turn on
   "show hidden" to see them. Settings \ Chat Gateway "Chat sessions on the
@@ -189,6 +197,12 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Saving one plugin setting no longer resets the others.** Writing part
+  of a plugin's config through `POST /api/config/plugins/:id` reset every
+  setting left out of the request to its default (e.g. the Chat Gateway's
+  allowed folders, allowlist and admins). Settings you don't send now keep
+  their saved values.
+
 - **Hidden Discord sessions stay hidden after a dashboard restart.** A
   restart can bring a Chat Gateway session back as a fresh registration, which
   re-decided its visibility and put it back on the board. The "hidden by its
@@ -197,12 +211,6 @@ see [`docs/release-process.md`](docs/release-process.md).
   ones stay hidden.
 
 - **Chat Gateway runs your Discord message and keeps the session.** A message
-- **Saving one plugin setting no longer resets the others.** Writing part
-  of a plugin's config through `POST /api/config/plugins/:id` reset every
-  setting left out of the request to its default (e.g. the Chat Gateway's
-  allowed folders, allowlist and admins). Settings you don't send now keep
-  their saved values.
-
   in a bound channel started a session but never ran, and every later message
   started yet another session. The gateway matched spawns on a key the
   dashboard reserves for itself (`spawnToken`), which the host strips, so no

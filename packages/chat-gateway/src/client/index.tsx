@@ -67,6 +67,9 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const [threadPerConversation, setThreadPerConversation] = useState(
     config?.threadPerConversation ?? true,
   );
+  const [mirrorDashboardSessions, setMirrorDashboardSessions] = useState(
+    config?.mirrorDashboardSessions ?? false,
+  );
   const [token, setToken] = useState("");
   const [allowedRoots, setAllowedRoots] = useState("");
   const [defaultCwd, setDefaultCwd] = useState("");
@@ -93,6 +96,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
   const saved = {
     enabled: config?.enabled ?? true,
     threadPerConversation: config?.threadPerConversation ?? true,
+    mirrorDashboardSessions: config?.mirrorDashboardSessions ?? false,
     allowedRoots: (config?.allowedRoots ?? []).join("\n"),
     defaultCwd: config?.defaultCwd ?? "",
     fixedMap: formatFixedMap(config?.fixedMap ?? {}),
@@ -109,6 +113,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
     const d = dirtyFields.current;
     if (!d.has("enabled")) setEnabled(saved.enabled);
     if (!d.has("threadPerConversation")) setThreadPerConversation(saved.threadPerConversation);
+    if (!d.has("mirrorDashboardSessions")) setMirrorDashboardSessions(saved.mirrorDashboardSessions);
     if (!d.has("allowedRoots")) setAllowedRoots(saved.allowedRoots);
     if (!d.has("defaultCwd")) setDefaultCwd(saved.defaultCwd);
     if (!d.has("fixedMap")) setFixedMap(saved.fixedMap);
@@ -151,6 +156,7 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
       const partial: Record<string, unknown> = {
         enabled,
         threadPerConversation,
+        mirrorDashboardSessions,
         allowedRoots: parseLines(allowedRoots),
         defaultCwd,
         fixedMap: parseFixedMap(fixedMap),
@@ -202,6 +208,16 @@ export function ChatGatewaySettings(_props: SlotProps<"settings-section">): Reac
           onChange={(e) => markDirty("threadPerConversation", setThreadPerConversation)(e.target.checked)}
         />
         One thread per conversation (new channel message → new thread + session)
+      </label>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <input
+          type="checkbox"
+          data-testid="chat-gateway-mirror-dashboard-sessions"
+          checked={mirrorDashboardSessions}
+          onChange={(e) => markDirty("mirrorDashboardSessions", setMirrorDashboardSessions)(e.target.checked)}
+        />
+        Show dashboard sessions on Discord (one thread each; sends their activity to Discord)
       </label>
 
       <div>

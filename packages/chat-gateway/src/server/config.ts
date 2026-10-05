@@ -83,6 +83,8 @@ export function resolveConfig(raw: ChatGatewayConfig | undefined): ResolvedConfi
       typeof src.threadPerConversation === "boolean"
         ? src.threadPerConversation
         : CONFIG_DEFAULTS.threadPerConversation,
+    // Opt-in: sends transcripts to Discord, so only an explicit `true` enables.
+    mirrorDashboardSessions: src.mirrorDashboardSessions === true,
     ...(normalizeToolPolicy(src.toolPolicy) === undefined
       ? {}
       : { toolPolicy: normalizeToolPolicy(src.toolPolicy) }),

@@ -36,6 +36,7 @@ function makeConfig(): ResolvedConfig {
     sessionVisibility: "hidden",
     // These scenarios pin channel-root binding semantics.
     threadPerConversation: false,
+    mirrorDashboardSessions: false,
   };
 }
 

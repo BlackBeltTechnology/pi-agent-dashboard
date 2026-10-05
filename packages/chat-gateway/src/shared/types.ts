@@ -63,6 +63,14 @@ export interface ChatGatewayConfig {
    */
   threadPerConversation?: boolean;
   /**
+   * Opt-in: attach every live, non-hidden session inside a bound workspace into
+   * that workspace's channel (one thread each) — at gateway start and whenever a
+   * new one is first seen. Sends transcripts to Discord at the channel's mirror
+   * level. Default `false`; only an explicit `true` enables.
+   * See change: chat-gateway-attach-dashboard-sessions.
+   */
+  mirrorDashboardSessions?: boolean;
+  /**
    * L3 tool policy for gateway-SPAWNED sessions (attached sessions stay
    * ungated by design). Present ⇒ the companion guard extension is loaded.
    * Deny-first: a tool in neither list is denied unless `defaultAction` widens
@@ -119,6 +127,7 @@ export interface ResolvedConfig {
   editThrottleMs: number;
   sessionVisibility: "hidden" | "shown";
   threadPerConversation: boolean;
+  mirrorDashboardSessions: boolean;
   toolPolicy?: {
     allow?: string[];
     approval?: string[];
@@ -133,6 +142,7 @@ export const CONFIG_DEFAULTS = {
   editThrottleMs: 1000,
   sessionVisibility: "hidden",
   threadPerConversation: true,
+  mirrorDashboardSessions: false,
 } as const;
 
 // ── Inbound message ───────────────────────────────────────────────────────

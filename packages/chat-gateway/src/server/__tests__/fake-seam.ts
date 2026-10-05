@@ -55,12 +55,15 @@ export interface FakeSeam extends HostSeam {
   emitFrame(sessionId: string, frame: unknown): void;
   /** Resolve a spawn as the host would on session_register. */
   resolveSpawn(sessionId: string, pluginRef: Record<string, unknown>): void;
+  /** Forward one session event as the host's `onEvent` stream would. */
+  emitSessionEvent(sessionId: string): void;
 }
 
 export function createFakeSeam(): FakeSeam {
   let tokenSeq = 0;
   const frameHandlers = new Map<string, (frame: unknown) => void>();
   const resolvedHandlers: Array<(id: string, ref: Record<string, unknown>) => void> = [];
+  const eventHandlers: Array<(id: string) => void> = [];
 
   const seam: FakeSeam = {
     sessions: [],
@@ -103,6 +106,16 @@ export function createFakeSeam(): FakeSeam {
     },
     persistAllowlist(ids) {
       seam.persistedAllowlists.push([...ids]);
+    },
+    onSessionEvent(handler) {
+      eventHandlers.push(handler);
+      return () => {
+        const i = eventHandlers.indexOf(handler);
+        if (i >= 0) eventHandlers.splice(i, 1);
+      };
+    },
+    emitSessionEvent(sessionId) {
+      for (const h of [...eventHandlers]) h(sessionId);
     },
     onSessionResolved(handler) {
       resolvedHandlers.push(handler);

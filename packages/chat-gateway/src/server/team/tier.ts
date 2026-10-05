@@ -55,6 +55,9 @@ export const CHAT_COMMAND_ALLOWLIST: readonly string[] = [
   "get_tool_result",
   // The spec's emergency switch. A chat-ONLY verb (see CHAT_LOCAL_VERB_TIERS).
   "disarm",
+  // Bind a thread to an existing dashboard session (watch it). Chat-ONLY.
+  // See change: chat-gateway-attach-dashboard-sessions.
+  "attach_session",
 ];
 
 /**
@@ -70,6 +73,9 @@ export const CHAT_COMMAND_ALLOWLIST: readonly string[] = [
  */
 export const CHAT_LOCAL_VERB_TIERS: ReadonlyMap<string, Tier> = new Map([
   ["disarm", "observe"],
+  // Attaching only WATCHES (mirroring is never gated, X15); every prompt sent
+  // into the thread is still authorized as `send_prompt` (control).
+  ["attach_session", "observe"],
 ]);
 
 /** The effective per-verb tier table, read from the shared generated manifest. */

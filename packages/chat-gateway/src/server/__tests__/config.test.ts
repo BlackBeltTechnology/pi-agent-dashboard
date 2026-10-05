@@ -30,6 +30,13 @@ describe("resolveConfig", () => {
     expect(resolveConfig({ threadPerConversation: false }).threadPerConversation).toBe(false);
   });
 
+  it("mirrorDashboardSessions defaults to false; only an explicit true turns it on", () => {
+    expect(resolveConfig({}).mirrorDashboardSessions).toBe(false);
+    // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe
+    expect(resolveConfig({ mirrorDashboardSessions: "yes" as any }).mirrorDashboardSessions).toBe(false);
+    expect(resolveConfig({ mirrorDashboardSessions: true }).mirrorDashboardSessions).toBe(true);
+  });
+
   it("is total on undefined and non-object input", () => {
     expect(() => resolveConfig(undefined)).not.toThrow();
     // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe

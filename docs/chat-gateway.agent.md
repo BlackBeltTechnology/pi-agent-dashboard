@@ -22,6 +22,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 ## Dashboard Configuration
 - Settings → General → Chat Gateway (`ChatGatewaySettings`).
 - `token` write-only schema property: redacted from responses, never logged.
+- Partial write keeps omitted keys: body merges over stored config; schema defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 
 ## Mandatory Spawn Boundary (`allowedRoots`)
 - Whitelist `allowedRoots` governs spawn and attach; empty array blocks all.
@@ -41,6 +42,13 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Troubleshooting: `bindings.json` absent after spawn + command-log only `spawn_session` → correlation broken. See change: fix-chat-gateway-spawn-correlation.
 - Thread per conversation (`threadPerConversation`, default true): channel-root guild message (not DM, no `threadId`, not `!disarm`, has `messageId`, adapter has `startThread`) = NEW conversation. Authorized via `team.authorizeRequest` verb `spawn_session`; never routed into channel-root binding. Then `adapter.startThread(channelId, messageId, name)` opens public thread (Discord `autoArchiveDuration: 1440`, needs **Create Public Threads**); name = message text, steer prefix stripped, whitespace collapsed, ≤100 chars. Message re-addressed (`channelId = threadId`, `threadId`, `parentChannelId = root`) → `ensureBinding` spawn with `initialPrompt` → key `discord:<threadId>:<threadId>`. Reply + stream inside thread; follow-ups reuse session. L4/team resolve via parent channel. Refused/DM never thread. `startThread` failure → `warn` `chat-gateway: could not open a thread (...)`, answer in channel root. `false` = one shared channel-root session.
 - Restart respawn (fixed, `fix-plugin-hidden-across-restart`): post-`/api/restart` re-register can be `registerReason:"spawn"` (no token, `dashboardSpawned:true`); old non-reattach path re-decided `hidden` via headless heuristic → false; next save persisted `false`. Fix writes core-owned `pluginHidden:true` (`event-wiring.ts`), restored via `session-to-meta.ts`/`sessionFromMeta` (`session-scanner.ts`); register order reattach → `existing.hidden`, else `visibilityIntent`, else `existing.pluginHidden===true` → hidden, else heuristic. Pre-fix sessions lack `pluginHidden` → not migrated.
+
+## Reach Dashboard Sessions from Discord
+- Two whole-message commands pull DASHBOARD sessions into chat; any other text (incl. steer-prefixed) is a prompt.
+- `!sessions` (verb `list_sessions`, observe): numbered list (max 25) of live, non-hidden sessions in scope (bound-workspace folders else `allowedRoots`); name, status, short id, `<#thread>` when attached. Cached per channel (`lastListing`).
+- `!attach <number|id-prefix>` (chat-local `attach_session`, observe, scope check on target cwd): opens thread on command message named after session (`attachInThread`), binds `source:"attach"` keyed `discord:<threadId>:<threadId>` (`parentChannelId` = channel), subscribes, confirms. Already attached → points at existing thread. Inside a thread → refused. Prompts in thread still authorized `send_prompt` (control). Attached sessions never hidden.
+- Code: `gateway.ts` (`SESSIONS_COMMAND`, `ATTACH_COMMAND`, `scopeFor`, `attachableSessions`, `maybeAutoMirror`); seam `onSessionEvent` + `SeamSession.name/hidden`; `tier.ts`; `team/controller.ts` `boundChannelIds()`.
+- Auto-mirror (`mirrorDashboardSessions`, default false; settings checkbox `chat-gateway-mirror-dashboard-sessions`; team-controls only): at gateway start + first appearance on host `onEvent` stream, every live, non-hidden, unbound session in a bound workspace gets a `🖥 Dashboard session: <name>` post + thread. Once per run (`mirrorConsidered`); persisted bindings → no duplicates after restart. Sends activity to Discord at channel mirror level; opt-in. See change: chat-gateway-attach-dashboard-sessions.
 
 ## L1 Pairing Flow
 - Mints 6-digit code at startup; logged once (`"L1 pairing code <code>"`).
@@ -95,8 +103,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 
 ## Configuration Reference
 - `enabled` (boolean, default true), `token` (string, writeOnly), `allowedRoots` (string[], default []), `fixedMap` (object), `defaultCwd` (string).
-- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `threadPerConversation` (boolean, default true; settings checkbox `chat-gateway-thread-per-conversation`), `sessionVisibility` (enum `hidden`|`shown`, default `hidden`; settings select `chat-gateway-session-visibility`), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
+- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `threadPerConversation` (boolean, default true; settings checkbox `chat-gateway-thread-per-conversation`), `mirrorDashboardSessions` (boolean, default false; settings checkbox `chat-gateway-mirror-dashboard-sessions`; team-controls only), `sessionVisibility` (enum `hidden`|`shown`, default `hidden`; settings select `chat-gateway-session-visibility`), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
 - `toolPolicy` (`allow`, `approval`, `defaultAction: "deny"`), `guardExtension` (string).
 - `teamControls`: `ceiling` (enum, default `observe`), `disarmed` (boolean, default false), `auditRetention` (integer, default 10000, max 1000000).
 - `teamControls.bindings.<id>`: `principals` (map ID → tier), `roles` (map role ID → tier <= control), `mirrorLevel` (enum, default `names-only`), `ceiling` (enum).
-- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation`.
+- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, chat-gateway-thread-per-conversation, chat-gateway-attach-dashboard-sessions, fix-plugin-config-partial-write`.
