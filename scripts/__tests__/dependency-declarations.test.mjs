@@ -10,7 +10,7 @@
  * (test-plan E19–E26, P1).
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { rangeIsSatisfiable, selectHostPeerRange, selectRange } from '../verify-published-imports.mjs';
@@ -141,7 +141,9 @@ describe('range selection (E19, E20, E21)', () => {
     for (const { name, manifest } of nonPrivate()) {
       for (const field of DEP_FIELDS) {
         for (const [dep, range] of Object.entries(manifest[field] ?? {})) {
-          if (/^(workspace|file|link):/.test(range)) continue;
+          // Non-semver specifiers: workspace/file/link, and an https URL tarball (server `xlsx`
+          // from the official SheetJS CDN — its version is pinned by office-preview E71 instead).
+          if (/^(workspace|file|link|https):/.test(range)) continue;
           const resolving = resolvedVersion(dep, name);
           if (!resolving) continue; // absent => unverifiable, covered by X3
           if (!rangeIsSatisfiable(range, resolving)) violations.push(`${name} ${field}.${dep}`);

@@ -96,6 +96,21 @@ Existing code this design relies on (all claims cited):
 - Changing any size cap value, or the 413 wire body (`file-read-containment`
   pins it to `{ success, error }`).
 - Neutralising a user-configured HTTP proxy for git (see D3 trade-offs).
+- **Cross-process serialization of one KB cache entry.** Two processes resolving
+  the SAME remote source at the same instant (e.g. `kb index` in two terminals)
+  are not serialized. This is pre-existing: `origin/develop` had no
+  serialization on either path (https did `rmSync(dest)` *before* fetching; git
+  mutated the clone in place). This change does not regress it and strictly
+  improves https: a failed or blocked refresh keeps the previous cache, backups
+  are unique per writer, and concurrent writers are last-writer-wins — a loser
+  errors out, but `dest` always holds one writer's complete content. The git
+  path keeps its single-writer assumption for in-place `fetch`/`pull` on a
+  matching clone (git's own index lock is the only guard); this change adds no
+  git cache mutation beyond that — an origin mismatch refuses instead of
+  replacing the clone (D3). A hand-rolled cross-process lock was tried and removed: every round
+  found a narrower ownership/ABA hole in it, and it guarded a case outside this
+  change's threat model (hostile content, not concurrent cooperative runs).
+  Follow-up if it ever matters: immutable generation dirs + an atomic pointer.
 
 ## Decisions
 
@@ -278,10 +293,16 @@ Before any git network command (`clone`, `fetch`, `pull`):
 1. **Scheme allowlist.** Allow `https://`, `ssh://` (via `git:ssh://…` or
    `kind: git`), and scp-style `git@host:path`. Reject `file:`, `git://`,
    `http://`, `ext::`, and anything else, without running git.
-2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read
-   `git -C <clone> remote get-url origin`. If it differs from the effective URL,
-   the cache dir is discarded and re-cloned through the guarded path, so a
-   poisoned or stale `origin` is never contacted.
+2. **Refresh target.** Before `fetch`/`pull` on an existing clone, read ALL raw
+   config values `git -C <clone> config --get-all remote.origin.url` (not
+   `remote get-url`, which applies the user's `url.*.insteadOf` rewriting —
+   their config is trusted, so a rewrite must not read as a mismatch; and not
+   `--get`, which reports only the LAST value while fetch uses the FIRST URL of
+   a multi-URL remote). Require exactly one value, equal to the effective URL;
+   otherwise **refuse**: throw an error naming the cache entry and telling
+   the user to remove it and retry. Nothing is deleted or replaced, so a
+   concurrent resolver using that clone can never lose it, and a poisoned or
+   stale `origin` is never contacted.
 3. **Host check.** Resolve the host with `dns.lookup({all:true})` and run every
    address through kb's `isNonPublicAddress` (D2), never the server's
    permissive `isBlockedAddress`. IP-literal hosts are checked directly.
@@ -327,18 +348,23 @@ whose URLs come from the attacker's repo.
    - The `.fetched` staleness marker (today `join(dest, ".fetched")`,
      `sources.ts:174`) is written into `stage/out` **before** the swap, so it
      moves with the content.
-   - **Recovery, at the start of every resolve:**
-     - if `dest` is absent and `dest.old` exists → `rename(dest.old, dest)`;
-     - otherwise any leftover `dest.old` → `rm -rf`.
+   - **Backups are unique per writer:** `dest.old-<epochMs>-<uuid>`. A writer
+     only ever deletes **its own** backup.
+   - **Recovery, at the start of every resolve** (`recoverBackups`):
+     - if `dest` is absent, restore the newest backup older than a 60 s grace
+       window (a crash between the two swap renames; a younger backup may be a
+       live writer's in-flight rollback copy and is left alone);
+     - prune only backups older than 1 h (debris).
    - Only after every check passes, swap with rollback:
-     1. `rename(dest, dest.old)`, if `dest` exists;
-     2. `rename(stage/out, dest)`. If this fails, `rename(dest.old, dest)` and
-        throw;
-     3. `rm(dest.old)`.
+     1. `rename(dest, backup)`, if `dest` exists;
+     2. `rename(stage/out, dest)`. If this fails, try `rename(backup, dest)`
+        (it fails harmlessly when a concurrent writer already repopulated
+        `dest`) and throw;
+     3. `rm(backup)` (our own).
    - `stage` sits in `cacheDir`, the same filesystem as `dest` (no `EXDEV`).
-     Every rename is atomic. Crash recovery (above) covers both a crash between
-     steps 1 and 2 (`dest` missing) and one between steps 2 and 3 (stale
-     `dest.old`).
+     Every rename is atomic. Crash recovery (above) covers a crash between
+     steps 1 and 2 (`dest` missing); a crash between steps 2 and 3 leaves a
+     backup that ages out.
    - `stage` is always removed.
    - A failed or blocked refresh therefore **keeps the previously good cache**.
      Today `sources.ts:185-186` wipes `dest` before fetching.
@@ -497,6 +523,7 @@ asserted by a test instead (spec: "patched parser in use").
 | D2 blocks a source behind a private mirror | By design; documented. No allowlist knob (YAGNI). |
 | D3 renamed-repo redirect fails | Clear error; user updates ref. |
 | D4 listing format differs across tar implementations | Fixture tests on macOS + Linux; unparseable listing → fail closed. |
+| Two processes refresh the same KB source at once | Out of scope (non-goal). https: unique per-writer backups + grace-window recovery ⇒ last-writer-wins, never an empty or mixed `dest`; git: unchanged from before this change. |
 | D5 CDN unreachable during install | Lockfile integrity pin; CI + electron build verified; one-line rollback. |
 
 ## Migration / compatibility / rollback
@@ -512,3 +539,31 @@ asserted by a test instead (spec: "patched parser in use").
   - D2–D4 — the kb package;
   - D5 — one dependency line + the lockfile;
   - D6 — a shared constant + 4 client files.
+
+## Audit triage
+
+`pnpm audit --prod` run after D5 (pnpm 11.15.1, lockfile with `xlsx` 0.20.3):
+**69 advisories across 26 packages** (1 critical, 27 high, 36 moderate, 5 low).
+`xlsx` is absent from the output (URL tarball: registry data does not cover it;
+its version is pinned by the E71 test instead). The audit reports the whole tree
+and almost none of it is touched by this change, so the decision per package is
+**fix / accept (reason) / not reachable**, with follow-ups named for the
+reachable ones. Nothing below was changed by this change.
+
+| Package (advisories) | Pulled in by | Decision | Reason |
+|---|---|---|---|
+| `fastify` 5.12.1 (5: auth bypass via malformed URLs to encapsulated not-found, request/header/boolean-schema validation bypass, HTTP/2 trailer DoS) | server + 9 plugin packages | **Fix — follow-up, high priority** | Reachable (the dashboard HTTP surface). Not fixed here: a workspace-wide bump is orthogonal to this change and needs its own full-suite run. The fix versions (≥ 5.12.5) look in-range for the current specifiers. |
+| `fast-uri` 3.1.6 / 4.1.3 (7) | fastify ajv-compiler, pi-coding-agent ajv | **Fix with the fastify bump** | Parses schema `$id`/`$ref` URIs, not request URLs; low reachability. |
+| `undici` 6.28.0 / 7.29.0 (13: WebSocket DoS, unbounded decompression, retry/cache issues, TLS option drop in BalancedPool) | `@fastify/reply-from`, `discord.js`, `isomorphic-dompurify`/jsdom | **Accept short-term; fix in follow-up** | The proxy talks to configured upstreams (trusted); `discord.js` is the chat-gateway client. No untrusted peer drives the affected WebSocket/cache/BalancedPool paths. Bump with the fastify change. |
+| `nodemailer` 9.0.3 (7) + `deepmerge-ts` 7.1.6 (1) | `mailparser` (`.eml` preview, `lib/eml.ts`) | **Accept (DoS only); fix in follow-up** | Only `addressparser` parsing is exercised, so the send-side advisories (file access, SMTP/TLS servername, DNS cache, domain allow-list) are **not reachable**: no mail is sent. The quadratic/stack-exhaustion advisories are reachable by previewing a hostile `.eml`; impact is a DoS bounded by the existing hard size cap in `eml.ts`. |
+| `hono` 4.12.34 (4) | `@modelcontextprotocol/sdk` via pi-coding-agent / pi-ai | **Not reachable** | No `hono` import in this repo (`toSSG`, `parseBody`, `hono/jsx` unused). |
+| `ip-address` 10.5.0 (4) | pi-ai / pi-coding-agent transitive | **Not reachable** | Not used by dashboard code; SSRF classification here uses kb `net-guard.ts` and server `webhook-url.ts`. |
+| `qs` 6.15.3 / 6.5.5 (3) | express (MCP SDK), electron-icon-builder | **Not reachable** | The dashboard does not run express; icon-builder is build-time. |
+| `brace-expansion` (9), `braces` (1) | `minimatch`/`micromatch` in openspec CLI, eslint plugin, pi-coding-agent, electron-icon-builder | **Accept** | Patterns come from trusted config/globs, not from untrusted content; stack-exhaustion needs adversarial pattern input. |
+| `linkify-it` 3.0.3 (2, quadratic scan) | `ansi-to-react` (client terminal) | **Accept; fix in follow-up** | Client-side only; worst case is the viewer's own tab stalling on a pathological output line. |
+| `dompurify` 3.4.14 (1, low: `IN_PLACE` + node-removing hook) | client, mermaid, isomorphic-dompurify | **Not reachable** | No `IN_PLACE` use anywhere in `packages/*/src`. |
+| `electron-icon-builder` chain: `extract-zip`, `file-type`, `form-data`, `phin`, `request`, `svg2png`, `tough-cookie`, `uuid`, `yargs-parser` (12) | `packages/electron` `optionalDependencies` | **Not reachable** | Build-time icon generation from a repo-committed PNG; never part of the runtime bundle and never fed untrusted input. |
+| `image-size` 0.7.5 (1, ICNS DoS) | `appdmg` (root `optionalDependencies`) | **Not reachable** | macOS DMG packaging tool, build-time only. |
+
+**Escalation:** the `fastify` row is the only high-severity, runtime-reachable
+finding. It is recorded for an immediate separate change, not silently accepted.

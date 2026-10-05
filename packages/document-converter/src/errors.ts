@@ -12,6 +12,7 @@ export type DocConverterErrorCode =
   | "OCR_LANG_UNSUPPORTED" // canonical lang not supported by chosen engine
   | "OCR_ENGINE_UNKNOWN" // unknown OCR engine
   | "UNSUPPORTED_FORMAT" // extension not routable to a command
+  | "PATH_NOT_ALLOWED" // request path outside configured roots or in a sensitive dir
   | "INGEST_FAILED"
   | "PRODUCE_FAILED"
   | "FILL_FAILED"
