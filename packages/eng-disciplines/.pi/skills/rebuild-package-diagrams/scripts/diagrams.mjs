@@ -7,11 +7,15 @@
 //   build-site <packageDir> <out.html> [--bpmn-js f] [--bpmn-css f]... [--mermaid f] -> one self-contained HTML
 //   ifml <packageDir> <out.xmi>              -> IFML 1.0 XMI of ui/ (exit 2 without UI model, 1 if non-conforming)
 //   check-ifml <file.xmi>                    -> exit 1 listing IFML metamodel violations
+//   ifml-to-ui <file.xmi> <outDir>           -> ui/screens + ui/forms from any IFML XMI
+//   ifml-diff <packageDir> <file.xmi> [--apply] -> element diff vs the package UI model (exit 1 if different);
+//                                               --apply merges additions/renames/guards/validations, never deletes
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildIfml, checkIfmlXmi, ifmlToXmi } from "./ifml.mjs";
-import { checkTrace, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
+import { buildIfml, checkIfmlXmi, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
+import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
+import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 
 const USAGE = `usage:
@@ -21,7 +25,10 @@ const USAGE = `usage:
   diagrams.mjs check-use-cases <packageDir>
   diagrams.mjs build-site <packageDir> <out.html> [--bpmn-js <file>] [--bpmn-css <file>]... [--mermaid <file>]
   diagrams.mjs ifml <packageDir> <out.xmi>
-  diagrams.mjs check-ifml <file.xmi>`;
+  diagrams.mjs check-ifml <file.xmi>
+  diagrams.mjs ifml-to-ui <file.xmi> <outDir>
+  diagrams.mjs ifml-diff <packageDir> <file.xmi> [--apply]
+  build-site also takes [--ifml-js <file>] [--ifml-css <file>]...`;
 
 function die(msg, code = 2) {
   process.stderr.write(`${msg}\n`);
@@ -48,13 +55,15 @@ function report(errors) {
 }
 
 function parseLibs(args) {
-  const libs = { bpmnJs: "", bpmnCss: [], mermaid: "" };
+  const libs = { bpmnJs: "", bpmnCss: [], mermaid: "", ifmlJs: "", ifmlCss: [] };
   for (let i = 0; i < args.length; i += 2) {
     const [flag, file] = [args[i], args[i + 1]];
     if (!file) die(USAGE);
     if (flag === "--bpmn-js") libs.bpmnJs = readText(file);
     else if (flag === "--bpmn-css") libs.bpmnCss.push(readText(file));
     else if (flag === "--mermaid") libs.mermaid = readText(file);
+    else if (flag === "--ifml-js") libs.ifmlJs = readText(file);
+    else if (flag === "--ifml-css") libs.ifmlCss.push(readText(file));
     else die(USAGE);
   }
   return libs;
@@ -96,9 +105,27 @@ const COMMANDS = {
     return report(errors);
   },
   "check-ifml": ([file]) => report(checkIfmlXmi(readText(file))),
+  "ifml-to-ui": ([file, outDir]) => {
+    const xml = readText(file);
+    const errors = checkIfmlXmi(xml);
+    if (errors.length) return report(errors);
+    writeUi(outDir, graphToUi(parseIfmlXmi(xml)));
+    return 0;
+  },
+  "ifml-diff": ([pkg, file, flag]) => {
+    if (flag && flag !== "--apply") die(USAGE);
+    const edited = parseIfmlXmi(readText(file));
+    const lines = diffGraphs(buildIfml(readUi(pkg)), edited);
+    process.stdout.write(`${lines.length ? lines.join("\n") : "no differences"}\n`);
+    if (!flag) return lines.length ? 1 : 0;
+    applyUi(pkg, graphToUi(edited));
+    const left = diffGraphs(buildIfml(readUi(pkg)), edited);
+    process.stdout.write(`applied; remaining (deletions are never applied):\n${left.join("\n") || "none"}\n`);
+    return report(checkUi(pkg, readUi(pkg)));
+  },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

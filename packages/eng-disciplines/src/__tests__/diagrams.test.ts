@@ -5,7 +5,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { PKG, read } from "./files";
 
@@ -300,7 +301,7 @@ describe("use-case catalog and site", () => {
     expect(data.items["QUIRK-002"].capabilities).toEqual(["orders"]);
     expect(data.items["GAP-003"].capabilities).toEqual(["orders"]);
     expect(data.useCases[0].bpmnXml).toBe("<bpmn:definitions/>");
-    expect(data.viewers).toEqual({ bpmn: false, mermaid: false });
+    expect(data.viewers).toEqual({ bpmn: false, mermaid: false, ifml: false });
   });
 
   it("build-site embeds questions.json with refs; empty register without the file", () => {
@@ -422,8 +423,12 @@ describe("use-case catalog and site", () => {
                 { kind: "write", step: "Store order" },
               ],
             },
+            { id: "ACT-gone", label: 'Gone "quoted" & <tagged>', effects: [] },
           ],
-          dialogs: [{ id: "DLG-sure", kind: "confirm", message: "sure?", from: "ACT-add" }],
+          dialogs: [
+            { id: "DLG-sure", kind: "confirm", message: "sure?", from: "ACT-add" },
+            { id: "DLG-orphan", kind: "alert", message: "controller-level catch" },
+          ],
           navigation: [{ to: "SCR-two", trigger: "open two" }],
         }),
         screen({ id: "SCR-two", kind: "modal", name: "Two", forms: [], actions: [], dialogs: [], fields: [{ key: "start", label: "Start", type: "date" }] }),
@@ -449,12 +454,18 @@ describe("use-case catalog and site", () => {
     expect(r.code).toBe(0);
     const x = read(out);
     expect(x).toContain('xmlns:ifml="http://www.omg.org/spec/IFML/20140301"');
-    for (const t of ["Window", "Form", "SimpleField", "SelectionField", "ValidationRule", "OnSubmitEvent", "ActivationExpression", "Action", "ActionEvent", "NavigationFlow", "Annotation"])
+    for (const t of ["Window", "Form", "SimpleField", "SelectionField", "ValidationRule", "OnSubmitEvent", "ActivationExpression", "Action", "ActionEvent", "NavigationFlow"])
       expect(x).toContain(`xmi:type="ifml:${t}"`);
+    // trace in ids, guard nested in its event, IFML-DI geometry for drawn elements
+    expect(x).toContain('xmi:id="E.SCR-order.ACT-add"');
+    expect(x).toMatch(/<activationExpression xmi:type="ifml:ActivationExpression" xmi:id="X\.SCR-order\.ACT-add"/);
+    expect(x).toContain('xmlns:ifmldi="http://www.omg.org/spec/IFML/20130218/IFML-DI"');
+    for (const id of ["W.SCR-order", "F.SCR-order.FRM-line", "P.SCR-order.FRM-line.qty", "E.SCR-order.ACT-add", "X.SCR-order.ACT-add", "A.SCR-order.ACT-add", "W.DLG-sure"])
+      expect(x).toContain(`modelElement="${id}"`);
+    expect(x).toMatch(/<ifmldi:IFMLConnection[^>]*modelElement="NF\.[^"]+"/);
     expect(x).toMatch(/xmi:type="ifml:Window"[^>]*name="Orders"/);
     expect(x).toMatch(/xmi:type="ifml:Window"[^>]*name="DLG-sure"[^>]*isModal="true"/);
     expect(x).toContain('body="qty&gt;0"');
-    expect(x).toContain("trace: SCR-order#ACT-add");
     const c = run(dir, "check-ifml", out);
     expect(c.stderr).toBe("");
     expect(c.code).toBe(0);
@@ -480,6 +491,92 @@ describe("use-case catalog and site", () => {
     const c = run(dir, "check-ifml", bad);
     expect(c.code).toBe(1);
     for (const s of ["Frobnicator", "colour", "nope"]) expect(c.stderr).toContain(s);
+    // DI elements are outside the IFML metamodel but their modelElement must resolve
+    const di = join(dir, "bad-di.xmi");
+    writeFileSync(
+      di,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmlns:xmi="http://www.omg.org/spec/XMI/20131001" xmlns:ifml="http://www.omg.org/spec/IFML/20140301" xmlns:ifmldi="http://www.omg.org/spec/IFML/20130218/IFML-DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC">
+<ifml:IFMLModel xmi:id="m" name="m"><interactionFlowModel xmi:id="f" name="f"><interactionFlowModelElements xmi:type="ifml:Window" xmi:id="w" name="w"/></interactionFlowModel></ifml:IFMLModel>
+<ifmldi:IFMLDiagram xmi:type="ifmldi:IFMLDiagram" xmi:id="d" modelElement="f"><ownedElement xmi:type="ifmldi:IFMLNode" xmi:id="w_di" modelElement="ghost"><bounds xmi:type="dc:Bounds" x="0" y="0" width="1" height="1"/></ownedElement></ifmldi:IFMLDiagram>
+</xmi:XMI>
+`,
+    );
+    const d = run(dir, "check-ifml", di);
+    expect(d.code).toBe(1);
+    expect(d.stderr).toContain("ghost");
+    expect(d.stderr).not.toContain("IFMLNode");
+  });
+
+  it("export -> ifml-to-ui -> export preserves the IFML model", () => {
+    writeUc([uc()]);
+    ifmlUi();
+    const first = join(dir, "rt1.xmi");
+    expect(run(dir, "ifml", pkg, first).code).toBe(0);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    const r = run(dir, "ifml-to-ui", first, pkg);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const imported = JSON.parse(read(join(pkg, "ui", "screens", "SCR-order.json")));
+    expect(imported).toMatchObject({ id: "SCR-order", source: "ifml" });
+    expect(imported.actions.find((a: { id: string }) => a.id === "ACT-add")).toMatchObject({ label: "Add", guards: ["BR-001"] });
+    expect(imported.actions.find((a: { id: string }) => a.id === "ACT-gone").label).toBe('Gone "quoted" & <tagged>');
+    const d = run(dir, "ifml-diff", pkg, first);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(d.stdout).toContain("no differences");
+    expect(d.code).toBe(0);
+  });
+
+  it("reads the dialect an IFML editor writes (ifml-js 0.3.0 modeler re-save: uml:name, element-valued body/isModal)", () => {
+    // fixture = the ifml export of this fixture package, imported and saved unchanged by the ifml-js modeler (ifml.io engine)
+    writeUc([uc()]);
+    ifmlUi();
+    const fx = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "ifml-js-modeler-resave.xmi");
+    const c = run(dir, "check-ifml", fx);
+    const d = run(dir, "ifml-diff", pkg, fx);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(c.stderr).toBe("");
+    expect(c.code).toBe(0);
+    expect(d.stdout).toContain("no differences");
+    expect(d.code).toBe(0);
+  });
+
+  it("ifml-diff reports an edited IFML file; --apply merges it and never deletes", () => {
+    writeUc([uc()]);
+    ifmlUi();
+    const base = join(dir, "base.xmi");
+    expect(run(dir, "ifml", pkg, base).code).toBe(0);
+    let x = read(base);
+    x = x.replace('xmi:id="E.SCR-order.ACT-add" name="Add"', 'xmi:id="E.SCR-order.ACT-add" name="Add line"');
+    x = x.replace('xmi:id="A.SCR-order.ACT-add" name="Add"', 'xmi:id="A.SCR-order.ACT-add" name="Add line"');
+    x = x.replace('body="BR-001"', 'body="BR-001 AND GAP-003"');
+    x = x.replace(
+      /(<interactionFlowModelElements xmi:type="ifml:Window" xmi:id="W\.SCR-two"[^>]*>)/,
+      '$1\n<viewElementEvents xmi:type="ifml:ViewElementEvent" xmi:id="Event_new1" name="Print"/>\n<actions xmi:type="ifml:Action" xmi:id="Action_new1" name="Print sheet"><actionEvents xmi:type="ifml:ActionEvent" xmi:id="AE_new1" name="done"/></actions>',
+    );
+    x = x.replace("</interactionFlowModel>", '<interactionFlowModelElements xmi:type="ifml:NavigationFlow" xmi:id="NF_new1" sourceInteractionFlowElement="Event_new1" targetInteractionFlowElement="Action_new1"/>\n</interactionFlowModel>');
+    x = x.replace(/<viewElementEvents xmi:type="ifml:ViewElementEvent" xmi:id="E\.SCR-order\.ACT-gone"[^>]*\/>/, "");
+    x = x.replace(/<viewElementEvents xmi:type="ifml:ViewElementEvent" xmi:id="E\.SCR-order\.ACT-gone"[\s\S]*?<\/viewElementEvents>/, "");
+    expect(x).not.toContain('xmi:id="E.SCR-order.ACT-gone"');
+    const edited = join(dir, "edited.xmi");
+    writeFileSync(edited, x);
+    const d = run(dir, "ifml-diff", pkg, edited);
+    expect(d.code).toBe(1);
+    for (const s of ["A.SCR-order.ACT-add", "Add line", "GAP-003", "Event_new1", "Print sheet", "E.SCR-order.ACT-gone", "removed"]) expect(d.stdout).toContain(s);
+    const a = run(dir, "ifml-diff", pkg, edited, "--apply");
+    expect(a.stderr).toBe("");
+    const order = JSON.parse(read(join(pkg, "ui", "screens", "s0.json")));
+    const add = order.actions.find((q: { id: string }) => q.id === "ACT-add");
+    expect(add).toMatchObject({ label: "Add line", guards: ["BR-001", "GAP-003"] });
+    expect(add.effects.map((e: { step: string }) => e.step)).toEqual(["Check line", "Store order"]);
+    expect(order.actions.some((q: { id: string }) => q.id === "ACT-gone")).toBe(true);
+    const two = JSON.parse(read(join(pkg, "ui", "screens", "s1.json")));
+    expect(two.actions[0]).toMatchObject({ label: "Print", source: "ifml" });
+    const again = run(dir, "ifml-diff", pkg, edited);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(again.stdout).toContain("E.SCR-order.ACT-gone");
+    expect(again.stdout).not.toContain("Add line");
+    expect(again.stdout).not.toContain("Print sheet");
   });
 
   it("build-site embeds the IFML model and XMI; use cases list actions from ui: lines of alternate flows", () => {
@@ -505,6 +602,21 @@ describe("use-case catalog and site", () => {
     expect(bad.stderr).toContain("ACT-nope");
   });
 
+  it("build-site inlines the IFML viewer", () => {
+    writeUc([uc()]);
+    ifmlUi();
+    writeFileSync(join(dir, "fake-ifml.js"), "window.FAKE_IFML_LIB=1;");
+    writeFileSync(join(dir, "fake-ifml.css"), ".fake-ifml-css{}");
+    const out = join(dir, "site-ifmljs.html");
+    const r = run(dir, "build-site", pkg, out, "--ifml-js", "fake-ifml.js", "--ifml-css", "fake-ifml.css");
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const html = read(out);
+    for (const s of ["window.FAKE_IFML_LIB=1;", ".fake-ifml-css{}"]) expect(html).toContain(s);
+    expect(embedded(html).viewers.ifml).toBe(true);
+  });
+
   it("build-site inlines viewer libraries", () => {
     writeUc([uc()]);
     writeFileSync(join(dir, "fake-bpmn.js"), "window.FAKE_BPMN_LIB=1;");
@@ -516,7 +628,7 @@ describe("use-case catalog and site", () => {
     const html = read(out);
     for (const s of ["window.FAKE_BPMN_LIB=1;", ".fake-bpmn-css{}", "window.FAKE_MERMAID_LIB=1;"]) expect(html).toContain(s);
     expect(html).not.toMatch(/<script[^>]+src=["']https?:/);
-    expect(embedded(html).viewers).toEqual({ bpmn: true, mermaid: true });
+    expect(embedded(html).viewers).toEqual({ bpmn: true, mermaid: true, ifml: false });
   });
 });
 

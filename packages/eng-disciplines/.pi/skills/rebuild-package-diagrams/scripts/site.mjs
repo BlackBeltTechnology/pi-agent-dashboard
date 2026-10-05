@@ -156,13 +156,15 @@ const inlineScript = (s) => s.replace(/<\/script/gi, "<\\/script");
 
 /** Render the HTML page; `libs` = {bpmnJs, bpmnCss[], mermaid} file contents (any may be empty). */
 export function renderSite(data, libs) {
-  const viewers = { bpmn: Boolean(libs.bpmnJs), mermaid: Boolean(libs.mermaid) };
+  const viewers = { bpmn: Boolean(libs.bpmnJs), mermaid: Boolean(libs.mermaid), ifml: Boolean(libs.ifmlJs) };
   const json = JSON.stringify({ ...data, viewers }).replace(/</g, "\\u003c");
   const parts = {
     "/*__CSS__*/": readFileSync(join(TEMPLATES, "catalog.css"), "utf8"),
     "/*__BPMN_CSS__*/": libs.bpmnCss.join("\n").replace(/<\/style/gi, "<\\/style"),
     "/*__BPMN_JS__*/": inlineScript(libs.bpmnJs),
     "/*__MERMAID_JS__*/": inlineScript(libs.mermaid),
+    "/*__IFML_JS__*/": inlineScript(libs.ifmlJs ?? ""),
+    "/*__IFML_CSS__*/": (libs.ifmlCss ?? []).join("\n").replace(/<\/style/gi, "<\\/style"),
     "/*__APP_JS__*/": inlineScript(readFileSync(join(TEMPLATES, "catalog.js"), "utf8")),
     '"__DATA__"': json,
     "__TITLE__": data.meta.title.replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;")),

@@ -14,19 +14,44 @@ Implemented by `scripts/ifml.mjs` (`buildIfml`, `ifmlToXmi`, `checkIfmlXmi`).
 | field validation condition | `ValidationRule` (`language` javascript, `body` = condition) | `Element.constraints` |
 | action with a `validate` effect on a screen with a form | `OnSubmitEvent` | first `Form.viewElementEvents` |
 | other action | `ViewElementEvent` | `Window.viewElementEvents` |
-| action `guards[]` | `ActivationExpression` (`body` = guard ids joined by AND); referenced by `Event.activationExpression` | `InteractionFlowModel.interactionFlowModelElements` |
+| action `guards[]` | `ActivationExpression` (`body` = guard ids joined by AND) | nested in the event as `activationExpression` (IFML-tooling form; OMG declares the feature as a reference) |
 | action with effects | `Action` + `ActionEvent` "done"; effect steps in the trace annotation | `Window.actions`, `Action.actionEvents` |
 | event → action | `NavigationFlow` | `InteractionFlowModel.interactionFlowModelElements` |
 | dialog `from` action | `NavigationFlow` from the action's `ActionEvent` (or event) to the dialog `Window` | same |
 | screen `navigation[].to` (known record) | `NavigationFlow` Window → Window | same |
-| trace (screen, action, form, field, dialog, steps, message) | `Annotation.text` `trace: SCR#ACT …` | `Element.annotations` |
+| trace | dot-separated `xmi:id`: `W.<screen>`, `F.<screen>.<form>`, `P.<screen>.<form>.<field>`, `VR.<screen>.<form>.<field>.<n>`, `E`/`A`/`AE`/`X.<screen>.<action>` | — (`Annotation`s opt-in: `ifmlToXmi(…, {withTrace: true})`; IFML editors draw them as shapes) |
 
 Flows are owned by the `InteractionFlowModel` (an `InteractionFlow` is an
 `InteractionFlowModelElement`), the placement IFML tooling reads. `NavigationFlow` has no name:
 `InteractionFlow` is not a `NamedElement` in IFML 1.0.
 
 Not mapped (no source in the UI model): `DataFlow`/`ParameterBinding` (field ↔ domain
-binding), `DomainModel`, IFML-DI diagram geometry, `List`/`Details` components.
+binding), `DomainModel`, `List`/`Details` components.
+
+## Diagram geometry (IFML-DI)
+
+`layoutIfml` places screens in a left column (forms with field rows inside, events as 20×20
+circles on the form/window border), guards in a gap column, actions (with their `done`
+`ActionEvent` on the right border) in a column aligned to their event, opened dialogs in a
+right column; connections are orthogonal. Serialized as `ifmldi:IFMLDiagram` with nested
+`IFMLNode` (`dc:Bounds`) and `IFMLConnection` (`dc:Point` waypoints), namespaces
+`http://www.omg.org/spec/IFML/20130218/IFML-DI` and `http://www.omg.org/spec/DD/20100524/DC`.
+
+## Reverse and round-trip
+
+- `parseIfmlXmi` reads any producer's XMI: names as `name` or `uml:name`, primitive features as
+  attributes or child elements (`<body>…</body>`, `<isModal>true</isModal>`), XML character
+  references decoded, DI and annotations ignored.
+- `graphToUi` (`ifml-to-ui`): windows → screen records (childless windows reached from an
+  action's `done` event → that screen's dialogs), forms/fields → form records or template
+  fields, events → actions (`OnSubmitEvent` → a `validate` effect, target `Action` → a `call`
+  effect, nested guard → `guards`), window→window flows → navigation. Ids from the trace ids,
+  else from names; editor ids kept per screen in `ifmlIds` so a re-export reuses them.
+- `ifml-diff` compares element by element (type, name, owner, `body`, `isModal`, `isLandmark`)
+  and flows by endpoints. `--apply` merges additions, renames, guard and validation changes;
+  never deletes; an imported stand-alone window whose id is an existing dialog is that dialog.
+- Field types other than selection are not carried by IFML: an imported field is `text`.
+
 
 ## Metamodel reference
 
@@ -39,10 +64,13 @@ against it: known concrete metaclass, feature declared on the class or a supercl
 class conforms to the feature type, reference ids resolve, single-valued features not
 repeated.
 
-## Interoperability (checked 2026-10-05)
+## Interoperability (checked 2026-10-06)
 
-- `ifml-moddle` 0.3.1 (npm, MIT): Plantifier export loads with 0 warnings, 242 typed
-  elements, all 32 `NavigationFlow` ends resolved.
-- Difference: `ifml-moddle` models `Event.activationExpression` as containment, the OMG
-  metamodel as a plain reference. The export follows OMG, so that reader loads the
-  `ActivationExpression` elements but does not link them to their events.
+- `ifml-moddle` 0.3.1 / `ifml-js` 0.3.0 (engine of ifml.io and the VS Code ifml-io extension):
+  the Plantifier export imports with 0 warnings and renders (173 shapes). Re-saved unchanged
+  by the `ifml-js` modeler it diffs as "no differences" (regression fixture
+  `src/__tests__/fixtures/ifml-js-modeler-resave.xmi`); a modeler edit (rename an action,
+  delete an event) diffs as exactly that.
+- Deviation from strict OMG XMI, chosen for tooling: `activationExpression` is serialized as a
+  nested element (OMG: non-composite reference), because IFML tooling crashes on the reference
+  form. `check-ifml` accepts both.

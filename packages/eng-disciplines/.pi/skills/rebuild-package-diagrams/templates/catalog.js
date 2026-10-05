@@ -532,10 +532,12 @@
     const els = D.ifml.elements.filter((e) => keep.has(e.trace.screen));
     const ids = new Set(els.map((e) => e.id));
     const nid = Object.fromEntries(els.map((e, i) => [e.id, `n${i}`]));
-    const drawn = (id) => (id.startsWith("AE_") ? els.find((e) => e.id === id)?.parent : id);
-    const flows = D.ifml.flows.filter((f) => ids.has(f.source) && ids.has(f.target)).map((f) => ({ from: drawn(f.source), to: f.target, done: f.source.startsWith("AE_") }));
+    const isDone = (id) => els.find((e) => e.id === id)?.type === "ActionEvent";
+    const drawn = (id) => (isDone(id) ? els.find((e) => e.id === id)?.parent : id);
+    const flows = D.ifml.flows.filter((f) => ids.has(f.source) && ids.has(f.target)).map((f) => ({ from: drawn(f.source), to: f.target, done: isDone(f.source) }));
     return { els, flows, nid };
   }
+  const isGuarded = (e) => D.ifml.elements.some((x) => x.parent === e.id && x.type === "ActivationExpression");
   const IFML_SHAPE = {
     Form: (id, e, n) => `${id}["«Form» ${mLabel(e.name)}<br/>${n} fields"]:::form`,
     // Events: compact stadium with a dot (Mermaid sizes circles to the label, which hides the layout).
@@ -564,7 +566,7 @@
     for (const w of sub.els.filter((e) => e.type === "Window")) lines.push(...windowLines(w, sub));
     for (const a of sub.els.filter((e) => e.type === "Action")) lines.push(`  ${IFML_SHAPE.Action(sub.nid[a.id], a)}`);
     for (const f of sub.flows) lines.push(`  ${sub.nid[f.from]} ${f.done ? '-->|"done"|' : "-->"} ${sub.nid[f.to]}`);
-    const guarded = sub.els.filter((e) => e.attrs.activationExpression).map((e) => sub.nid[e.id]);
+    const guarded = sub.els.filter(isGuarded).map((e) => sub.nid[e.id]);
     const hot = sub.els.filter((e) => hi.has(`${e.trace.screen}#${e.trace.action}`) && /Event|Action/.test(e.type)).map((e) => sub.nid[e.id]);
     lines.push("  classDef form fill:#eef5ff,stroke:#0b5cad", "  classDef event fill:#fff,stroke:#333", "  classDef action fill:#fff4e5,stroke:#b03a1a", "  classDef modal fill:#fff,stroke:#6a4c93,stroke-dasharray:4 3", "  classDef guarded stroke:#b03a1a,stroke-width:3px", "  classDef hot fill:#e6f4ea,stroke:#1f6f43,stroke-width:3px");
     if (guarded.length) lines.push(`  class ${guarded.join(",")} guarded`);
@@ -579,18 +581,54 @@
   }
   function ifmlTable(sub) {
     const shown = sub.els.filter((e) => ["Window", "Form", "OnSubmitEvent", "ViewElementEvent", "Action"].includes(e.type));
-    return `<table><tr><th>IFML</th><th>Name</th><th>Trace</th></tr>${shown.map((e) => `<tr><td><span class="badge via">${esc(e.type)}</span>${e.attrs.activationExpression ? ' <span class="badge k-GAP">guarded</span>' : ""}</td><td><a href="${ifmlTarget(e)}">${esc(e.name)}</a></td><td class="cite">${esc([e.trace.screen, e.trace.action || e.trace.dialog || e.trace.form].filter(Boolean).join(" › "))}</td></tr>`).join("")}</table>`;
+    return `<table><tr><th>IFML</th><th>Name</th><th>Trace</th></tr>${shown.map((e) => `<tr><td><span class="badge via">${esc(e.type)}</span>${isGuarded(e) ? ' <span class="badge k-GAP">guarded</span>' : ""}</td><td><a href="${ifmlTarget(e)}">${esc(e.name)}</a></td><td class="cite">${esc([e.trace.screen, e.trace.action || e.trace.dialog || e.trace.form].filter(Boolean).join(" › "))}</td></tr>`).join("")}</table>`;
   }
   function viewIfml(arg) {
     if (!D.ifml) return viewHome();
     const screens = ifmlScreens(arg);
     const sub = ifmlSubset(screens);
     const scope = arg === "all" ? "all screens" : arg === "sel" ? `selected use cases (${state.sel.join(", ") || "none"})` : arg;
-    return `<h2>IFML view</h2><p class="lede">Interaction Flow Modeling Language (OMG IFML 1.0) projection of the UI model — ${esc(scope)}: ${screens.length} screen(s), ${sub.els.length} elements, ${sub.flows.length} flows. Windows hold forms and events (● rounded); events trigger actions (hexagons); <span class="badge k-GAP">guarded</span> events have an activation expression; green = action named by the use case flows.</p>
+    return `<h2>IFML view</h2><p class="lede">Interaction Flow Modeling Language (OMG IFML 1.0) projection of the UI model — ${esc(scope)}: ${screens.length} screen(s), ${sub.els.length} elements, ${sub.flows.length} flows. ${D.viewers.ifml ? "Windows hold forms with fields and events (circles); events trigger actions (hexagons) whose done event leads on; activation expressions mark guards; out-of-scope elements are dimmed" : 'Windows hold forms and events (● rounded); events trigger actions (hexagons); <span class="badge k-GAP">guarded</span> events have an activation expression'}; green = action named by the use case flows. Click an element to open it.</p>
       <div class="chips">${ifmlLink("all", "All screens")}${state.sel.length ? ifmlLink("sel", "Selected use cases") : ""}<button class="chip" data-xmi>Download IFML XMI</button></div>
-      <div class="er" data-ifml="${esc(arg)}"></div>
+      ${D.viewers.ifml ? `<div class="ifmlcanvas" id="ifmlcanvas" data-ifmljs="${esc(arg)}"></div><p class="meta">Rendered with ifml-js (OMG IFML notation, IFML-DI from the export). Drag to pan, wheel to zoom.</p>` : `<div class="er" data-ifml="${esc(arg)}"></div>`}
       <h3>Elements</h3>${ifmlTable(sub)}`;
   }
+  /** Render the embedded XMI with ifml-js; scope zoom, dimming, highlight and click-through. */
+  async function drawIfmlJs() {
+    const el = document.querySelector("[data-ifmljs]");
+    if (!el || !window.IfmlJS) return;
+    const arg = el.dataset.ifmljs;
+    const viewer = new window.IfmlJS({ container: el });
+    try {
+      await viewer.importXML(D.ifmlXmi);
+    } catch (e) { el.innerHTML = `<div class="notice">IFML import failed: ${esc(e.message || e)}</div>`; return; }
+    const sub = ifmlSubset(ifmlScreens(arg));
+    const inScope = new Set([...sub.els.map((e) => e.id), ...D.ifml.flows.filter((f) => sub.els.some((e) => e.id === f.source)).map((f) => f.id)]);
+    const hot = ifmlHighlight(arg);
+    const canvas = viewer.get("canvas");
+    const shapes = viewer.get("elementRegistry").getAll().filter((s) => s.businessObject && s.type !== "label" && s.parent);
+    for (const s of shapes) markIfmlShape(canvas, s, arg === "all" || inScope.has(s.id), hot);
+    zoomToScope(canvas, shapes.filter((s) => inScope.has(s.id) && s.width));
+    viewer.get("eventBus").on("element.click", (ev) => {
+      // ifml-moddle keeps the XMI id in $id; the diagram shape id equals it
+      const g = D.ifml.elements.find((x) => x.id === ev.element.id || x.id === ev.element.businessObject?.$id);
+      if (g) location.hash = ifmlTarget(g);
+    });
+  }
+  function markIfmlShape(canvas, s, keep, hot) {
+    if (!keep) canvas.addMarker(s.id, "ifml-dim");
+    const g = D.ifml.elements.find((x) => x.id === s.id);
+    if (g?.trace.action && hot.has(`${g.trace.screen}#${g.trace.action}`) && /Event|Action/.test(g.type)) canvas.addMarker(s.id, "ifml-hot");
+  }
+  function zoomToScope(canvas, list) {
+    if (!list.length) return canvas.zoom("fit-viewport");
+    const x = Math.min(...list.map((s) => s.x)) - 40;
+    const y = Math.min(...list.map((s) => s.y)) - 40;
+    const w = Math.max(...list.map((s) => s.x + s.width)) - x + 40;
+    const h = Math.max(...list.map((s) => s.y + s.height)) - y + 40;
+    canvas.viewbox({ x, y, width: w, height: h });
+  }
+
   let ifmlSeq = 0;
   async function drawIfml() {
     const el = document.querySelector("[data-ifml]");
@@ -703,6 +741,7 @@
     if (flow) void drawFlow(flow.dataset.uc);
     void drawEr();
     void drawIfml();
+    void drawIfmlJs();
     if (state.focus) document.getElementById(state.focus)?.scrollIntoView({ block: "start" });
   }
 

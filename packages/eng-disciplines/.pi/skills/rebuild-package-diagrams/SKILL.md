@@ -154,13 +154,22 @@ still produced and checked.
 
 With a UI model (`PKG/ui/screens/*.json`):
 
-1. `$D ifml PKG PKG/ui/ifml.xmi` — projects the UI model to IFML 1.0 XMI (mapping:
-   `references/ifml-mapping.md`) and refuses to write a file that fails the conformance
-   check (exit 1); exit 2 without a UI model.
+1. `$D ifml PKG PKG/ui/ifml.xmi` — projects the UI model to IFML 1.0 XMI with IFML-DI geometry
+   (mapping and layout: `references/ifml-mapping.md`); trace is in the dot-separated ids;
+   refuses to write a non-conforming file (exit 1); exit 2 without a UI model.
 2. `$D check-ifml <file.xmi>` — validates any IFML XMI against `references/ifml-metamodel.json`
-   (from the normative OMG metamodel): unknown/abstract metaclass, undeclared feature,
-   wrong child type, dangling id, repeated single-valued feature.
-3. `build-site` embeds the projection + XMI: catalog view `#view=ifml:all|sel|<UC>|<SCR>`
-   (windows, forms, events, actions, navigation flows; guarded events red, actions named by
-   the use-case flows green; click opens the screen/action/form), "IFML view" links on
-   screen, use-case and merged pages, and an XMI download.
+   (from the normative OMG metamodel); DI elements only need a resolvable `modelElement`.
+3. `build-site … --ifml-js <ifml-navigated-viewer.production.min.js> --ifml-css <diagram-js.css>
+   --ifml-css <ifml-font-embedded.css>` — catalog view `#view=ifml:all|sel|<UC>|<SCR>` rendered
+   with `ifml-js` (npm `ifml-js`, bpmn.io license: keep the watermark visible): zoom to scope,
+   out-of-scope dimmed, use-case actions highlighted, click opens screen/action/form; without
+   these flags a Mermaid approximation is drawn. XMI download button either way.
+
+Reverse and round-trip (edit in ifml.io / VS Code ifml-io, both on `ifml-js`):
+
+4. `$D ifml-to-ui <file.xmi> <outDir>` — UI-model records from any IFML XMI (`source: "ifml"`).
+5. `$D ifml-diff PKG <edited.xmi>` — element diff vs the package UI model (exit 1 if different).
+   `--apply` merges additions, renames, guard and validation changes into `PKG/ui/`, keeps every
+   cite/effect, never deletes (removals stay reported). Review the diff before `--apply`.
+   Pitfall: an editor rename of the Action (not the event) lands in `ifmlActionName`, the
+   action label follows the event name.
