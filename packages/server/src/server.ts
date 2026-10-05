@@ -50,6 +50,7 @@ import { shouldIssuePromptCapability } from "./access/capability-issuance.js";
 import { createCorsDenialObserver } from "./access/cors-denial.js";
 import { installGrantCoordinator } from "./access/denial-hold.js";
 import { GrantCoordinator } from "./access/grant-coordinator.js";
+import { ensureGrantStoreId } from "./access/grant-store-id.js";
 import { createCorsPlane, createCwdPlane, createFilesystemPlane, createNetworkPlane } from "./access/planes.js";
 import { promptChannelCount } from "./access/prompt-channel.js";
 import { clearRefusal, isRefused, listRefusals, recordRefusal } from "./access/refusal-ledger.js";
@@ -1468,6 +1469,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     onMismatch: (sid, detail) => console.warn(`[runtime-overlay] ${detail} session=${sid}`),
   });
 
+  // Name the grant store this dashboard writes (exclusive-create, never overwritten);
+  // announced to each bridge on registration. See change: ask-agent-file-access-in-chat.
+  ensureGrantStoreId();
   wireEvents({
     onBridgeRegister: (sid, identity) => {
       const outcome = extensionReloadGuard.onRegister(sid, identity);

@@ -41,3 +41,5 @@ Electron header renders `RuntimeUpdateBadge` (lazy chunk, off the entry gzip cap
 Deliberate-open intent (design D8): reads the current history entry with wouter `useHistoryState` (`wouter/use-browser-location`; default `<Router>` in main.tsx = browser hook) and passes `history.state.openNonce` to `<SplitRouteSync>` as the `nonce` prop, only while `editorMatch` is active (number/string → `String()`, else `""`). The flows-plugin file button stamps a fresh nonce per open, so a re-open of an unchanged editor URL re-applies instead of being swallowed by the apply-once key. A host navigation without the nonce leaves the key as before. See change: consolidate-flow-agent-cards. See change: consolidate-flow-agent-cards.
 
 Archive routes via `useArchiveRoute`, preview match guarded `changeName !== "archive"`, `renderedCwds` = `computeRenderedCwds`, `OpenSpecMapContext.Provider`. See change: resolve-archived-attached-proposal.
+
+Calls `useFileAccessToasts(sessions, selectedId, {showToast, dismissToastByKey}, handleSelect)`. See change: ask-agent-file-access-in-chat.

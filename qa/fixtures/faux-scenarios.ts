@@ -807,6 +807,35 @@ export const SCENARIOS: Record<string, Scenario> = {
   // serve. Used by tests/e2e/editor-pane.spec.ts.
   // See change: add-internal-monaco-editor-pane.
   "tool-read-fixture": toolScenario("read", { path: "README.md" }),
+  // Agent path gate (change: ask-agent-file-access-in-chat): out-of-root reads.
+  // One gated read, then a closing text so the script ends (a bare tool scenario
+  // would be re-issued after the result and raise a second prompt).
+  "tool-read-outside": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/etc/hostname" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("outside read done")]),
+    ],
+    expect: { toolName: "read" },
+  },
+  // Reads a file under the harness-created /srv/fixtures-outside/, then a sibling
+  // (the sibling must NOT prompt once "Always allow" persisted the directory).
+  "tool-read-outside-grantable": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/a.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxToolCall("read", { path: "/srv/fixtures-outside/b.txt" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("outside reads done")]),
+    ],
+    expect: { toolName: "read" },
+  },
   "tool-edit": toolScenario("edit", {
     // A file that REALLY exists in the sample-git fixture. The editor-pane
     // Changes rail renders its per-file rows inline in the DISK-backed file

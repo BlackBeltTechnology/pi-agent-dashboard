@@ -108,7 +108,7 @@ export function ActivityIndicator({ session, retryAttempt }: { session: Dashboar
   // See change: stop-discarding-known-session-state.
   if (session.status === "ended") return <EndedReasonPill session={session} />;
 
-  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) {
+  if (session.awaitingFileAccess === true || (session.currentTool === "ask_user" && !hasWidgetBarPrompt)) {
     // Blocked-on-you: distinct "Needs you" label + needs-you color + icon.
     // See change: improve-dashboard-attention-routing.
     return <span className="text-[var(--text-secondary)] truncate inline-flex items-center gap-0.5"><StatusGlyph status="needs-you" path={mdiCommentQuestion} /> {i18nT("common.needsYou", undefined, "Needs you")}</span>;

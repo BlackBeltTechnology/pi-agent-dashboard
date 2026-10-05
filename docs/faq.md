@@ -361,9 +361,11 @@ Common keys:
 - `askUserPromptTimeoutSeconds` (default `300`; `≤0` = wait indefinitely)
 - `allowedHosts` (default `[]`) — bare hostnames the dashboard may answer on (e.g. reverse-proxy name). No scheme/port. Applies live.
 - `hostGate.mode` (default `"enforce"`) — `"enforce"` refuses unlisted hosts; `"report"` logs `[host-gate] would-refuse` + proceeds. Absent → `"enforce"`; unrecognised value → `"report"` (typo cannot lock out). Opt out: `hostGate.mode: "report"` or `PI_DASHBOARD_HOST_GATE=report`. Applies live. Boot line `[host-gate] mode=<m> source=env|config|default` names resolved mode.
+- `agentPathGate.enabled` (default `true`) — bridge `tool_call` gate for agent `read`/`write`/`edit` outside session roots; out-of-root asks in-chat. `false` → handler returns immediately. Applies from the next tool call.
+- `agentPathGate.timeoutSeconds` (default `120`) — one budget shared by the file-access select and its Always-allow confirm; expiry cancels open prompts and blocks.
 
 CLI flags: `--port`, `--pi-port`, `--dev`, `--no-tunnel`.
-Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once).
+Env vars: `PI_DASHBOARD_PORT`, `PI_DASHBOARD_PI_PORT`, `PI_DASHBOARD_URL` (bridge → remote server), `PI_DASHBOARD_HOST_GATE` (`report`|`enforce`; overrides `hostGate.mode`; unrecognised = ignored + logged once), `PI_DASHBOARD_AGENT_PATH_GATE` (`off`|`on`; overrides `agentPathGate.enabled`; Settings ▸ Security ▸ Agent file access toggle inert under env override).
 
 Live-reconfigurable via `PUT /api/config` — partial merge, secrets preserved as `***`. Port/piPort changes set `restartRequired: true`.
 

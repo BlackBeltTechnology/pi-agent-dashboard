@@ -27,3 +27,5 @@ Desktop selected card background = `--bg-primary` (blue `--tint-blue-bg` fill dr
 Mounts `<PiBelowFloorWarning>` after the tag strip (mobile + desktop) when `session.piBelowFloor`. See change: update-pi-core-1-0-adopt-apis.
 
 Attachment resolved via `useAttachmentResolution`; mobile chip shows `AttachmentTrace`; OpenSpec subcard stays for attached sessions with archived/missing data. See change: resolve-archived-attached-proposal.
+
+Status label shows 'Needs you' when `session.awaitingFileAccess`. See change: ask-agent-file-access-in-chat.

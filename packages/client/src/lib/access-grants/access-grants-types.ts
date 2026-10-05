@@ -52,7 +52,7 @@ interface PathGrantSnapshotEntry {
   /** Which session's denial produced the grant (design D17). */
   origin: string;
   /** `"prompt"` = written by an allow-always answer (add-access-grant-dialog 8.2). */
-  via?: "prompt";
+  via?: "prompt" | "agent-prompt" | (string & {});
   /** The denied subject when the grant is a wider offered-ancestor rung. */
   widenedFrom?: string;
 }
@@ -122,7 +122,7 @@ export interface AccessEntry {
   /** Path grants only: the origin that produced the grant. */
   origin?: string;
   /** Path grants only: `"prompt"` when an access-prompt verdict wrote it. */
-  via?: "prompt";
+  via?: "prompt" | "agent-prompt" | (string & {});
   /** Path grants only: the denied subject a widened grant came from. */
   widenedFrom?: string;
 }

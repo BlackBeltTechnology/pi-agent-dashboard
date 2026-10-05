@@ -306,6 +306,12 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
       partial.openspec = { ...existing.openspec, ...partial.openspec };
     }
 
+    // Merge agentPathGate sub-object (live-read by bridges; no restart required).
+    // See change: ask-agent-file-access-in-chat.
+    if (partial.agentPathGate) {
+      partial.agentPathGate = { ...existing.agentPathGate, ...partial.agentPathGate };
+    }
+
     // Merge kroki sub-object
     if (partial.kroki) {
       partial.kroki = { ...existing.kroki, ...partial.kroki };
@@ -319,6 +325,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
     // See change: warn-unreachable-trusted-networks.
     delete merged.resolvedTrustedNetworks;
     delete merged.reachability;
+    delete merged.agentPathGateEnvOverride;
 
     // Write
     fs.mkdirSync(dir, { recursive: true });

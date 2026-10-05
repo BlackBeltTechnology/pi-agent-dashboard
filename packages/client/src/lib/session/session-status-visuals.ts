@@ -46,11 +46,12 @@ export function isChatRoutedAskUser(
   hasWidgetBarPrompt = false,
 ): boolean {
   // Ended sessions never "need you" even if currentTool lingers as ask_user.
-  return (
-    session.status !== "ended" &&
-    session.currentTool === "ask_user" &&
-    !hasWidgetBarPrompt
-  );
+  // A pending agent file-access prompt always counts (chat-placed, never
+  // widget-bar) and never changes `currentTool`.
+  // See change: ask-agent-file-access-in-chat.
+  if (session.status === "ended") return false;
+  if (session.awaitingFileAccess === true) return true;
+  return session.currentTool === "ask_user" && !hasWidgetBarPrompt;
 }
 
 export const sourceBadgeColors: Record<string, string> = {
@@ -280,6 +281,9 @@ function capsuleBucketFor(s: DashboardSession, flags: CapsuleFlags): CapsuleBuck
   // Explicit needs-you predicate. An `ask_user` session that is NOT errored is
   // either needs-you (classification resolved to not-widget-bar) or excluded
   // outright — it never falls through to another bucket.
+  // Agent file-access prompts are always chat-placed: no widget-bar probe applies.
+  // See change: ask-agent-file-access-in-chat.
+  if (s.awaitingFileAccess === true && !hasError) return "needsYou";
   if (s.currentTool === "ask_user" && !hasError) {
     return flags.widgetBar?.(s.id) === false ? "needsYou" : null;
   }
@@ -384,7 +388,7 @@ export function deriveRailBgColor(
  *   See change: fix-flows-plugin-polish (B1).
  */
 export function getCardPulseClass(session: DashboardSession, hasWidgetBarPrompt = false): string {
-  if (session.currentTool === "ask_user" && !hasWidgetBarPrompt) return "card-input-stripes";
+  if (session.awaitingFileAccess === true || (session.currentTool === "ask_user" && !hasWidgetBarPrompt)) return "card-input-stripes";
   if (session.status === "streaming" || session.resuming) return "card-working-pulse";
   // Unread state — cyan scrolling stripes. Lower priority than the two above
   // so streaming/ask_user keep their stronger colors.
@@ -421,7 +425,7 @@ export function deriveProposalCardState(sessions: DashboardSession[]): string {
   let hasRunning = false;
   let hasUnread = false;
   for (const s of sessions) {
-    if (s.currentTool === "ask_user") return "card-stripes-input";
+    if (s.currentTool === "ask_user" || s.awaitingFileAccess === true) return "card-stripes-input";
     if (s.status === "streaming" || s.resuming) hasRunning = true;
     else if (s.unread) hasUnread = true;
   }
