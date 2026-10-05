@@ -12,6 +12,7 @@
  */
 import { useT, useUiPrimitiveOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import { mdiFolderOpenOutline, mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
@@ -219,7 +220,8 @@ export function KbSourceAdd({ cwd, existingRefs, onAdd }: KbSourceAddProps): Rea
       {PathPickerDialog && picking && (
         <PathPickerDialog
           open
-          initialPath={cwd}
+          // Trailing separator → the picker opens INSIDE the folder (without it, it lists the parent filtered by the leaf).
+          initialPath={withTrailingSep(cwd, cwd.includes("\\") && !cwd.includes("/") ? "win32" : "linux")}
           title={t("chooseFolder", undefined, "Choose a folder to index")}
           onCancel={() => setPicking(false)}
           onSelect={(abs) => {

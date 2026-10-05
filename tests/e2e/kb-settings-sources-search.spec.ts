@@ -47,10 +47,12 @@ test.describe("KB settings — sources and search", () => {
       await page.getByTestId("kb-source-browse").click();
       const picker = page.getByTestId("path-picker-dialog");
       await expect(picker).toBeVisible();
-      const textbox = picker.getByRole("textbox").first();
-      await picker.getByRole("option").first().waitFor({ state: "visible", timeout: 20_000 });
-      await textbox.fill(`${KB_FIXTURE}/docs`);
-      await expect(textbox).toHaveValue(`${KB_FIXTURE}/docs`);
+      // Browse… opens INSIDE the folder. Click the `docs` row (immune to the picker's
+      // late initial re-list that can clobber a typed value), then confirm.
+      const docsRow = picker.getByRole("option", { name: /docs/ });
+      await docsRow.waitFor({ state: "visible", timeout: 20_000 });
+      await docsRow.click();
+      await expect(picker.getByRole("textbox").first()).toHaveValue(`${KB_FIXTURE}/docs/`);
       await picker.getByRole("button", { name: /^select$/i }).click();
 
       // Inside the folder → stored relative; the picker closes; a second row appears.
