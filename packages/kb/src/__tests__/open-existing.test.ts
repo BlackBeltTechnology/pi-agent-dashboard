@@ -4,11 +4,12 @@
  * after the writer closed (no -shm sidecar) and on a DELETE-mode file, without
  * changing journal mode, size or mtime.
  */
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { indexSource } from "../indexer.js";
 import { SqliteFtsStore } from "../sqlite-store.js";
 
 const dirs: string[] = [];
@@ -74,5 +75,41 @@ describe("SqliteFtsStore.openExisting", () => {
     s?.close();
     expect(statSync(p).size).toBe(size);
     expect(journalMode(p)).toBe("delete");
+  });
+
+  // B2 (review r1): coverage rerank reads term document-frequencies through an
+  // fts5vocab view. The persistent `CREATE VIRTUAL TABLE chunks_vocab` DDL would
+  // WRITE to the saved index from a "read-only" search.
+  it("B2 search with coverage rerank on never writes DDL into the saved index", async () => {
+    const dir = tmp();
+    const docs = join(dir, "docs");
+    mkdirSync(docs);
+    writeFileSync(join(docs, "a.md"), "# Alpha\n\nAlpha widgets bridge the gadgets in a long enough paragraph of prose.\n");
+    writeFileSync(join(docs, "b.md"), "# Beta\n\nBeta widgets also bridge other gadgets in a different long paragraph of prose.\n");
+    const p = join(dir, "index.db");
+    const w = new SqliteFtsStore(p);
+    w.init();
+    await indexSource(w, { root: "docs", dir: docs }, {});
+    w.close();
+
+    const hasVocab = (): boolean => {
+      const db = new DatabaseSync(p);
+      try {
+        return db.prepare("SELECT 1 FROM sqlite_master WHERE name LIKE 'chunks_vocab%'").get() !== undefined;
+      } finally {
+        db.close();
+      }
+    };
+    expect(hasVocab()).toBe(false);
+    const size = statSync(p).size;
+    const mtime = statSync(p).mtimeMs;
+
+    const s = SqliteFtsStore.openExisting(p);
+    const hits = s?.search("alpha widgets", { coverageRerank: true });
+    s?.close();
+    expect(hits?.length).toBeGreaterThanOrEqual(2); // rerank needs >= 2 hits to reach documentFrequencies
+    expect(hasVocab()).toBe(false);
+    expect(statSync(p).size).toBe(size);
+    expect(statSync(p).mtimeMs).toBe(mtime);
   });
 });

@@ -89,6 +89,10 @@ function toMatch(q: string): string {
 export class SqliteFtsStore implements KbStore {
   private db: DatabaseSync;
   readonly dbPath: string;
+  /** Opened via `openExisting`: SELECT-only handle, must never issue DDL against the saved file. */
+  private readonly existingOnly: boolean;
+  /** fts5vocab view used for document frequencies (persistent in a writer, connection-local TEMP when `existingOnly`). */
+  private vocabTable = "chunks_vocab";
   // Prepared-statement cache: re-preparing per row on a hot insert path (chunks
   // + properties, many per file) is a measurable reindex cost. Cache by SQL.
   private stmts = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
@@ -105,6 +109,7 @@ export class SqliteFtsStore implements KbStore {
    */
   constructor(dbPath: string, opts: { existingOnly?: boolean } = {}) {
     this.dbPath = dbPath;
+    this.existingOnly = opts.existingOnly === true;
     if (!opts.existingOnly && dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
     if (!opts.existingOnly) this.db.exec("PRAGMA journal_mode=WAL");
@@ -347,7 +352,18 @@ export class SqliteFtsStore implements KbStore {
     const missing = keys.filter((k) => !this.dfCache.has(k));
     if (this.vocabReady === null) {
       try {
-        this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
+        if (this.existingOnly) {
+          // A read-only handle must not write DDL into the saved index. Reuse the
+          // persistent view if a writer already made one; otherwise a TEMP view
+          // (connection-local; lives in the temp database, never in the saved file).
+          const persisted = this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='chunks_vocab'").get();
+          if (!persisted) {
+            this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp.chunks_vocab_ro USING fts5vocab(main, chunks, 'row')");
+            this.vocabTable = "temp.chunks_vocab_ro";
+          }
+        } else {
+          this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
+        }
         this.vocabReady = true;
       } catch {
         this.vocabReady = false;
@@ -356,7 +372,7 @@ export class SqliteFtsStore implements KbStore {
     if (this.vocabReady && missing.length) {
       const ph = missing.map(() => "?").join(",");
       try {
-        const rows = this.db.prepare(`SELECT term, doc FROM chunks_vocab WHERE term IN (${ph})`).all(...missing) as any[];
+        const rows = this.db.prepare(`SELECT term, doc FROM ${this.vocabTable} WHERE term IN (${ph})`).all(...missing) as any[];
         for (const k of missing) this.dfCache.set(k, 0); // absent term = df 0
         for (const r of rows) this.dfCache.set(String(r.term), Number(r.doc) || 0);
       } catch { /* vocab unusable → leave uncached, treated as df 0 below */ }

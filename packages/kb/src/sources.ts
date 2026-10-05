@@ -390,7 +390,7 @@ export const httpsResolver: SourceResolver = {
         if (kind) {
           const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
           writeFileSync(archive, body);
-          extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
+          await extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
         } else {
           writeFileSync(join(out, plainFileName(url.pathname)), body);
         }

@@ -865,15 +865,28 @@ describe("GET /api/kb/search (kb-plugin-search)", () => {
     await app.close();
   });
 
-  it("X7 a search during a running reindex answers 200 (WAL reader, no SQLITE_BUSY)", async () => {
+  it("X7 a search while a write transaction is OPEN answers 200 from the last committed state (WAL reader, no SQLITE_BUSY)", async () => {
     const cwd = makeFolder();
-    for (let i = 0; i < 40; i++) writeFileSync(join(cwd, "docs", `w${i}.md`), `# Walrus ${i}\n\nwalrus colony ${i} basks ${i * 31}.\n`);
     const { app } = buildApp([cwd]);
     await reindexAndSettle(app, cwd);
-    await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
-    const res = await app.inject({ method: "GET", url: `/api/kb/search?cwd=${q(cwd)}&q=walrus` });
-    expect(res.statusCode).toBe(200);
-    await settle(app, cwd);
+    const before = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+    expect(before.body.hits.length).toBeGreaterThan(0);
+
+    // A writer holds an uncommitted batch (what a running reindex does between commits).
+    const writer = new DatabaseSync(dbPathOf(cwd));
+    writer.exec("PRAGMA busy_timeout=5000");
+    writer.exec("BEGIN IMMEDIATE");
+    writer.exec("INSERT INTO files(root,path,mtime_ms,sha256) VALUES('docs','uncommitted.md',1,'x')");
+    try {
+      const t0 = Date.now();
+      const during = await getJson(app, `/api/kb/search?cwd=${q(cwd)}&q=alpha`);
+      expect(during.status).toBe(200);
+      expect(Date.now() - t0).toBeLessThan(2000);
+      expect(during.body.hits.map((h: { chunkId: string }) => h.chunkId)).toEqual(before.body.hits.map((h: { chunkId: string }) => h.chunkId));
+    } finally {
+      writer.exec("ROLLBACK");
+      writer.close();
+    }
     await app.close();
   });
 

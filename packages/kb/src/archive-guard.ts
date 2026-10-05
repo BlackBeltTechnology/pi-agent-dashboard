@@ -4,18 +4,26 @@
 // Names and types come from two listings matched by line index — names are never
 // parsed out of a verbose line, so ` -> ` and spaces in names are harmless.
 // Fail closed: an unparseable listing, a count mismatch or a non-zero exit rejects.
-import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns tar/zip listing + extract for the https resolver)
+import { execFile } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns tar/zip listing + extract for the https resolver)
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
+import { promisify } from "node:util";
 
 export type ArchiveKind = "tar" | "zip";
 export interface ArchiveLimits { maxEntries?: number; maxExpandedBytes?: number }
 export const DEFAULT_MAX_ENTRIES = 50_000;
 export const DEFAULT_MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 
-const ENV = { ...process.env, LC_ALL: "C" };
-const run = (cmd: string, args: string[]): string =>
-  execFileSync(cmd, args, { encoding: "latin1", env: ENV, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 * 1024 * 1024 });
+const execFileAsync = promisify(execFile);
+/** Per-call bound: a hung tar/unzip must not pin a reindex job forever. */
+const RUN_TIMEOUT_MS = 120_000;
+const MAX_LISTING_BYTES = 256 * 1024 * 1024;
+
+// Async on purpose (change: improve-kb-settings-sources-and-search, D6): a large archive must
+// never stall the dashboard server's event loop. Env is read per call, not at import.
+const env = (): NodeJS.ProcessEnv => ({ ...process.env, LC_ALL: "C" });
+const run = async (cmd: string, args: string[]): Promise<string> =>
+  (await execFileAsync(cmd, args, { encoding: "latin1", env: env(), timeout: RUN_TIMEOUT_MS, maxBuffer: MAX_LISTING_BYTES })).stdout;
 
 /** Decode tar's C-locale escapes (`\NNN`, `\t`, `\n`, `\\` …) to a latin1 byte string. */
 function decodeTarName(raw: string): string {
@@ -38,9 +46,9 @@ const lines = (s: string): string[] => {
 };
 
 /** Validate a tar archive (any compression the host tar auto-detects). Throws on any unsafe entry. */
-function validateTar(archive: string, maxEntries: number): void {
-  const names = lines(run("tar", ["-tf", archive]));
-  const verbose = lines(run("tar", ["-tvf", archive]));
+async function validateTar(archive: string, maxEntries: number): Promise<void> {
+  const names = lines(await run("tar", ["-tf", archive]));
+  const verbose = lines(await run("tar", ["-tvf", archive]));
   if (names.length > maxEntries) throw new Error(`archive has too many entries (${names.length} > ${maxEntries})`);
   if (names.length !== verbose.length) throw new Error(`cannot validate archive: listing mismatch (${names.length} names vs ${verbose.length} entries)`);
   for (let i = 0; i < names.length; i++) {
@@ -54,10 +62,10 @@ function validateTar(archive: string, maxEntries: number): void {
 }
 
 /** Validate a zip archive. Throws on any unsafe entry; returns `true` when it is empty. */
-function validateZip(archive: string, maxEntries: number): boolean {
+async function validateZip(archive: string, maxEntries: number): Promise<boolean> {
   let header: string;
   try {
-    header = run("unzip", ["-Z", archive]);
+    header = await run("unzip", ["-Z", archive]);
   } catch (e) {
     // `Empty zipfile.` exits 1 — recover its stdout and look at the entry count.
     header = String((e as { stdout?: unknown }).stdout ?? "");
@@ -69,7 +77,7 @@ function validateZip(archive: string, maxEntries: number): boolean {
   if (sizeIdx < 0 || !Number.isInteger(count)) throw new Error("cannot validate archive: unparseable zip listing");
   if (count > maxEntries) throw new Error(`archive has too many entries (${count} > ${maxEntries})`);
   if (count === 0) return true; // `unzip -Z1` prints `Empty zipfile.` and exits 1
-  const names = lines(run("unzip", ["-Z1", archive]));
+  const names = lines(await run("unzip", ["-Z1", archive]));
   const typeLines = hl.slice(sizeIdx + 1, sizeIdx + 1 + count);
   if (names.length !== count || typeLines.length !== count) throw new Error(`cannot validate archive: zip listing mismatch (${names.length} names, ${typeLines.length} types, ${count} entries)`);
   for (let i = 0; i < count; i++) {
@@ -86,11 +94,13 @@ function validateZip(archive: string, maxEntries: number): boolean {
  * Stream the archive's decompressed content to a bounded buffer BEFORE extracting to disk:
  * a decompression bomb (tiny download, huge expansion) aborts once `maxBytes` is exceeded.
  */
-function assertExpandedWithin(cmd: string, args: string[], maxBytes: number): void {
+async function assertExpandedWithin(cmd: string, args: string[], maxBytes: number): Promise<void> {
   try {
-    execFileSync(cmd, args, { env: ENV, stdio: ["ignore", "pipe", "pipe"], maxBuffer: maxBytes });
+    await execFileAsync(cmd, args, { encoding: "buffer", env: env(), timeout: RUN_TIMEOUT_MS, maxBuffer: maxBytes });
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOBUFS") throw new Error(`archive expands beyond the ${maxBytes}-byte limit`);
+    // sync execFile reports ENOBUFS; the async one reports ERR_CHILD_PROCESS_STDIO_MAXBUFFER.
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOBUFS" || code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw new Error(`archive expands beyond the ${maxBytes}-byte limit`);
     throw e;
   }
 }
@@ -116,19 +126,19 @@ function backstopWalk(out: string): void {
  * Validate `archive`, then extract it into the (fresh, empty) `outDir`, then run
  * the post-extraction backstop. Throws before extracting on any unsafe entry.
  */
-export function extractArchiveSafely(kind: ArchiveKind, archive: string, outDir: string, limits: ArchiveLimits = {}): void {
+export async function extractArchiveSafely(kind: ArchiveKind, archive: string, outDir: string, limits: ArchiveLimits = {}): Promise<void> {
   const maxEntries = limits.maxEntries ?? DEFAULT_MAX_ENTRIES;
   const maxBytes = limits.maxExpandedBytes ?? DEFAULT_MAX_EXPANDED_BYTES;
   if (kind === "zip") {
-    const empty = validateZip(archive, maxEntries);
+    const empty = await validateZip(archive, maxEntries);
     if (!empty) {
-      assertExpandedWithin("unzip", ["-p", archive], maxBytes);
-      run("unzip", ["-o", "-q", archive, "-d", outDir]);
+      await assertExpandedWithin("unzip", ["-p", archive], maxBytes);
+      await run("unzip", ["-o", "-q", archive, "-d", outDir]);
     }
   } else {
-    validateTar(archive, maxEntries);
-    assertExpandedWithin("tar", ["-xOf", archive], maxBytes);
-    run("tar", ["-xf", archive, "-C", outDir, "--no-same-owner"]);
+    await validateTar(archive, maxEntries);
+    await assertExpandedWithin("tar", ["-xOf", archive], maxBytes);
+    await run("tar", ["-xf", archive, "-C", outDir, "--no-same-owner"]);
   }
   backstopWalk(outDir);
 }
