@@ -7,14 +7,17 @@
  *
  * See change: platform-path-normalization.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  normalizePath,
-  samePath,
-  parsePathInput,
-  withTrailingSep,
-  joinForDisplay,
+  isAbsolutePath,
   isFilesystemRoot,
+  isOutside,
+  joinForDisplay,
+  normalizePath,
+  parsePathInput,
+  relativePath,
+  samePath,
+  withTrailingSep,
 } from "../platform/paths.js";
 
 // ── normalizePath ───────────────────────────────────────────────────────────
@@ -280,5 +283,32 @@ describe("isFilesystemRoot", () => {
   it("recognises Unix root", () => {
     expect(isFilesystemRoot("/", "linux")).toBe(true);
     expect(isFilesystemRoot("/Users", "linux")).toBe(false);
+  });
+});
+
+describe("isomorphic lexical helpers (improve-kb-settings-sources-and-search)", () => {
+  it("isAbsolutePath: POSIX, drive, UNC; not relative", () => {
+    expect(isAbsolutePath("/a/b")).toBe(true);
+    expect(isAbsolutePath("C:\\a")).toBe(true);
+    expect(isAbsolutePath("c:/a")).toBe(true);
+    expect(isAbsolutePath("\\\\srv\\share\\x")).toBe(true);
+    expect(isAbsolutePath("docs/a")).toBe(false);
+    expect(isAbsolutePath(".")).toBe(false);
+  });
+
+  it("relativePath: inside, equal, sibling, other root", () => {
+    expect(relativePath("/r/p", "/r/p/docs/api")).toBe("docs/api");
+    expect(relativePath("/r/p", "/r/p/")).toBe(".");
+    expect(relativePath("/r/p", "/r/q")).toBe("../q");
+    expect(relativePath("C:\\r\\p", "c:\\r\\p\\docs")).toBe("docs");
+    expect(relativePath("C:\\r\\p", "D:\\x")).toBe("D:\\x");
+  });
+
+  it("E3 isOutside respects path boundaries", () => {
+    expect(isOutside("/a/b", "/a/bc")).toBe(true);
+    expect(isOutside("/a/b", "/a/b/docs")).toBe(false);
+    expect(isOutside("/a/b", "/a/b")).toBe(false);
+    expect(isOutside("/a/b", "/x")).toBe(true);
+    expect(isOutside("C:\\r\\p", "D:\\x")).toBe(true);
   });
 });

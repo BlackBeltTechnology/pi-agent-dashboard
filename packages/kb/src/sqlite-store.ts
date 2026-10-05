@@ -2,7 +2,7 @@
 // Zero runtime deps. Requires --experimental-sqlite on current Node.
 // better-sqlite3 is a drop-in fallback behind the same KbStore interface.
 
-import { mkdirSync, renameSync, unlinkSync } from "node:fs";
+import { mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { Chunk, FileState, Filter, GraphEdge, GraphNode, KbHit, KbStore, SearchOpts, StorePropertyRow } from "./types.js";
@@ -97,16 +97,51 @@ export class SqliteFtsStore implements KbStore {
     if (!s) { s = this.db.prepare(sql); this.stmts.set(sql, s); }
     return s;
   }
-  constructor(dbPath: string) {
+  /**
+   * `existingOnly` opens a side-effect-free handle for read-only callers: no
+   * `mkdir`, no `journal_mode=WAL` (a mode change rewrites a DELETE-mode file
+   * header), and the caller must NOT call `init()` (no DDL / schema migration).
+   * Prefer {@link SqliteFtsStore.openExisting}.
+   */
+  constructor(dbPath: string, opts: { existingOnly?: boolean } = {}) {
     this.dbPath = dbPath;
-    if (dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
+    if (!opts.existingOnly && dbPath !== ":memory:") mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new DatabaseSync(dbPath);
-    this.db.exec("PRAGMA journal_mode=WAL");
+    if (!opts.existingOnly) this.db.exec("PRAGMA journal_mode=WAL");
     // Let a concurrent reader (e.g. `/stats` during a reindex) wait briefly for a
     // batch's write lock instead of failing with SQLITE_BUSY. See change:
     // fix-kb-index-feedback.
     this.db.exec("PRAGMA busy_timeout=5000");
   }
+  /**
+   * Open an EXISTING db without creating, migrating or re-moding it. Returns
+   * null for a missing or 0-byte file (callers treat that as an empty index).
+   * A read-write handle is used on purpose: a `readOnly` connection cannot
+   * create the WAL `-shm` sidecar once the writer checkpointed and removed it
+   * (SQLITE_CANTOPEN). Callers must only issue SELECTs.
+   */
+  static openExisting(dbPath: string): SqliteFtsStore | null {
+    try {
+      if (statSync(dbPath).size === 0) return null;
+    } catch {
+      return null;
+    }
+    return new SqliteFtsStore(dbPath, { existingOnly: true });
+  }
+
+  /** True when `chunks` exists with the current column set (`start_line`). Read-only probe. */
+  hasCurrentSchema(): { table: boolean; current: boolean } {
+    const cols = (this.db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>).map((c) => c.name);
+    return { table: cols.length > 0, current: cols.includes("start_line") };
+  }
+
+  /** Indexed file count per root. `files` has a (root,path) PK, so this is cheap (no FTS scan). */
+  filesByRoot(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const r of this.db.prepare("SELECT root, COUNT(*) AS n FROM files GROUP BY root").all() as Array<{ root: string; n: number }>) out[r.root] = Number(r.n);
+    return out;
+  }
+
   init() {
     this.migrateChunksSchema();
     this.db.exec(DDL);

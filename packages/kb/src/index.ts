@@ -20,7 +20,7 @@ export { renderHits } from "./render.js";
 export type { SearchOptsOverrides } from "./search-opts.js";
 export { searchOptsFromConfig } from "./search-opts.js";
 export type { KbSourceKind, ResolveCtx, ResolvedSource, SourceResolver } from "./sources.js";
-export { classifyRef, resolveAll, resolverFor, sourceIdentity } from "./sources.js";
+export { classifyRef, KbUntrustedSourceError, resolveAll, resolverFor, sourceIdentity } from "./sources.js";
 export { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 export type { AckRecord, StalenessFile } from "./staleness.js";
 export { readStaleness, STALENESS_VERSION, stalenessVersionOnDisk } from "./staleness.js";

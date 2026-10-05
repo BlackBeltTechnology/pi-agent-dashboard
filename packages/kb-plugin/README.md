@@ -12,7 +12,10 @@ Server routes (`src/server/kb-routes.ts`), mounted on the shared Fastify instanc
 | `GET /api/kb/stats?cwd=` | `{ files, chunks, indexed, staleCount, indexing, jobStatus, lastError? }` via `store.counts()` |
 | `POST /api/kb/reindex?cwd=` | Non-blocking: registers the walk, returns `202 { status:"running", jobId }`; the row polls `/stats` for completion + `jobStatus:"error"`. See change: `fix-kb-index-feedback`. |
 | `GET /api/kb/config?cwd=` | `{ config, origin, projectPath }` via `loadConfig` |
-| `PUT /api/kb/config?cwd=` | validate + atomic write of the path fields; preserves other config |
+| `PUT /api/kb/config?cwd=` | validate + atomic write of the path fields; preserves other config. Optional `trustRefs` grants trust to saved remote sources in the same write; response may carry `untrustedRefs`. |
+| `GET /api/kb/sources?cwd=` | Per-source status: kind, indexed `files`, `trusted`, `outside`, last outcome/revision/error. Never creates the db. See change: `improve-kb-settings-sources-and-search`. |
+| `GET /api/kb/search?cwd=&q=&limit=&docType=` | Read-only test search over the SAVED index (no reindex, no verdicts). `q` 1–512 chars, `limit` 1–50, `docType` doc\|agents\|source-md. |
+| `POST /api/kb/source-trust?cwd=` | Grant trust to ONE saved remote source by exact `ref` (404/409/400/500). |
 
 Reindex + config writes run in the **dashboard-server process** — no pi session required — so a session-less worktree is both indexable and configurable. Imports the Layer-1 engine (`@blackbelt-technology/pi-dashboard-kb`); independent of the Layer-2 session extension.
 
