@@ -562,6 +562,8 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     # PI_DASHBOARD_TS_LOADER=jiti; its spawn header must name jiti-register.mjs.
     pi-dashboard stop >/dev/null 2>&1 || true
     sleep 2
+    # Truncate first: an earlier (possibly jiti) header must not satisfy the check.
+    : > "$LOG_PATH"
     PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start >/dev/null 2>&1 &
     waited=0
     while [ $waited -lt 30 ]; do
