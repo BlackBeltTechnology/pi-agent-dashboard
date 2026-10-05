@@ -46,6 +46,8 @@ export interface ActionContributionLike {
    * `agent_end`) without knowing anything action-specific.
    * See change: finalize-event-dispatched-automation-runs.
    */
+  /** Event types `buildEvent` may emit (required by the automation registry). */
+  emits?: string[];
   buildEvent?: (args: { payload: Record<string, unknown>; automation: unknown }) =>
     | {
         eventType: string;
@@ -130,6 +132,7 @@ export function flowsActionContributions(flowsForCwd: FlowsForCwd): ActionContri
       // which pi-flows consumes as `flowInput` → `${{flow.input.<name>}}`.
       // `task` stays optional and may coexist with `inputs`.
       // See change: finalize-event-dispatched-automation-runs, wire-flow-inputs-in-automation.
+      emits: ["flow:run"],
       buildEvent: ({ payload }) => {
         const flow = String(payload.flow ?? "").trim();
         if (!FLOW_ID_RE.test(flow)) return null;

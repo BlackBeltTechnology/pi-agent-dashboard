@@ -11,6 +11,7 @@ import {
   DEFAULT_SERVER_HEAP,
   DEFAULT_SUBAGENT_TICK_THROTTLE_MS,
   loadConfig,
+  writeConfigFileSecure,
 } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { refreshModelRegistry } from "./model-proxy/registry-singleton.js";
@@ -138,7 +139,7 @@ export function deleteAuthProvider(
     delete merged.resolvedTrustedNetworks;
     delete merged.reachability;
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
+    writeConfigFileSecure(file, `${JSON.stringify(merged, null, 2)}\n`);
     return { success: true, deleted: true, remaining: Object.keys(providers).length };
   } catch (err) {
     return {
@@ -329,7 +330,7 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     // Write
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
+    writeConfigFileSecure(file, `${JSON.stringify(merged, null, 2)}\n`);
 
     // Eager-refresh model proxy registry (config may affect proxy settings).
     refreshModelRegistry().catch(() => {});

@@ -51,7 +51,7 @@ import { LogBlock } from "./components/primitives/LogBlock.js";
 import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
-import { installDeviceAuthFetch } from "./lib/pairing/device-auth.js";
+import { installDeviceAuthFetch, migrateLegacyDeviceBearer } from "./lib/pairing/device-auth.js";
 import {
   ModelSelectorPrimitive,
   ThinkingLevelSelectorPrimitive,
@@ -176,6 +176,9 @@ registerUiPrimitive(
 // same-origin `/api/*` request carries the bearer.
 // See change: make-pairing-qr-camera-scannable.
 installDeviceAuthFetch();
+// Move a legacy localStorage device bearer into the httpOnly cookie (same-origin only).
+// See change: harden-trust-and-credential-boundaries (D5).
+void migrateLegacyDeviceBearer();
 // Echo the in-memory access-prompt capability on same-origin `/api/*` requests
 // so a denied read can be held for a verdict. See change: add-access-grant-dialog.
 installGrantChannelFetch();

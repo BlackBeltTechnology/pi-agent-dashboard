@@ -2,6 +2,7 @@
  * Shared configuration module for PI Dashboard.
  * Used by both the server CLI and bridge extension.
  */
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -768,6 +769,15 @@ export interface DashboardConfig {
   agentPathGate: AgentPathGateConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
+  /**
+   * Strict local proof. When true, bare loopback admits only `observe`-tier REST
+   * routes; control/operate routes and WebSockets need the local-proof cookie
+   * (`pi-dashboard open` / Electron), the local token, or an authenticated
+   * principal. Default false (unchanged). Only header-injecting tunnels (zrok)
+   * are safe without it; marker-less relays (`ssh -R`, `socat`) are not.
+   * See change: harden-trust-and-credential-boundaries (D2).
+   */
+  requireLocalProof: boolean;
   /** Merged trustedNetworks + auth.bypassHosts (deduplicated). Computed at load time. */
   resolvedTrustedNetworks: string[];
   /** CORS allowed origins for cross-origin client hosting */
@@ -1256,6 +1266,7 @@ const DEFAULTS: DashboardConfig = {
   allowedHosts: [],
   hostGate: { mode: "enforce" },
   trustedNetworks: [],
+  requireLocalProof: false,
   resolvedTrustedNetworks: [],
   cors: { allowedOrigins: [] },
   pairing: { publicBaseUrls: [] },
@@ -1913,6 +1924,35 @@ export function validateTunnelForConnect(tunnel: DashboardConfig["tunnel"]): Tun
 }
 
 /**
+ * Write a config file atomically with mode 0600 (it holds the auth HMAC secret).
+ * Unique tmp name so concurrent writers never clobber each other; chmod is
+ * best-effort (umask-proof on POSIX, ignored where unsupported, e.g. win32).
+ * See change: harden-trust-and-credential-boundaries (D4).
+ */
+export function writeConfigFileSecure(file: string, text: string): void {
+  const tmp = `${file}.tmp.${process.pid}.${randomUUID()}`;
+  try {
+    fs.writeFileSync(tmp, text, { mode: 0o600 });
+    try { fs.chmodSync(tmp, 0o600); } catch { /* best-effort */ }
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+    throw err;
+  }
+}
+
+/** Best-effort: tighten a group/world-readable config file to 0600. Never throws. */
+function tightenConfigMode(file: string): void {
+  if (process.platform === "win32") return; // platform-branch-ok: POSIX mode bits are meaningless on win32
+  try {
+    const st = fs.statSync(file);
+    if (st.mode & 0o077) fs.chmodSync(file, 0o600);
+  } catch (err) {
+    console.warn(`[config] could not tighten ${file} to 0600: ${(err as Error).message}`);
+  }
+}
+
+/**
  * Load configuration from ~/.pi/dashboard/config.json.
  * Returns defaults for missing fields, malformed JSON, or missing file.
  */
@@ -1920,6 +1960,8 @@ export function loadConfig(): DashboardConfig {
   const configDir = path.join(os.homedir(), ".pi", "dashboard");
   const configFile = path.join(configDir, "config.json");
   const defaults: DashboardConfig = { ...DEFAULTS };
+
+  if (fs.existsSync(configFile)) tightenConfigMode(configFile);
 
   try {
     if (!fs.existsSync(configFile)) return defaults;
@@ -1979,6 +2021,7 @@ export function loadConfig(): DashboardConfig {
         : defaults.allowedHosts,
       hostGate: { mode: parseHostGateMode(parsed.hostGate?.mode) },
       trustedNetworks: parseTrustedNetworks(parsed.trustedNetworks),
+      requireLocalProof: parsed.requireLocalProof === true,
       resolvedTrustedNetworks: [],
       cors: {
         allowedOrigins: Array.isArray(parsed.cors?.allowedOrigins)
@@ -2078,5 +2121,5 @@ export function ensureConfig(): void {
     devBuildOnReload: DEFAULTS.devBuildOnReload,
   };
 
-  fs.writeFileSync(configFile, JSON.stringify(defaults, null, 2) + "\n");
+  writeConfigFileSecure(configFile, JSON.stringify(defaults, null, 2) + "\n");
 }

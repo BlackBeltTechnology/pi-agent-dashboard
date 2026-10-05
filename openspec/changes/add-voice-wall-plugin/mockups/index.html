@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-wall — mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<script src="theme-init.js"></script>
+<style>.card{background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:.75rem}.card:hover{background:var(--bg-hover)}</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-3xl mx-auto p-6 sm:p-10">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-xl font-semibold" style="color:var(--text-primary)">voice-wall: live wall app at <code>/apps/wall</code></h1>
+      <p class="text-sm mt-1" style="color:var(--text-secondary)">openspec/changes/add-voice-wall-plugin · served by the dashboard · share links for viewers, dashboard sign-in for typing</p>
+    </div>
+    <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+  </header>
+  <h2 class="state-title mt-4">Dashboard side</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a class="card p-4 block" href="share-dialog.html"><div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Share live wall</div><div class="text-xs" style="color:var(--text-secondary)">folder-menu item → dialog: link + QR, expiry, transcript toggle, who may type, revoke</div></a>
+  </div>
+  <h2 class="state-title mt-6">Wall app (/apps/wall)</h2>
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a class="card p-4 block" href="wall-app.html"><div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Wall: Board · Graph · Transcript</div><div class="text-xs" style="color:var(--text-secondary)">configured areas, figures, pending items, input bar; phone → desktop</div></a>
+    <a class="card p-4 block" href="presentation.html"><div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Presentation (room screen)</div><div class="text-xs" style="color:var(--text-secondary)">large type, auto-advance, ←/→/A/F keys, join QR</div></a>
+    <a class="card p-4 block" href="join.html"><div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Join & access states</div><div class="text-xs" style="color:var(--text-secondary)">connecting, expired, revoked, ended, invalid, reconnecting; identity strip</div></a>
+    <a class="card p-4 block" href="input-states.html"><div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Operator input states</div><div class="text-xs" style="color:var(--text-secondary)">ready, sending, delivered, invalid, rate-limited, revoked, not delivered</div></a>
+  </div>
+  <p class="text-xs mt-6"><a href="ui-plan.md" style="color:var(--accent-blue)">ui-plan.md</a>: architecture, access model, flows, cited rules, artifact rework list.</p>
+</div>
+</body>
+</html>

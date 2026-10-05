@@ -109,6 +109,11 @@ export function liveTrustedNetworks(fallback: string[] = []): string[] {
   return getConfigSnapshot().resolvedTrustedNetworks ?? fallback;
 }
 
+/** `requireLocalProof` as of this request (live, no restart). */
+export function liveRequireLocalProof(): boolean {
+  return getConfigSnapshot().requireLocalProof === true;
+}
+
 /** Top-level `allowedHosts` as of this request (bind-time field, live list). */
 export function liveAllowedHosts(fallback: string[] = []): string[] {
   return getConfigSnapshot().allowedHosts ?? fallback;

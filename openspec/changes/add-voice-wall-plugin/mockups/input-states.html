@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-wall — operator input states</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<link rel="stylesheet" href="wall.css" />
+<script src="theme-init.js"></script>
+<style>.inputbar{position:static}</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-5xl mx-auto p-4 sm:p-6">
+  <header class="shell-head">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Operator input: states</h1>
+      <p class="text-sm" style="color:var(--text-secondary)">The input bar at the bottom of <code>/apps/wall</code>. It renders only for a signed-in user on the meeting's allow-list. Server check: authenticated principal ∈ allow-list, 400 chars, no control characters, rate limit.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button class="btn-ghost" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Toggle theme</button>
+    </nav>
+  </header>
+  <div id="list" class="flex flex-col gap-6"></div>
+</div>
+<script>
+const bar = ({ val="", btn=`<button class="btn-primary">Send</button>`, foot="", dis=false, desc="" }) => `
+<div class="frame"><div class="inputbar"><form class="inputrow" onsubmit="return false">
+  <textarea aria-label="Message to the copilot" maxlength="400" ${dis?'aria-disabled="true" readonly':''} ${desc?`aria-describedby="${desc}"`:''} placeholder="Type to the copilot (seen by the copilot, not shown on the wall)">${val}</textarea>${btn}</form>
+  <div class="flex gap-3 mt-1 flex-wrap">${foot}</div></div></div>`;
+const S = [
+  ["1 · Ready", bar({ foot:`<span class="counter">0 / 400</span><span class="counter">Sent as <b>[wall operator] anna.k</b></span>` }),
+   "The attribution is visible <i>before</i> sending: the copilot sees who typed, and so does the user (Nielsen #1). The placeholder states that typed text is private to the copilot and does not appear on the shared wall."],
+  ["2 · Sending", bar({ val:"Add the runbook owner question to the follow-up mail", btn:`<button class="btn-primary" aria-disabled="true"><span class="spin" style="--pill-accent:var(--accent-purple)"></span> Sending</button>` }),
+   "Send stays disabled while a request is in flight, to prevent double submits."],
+  ["3 · Delivered", bar({ foot:`<span class="counter ok" role="status">✓ Delivered to the copilot · 15:02</span><span class="counter">It answers in the meeting or on the wall if it decides to.</span>` }),
+   "<i>Delivered</i> means the line reached the copilot's input, not that it will reply. The copilot decides, so the app promises nothing more (Nielsen #2, match reality)."],
+  ["4 · Too long / invalid", bar({ val:"…", desc:"e4", foot:`<span id="e4" class="counter err" role="alert">412 / 400: shorten by 12 characters</span>`, btn:`<button class="btn-primary" aria-disabled="true" aria-describedby="e4">Send</button>` }),
+   "Inline, specific and counted (GOV.UK error message: say what is wrong and how to fix it). Control characters are stripped silently on paste, never rejected after typing."],
+  ["5 · Rate-limited", bar({ val:"one more thing", desc:"e5", foot:`<span id="e5" class="counter warn" role="status">You can send again in 8 s</span>`, btn:`<button class="btn-primary" aria-disabled="true" aria-describedby="e5">Send</button>` }),
+   "Protects the copilot session from floods. The countdown makes the limit predictable, not a mystery failure."],
+  ["6 · Typing turned off by the host", bar({ dis:true, desc:"e6", btn:`<button class="btn-primary" aria-disabled="true" aria-describedby="e6">Send</button>`, foot:`<span id="e6" class="counter">The host removed you from the typing list. You can keep watching.</span>` }),
+   "Applied live: the server already rejects the next post, and the app reflects it without a reload. The draft text is kept, not wiped."],
+  ["7 · Not delivered", bar({ val:"Add the runbook owner question to the follow-up mail", btn:`<button class="btn-primary">Retry</button>`, foot:`<span class="counter err" role="alert">Not delivered: the meeting ended. Copy your text if you need it.</span>` }),
+   "Failure keeps the text and names the cause (Nielsen #9). This mirrors dictation's delivery-failed behaviour in the voice-assistant plugin."],
+];
+document.getElementById("list").innerHTML = S.map(([t,h,c]) => `<section aria-label="${t}"><p class="frame-label">${t}</p>${h}<p class="caption">${c}</p></section>`).join("");
+</script>
+</body>
+</html>

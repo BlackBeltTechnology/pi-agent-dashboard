@@ -147,12 +147,25 @@ describe("buildRunDispatch", () => {
   it("resolves an event dispatch for an event action", () => {
     const reg = new ActionRegistry();
     reg.register({
-      id: "flows.run", source: "flows", label: "Run",
+      id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"],
       buildEvent: ({ payload }) => ({ eventType: "flow:run", data: { flowName: payload.flow, task: payload.task } }),
     });
     expect(buildRunDispatch(flowAutomation(), reg)).toEqual({
       kind: "event", eventType: "flow:run", data: { flowName: "test:x", task: "go" },
     });
+  });
+
+  it("refuses undeclared and reserved event types (E24)", () => {
+    const mk = (emits: string[], eventType: string) => {
+      const reg = new ActionRegistry();
+      reg.register({ id: "flows.run", source: "flows", label: "Run", emits, buildEvent: () => ({ eventType }) });
+      return buildRunDispatch(flowAutomation(), reg);
+    };
+    expect(mk(["flow:run"], "flow:run")).toMatchObject({ kind: "event", eventType: "flow:run" });
+    expect(mk(["flow:run"], "flow:other")).toMatchObject({ kind: "refused" });
+    expect(mk(["flow:run"], "roles:set")).toMatchObject({ kind: "refused" });
+    // declared but reserved is still refused
+    expect(mk(["roles:set"], "roles:set")).toMatchObject({ kind: "refused" });
   });
 
   it("resolves a prompt dispatch for a prompt action", () => {
@@ -162,8 +175,39 @@ describe("buildRunDispatch", () => {
 
   it("emits nothing (empty prompt) when buildEvent returns null", () => {
     const reg = new ActionRegistry();
-    reg.register({ id: "flows.run", source: "flows", label: "Run", buildEvent: () => null });
+    reg.register({ id: "flows.run", source: "flows", label: "Run", emits: ["flow:run"], buildEvent: () => null });
     expect(buildRunDispatch(flowAutomation(), reg)).toEqual({ kind: "prompt", text: "" });
+  });
+});
+
+describe("refused event dispatch fails the run (X12)", () => {
+  it("spawns nothing and records an error run when buildEvent emits a reserved type", () => {
+    const calls: any[] = [];
+    const reg = new ActionRegistry();
+    reg.register({ id: "flows.run", source: "flows", label: "Run", emits: ["roles:set"], buildEvent: () => ({ eventType: "roles:set" }) });
+    const engine = createEngine({
+      spawnSession: async (opts: unknown) => { calls.push(opts); return { success: true, spawnToken: "t" }; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "anthropic/claude-sonnet-4-5", scanFolder: true, scanGlobal: false, maxRunAgeMs: 1800000 }),
+      readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
+      resolveRegistry: () => reg,
+      warn: () => {},
+    } as any);
+    const a: DiscoveredAutomation = {
+      name: "f", scope: "folder", dir: path.join(repo, ".pi/automation/f"), valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "flows.run", payload: {} },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+    engine.startRunFor(a);
+    expect(calls).toHaveLength(0);
+    return Promise.resolve().then(() => {
+      const runs = listRuns(repo, "f");
+      expect(runs).toHaveLength(1);
+      expect(runs[0]!.status).toBe("error");
+    });
   });
 });
 

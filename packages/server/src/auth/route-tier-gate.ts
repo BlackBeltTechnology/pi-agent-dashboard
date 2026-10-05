@@ -28,7 +28,8 @@
 import { rank, type Tier } from "@blackbelt-technology/pi-dashboard-shared/tiers.js";
 import { routeTier } from "@blackbelt-technology/pi-dashboard-shared/route-tiers.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { isGenuinelyLocal, isTrustedSource } from "./localhost-guard.js";
+import type { LocalTrustContext } from "./local-proof.js";
+import { isLocallyTrusted, isTrustedSource } from "./localhost-guard.js";
 
 export interface TierRefusal {
   deviceId?: string;
@@ -41,6 +42,8 @@ export interface TierRefusal {
 export interface RouteTierGateDeps {
   /** Live trusted-network list (same source `networkGuard` reads). */
   getTrustedNetworks: () => string[];
+  /** Strict local-proof context (`requireLocalProof`); absent ⇒ default behaviour. */
+  localTrust?: LocalTrustContext;
   /** Structured refusal sink. Defaults to one `console.warn` line. */
   logRefusal?: (detail: TierRefusal) => void;
 }
@@ -62,11 +65,12 @@ export function tierRefusalFor(
   request: FastifyRequest,
   requiredTier: Tier,
   getTrustedNetworks: () => string[],
+  localTrust?: LocalTrustContext,
 ): { scope: Tier; deviceId?: string } | null {
   if ((request as any).authVia !== "device") return null;
   const headers = request.headers as Record<string, unknown>;
-  if (isGenuinelyLocal(request.ip, headers)) return null;
-  if (isTrustedSource(request.ip, headers, getTrustedNetworks())) return null;
+  if (isLocallyTrusted({ ip: request.ip, headers }, localTrust)) return null;
+  if (isTrustedSource(request.ip, headers, getTrustedNetworks(), localTrust)) return null;
   const principalTier = (request as any).principalTier as Tier | undefined;
   if (!principalTier) return null;
   if (rank(requiredTier) <= rank(principalTier)) return null;
@@ -106,7 +110,7 @@ export function createRouteTierGate(deps: RouteTierGateDeps) {
     if (!route.startsWith("/api/")) return;
 
     const requiredTier = routeTier(request.method, route);
-    const refusal = tierRefusalFor(request, requiredTier, deps.getTrustedNetworks);
+    const refusal = tierRefusalFor(request, requiredTier, deps.getTrustedNetworks, deps.localTrust);
     if (!refusal) return;
 
     log({

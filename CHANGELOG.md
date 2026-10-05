@@ -12,6 +12,25 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Security
 
+- **Trust and credential boundaries hardened** (B5/B14/B15/B25/B4).
+  - Login OAuth: signed `pi_dash_oauth_state` cookie is verified before the code
+    exchange (CSRF / code-injection); `returnUrl` is constrained to same-origin paths
+    (open redirect).
+  - New opt-in `requireLocalProof` (default `false`, unchanged behaviour): bare
+    loopback then admits only `observe`-tier REST reads; control/operate routes and
+    WebSockets need the `pi_dash_local` cookie (`pi-dashboard open` / Electron), the
+    local token, or a login. Only header-injecting tunnels (zrok) are safe without it;
+    `ssh -R` / `socat` relays are not. `/v1/*` keeps its admission.
+  - **Behaviour change:** pairing approval (`/api/pair/approve`, `/approve-pending`)
+    no longer honors bare loopback in any mode; hand-typed `http://localhost:8000` on an
+    auth-off install must use `pi-dashboard open` (or the desktop app) to approve.
+  - Plugin event emission: automation `buildEvent` actions must declare `emits`;
+    reserved host namespaces (`roles:`, `role:`, `model:`, `prompt:`, `dashboard:`,
+    `ui:`) and the raw `plugin_emit_event` lane are refused.
+  - `config.json` (holds the auth secret) is written and tightened to `0600`.
+  - Same-origin browsers exchange the paired-device bearer for an httpOnly
+    `pi_dash_device` cookie; `localStorage` keeps only a non-secret marker.
+
 - **Untrusted-content ingestion hardened** (B11/B12/B13/B26).
   - `document-converter`: every absolute request path must lie under a configured
     root (`stagingDir`, `mounts`, or the new optional `workspaceRoot`, default

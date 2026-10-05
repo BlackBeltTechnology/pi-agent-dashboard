@@ -487,6 +487,37 @@ Tailnet CIDR `100.64.0.0/10` never matches under `tailscale serve` — peer is `
 
 See change: fix-trusted-network-tunnel-bypass.
 
+## Why do control routes 403 `local_proof_required` after enabling `requireLocalProof`?
+
+`requireLocalProof` on. Bare loopback (loopback peer, no `X-Forwarded-*`) no longer admits everything.
+
+Without proof:
+- `observe`-tier `GET /api/*` reads.
+- `/api/health`.
+
+Needs proof:
+- `control` / `operate` REST routes.
+- Browser WS (`/ws`, `/ws/terminal/*`, `/live/*`).
+- Plugin-registered WS scopes.
+- Bridge-ticket mint.
+- Route-tier exemption.
+- Pairing approval (`POST /api/pair/approve`, `/approve-pending`).
+
+Proof = `pi_dash_local` cookie (httpOnly, `SameSite=Strict`, 30 d), `X-Pi-Local-Token`, or a logged-in principal.
+
+Fix an interactive browser: run `pi-dashboard open`. Electron does this itself.
+Fix a script / `curl -X POST` on this host: send the local token. Value at `~/.pi/dashboard/local/token`, header `X-Pi-Local-Token`. `npm run reload` and CLI `restart` already send it.
+
+When to enable: only header-injecting tunnels (zrok) are safe without it. Marker-less relays (`ssh -R`, `socat`) terminate on `127.0.0.1` with no forwarding header, look like bare loopback, and get full code-exec access. Enable `requireLocalProof` when such a relay is used.
+
+`127.0.0.1` in `trustedNetworks` does NOT re-admit a relay under strict.
+Pairing approval never honors bare loopback in ANY mode — even default-off. Hand-typed `http://localhost:8000` on an auth-off install: use `pi-dashboard open` or Electron.
+Rotating `~/.pi/dashboard/local/token` invalidates every proof cookie — re-run `pi-dashboard open`.
+`/v1/*` model proxy stays bare-loopback-trusted (local pi processes call it; no code exec).
+Toggle applies live — no restart.
+
+See change: harden-trust-and-credential-boundaries.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).

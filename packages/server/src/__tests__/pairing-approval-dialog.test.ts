@@ -20,6 +20,7 @@ function ttlOf(mgr: PairingManager, now: number): number {
   return p.expiresAt - now;
 }
 
+const LOCAL_TOKEN = "local-token-for-approval";
 let tmpDir: string;
 let clock: number;
 const managers: PairingManager[] = [];
@@ -61,6 +62,8 @@ async function mkApp(opts: { trusted?: string[]; deviceBearer?: boolean } = {}) 
     identity: {} as never,
     pairing: mgr,
     registry: reg,
+    // Approval never honors bare loopback (D6): the operator presents the local token.
+    localToken: LOCAL_TOKEN,
     hostAdmission: () => ({
       allowedHosts: [],
       publicBaseUrls: [],
@@ -78,7 +81,7 @@ const local = (app: FastifyInstance, method: "GET" | "POST", url: string, payloa
     method,
     url,
     remoteAddress: "127.0.0.1",
-    headers: { ...(payload ? { "content-type": "application/json" } : {}), ...headers },
+    headers: { ...(payload ? { "content-type": "application/json" } : {}), "x-pi-local-token": LOCAL_TOKEN, ...headers },
     ...(payload ? { payload: payload as Record<string, unknown> } : {}),
   });
 

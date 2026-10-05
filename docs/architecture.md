@@ -2820,6 +2820,38 @@ Both honor same matching logic. Both work independently of whether `auth.provide
 
 **`GET /api/network-interfaces`** returns detected non-internal IPv4 interfaces with computed CIDRs. Used by the Settings UI "Add Local Network" button. This endpoint uses the legacy `localhostGuard` (localhost-only, not network-guard-aware) since it exposes machine network topology.
 
+### Trust and Credential Boundaries (change: harden-trust-and-credential-boundaries)
+
+Hardens five residual trust / credential-boundary weaknesses from audit. Each mitigates a confirmed finding; none is a standalone RCE.
+
+**Strict local proof (`requireLocalProof`).** Top-level config key, default `false`, read live per request — toggling needs no restart. Off = bare loopback (loopback peer, no forwarding header) stays trusted exactly as today. On = the network guard admits a bare-loopback request only on `observe`-tier `/api/*` REST reads (the `isObserveApiRequest` exception in `localhost-guard.ts`). Everything else needs PROOF, one of:
+- `pi_dash_local` httpOnly `SameSite=Strict` cookie, 30 d, value `HMAC(localToken, "pi-dashboard/local-proof/v1")` — rotating the local token invalidates every proof cookie;
+- `X-Pi-Local-Token` header;
+- authenticated principal (`request.isAuthenticated`).
+
+Gated surfaces: `control` / `operate` REST routes, browser WS (`/ws`, `/ws/terminal/*`, `/live/*`), plugin-registered WS scopes (`isPluginScopePeerLocal`), bridge-ticket mint (`decideBridgeTicketMint`), and the route-tier exemption (`tierRefusalFor`). A `127.0.0.1` entry in `trustedNetworks` / `auth.bypassHosts` no longer re-admits a relay under strict — `isTrustedSource` refuses a loopback-range peer without proof.
+
+**Why it exists.** A header-injecting tunnel (zrok) presents as loopback but carries `X-Forwarded-*`, so it already fails `isGenuinelyLocal`. A marker-less relay (`ssh -R`, `socat`) terminates on `127.0.0.1` and injects NO forwarding header — indistinguishable from a same-host browser, so it inherits full unauthenticated access to code-exec routes. Enable `requireLocalProof` when such a relay is used; only zrok-class tunnels are safe without it.
+
+**Denial.** Under strict, a proof-less bare-loopback denial is `403 { success: false, error: "network_not_allowed", reason: "local_proof_required", hint: … }` — same `error` literal as every other network denial, so clients keep branching on `error`; `reason` carries the strict-mode signal and `hint` names `pi-dashboard open`.
+
+**Bootstrap.** `pi-dashboard open [--print]` mints a one-time code (`POST /api/local-proof`, `X-Pi-Local-Token` only, 60 s TTL, single use via `LocalProofCodeStore`) and opens `/auth/local-proof?code=…`, which redeems it, sets the `pi_dash_local` cookie, and redirects `/`. Electron always loads that URL. Server not running → `open` exits `1` ("server not running"). Bootstrap routes register regardless of the flag, so `open` works before strict is toggled.
+
+**Trade-offs (stated, not implied).**
+- `/v1/*` model proxy keeps bare-loopback admission even under strict: local pi processes call it, and a marker-less relay can spend model credentials but cannot execute code.
+- `/api/health` posture disclosure unchanged.
+- A raw `curl -X POST` to `control` / `operate` routes from this host needs `X-Pi-Local-Token` (token at `~/.pi/dashboard/local/token`). `npm run reload` and the CLI `restart` already send it.
+
+**Pairing approval never honors bare loopback (any mode).** `createApprovalGuard` on `POST /api/pair/approve` and `/api/pair/approve-pending` admits only a login session, a valid proof cookie, or `X-Pi-Local-Token`; a device bearer is refused first, and Host admission still applies. Default-off strict does not exempt it. A hand-typed `http://localhost:8000` on an auth-off install must use `pi-dashboard open` or Electron to approve; the dialog shows the hint.
+
+**Credential + trust hardening in the same change.**
+- Login OAuth state carried in a signed `pi_dash_oauth_state` cookie, verified before code exchange; `returnUrl` restricted to same-origin relative paths (closes CSRF + open redirect).
+- Plugin event emission: automation actions declare `emits: string[]`, undeclared types dropped; `emitEventToSession` refuses reserved namespaces `roles:` `role:` `model:` `prompt:` `dashboard:` `ui:` (`RESERVED_EVENT_PREFIXES`); raw `sendExtensionMessage` refuses `plugin_emit_event`.
+- `config.json` written atomically `0600` by one secure-write helper (all eight writers); existing group/world-readable files chmod'ed `0600` at load (parity with `auth.json`, `paired-devices.json`, `local/token`).
+- Same-origin browser exchanges the device bearer once for an httpOnly `pi_dash_device` cookie (`POST /api/device-session`, `Path=/api/`, `SameSite=Strict`); `localStorage` keeps only the non-secret `pi-dashboard:device-paired` marker. Legacy stored bearers are exchanged and removed on startup; WS single-use tickets and the Electron keyring bearer unchanged.
+
+See change: harden-trust-and-credential-boundaries.
+
 ### Access Grants and Denial Remedies (change: add-access-grants-and-review)
 
 Companion to **Network Access Control** above. That section's universal `onRequest` guard is the network plane; this one is the filesystem plane. Both turn a terminal refusal into a remedy an operator can accept. Network plane: `403 network_not_allowed` → `BlockEventBuffer` → "Trust this network". Filesystem plane: a containment refusal → `denialId` → **grant** → next read admitted, no restart. The guard above is not re-explained here; see it for the network plane.

@@ -14,7 +14,9 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { PackageOperationCompleteMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import fastifyCookie from "@fastify/cookie";
+import * as pluginEventSeam from "./plugin-event-seam.js";
+import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls, writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
@@ -60,12 +62,14 @@ import { YoloController } from "./access/yolo-session.js";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { resolveRedirectBase } from "./auth/auth.js";
 import { authorizeWsUpgrade, registerAuthPlugin } from "./auth/auth-plugin.js";
-import { registerBearerAuth } from "./auth/bearer-auth.js";
+import { registerBearerAuth, registerDeviceSessionRoutes } from "./auth/bearer-auth.js";
 import {
   computeBindReachability,
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
+import { registerLocalProofRoutes } from "./routes/local-proof-routes.js";
+import { createLocalTrustContext, LocalProofCodeStore } from "./auth/local-proof.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import {
   type CorsOriginOptions,
@@ -126,6 +130,7 @@ import {
   liveAllowedHosts,
   liveCorsAllowedOrigins,
   liveHostGateMode,
+  liveRequireLocalProof,
   livePublicBaseUrls,
   liveTrustedNetworks,
   rawConfigHasHostGateMode,
@@ -579,6 +584,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Local-IPC allowlist token (D10, narrowed): affirmative genuine-local trust
   // for same-host process callers, independent of the forgeable loopback IP.
   const localToken = ensureLocalToken();
+  // Strict local-proof context (`requireLocalProof`, live config read). Threaded to
+  // every genuinely-local admission site. See change: harden-trust-and-credential-boundaries (D2).
+  const localTrust = createLocalTrustContext(localToken, liveRequireLocalProof);
+  const localProofCodes = new LocalProofCodeStore();
   const pairingManager = new PairingManager({
     registry: pairedDeviceRegistry,
     getFingerprint: () => serverIdentity.fingerprint,
@@ -1789,10 +1798,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Decorate isAuthenticated once, up front, so both the bearer branch and the
   // OAuth plugin can read/set it without racing on the decorator.
   fastify.decorateRequest("isAuthenticated", false);
+  // Cookie parsing/setting for the whole server, with or without OAuth providers
+  // (login state, local-proof and device-session cookies). Registered once here;
+  // BEFORE registerBearerAuth so its hook can read cookies.
+  // See change: harden-trust-and-credential-boundaries (D0).
+  await fastify.register(fastifyCookie);
   // Bearer device-auth branch — registered BEFORE the OAuth plugin so its
   // onRequest hook runs first and OAuth can early-return when already
   // authenticated. Additive (D5/D7); independent of whether OAuth is on.
   registerBearerAuth(fastify, { registry: pairedDeviceRegistry });
+  registerDeviceSessionRoutes(fastify, {
+    registry: pairedDeviceRegistry,
+    // `Secure` iff the resolved public origin is https (request.protocol is always
+    // "http" behind a proxy), mirroring `pi_dash_token`.
+    isSecure: () => resolveRedirectBase(config.port, config.authConfig?.redirectBaseUrl).base.startsWith("https:"),
+  });
   // Principal-resolver dispatch (identity plane, D2). Registered AFTER the
   // device-bearer branch and BEFORE the OAuth plugin so a valid Keycloak
   // bearer authenticates instead of being rejected by the cookie hook. Inert
@@ -1835,6 +1855,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       port: config.port,
       resolvedTrustedNetworks: config.resolvedTrustedNetworks,
       localToken,
+      localTrust,
     });
   }
   // `/auth/status` is what the client's WS-refusal handler polls to tell
@@ -1900,6 +1921,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     "onRequest",
     createRouteTierGate({
       getTrustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
+      localTrust,
     }),
   );
 
@@ -1908,7 +1930,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // new lifecycle/extension-ui routes can carry it as a preHandler.
   const networkGuard = createNetworkGuard(
     () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
-    { localToken },
+    { localToken, localTrust },
   );
 
   // Session control REST API (wraps WebSocket-only operations)
@@ -1926,6 +1948,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     sessionArchive,
     pendingArchiveIntents,
     networkGuard,
+    localTrust,
     // Shared lifecycle handler (change: expand-mcp-tiered-surface, D3): the
     // three bridge forwards plus the shared force-kill ladder.
     handleLifecycle: (sessionId, action, extras) =>
@@ -2432,12 +2455,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     },
   });
   registerKnownServersRoutes(fastify, { networkGuard, getPeerServers: () => peerServers });
+  registerLocalProofRoutes(fastify, { codes: localProofCodes, ctx: localTrust });
   registerPairingRoutes(fastify, {
     networkGuard,
     identity: serverIdentity,
     pairing: pairingManager,
     registry: pairedDeviceRegistry,
     localToken,
+    localTrust,
     hostAdmission: () => getHostGateCtx().admission,
     // Public (tunnel + configured public) base URLs, already TLS-gated.
     getReachableUrls: () => pairingManager.reachableUrls(),
@@ -2473,6 +2498,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           authorization: request.headers.authorization,
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
+          localTrust,
           verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
         });
         if (!verdict.allow) {
@@ -2600,6 +2626,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // without a restart (D15). Mirrors the per-route guard at 1499.
       trustedNetworks: () => liveTrustedNetworks(config.resolvedTrustedNetworks ?? []),
       localToken,
+      localTrust,
       getBypassUrls: () => config.authConfig?.bypassUrls ?? [],
       getPairingPrefixes: () => PUBLIC_PAIRING_PREFIXES,
     }),
@@ -3239,28 +3266,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // `plugin_emit_event` control message; the in-session bridge
               // re-emits it on pi.events). Same trust gate as abortSession.
               // See change: automation-emit-configured-event.
-              emitEventToSession: (sessionId, eventType, data) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                if (typeof eventType !== "string" || eventType.length === 0) return false;
-                return piGateway.sendToSession(sessionId, {
-                  type: "plugin_emit_event",
-                  sessionId,
-                  eventType,
-                  data: data ?? {},
-                });
-              },
+              emitEventToSession: (sessionId, eventType, data) =>
+                pluginEventSeam.emitEventToSession(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m),
+                  sessionId, eventType, data,
+                ),
               // Raw server→extension control message to one session's bridge
               // socket — the `credentials_updated` lane, WITHOUT the
               // `pi.events` re-emit `plugin_emit_event` does. mcp-server-plugin
               // delivers the minted session token over this; a credential must
               // never ride the shared bus. Same trust gate as
               // emitEventToSession. See change: wire-mcp-session-token (D5).
-              sendExtensionMessage: (sessionId, msg) => {
-                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
-                if (!trusted) return false;
-                return piGateway.sendToSession(sessionId, msg as Parameters<typeof piGateway.sendToSession>[1]);
-              },
+              sendExtensionMessage: (sessionId, msg) =>
+                pluginEventSeam.sendExtensionMessage(
+                  (plugin.manifest.priority ?? 1000) <= 100,
+                  (sid, m) => piGateway.sendToSession(sid, m as Parameters<typeof piGateway.sendToSession>[1]),
+                  sessionId, msg,
+                ),
               provide: (name, value) => { pluginServiceRegistry.set(name, value); },
               consume: <T = unknown>(name: string) =>
                 pluginServiceRegistry.get(name) as T | undefined,
@@ -3302,9 +3325,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 } catch { /* start fresh */ }
                 rawConfig.plugins = { ...(rawConfig.plugins as Record<string, unknown> ?? {}), [id]: merged };
                 const fs = (await import('node:fs')).default;
-                const tmpFile = `${CONFIG_FILE}.tmp.${process.pid}`;
-                fs.writeFileSync(tmpFile, `${JSON.stringify(rawConfig, null, 2)}\n`);
-                fs.renameSync(tmpFile, CONFIG_FILE);
+                writeConfigFileSecure(CONFIG_FILE, `${JSON.stringify(rawConfig, null, 2)}\n`);
                 browserGateway.broadcast({
                   type: 'plugin_config_update',
                   id,
@@ -3487,7 +3508,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               registration.admitOrigins,
               corsOpts(),
             ) ||
-            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders)
+            !isPluginScopePeerLocal(remoteAddress, request.headers.host, wsReqHeaders, localTrust)
           ) {
             console.error(
               `[ws-gate] rejected upgrade origin=${sanitizeHeaderForLog(request.headers.origin)} scope=${scope} peer=${sanitizeHeaderForLog(remoteAddress)}`,
@@ -3573,6 +3594,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           consumeTicket,
           headers: wsHeaders,
           localToken,
+          localTrust,
           requireIdentityTicket,
         });
         if (!upgradeAuth.ok) {

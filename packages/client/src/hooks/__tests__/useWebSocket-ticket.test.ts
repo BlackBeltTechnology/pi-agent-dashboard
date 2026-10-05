@@ -66,6 +66,24 @@ describe("useWebSocket ticket minting for the identity plane (§12.3)", () => {
     expect(String(init.body)).toContain("browser");
   });
 
+  it("F3: a cookie-paired browser (marker, no bearer) mints with same-origin credentials, no Authorization", async () => {
+    localStorage.setItem("pi-dashboard:device-paired", "1");
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ success: true, data: { ticket: "COOKIE-TK" } })));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      renderHook(() => useWebSocket(WS_URL));
+      await vi.waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
+      expect(MockWebSocket.instances[0]!.url).toContain("ticket=COOKIE-TK");
+      const init = fetchSpy.mock.calls.find((c) => String(c[0]).includes("/api/ws-ticket"))![1] as RequestInit;
+      expect(init.credentials).toBe("same-origin");
+      expect(new Headers(init.headers).get("Authorization")).toBeNull();
+    } finally {
+      localStorage.removeItem("pi-dashboard:device-paired");
+    }
+  });
+
   it("a browser with no credential opens the socket without a ticket (inert path)", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchSpy);

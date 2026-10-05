@@ -40,6 +40,10 @@ describe("flowsActionContributions", () => {
     expect(flowField.options!("/w/other")).toEqual([]);
   });
 
+  it("flows.run declares emits: [flow:run] (E25)", () => {
+    expect(flowsActionContributions(noFlows)[0]!.emits).toEqual(["flow:run"]);
+  });
+
   it("flows.run emits a flow:run event (flowName+task) and declares its completion", () => {
     const run = flowsActionContributions(noFlows)[0]!;
     const ev = run.buildEvent!({ payload: { flow: "test:capabilities", task: "do it" }, automation: {} });

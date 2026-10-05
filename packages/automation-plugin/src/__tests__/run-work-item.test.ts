@@ -106,6 +106,7 @@ function echoRegistry(seen: Array<Record<string, unknown>>): ActionRegistry {
     id: "flows.run",
     source: "flows",
     label: "Run a flow",
+    emits: ["flow:run"],
     buildEvent: ({ payload }) => {
       seen.push(payload);
       const inputs = payload.inputs as Record<string, unknown> | undefined;

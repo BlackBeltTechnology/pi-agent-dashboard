@@ -75,6 +75,7 @@ log(`execPath=${process.execPath}`);
 
 // Disable GPU acceleration in VMs (prevents white screen on VMware/VirtualBox).
 import { isVirtualMachine } from "@blackbelt-technology/pi-dashboard-shared/platform/commands.js";
+import { loadWithLocalProof } from "./lib/local-proof-bootstrap.js";
 import { getFirstRunMarkerPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 const isVM = isVirtualMachine();
@@ -333,7 +334,7 @@ async function maybePromptZombieAdoption(): Promise<void> {
       await new Promise((r) => setTimeout(r, 200));
     }
     if (healthy && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.loadURL(`http://localhost:${config.port}`);
+      loadWithLocalProof(mainWindow, `http://localhost:${config.port}`).catch((e) => log(`[zombie] loadURL failed: ${e?.message || e}`));
     } else if (mainWindow && !mainWindow.isDestroyed()) {
       log("[zombie] respawned server did not become healthy within 15s; leaving current page");
     }
@@ -521,7 +522,10 @@ function createMainWindow(serverUrl: string): BrowserWindow {
     }
   });
 
-  mainWindow.loadURL(serverUrl);
+  // Bootstrap local proof (cookie) before the dashboard loads: required for pairing
+  // approval in every mode and for `requireLocalProof`. Falls back to the plain URL.
+  // See change: harden-trust-and-credential-boundaries (D2/D6).
+  loadWithLocalProof(mainWindow, serverUrl).catch((e) => log(`loadURL failed: ${e?.message || e}`));
 
   mainWindow.on("resize", () => mainWindow && saveWindowState(mainWindow));
   mainWindow.on("move", () => mainWindow && saveWindowState(mainWindow));
