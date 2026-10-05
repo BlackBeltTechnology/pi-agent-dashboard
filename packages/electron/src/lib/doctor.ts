@@ -403,7 +403,12 @@ export function selectServerLaunchTestLoader(deps: {
     const jiti = deps.resolveJiti();
     return jiti ? { loaderUrl: jiti, missing: null } : { loaderUrl: null, missing: "No jiti loader (install pi)" };
   }
-  return { loaderUrl: deps.resolveNative(), missing: null };
+  try {
+    return { loaderUrl: deps.resolveNative(), missing: null };
+  } catch {
+    // Surface as a missing component so the rest of the report survives.
+    return { loaderUrl: null, missing: "No native TypeScript loader (native-ts-register.mjs not found)" };
+  }
 }
 
 /**

@@ -85,6 +85,16 @@ describe("selectServerLaunchTestLoader (E30)", () => {
     expect(cmd).not.toMatch(/jiti/);
   });
 
+  it("a native register that cannot be located becomes a missing component, not a throw", () => {
+    const sel = selectServerLaunchTestLoader({
+      env: {},
+      resolveJiti: () => null,
+      resolveNative: () => { throw new Error("cannot locate native-ts-register.mjs"); },
+    });
+    expect(sel.loaderUrl).toBeNull();
+    expect(sel.missing).toMatch(/No native TypeScript loader/);
+  });
+
   it("jiti opt-in + no jiti → 'No jiti loader (install pi)'", () => {
     expect(selectServerLaunchTestLoader(deps({ PI_DASHBOARD_TS_LOADER: "jiti" }))).toEqual({
       loaderUrl: null,
