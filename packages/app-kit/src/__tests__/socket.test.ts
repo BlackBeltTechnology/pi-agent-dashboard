@@ -253,6 +253,18 @@ describe("connectWithReconnect — design D7", () => {
     expect(timers.pending()).toBe(0);
   });
 
+  it("a throwing socket factory → disconnected, no throw, no retry timer", async () => {
+    const throwing = () => {
+      throw new SyntaxError("bad url");
+    };
+    const sync = harness({ createSocket: throwing });
+    expect(sync.statuses).toEqual(["connecting", "disconnected"]);
+    expect(sync.timers.pending()).toBe(0);
+    const viaAsync = harness({ createSocket: throwing, resolveUrl: async () => "ws://h/ws" });
+    await flushMicrotasks();
+    expect(viaAsync.statuses).toEqual(["connecting", "disconnected"]);
+  });
+
   it("X4: null on a reconnect attempt ends the loop", () => {
     let n = 0;
     const { sockets, statuses, timers } = harness({ resolveUrl: () => (n++ === 0 ? "ws://h/ws?ticket=k1" : null) });

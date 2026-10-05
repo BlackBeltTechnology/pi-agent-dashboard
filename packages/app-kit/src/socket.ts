@@ -130,7 +130,14 @@ export function connectWithReconnect(opts: ReconnectOptions): ReconnectHandle {
 
   function open(urlToOpen: string) {
     if (tornDown) return;
-    const s = createSocket(urlToOpen);
+    let s: MinimalSocket;
+    try {
+      s = createSocket(urlToOpen);
+    } catch {
+      // An invalid URL / unsupported scheme: retrying the same URL cannot help.
+      onStatus("disconnected");
+      return;
+    }
     socket = s;
     s.onopen = () => {
       if (tornDown) return;

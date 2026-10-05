@@ -52,7 +52,7 @@ The kit SHALL track one of four identity modes: `unknown` before the login descr
 
 ### Requirement: Authenticated transport
 
-`authedFetch` SHALL attach `Authorization: Bearer <token>` in `oidc` mode when a token is held and the caller supplied no explicit `Authorization` header, SHALL send nothing and throw `NoCredentialError` in `oidc` mode without a token and in `unknown` or `unavailable` mode, and SHALL send a plain request with no `Authorization` header in `none` mode. Requests SHALL NOT send ambient cookies. The bearer SHALL be attached only when the request URL's origin equals the dashboard origin. Every `401` response SHALL notify the session-refused listeners.
+`authedFetch` SHALL attach `Authorization: Bearer <token>` in `oidc` mode when a token is held and the caller supplied no explicit `Authorization` header, SHALL send nothing and throw `NoCredentialError` in `oidc` mode without a token and in `unknown` or `unavailable` mode, and SHALL send a plain request with no `Authorization` header in `none` mode. Requests SHALL NOT send ambient cookies. The bearer SHALL be attached only when the request URL's origin equals the dashboard origin. A dashboard-origin `401` to the bearer the kit attached SHALL notify the session-refused listeners while that bearer is still the live credential (same token and credential epoch); a `401` for a caller-supplied `Authorization` header, from a foreign origin, for a since-replaced credential, or in `none` mode SHALL NOT.
 
 #### Scenario: Bearer attached
 - **WHEN** identity is active, a token `t1` is held, and `authedFetch("/api/x")` runs
