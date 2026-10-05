@@ -85,6 +85,14 @@ test.describe("pairing QR — /pair landing handshake", () => {
     ]);
     expect(ticketReq.headers().authorization, "ticket mint carries no bearer header").toBeUndefined();
     expect(ws.url(), "socket carries the single-use ticket").toContain("ticket=");
+    // The upgrade SUCCEEDED: the server sends session-state frames on an accepted
+    // browser socket, and the socket stays open (a refused upgrade closes at once).
+    // Note: this harness reaches the server from loopback, which the guard admits
+    // regardless of the ticket; ticket admission itself is unit-covered
+    // (device-cookie.test.ts, ws-ticket.test.ts).
+    const frame = await ws.waitForEvent("framereceived", { timeout: 20_000 });
+    expect(() => JSON.parse(String(frame.payload))).not.toThrow();
+    expect(ws.isClosed(), "ticketed /ws stays open").toBe(false);
     await expect(page.getByTestId("pairing-dialog")).toHaveCount(0);
 
     // 6. The REAL paired-devices registry mutated — the phone is now a revocable
