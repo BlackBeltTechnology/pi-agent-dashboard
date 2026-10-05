@@ -105,6 +105,10 @@ li.flag { color: #b03a1a; }
 .chip.ifml { border-color: #6a4c93; color: #6a4c93; }
 .chip.ifml.active { background: #6a4c93; color: #fff; }
 .chip.arch { border-color: #1168bd; color: #1168bd; }
+.chip.kit { border-color: #b8860b; color: #8a6508; }
+.chip.kit.active { background: #b8860b; color: #fff; }
+iframe.plan { width: 100%; height: 860px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.swatch { display: inline-block; width: 28px; height: 18px; border: 1px solid #999; border-radius: 3px; vertical-align: middle; }
 .chip.arch.active { background: #1168bd; color: #fff; }
 .topnav { display: flex; gap: 8px; }
 .ifmlcanvas { height: 72vh; border: 1px solid #ddd; background: #fff; }

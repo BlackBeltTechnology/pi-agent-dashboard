@@ -150,6 +150,17 @@ still produced and checked.
 - `use-cases.json` passes `check-use-cases`; nothing on a diagram lacks a package ref.
 - `catalog.html` opens offline, a multi-select merge shows flows + ER + shared markers.
 
+## Screen plans and style kit (optional)
+
+Produced by an extraction step outside this skill (one per stack; e.g. Delta-Dot `ui-extract/style-kit.mjs`
++ `screen-plan.mjs`): `PKG/ui/style-kit.json` (colour/font tokens with uses and cites, font-size and radius
+scales, components = original selectors + declarations + cite) and `PKG/ui/plans/<screenId>.html`
+(self-contained page: original template + toolbar flattened, styled with the kit, every control numbered
+and linked to an action, field, unmapped reason or the app shell). `build-site` embeds both and refuses a
+plan without a screen/dialog record. Catalog: screen page shows the plan in a sandboxed frame (open in new
+tab; legend action links post `{type: "screen-plan-open", screen, action}` and open the action); header
+**Style kit** button → `#view=kit:`.
+
 ## Architecture (C4 and C5)
 
 Optional `PKG/diagrams/architecture.json` (people, systems, containers, components, deployment

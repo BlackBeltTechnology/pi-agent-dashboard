@@ -465,7 +465,7 @@
     const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
     const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
     const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
-    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}${planSection(sid)}
       <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
       <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
       ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
@@ -772,7 +772,7 @@
   /** Header buttons: Architecture and IFML (each only when the package has it). */
   function renderTopnav() {
     const btn = (on, cls, view, text) => (on ? `<a class="chip ${cls}${state.view.startsWith(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
-    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit");
   }
   function archFacts(e) {
     const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
@@ -834,8 +834,52 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // ---------- screen plans + style kit ----------
+  /** Original-layout plan of a screen: sandboxed frame (scripts, no same-origin) filled after render. */
+  function planSection(sid) {
+    if (!UI.plans?.[sid]) return "";
+    return `<h3>Screen plan</h3><p class="meta">Original template + toolbar, styled with the style kit; every control is numbered and linked in the legend. Action links in the legend open the action here.</p>
+      <div class="chips"><button class="chip" data-plan-open="${esc(sid)}">Open in new tab</button>${UI.styleKit ? `<a class="chip" href="${link({ view: "kit:" })}">Style kit</a>` : ""}</div>
+      <iframe class="plan" sandbox="allow-scripts" title="Screen plan ${esc(sid)}" data-plan="${esc(sid)}"></iframe>`;
+  }
+  function fillPlans() {
+    for (const f of document.querySelectorAll("iframe[data-plan]")) f.srcdoc = UI.plans[f.dataset.plan] || "";
+  }
+  function openPlan(sid) {
+    const url = URL.createObjectURL(new Blob([UI.plans[sid]], { type: "text/html" }));
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  // a plan (sandboxed, origin "null") asks to open an action: accept only the expected shape and a known screen
+  window.addEventListener("message", (ev) => {
+    const m = ev.data;
+    if (m?.type !== "screen-plan-open" || typeof m.screen !== "string" || typeof m.action !== "string" || !scrById[m.screen]) return;
+    location.hash = link({ view: `scr:${m.screen}`, focus: m.action });
+  });
+  const SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d.,\s]+\))$/i;
+  const kitCites = (cs) => `<span class="cite">${(cs || []).map(esc).join(" · ")}</span>`;
+  function kitColors(k) {
+    const rows = k.tokens.color.map((t) => [`<span class="swatch" style="background:${SAFE_COLOR.test(t.value) ? t.value : "transparent"}"></span>`, `<code>${esc(t.name)}</code>`, esc(t.value), String(t.uses), kitCites(t.cites)]);
+    return rowsTable(["", "Token", "Value", "Uses", "Cites (first 5)"], rows);
+  }
+  function kitComponents(k) {
+    return Object.entries(k.components || {}).map(([name, parts]) => `<details class="card"><summary><code>.sk-${esc(name)}</code> ${parts.map((p) => `<span class="cite">${esc(p.selector)}</span>`).join(" ")}</summary>
+      ${parts.map((p) => `<div><code>${esc(p.selector)}</code> ${kitCites([p.cite])}<pre>${esc(p.decls.map(([a, b]) => `${a}: ${b};`).join("\n"))}</pre></div>`).join("")}</details>`).join("");
+  }
+  function viewKit() {
+    const k = UI.styleKit;
+    if (!k) return viewHome();
+    const scale = (list) => `<div class="chips">${(list || []).slice(0, 24).map((t) => `<span class="chip">${esc(t.value)} <span class="cite">×${t.uses}</span></span>`).join("")}</div>`;
+    const fonts = k.tokens.font.map((t) => [`<code>${esc(t.name)}</code>`, `<span style="font-family:${esc(t.value)}">${esc(t.value)} — Felvétel 0123</span>`, String(t.uses), kitCites(t.cites)]);
+    const plans = Object.keys(UI.plans || {}).filter((id) => scrById[id]).map(scrChip).join("");
+    return `<h2>Style kit</h2><p class="lede">Extracted from the application's own stylesheets (${(k.sources || []).map(esc).join(", ")}): ${k.tokens.color.length} colour tokens, ${k.tokens.font.length} font stacks, ${Object.keys(k.components || {}).length} components. The screen plans use it; the tokens are the starting point of a rebuild theme.</p>
+      ${plans ? `<div class="chips"><span class="badge via">screen plans</span>${plans}</div>` : ""}
+      <h3>Colours</h3>${kitColors(k)}<h3>Fonts</h3>${rowsTable(["Token", "Stack", "Uses", "Cites"], fonts)}
+      <h3>Font sizes</h3>${scale(k.tokens.fontSize)}<h3>Corner radii</h3>${scale(k.tokens.radius)}<h3>Components</h3>${kitComponents(k)}`;
+  }
+
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
@@ -850,6 +894,7 @@
     void drawIfml();
     void drawIfmlJs();
     void drawArch();
+    fillPlans();
     if (state.focus) document.getElementById(state.focus)?.scrollIntoView({ block: "start" });
   }
 
@@ -857,11 +902,12 @@
   function handleDownload(t) {
     if ("xmi" in t.dataset) downloadXmi();
     else if (t.dataset.dl) downloadArch(t.dataset.dl);
+    else if (t.dataset.planOpen) openPlan(t.dataset.planOpen);
     else return false;
     return true;
   }
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi],[data-dl]");
+    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi],[data-dl],[data-plan-open]");
     if (!t) return;
     if (handleDownload(t)) return;
     if (t.dataset.tab) { state.tab = t.dataset.tab; renderTabs(); renderList(); return; }

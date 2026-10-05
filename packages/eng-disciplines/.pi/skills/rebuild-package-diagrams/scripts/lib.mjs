@@ -320,10 +320,21 @@ const readJsonDir = (dir) =>
         .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")))
     : [];
 
-/** UI model of a package: {screens: [...], forms: {id: record}}; empty when ui/ is absent. */
+/**
+ * UI model of a package: {screens: [...], forms: {id: record}}; empty when ui/ is absent.
+ * Optional extras when present: plans {screenId: html} (ui/plans/*.html), styleKit (ui/style-kit.json).
+ */
 export function readUi(pkgDir) {
   const forms = Object.fromEntries(readJsonDir(join(pkgDir, "ui", "forms")).map((f) => [f.id, f]));
-  return { screens: readJsonDir(join(pkgDir, "ui", "screens")), forms };
+  const ui = { screens: readJsonDir(join(pkgDir, "ui", "screens")), forms };
+  const planDir = join(pkgDir, "ui", "plans");
+  if (existsSync(planDir)) {
+    const files = readdirSync(planDir).filter((f) => f.endsWith(".html")).sort();
+    ui.plans = Object.fromEntries(files.map((f) => [f.slice(0, -5), readFileSync(join(planDir, f), "utf8")]));
+  }
+  const kit = join(pkgDir, "ui", "style-kit.json");
+  if (existsSync(kit)) ui.styleKit = JSON.parse(readFileSync(kit, "utf8"));
+  return ui;
 }
 
 const UI_ID_RE = /^(BR|QUIRK|GAP)-\d+$/;
@@ -359,5 +370,7 @@ export function checkUi(pkgDir, ui) {
     seen.set(id, where);
     return [];
   };
-  return ui.screens.flatMap((s) => screenErrors(s, ui, resolve, unique));
+  const known = new Set(ui.screens.flatMap((s) => [s.id, ...(s.dialogs || []).map((d) => d.id)]));
+  const orphans = Object.keys(ui.plans || {}).filter((id) => !known.has(id)).map((id) => `ui/plans/${id}.html: no screen or dialog record ${id}`);
+  return [...ui.screens.flatMap((s) => screenErrors(s, ui, resolve, unique)), ...orphans];
 }

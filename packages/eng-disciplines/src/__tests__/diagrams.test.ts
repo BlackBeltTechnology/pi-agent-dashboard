@@ -365,6 +365,30 @@ describe("use-case catalog and site", () => {
     for (const [id, f] of Object.entries(forms)) writeFileSync(join(pkg, "ui", "forms", `${id}.json`), JSON.stringify(f));
   };
 
+  it("build-site embeds screen plans and the style kit; refuses an orphan plan", () => {
+    writeUc([uc()]);
+    writeUi([screen()]);
+    mkdirSync(join(pkg, "ui", "plans"), { recursive: true });
+    writeFileSync(join(pkg, "ui", "plans", "SCR-order.html"), "<!doctype html><title>plan</title><script>x()</script>");
+    const kit = { sources: ["css/main.css"], tokens: { color: [{ name: "--sk-c-3194ff", value: "#3194ff", uses: 4, cites: ["css/main.css:2"] }], font: [], fontSize: [], radius: [] }, components: { button: [{ selector: ".button", decls: [["color", "red"]], cite: "css/main.css:2" }] } };
+    writeFileSync(join(pkg, "ui", "style-kit.json"), JSON.stringify(kit));
+    const out = join(dir, "plans.html");
+    const r = run(dir, "build-site", pkg, out);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const ui = embedded(read(out)).ui;
+    expect(ui.plans["SCR-order"]).toContain("<title>plan</title>");
+    expect(ui.styleKit.tokens.color[0].value).toBe("#3194ff");
+    expect(ui.styleKit.components.button[0].cite).toBe("css/main.css:2");
+    writeFileSync(join(pkg, "ui", "plans", "SCR-ghost.html"), "<p>x</p>");
+    rmSync(out, { force: true });
+    const bad = run(dir, "build-site", pkg, out);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("SCR-ghost");
+    expect(existsSync(out)).toBe(false);
+  });
+
   it("build-site embeds the UI model and alternate flows; empty UI model without ui/", () => {
     rmSync(join(pkg, "ui"), { recursive: true, force: true });
     writeUc([uc()]);
