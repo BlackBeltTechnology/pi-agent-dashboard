@@ -97,11 +97,32 @@ mkdirSync(path.join(SERVER_BUNDLE, "packages", "dist", "client"), {
 // can be older than the working-tree HEAD and miss symbols added in the
 // current dev cycle (e.g. pluginRegistryHash). Symlink materialization
 // below normalizes node_modules/@blackbelt-technology/* into a copy.
+//
+// mcp-client-plugin: a direct server dependency (add-radius-provider-login).
+// Installed from the registry, its `shared ^<base>` does not match the bundled
+// `<base>-ci.*` workspace, so npm nests a stale published shared that lacks
+// current source (e.g. src/cwd-guard.ts) and the server boots into RECOVERY
+// MODE. It stays in piDashboard.bundledPlugins too: the loader discovers
+// plugins from resources/plugins/, not node_modules.
+//
+// The rest: first-party deps of the server / extension / bundled plugins.
+// Bundled plugins ship WITHOUT node_modules and resolve imports only via
+// resources/server/node_modules, so each first-party dep must be installed
+// here from workspace source (registry copies are missing or nest stale
+// shared). Coverage is enforced transitively by bundled-plugins-complete.test.ts.
 const BUNDLED_WORKSPACE_PKGS = [
   "server",
   "shared",
   "extension",
   "dashboard-plugin-runtime",
+  "mcp-client-plugin",
+  "bus-client", // extension
+  "client-utils", // automation / flows / keycloak-resolver / subagents plugins
+  "document-converter", // server
+  "kb", // kb-plugin
+  "mcp-server-plugin", // chat-gateway
+  "session-distiller", // cost-estimator
+  "system-one", // system-one-plugin
 ];
 for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   cpSync(
@@ -109,6 +130,14 @@ for (const pkg of BUNDLED_WORKSPACE_PKGS) {
     path.join(SERVER_BUNDLE, "packages", pkg),
     { recursive: true, dereference: false, filter: excludeNodeModules },
   );
+  // The install below is --omit=dev, but npm 10's arborist still resolves
+  // workspace devDependencies and crashes in #loadPeerSet ("Cannot read
+  // properties of null (reading 'edgesOut')") on mcp-client-plugin's vitest.
+  // Dev deps never ship, so drop them from the bundled copy.
+  const pkgJsonPath = path.join(SERVER_BUNDLE, "packages", pkg, "package.json");
+  const pkgJson = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+  delete pkgJson.devDependencies;
+  writeFileSync(pkgJsonPath, `${JSON.stringify(pkgJson, null, 2)}\n`);
 }
 
 // ── copy first-party plugins ───────────────────────────────────────────────────────

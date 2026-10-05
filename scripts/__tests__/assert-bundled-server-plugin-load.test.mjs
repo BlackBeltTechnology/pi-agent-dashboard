@@ -16,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bundleLayout, bundleRoot, pluginLoadProblems } from '../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs';
+import { bundleLayout, bundleRoot, logTail, pluginLoadProblems } from '../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs';
 
 const tempDirs = [];
 
@@ -98,5 +98,20 @@ describe('plugin-load verdict (X13)', () => {
     expect(pluginLoadProblems('[plugin-loader] Loaded plugin "quota"')).toEqual([
       expect.stringContaining('Loaded plugin "browser"'),
     ]);
+  });
+});
+
+describe('failure diagnostics: server.log tail', () => {
+  it('returns the last N lines', () => {
+    const text = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n');
+    expect(logTail(text, 3)).toBe('line 8\nline 9\nline 10');
+  });
+
+  it('returns the whole log when shorter than N, ignoring the trailing newline', () => {
+    expect(logTail('a\nb\n', 80)).toBe('a\nb');
+  });
+
+  it('says so when the log is empty or missing', () => {
+    expect(logTail('', 80)).toBe('(server.log empty or missing)');
   });
 });
