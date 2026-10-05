@@ -223,6 +223,97 @@ describe("check-trace", () => {
   });
 });
 
+describe("use-case catalog and site", () => {
+  let pkg: string;
+  const uc = (over: Record<string, unknown> = {}) => ({
+    id: "UC-01",
+    name: "Add order",
+    actor: "Planner",
+    trigger: "button",
+    requirements: ["spec:orders#Add single and unique orders"],
+    refs: ["BR-001"],
+    entities: ["Order"],
+    bpmn: "bpmn/add/add.bpmn",
+    ...over,
+  });
+  const writeUc = (list: unknown[]) => writeFileSync(join(pkg, "diagrams", "use-cases.json"), JSON.stringify(list));
+
+  beforeAll(() => {
+    pkg = join(dir, "sitepkg");
+    mkdirSync(join(pkg, "capabilities", "orders"), { recursive: true });
+    mkdirSync(join(pkg, "diagrams", "bpmn", "add"), { recursive: true });
+    mkdirSync(join(pkg, "diagrams", "er"), { recursive: true });
+    writeFileSync(join(pkg, "model.md"), MODEL);
+    writeFileSync(
+      join(pkg, "rules.md"),
+      "# Business rules\n\n## BR-001\n- Class: explicit\n- Statement: Order id is required </script><b>x</b>.\n- Capabilities: orders\n<!-- cite: ref=js/order.js:3, confidence=confirmed -->\n",
+    );
+    writeFileSync(join(pkg, "quirks.md"), "# Quirks\n\n## QUIRK-002 Odd thing\nBody.\n");
+    writeFileSync(join(pkg, "gaps.md"), "# Gaps\n");
+    writeFileSync(
+      join(pkg, "capabilities", "orders", "spec.md"),
+      "# orders Specification\n\n## Purpose\nOrders.\n\n## Requirements\n### Requirement: Add single and unique orders\nThe screen SHALL add (BR-001).\n<!-- cite: ref=js/order.js:10-34, confidence=inferred -->\n\n#### Scenario: Valid line added\n- **WHEN** the line is valid\n- **THEN** the order is stored\n",
+    );
+    writeFileSync(join(pkg, "diagrams", "bpmn", "add", "add.bpmn"), "<bpmn:definitions/>");
+    writeFileSync(join(pkg, "diagrams", "er", "orders.json"), JSON.stringify(goodEr));
+  });
+
+  it("check-use-cases passes a valid catalog", () => {
+    writeUc([uc()]);
+    const r = run(dir, "check-use-cases", pkg);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+  });
+
+  it("check-use-cases refuses unknown entity, dangling refs, missing bpmn and duplicate id", () => {
+    writeUc([
+      uc({ entities: ["Invoice"] }),
+      uc({ id: "UC-02", requirements: ["spec:orders#Nope"], refs: ["BR-404"], bpmn: "bpmn/x.bpmn" }),
+      uc({ id: "UC-02" }),
+    ]);
+    const r = run(dir, "check-use-cases", pkg);
+    expect(r.code).toBe(1);
+    for (const s of ["UC-01", "Invoice", "spec:orders#Nope", "BR-404", "bpmn/x.bpmn", "duplicate", "UC-02"]) expect(r.stderr).toContain(s);
+  });
+
+  const embedded = (html: string) => {
+    const m = html.match(/<script type="application\/json" id="catalog-data">([\s\S]*?)<\/script>/);
+    expect(m).not.toBeNull();
+    return JSON.parse((m as RegExpMatchArray)[1]);
+  };
+
+  it("build-site embeds the package as JSON and escapes </script", () => {
+    writeUc([uc()]);
+    const out = join(dir, "site.html");
+    const r = run(dir, "build-site", pkg, out);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const html = read(out);
+    const data = embedded(html);
+    expect(data.useCases[0].id).toBe("UC-01");
+    const req = data.capabilities.orders.requirements[0];
+    expect(req.name).toBe("Add single and unique orders");
+    expect(req.scenarios[0].name).toBe("Valid line added");
+    expect(data.items["BR-001"].statement).toContain("Order id is required");
+    expect(data.useCases[0].bpmnXml).toBe("<bpmn:definitions/>");
+    expect(data.viewers).toEqual({ bpmn: false, mermaid: false });
+  });
+
+  it("build-site inlines viewer libraries", () => {
+    writeUc([uc()]);
+    writeFileSync(join(dir, "fake-bpmn.js"), "window.FAKE_BPMN_LIB=1;");
+    writeFileSync(join(dir, "fake.css"), ".fake-bpmn-css{}");
+    writeFileSync(join(dir, "fake-mermaid.js"), "window.FAKE_MERMAID_LIB=1;");
+    const out = join(dir, "site2.html");
+    const r = run(dir, "build-site", pkg, out, "--bpmn-js", "fake-bpmn.js", "--bpmn-css", "fake.css", "--mermaid", "fake-mermaid.js");
+    expect(r.code).toBe(0);
+    const html = read(out);
+    for (const s of ["window.FAKE_BPMN_LIB=1;", ".fake-bpmn-css{}", "window.FAKE_MERMAID_LIB=1;"]) expect(html).toContain(s);
+    expect(html).not.toMatch(/<script[^>]+src=["']https?:/);
+    expect(embedded(html).viewers).toEqual({ bpmn: true, mermaid: true });
+  });
+});
+
 describe("skill text", () => {
   it("frontmatter names the skill and ER/BPMN triggers", () => {
     const s = read(join(DSKILL, "SKILL.md"));

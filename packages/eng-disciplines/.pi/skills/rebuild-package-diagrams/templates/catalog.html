@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__ — catalog</title>
+<style>/*__BPMN_CSS__*/</style>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<header class="top">
+  <h1 id="title">__TITLE__</h1>
+  <label class="search"><span class="sr-only">Search the catalog</span>
+    <input id="search" type="search" placeholder="Search use cases, rules, entities…" autocomplete="off">
+  </label>
+</header>
+<div class="layout">
+  <nav class="side" aria-label="Catalog">
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="selbar" id="selbar" hidden></div>
+    <ul class="list" id="list"></ul>
+  </nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<script type="application/json" id="catalog-data">"__DATA__"</script>
+<script>/*__BPMN_JS__*/</script>
+<script>/*__MERMAID_JS__*/</script>
+<script>/*__APP_JS__*/</script>
+</body>
+</html>

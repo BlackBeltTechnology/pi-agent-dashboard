@@ -60,3 +60,32 @@ Each generated BPMN flow node other than start/end events SHALL carry a `bpmn:do
 #### Scenario: Undocumented node refused
 - **WHEN** a gateway has no documentation
 - **THEN** `check-trace` exits 1 naming the gateway id
+
+### Requirement: Gated use-case catalog
+
+Use cases SHALL be recorded in `diagrams/use-cases.json` (`id`, `name`, `actor`, `trigger`, `requirements[]` as `spec:<cap>#<Requirement>`, `refs[]`, `entities[]`, optional `bpmn` path relative to the diagrams dir). `diagrams.mjs check-use-cases <packageDir>` SHALL exit 1 listing every requirement or ref that does not resolve in the package, every entity absent from `model.md`, every missing `bpmn` file and every duplicate use-case id.
+
+#### Scenario: Valid catalog passes
+- **WHEN** every requirement, ref, entity and bpmn path of `use-cases.json` resolves
+- **THEN** `check-use-cases` exits 0
+
+#### Scenario: Unknown entity refused
+- **WHEN** a use case lists an entity absent from `model.md`
+- **THEN** `check-use-cases` exits 1 naming the use case and the entity
+
+### Requirement: Single-file browsable catalog
+
+`diagrams.mjs build-site <packageDir> <out.html> [--bpmn-js <file>] [--bpmn-css <file>]... [--mermaid <file>]` SHALL write one self-contained HTML file embedding the package (capability requirements with scenarios and cites, rules, quirks, gaps, entities with fields, ER relations, use cases, laid-out BPMN XML and roles) as JSON plus the given viewer libraries inline. The page SHALL let the user select several use cases and show their merged view: flows, the union of requirements, rules/quirks/gaps and an ER sub-diagram of their entities, items shared by two or more selected use cases marked, and related use cases ranked by overlap. Every catalog item SHALL link to the items and use cases that reference it. Without a viewer library the page SHALL still build and SHALL show a notice where the diagram would be.
+
+#### Scenario: Catalog embeds package content
+- **WHEN** `build-site` runs on a package with one use case, one requirement and one rule
+- **THEN** the HTML contains an embedded JSON block holding the use case, the requirement's scenarios and the rule statement
+- **AND** no `</script` sequence from package text breaks the JSON block
+
+#### Scenario: Viewer libraries inlined
+- **WHEN** `--bpmn-js` and `--mermaid` files are given
+- **THEN** their contents appear inline in the HTML and the page references no external URL for them
+
+#### Scenario: Missing viewer degrades
+- **WHEN** no viewer library is given
+- **THEN** the HTML is still written and records that the BPMN and ER viewers are unavailable

@@ -1,6 +1,6 @@
 ---
 name: rebuild-package-diagrams
-description: Draw a reverse-spec rebuild package as pictures — an ER diagram (Mermaid erDiagram) of the domain entities in model.md, and the use cases of capabilities/*/spec.md as BPMN business processes — with every box, edge and task traced to the package and checked by a script. Use on "make an ER diagram from the entities", "draw the data model", "show the use cases as BPMN", "business process diagram from the spec", "ER diagram from model.md", or in Hungarian "ER diagram az entitásokból", "üzleti folyamat BPMN-ben", "esetek folyamatábraként".
+description: Draw a reverse-spec rebuild package as pictures — an ER diagram (Mermaid erDiagram) of the domain entities in model.md, the use cases of capabilities/*/spec.md as BPMN business processes, and one self-contained browsable HTML catalog that merges selected use cases — with every box, edge and task traced to the package and checked by a script. Use on "make an ER diagram from the entities", "draw the data model", "show the use cases as BPMN", "business process diagram from the spec", "browsable HTML of the reverse-engineered package", "merge related use cases", or in Hungarian "ER diagram az entitásokból", "üzleti folyamat BPMN-ben", "esetek folyamatábraként".
 ---
 
 # Rebuild package diagrams
@@ -24,7 +24,10 @@ goes to `PKG/diagrams/` unless the user names another place. The source package 
 edited.
 
 `D = node <this skill dir>/scripts/diagrams.mjs` — subcommands `extract-model`,
-`render-er`, `check-trace` (Node ≥ 20, no deps; exit 2 = bad usage/input).
+`render-er`, `check-trace`, `check-use-cases`, `build-site` (Node ≥ 20, no deps; exit 2 =
+bad usage/input). Parsers/gates live in `scripts/lib.mjs`, the catalog assembly in
+`scripts/site.mjs`, the page in `templates/catalog.html`, `templates/catalog.css`,
+`templates/catalog.js`.
 
 Optional peers: `mmdc` (Mermaid CLI) for PNG/SVG; the `bpmn-package-explorer` skill for
 BPMN layout, validation and the canvas viewer. Without them the `.mmd`/`.bpmn` sources are
@@ -58,9 +61,12 @@ still produced and checked.
 1. Inventory use cases per `references/bpmn-mapping.md`: a `### Requirement:` (or a
    chain of them across capabilities) is a **use case** when an actor (user role, ERP,
    scheduler/timer) triggers a multi-step outcome with at least one decision or failure
-   path. Pure data-shape, rendering and config requirements are not. Write the list to
-   `PKG/diagrams/use-cases.md`: id · name · actor · trigger · requirements used · rule ids.
-   Ask the user which to draw when there are more than ~8 candidates.
+   path. Pure data-shape, rendering and config requirements are not. Write them to
+   `PKG/diagrams/use-cases.json` — `[{id, name, actor, trigger, requirements:
+   ["spec:<cap>#<Requirement>"], refs: ["BR-…"], entities: ["<model entity>"], bpmn?:
+   "bpmn/<uc>/<uc>.bpmn"}]` — and run `$D check-use-cases PKG` (exit 1 lists dangling
+   requirements/refs, unknown entities, missing bpmn files, duplicate ids). Ask the user
+   which to draw when there are more than ~8 candidates.
 2. For each chosen use case author a **semantics-only** `.bpmn` (no DI) in
    `PKG/diagrams/bpmn/<use-case>/`: scenario WHEN → trigger/start or gateway condition,
    THEN → task(s), failure scenarios → error branches, actors → `roles` in `package.yaml`
@@ -75,6 +81,25 @@ still produced and checked.
 5. Quirks are drawn as the code behaves (they are real behavior); mark the node name with
    `(quirk)`. A `GAP-` on a node means the step depends on unknown config/data — keep it,
    do not guess the branch.
+
+## Procedure — browsable catalog (one HTML file)
+
+1. Prerequisites: ER files gated, `use-cases.json` passing `check-use-cases`, each drawn
+   `.bpmn` laid out (the `bpmn-package-explorer` pipeline writes DI into the file).
+2. Build with the viewer libraries inlined (offline, single file, ~5 MB):
+   `$D build-site PKG PKG/diagrams/catalog.html --bpmn-js <bpmn-navigated-viewer.production.min.js>
+   --bpmn-css <diagram-js.css> --bpmn-css <bpmn.css> --bpmn-css <bpmn-font/css/bpmn-embedded.css>
+   --mermaid <mermaid.min.js>`. The bpmn-js files ship in `bpmn-package-explorer`'s
+   `assets/bpmn-js/`; `mermaid.min.js` sits inside the `mmdc` install
+   (`…/@mermaid-js/mermaid-cli/node_modules/mermaid/dist/`). Without a library the page
+   still builds and shows a notice in place of that diagram.
+3. The page: catalog tabs (use cases, capabilities, rules, quirks, gaps, entities) with
+   search; tick use cases → merged view (flows switchable, union of requirements with
+   scenarios, rules/quirks/gaps with source `explicit` / `via requirement` / `in flow`,
+   ER sub-diagram of their entities, items used by ≥2 selected marked `shared`, related use
+   cases ranked by overlap); every item links back to the requirements and use cases that
+   reference it. State is in the URL hash (`#sel=UC-01,UC-03&view=merge`), so views are
+   shareable links. Serve over HTTP (or open the file) and put it on the canvas.
 
 ## Pitfalls
 
@@ -105,5 +130,5 @@ still produced and checked.
   `model.json` exactly once.
 - Every `.bpmn` passes `check-trace` (exit 0) and, when available, the
   `bpmn-package-explorer` generation pipeline.
-- `use-cases.md` maps each drawn process to its requirements; nothing on a diagram lacks a
-  package ref.
+- `use-cases.json` passes `check-use-cases`; nothing on a diagram lacks a package ref.
+- `catalog.html` opens offline, a multi-select merge shows flows + ER + shared markers.
