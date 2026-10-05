@@ -2,11 +2,11 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { t } from './harness.mjs';
 import { emitDemo } from './demo.mjs';
 import { buildPackage, prepareStandalone, WorkflowError } from './generate.mjs';
-import { assembleStandalone } from './render.mjs';
+import { assembleStandalone, assembleRenderRoot } from './render.mjs';
 
 const NS = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"';
 function tmp() { return mkdtempSync(join(tmpdir(), 'wf-')); }
@@ -70,4 +70,16 @@ await t('8.8 sendTask yields an unlinked-counterpart warning', async () => {
   writeFileSync(join(dir, 'main.bpmn'), `<bpmn:definitions ${NS}><bpmn:process id="P"><bpmn:startEvent id="Start_a"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent><bpmn:sendTask id="Send_x" name="Notify"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:sendTask><bpmn:endEvent id="End_a"><bpmn:incoming>Flow_2</bpmn:incoming></bpmn:endEvent><bpmn:sequenceFlow id="Flow_1" sourceRef="Start_a" targetRef="Send_x"/><bpmn:sequenceFlow id="Flow_2" sourceRef="Send_x" targetRef="End_a"/></bpmn:process></bpmn:definitions>`);
   const { validation } = await buildPackage(dir);
   assert.ok(validation.warnings.some((w) => w.code === 'UNLINKED-MESSAGE-TASK'));
+});
+
+await t('8.3 render root from a RELATIVE package dir links real files (no self-referencing symlinks)', async () => {
+  const dir = tmp(); emitDemo(dir); await buildPackage(dir);
+  const cwd = process.cwd();
+  try {
+    process.chdir(dirname(dir));
+    const { renderRoot } = await assembleRenderRoot(basename(dir), join(tmp(), 'root'));
+    // reading through the link fails with ELOOP when the link points at itself
+    assert.ok(readFileSync(join(renderRoot, 'main.bpmn'), 'utf8').includes('<bpmn:'));
+    assert.ok(readFileSync(join(renderRoot, 'package.yaml'), 'utf8').includes('entry:'));
+  } finally { process.chdir(cwd); }
 });
