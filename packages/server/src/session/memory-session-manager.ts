@@ -364,6 +364,9 @@ export function createMemorySessionManager(
           // it here wipes it from disk and the session turns ownerless.
           // A re-register never CHANGES an owner (only the spawn token does).
           principalOwner: existing.principalOwner,
+          // Plugin-declared hide intent: re-asserted by the `hidden` decision
+          // below and kept for the next save. See change: fix-plugin-hidden-across-restart.
+          pluginHidden: existing.pluginHidden,
           // Preserve context usage until bridge sends fresh data
           contextTokens: existing.contextTokens,
           contextWindow: existing.contextWindow,
@@ -419,7 +422,11 @@ export function createMemorySessionManager(
             ? true
             : params.visibilityIntent === "visible"
               ? false
-              : params.hasUI === false && params.dashboardSpawned !== true,
+              // A restart may RESPAWN a plugin-owned session (registerReason
+              // "spawn", no token): its owner's hide intent still holds.
+              : existing?.pluginHidden === true
+                ? true
+                : params.hasUI === false && params.dashboardSpawned !== true,
         firstMessage: params.firstMessage ?? existing?.firstMessage,
         dataUnavailable: false,
         pid: params.pid,

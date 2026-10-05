@@ -9,3 +9,5 @@ See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dash
 `unregister()` AND `update()` both stamp the exact `→ ended` transition with `closedReason` (default `unknown`, explicit from sites that know it; a stale reason is never overwritten) and both fire `onEnded` — the shared eager persistence point wired in `event-wiring.ts`. `update()` also re-stamps when an explicit `undefined` key clears the reason on an already-ended record. See change: stop-discarding-known-session-state (review fix).
 
 `register` applies `params.usageSeed` (all five totals + current `statsExtractorVersion`) ONLY for an unknown id; known id carries totals + version over; no seed ⇒ all five totals 0 (cache pinned too). Exports `normalizeUsageSeed`. See change: count-non-message-usage.
+
+- `register` hidden decision: reattach → keep `existing.hidden`; else `visibilityIntent`; else `existing.pluginHidden === true` → hidden (restart RESPAWN re-registers as "spawn", no token); else headless heuristic. Carries `pluginHidden` over. See change: fix-plugin-hidden-across-restart.

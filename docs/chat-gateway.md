@@ -96,9 +96,12 @@ Precedence ladder:
 - Regression (pre-fix): no `bindings.json` written; every message spawned an orphan session; `server.log` `[pending-plugin-ref-registry] dropped ref key "spawnToken"`.
 - Spawn and resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`. Keeps Discord sessions off the board by default.
 - Hide applied on FIRST register only (fresh spawn-token resolution, `packages/server/src/event-wiring.ts`). Reattach never re-applies; later operator unhide survives.
-- Known gap: gateway-spawned sessions revived after a dashboard restart may re-register visible (`hidden: false`). `lifecycle.hidden` applies only on fresh spawn-token resolution. Under investigation.
+- Restart respawn (fixed, `fix-plugin-hidden-across-restart`): after `/api/restart` a session may re-register `registerReason: "spawn"` (respawn, no spawn token, `dashboardSpawned: true`). Non-reattach register re-decided `hidden` via headless heuristic → `false`; next `.meta.json` save wrote `hidden: false`.
+- Fix: `lifecycle.hidden` apply writes core-owned intent `pluginHidden: true` (`sessionManager.update(sessionId, { hidden: true, pluginHidden: true })`, `packages/server/src/event-wiring.ts`). Persisted like `recover` (`session-to-meta.ts`); restored by `sessionFromMeta` (`session-scanner.ts`).
+- `register` decision order (`packages/server/src/session/memory-session-manager.ts`): reattach → keep `existing.hidden`; `visibilityIntent`; `existing.pluginHidden === true` → hidden; else headless heuristic.
+- Pre-fix hidden sessions carry no `pluginHidden` → not migrated.
 - Troubleshooting: `~/.pi/dashboard/chat-gateway/bindings.json` absent after a spawn + command-log only `spawn_session` entries → correlation broken.
-- See change: fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions.
+- See change: fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions, fix-plugin-hidden-across-restart.
 
 ### Thread per Conversation
 

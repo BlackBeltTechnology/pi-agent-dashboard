@@ -24,7 +24,7 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
   - Plugin Staleness Detection — build-time `PLUGIN_REGISTRY_HASH` sha256 into `generated/plugin-registry.tsx`. No new route/WS.
   - Plugin Activation UI — Settings▸Plugins toggle. `POST /api/plugins/:id/toggle` (`plugin-activation-routes.ts`).
   - Plugin bridge↔server channel (generic) — `dashboard:enqueue-followup`, `enqueueSystemFollowup`. goal-plugin first consumer.
-  - Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`) — `PluginSpawnOptions.lifecycle` `{recover, finalizeOnSocketClose, hidden}`; `hidden` hides owned session on first register, same flag as headless auto-hide. First consumer chat-gateway.
+  - Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`) — `PluginSpawnOptions.lifecycle` `{recover, finalizeOnSocketClose, hidden}`; `hidden` hides owned session on first register, same flag as headless auto-hide. `pluginHidden` intent persists hide across post-restart respawn re-register; explicit `visibilityIntent:"visible"` wins. First consumer chat-gateway. See change: fix-plugin-hidden-across-restart.
   - Goal Session Supervisor (`add-goal-session-supervisor`) — `packages/server/src/goal-supervisor.ts`. Host owns spawn mechanism; supervisor rides death detection.
 - Automation Plugin (`add-automation-plugin`) — `packages/automation-plugin/`. Schedule-triggered runs. `<scope>/.pi/automation/<name>/automation.yaml`.
 - Bootstrap & First Run (R3, immutable bundle) — pi/openspec/tsx = regular npm deps of `pi-dashboard-server`. No runtime install. Electron reads `<resourcesPath>/server/node_modules/`.
