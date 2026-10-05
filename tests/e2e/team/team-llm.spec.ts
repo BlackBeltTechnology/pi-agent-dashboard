@@ -172,7 +172,7 @@ test("X9: a dashboard restart mid-conversation reconnects the socket without dup
   await expect(anna.page.getByText("PROMPT-AFTER-EDIT").first()).toBeVisible({ timeout: 90_000 });
   const before = await occurrences("PROMPT-AFTER-EDIT");
   await h.inst.restart();
-  await expect(anna.page.getByText("Újracsatlakozás").or(anna.page.getByText("PROMPT-AFTER-EDIT").first())).toBeVisible({ timeout: 30_000 });
+  await expect(anna.page.getByText("Újracsatlakozás").or(anna.page.getByText("PROMPT-AFTER-EDIT")).first()).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => occurrences("PROMPT-AFTER-EDIT"), { timeout: 60_000 }).toBe(before);
   await expect(anna.page.locator(".composer textarea").first()).toBeEnabled({ timeout: 60_000 });
   expect(await occurrences("PROMPT-AFTER-EDIT")).toBe(before);
