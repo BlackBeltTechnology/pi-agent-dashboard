@@ -97,11 +97,19 @@ mkdirSync(path.join(SERVER_BUNDLE, "packages", "dist", "client"), {
 // can be older than the working-tree HEAD and miss symbols added in the
 // current dev cycle (e.g. pluginRegistryHash). Symlink materialization
 // below normalizes node_modules/@blackbelt-technology/* into a copy.
+//
+// mcp-client-plugin: a direct server dependency (add-radius-provider-login).
+// Installed from the registry, its `shared ^<base>` does not match the bundled
+// `<base>-ci.*` workspace, so npm nests a stale published shared that lacks
+// current source (e.g. src/cwd-guard.ts) and the server boots into RECOVERY
+// MODE. It stays in piDashboard.bundledPlugins too: the loader discovers
+// plugins from resources/plugins/, not node_modules.
 const BUNDLED_WORKSPACE_PKGS = [
   "server",
   "shared",
   "extension",
   "dashboard-plugin-runtime",
+  "mcp-client-plugin",
 ];
 for (const pkg of BUNDLED_WORKSPACE_PKGS) {
   cpSync(

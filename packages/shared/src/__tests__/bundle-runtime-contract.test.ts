@@ -45,11 +45,14 @@ describe("bundled server ships the pi runtime (E10)", () => {
     expect(body).not.toMatch(/\bdependencies\b/);
   });
 
-  it("BUNDLED_WORKSPACE_PKGS is server, shared, extension, dashboard-plugin-runtime", () => {
+  // mcp-client-plugin is a direct server dependency: installed from the registry
+  // its `shared ^<base>` misses the bundled `<base>-ci.*` workspace and npm nests a
+  // stale published shared → bundled server boots into RECOVERY MODE.
+  it("BUNDLED_WORKSPACE_PKGS is server, shared, extension, dashboard-plugin-runtime, mcp-client-plugin", () => {
     const m = bundleSrc.match(/const BUNDLED_WORKSPACE_PKGS = \[([\s\S]*?)\];/);
     expect(m).not.toBeNull();
     const names = [...m![1]!.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-    expect(names).toEqual(["server", "shared", "extension", "dashboard-plugin-runtime"]);
+    expect(names).toEqual(["server", "shared", "extension", "dashboard-plugin-runtime", "mcp-client-plugin"]);
   });
 });
 
