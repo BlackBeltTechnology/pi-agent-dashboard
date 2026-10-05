@@ -31,3 +31,16 @@ When the native TLS listener is running on a non-loopback bind host, each name i
 #### Scenario: No certificate, no secure endpoint
 - **WHEN** the TLS listener is enabled but holds no valid certificate
 - **THEN** no TLS-listener endpoint SHALL be enumerated
+
+#### Scenario: Every connected provider is enumerated, not only the primary
+- **GIVEN** zrok is primary and tailscale is also `connected`
+- **WHEN** `GET /api/tunnel/endpoints` is requested
+- **THEN** the list SHALL include the zrok `public` URL AND the tailscale `magicdns` and `mesh` URLs
+- **AND** url-less liveness markers SHALL NOT appear as endpoints
+- **AND** a readiness failure SHALL degrade the list to primary + manual + LAN/local rather than fail the request
+
+#### Scenario: A daemon brought up outside the dashboard still names its addresses
+- **GIVEN** tailscale is running at OS level with no `tailscale serve` config and this server never connected it
+- **WHEN** its liveness is probed
+- **THEN** the MagicDNS and 100.x mesh endpoints SHALL be derived on the dashboard's own listen port
+- **AND** only when no port can be determined SHALL it report a url-less liveness marker
