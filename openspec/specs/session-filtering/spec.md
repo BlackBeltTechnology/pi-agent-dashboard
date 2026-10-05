@@ -54,7 +54,7 @@ The `Show hidden` toggle, server-side hidden flag, per-folder collapsible ended 
 - **THEN** archived sessions SHALL remain only inside the folder's archive fold
 
 ### Requirement: Server-side hidden state
-Hidden state SHALL be managed server-side via the in-memory session manager with persistence through the session sidecar. `hidden` SHALL be set only by the auto-hide heuristic or an explicit bridge visibility intent; no browser message SHALL set or clear it. The client-side localStorage hidden set is no longer used. The server SHALL be the source of truth for visibility.
+Hidden state SHALL be managed server-side via the in-memory session manager with persistence through the session sidecar. `hidden` SHALL be set only by the auto-hide heuristic, an explicit bridge visibility intent, or an owning plugin's spawn lifecycle declaration `{ hidden: true }`; no browser message SHALL set or clear it. The client-side localStorage hidden set is no longer used. The server SHALL be the source of truth for visibility.
 
 #### Scenario: Migration from client-side hidden
 - **WHEN** the client detects a legacy `hiddenSessions` key in localStorage
@@ -209,6 +209,30 @@ When the `session_register` message omits `hasUI` (legacy bridge), the server SH
 - **THEN** the server SHALL set `hidden = false`
 - **AND WHEN** a session first registers with `visibilityIntent === "hidden"` and `hasUI === true`
 - **THEN** the server SHALL set `hidden = true`
+
+### Requirement: Plugin-declared hidden survives restart re-registration
+
+When a plugin-spawned session's lifecycle declares `hidden: true`, the server SHALL, on the
+fresh spawn-token resolution, set `hidden = true` AND record a core-owned intent
+`pluginHidden = true` on the session. `pluginHidden` SHALL be persisted in the session
+sidecar (absent on user sessions, so their sidecars stay byte-identical) and restored at
+boot. On a non-reattach registration of an already-known session (e.g. a session respawned
+after a dashboard restart registering with `registerReason: "spawn"` and no spawn token),
+the server SHALL decide `hidden` in this order: an explicit `visibilityIntent`; then
+`pluginHidden === true` → `hidden = true`; then the auto-hide heuristic. A reattach SHALL
+keep the existing `hidden` value as before.
+
+#### Scenario: Respawned plugin-hidden session stays hidden
+- **WHEN** a session restored with `hidden = true` and `pluginHidden = true` re-registers with `registerReason: "spawn"` and no visibility intent
+- **THEN** the server SHALL keep `hidden = true` and carry `pluginHidden` forward
+
+#### Scenario: Explicit visible intent still wins
+- **WHEN** such a session re-registers with `visibilityIntent === "visible"`
+- **THEN** the server SHALL set `hidden = false`
+
+#### Scenario: Sessions without the intent are unchanged
+- **WHEN** a restored session without `pluginHidden` re-registers with `registerReason: "spawn"`
+- **THEN** the server SHALL decide `hidden` from the auto-hide heuristic as before
 
 ### Requirement: Auto-hide is one-shot; manual hide state survives re-registration
 

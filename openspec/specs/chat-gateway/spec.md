@@ -241,9 +241,83 @@ gated.
 - **WHEN** the session was bound via attach-to-existing (source a)
 - **THEN** the tool guard SHALL NOT be applied
 
+### Requirement: Triggering message runs on spawn or resume
+When an inbound message causes the gateway to start a new session or resume an ended one,
+that message SHALL be delivered as the session's `initialPrompt` (with the steer prefix
+stripped), so the user never has to resend it. The gateway SHALL correlate the spawn with
+the later session registration only through `pluginRef` keys it owns (`chatSpawnToken`,
+`bindSource`) — never through a core-reserved key (`spawnToken`, `source`, …), which the
+host strips before notifying the plugin. On resolution the gateway SHALL persist the
+channel→session binding so the next message reuses it.
+
+#### Scenario: First message runs in the new session
+- **WHEN** an authorized message arrives on an unbound channel and the gateway starts a session
+- **THEN** the session SHALL receive that message as its initial prompt
+- **AND** the gateway SHALL persist the binding once the session registers
+
+#### Scenario: Follow-up does not spawn again
+- **WHEN** a second message arrives after the spawned session registered
+- **THEN** it SHALL route to the same session via `send_prompt`, not start another session
+
+#### Scenario: Reserved ref keys are not used for correlation
+- **WHEN** the host strips core-reserved `pluginRef` keys before notifying the gateway
+- **THEN** the gateway SHALL still bind the spawned session via its own `chatSpawnToken`
+
+### Requirement: One thread per conversation
+When `threadPerConversation` is enabled (default `true`; only an explicit `false`
+disables), an authorized message posted in a bound channel's root SHALL make the gateway
+open a platform thread on that message and bind a **new** session keyed to the thread
+(`(platform, threadId, threadId)`, parent channel recorded); the reply and all follow-ups
+SHALL stay in that thread. Thread creation SHALL happen only after authorization and the
+team-controls check, and never for DMs, messages already in a thread, or `!disarm`
+commands. The thread name SHALL be the message text (steer prefix stripped, whitespace
+collapsed, at most 100 characters; `conversation` when empty). If the adapter cannot
+create a thread, the gateway SHALL log a warning and continue the conversation in the
+channel root so the message is not lost. Adapters without thread support SHALL keep
+channel-root behaviour.
+
+#### Scenario: Root message opens a thread
+- **WHEN** an authorized user posts in the root of a bound channel with `threadPerConversation` on
+- **THEN** the gateway SHALL open a thread on that message, start a new session bound to the thread, and reply inside it
+
+#### Scenario: Follow-up stays in the thread
+- **WHEN** the user replies inside that thread
+- **THEN** the message SHALL route to the thread's session without opening another thread
+
+#### Scenario: Opt-out keeps channel-root routing
+- **WHEN** `threadPerConversation` is `false`
+- **THEN** root messages SHALL bind to the channel root as before
+
+#### Scenario: Thread creation failure falls back
+- **WHEN** opening the thread fails (e.g. missing Create Public Threads permission)
+- **THEN** the gateway SHALL log a warning and handle the message in the channel root
+
+#### Scenario: Refused message opens no thread
+- **WHEN** a message is refused by authorization or arrives as a DM
+- **THEN** no thread SHALL be created
+
+### Requirement: Gateway sessions hidden from the board by default
+Sessions the gateway starts or resumes SHALL be hidden from the dashboard board by default
+by declaring `lifecycle: { hidden: true }` on the spawn. A `sessionVisibility` setting
+(`"hidden"` default, `"shown"` opts out) SHALL control this. Sessions the gateway merely
+attaches to SHALL NOT be hidden. Hidden sessions remain revealable via `Show hidden`.
+
+#### Scenario: Default hides gateway sessions
+- **WHEN** the gateway starts or resumes a session with default configuration
+- **THEN** the session SHALL register with `hidden = true`
+
+#### Scenario: Opt-out shows them
+- **WHEN** `sessionVisibility` is `"shown"`
+- **THEN** the gateway SHALL NOT declare `hidden` on its spawns
+
+#### Scenario: Attached sessions untouched
+- **WHEN** the gateway attaches a channel to an existing dashboard session
+- **THEN** that session's `hidden` value SHALL NOT change
+
 ### Requirement: Configuration surface
 The gateway SHALL expose configuration for: the Discord bot token, `allowedRoots`, the
-fixed channel→cwd map, the user allowlist and admins, and a read view of current bindings.
+fixed channel→cwd map, the user allowlist and admins, `sessionVisibility`,
+`threadPerConversation`, and a read view of current bindings.
 Secrets SHALL be stored at rest with restrictive permissions consistent with existing
 dashboard credential handling and SHALL NOT appear in logs or API responses.
 
