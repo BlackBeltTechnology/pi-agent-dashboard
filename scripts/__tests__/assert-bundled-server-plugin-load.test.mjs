@@ -16,7 +16,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bootArgv, bundleLayout, bundleRoot, logTail, pluginLoadProblems } from '../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs';
+import {
+  VERDICT_TIMEOUT_MS,
+  bootArgv,
+  bundleLayout,
+  bundleRoot,
+  expectedServerPluginIds,
+  gateConfig,
+  logTail,
+  pluginLoadProblems,
+  pluginVerdicts,
+  waitForVerdicts,
+} from '../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs';
 import { pathToFileURL } from 'node:url';
 
 const tempDirs = [];
@@ -171,5 +182,75 @@ describe('teardown targets only its own server (stop-ownership caller fix)', () 
       'utf-8',
     );
     expect(src).toMatch(/"stop",\s*\.\.\.\(Number\.isInteger\(port\)\s*\?\s*\["--port", String\(port\), "--pi-port", String\(port \+ 1\)\]/);
+  });
+});
+
+// Every bundled server-entry plugin is enabled and must load.
+// See change: bundle-plugin-third-party-deps (design D5).
+describe('every bundled server plugin loads', () => {
+  it('expects manifest ids of non-fixture plugins that declare a server entry (test-plan #E19)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bundle-plugins-'));
+    tempDirs.push(dir);
+    const plugin = (name, manifest) => {
+      mkdirSync(join(dir, name), { recursive: true });
+      writeFileSync(join(dir, name, 'package.json'), JSON.stringify({ name, 'pi-dashboard-plugin': manifest }));
+    };
+    plugin('gmail-plugin', { id: 'gmail', server: './src/server/index.ts' });
+    plugin('ui-only', { id: 'ui-only', client: './src/client/index.tsx' });
+    plugin('fx', { id: 'fx', server: './s.ts', fixture: true });
+    expect(expectedServerPluginIds(dir)).toEqual(['gmail']);
+  });
+
+  it('enables every expected id, including defaultEnabled:false ones (test-plan #E20)', () => {
+    expect(gateConfig(['browser', 'gmail'])).toEqual({
+      plugins: { browser: { enabled: true }, gmail: { enabled: true } },
+    });
+  });
+
+  it('reports failed and skipped plugins; sees a verdict for each (test-plan #E21)', () => {
+    const log = [
+      '[plugin-loader] Loaded plugin "a"',
+      '[plugin-loader] Failed to load plugin "b": Cannot find module \'oauth4webapi\'',
+      '[plugin-loader] Skipping plugin "c" — missing/disabled dep: b',
+    ].join('\n');
+    const problems = pluginLoadProblems(log, { plugins: ['a', 'b', 'c'] }).join('\n');
+    expect(problems).toContain('"b"');
+    expect(problems).toContain('"c"');
+    expect(problems).not.toContain('"a"');
+    expect(pluginVerdicts(log, ['a', 'b', 'c'])).toEqual({ a: 'loaded', b: 'failed', c: 'skipped' });
+  });
+
+  /** Fake clock + a log that gains one verdict line at each given second. */
+  function fakeLog(ids, atSeconds) {
+    let t = 0;
+    return {
+      now: () => t,
+      sleep: async (ms) => {
+        t += ms;
+      },
+      readLog: () =>
+        ids
+          .filter((_, i) => atSeconds[i] !== undefined && atSeconds[i] * 1000 <= t)
+          .map((id) => `[plugin-loader] Loaded plugin "${id}"`)
+          .join('\n'),
+      elapsed: () => t,
+    };
+  }
+
+  it('the idle budget restarts on every new verdict (test-plan #P1)', async () => {
+    const ids = Array.from({ length: 20 }, (_, i) => `p${i}`);
+    const clock = fakeLog(ids, ids.map((_, i) => (i + 1) * 100));
+    const r = await waitForVerdicts({ ids, ...clock, pollMs: 2_000 });
+    expect(r.missing).toEqual([]);
+    expect(Object.keys(pluginVerdicts(r.text, ids))).toHaveLength(20);
+  });
+
+  it('times out an activation that hangs, idle-budget after the last verdict (test-plan #P2)', async () => {
+    const ids = ['x', 'y', 'z'];
+    const clock = fakeLog(ids, [10, 20]);
+    const r = await waitForVerdicts({ ids, ...clock, pollMs: 2_000 });
+    expect(r.missing).toEqual(['z']);
+    expect(VERDICT_TIMEOUT_MS).toBe(120_000);
+    expect(clock.elapsed()).toBeLessThanOrEqual(140_000 + 2_000);
   });
 });

@@ -14,6 +14,15 @@
  * So this BOOTS the bundled server with the flag explicitly removed and reads
  * its own log for `[plugin-loader] Loaded plugin "browser"`.
  *
+ * It also enables EVERY bundled server-entry plugin (manifest ids from
+ * `<bundle>/resources/plugins/<dir>/package.json`, fixtures excluded) and requires
+ * `Loaded plugin "<id>"` for each, zero `Failed to load plugin`, zero
+ * `Skipping plugin` — a plugin whose third-party dep is missing from the
+ * bundle (gmail → oauth4webapi) no longer passes as long as browser loads.
+ * `VERDICT_TIMEOUT_MS` is an IDLE budget: it restarts on every new verdict, so
+ * 20 sequential activations are not squeezed into a budget sized for one.
+ * See change: bundle-plugin-third-party-deps (design D5).
+ *
  * Cross-platform and Node-native (no bash, no PowerShell): the same script runs
  * on every electron leg, matching the invariant pinned by
  * packages/shared/src/__tests__/no-bash-on-windows.test.ts.
@@ -31,7 +40,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -41,7 +50,7 @@ const ELECTRON_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const HEALTH_TIMEOUT_MS = 180_000;
 const HEALTH_POLL_MS = 2_000;
-const VERDICT_TIMEOUT_MS = 120_000;
+export const VERDICT_TIMEOUT_MS = 120_000;
 const PLUGIN_ID = "browser";
 
 /** The bundle root, honouring the test override. */
@@ -84,14 +93,84 @@ export function bootArgv(layout, args, platform = process.platform) {
  * The plugin-load contract stated in the bundle's server log. Pure, so the
  * verdict is unit-testable without an Electron build.
  */
-export function pluginLoadProblems(logText, { plugin = PLUGIN_ID } = {}) {
+export function pluginLoadProblems(logText, { plugin = PLUGIN_ID, plugins = [plugin] } = {}) {
   const problems = [];
-  if (!logText.includes(`Loaded plugin "${plugin}"`)) problems.push(`log has no 'Loaded plugin "${plugin}"'`);
-  const failures = logText.split("\n").filter((l) => l.includes("Failed to load plugin"));
-  if (failures.length > 0) {
-    problems.push(`${failures.length} 'Failed to load plugin' line(s), first: ${failures[0].trim()}`);
+  for (const id of plugins) {
+    if (!logText.includes(`Loaded plugin "${id}"`)) problems.push(`log has no 'Loaded plugin "${id}"'`);
+  }
+  const lines = logText.split("\n");
+  for (const marker of ["Failed to load plugin", "Skipping plugin"]) {
+    const hits = lines.filter((l) => l.includes(marker));
+    if (hits.length > 0) problems.push(`${hits.length} '${marker}' line(s), first: ${hits[0].trim()}`);
   }
   return problems;
+}
+
+/**
+ * Manifest ids of the bundled plugins the loader will log a verdict for:
+ * non-fixture plugins whose manifest declares a `server` entry (a server-less
+ * plugin is marked loaded without any log line). Sorted.
+ */
+export function expectedServerPluginIds(pluginsDir) {
+  if (!existsSync(pluginsDir)) return [];
+  const ids = [];
+  for (const entry of readdirSync(pluginsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    let manifest;
+    try {
+      manifest = JSON.parse(readFileSync(join(pluginsDir, entry.name, "package.json"), "utf8"))["pi-dashboard-plugin"];
+    } catch {
+      continue;
+    }
+    if (manifest?.id && manifest.server && manifest.fixture !== true) ids.push(manifest.id);
+  }
+  return ids.sort();
+}
+
+/** Temp-HOME `config.json` enabling every id (several are `defaultEnabled: false`). */
+export function gateConfig(ids) {
+  return { plugins: Object.fromEntries(ids.map((id) => [id, { enabled: true }])) };
+}
+
+/** Terminal loader verdict per id present in the log: loaded | failed | skipped. */
+export function pluginVerdicts(logText, ids) {
+  const verdicts = {};
+  for (const id of ids) {
+    if (logText.includes(`Loaded plugin "${id}"`)) verdicts[id] = "loaded";
+    else if (logText.includes(`Failed to load plugin "${id}"`)) verdicts[id] = "failed";
+    else if (logText.includes(`Skipping plugin "${id}"`)) verdicts[id] = "skipped";
+  }
+  return verdicts;
+}
+
+/**
+ * Poll the log until every id has a verdict, or until `idleMs` passes with no
+ * NEW verdict (the budget restarts whenever the verdict count grows).
+ * Injectable clock/log for unit tests. Returns the last log text + ids still
+ * lacking a verdict.
+ */
+export async function waitForVerdicts({
+  ids,
+  readLog,
+  now = Date.now,
+  sleep: wait = sleep,
+  idleMs = VERDICT_TIMEOUT_MS,
+  pollMs = HEALTH_POLL_MS,
+}) {
+  let text = readLog();
+  let seen = Object.keys(pluginVerdicts(text, ids)).length;
+  let lastProgress = now();
+  while (seen < ids.length && now() - lastProgress < idleMs) {
+    await wait(pollMs);
+    text = readLog();
+    const count = Object.keys(pluginVerdicts(text, ids)).length;
+    if (count > seen) {
+      seen = count;
+      lastProgress = now();
+    }
+  }
+  const verdicts = pluginVerdicts(text, ids);
+  return { text, missing: ids.filter((id) => !(id in verdicts)) };
 }
 
 /**
@@ -161,11 +240,12 @@ function requireBundle() {
 }
 
 /** Boot the bundled server and return its log text once a verdict appears. */
-async function bootAndReadVerdict({ root, layout, home, port }) {
+async function bootAndReadVerdict({ root, layout, home, port, ids }) {
   mkdirSync(join(home, ".pi", "dashboard"), { recursive: true });
-  // `browser` is defaultEnabled:false; the gate is about whether it CAN load,
-  // so it must be enabled or nothing would ever attempt it.
-  writeFileSync(join(home, ".pi", "dashboard", "config.json"), `${JSON.stringify({ plugins: { [PLUGIN_ID]: { enabled: true } } }, null, 2)}\n`);
+  // `browser` (and others) are defaultEnabled:false; the gate is about whether
+  // every bundled plugin CAN load, so all must be enabled or nothing would
+  // ever attempt them.
+  writeFileSync(join(home, ".pi", "dashboard", "config.json"), `${JSON.stringify(gateConfig(ids), null, 2)}\n`);
 
   const env = { ...process.env, HOME: home, USERPROFILE: home };
   // The whole point: the deleted stamp must not be smuggled in by the caller.
@@ -190,13 +270,7 @@ async function bootAndReadVerdict({ root, layout, home, port }) {
   console.log("health 200");
 
   const log = join(home, ".pi", "dashboard", "server.log");
-  const deadline = Date.now() + VERDICT_TIMEOUT_MS;
-  let text = "";
-  while (Date.now() < deadline) {
-    text = existsSync(log) ? readFileSync(log, "utf-8") : "";
-    if (text.includes(`Loaded plugin "${PLUGIN_ID}"`) || text.includes(`Failed to load plugin "${PLUGIN_ID}"`)) break;
-    await sleep(HEALTH_POLL_MS);
-  }
+  const { text } = await waitForVerdicts({ ids, readLog: () => (existsSync(log) ? readFileSync(log, "utf-8") : "") });
   return text;
 }
 
@@ -207,16 +281,19 @@ async function main() {
   try {
     const bundle = requireBundle();
     layout = bundle.layout;
+    const ids = expectedServerPluginIds(join(bundle.root, "resources", "plugins"));
+    // The browser premise (tsconfig-free specifier resolution) stays explicit.
+    if (!ids.includes(PLUGIN_ID)) throw new Error(`plugin "${PLUGIN_ID}" is not in the bundle's resources/plugins/`);
     port = await freePort();
-    const text = await bootAndReadVerdict({ root: bundle.root, layout, home, port });
+    const text = await bootAndReadVerdict({ root: bundle.root, layout, home, port, ids });
 
-    const problems = pluginLoadProblems(text);
+    const problems = pluginLoadProblems(text, { plugins: ids });
     for (const p of problems) console.error(`✗ ${p}`);
     if (problems.length > 0) {
       dumpServerLog(home);
       return 1;
     }
-    console.log(`✓ bundled server: 'Loaded plugin "${PLUGIN_ID}"', zero 'Failed to load plugin'`);
+    console.log(`✓ bundled server: all ${ids.length} plugin(s) loaded (${ids.join(", ")}), zero 'Failed to load plugin' / 'Skipping plugin'`);
     return 0;
   } catch (err) {
     console.error(`✗ bundled server plugin-load gate failed: ${err.message}`);
