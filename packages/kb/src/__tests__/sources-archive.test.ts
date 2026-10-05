@@ -105,6 +105,44 @@ d("https resolver: guarded fetch + archive extraction", () => {
     });
   });
 
+  describe("bounded extraction (CodeRabbit: decompression bombs / inode exhaustion)", () => {
+    const limits = (l: { maxEntries?: number; maxExpandedBytes?: number }) => ({ testHooks: { archiveLimits: l } });
+    const big = (n: number) => Buffer.alloc(n, 0);
+
+    it("rejects a tar.gz that EXPANDS beyond the byte limit while the download itself is tiny", async () => {
+      const bomb = tarGz([{ name: "zeros.bin", data: big(5 * 1024 * 1024) }]);
+      expect(bomb.length).toBeLessThan(64 * 1024); // 5 MB of zeros compresses to a few KB
+      await expect(resolveBody("a.tar.gz", bomb, limits({ maxExpandedBytes: 1024 * 1024 }))).rejects.toThrow(/expands beyond/);
+      expect(readdirSync(cacheDir)).toEqual([]); // nothing extracted, no dest, no stage
+    });
+
+    it("zip: rejects past the byte limit", async () => {
+      await expect(resolveBody("a.zip", zip([{ name: "a.bin", data: big(2 * 1024 * 1024) }]), limits({ maxExpandedBytes: 1024 * 1024 }))).rejects.toThrow(/expands beyond/);
+      expect(readdirSync(cacheDir)).toEqual([]);
+    });
+
+    it("boundary: exactly the byte limit passes, one byte over rejects (tar + zip)", async () => {
+      const lim = limits({ maxExpandedBytes: 1000 });
+      expect(files((await resolveBody("a.tar.gz", tarGz([{ name: "f.md", data: big(1000) }]), lim)).r.dir)).toContain("f.md");
+      expect(files((await resolveBody("a.zip", zip([{ name: "f.md", data: big(1000) }]), lim)).r.dir)).toContain("f.md");
+      await expect(resolveBody("b.tar.gz", tarGz([{ name: "f.md", data: big(1001) }]), lim)).rejects.toThrow(/expands beyond/);
+      await expect(resolveBody("b.zip", zip([{ name: "f.md", data: big(1001) }]), lim)).rejects.toThrow(/expands beyond/);
+    });
+
+    it("rejects too many entries before extracting (tar + zip); the limit itself passes", async () => {
+      const many = (n: number): Entry[] => Array.from({ length: n }, (_, i) => ({ name: `f${i}.md`, data: "x" }));
+      await expect(resolveBody("a.tar.gz", tarGz(many(11)), limits({ maxEntries: 10 }))).rejects.toThrow(/too many entries/);
+      await expect(resolveBody("a.zip", zip(many(11)), limits({ maxEntries: 10 }))).rejects.toThrow(/too many entries/);
+      expect(readdirSync(cacheDir)).toEqual([]);
+      expect(files((await resolveBody("c.tar.gz", tarGz(many(10)), limits({ maxEntries: 10 }))).r.dir).filter((f) => f.endsWith(".md")).length).toBe(10);
+    });
+
+    it("defaults are generous for real documentation archives", async () => {
+      const { r } = await resolveBody("docs.tar.gz", tarGz([{ name: "a.md", data: "# a" }, { name: "b.md", data: "# b" }]));
+      expect(files(r.dir)).toContain("a.md");
+    });
+  });
+
   it("E56 tricky but legal names extract as regular files (tar + zip)", async () => {
     const es: Entry[] = [{ name: "a -> b.md", data: "1" }, { name: "with space.md", data: "2" }];
     for (const [file, buf] of [["a.tar.gz", tarGz(es)], ["a.zip", zip(es)]] as const) {

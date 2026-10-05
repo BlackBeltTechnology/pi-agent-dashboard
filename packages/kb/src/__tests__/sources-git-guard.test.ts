@@ -145,6 +145,23 @@ describe("git resolver guard (D3)", () => {
       expect(existsSync(join(dir, ".git"))).toBe(true);
     });
 
+    it("a cached clone with NO refresh makes no DNS lookup and no `git version` probe (works offline)", async () => {
+      const ref = "git:https://github.com/o/offline";
+      seedClone(ref);
+      const { git, calls } = fakeGit({ origin: "https://github.com/o/offline" });
+      const lookup: LookupAll = (_h, _o, cb) => cb(Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }) as NodeJS.ErrnoException, []);
+      await run(ref, { git, lookup }); // would throw ENOTFOUND if the host check ran
+      expect(calls.some((c) => c.includes("version"))).toBe(false);
+      expect(network(calls)).toHaveLength(0);
+    });
+
+    it("a refresh still runs the host check (guard intact)", async () => {
+      const ref = "git:https://internal.example/o/r";
+      seedClone(ref);
+      const { git } = fakeGit({ origin: "https://internal.example/o/r" });
+      await expect(run(ref, { git, lookup: pub("10.1.2.3") }, { refresh: true })).rejects.toThrow(/non-public/);
+    });
+
     it("origin compare uses the RAW config value: a user's url.*.insteadOf rewrite (get-url differs) is not a mismatch", async () => {
       const ref = "git:https://github.com/o/mirror";
       seedClone(ref);

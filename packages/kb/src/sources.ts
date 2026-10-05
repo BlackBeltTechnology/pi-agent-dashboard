@@ -41,6 +41,8 @@ export interface ResolveCtx {
     git?: (args: string[]) => string;
     /** Replaces `dns.lookup` for the git host check. */
     lookup?: LookupAll;
+    /** Overrides the archive entry-count / expanded-byte limits. */
+    archiveLimits?: { maxEntries?: number; maxExpandedBytes?: number };
     /** Replaces `renameSync` in the stage→dest swap. */
     rename?: (from: string, to: string) => void;
   };
@@ -196,14 +198,20 @@ export const gitResolver: SourceResolver = {
     assertSafeGitRef("pin", spec.pin);
     assertSafeGitRef("ref", ref);
     const target = parseGitTarget(url);
+    const cloneDir = join(ctx.cacheDir, cacheKey(spec));
+    const hasGit = existsSync(join(cloneDir, ".git"));
+    const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
+    const hardening: string[] = [];
+    // Only networked operations need the host check / pin; a cached clone with no refresh works offline.
+    if (shouldPull) {
     const addrs = await assertPublicHost(target.host, { lookup: hooks.lookup });
 
     // Hardening as GLOBAL options before the subcommand (`git clone -c` would only
     // write the new repo's config). Pin curl to the address we just checked (git >= 2.37).
-    const hardening = [
+    hardening.push(
       "-c", "protocol.allow=never", "-c", "protocol.https.allow=always", "-c", "protocol.ssh.allow=always",
       "-c", "http.followRedirects=false", "-c", "submodule.recurse=false", "-c", "fetch.recurseSubmodules=false",
-    ];
+    );
     if (target.scheme === "https" && !isIPLiteral(target.host)) {
       const m = /git version (\d+)\.(\d+)/.exec(git(["version"]));
       if (m && (Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2]) >= 37))) {
@@ -214,10 +222,8 @@ export const gitResolver: SourceResolver = {
         console.warn("[kb] git < 2.37: http.curloptResolve unavailable — host is checked but not pinned");
       }
     }
+    }
 
-    const cloneDir = join(ctx.cacheDir, cacheKey(spec));
-    const hasGit = existsSync(join(cloneDir, ".git"));
-    const shouldPull = ctx.refresh || spec.refresh === "on-index" || (!hasGit);
     if (hasGit && shouldPull) {
       // A poisoned/stale `origin` must never be contacted. Compare the RAW config value(s)
       // (`remote get-url` applies the user's url.*.insteadOf rewriting — their config is trusted,
@@ -370,7 +376,7 @@ export const httpsResolver: SourceResolver = {
         if (kind) {
           const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
           writeFileSync(archive, body);
-          extractArchiveSafely(kind, archive, out);
+          extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
         } else {
           writeFileSync(join(out, plainFileName(url.pathname)), body);
         }

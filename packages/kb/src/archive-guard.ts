@@ -9,6 +9,9 @@ import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, sep } from "node:path";
 
 export type ArchiveKind = "tar" | "zip";
+export interface ArchiveLimits { maxEntries?: number; maxExpandedBytes?: number }
+export const DEFAULT_MAX_ENTRIES = 50_000;
+export const DEFAULT_MAX_EXPANDED_BYTES = 256 * 1024 * 1024;
 
 const ENV = { ...process.env, LC_ALL: "C" };
 const run = (cmd: string, args: string[]): string =>
@@ -35,9 +38,10 @@ const lines = (s: string): string[] => {
 };
 
 /** Validate a tar archive (any compression the host tar auto-detects). Throws on any unsafe entry. */
-function validateTar(archive: string): void {
+function validateTar(archive: string, maxEntries: number): void {
   const names = lines(run("tar", ["-tf", archive]));
   const verbose = lines(run("tar", ["-tvf", archive]));
+  if (names.length > maxEntries) throw new Error(`archive has too many entries (${names.length} > ${maxEntries})`);
   if (names.length !== verbose.length) throw new Error(`cannot validate archive: listing mismatch (${names.length} names vs ${verbose.length} entries)`);
   for (let i = 0; i < names.length; i++) {
     const v = verbose[i];
@@ -50,7 +54,7 @@ function validateTar(archive: string): void {
 }
 
 /** Validate a zip archive. Throws on any unsafe entry; returns `true` when it is empty. */
-function validateZip(archive: string): boolean {
+function validateZip(archive: string, maxEntries: number): boolean {
   let header: string;
   try {
     header = run("unzip", ["-Z", archive]);
@@ -63,6 +67,7 @@ function validateZip(archive: string): boolean {
   const sizeIdx = hl.findIndex((l) => l.startsWith("Zip file size:"));
   const count = Number(/number of entries: (\d+)/.exec(hl[sizeIdx] ?? "")?.[1]);
   if (sizeIdx < 0 || !Number.isInteger(count)) throw new Error("cannot validate archive: unparseable zip listing");
+  if (count > maxEntries) throw new Error(`archive has too many entries (${count} > ${maxEntries})`);
   if (count === 0) return true; // `unzip -Z1` prints `Empty zipfile.` and exits 1
   const names = lines(run("unzip", ["-Z1", archive]));
   const typeLines = hl.slice(sizeIdx + 1, sizeIdx + 1 + count);
@@ -75,6 +80,19 @@ function validateZip(archive: string): boolean {
     checkName(names[i], names[i]);
   }
   return false;
+}
+
+/**
+ * Stream the archive's decompressed content to a bounded buffer BEFORE extracting to disk:
+ * a decompression bomb (tiny download, huge expansion) aborts once `maxBytes` is exceeded.
+ */
+function assertExpandedWithin(cmd: string, args: string[], maxBytes: number): void {
+  try {
+    execFileSync(cmd, args, { env: ENV, stdio: ["ignore", "pipe", "pipe"], maxBuffer: maxBytes });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOBUFS") throw new Error(`archive expands beyond the ${maxBytes}-byte limit`);
+    throw e;
+  }
 }
 
 /** Walk `out` and reject any symlink, escaping realpath or multiply-linked file (backstop, not the control). */
@@ -98,12 +116,18 @@ function backstopWalk(out: string): void {
  * Validate `archive`, then extract it into the (fresh, empty) `outDir`, then run
  * the post-extraction backstop. Throws before extracting on any unsafe entry.
  */
-export function extractArchiveSafely(kind: ArchiveKind, archive: string, outDir: string): void {
+export function extractArchiveSafely(kind: ArchiveKind, archive: string, outDir: string, limits: ArchiveLimits = {}): void {
+  const maxEntries = limits.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  const maxBytes = limits.maxExpandedBytes ?? DEFAULT_MAX_EXPANDED_BYTES;
   if (kind === "zip") {
-    const empty = validateZip(archive);
-    if (!empty) run("unzip", ["-o", "-q", archive, "-d", outDir]);
+    const empty = validateZip(archive, maxEntries);
+    if (!empty) {
+      assertExpandedWithin("unzip", ["-p", archive], maxBytes);
+      run("unzip", ["-o", "-q", archive, "-d", outDir]);
+    }
   } else {
-    validateTar(archive);
+    validateTar(archive, maxEntries);
+    assertExpandedWithin("tar", ["-xOf", archive], maxBytes);
     run("tar", ["-xf", archive, "-C", outDir, "--no-same-owner"]);
   }
   backstopWalk(outDir);
