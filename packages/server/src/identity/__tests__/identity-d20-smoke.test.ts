@@ -284,14 +284,24 @@ describe("review B1/B2 — terminal upgrade honours host policy and token expiry
 
       (globalThis as any).__deniedIds.add(id);
       // A fresh browser socket: its bootstrap must not disclose the denied terminal.
-      const ws = await h.dial(await ticketFor(token, "browser"));
-      expect(ws).not.toBeNull();
+      // Frames are collected from construction (before `open`) — the bootstrap burst
+      // starts the instant the upgrade completes, so a listener attached after
+      // `await dial` can miss the head of it.
       const frames: Array<{ type?: string; terminal?: { id: string }; terminalId?: string }> = [];
-      ws!.on("message", (raw) => frames.push(JSON.parse(String(raw))));
-      await new Promise((r) => setTimeout(r, 1500));
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${h.handle().httpPort}/ws?ticket=${encodeURIComponent(await ticketFor(token, "browser"))}`,
+      );
+      ws.on("message", (raw) => frames.push(JSON.parse(String(raw))));
+      await new Promise<void>((resolve, reject) => {
+        ws.on("open", () => resolve());
+        ws.on("error", reject);
+      });
+      // The snapshot is the LAST bootstrap frame; wait for it, then a short grace.
+      for (let i = 0; i < 100 && !frames.some((f) => f.type === "sessions_snapshot"); i++) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 300));
       expect(frames.some((f) => f.type === "sessions_snapshot")).toBe(true); // bootstrap really ran
       expect(frames.filter((f) => f.type === "terminal_added").map((f) => f.terminal?.id)).not.toContain(id);
-      ws!.close();
+      ws.close();
 
       const denied = await upgrade(`/ws/terminal/${id}?ticket=${encodeURIComponent(await ticketFor(token, "terminal"))}`);
       expect(denied).toEqual({ status: 403 });
