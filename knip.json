@@ -97,6 +97,17 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/app-kit": {
+      "entry": [
+        "src/index.ts",
+        "src/react/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/bus-client": {
       "entry": [
         "src/index.ts",
