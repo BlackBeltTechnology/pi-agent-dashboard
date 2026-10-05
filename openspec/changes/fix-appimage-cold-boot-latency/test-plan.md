@@ -81,7 +81,7 @@ Hard gate resolved (2 clarifications answered):
 - Requirements covered: 14/14 (native-ts-loader ×2, server-launch ADDED + 2 MODIFIED, jiti-loader, dashboard-server ×3, packaging, electron-launch-source ×2, electron-shell, bridge-extension, jiti-cjs-transpile-safety, electron-build-pipeline). packaging, electron-shell, and jiti-loader are covered through E14–E16, E21, and E10/E16.
 - Scenarios by class: edge 31 · perf 2 · frontend 1 · error 5
 - Scenarios by level: L1 32 · L2 2 · L3 1 · electron 4
-- Scenarios by disposition: automated 39 · manual-only 0
+- Scenarios by disposition: automated 38 · manual-only 1 (X4, ship-time decision)
 
 ## New infra needed
 
