@@ -123,7 +123,8 @@ const plugin = (pluginId: string, method: string, route: string): HttpRoad => ({
 });
 
 /**
- * Classify an `/api/*` route pattern. Non-`/api` routes return `undefined`.
+ * Classify an `/api/*` route pattern, plus the proxied `/editor/` + `/live/` roads.
+ * Any other route returns `undefined`.
  * `ownerOf` = the plugin that registered the route (`route-owner-registry.ts`),
  * so plugin routes outside `/api/plugins/<id>/` are namespaced without core
  * naming any plugin.
@@ -133,6 +134,13 @@ export function classifyHttpRoad(
   route: string,
   ownerOf?: (route: string) => string | undefined,
 ): HttpRoad | undefined {
+  // Proxied roads. `/editor/` is code-server: any access is a write capability.
+  if (route.startsWith("/editor/")) {
+    return { road: "non-session", action: "editor.write", resource: { kind: "editor", route } };
+  }
+  if (route.startsWith("/live/")) {
+    return { road: "non-session", action: `live.${verbOf(method)}`, resource: { kind: "live", route } };
+  }
   if (!route.startsWith("/api/")) return undefined;
   if (IDENTITY_ROUTES.has(route) || route.startsWith("/api/identity/")) return { road: "identity" };
 

@@ -44,7 +44,7 @@ export async function identityMe(input: {
 
   const decisions = await Promise.all(
     CORE_ME_ACTIONS.map((action) =>
-      policy.authorize({ principal: principal as Principal, action, resource: { kind: kindOf(action) } }),
+      policy.authorize({ principal: principal as Principal, action, resource: { kind: kindOf(action) }, probe: true }),
     ),
   );
   return {

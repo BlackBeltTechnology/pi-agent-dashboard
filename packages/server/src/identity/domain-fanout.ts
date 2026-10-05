@@ -19,6 +19,7 @@
  */
 
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import { isLocalOperator } from "./session-access.js";
 
 /** A candidate delivery target: an open socket and its bound principal (if any). */
 export interface FanoutTarget<S> {
@@ -55,6 +56,12 @@ export async function deliverDomainEvent<S>(
   // Policy ⇒ per-socket decision; principal-less sockets get nothing.
   for (const t of targets) {
     if (!t.principal) continue;
+    // D23: the break-glass operator sees everything; the policy is not asked.
+    if (isLocalOperator(t.principal)) {
+      send(t.socket);
+      delivered.push(t.socket);
+      continue;
+    }
     if (await policy.authorize({ principal: t.principal, action, resource })) {
       send(t.socket);
       delivered.push(t.socket);

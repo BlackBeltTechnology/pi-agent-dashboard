@@ -101,3 +101,45 @@ describe("17.6 SM-6 — expiry", () => {
     expect((await ticketFor(short)).status).toBe(401);
   }, 40000);
 });
+
+describe("18.27 ctx.identity — plugin consumer seam on a real server", () => {
+  it("a plugin reads the principal behind a WS upgrade, authorizes namespaced actions, and gets per-user storage", async () => {
+    h.dropIn(
+      "consumer",
+      `export default async (ctx) => {
+         ctx.registerBrowserLoginConfig({ loginUrl: "/consumer/login", logoutUrl: "/consumer/logout" });
+         globalThis.__consumerIdentity = ctx.identity;
+       };`,
+    );
+    configure(["consumer"]);
+    await h.boot();
+    const seam = (globalThis as any).__consumerIdentity;
+    try {
+      expect(seam).toBeDefined();
+      expect(seam.isEnforced()).toBe(true);
+
+      const token = await idp.mint({ sub: "sub-anna" });
+      const upgrade = (authorization?: string) => ({
+        url: "/ws/consumer/x",
+        headers: authorization ? { authorization } : {},
+        socket: { remoteAddress: "127.0.0.1" },
+      });
+      const anna = await seam.principalOfUpgrade(upgrade(`Bearer ${token}`));
+      expect(anna).toMatchObject({ iss: idp.issuer, sub: "sub-anna" });
+      expect(await seam.principalOfUpgrade(upgrade())).toBeNull();
+      expect(await seam.principalOfUpgrade(upgrade("Bearer garbage"))).toBeNull();
+      expect(await seam.principalOfUpgrade(upgrade("Bearer pi_op_forged"))).toBeNull();
+
+      // No policy registered ⇒ authorize is true for any principal (D24 default); bad action names are refused.
+      expect(await seam.authorize(anna, "export", { kind: "note" })).toBe(true);
+      expect(await seam.authorize(anna, "a:b", { kind: "note" })).toBe(false);
+
+      // Per-user storage lives under THIS plugin's data root, keyed by a hash.
+      const dir: string = seam.userDataDir(anna);
+      expect(dir).toContain(`${"/.pi/dashboard/plugins/consumer/users/"}`);
+      expect(dir.startsWith(h.home)).toBe(true);
+    } finally {
+      delete (globalThis as any).__consumerIdentity;
+    }
+  }, 40000);
+});

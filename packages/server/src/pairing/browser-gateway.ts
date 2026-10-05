@@ -12,7 +12,10 @@ import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/t
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
+import { ALLOW_ALL_GRANTS, type BootstrapFamily, type BootstrapGrants, DENY_ALL_GRANTS, FRAME_FAMILY } from "../identity/bootstrap-grants.js";
+import { deliverDomainEvent } from "../identity/domain-fanout.js";
 import type { HostPolicy } from "../identity/host-access.js";
+import { HostActions, hostResource } from "../identity/host-resources.js";
 import { isSessionOwnedMessage, SESSION_LIST_MESSAGES } from "../identity/ws-message-scope.js";
 import { classifyWsRoad } from "../identity/ws-road-classification.js";
 import { installSocketLifetime, type LifetimeSocket } from "../identity/socket-lifetime.js";
@@ -466,6 +469,13 @@ export interface BrowserGateway {
   isRecoveryLivenessPending?: (sessionId: string) => boolean;
   /** Broadcast a message to all connected clients */
   broadcast(msg: ServerToBrowserMessage): void;
+  /**
+   * Fan out a plugin DOMAIN event (a global, non-session frame). Enforced + a
+   * host policy ⇒ delivered per socket only where the policy permits
+   * (`deliverDomainEvent`), ordered, fail-closed; otherwise the plain
+   * `broadcast`. See change: add-multi-user-identity-plane (§10, task 18.37b).
+   */
+  broadcastDomainEvent(msg: ServerToBrowserMessage, pluginId: string, eventType: string): void;
   /**
    * Register a handler for a Browser→Server message type the gateway does
    * not natively handle. Used by plugins to receive `plugin_action`
@@ -1369,6 +1379,19 @@ export function createBrowserGateway(
   const lastKnownOwner = new Map<string, Owner>();
   const withheldSpawnRequestId = new Map<string, string>();
   const socketPrincipal = (ws: WebSocket): Owner | null => (ws as { principal?: Owner }).principal ?? null;
+  // ── non-session policy grants (D9/D24, 18.37a) ────────────────────────
+  // Decided async at the WS upgrade and bound as `ws.bootstrapGrants`; applied
+  // synchronously here. Active only when enforced AND a policy is registered;
+  // a socket without grants is then fail-closed (denied every family).
+  const policyGating = () => (isResolverActive?.() ?? false) && hostPolicy?.hasPolicy() === true;
+  const grantsOf = (ws: WebSocket): BootstrapGrants =>
+    !policyGating() ? ALLOW_ALL_GRANTS : ((ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants ?? DENY_ALL_GRANTS);
+  const granted = (ws: WebSocket, family: BootstrapFamily): boolean => grantsOf(ws)[family] === true;
+  /** Per-socket gate for a non-session frame type, or undefined when it is not family-gated. */
+  const familyGate = (type: string): ((ws: WebSocket) => boolean) | undefined => {
+    const family = FRAME_FAMILY[type];
+    return family && policyGating() ? (ws) => granted(ws, family) : undefined;
+  };
   function ownerOf(sessionId: string, fromFrame?: Owner): Owner | undefined {
     const owner = fromFrame ?? sessionManager.get(sessionId)?.principalOwner ?? lastKnownOwner.get(sessionId);
     if (owner) lastKnownOwner.set(sessionId, owner);
@@ -1422,7 +1445,32 @@ export function createBrowserGateway(
     // message, so the shed site's debt identity is derived here and passed down
     // (D2). A non-registry frame yields `undefined` and pays nothing.
     const dirty = deliveryInfoOf(msg);
-    fanout(serialized, cls === "state" ? key : undefined, dirty);
+    fanout(serialized, cls === "state" ? key : undefined, dirty, familyGate(msg.type));
+  }
+
+  let domainChain: Promise<void> = Promise.resolve();
+  /**
+   * Plugin domain event (§10, 18.37b). Policy + enforced ⇒ per-socket decision via
+   * `deliverDomainEvent`, queued so async decisions never reorder events;
+   * otherwise exactly the plain broadcast.
+   */
+  function broadcastDomainEvent(msg: ServerToBrowserMessage, pluginId: string, eventType: string): void {
+    const policy = hostPolicy;
+    if (!(isResolverActive?.() ?? false) || !policy?.hasPolicy()) {
+      broadcast(msg);
+      return;
+    }
+    const serialized = JSON.stringify(msg);
+    domainChain = domainChain
+      .then(async () => {
+        const targets = [...subscriptions.keys()]
+          .filter((ws) => ws.readyState === WebSocket.OPEN)
+          .map((ws) => ({ socket: ws, principal: socketPrincipal(ws) }));
+        await deliverDomainEvent(targets, HostActions.domainEvent, hostResource.domain(pluginId, eventType), policy, (ws) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(serialized);
+        });
+      })
+      .catch((err) => console.error("[browser-gw] domain event fan-out failed:", err));
   }
 
   /** Enforced-mode delivery of a session-scoped frame. Returns false for a
@@ -1443,8 +1491,14 @@ export function createBrowserGateway(
       const cwd = (msg as { cwd?: unknown }).cwd;
       if (!FOLDER_SCOPED.has(msg.type) || typeof cwd !== "string") return false;
       const audience = folderAudience(cwd);
+      const gate = familyGate(msg.type);
       const { cls, key } = frameClassOf(msg);
-      fanout(JSON.stringify(msg), cls === "state" ? key : undefined, deliveryInfoOf(msg), audience ?? undefined);
+      fanout(
+        JSON.stringify(msg),
+        cls === "state" ? key : undefined,
+        deliveryInfoOf(msg),
+        audience && gate ? (ws) => audience(ws) && gate(ws) : (gate ?? audience ?? undefined),
+      );
       return true;
     }
     const owner = ownerOf(target.id, target.owner);
@@ -1520,7 +1574,9 @@ export function createBrowserGateway(
     const header = `{"type":"openspec_update","cwd":${JSON.stringify(cwd)},"data":`;
     const serialized = header + dataSerialized + "}";
     // Pre-serialized state frame: hand fanout the D1 delivery key directly.
-    fanout(serialized, `openspec_update:${cwd}`, undefined, folderAudience(cwd) ?? undefined);
+    const audience = folderAudience(cwd);
+    const gate = familyGate("openspec_update");
+    fanout(serialized, `openspec_update:${cwd}`, undefined, audience && gate ? (ws) => audience(ws) && gate(ws) : (gate ?? audience ?? undefined));
   }
 
   // Decides prompt-capability issuance per connection; null = never issue.
@@ -1587,7 +1643,7 @@ export function createBrowserGateway(
       if (typeof preferencesStore.getGroupByPrefs === "function") {
         sendTo(ws, { type: "group_by_prefs_updated", ...preferencesStore.getGroupByPrefs() });
       }
-      sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
+      if (granted(ws, "workspace")) sendTo(ws, { type: "pinned_dirs_updated", paths: preferencesStore.getPinnedDirectories() });
       // Send favorite models snapshot on connect. Guarded with `typeof` so
       // old PreferencesStore stubs in tests don't crash.
       // See change: enrich-model-selector-capabilities-favorites.
@@ -1597,7 +1653,7 @@ export function createBrowserGateway(
       // Send current workspaces snapshot. See change: folder-workspaces.
       // Guarded with `typeof` so old PreferencesStore stubs in tests that
       // predate workspaces still work — they simply get no workspace snapshot.
-      if (typeof preferencesStore.getWorkspaces === "function") {
+      if (typeof preferencesStore.getWorkspaces === "function" && granted(ws, "workspace")) {
         sendTo(ws, { type: "workspaces_updated", workspaces: preferencesStore.getWorkspaces() });
       }
       // Send display-prefs snapshot on connect so a client that missed a live
@@ -1627,7 +1683,7 @@ export function createBrowserGateway(
     // `openspec_update` per cwd, never silently omit.
     // See change: fix-cold-boot-openspec-protocol.
     if (directoryService) {
-      for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
+      for (const msg of granted(ws, "openspec") ? buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot) : []) {
         const audience = folderAudience(msg.cwd);
         if (!audience || audience(ws)) sendTo(ws, msg);
       }
@@ -1638,7 +1694,7 @@ export function createBrowserGateway(
       // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
       // (precedent: `preferencesStore.getDisplayPrefs` above).
       // See change: fix-folder-header-worktree-branch-leak.
-      if (typeof directoryService.folderHeadSnapshot === "function") {
+      if (typeof directoryService.folderHeadSnapshot === "function" && granted(ws, "branch")) {
         for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
           const audience = folderAudience(cwd);
           if (!audience || audience(ws)) sendTo(ws, { type: "git_head_update", cwd, branch });
@@ -1647,7 +1703,7 @@ export function createBrowserGateway(
     }
 
     // Send active terminals on connect
-    if (terminalManager) {
+    if (terminalManager && granted(ws, "terminal")) {
       for (const terminal of terminalManager.list()) {
         sendTo(ws, { type: "terminal_added", terminal });
       }
@@ -2414,6 +2470,8 @@ export function createBrowserGateway(
         invokeSubscriber(handler, msg as unknown as ServerToBrowserMessage, "prompt replay", sessionId);
       }
     },
+
+    broadcastDomainEvent,
 
     broadcastToAll(msg: ServerToBrowserMessage) {
       broadcast(msg);

@@ -146,7 +146,11 @@ import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
 import { identityMe } from "./identity/identity-me.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
+import { buildAuthContext } from "./identity/auth-context.js";
+import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
 import { BreakGlass } from "./identity/break-glass.js";
+import { dispatchResolvers } from "./identity/dispatch.js";
+import { createPluginIdentity } from "./identity/plugin-identity.js";
 import { isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
@@ -462,6 +466,9 @@ function resolvedPiVersion(): string | undefined {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
+/** Plugin frames that are NOT domain events: replay-cached UI intents and settings echoes. */
+const NON_DOMAIN_PLUGIN_FRAMES: ReadonlySet<string> = new Set(["plugin_intents", "plugin_config_update"]);
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -1801,6 +1808,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // D23 break-glass: one-time code → short-lived operator bearer (in-memory).
   const breakGlass = new BreakGlass();
   let lastBreakGlassUseWarnAt = 0;
+  // Principal behind a (plugin) WS upgrade's `Authorization` credential: the host's
+  // own operator bearer first, else the trusted resolvers. null ⇒ unauthenticated.
+  const resolveUpgradePrincipal = async (req: import("node:http").IncomingMessage): Promise<Principal | null> => {
+    const authz = req.headers.authorization;
+    const op = breakGlass.resolveBearer(authz);
+    if (op) return op.principal;
+    if (typeof authz === "string" && /^Bearer pi_op_/.test(authz)) return null;
+    const ctx = buildAuthContext(
+      {
+        method: "GET",
+        url: req.url ?? "/",
+        ip: req.socket.remoteAddress ?? "",
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        isAuthenticated: false,
+      },
+      resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
+    );
+    const out = await dispatchResolvers(ctx, {
+      resolvers: resolverRegistry.ordered(),
+      timeoutMs: loadConfig().identity.resolverTimeoutMs,
+      log: (msg) => console.warn(msg),
+    });
+    return out.kind === "claim" ? out.resolution.principal : null;
+  };
   registerResolverHook(fastify, {
     registry: resolverRegistry,
     breakGlass,
@@ -2963,7 +2994,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
                 }
-                browserGateway.broadcast(msg as ServerToBrowserMessage);
+                // §10 / 18.37b: a plugin's GLOBAL (non-session) frame is a domain event.
+                // Enforced + a host policy ⇒ per-socket policy fan-out; else the plain
+                // broadcast. Session-scoped frames, intents and config echoes keep
+                // their own roads (owner-gated / replay-cached / settings).
+                if (m && typeof m.type === "string" && m.sessionId == null && !NON_DOMAIN_PLUGIN_FRAMES.has(m.type)) {
+                  browserGateway.broadcastDomainEvent(msg as ServerToBrowserMessage, plugin.manifest.id, m.type);
+                } else {
+                  browserGateway.broadcast(msg as ServerToBrowserMessage);
+                }
               },
               subscribeSession: (sessionId, handler) => {
                 // Trusted gate — same priority rule as the other control-plane
@@ -3432,6 +3471,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Identity plane (D16): a TRUSTED resolver plugin publishes its
               // browser login descriptor; core stamps the owning pluginId (F6)
               // and relays it pre-auth. Untrusted plugin ⇒ no-op registrar.
+              // D24 consumer seam (18.27): principal, policy, per-user data for THIS plugin.
+              identity: createPluginIdentity(plugin.manifest.id, {
+                isEnforced: identityEnforced,
+                principalOfRequest: (req) => sessionPrincipalOf(req as object),
+                resolveUpgrade: resolveUpgradePrincipal,
+                policy: policyRegistry,
+                pluginDataRoot: (pid) => path.join(os.homedir(), ".pi", "dashboard", "plugins", pid),
+              }),
               registerBrowserLoginConfig: (loginConfig) => {
                 const id = plugin.manifest.id;
                 if (!resolverRegistry.isTrusted(id)) {
@@ -3623,7 +3670,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // the query, so scope stays query-string-safe by construction and
         // auth-scope + routing-scope cannot drift.
         switch (scope) {
-          case "browser":
+          case "browser": {
+            // 18.37a: decide the non-session policy grants BEFORE the upgrade
+            // completes (the policy is async; the gateway's connect handler is
+            // not). Only when enforced AND a policy exists — otherwise the
+            // upgrade proceeds synchronously, byte-for-byte as before.
+            const finishBrowserUpgrade = (grants?: BootstrapGrants) =>
             browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
               // §9.3: attach the immutable principal + its expiry resolved at
               // upgrade so every session road can owner-gate. Absent in the
@@ -3641,9 +3693,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   : Object.freeze({ ...upgradeAuth.principal });
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
+              if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               browserGateway.wss.emit("connection", ws, request);
             });
+            if (identityEnforced() && policyRegistry.hasPolicy()) {
+              void decideBootstrapGrants(upgradeAuth.principal, policyRegistry).then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS));
+            } else {
+              finishBrowserUpgrade();
+            }
             break;
+          }
           case "terminal":
             terminalGateway.handleUpgrade(request, socket, head);
             break;

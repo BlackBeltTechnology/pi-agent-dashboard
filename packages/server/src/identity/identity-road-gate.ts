@@ -40,7 +40,7 @@ export function createIdentityRoadGate(deps: IdentityRoadGateDeps) {
   return async function identityRoadGate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     if (!deps.isEnforced()) return;
     const route = request.routeOptions?.url ?? "";
-    if (!route.startsWith("/api/")) return;
+    if (!route.startsWith("/api/") && !route.startsWith("/editor/") && !route.startsWith("/live/")) return;
 
     const road = classifyHttpRoad(request.method, route, deps.routeOwnerOf);
     if (road?.road === "identity" || road?.road === "session-handler") return;

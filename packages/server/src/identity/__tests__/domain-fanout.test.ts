@@ -62,3 +62,20 @@ describe("deliverDomainEvent (§10)", () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+describe("deliverDomainEvent — break-glass operator (D23)", () => {
+  it("the local operator receives every domain event under a policy, without consulting it", async () => {
+    const { LOCAL_OPERATOR } = await import("../session-access.js");
+    const send = vi.fn();
+    const policy = { hasPolicy: () => true, authorize: vi.fn(async () => false) };
+    const out = await deliverDomainEvent(
+      [{ socket: "op", principal: LOCAL_OPERATOR }, { socket: "anna", principal: anna }],
+      HostActions.domainEvent,
+      resource,
+      policy,
+      send,
+    );
+    expect(out).toEqual(["op"]);
+    expect(policy.authorize).toHaveBeenCalledTimes(1); // anna only
+  });
+});

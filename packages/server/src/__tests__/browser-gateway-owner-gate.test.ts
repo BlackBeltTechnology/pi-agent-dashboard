@@ -24,6 +24,7 @@ function makeFakeWs(principal?: { iss: string; sub: string }) {
     ping: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     readyState: number;
+    bufferedAmount: number;
     OPEN: number;
     principal?: { iss: string; sub: string };
   };
@@ -32,6 +33,7 @@ function makeFakeWs(principal?: { iss: string; sub: string }) {
   ws.ping = vi.fn();
   ws.terminate = vi.fn();
   ws.readyState = 1;
+  ws.bufferedAmount = 0;
   ws.OPEN = 1;
   if (principal) ws.principal = principal;
   return ws;
@@ -192,5 +194,133 @@ describe("gateway non-session host-policy gate", () => {
     await deliver(ws, { type: "retry_session", sessionId: "s1" });
     expect(sendToSession).toHaveBeenCalled();
     expect(authorize).not.toHaveBeenCalled();
+  });
+});
+
+// ── 18.37(a) bootstrap disclosure + (b) domain-event road ──────────────────
+describe("non-session bootstrap + domain events under a host policy (18.37)", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
+
+  const types = (ws: { send: ReturnType<typeof vi.fn> }) =>
+    ws.send.mock.calls.map((c) => (JSON.parse(c[0] as string) as { type: string }).type);
+
+  function prefsGateway(active: boolean, policy: boolean) {
+    const sessionManager = createMemorySessionManager();
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const preferencesStore = {
+      getPinnedDirectories: () => ["/p"],
+      getWorkspaces: () => [{ id: "w" }],
+      getCollapsedFolders: () => [],
+      getFavoriteModels: () => [],
+    };
+    const terminalManager = { list: () => [{ id: "t1" }], on: vi.fn() };
+    // Positional deps: preferencesStore is #7, terminalManager #9, isResolverActive #25.
+    const gateway = createBrowserGateway(
+      sessionManager,
+      createMemoryEventStore(() => false),
+      piGateway,
+      undefined, undefined, undefined,
+      preferencesStore as never,
+      undefined,
+      terminalManager as never,
+      ...(new Array(15).fill(undefined) as []),
+      () => active,
+    );
+    gateway.setHostPolicy({ hasPolicy: () => policy, authorize: vi.fn(async () => true) as never });
+    return gateway;
+  }
+
+  it("under a policy, a socket WITHOUT grants gets no workspace/terminal bootstrap (fail-closed)", () => {
+    const g = prefsGateway(true, true);
+    const ws = makeFakeWs(owner);
+    g.wss.emit("connection", ws, {});
+    const t = types(ws);
+    expect(t).not.toContain("workspaces_updated");
+    expect(t).not.toContain("pinned_dirs_updated");
+    expect(t).not.toContain("terminal_added");
+    expect(t).toContain("sessions_snapshot"); // owner-filtered session state is unaffected
+  });
+
+  it("granted families are sent, denied ones are not", () => {
+    const g = prefsGateway(true, true);
+    const ws = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    ws.bootstrapGrants = { workspace: true, openspec: false, branch: false, terminal: false };
+    g.wss.emit("connection", ws, {});
+    const t = types(ws);
+    expect(t).toContain("workspaces_updated");
+    expect(t).toContain("pinned_dirs_updated");
+    expect(t).not.toContain("terminal_added");
+  });
+
+  it("no policy ⇒ unchanged bootstrap; inert plane ⇒ unchanged even with a policy", () => {
+    for (const [active, policy] of [[true, false], [false, true]] as const) {
+      const g = prefsGateway(active, policy);
+      const ws = makeFakeWs(owner);
+      g.wss.emit("connection", ws, {});
+      expect(types(ws)).toEqual(expect.arrayContaining(["workspaces_updated", "pinned_dirs_updated", "terminal_added"]));
+    }
+  });
+
+  it("live frames of a denied family are withheld too (terminal_added broadcast)", () => {
+    const g = prefsGateway(true, true);
+    const yes = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    yes.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: true };
+    const no = makeFakeWs(other) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    no.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: false };
+    g.wss.emit("connection", yes, {});
+    g.wss.emit("connection", no, {});
+    yes.send.mockClear();
+    no.send.mockClear();
+    g.broadcast({ type: "terminal_added", terminal: { id: "t2" } } as never);
+    expect(types(yes)).toContain("terminal_added");
+    expect(types(no)).not.toContain("terminal_added");
+  });
+
+  it("a plugin domain event is delivered only to sockets the policy permits (principal-less gets none)", async () => {
+    const g = prefsGateway(true, true);
+    const authorize = vi.fn(async ({ principal }: { principal: { sub: string } }) => principal.sub === "user-1");
+    g.setHostPolicy({ hasPolicy: () => true, authorize: authorize as never });
+    const a = makeFakeWs(owner);
+    const b = makeFakeWs(other);
+    const anon = makeFakeWs();
+    for (const w of [a, b, anon]) g.wss.emit("connection", w, {});
+    for (const w of [a, b, anon]) w.send.mockClear();
+    g.broadcastDomainEvent({ type: "goal_status", n: 1 } as never, "goal", "goal_status");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(types(a)).toContain("goal_status");
+    expect(types(b)).not.toContain("goal_status");
+    expect(types(anon)).not.toContain("goal_status");
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "domain.event", resource: { kind: "domain", pluginId: "goal", eventType: "goal_status" } }));
+  });
+
+  it("no policy ⇒ a domain event is the plain synchronous broadcast", () => {
+    const g = prefsGateway(true, false);
+    const a = makeFakeWs(owner);
+    const anon = makeFakeWs();
+    g.wss.emit("connection", a, {});
+    g.wss.emit("connection", anon, {});
+    a.send.mockClear();
+    anon.send.mockClear();
+    g.broadcastDomainEvent({ type: "goal_status" } as never, "goal", "goal_status");
+    expect(types(a)).toContain("goal_status");
+    expect(types(anon)).toContain("goal_status");
+  });
+
+  it("domain events keep their order under a policy (async decisions never reorder)", async () => {
+    const g = prefsGateway(true, true);
+    let n = 0;
+    g.setHostPolicy({ hasPolicy: () => true, authorize: (async () => { await new Promise((r) => setTimeout(r, n++ === 0 ? 30 : 0)); return true; }) as never });
+    const a = makeFakeWs(owner);
+    g.wss.emit("connection", a, {});
+    a.send.mockClear();
+    g.broadcastDomainEvent({ type: "ev", i: 1 } as never, "p", "ev");
+    g.broadcastDomainEvent({ type: "ev", i: 2 } as never, "p", "ev");
+    await new Promise((r) => setTimeout(r, 80));
+    const order = a.send.mock.calls.map((c) => (JSON.parse(c[0] as string) as { i?: number }).i).filter(Boolean);
+    expect(order).toEqual([1, 2]);
   });
 });
