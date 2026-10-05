@@ -19,8 +19,8 @@ describe("PromptBus.requestWithId (gate budget cancel)", () => {
     const seen: string[] = [];
     const b2 = new PromptBus({ timeoutMs: -1, onDashboardRequest: (r) => seen.push(r.id) });
     b2.registerAdapter({ name: "x", onRequest: () => ({ component: { type: "t", props: {} } }), onResponse() {}, onCancel() {} });
-    void b2.request({ pipeline: "command", type: "confirm", question: "q" });
-    void b2.request({ pipeline: "command", type: "confirm", question: "q" });
+    void b2.request({ pipeline: "command", type: "confirm", question: "q" }).catch(() => undefined);
+    void b2.request({ pipeline: "command", type: "confirm", question: "q" }).catch(() => undefined);
     expect(new Set(seen).size).toBe(2);
   });
 });

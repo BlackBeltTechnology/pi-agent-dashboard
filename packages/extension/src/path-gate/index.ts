@@ -122,11 +122,11 @@ export function createPathGate(opts: PathGateOptions) {
     onSessionStart(): void {
       roots.startProbe();
       void import("@earendil-works/pi-coding-agent")
+        .catch(() => undefined)
         .then((m: any) => {
-          if (m.getAgentDir) resources.agentDir = m.getAgentDir();
-          if (m.getDocsPath) resources.docsDir = m.getDocsPath();
-        })
-        .catch(() => undefined);
+          if (m?.getAgentDir) resources.agentDir = m.getAgentDir();
+          if (m?.getDocsPath) resources.docsDir = m.getDocsPath();
+        });
     },
     /** Capture loaded skills + context files from `before_agent_start`. */
     onBeforeAgentStart(event: { systemPromptOptions?: { skills?: Array<{ baseDir?: string }>; contextFiles?: Array<{ path?: string }> } }): void {

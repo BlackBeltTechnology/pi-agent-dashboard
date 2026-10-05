@@ -284,7 +284,7 @@ export function createPathGateHandler(deps: PathGateDeps) {
       const run = prior.then(() => ask(tool, access, d, input, event.toolCallId, cwd, sid));
       const tail = run.catch(() => undefined);
       chains.set(sid, tail);
-      void tail.then(() => {
+      void tail.catch(() => undefined).then(() => {
         if (chains.get(sid) === tail) chains.delete(sid);
       });
       const result = await run;
