@@ -98,17 +98,32 @@ describe("pi-dashboard stop (real processes)", () => {
     expect(await waitFor(async () => !(await answers(port)), 6_000)).toBe(true);
   }, 90_000);
 
-  // E2 (review B1): the real entry point, temp HOME, no port flags — no bind-refusal
-  // warning (main() passes the no-op warn) and the 8000 default is never swept.
-  it("E2: `stop` under a temp HOME prints no [isolation] line and sweeps no production port", () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), "stop-real-e2-"));
-    cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
-    const r = runStop(home, []);
-    expect(r.status).toBe(0);
-    expect(r.stdout + r.stderr).not.toContain("[isolation]");
-    expect(r.stdout).toContain("Dashboard server is not running");
-    expect(r.stdout).not.toContain("held by pid");
-  }, 90_000);
+  // E2 (review B1): the real entry point, temp HOME, no port flags. A fake `lsof`
+  // on PATH records every port the sweep inspects: 8000 (the production default
+  // the temp-HOME guard remaps to 0) must never appear, the gateway port must.
+  it.skipIf(process.platform === "win32")(
+    "E2: `stop` under a temp HOME prints no [isolation] line and never inspects :8000",
+    () => {
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), "stop-real-e2-"));
+      cleanup.push(() => fs.rmSync(home, { recursive: true, force: true }));
+      const bin = path.join(home, "fakebin");
+      const log = path.join(home, "lsof.log");
+      fs.mkdirSync(bin);
+      fs.writeFileSync(path.join(bin, "lsof"), `#!/bin/sh\necho "$@" >> "${log}"\n`, { mode: 0o755 });
+      const r = spawnSync(process.execPath, [WRAPPER, "stop"], {
+        env: { ...process.env, HOME: home, USERPROFILE: home, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+        encoding: "utf-8",
+        timeout: 60_000,
+      });
+      expect(r.status).toBe(0);
+      expect(r.stdout + r.stderr).not.toContain("[isolation]");
+      const swept = fs.existsSync(log) ? fs.readFileSync(log, "utf-8") : "";
+      expect(swept).toContain(":9999 ");
+      expect(swept).not.toContain(":8000 ");
+      expect(swept).not.toContain(":0 ");
+    },
+    90_000,
+  );
 
   it("X6: a temp HOME stops its own dashboard", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "stop-real-own-"));
