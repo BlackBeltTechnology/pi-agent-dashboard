@@ -167,6 +167,12 @@ export interface PluginSessionLifecycle {
   recover?: boolean;
   /** `true` finalizes the session on socket close (no reconnect grace). */
   finalizeOnSocketClose?: boolean;
+  /**
+   * `true` hides the owned session from the board on its FIRST register (same
+   * `hidden` flag the headless auto-hide sets; revealed by "show hidden").
+   * Never re-applied on reattach. See change: hide-chat-gateway-sessions.
+   */
+  hidden?: boolean;
 }
 
 /**

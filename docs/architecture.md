@@ -1306,6 +1306,17 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
 
+### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
+
+`ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.
+
+- `recover?: boolean` — `false` opts owned session out of cold-start recovery (default recoverable). Persisted to `.meta.json` only when `false` (additive opt-out byte).
+- `finalizeOnSocketClose?: boolean` — `true` finalizes owned session on socket close, no reconnect grace. In-memory only; read at pi-gateway socket-close finalize branch.
+- `hidden?: boolean` — `true` hides owned session from board on FIRST register. Same `hidden` flag as headless auto-hide (`packages/server/src/session/memory-session-manager.ts`); revealed by "show hidden" toggle. Persisted to `.meta.json`, broadcast via `broadcastSessionUpdated`. Applied on fresh spawn-token resolution only (`packages/server/src/event-wiring.ts`); reattach never re-applies, so a later operator unhide survives.
+- `pending-plugin-ref-registry.ts` (`packages/server/src/pending/`) files a lifecycle record when ANY of `recover`/`finalizeOnSocketClose`/`hidden` set.
+- First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
+- See change: hide-chat-gateway-sessions.
+
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
 
 New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.

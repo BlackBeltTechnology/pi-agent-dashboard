@@ -18,6 +18,13 @@ describe("resolveConfig", () => {
     expect(cfg.defaultCwd).toBeUndefined();
   });
 
+  it('sessionVisibility defaults to "hidden"; only "shown" opts out', () => {
+    expect(resolveConfig({}).sessionVisibility).toBe("hidden");
+    expect(resolveConfig({ sessionVisibility: "shown" }).sessionVisibility).toBe("shown");
+    // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe
+    expect(resolveConfig({ sessionVisibility: "bogus" as any }).sessionVisibility).toBe("hidden");
+  });
+
   it("is total on undefined and non-object input", () => {
     expect(() => resolveConfig(undefined)).not.toThrow();
     // biome-ignore lint/suspicious/noExplicitAny: malformed-input probe

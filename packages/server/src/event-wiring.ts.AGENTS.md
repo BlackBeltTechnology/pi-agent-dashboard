@@ -25,3 +25,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 `pi_version_update` arm stamps + broadcasts `piBelowFloor = computePiBelowFloor(version, serverPiMinimum())` (`null` clears). See change: update-pi-core-1-0-adopt-apis.
 
 `accumulateUsage(sessionId, stats, usageKind?)` — one accumulator for `turn_end`, tool-result `message_end` (read from in-flight event; assistant `message_end` never counted) and `usage_recorded`; adds all five totals, stores + broadcasts `stats_update` (non-turn: `usageKind`, no `contextUsage`). See change: count-non-message-usage.
+
+- Plugin `lifecycle.hidden === true` (fresh resolution only) → `sessionManager.update(sessionId, { hidden: true })` + `browserGateway.broadcastSessionUpdated(sessionId, { hidden: true })`; pinned by `__tests__/plugin-lifecycle-hidden.test.ts`. See change: hide-chat-gateway-sessions.

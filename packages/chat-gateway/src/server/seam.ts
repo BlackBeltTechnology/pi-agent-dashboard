@@ -38,6 +38,8 @@ export interface SeamSpawnOptions {
   initialPrompt?: string;
   /** Resume a prior pi session instead of creating a fresh one (task 4.3). */
   resume?: { sessionFile: string };
+  /** Core-owned lifecycle declaration (`hidden` keeps the session off the board). */
+  lifecycle?: { hidden?: boolean };
   /** Additive extension allowlist (the L3 tool guard rides here). */
   extensions?: string[];
   /**
@@ -132,6 +134,7 @@ export function createHostSeam(ctx: ServerPluginContext): HostSeam {
         pluginRef: opts.pluginRef,
         initialPrompt: opts.initialPrompt,
         resume: opts.resume,
+        ...(opts.lifecycle ? { lifecycle: opts.lifecycle } : {}),
         scope:
           opts.extensions || opts.extensionConfig
             ? { extensions: opts.extensions, extensionConfig: opts.extensionConfig }

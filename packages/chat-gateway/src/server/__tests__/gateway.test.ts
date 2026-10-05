@@ -398,6 +398,8 @@ describe("chat-gateway orchestrator", () => {
     expect(seam.sentPrompts).toEqual([]);
     // The message that triggered the resume is delivered, not dropped.
     expect(seam.spawns[0].initialPrompt).toBe("keep going");
+    // A resumed session is a fresh register: it is hidden like a fresh spawn.
+    expect(seam.spawns[0].lifecycle).toEqual({ hidden: true });
     expect(adapter.sent[0].content).toMatch(/resuming/i);
     expect(adapter.sent[0].content).not.toMatch(/answer again/i);
   });
@@ -882,6 +884,39 @@ describe("chat-gateway orchestrator", () => {
     // Steer prefix stripped: a fresh session has no turn to steer.
     expect(seam.spawns[0].initialPrompt).toBe("what is the current branch?");
     expect(adapter.sent.at(-1)?.content).not.toMatch(/answer again/i);
+  });
+
+  async function spawnFor(config: ReturnType<typeof baseConfig>) {
+    const seam = createFakeSeam();
+    const { gateway } = makeGateway({ seam, store: memoryStore(), config });
+    await gateway.start();
+    await gateway.handleInbound({
+      platform: "discord",
+      channelId: "c1",
+      userId: "u1",
+      text: "hi",
+      isDM: false,
+      startedAt: 0,
+    });
+    return seam.spawns[0];
+  }
+
+  it("gateway-spawned sessions are hidden from the board by default", async () => {
+    const spawn = await spawnFor(
+      baseConfig({ groupChannels: ["c1"], fixedMap: { "discord:c1:-": "/repos/proj" } }),
+    );
+    expect(spawn.lifecycle).toEqual({ hidden: true });
+  });
+
+  it('sessionVisibility:"shown" spawns a visible session (no hidden lifecycle)', async () => {
+    const spawn = await spawnFor(
+      baseConfig({
+        groupChannels: ["c1"],
+        fixedMap: { "discord:c1:-": "/repos/proj" },
+        sessionVisibility: "shown",
+      }),
+    );
+    expect(spawn.lifecycle?.hidden).toBeUndefined();
   });
 
   it("F7: a second message during the spawn window does not start a second session", async () => {

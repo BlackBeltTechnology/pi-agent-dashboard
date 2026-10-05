@@ -83,6 +83,13 @@ see [`docs/release-process.md`](docs/release-process.md).
   opens reconnecting sockets with a fresh single-use ticket on every attempt. The
   `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
 
+- **Discord chat sessions stay off the board.** Sessions the Chat Gateway
+  starts or resumes are now hidden by default, like automation runs; turn on
+  "show hidden" to see them. Settings \ Chat Gateway "Chat sessions on the
+  board" (`sessionVisibility: "shown"`) brings them back. Sessions it attaches
+  to are yours and are never hidden. For plugin authors: `spawnSession` accepts
+  `lifecycle: { hidden: true }` to hide the session on its first register.
+
 - **Discord release announcements.** The Release workflow (`publish.yml`)
   gains a best-effort `discord-announce` job that posts each production
   release's notes to the community Discord through the

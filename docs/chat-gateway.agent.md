@@ -36,6 +36,7 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
   4. Interactive attach: bound channel filters running sessions to bound workspace folders (`isWithinWorkspace`); refuses if 0 (names folders) or >1. Unbound channel filters `allowedRoots`; refuses if 0 or >1.
   5. Refusal: fails `allowedRoots` or no target.
 - Spawn/resume carry triggering message as `initialPrompt` (steer prefix stripped); host queues per cwd (`pendingInitialPromptRegistry`), runs it as first turn. Reply: `your message will run once it is up`.
+- Spawn/resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`; applied on first register only, never on reattach.
 - Spawn binding written on host `onSessionResolved`; correlate via plugin-OWNED `pluginRef.chatSpawnToken` (+ `bindSource`). Core-reserved keys (`spawnToken`, `source`, `sessionId`, `cwd`, …) stripped before owner notify (`CORE_RESERVED_REF_KEYS`) — never correlate on them.
 - Troubleshooting: `bindings.json` absent after spawn + command-log only `spawn_session` → correlation broken. See change: fix-chat-gateway-spawn-correlation.
 
@@ -92,8 +93,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 
 ## Configuration Reference
 - `enabled` (boolean, default true), `token` (string, writeOnly), `allowedRoots` (string[], default []), `fixedMap` (object), `defaultCwd` (string).
-- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
+- `allowlist` (string[]), `admins` (string[]), `groupChannels` (string[]), `sessionVisibility` (enum `hidden`|`shown`, default `hidden`; settings select `chat-gateway-session-visibility`), `steerPrefix` (string, default `!`), `editThrottleMs` (number, default 1000).
 - `toolPolicy` (`allow`, `approval`, `defaultAction: "deny"`), `guardExtension` (string).
 - `teamControls`: `ceiling` (enum, default `observe`), `disarmed` (boolean, default false), `auditRetention` (integer, default 10000, max 1000000).
 - `teamControls.bindings.<id>`: `principals` (map ID → tier), `roles` (map role ID → tier <= control), `mirrorLevel` (enum, default `names-only`), `ceiling` (enum).
-- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation`.
+- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions`.

@@ -49,6 +49,12 @@
       "default": [],
       "description": "L4: guild channel ids explicitly opted in. Any other guild channel is inert; DMs are isolated."
     },
+    "sessionVisibility": {
+      "type": "string",
+      "enum": ["hidden", "shown"],
+      "default": "hidden",
+      "description": "Board visibility of sessions the gateway starts or resumes. hidden (default) keeps Discord sessions off the board (revealed by \"show hidden\"); attached sessions are never touched."
+    },
     "steerPrefix": {
       "type": "string",
       "default": "!",

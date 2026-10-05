@@ -77,6 +77,8 @@ export function resolveConfig(raw: ChatGatewayConfig | undefined): ResolvedConfi
     groupChannels: normalizeStringArray(src.groupChannels),
     steerPrefix,
     editThrottleMs: normalizeThrottle(src.editThrottleMs),
+    // Only an explicit "shown" opts out; anything else stays hidden.
+    sessionVisibility: src.sessionVisibility === "shown" ? "shown" : CONFIG_DEFAULTS.sessionVisibility,
     ...(normalizeToolPolicy(src.toolPolicy) === undefined
       ? {}
       : { toolPolicy: normalizeToolPolicy(src.toolPolicy) }),

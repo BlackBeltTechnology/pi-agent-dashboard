@@ -51,6 +51,12 @@ export interface ChatGatewayConfig {
   /** Minimum ms between `editMessage` calls on one channel. Default 1000. */
   editThrottleMs?: number;
   /**
+   * Board visibility of gateway-SPAWNED/RESUMED sessions. Default `hidden`:
+   * chat sessions stay off the board (revealed by "show hidden"). Attached
+   * sessions are the operator's own and are never touched.
+   */
+  sessionVisibility?: "hidden" | "shown";
+  /**
    * L3 tool policy for gateway-SPAWNED sessions (attached sessions stay
    * ungated by design). Present ⇒ the companion guard extension is loaded.
    * Deny-first: a tool in neither list is denied unless `defaultAction` widens
@@ -105,6 +111,7 @@ export interface ResolvedConfig {
   groupChannels: string[];
   steerPrefix: string;
   editThrottleMs: number;
+  sessionVisibility: "hidden" | "shown";
   toolPolicy?: {
     allow?: string[];
     approval?: string[];
@@ -117,6 +124,7 @@ export const CONFIG_DEFAULTS = {
   enabled: true,
   steerPrefix: "!",
   editThrottleMs: 1000,
+  sessionVisibility: "hidden",
 } as const;
 
 // ── Inbound message ───────────────────────────────────────────────────────

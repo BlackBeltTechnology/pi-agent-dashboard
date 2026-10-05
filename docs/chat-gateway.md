@@ -94,8 +94,10 @@ Precedence ladder:
 - Correlation rides plugin-OWNED `pluginRef.chatSpawnToken` (+ `bindSource`).
 - Core-reserved ref keys stripped before owner notify (`CORE_RESERVED_REF_KEYS` in `packages/server/src/pending/pending-plugin-ref-registry.ts`: `spawnToken`, `source`, `sessionId`, `cwd`, `sessionFile`, `name`, …). Plugin must never correlate on them.
 - Regression (pre-fix): no `bindings.json` written; every message spawned an orphan session; `server.log` `[pending-plugin-ref-registry] dropped ref key "spawnToken"`.
+- Spawn and resume pass `lifecycle: { hidden: true }` unless `sessionVisibility: "shown"`. Keeps Discord sessions off the board by default.
+- Hide applied on FIRST register only (fresh spawn-token resolution, `packages/server/src/event-wiring.ts`). Reattach never re-applies; later operator unhide survives.
 - Troubleshooting: `~/.pi/dashboard/chat-gateway/bindings.json` absent after a spawn + command-log only `spawn_session` entries → correlation broken.
-- See change: fix-chat-gateway-spawn-correlation.
+- See change: fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions.
 
 ## L1 Pairing Flow
 
@@ -287,6 +289,7 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `allowlist` | `string[]` | `[]` | L1 identity allowlist: Discord user IDs authorized to talk to sessions. |
 | `admins` | `string[]` | `[]` | L2 binding authority: Discord user IDs authorized to bind channels to directories. |
 | `groupChannels` | `string[]` | `[]` | L4 channel allowlist: guild channel IDs opted into gateway interaction. Unlisted guild channels ignored. |
+| `sessionVisibility` | `string` | `"hidden"` | Board visibility of gateway-spawned/resumed sessions. Enum: `"hidden"`, `"shown"`. `hidden` sets session `hidden: true` on first register; revealed by "show hidden" toggle. Attached sessions never touched. Settings panel select `chat-gateway-session-visibility`. |
 | `steerPrefix` | `string` | `"!"` | Inbound message prefix forcing delivery mode `steer` instead of `followUp`. |
 | `editThrottleMs` | `number` | `1000` | Minimum milliseconds between Discord message edit API calls per channel. Minimum `0`. |
 | `toolPolicy` | `object` | - | L3 tool execution policy for gateway-spawned sessions. Contains `allow`, `approval`, `defaultAction`. |
@@ -305,4 +308,4 @@ Derived from `packages/chat-gateway/src/configSchema.json`:
 | `teamControls.bindings.<id>.mirrorLevel` | `string` | `"names-only"` | Outbound mirror filter: `names-only`, `names-and-diffs`, `full-transcript`. |
 | `teamControls.bindings.<id>.ceiling` | `string` | - | Per-binding tier ceiling. May only LOWER global ceiling; effective ceiling is `min(binding, global)`. |
 
-See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation.
+See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite, fix-chat-gateway-spawn-correlation, hide-chat-gateway-sessions.
