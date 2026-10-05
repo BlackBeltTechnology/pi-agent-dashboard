@@ -680,7 +680,6 @@ describe("PUT /api/kb/config", () => {
   });
 });
 
-import { homedir } from "node:os";
 // ═══════════════════════════════════════════════════════════════════════════
 // improve-kb-settings-sources-and-search — search / sources / trust / reindex
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1011,13 +1010,24 @@ describe("POST /api/kb/source-trust + trustRefs (kb-plugin-cwd-guard)", () => {
 
   it("E27 a source that exists only in the GLOBAL config is grantable from an admitted folder", async () => {
     const cwd = makeFolder({ withConfig: false });
-    const globalPath = join(homedir(), ".pi", "dashboard", "knowledge_base.json");
-    mkdirSync(dirname(globalPath), { recursive: true });
-    writeFileSync(globalPath, JSON.stringify({ sources: [{ kind: "git", ref: G }] }));
-    cleanup.push(globalPath);
-    const { app } = buildApp([cwd]);
-    expect((await post(app, cwd, { ref: G })).statusCode).toBe(200);
-    await app.close();
+    // Per-test HOME: the global config lives under homedir(), and a shared one would leak this
+    // fixture into concurrent test files (os.homedir() reads HOME / USERPROFILE at call time).
+    const home = mkdtempSync(join(tmpdir(), "kb-home-"));
+    cleanup.push(home);
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      const globalPath = join(home, ".pi", "dashboard", "knowledge_base.json");
+      mkdirSync(dirname(globalPath), { recursive: true });
+      writeFileSync(globalPath, JSON.stringify({ sources: [{ kind: "git", ref: G }] }));
+      const { app } = buildApp([cwd]);
+      expect((await post(app, cwd, { ref: G })).statusCode).toBe(200);
+      await app.close();
+    } finally {
+      restoreEnv("HOME", saved.HOME);
+      restoreEnv("USERPROFILE", saved.USERPROFILE);
+    }
   });
 
   it("E28 PUT trustRefs grants after a valid write and reports untrustedRefs; invalid patch trusts nothing", async () => {
