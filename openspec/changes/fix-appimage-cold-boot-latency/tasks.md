@@ -75,9 +75,9 @@
 
 ## 8. Runtime and cross-platform verification
 
-- [ ] 8.1 Extend the L3 spec `tests/e2e/asciidoc-preview.spec.ts` (docker harness; per its AGENTS row, read the port from `.pi-test-harness.json`). Triple: the harness booted through `pi-dashboard start` with the native default, and an `.adoc` file in the workspace · open the AsciiDoc preview · the preview renders the file's headings, has no `require is not defined`, and the server.log header names the native loader (test-plan #F1)
+- [x] 8.1 Extend the L3 spec `tests/e2e/asciidoc-preview.spec.ts` (docker harness; per its AGENTS row, read the port from `.pi-test-harness.json`). Triple: the harness booted through `pi-dashboard start` with the native default, and an `.adoc` file in the workspace · open the AsciiDoc preview · the preview renders the file's headings, has no `require is not defined`, and the server.log header names the native loader (test-plan #F1)
 - [ ] 8.2 Extend the L2 test `qa/tests/02-server-start.ps1` (exemplar: its existing start and health block). Triple: Windows QA VM with the install mapped by `subst B: <install-root>` · start the server from `B:` with env unset · `/api/health` returns 200, the `server.log` header names `native-ts-register.mjs`, and there is no `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Run it on the VM before ship (test-plan #X4)
-- [ ] 8.3 Extend the L2 test `qa/tests/02-server-start.sh` (exemplar: its existing start, stop, and log assertions). Triple: server running native · `pi-dashboard stop`, then `PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start` · `/api/health` returns 200, and the second launch's server.log header names `jiti-register.mjs` (test-plan #X5)
+- [x] 8.3 Extend the L2 test `qa/tests/02-server-start.sh` (exemplar: its existing start, stop, and log assertions). Triple: server running native · `pi-dashboard stop`, then `PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start` · `/api/health` returns 200, and the second launch's server.log header names `jiti-register.mjs` (test-plan #X5)
 
 ## 9. Docs, attribution, closeout
 
