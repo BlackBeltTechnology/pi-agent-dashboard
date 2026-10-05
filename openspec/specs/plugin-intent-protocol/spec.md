@@ -12,7 +12,7 @@ The motivating design notes live in `openspec/changes/adopt-server-driven-intent
 
 ### Requirement: Plugins SHALL emit UI intents via the bridge instead of running React code in the client
 
-Plugin server entries SHALL describe per-session UI contributions as JSON `IntentNode` trees and broadcast them via `ServerPluginContext.broadcastToSubscribers` with message type `"plugin_intents"`. The plugin's client-side code (if any) SHALL NOT call `useUiPrimitive(...)` and SHALL NOT import shell components directly. The shell, on each connected client, SHALL render incoming intents by resolving primitive names through its local primitive registry.
+Plugin server entries SHALL describe per-session UI contributions as JSON `IntentNode` trees and broadcast them via `ServerPluginContext.broadcastToSubscribers` with message type `"plugin_intents"`. The plugin's client-side code (if any) SHALL NOT call `useUiPrimitive(...)` and SHALL NOT import shell components directly. The single exception is the transient input primitive exception defined by `plugin-ui-primitive-registry`: a not-yet-migrated client claim MAY look up a stateless modal input primitive (for example `ui:path-picker`) with `useUiPrimitiveOrNull` only. The shell, on each connected client, SHALL render incoming intents by resolving primitive names through its local primitive registry.
 
 Plugins that ALREADY emit intent broadcasts (after migration) SHALL NOT also register React component claims for the same slot — the migration is per-claim, not parallel. Plugins that have NOT yet migrated MAY keep their refs-registry claims; the slot consumer renders the legacy claim until the intent path is wired.
 
@@ -34,6 +34,12 @@ Plugins that ALREADY emit intent broadcasts (after migration) SHALL NOT also reg
 - **WHEN** plugin broadcasts `{type:"plugin_intents", pluginId:"flows", sessionId:"abc", slot:"content-view", intent:null}`
 - **THEN** every client SHALL remove the previously-cached intent for that key from its IntentStore
 - **AND** the slot SHALL no longer render anything from that plugin for that session
+
+#### Scenario: Legacy client claim uses a transient input primitive
+
+- **WHEN** a not-yet-migrated plugin client claim calls `useUiPrimitiveOrNull(UI_PRIMITIVE_KEYS.pathPicker)`
+- **THEN** this is permitted, and the claim imports no shell component directly
+- **AND** a call to the strict `useUiPrimitive` from that claim remains non-conforming
 
 ### Requirement: Intent trees SHALL declare action handlers as data, not function refs
 
