@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolveNativeTsLoader, selectTsLoader } from "../platform/ts-loader-select.mjs";
 
 describe("selectTsLoader (E7)", () => {
@@ -48,5 +48,17 @@ describe("resolveNativeTsLoader", () => {
 
   it("falls back to the sibling copy for an anchor that cannot see the package", () => {
     expect(resolveNativeTsLoader({ anchor: "/x/cli.ts" })).toBe(resolveNativeTsLoader());
+  });
+});
+
+// A bundler (Vite, for Electron main) rewrites a literal
+// `new URL("./x", import.meta.url)` into an inlined `data:` URL, so a bundled
+// caller taking the sibling fallback got a register whose relative
+// `./native-ts-hooks.mjs` cannot resolve. The fallback must stay opaque to
+// that static analysis. See change: fix-appimage-cold-boot-latency.
+describe("resolveNativeTsLoader is bundler-safe", () => {
+  it("never builds the sibling URL from a string literal next to import.meta.url", () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../platform/ts-loader-select.mjs"), "utf-8");
+    expect(src).not.toMatch(/new URL\(\s*["'`]/);
   });
 });
