@@ -157,6 +157,7 @@ import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./
 import { BreakGlass } from "./identity/break-glass.js";
 import { dispatchResolvers } from "./identity/dispatch.js";
 import { createPluginIdentity } from "./identity/plugin-identity.js";
+import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
 import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
 import { HostActions, hostResource } from "./identity/host-resources.js";
 import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
@@ -3754,7 +3755,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               browserGateway.wss.emit("connection", ws, request);
             });
             if (identityEnforced() && policyRegistry.hasPolicy()) {
-              decideBootstrapGrants(upgradeAuth.principal, policyRegistry)
+              decideBootstrapGrants(upgradeAuth.principal, policyRegistry, terminalManager.list())
                 .then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS))
                 .catch((err) => {
                   console.error("[ws-gate] browser upgrade failed after the policy decision:", err);
@@ -3793,15 +3794,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
             // Review B2 (policy `live.read` before the upgrade) + B1 (a proxied
             // dev-server socket must not outlive the ticket's principal).
             gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: (request.url ?? "").split("?")[0] }, () => {
-              if (typeof upgradeAuth.principalExpiresAt === "number") {
-                const delay = Math.max(0, upgradeAuth.principalExpiresAt - Date.now());
-                // 32-bit timer cap; a longer lifetime is implausible and left unscheduled
-                // (same bound as `installSocketLifetime`).
-                if (delay <= 2_147_483_647) {
-                  const timer = setTimeout(() => socket.destroy(), delay);
-                  socket.once("close", () => clearTimeout(timer));
-                }
-              }
+              // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
+              const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
+              socket.once("close", cancelExpiry);
               handleLiveServerUpgrade(liveServerManager, request, socket, head);
             });
             break;

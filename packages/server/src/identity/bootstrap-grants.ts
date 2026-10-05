@@ -17,13 +17,27 @@
  */
 import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { HostActions, hostResource } from "./host-resources.js";
-import { isLocalOperator } from "./session-access.js";
+import { canAccessSession, isLocalOperator } from "./session-access.js";
 
 export type BootstrapFamily = "workspace" | "openspec" | "branch" | "terminal";
-export type BootstrapGrants = Readonly<Record<BootstrapFamily, boolean>>;
+export type BootstrapGrants = Readonly<Record<BootstrapFamily, boolean>> & {
+  /**
+   * Per-TARGET terminal decisions (review r2 B2). The family grant answers "may this
+   * principal see terminals at all"; a policy may still deny a specific terminal id.
+   * `"all"` ⇒ every terminal the owner gate admits; a set ⇒ only those ids.
+   * Absent while a policy is registered ⇒ fail-closed (no terminal).
+   */
+  readonly terminals?: "all" | ReadonlySet<string>;
+};
 
-export const ALLOW_ALL_GRANTS: BootstrapGrants = Object.freeze({ workspace: true, openspec: true, branch: true, terminal: true });
-export const DENY_ALL_GRANTS: BootstrapGrants = Object.freeze({ workspace: false, openspec: false, branch: false, terminal: false });
+export const ALLOW_ALL_GRANTS: BootstrapGrants = Object.freeze({ workspace: true, openspec: true, branch: true, terminal: true, terminals: "all" as const });
+export const DENY_ALL_GRANTS: BootstrapGrants = Object.freeze({
+  workspace: false,
+  openspec: false,
+  branch: false,
+  terminal: false,
+  terminals: Object.freeze(new Set<string>()) as ReadonlySet<string>,
+});
 
 const FAMILIES: ReadonlyArray<readonly [BootstrapFamily, HostAction, HostResource]> = [
   ["workspace", HostActions.workspaceRead, hostResource.workspace()],
@@ -48,18 +62,33 @@ export interface GrantPolicy {
   authorize(input: { principal: Principal; action: HostAction; resource: HostResource }): Promise<boolean>;
 }
 
-export async function decideBootstrapGrants(principal: Principal | null | undefined, policy: GrantPolicy): Promise<BootstrapGrants> {
+export async function decideBootstrapGrants(
+  principal: Principal | null | undefined,
+  policy: GrantPolicy,
+  /** Terminals alive at upgrade time; only the principal's OWN are put to the policy. */
+  terminals: ReadonlyArray<{ id: string; principalOwner?: { iss: string; sub: string } }> = [],
+): Promise<BootstrapGrants> {
   if (!policy.hasPolicy()) return ALLOW_ALL_GRANTS;
   if (!principal) return DENY_ALL_GRANTS;
   if (isLocalOperator(principal)) return ALLOW_ALL_GRANTS;
-  const decisions = await Promise.all(
-    FAMILIES.map(async ([, action, resource]) => {
-      try {
-        return (await policy.authorize({ principal, action, resource })) === true;
-      } catch {
-        return false;
-      }
+  const ask = async (action: HostAction, resource: HostResource): Promise<boolean> => {
+    try {
+      return (await policy.authorize({ principal, action, resource })) === true;
+    } catch {
+      return false;
+    }
+  };
+  const decisions = await Promise.all(FAMILIES.map(([, action, resource]) => ask(action, resource)));
+  const grants = Object.fromEntries(FAMILIES.map(([f], i) => [f, decisions[i]])) as Record<BootstrapFamily, boolean>;
+  // Per-target: only when the family allows terminals at all, and only for ones this principal owns.
+  const owned = grants.terminal
+    ? terminals.filter((t) => canAccessSession({ active: true, principal, owner: t.principalOwner }))
+    : [];
+  const allowedIds = new Set<string>();
+  await Promise.all(
+    owned.map(async (t) => {
+      if (await ask(HostActions.terminalRead, hostResource.terminal(t.id))) allowedIds.add(t.id);
     }),
   );
-  return Object.freeze(Object.fromEntries(FAMILIES.map(([f], i) => [f, decisions[i]])) as Record<BootstrapFamily, boolean>);
+  return Object.freeze({ ...grants, terminals: allowedIds as ReadonlySet<string> });
 }

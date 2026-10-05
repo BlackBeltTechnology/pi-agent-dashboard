@@ -11,7 +11,7 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
-import { canAccessSession, filterSnapshotForPrincipal } from "../identity/session-access.js";
+import { canAccessSession, filterSnapshotForPrincipal, isLocalOperator } from "../identity/session-access.js";
 import { ALLOW_ALL_GRANTS, type BootstrapFamily, type BootstrapGrants, DENY_ALL_GRANTS, FRAME_FAMILY } from "../identity/bootstrap-grants.js";
 import { deliverDomainEvent } from "../identity/domain-fanout.js";
 import type { HostPolicy } from "../identity/host-access.js";
@@ -1401,6 +1401,17 @@ export function createBrowserGateway(
   const grantsOf = (ws: WebSocket): BootstrapGrants =>
     !policyGating() ? ALLOW_ALL_GRANTS : ((ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants ?? DENY_ALL_GRANTS);
   const granted = (ws: WebSocket, family: BootstrapFamily): boolean => grantsOf(ws)[family] === true;
+  // Per-TARGET terminal decisions (review r2 B2): the family grant says "terminals at
+  // all"; the policy may still deny one id. Seeded at the upgrade (`grants.terminals`),
+  // extended as live-created terminals are approved one by one.
+  const approvedTerminals = new WeakMap<WebSocket, Set<string>>();
+  const terminalAllowed = (ws: WebSocket, id: string): boolean => {
+    if (!policyGating()) return true;
+    const g = grantsOf(ws);
+    if (g.terminal !== true) return false;
+    if (g.terminals === "all") return true;
+    return g.terminals?.has(id) === true || approvedTerminals.get(ws)?.has(id) === true;
+  };
   /** Per-socket gate for a non-session frame type, or undefined when it is not family-gated. */
   const familyGate = (type: string): ((ws: WebSocket) => boolean) | undefined => {
     const family = FRAME_FAMILY[type];
@@ -1501,10 +1512,51 @@ export function createBrowserGateway(
     const owner: Owner | undefined =
       (msg.type === "terminal_added" ? msg.terminal.principalOwner : undefined) ?? terminalManager?.get(id)?.principalOwner ?? lastKnownOwner.get(id);
     if (owner) lastKnownOwner.set(id, owner);
-    const gate = familyGate(msg.type);
-    const allow = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner }) && (!gate || gate(ws));
-    fanout(JSON.stringify(msg), undefined, undefined, allow);
-    if (msg.type === "terminal_removed") lastKnownOwner.delete(id);
+    const serialized = JSON.stringify(msg);
+    const ownerAllows = (ws: WebSocket) => canAccessSession({ active: true, principal: socketPrincipal(ws), owner });
+    const finish = () => {
+      if (msg.type === "terminal_removed") {
+        lastKnownOwner.delete(id);
+        for (const ws of subscriptions.keys()) approvedTerminals.get(ws)?.delete(id);
+      }
+    };
+
+    if (!policyGating()) {
+      // No policy ⇒ the synchronous owner-only path, unchanged.
+      fanout(serialized, undefined, undefined, ownerAllows);
+      finish();
+      return;
+    }
+
+    // Policy ⇒ a per-TARGET decision. Queued so a terminal's added/updated/removed
+    // frames are decided and delivered in order (an update can never overtake the
+    // decision for its own add). The decision is the policy's, per socket + id.
+    const policy = hostPolicy;
+    domainChain = domainChain
+      .then(async () => {
+        for (const ws of [...subscriptions.keys()]) {
+          if (ws.readyState !== WebSocket.OPEN || !ownerAllows(ws)) continue;
+          if (msg.type === "terminal_added") {
+            const g = grantsOf(ws);
+            if (g.terminal !== true) continue;
+            const principal = socketPrincipal(ws);
+            const ok =
+              g.terminals === "all" ||
+              (principal !== null &&
+                (isLocalOperator(principal) ||
+                  (await policy!.authorize({ principal: principal as never, action: HostActions.terminalRead, resource: hostResource.terminal(id) }).catch(() => false)) === true));
+            if (!ok) continue;
+            let set = approvedTerminals.get(ws);
+            if (!set) approvedTerminals.set(ws, (set = new Set()));
+            set.add(id);
+            ws.send(serialized);
+          } else if (terminalAllowed(ws, id)) {
+            ws.send(serialized);
+          }
+        }
+        finish();
+      })
+      .catch((err) => console.error("[browser-gw] terminal frame fan-out failed:", err));
   }
 
   function broadcastOwnerScoped(msg: ServerToBrowserMessage): boolean {
@@ -1519,7 +1571,7 @@ export function createBrowserGateway(
           (id) =>
             canAccessSession({ active: true, principal, owner: ownerOf(id) }) &&
             // A terminal id in an order list is terminal disclosure: the terminal grant applies.
-            (terminalManager?.get(id) === undefined || granted(ws, "terminal")),
+            (terminalManager?.get(id) === undefined || terminalAllowed(ws, id)),
         );
         if (visible.length > 0) sendTo(ws, { ...msg, sessionIds: visible });
       }
@@ -1744,6 +1796,7 @@ export function createBrowserGateway(
     // Send active terminals on connect
     if (terminalManager && granted(ws, "terminal")) {
       for (const terminal of terminalManager.list()) {
+        if (!terminalAllowed(ws, terminal.id)) continue; // per-target policy decision
         // 18.13: enforced ⇒ only terminals this principal owns (operator: all).
         if (!canAccessSession({ active: isResolverActive?.() ?? false, principal: socketPrincipal(ws), owner: terminal.principalOwner })) continue;
         sendTo(ws, { type: "terminal_added", terminal });
@@ -1790,7 +1843,7 @@ export function createBrowserGateway(
         isResolverActive?.() ?? false,
         (ws as { principal?: { iss: string; sub: string } }).principal ?? null,
         (terminalManager?.list() ?? [])
-          .filter((t) => granted(ws, "terminal") && canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
+          .filter((t) => terminalAllowed(ws, t.id) && canAccessSession({ active: true, principal: socketPrincipal(ws), owner: t.principalOwner }))
           .map((t) => t.id),
       );
       sendTo(ws, {

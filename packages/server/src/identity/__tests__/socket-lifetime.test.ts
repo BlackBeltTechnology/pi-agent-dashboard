@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BROWSER_HEARTBEAT_INTERVAL_MS,
+  MAX_TIMER_DELAY_MS,
+  scheduleAtExpiry,
   IDENTITY_EXPIRED_CLOSE_CODE,
   installSocketLifetime,
   type LifetimeSocket,
@@ -120,5 +122,84 @@ describe("installSocketLifetime — cleanup", () => {
 
   it("uses the default heartbeat interval constant", () => {
     expect(BROWSER_HEARTBEAT_INTERVAL_MS).toBeGreaterThan(0);
+  });
+});
+
+
+describe("expiry beyond the 32-bit timer cap (review r2 B1)", () => {
+  /** A virtual clock + timer queue so a 40-day lifetime runs in microseconds. */
+  function clock(start: number) {
+    let t = start;
+    const timers: Array<{ at: number; fn: () => void; cancelled: boolean }> = [];
+    return {
+      now: () => t,
+      setTimer: (fn: () => void, ms: number) => {
+        expect(ms).toBeLessThanOrEqual(MAX_TIMER_DELAY_MS); // never a delay Node would clamp to ~1 ms
+        const e = { at: t + ms, fn, cancelled: false };
+        timers.push(e);
+        return e as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimer: (h: ReturnType<typeof setTimeout>) => {
+        (h as unknown as { cancelled: boolean }).cancelled = true;
+      },
+      advanceTo(to: number) {
+        for (;;) {
+          const next = timers.filter((x) => !x.cancelled && x.at <= to).sort((a, b) => a.at - b.at)[0];
+          if (!next) break;
+          t = next.at;
+          next.cancelled = true;
+          next.fn();
+        }
+        t = to;
+      },
+      pending: () => timers.filter((x) => !x.cancelled).length,
+    };
+  }
+
+  const DAY = 86_400_000;
+
+  it("scheduleAtExpiry re-arms in chunks and fires exactly at expiry, never early", () => {
+    const c = clock(0);
+    const fire = vi.fn();
+    scheduleAtExpiry(40 * DAY, fire, c);
+    c.advanceTo(30 * DAY);
+    expect(fire).not.toHaveBeenCalled();
+    c.advanceTo(40 * DAY - 1);
+    expect(fire).not.toHaveBeenCalled();
+    c.advanceTo(40 * DAY);
+    expect(fire).toHaveBeenCalledTimes(1);
+  });
+
+  it("the returned cancel stops every pending chunk (no timer outlives the socket)", () => {
+    const c = clock(0);
+    const fire = vi.fn();
+    const cancel = scheduleAtExpiry(40 * DAY, fire, c);
+    c.advanceTo(26 * DAY); // first chunk fired, second armed
+    cancel();
+    c.advanceTo(41 * DAY);
+    expect(fire).not.toHaveBeenCalled();
+  });
+
+  it("an already-past expiry fires at once; a malformed expiry schedules nothing", () => {
+    const c = clock(1000);
+    const fire = vi.fn();
+    scheduleAtExpiry(500, fire, c);
+    expect(fire).toHaveBeenCalledTimes(1);
+    const none = vi.fn();
+    scheduleAtExpiry(Number.NaN, none, c);
+    scheduleAtExpiry(undefined, none, c);
+    expect(none).not.toHaveBeenCalled();
+    expect(c.pending()).toBe(0);
+  });
+
+  it("installSocketLifetime closes a socket whose token outlives the cap, at its real expiry", () => {
+    const c = clock(0);
+    const close = vi.fn();
+    const ws = { principalExpiresAt: 40 * DAY, ping: vi.fn(), terminate: vi.fn(), close, on: vi.fn() } as never;
+    installSocketLifetime(ws, { ...c, setHeartbeat: () => 0 as never, clearHeartbeat: () => {} });
+    c.advanceTo(40 * DAY - 1);
+    expect(close).not.toHaveBeenCalled();
+    c.advanceTo(40 * DAY);
+    expect(close).toHaveBeenCalledWith(IDENTITY_EXPIRED_CLOSE_CODE, "identity expired");
   });
 });

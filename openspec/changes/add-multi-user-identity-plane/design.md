@@ -343,6 +343,7 @@ Moved to the dedicated change `add-social-login-broker` (its design D1). This ch
 - **Hot-path network dependency:** Keycloak JWKS is cached/coalesced; resolver timeout bounded. Cold-start outage denies human access rather than accepting unverified tokens.
 - **Client plane surface:** PKCE + bearer + ticket + DPoP touch every browser fetch/mint path. Mitigation: reuse the existing `installDeviceAuthFetch`/`mintWsTicket` seams; DPoP is conditional so the demo path stays plain-bearer.
 - **Ownerless cut-over:** historical/automation sessions become unavailable to human users once active. Deliberate fail-closed; operationally planned.
+- **Policy decisions are per TARGET for terminals only; workspace / OpenSpec / branch are per family.** Terminals (shell I/O) are decided per terminal id at the WS upgrade, at the PTY/live upgrade and on every live terminal frame (ordered queue). The folder-keyed families (`workspace.read`, `openspec.read`, `branch.read`) are asked once per socket with no folder target, so a policy cannot hide ONE folder's OpenSpec/HEAD state while allowing the rest; session roads are owner-gated regardless. Accepted for this change; per-folder decisions would add one async policy call per (socket, cwd) on the OpenSpec poll fan-out, which is a measured-first follow-up, not a prerequisite.
 - **Socket valid until token expiry:** no introspection/revocation loop. Keep access-token TTL short; socket closes at `exp`.
 
 ## Migration / Rollback

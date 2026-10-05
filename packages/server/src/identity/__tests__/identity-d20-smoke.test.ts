@@ -12,7 +12,7 @@
  */
 import { type FakeOidcIssuer, startFakeOidcIssuer } from "@blackbelt-technology/pi-dashboard-shared/test-support/fake-oidc-issuer.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import { type BootHarness, createBootHarness, loginPlugin } from "./boot-harness.js";
 
 let h: BootHarness;
@@ -228,7 +228,9 @@ describe("review B1/B2 — terminal upgrade honours host policy and token expiry
       "pol-policy",
       `export default async (ctx) => {
          globalThis.__denied = new Set();
-         ctx.registerHostAccessPolicy(async ({ action }) => !globalThis.__denied.has(action));
+         globalThis.__deniedIds = new Set();
+         ctx.registerHostAccessPolicy(async ({ action, resource }) =>
+           !globalThis.__denied.has(action) && !(resource && resource.id && globalThis.__deniedIds.has(resource.id)));
        };`,
     );
     h.writeConfig({
@@ -273,4 +275,91 @@ describe("review B1/B2 — terminal upgrade honours host policy and token expiry
       delete (globalThis as any).__denied;
     }
   }, 60000);
+
+  it("r2-B2: generic terminal.read allowed but THIS terminal denied ⇒ no bootstrap row, no frames, no direct attach", async () => {
+    await bootWithPolicy();
+    try {
+      const token = await idp.mint({ sub: "sub-anna" });
+      const id = await spawnTerminal(token); // allowed while nothing is denied
+
+      (globalThis as any).__deniedIds.add(id);
+      // A fresh browser socket: its bootstrap must not disclose the denied terminal.
+      const ws = await h.dial(await ticketFor(token, "browser"));
+      expect(ws).not.toBeNull();
+      const frames: Array<{ type?: string; terminal?: { id: string }; terminalId?: string }> = [];
+      ws!.on("message", (raw) => frames.push(JSON.parse(String(raw))));
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(frames.some((f) => f.type === "sessions_snapshot")).toBe(true); // bootstrap really ran
+      expect(frames.filter((f) => f.type === "terminal_added").map((f) => f.terminal?.id)).not.toContain(id);
+      ws!.close();
+
+      const denied = await upgrade(`/ws/terminal/${id}?ticket=${encodeURIComponent(await ticketFor(token, "terminal"))}`);
+      expect(denied).toEqual({ status: 403 });
+    } finally {
+      delete (globalThis as any).__denied;
+      delete (globalThis as any).__deniedIds;
+    }
+  }, 60000);
+
+  describe("live upgrades (review r2: B2 untested, B1 expiry)", () => {
+    async function liveTarget(token: string): Promise<{ path: string; stop: () => Promise<void> }> {
+      const upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+      await new Promise<void>((r) => upstream.on("listening", () => r()));
+      const port = (upstream.address() as { port: number }).port;
+      const res = await fetch(`http://127.0.0.1:${h.handle().httpPort}/api/live-server/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ host: "127.0.0.1", port }),
+      });
+      expect(res.status).toBe(200);
+      const path_ = ((await res.json()) as { data: { path: string } }).data.path;
+      return { path: path_, stop: () => new Promise<void>((r) => upstream.close(() => r())) };
+    }
+    const ticket = async (token: string) => {
+      const res = await fetch(`http://127.0.0.1:${h.handle().httpPort}/api/ws-ticket`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ scope: "live" }),
+      });
+      return ((await res.json()) as { data: { ticket: string } }).data.ticket;
+    };
+
+    it("policy live.read decides the upgrade to an EXISTING target: allowed ⇒ opens, denied ⇒ 403", async () => {
+      await bootWithPolicy();
+      const token = await idp.mint({ sub: "sub-anna" });
+      const target = await liveTarget(token);
+      try {
+        const ok = await upgrade(`${target.path}/?ticket=${encodeURIComponent(await ticket(token))}`);
+        expect(ok.ws).toBeDefined();
+        ok.ws?.close();
+        (globalThis as any).__denied.add("live.read");
+        const no = await upgrade(`${target.path}/?ticket=${encodeURIComponent(await ticket(token))}`);
+        expect(no).toEqual({ status: 403 });
+      } finally {
+        await target.stop();
+        delete (globalThis as any).__denied;
+        delete (globalThis as any).__deniedIds;
+      }
+    }, 60000);
+
+    it("a proxied live socket is cut when its bearer expires", async () => {
+      await bootWithPolicy();
+      const long = await idp.mint({ sub: "sub-anna" });
+      const target = await liveTarget(long);
+      try {
+        const short = await idp.mint({ sub: "sub-anna", expSeconds: 3 });
+        const { ws } = await upgrade(`${target.path}/?ticket=${encodeURIComponent(await ticket(short))}`);
+        expect(ws).toBeDefined();
+        const closed = await new Promise<boolean>((resolve) => {
+          ws!.on("close", () => resolve(true));
+          setTimeout(() => resolve(false), 9000);
+        });
+        expect(closed).toBe(true);
+      } finally {
+        await target.stop();
+        delete (globalThis as any).__denied;
+        delete (globalThis as any).__deniedIds;
+      }
+    }, 60000);
+  });
 });

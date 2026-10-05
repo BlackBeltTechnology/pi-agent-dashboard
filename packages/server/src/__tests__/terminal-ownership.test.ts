@@ -185,17 +185,18 @@ describe("terminal frames reach only the owner (18.13)", () => {
     );
     gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
     const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
-    ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: grants.terminal };
+    ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: grants.terminal, terminals: grants.terminal ? "all" : new Set<string>() };
     gateway.wss.emit("connection", ws, {});
     ws.send.mockClear();
     return { gateway, ws };
   }
   const ordersOf = (ws: ReturnType<typeof fakeWs>) => types(ws).find((m) => m.type === "sessions_reordered")?.sessionIds;
 
-  it("B3: terminal_updated is withheld from an owner whose terminal grant is denied (and sent when granted)", () => {
+  it("B3: terminal_updated is withheld from an owner whose terminal grant is denied (and sent when granted)", async () => {
     for (const [granted, expected] of [[false, []], [true, ["terminal_updated"]]] as const) {
       const { gateway, ws } = policyGateway({ terminal: granted });
       gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "secret" } } as never);
+      await new Promise((r) => setTimeout(r, 20)); // policy-gated terminal frames are decided on an ordered queue
       expect(types(ws).map((m) => m.type)).toEqual(expected);
     }
   });
@@ -219,11 +220,77 @@ describe("terminal frames reach only the owner (18.13)", () => {
       const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
       gateway.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
       const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
-      ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, ...grants };
+      ws.bootstrapGrants = { workspace: true, openspec: true, branch: true, ...grants, terminals: grants.terminal ? "all" : new Set<string>() };
       gateway.wss.emit("connection", ws, {});
       return (types(ws).find((m) => m.type === "sessions_snapshot") as unknown as { orders: Record<string, string[]> }).orders;
     };
     expect(orders({ terminal: false })).toEqual({});
     expect(orders({ terminal: true })).toEqual({ "/a": ["ta"] });
+  });
+
+  // ── review r2 B2: decisions are per terminal TARGET, not just per family ──
+  function perTargetGateway(policy: (resourceId: string | undefined) => Promise<boolean> | boolean, grants: object | null) {
+    const sessionManager = createMemorySessionManager();
+    (sessionManager as any).snapshotVisibleIds = () => new Set(["ta", "tb"]);
+    const live = [
+      { id: "ta", cwd: "/a", principalOwner: anna },
+      { id: "tb", cwd: "/a", principalOwner: anna },
+    ];
+    const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const authorize = vi.fn(async ({ resource }: { resource: { id?: string } }) => policy(resource.id));
+    gateway.setHostPolicy({ hasPolicy: () => true, authorize: authorize as never });
+    const ws = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    if (grants) ws.bootstrapGrants = grants;
+    gateway.wss.emit("connection", ws, {});
+    ws.send.mockClear();
+    return { gateway, ws, live, authorize };
+  }
+  const familyAllowed = { workspace: true, openspec: true, branch: true, terminal: true };
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+
+  it("r2-B2: bootstrap only lists terminals in the per-target allow set", () => {
+    const g = perTargetGateway(() => true, null);
+    const fresh = fakeWs(anna) as ReturnType<typeof fakeWs> & { bootstrapGrants?: unknown };
+    fresh.bootstrapGrants = { ...familyAllowed, terminals: new Set(["ta"]) };
+    g.gateway.wss.emit("connection", fresh, {});
+    expect(types(fresh).filter((m) => m.type === "terminal_added").map((m) => m.terminal?.id)).toEqual(["ta"]);
+  });
+
+  it("r2-B2: updated/removed/order frames follow the per-target set (denied id never leaks, allowed id still flows)", async () => {
+    const { gateway, ws } = perTargetGateway(() => true, { ...familyAllowed, terminals: new Set(["ta"]) });
+    gateway.broadcast({ type: "terminal_updated", terminalId: "tb", updates: { title: "secret" } } as never);
+    gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "ok" } } as never);
+    gateway.broadcast({ type: "sessions_reordered", cwd: "/a", sessionIds: ["ta", "tb"] } as never);
+    await tick();
+    const frames = types(ws);
+    expect(frames.filter((m) => m.type === "terminal_updated").map((m) => m.terminalId)).toEqual(["ta"]);
+    expect(frames.find((m) => m.type === "sessions_reordered")?.sessionIds).toEqual(["ta"]);
+  });
+
+  it("r2-B2: a terminal created AFTER connect is shown only if the policy permits THAT terminal, in order with its updates", async () => {
+    const { gateway, ws, live, authorize } = perTargetGateway((id) => id !== "td", { ...familyAllowed, terminals: new Set<string>() });
+    for (const id of ["tc2", "td"]) live.push({ id, cwd: "/a", principalOwner: anna });
+    gateway.broadcast({ type: "terminal_added", terminal: { id: "tc2", cwd: "/a", shell: "sh", status: "active", createdAt: 0, principalOwner: anna } } as never);
+    gateway.broadcast({ type: "terminal_updated", terminalId: "tc2", updates: { title: "t" } } as never);
+    gateway.broadcast({ type: "terminal_added", terminal: { id: "td", cwd: "/a", shell: "sh", status: "active", createdAt: 0, principalOwner: anna } } as never);
+    gateway.broadcast({ type: "terminal_updated", terminalId: "td", updates: { title: "secret" } } as never);
+    await tick();
+    expect(types(ws).map((m) => `${m.type}:${m.terminal?.id ?? m.terminalId}`)).toEqual(["terminal_added:tc2", "terminal_updated:tc2"]);
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "terminal.read", resource: expect.objectContaining({ kind: "terminal", id: "td" }) }));
+  });
+
+  it("r2-B2: no policy ⇒ the synchronous, unchanged terminal path (no extra decisions)", () => {
+    const sessionManager = createMemorySessionManager();
+    const live = [{ id: "ta", cwd: "/a", principalOwner: anna }];
+    const terminalManager = { list: () => live, get: (id: string) => live.find((t) => t.id === id), on: vi.fn() };
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const gateway = createBrowserGateway(sessionManager, createMemoryEventStore(() => false), piGateway, undefined, undefined, undefined, { getPinnedDirectories: () => [], getCollapsedFolders: () => [] } as never, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => true);
+    const ws = fakeWs(anna);
+    gateway.wss.emit("connection", ws, {});
+    ws.send.mockClear();
+    gateway.broadcast({ type: "terminal_updated", terminalId: "ta", updates: { title: "x" } } as never);
+    expect(types(ws).map((m) => m.type)).toEqual(["terminal_updated"]); // delivered synchronously
   });
 });

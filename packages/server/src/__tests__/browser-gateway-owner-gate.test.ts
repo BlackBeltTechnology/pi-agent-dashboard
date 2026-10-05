@@ -267,18 +267,19 @@ describe("non-session bootstrap + domain events under a host policy (18.37)", ()
     }
   });
 
-  it("live frames of a denied family are withheld too (terminal_added broadcast)", () => {
+  it("live frames of a denied family are withheld too (terminal_added broadcast)", async () => {
     const g = prefsGateway(true, true);
     const yes = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
-    yes.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: true };
+    yes.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: true, terminals: "all" };
     // Same principal (so ownership passes) — only the policy grant differs.
     const no = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
-    no.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: false };
+    no.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: false, terminals: new Set<string>() };
     g.wss.emit("connection", yes, {});
     g.wss.emit("connection", no, {});
     yes.send.mockClear();
     no.send.mockClear();
     g.broadcast({ type: "terminal_added", terminal: { id: "t2", principalOwner: owner } } as never);
+    await new Promise((r) => setTimeout(r, 20)); // decided on the ordered policy queue
     expect(types(yes)).toContain("terminal_added");
     expect(types(no)).not.toContain("terminal_added");
   });
