@@ -117,7 +117,8 @@
   // ---------- state (hash) ----------
   const state = { sel: [], view: "", tab: "uc", q: "", focus: "" };
   function readHash() {
-    const p = new URLSearchParams(location.hash.slice(1));
+    // ?sel=…&view=… is the initial state when there is no hash (embedders that drop the fragment)
+    const p = new URLSearchParams(location.hash.slice(1) || location.search.slice(1));
     state.sel = (p.get("sel") || "").split(",").filter((x) => ucById[x]);
     state.view = p.get("view") || (state.sel.length ? "merge" : "");
     state.focus = p.get("f") || "";
