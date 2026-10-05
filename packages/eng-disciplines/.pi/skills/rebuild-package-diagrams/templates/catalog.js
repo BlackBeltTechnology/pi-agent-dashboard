@@ -168,10 +168,11 @@
     const shown = hit.slice(0, 400);
     $("list").innerHTML = shown.map(listRow).join("") + (hit.length > shown.length ? `<li class="more">${hit.length - shown.length} more — refine the search</li>` : "") +
       (hit.length ? "" : `<li class="more">No match</li>`);
+    $("topnav").innerHTML = D.ifml ? `<a class="chip ifml${state.view.startsWith("ifml:") ? " active" : ""}" href="${link({ view: "ifml:all" })}">IFML</a>` : "";
     const bar = $("selbar");
     bar.hidden = !state.sel.length;
     bar.innerHTML = state.sel.length
-      ? `<span class="grow"><b>${state.sel.length}</b> selected</span><a class="chip uc" href="${link({ view: "merge" })}">Merged view</a><button class="chip" data-clear>Clear</button>`
+      ? `<span class="grow"><b>${state.sel.length}</b> selected</span><a class="chip uc" href="${link({ view: "merge" })}">Merged view</a>${D.ifml ? ifmlLink("sel", "IFML view") : ""}<button class="chip" data-clear>Clear</button>`
       : "";
   }
   function listRow(r) {

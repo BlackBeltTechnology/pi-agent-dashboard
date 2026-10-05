@@ -103,6 +103,8 @@ ol.effects li { margin: .2rem 0; }
 li.flag { color: #b03a1a; }
 .scroll { overflow-x: auto; }
 .chip.ifml { border-color: #6a4c93; color: #6a4c93; }
+.chip.ifml.active { background: #6a4c93; color: #fff; }
+.topnav { display: flex; gap: 8px; }
 .ifmlcanvas { height: 72vh; border: 1px solid #ddd; background: #fff; }
 .djs-element.ifml-dim { opacity: 0.22; }
 .djs-element.ifml-hot .djs-visual > :first-child { stroke: #1f6f43 !important; stroke-width: 3px !important; fill: #e6f4ea !important; }
