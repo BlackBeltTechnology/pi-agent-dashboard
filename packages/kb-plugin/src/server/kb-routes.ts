@@ -73,13 +73,15 @@ export function projectConfigPath(cwd: string): string {
  *  See change: extract-mcp-client-plugin. */
 export { isAllowedCwd };
 
-/** Reject a cwd that is missing or not a known folder. Returns true when handled. */
-function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => string[]): cwd is undefined {
+/** Send the refusal for a cwd that is missing or not an admitted folder (400 / 403).
+ *  Callers test admission with the shared `isAllowedCwd` DIRECTLY, not through a
+ *  wrapper, so static analysis can see the guard (see
+ *  `.github/codeql/extensions/cwd-guard.model.yml`). */
+function denyCwd(reply: FastifyReply, cwd: string | undefined): void {
   if (!cwd) {
     reply.code(400).send({ error: "Missing cwd" });
-    return true;
+    return;
   }
-  if (isAllowedCwd(cwd, known)) return false;
   // Bare `{ error }` shape preserved; `reason`/`hint` are additive (design
   // D7/D18). Pin the refused directory to admit it on retry. See change:
   // add-access-grants-and-review.
@@ -88,7 +90,6 @@ function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => st
     reason: "cwd is not a known session or pinned directory.",
     hint: "Pin this directory to allow it, or open a session rooted in it.",
   });
-  return true;
 }
 
 /** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store. */
@@ -292,7 +293,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── GET stats ──────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/stats", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const { store } = openStore(cwd);
     let counts: { files: number; chunks: number };
     try {
@@ -324,7 +328,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // fix-kb-index-feedback.
   fastify.post<{ Querystring: { cwd?: string } }>("/api/kb/reindex", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     if (!registry.isRunning(cwd)) {
       const { promise } = registry.start(cwd, async () => reindexAll(cwd, fastify.log));
       // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
@@ -341,7 +348,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── GET config ─────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const cfg = loadConfig(cwd);
     return { config: cfg as KbConfig, origin: cfg.origin, projectPath: projectConfigPath(cwd) };
   });
@@ -372,7 +382,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // the event loop). `store.search` is sync but user-initiated, bounded by q/limit.
   fastify.get<{ Querystring: { cwd?: string; q?: string; limit?: string; docType?: string } }>("/api/kb/search", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const parsed = parseSearchQuery(req.query);
     if ("error" in parsed) {
       reply.code(400);
@@ -418,7 +431,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // (root,path) PK — no per-root FTS scan.
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/sources", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const cfg = loadConfig(cwd);
     let files: Record<string, number> = {};
     let store: SqliteFtsStore | null = null;
@@ -454,7 +470,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // SAVED effective config only; see grantSourceTrust.
   fastify.post<{ Querystring: { cwd?: string }; Body: { ref?: string } }>("/api/kb/source-trust", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const ref = req.body?.ref;
     if (typeof ref !== "string" || ref.length === 0) {
       reply.code(400);
@@ -471,7 +490,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── PUT config ─────────────────────────────────────────────────
   fastify.put<{ Querystring: { cwd?: string }; Body: KbConfigPatch }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const body = (req.body ?? {}) as KbConfigPatch;
 
     const result = applyConfigPatchAndTrust(cwd, body);
