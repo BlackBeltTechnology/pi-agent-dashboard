@@ -16,7 +16,7 @@ Package dir: `K = packages/app-kit`. Source of the port: `BlackBeltTechnology/in
 ## 3. Close-out
 
 - [x] 3.1 README: install, `config.json`, host prerequisites (`cors.allowedOrigins` for the app origin, `allowedHosts`/`publicBaseUrls` for the dashboard host, HTTPS for `crypto.subtle`, public client with audience mapper + exact redirect URI, identity plugin publishing the login config, `none` mode only from loopback/trusted networks), CSP note, provenance — verify: README present
-- [ ] 3.2 `security-hardening` pass over the token/ticket paths; `review-code` inline review — verify: no Critical/Major open
+- [x] 3.2 `security-hardening` pass over the token/ticket paths; `review-code` inline review — verify: no Critical/Major open
 - [x] 3.3 Update `K/AGENTS.md` rows (one per file, `See change: extract-standalone-app-kit`) — verify: rows present
 
 ## 4. Tests (from test-plan.md)
