@@ -61,6 +61,9 @@ export default defineConfig({
       "packages/video-transcription",
       "packages/client",
       "packages/client-utils",
+      // Standalone-SPA client plumbing (OIDC, transport, WS ticket, socket).
+      // See change: extract-standalone-app-kit.
+      "packages/app-kit",
       "packages/shell",
       "packages/dashboard-plugin-runtime",
       "packages/automation-plugin",
