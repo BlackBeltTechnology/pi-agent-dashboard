@@ -31,13 +31,26 @@ export interface SessionAccessInput {
 /**
  * D23 break-glass (local-token part): the host-only local token (CLI/bridge)
  * with no signed-in principal acts as the LOCAL OPERATOR and sees every
- * session. Matched by REFERENCE only, so no resolver/IdP can mint a principal
- * that compares equal to it.
+ * session. Reserved issuer URN is refused from every resolver, so none can mint a principal
+ * that carries the reserved issuer (see `isLocalOperator`).
  */
-export const LOCAL_OPERATOR: Readonly<{ iss: string; sub: string }> = Object.freeze({
-  iss: "urn:pi-dashboard:local-operator",
+export const LOCAL_OPERATOR_ISSUER = "urn:pi-dashboard:local-operator";
+export const LOCAL_OPERATOR: Readonly<{ iss: string; sub: string; name: string }> = Object.freeze({
+  iss: LOCAL_OPERATOR_ISSUER,
   sub: "local-operator",
+  name: "Local operator (break-glass)",
 });
+
+/**
+ * Is this the break-glass operator? Matched by REFERENCE only: nothing but host
+ * code holds `LOCAL_OPERATOR`, so a look-alike `{iss, sub}` is an ordinary
+ * non-owner. The WS upgrade therefore preserves the reference instead of
+ * copying it, and `sanitizePrincipalResolution` additionally refuses the
+ * reserved issuer URN from every resolver (defense in depth).
+ */
+export function isLocalOperator(p: { iss: string; sub: string } | null | undefined): boolean {
+  return p === LOCAL_OPERATOR;
+}
 
 const localOperatorRequests = new WeakSet<object>();
 /** Mark a request whose local token the floor hook verified (no principal). */
@@ -54,7 +67,7 @@ export function sessionPrincipalOf(request: object): { iss: string; sub: string 
 /** True when the requester may read or write this session. */
 export function canAccessSession(input: SessionAccessInput): boolean {
   if (!input.active) return true; // inert era — unchanged
-  if (input.principal === LOCAL_OPERATOR) return true; // D23 break-glass operator
+  if (isLocalOperator(input.principal)) return true; // D23 break-glass operator
   if (!input.owner) return false; // ownerless ⇒ invisible/immutable to humans
   if (!input.principal) return false; // principal-less requester ⇒ refused
   return principalEquals(input.owner, input.principal);
@@ -104,12 +117,14 @@ export function filterSnapshotForPrincipal<S extends OwnedSession>(
   snapshot: OwnedSnapshot<S>,
   active: boolean,
   principal: { iss: string; sub: string } | null | undefined,
+  /** Non-session ids that share the order lists (terminals) and are visible to this principal. */
+  extraVisibleIds?: Iterable<string>,
 ): OwnedSnapshot<S> {
   if (!active) return snapshot;
   const sessions = snapshot.sessions.filter((s) =>
     canAccessSession({ active, principal, owner: s.principalOwner }),
   );
-  const visibleIds = new Set(sessions.map((s) => s.id));
+  const visibleIds = new Set([...sessions.map((s) => s.id), ...(extraVisibleIds ?? [])]);
   const orders: Record<string, string[]> = {};
   for (const [group, ids] of Object.entries(snapshot.orders)) {
     const kept = ids.filter((id) => visibleIds.has(id));

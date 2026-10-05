@@ -107,10 +107,12 @@ test.describe("§11.2 identity plane — two-user isolation (identity-active)", 
     expect(ids).not.toContain(ANNA_SESSION_ID);
   });
 
-  test("HTTP list — a principal-less requester sees no owned session", async () => {
-    const ids = await listSessionIds({});
-    expect(ids).not.toContain(ANNA_SESSION_ID);
-    expect(ids).not.toContain(BELA_SESSION_ID);
+  test("HTTP list — a principal-less requester is refused outright and learns nothing (D24 floor)", async () => {
+    const res = await fetch(`${dashboardBase()}/api/sessions`);
+    expect(res.status).toBe(401);
+    const text = await res.text();
+    expect(text).not.toContain(ANNA_SESSION_ID);
+    expect(text).not.toContain(BELA_SESSION_ID);
   });
 
   test("HTTP detail gate — Béla gets 404 for Anna's session, Anna gets through (no oracle)", async () => {

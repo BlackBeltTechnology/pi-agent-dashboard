@@ -5,7 +5,7 @@
  * with a namespaced logger and typed config accessors.
  */
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { BrowserLoginConfig, HostAccessPolicyFn, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -986,6 +986,8 @@ export interface ServerPluginContext {
    * plane. See openspec: add-multi-user-identity-plane.
    */
   registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam (D24). Optional — absent when the host does not wire the identity plane. */
+  identity?: PluginIdentitySeam;
   logger: PluginLogger;
 }
 
@@ -1015,6 +1017,26 @@ export type RegisterHostAccessPolicyFn = (authorize: HostAccessPolicyFn) => () =
 export type RegisterBrowserLoginConfigFn = (
   config: Omit<BrowserLoginConfig, "pluginId">,
 ) => () => void;
+
+/**
+ * Plugin CONSUMER seam for the identity plane (D24, 18.27): read the caller's
+ * principal, ask the ONE host policy, store per-user data. Host-bound per
+ * plugin (the id namespaces `authorize` actions as `plugin:<id>:<action>` and
+ * the `userDataDir`). Optional — absent when the host does not wire identity.
+ * See openspec: add-multi-user-identity-plane.
+ */
+export interface PluginIdentitySeam {
+  /** Identity enforced (D21 latch)? */
+  isEnforced(): boolean;
+  /** The frozen principal the host resolved on a plugin HTTP route, else null. */
+  principalOf(request: unknown): Principal | null;
+  /** The principal behind a plugin WS upgrade's `Authorization` credential, else null. */
+  principalOfUpgrade(request: import("node:http").IncomingMessage): Promise<Principal | null>;
+  /** Ask the ONE trusted policy; the host namespaces `action` as `plugin:<id>:<action>`. No policy ⇒ true. */
+  authorize(principal: Principal, action: string, resource: HostResource): Promise<boolean>;
+  /** Per-user storage `<plugin data>/users/<sha256(iss,sub)>` (created 0700). */
+  userDataDir(principal: Principal): string;
+}
 
 /** Dependencies injected by the server to construct a ServerPluginContext. */
 export interface ServerContextDeps {
@@ -1085,6 +1107,8 @@ export interface ServerContextDeps {
    * — absent when the host does not wire the identity plane.
    */
   registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam, bound to this plugin by the host (D24, 18.27). */
+  identity?: PluginIdentitySeam;
   /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
   listWorkspaces?: ListWorkspacesFn;
   onWorkspacesChanged?: OnWorkspacesChangedFn;
@@ -1165,6 +1189,7 @@ export function createServerPluginContext(
     ...(deps.registerBrowserLoginConfig
       ? { registerBrowserLoginConfig: deps.registerBrowserLoginConfig }
       : {}),
+    ...(deps.identity ? { identity: deps.identity } : {}),
     logger,
   };
 }

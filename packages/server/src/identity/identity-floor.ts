@@ -18,6 +18,13 @@ import { parseGuardTarget } from "../auth/localhost-guard.js";
 const FLOOR_PREFIXES = ["/api/", "/editor/", "/live/"] as const;
 const PRE_AUTH_PATHS: ReadonlySet<string> = new Set(["/api/health", "/api/identity/login-config"]);
 
+/**
+ * POST-reachable pre-auth endpoints. The break-glass exchange (D23) is the only
+ * one: a signed-out browser redeems a host-issued one-time code for an operator
+ * bearer. The code is the credential (256-bit, single-use, ≤60 s).
+ */
+const PRE_AUTH_POST_PATHS: ReadonlySet<string> = new Set(["/api/identity/local-exchange"]);
+
 const governed = (p: string) => FLOOR_PREFIXES.some((prefix) => p.startsWith(prefix));
 
 export function identityFloorAllows(input: {
@@ -32,5 +39,6 @@ export function identityFloorAllows(input: {
   if (!target) return false;
   if (!governed(target.raw) && !governed(target.resolved)) return true;
   const readOnly = input.method === "GET" || input.method === "HEAD";
-  return readOnly && PRE_AUTH_PATHS.has(target.raw) && PRE_AUTH_PATHS.has(target.resolved);
+  if (readOnly) return PRE_AUTH_PATHS.has(target.raw) && PRE_AUTH_PATHS.has(target.resolved);
+  return input.method === "POST" && PRE_AUTH_POST_PATHS.has(target.raw) && PRE_AUTH_POST_PATHS.has(target.resolved);
 }

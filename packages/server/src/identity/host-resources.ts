@@ -39,6 +39,10 @@ export const HostActions = {
   accessWrite: "access.write",
   gatewayRead: "gateway.read",
   gatewayWrite: "gateway.write",
+  // Proxied roads (18.37c): `/editor/` = code-server (always a write capability), `/live/` = dev-server preview.
+  editorWrite: "editor.write",
+  liveRead: "live.read",
+  liveWrite: "live.write",
   /** A plugin-emitted global domain event (fan-out road, §10). */
   domainEvent: "domain.event",
 } as const satisfies Record<string, HostAction>;

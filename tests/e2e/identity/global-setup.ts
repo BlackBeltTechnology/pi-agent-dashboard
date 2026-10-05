@@ -102,4 +102,23 @@ export default async function identityGlobalSetup(): Promise<void> {
   const ports = await bootHealthyPorts(workspace, logPath, 600_000);
   process.env.PW_E2E_PORT = String(ports.dashboardPort);
   process.env.PW_GATEWAY_PORT = String(ports.gatewayPort);
+  await assertPlaneEnforced(ports.dashboardPort);
+}
+
+/**
+ * D21: a resolver alone leaves the plane INERT. Fail loudly here — before any
+ * spec runs — if the seed did not arm enforcement, rather than letting the
+ * §11.2 specs pass vacuously against an unenforced plane. tasks §18.10.
+ */
+async function assertPlaneEnforced(dashboardPort: number): Promise<void> {
+  const res = await fetch(`http://localhost:${dashboardPort}/api/identity/login-config`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  const body = (await res.json()) as { active?: boolean };
+  if (body.active !== true) {
+    throw new Error(
+      `[${CHANGE}] identity harness booted but the plane is NOT enforced (login-config=${JSON.stringify(body)}). ` +
+        "Check the [identity] lines in the container log: a trusted login descriptor must be registered (D21).",
+    );
+  }
 }

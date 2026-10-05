@@ -476,6 +476,30 @@ o> host.docker.internal:<port> over
       ' "${PI_DIR}/dashboard/config.json"
       export PI_LOGIN_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_BROWSER_ISSUER="${IDENTITY_ISSUER}" PI_LOGIN_CLIENT_ID="dashboard-web"
       echo "[test-entrypoint] PI_E2E_IDENTITY_LOGIN: installed + trusted identity-login-plane (issuer=${IDENTITY_ISSUER})"
+    else
+      # D21 arming: a resolver alone stays INERT (self-lockout guard). The
+      # bearer-driven specs (no browser login) still need an ENFORCED plane, so
+      # install a trusted fixture login-descriptor drop-in. `fixture:true` is
+      # loaded because the harness sets PI_DASHBOARD_FIXTURE_PLUGINS=1. tasks §18.10.
+      FIX_DIR="${PI_DIR}/dashboard/plugins/identity-fixture-login"
+      mkdir -p "${FIX_DIR}"
+      cat > "${FIX_DIR}/package.json" <<'FIXPKG'
+{"name":"@test/identity-fixture-login","version":"0.0.0","private":true,"type":"module","pi-dashboard-plugin":{"id":"identity-fixture-login","fixture":true,"displayName":"Identity fixture login (test)","claims":[],"priority":100,"server":"./server.mjs"}}
+FIXPKG
+      cat > "${FIX_DIR}/server.mjs" <<'FIXSRV'
+export default async function register(ctx) {
+  ctx.registerBrowserLoginConfig({ loginUrl: "/identity-fixture-login/login", logoutUrl: "/identity-fixture-login/logout" });
+}
+FIXSRV
+      node -e '
+        const fs = require("node:fs");
+        const out = process.argv[1];
+        const cfg = JSON.parse(fs.readFileSync(out, "utf8"));
+        const t = new Set([...(cfg.identity?.trustedResolverPlugins ?? []), "identity-fixture-login"]);
+        cfg.identity = { ...(cfg.identity ?? {}), trustedResolverPlugins: [...t] };
+        fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
+      ' "${PI_DIR}/dashboard/config.json"
+      echo "[test-entrypoint] PI_E2E_IDENTITY: installed + trusted identity-fixture-login descriptor (arms enforcement, D21)"
     fi
   fi
 
@@ -899,10 +923,10 @@ echo "[test-entrypoint] health OK"
 
 # One WebSocket connect to /ws (Node 22 ships a global WebSocket client).
 # When the identity plane is ACTIVE (PI_E2E_IDENTITY=1) a ticketless browser
-# `/ws` upgrade is REFUSED by design (§9.2) — so this smoke connect would fail
+# `/ws` upgrade is REFUSED by design (§9.2, armed per D21) — so this smoke connect would fail
 # and crash-loop PID 1. Skip it; the identity specs assert the ticketed path.
 if [ "${PI_E2E_IDENTITY:-}" = "1" ]; then
-  echo "[test-entrypoint] websocket smoke SKIPPED (PI_E2E_IDENTITY=1: ticketless /ws refused by §9.2)"
+  echo "[test-entrypoint] websocket smoke SKIPPED (PI_E2E_IDENTITY=1: enforced plane — a trusted login descriptor is always seeded (D21) — refuses ticketless /ws)"
 else
   node -e '
     const url = process.argv[1];

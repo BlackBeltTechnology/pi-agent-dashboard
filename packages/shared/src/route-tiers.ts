@@ -206,6 +206,10 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   { method: "PATCH", path: "/api/preferences/display", tier: "control" },
   { method: "PATCH", path: "/api/preferences/worktree-auto-init", tier: "control" },
   { method: "PATCH", path: "/api/providers/:name", tier: "operate" },
+  // D23 break-glass: `local-code` is local-token-only (host control ⇒ operate);
+  // `local-exchange` is the pre-auth redemption, the one-time code is its credential.
+  { method: "POST", path: "/api/identity/local-code", tier: "operate" },
+  { method: "POST", path: "/api/identity/local-exchange", tier: "operate" },
   { method: "POST", path: "/api/browse/mkdir", tier: "control" },
   { method: "POST", path: "/api/config/plugins/:id", tier: "operate" },
   { method: "POST", path: "/api/device-session", tier: "observe" },

@@ -55,6 +55,8 @@ async function build(opts: {
   app.get("/api/plugins/acme/deals", ok);
   app.get("/api/brand-new-thing", ok);
   app.get("/api/health", ok);
+  app.all("/live/:id/*", ok);
+  app.all("/editor/:id/*", ok);
   app.get("/api/sessions", ok);
   return app;
 }
@@ -160,6 +162,28 @@ describe("non-session roads — optional host policy", () => {
       },
     });
     expect((await call(a, "GET", "/api/git/status", "anna")).statusCode).toBe(403);
+  });
+});
+
+describe("proxied roads /editor/ + /live/ are classified (18.37c)", () => {
+  it("/live is asked as live.<verb> with a live resource; /editor as editor.write (opening an editor is a write capability)", async () => {
+    const policy = vi.fn().mockResolvedValue(true);
+    const a = await build({ enforced: true, policy });
+    expect((await call(a, "GET", "/live/x/index.html", "anna")).statusCode).toBe(200);
+    expect(policy).toHaveBeenLastCalledWith(expect.objectContaining({ action: "live.read", resource: expect.objectContaining({ kind: "live" }) }));
+    expect((await call(a, "POST", "/live/x/api", "anna")).statusCode).toBe(200);
+    expect(policy).toHaveBeenLastCalledWith(expect.objectContaining({ action: "live.write" }));
+    expect((await call(a, "GET", "/editor/x/", "anna")).statusCode).toBe(200);
+    expect(policy).toHaveBeenLastCalledWith(expect.objectContaining({ action: "editor.write", resource: expect.objectContaining({ kind: "editor" }) }));
+  });
+
+  it("a denying policy refuses them 403; no policy ⇒ ungated; the operator passes", async () => {
+    const deny = vi.fn().mockResolvedValue(false);
+    const a = await build({ enforced: true, policy: deny });
+    expect((await call(a, "GET", "/live/x/index.html", "anna")).statusCode).toBe(403);
+    expect((await call(a, "GET", "/editor/x/", "anna")).statusCode).toBe(403);
+    expect((await call(a, "GET", "/editor/x/", "local")).statusCode).toBe(200);
+    expect((await call(await build({ enforced: true }), "GET", "/editor/x/", "anna")).statusCode).toBe(200);
   });
 });
 
