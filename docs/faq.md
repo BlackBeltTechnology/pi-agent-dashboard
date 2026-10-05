@@ -292,7 +292,7 @@ Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then r
 
 Check which loader a launch used: `grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1`. Header names the loader (`native-ts-register.mjs` or jiti URL).
 
-Old Node without `module.stripTypeScriptTypes` errors naming `PI_DASHBOARD_TS_LOADER=jiti`. Use Node ≥ 22.13, or set the env var.
+Old Node without `module.stripTypeScriptTypes` errors naming `PI_DASHBOARD_TS_LOADER=jiti`. Use Node ≥ 22.19, or set the env var.
 
 Cross-refs:
 - packages/shared/src/platform/ts-loader-select.mjs

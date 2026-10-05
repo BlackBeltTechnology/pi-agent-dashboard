@@ -41,7 +41,11 @@ function fixtureRepo(extra = {}) {
   return root;
 }
 
-const rulesOf = (res) => res.violations.map((v) => `${v.file}:${v.line} ${v.rule}`);
+// The gate reports repo-relative paths with OS separators (`path.relative`);
+// compare in POSIX form so the assertions hold on Windows too.
+const posix = (p) => p.replace(/\\/g, "/");
+const rulesOf = (res) => res.violations.map((v) => `${posix(v.file)}:${v.line} ${v.rule}`);
+const filesOf = (res) => res.files.map(posix);
 
 describe("violations (E23)", () => {
   it("reports each CJS global and a value-imported .tsx with file:line; CLI exits non-zero", () => {
@@ -63,7 +67,7 @@ describe("violations (E23)", () => {
 
     const cli = spawnSync(process.execPath, [GATE, "--root", root], { encoding: "utf8" });
     expect(cli.status).not.toBe(0);
-    expect(cli.stderr + cli.stdout).toContain("packages/srv/src/a.ts:2");
+    expect(posix(cli.stderr + cli.stdout)).toContain("packages/srv/src/a.ts:2");
   });
 });
 
@@ -100,7 +104,7 @@ describe("scope (E25)", () => {
   it("a file reachable only from a plugin bridge seed is not reported", () => {
     const root = fixtureRepo(plugin({ bridge: "src/bridge/index.ts" }));
     const res = runLoaderNeutralGate({ root });
-    expect(res.files).not.toContain("packages/plug/src/shared/helper.ts");
+    expect(filesOf(res)).not.toContain("packages/plug/src/shared/helper.ts");
     expect(res.violations).toEqual([]);
   });
 
@@ -141,7 +145,7 @@ describe("current tree (E27)", () => {
     const res = runLoaderNeutralGate({ root: repoRoot });
     expect(res.error).toBeUndefined();
     expect(res.files.length).toBeGreaterThan(0);
-    expect(res.files).toContain("packages/server/src/routes/file-routes.ts");
+    expect(filesOf(res)).toContain("packages/server/src/routes/file-routes.ts");
     expect(rulesOf(res)).toEqual([]);
   }, 120_000);
 });

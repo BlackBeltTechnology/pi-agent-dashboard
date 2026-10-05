@@ -641,13 +641,17 @@ jobs:
               # Electron start = the exec itself (t=0), not its first log line:
               # a silent Electron could otherwise reach health with no start row.
               AT[electron_start]=0
-              for i in $(seq 1 90); do
+              # Elapsed-time deadline (not an iteration count) and a per-request
+              # timeout, so a stalled /api/health cannot push the step past 90 s.
+              T0=$SECONDS
+              while [ $((SECONDS - T0)) -lt 90 ]; do
+                i=$((SECONDS - T0))
                 if denoise "$LOG" | grep -aqF "launch (parent pid"; then mark spawn_header "$i"; fi
                 PL=$(denoise "$LOG" | grep -acF "[plugin-loader]" || true); PL=${PL:-0}
                 if [ "$PL" -gt 0 ]; then mark first_plugin_loader "$i"; fi
                 if [ "$PL" -gt "$LAST_PL" ]; then AT[last_plugin_loader]=$i; LAST_PL=$PL; fi
                 if denoise "$LOG" | grep -aqF "Dashboard server running"; then mark server_running "$i"; fi
-                if curl -fsS -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
+                if curl -fsS --max-time 2 -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
                   AT[health_200]=$i
                   timing_table
                   echo "Reached /api/health on Ubuntu 22.04 after ${i}s"; exit 0

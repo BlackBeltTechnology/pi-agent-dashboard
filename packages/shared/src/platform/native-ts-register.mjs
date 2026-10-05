@@ -10,7 +10,7 @@ import nodeModule from "node:module";
 if (typeof nodeModule.stripTypeScriptTypes !== "function") {
   throw new Error(
     `pi-dashboard: this Node (${process.version}) lacks module.stripTypeScriptTypes, ` +
-      "which the native TypeScript loader needs. Use Node >= 22.13, or set " +
+      "which the native TypeScript loader needs. Use Node >= 22.19 (the supported floor), or set " +
       "PI_DASHBOARD_TS_LOADER=jiti to boot with the jiti loader.",
   );
 }

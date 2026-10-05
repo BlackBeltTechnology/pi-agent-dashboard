@@ -152,10 +152,11 @@ describe('selected TS loader (E31)', () => {
   });
 
   it('the entry stays raw for both loaders on win32 (Node path.resolve()s the main entry)', () => {
-    const layout = { loader: 'C:\\b\\native-ts-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts', jiti: 'C:\\b\\jiti-register.mjs' };
+    const layout = { native: 'C:\\b #1\\native-ts-register.mjs', jiti: 'C:\\b #1\\jiti-register.mjs', cli: 'B:\\b\\packages\\server\\src\\cli.ts' };
     for (const loaderKind of ['native', 'jiti']) {
-      const argv = bootArgv({ ...layout, loaderKind }, [], 'win32');
-      expect(argv[1]).toBe('file:///C:/b/native-ts-register.mjs');
+      const argv = bootArgv({ ...layout, loader: layout[loaderKind], loaderKind }, [], 'win32');
+      // `#` and the space are percent-encoded, so the loader URL is not cut at a fragment.
+      expect(argv[1]).toBe(`file:///C:/b%20%231/${loaderKind === 'native' ? 'native' : 'jiti'}-register.mjs`.replace('native-register', 'native-ts-register'));
       expect(argv[2]).toBe(layout.cli);
     }
   });

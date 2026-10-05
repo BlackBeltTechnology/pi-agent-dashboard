@@ -74,7 +74,9 @@ export function bundleLayout(root, platform = process.platform, env = process.en
  * Node `path.resolve()`s the main entry, so a `file://` entry breaks.
  */
 export function bootArgv(layout, args, platform = process.platform) {
-  const loaderUrl = platform === "win32" ? `file:///${layout.loader.replace(/\\/g, "/")}` : pathToFileURL(layout.loader).href;
+  // pathToFileURL percent-encodes `#`/spaces (a hand-built URL would cut at `#`);
+  // `windows` picks the drive-letter form regardless of the host OS.
+  const loaderUrl = pathToFileURL(layout.loader, { windows: platform === "win32" }).href;
   return ["--import", loaderUrl, layout.cli, ...args];
 }
 
