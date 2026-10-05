@@ -41,7 +41,7 @@
 
 ## 5. Gate
 
-- [ ] 5.1 Run `review-code` on the diff, then `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the summary. Verify there are no new failures.
+- [x] 5.1 Run `review-code` on the diff, then `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the summary. Verify there are no new failures.
 
 ## 6. Tests (folded from test-plan.md)
 
@@ -71,5 +71,5 @@
 - [x] 6.24 Add an L1 real-process test in `cli-stop-real.test.ts` (exemplar `cli-signal-forwarding.test.ts`). Triple: the same listener and HOME as 6.23 · spawn `stop --port P --pi-port P+1 --force` · the listener exits within 6 s, and stdout has `NOT owned by this HOME` (test-plan #X5).
 - [x] 6.25 Add an L1 real-process test in `cli-stop-real.test.ts` (exemplar `cli-signal-forwarding.test.ts`). Triple: a real dashboard started under temp `HOME=B` with `--port P --pi-port P+1 --no-tunnel` · spawn `stop --port P --pi-port P+1` with `HOME=B` · `/api/health` on `P` refuses within 6 s, and there is no skip line (test-plan #X6).
 - [x] 6.26 Add an L1 test in `cli-restart.test.ts` (exemplar: its existing fallback case). Triple: `isDashboardRunning → {running:false, portConflict:true}`, a foreign holder on `config.port`, the real `cmdStop` with injected deps · `cmdRestart` fallback · no `killProcess` for the foreign pid, then `cmdStartImpl` is called (test-plan #X7).
-- [ ] 6.27 Manual live-host safety smoke (test-plan: manual-only, #X8). With the live dashboard on `:8000`, run `node packages/server/bin/pi-dashboard.mjs stop` under `HOME=$(mktemp -d)`, then under the same HOME with `--port 8000`, then under `HOME=$(mktemp -d -p "$PWD")`. Each time, check that the `/api/health` pid on 8000 is unchanged and `boot-state.json` gets no new `signal` intent.
-- [ ] 6.28 Manual docs review (test-plan: manual-only, #X9). Read the `--force` wording in the README, `docs/faq.md` and the debug-dashboard skill; it must state the danger and the orphan-only scope.
+- [x] 6.27 Manual live-host safety smoke (test-plan: manual-only, #X8). With the live dashboard on `:8000`, run `node packages/server/bin/pi-dashboard.mjs stop` under `HOME=$(mktemp -d)`, then under the same HOME with `--port 8000`, then under `HOME=$(mktemp -d -p "$PWD")`. Each time, check that the `/api/health` pid on 8000 is unchanged and `boot-state.json` gets no new `signal` intent.
+- [x] 6.28 Manual docs review (test-plan: manual-only, #X9). Read the `--force` wording in the README, `docs/faq.md` and the debug-dashboard skill; it must state the danger and the orphan-only scope.
