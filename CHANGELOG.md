@@ -189,6 +189,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Hidden Discord sessions stay hidden after a dashboard restart.** A
+  restart can bring a Chat Gateway session back as a fresh registration, which
+  re-decided its visibility and put it back on the board. The "hidden by its
+  plugin" choice is now saved with the session and honoured on every restart.
+  Sessions hidden before this fix are not migrated: they reappear once, and new
+  ones stay hidden.
+
 - **Chat Gateway runs your Discord message and keeps the session.** A message
   in a bound channel started a session but never ran, and every later message
   started yet another session. The gateway matched spawns on a key the

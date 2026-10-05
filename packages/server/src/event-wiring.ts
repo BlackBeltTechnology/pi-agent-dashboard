@@ -1666,7 +1666,9 @@ export function wireEvents(deps: EventWiringDeps): void {
           // board keeps the card until a full refresh.
           // See change: hide-chat-gateway-sessions.
           if (lifecycle.hidden === true) {
-            sessionManager.update(sessionId, { hidden: true });
+            // `pluginHidden` persists the INTENT so a post-restart respawn
+            // re-register keeps it hidden. See change: fix-plugin-hidden-across-restart.
+            sessionManager.update(sessionId, { hidden: true, pluginHidden: true });
             browserGateway.broadcastSessionUpdated(sessionId, { hidden: true });
           }
           if (lifecycle.recover === false) {

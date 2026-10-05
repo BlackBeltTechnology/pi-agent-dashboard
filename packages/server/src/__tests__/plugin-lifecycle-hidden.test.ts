@@ -22,7 +22,7 @@ describe("plugin lifecycle.hidden on session_register", () => {
     expect(hiddenIdx, "lifecycle.hidden must be honoured").toBeGreaterThan(lifecycleIdx);
     expect(hiddenIdx).toBeLessThan(ownerNotifyIdx);
     const block = src.slice(hiddenIdx, ownerNotifyIdx);
-    expect(block).toMatch(/sessionManager\.update\(sessionId, \{ hidden: true \}\)/);
+    expect(block).toMatch(/sessionManager\.update\(sessionId, \{ hidden: true, pluginHidden: true \}\)/);
     expect(block).toMatch(/broadcastSessionUpdated\(sessionId, \{ hidden: true \}\)/);
   });
 });

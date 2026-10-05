@@ -1312,10 +1312,10 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 
 - `recover?: boolean` — `false` opts owned session out of cold-start recovery (default recoverable). Persisted to `.meta.json` only when `false` (additive opt-out byte).
 - `finalizeOnSocketClose?: boolean` — `true` finalizes owned session on socket close, no reconnect grace. In-memory only; read at pi-gateway socket-close finalize branch.
-- `hidden?: boolean` — `true` hides owned session from board on FIRST register. Same `hidden` flag as headless auto-hide (`packages/server/src/session/memory-session-manager.ts`); revealed by "show hidden" toggle. Persisted to `.meta.json`, broadcast via `broadcastSessionUpdated`. Applied on fresh spawn-token resolution only (`packages/server/src/event-wiring.ts`); reattach never re-applies, so a later operator unhide survives.
+- `hidden?: boolean` — `true` hides owned session from board on FIRST register. Same `hidden` flag as headless auto-hide (`packages/server/src/session/memory-session-manager.ts`); revealed by "show hidden" toggle. Persisted to `.meta.json`, broadcast via `broadcastSessionUpdated`. Applied on fresh spawn-token resolution only (`packages/server/src/event-wiring.ts`); reattach never re-applies, so a later operator unhide survives. Persists the INTENT as `pluginHidden: true` on the session + `.meta.json` (`session-to-meta.ts`, restored by `sessionFromMeta` in `session-scanner.ts`) so a post-restart respawn re-register (`registerReason: "spawn"`, no token) keeps hidden. `register` order: reattach → `existing.hidden`; `visibilityIntent`; `existing.pluginHidden === true` → hidden; else headless heuristic. Explicit `visibilityIntent: "visible"` still wins. Pre-fix hidden sessions carry no `pluginHidden` → not migrated. See change: fix-plugin-hidden-across-restart.
 - `pending-plugin-ref-registry.ts` (`packages/server/src/pending/`) files a lifecycle record when ANY of `recover`/`finalizeOnSocketClose`/`hidden` set.
 - First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
-- See change: hide-chat-gateway-sessions.
+- See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart.
 
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
 
