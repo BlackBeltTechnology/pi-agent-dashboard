@@ -1,12 +1,13 @@
 # jiti-loader Specification
 
 ## Purpose
-Resolution of pi's bundled jiti TypeScript loader for use with Node's `--import` flag at every dashboard server spawn site. jiti is the sole TypeScript loader; tsx is no longer part of the resolution chain.
+Resolution of pi's bundled jiti TypeScript loader for Node's `--import` flag when a dashboard-server launch selects jiti (`PI_DASHBOARD_TS_LOADER=jiti`; the default is the Node-native loader, see `native-ts-loader` and `server-launch`). tsx is not part of the resolution chain.
 
 ## Requirements
+
 ### Requirement: Resolve jiti register path from any installed source
 
-The system SHALL provide jiti resolution that returns a `file://` URL to a jiti register hook suitable for Node's `--import` flag, independent of whether pi is installed.
+When the jiti loader is selected (`PI_DASHBOARD_TS_LOADER=jiti`; the default is the Node-native loader per `server-launch`), the system SHALL provide jiti resolution that returns a `file://` URL to a jiti register hook suitable for Node's `--import` flag, independent of whether pi is installed.
 
 `@blackbelt-technology/pi-dashboard-server` SHALL declare `jiti` as a direct runtime dependency so that a clean `npm install` of the dashboard places `jiti/` somewhere on Node's module-resolution path walking up from the bin wrapper. Resolution SHALL accept any of the following anchors and SHALL succeed when at least one yields a jiti install:
 
@@ -19,7 +20,7 @@ The candidate package list remains `jiti`, then legacy `@mariozechner/jiti`. The
 
 #### Scenario: Resolution from dashboard's own node_modules without pi installed
 
-- **WHEN** `pi-dashboard` is launched from a clean `npm install -g @blackbelt-technology/pi-agent-dashboard` install
+- **WHEN** `pi-dashboard` is launched with `PI_DASHBOARD_TS_LOADER=jiti` from a clean `npm install -g @blackbelt-technology/pi-agent-dashboard` install
 - **AND** pi is not installed anywhere on the system
 - **THEN** the bin wrapper SHALL resolve jiti via the `process.argv[1]` anchor walking up to the dashboard's own `node_modules/jiti/`
 - **AND** SHALL re-exec Node with `--import <jiti-register.mjs>` successfully
@@ -34,7 +35,8 @@ The candidate package list remains `jiti`, then legacy `@mariozechner/jiti`. The
 
 - **WHEN** `resolveJiti()` is called and no candidate jiti package can be resolved from any anchor
 - **THEN** the function SHALL return `null`
-- **AND** the bin wrapper SHALL exit code 1 with a message stating jiti resolution failed unexpectedly given it is a declared dependency, hinting at a corrupted install and pointing at the issue tracker
+- **AND** when the jiti loader is selected, the bin wrapper SHALL exit code 1 with a message stating jiti resolution failed unexpectedly given it is a declared dependency, hinting at a corrupted install and pointing at the issue tracker
+- **AND** when the native loader is selected, the bin wrapper SHALL NOT resolve jiti at all
 
 #### Scenario: Metadata short-circuit does not require jiti
 

@@ -877,7 +877,7 @@ The helper SHALL NOT accept a `connection` parameter, SHALL NOT feature-detect `
 
 ### Requirement: Bridge anchors jiti loader resolution at the active earendil pi cli
 
-The bridge extension SHALL resolve pi's TypeScript loader (jiti) by anchoring `createRequire` at `process.argv[1]` (the active pi cli's entry point) and probing the following package names in order:
+When the jiti loader is selected for the dashboard server it auto-starts (`PI_DASHBOARD_TS_LOADER=jiti`; the default is the Node-native loader per `server-launch`, which needs no jiti resolution), the bridge extension SHALL resolve pi's TypeScript loader (jiti) by anchoring `createRequire` at `process.argv[1]` (the active pi cli's entry point) and probing the following package names in order:
 
 1. `jiti` — the un-namespaced upstream package shipped by `@earendil-works/pi-coding-agent`.
 2. `@mariozechner/jiti` — the namespaced jiti package, retained as a loader fallback. It is a separate package from the dropped `@mariozechner/pi-coding-agent` fork.

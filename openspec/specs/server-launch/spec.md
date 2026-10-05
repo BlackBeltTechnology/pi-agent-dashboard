@@ -14,11 +14,11 @@ All runtime dashboard-server spawns SHALL go through `launchDashboardServer(opts
 
 #### Scenario: Entry-script URL-wrapping rule preserved
 
-- **WHEN** the loader is jiti or tsx, on any host platform
-- **THEN** the entry script is passed as a raw path (tsx rejects `file://` entries on every OS; jiti misnormalises `file:///` entries on Windows)
-- **AND WHEN** the loader is neither jiti nor tsx AND the host platform is Windows
+- **WHEN** the loader is jiti, tsx, or the native loader (`platform/native-ts-register.mjs`), on any host platform
+- **THEN** the entry script is passed as a raw path (tsx rejects `file://` entries on every OS; jiti misnormalises `file:///` entries on Windows; under any `--import` loader Node runs the main entry through `path.resolve()` before building its URL, so a `file:///` entry fails on Windows)
+- **AND WHEN** the loader is none of those AND the host platform is Windows
 - **THEN** the entry script is URL-wrapped via `toFileUrl()`
-- **AND WHEN** the loader is neither jiti nor tsx AND the host platform is POSIX
+- **AND WHEN** the loader is none of those AND the host platform is POSIX
 - **THEN** the entry script is passed as a raw path
 - **AND** the loader position is always URL-wrapped via `toFileUrl()`
 - **AND** this rule is owned by `shouldUrlWrapEntry(loader, platform)` in `node-spawn.ts` and pinned by tests in `node-spawn.test.ts` and `node-spawn-jiti-contract.test.ts`; `server-launcher.test.ts` pins only that the launcher forwards `cliPath` unchanged to `spawnNodeScript`
@@ -101,7 +101,7 @@ When `stdio: { logFile }` is supplied, `launchDashboardServer` SHALL:
 
 - Create the parent directory with `mkdirSync(..., { recursive: true })`.
 - Open the log file with `"a"` (append) mode.
-- Write a single header line `[<ISO timestamp>] <starter?> launch (parent pid <pid>, port <port>, cli <cliPath>)\n` before passing the fd to the child.
+- Write a single header line `[<ISO timestamp>] <starter?> launch (parent pid <pid>, port <port>, cli <cliPath>, loader <loaderUrl>)\n` before passing the fd to the child, where `<loaderUrl>` is the selected TypeScript loader (see "TypeScript loader selection with native default").
 - Pass the fd as both stdout and stderr in `spawnOptions.stdio`.
 - Close the parent's fd after `spawn` returns (child retains its inherited copy).
 
@@ -375,7 +375,7 @@ The respawn SHALL read the ceiling from configuration at restart time, so a
 
 ### Requirement: Unified jiti resolution via `ToolResolver` anchored at earendil pi
 
-`ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for `@earendil-works/pi-coding-agent` only) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, namespaced-jiti fallback; `@mariozechner/jiti` is a loader package, unrelated to the dropped pi fork). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the `JitiResolver` test-injection seam.
+When the jiti loader is selected (`PI_DASHBOARD_TS_LOADER=jiti`), `ToolResolver.resolveJiti({ anchor?, resolver? })` SHALL be the single source of truth for resolving pi's `jiti-register.mjs`. Resolution order: managed pi install (`~/.pi-dashboard/node_modules/<pi-pkg>` for `@earendil-works/pi-coding-agent` only) → system pi via `which("pi")` → caller-supplied `opts.anchor` walked up to nearest `node_modules` → `process.argv[1]` walked up. For every anchor, the inner walk SHALL try `JITI_PACKAGES = ["jiti", "@mariozechner/jiti"]` (upstream first, namespaced-jiti fallback; `@mariozechner/jiti` is a loader package, unrelated to the dropped pi fork). Returns the register hook as a `file://` URL string (preserving the Windows drive-letter URL-wrapping contract documented on the prior `buildJitiRegisterUrl` helper) or null. The optional `resolver` parameter SHALL be the `JitiResolver` test-injection seam.
 
 #### Scenario: Managed pi present (upstream)
 
@@ -407,4 +407,45 @@ The respawn SHALL read the ceiling from configuration at restart time, so a
 
 - **WHEN** none of managed, system, anchor, or argv yield a jiti path
 - **THEN** `resolveJiti()` returns null
-- **AND** `launchDashboardServer` raises `JitiNotFoundError` when its caller did not supply a usable anchor
+- **AND** `launchDashboardServer` raises `JitiNotFoundError` only when the jiti loader is selected and its caller did not supply a usable anchor
+
+### Requirement: TypeScript loader selection with native default
+
+Every fresh dashboard-server launch (CLI wrapper, `launchDashboardServer` from CLI / Electron / bridge auto-start, Electron launch helpers) SHALL use the Node-native TypeScript loader by default. A restart (`/api/restart`) and server worker threads SHALL keep the running server's loader; switching loaders requires a fresh launch. Setting `PI_DASHBOARD_TS_LOADER=jiti` SHALL select the jiti loader instead, resolved exactly as before. Any other value SHALL log a warning and select the native loader. Selection SHALL read the launching process's own environment (a caller's `opts.env` overlay does not change the selection) and SHALL be implemented once in a plain-JavaScript helper usable before any TypeScript loader is registered. Node launch sites SHALL locate the native register module by package specifier (`@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs`) from the launch anchor, not by directory arithmetic; the shell launch helpers (`start-server.{sh,cmd,ps1}`), which cannot resolve packages, SHALL use the bundle's fixed layout path to that file. The spawn log header SHALL name the selected loader. The bundled-server plugin-load build gate SHALL boot with the selected loader.
+
+#### Scenario: Default launch uses the native loader
+
+- **WHEN** `launchDashboardServer` runs with `PI_DASHBOARD_TS_LOADER` unset
+- **THEN** the child argv SHALL be `--import <native-ts-register.mjs URL> <cli>`
+- **AND** the spawn log header SHALL contain `loader <native-ts-register.mjs URL>`
+
+#### Scenario: jiti opt-in restores the previous launch
+
+- **WHEN** `PI_DASHBOARD_TS_LOADER=jiti`
+- **THEN** the loader SHALL be the URL returned by `ToolResolver.resolveJiti({ anchor })`
+- **AND** the argv and entry URL-wrapping SHALL match the pre-change jiti launch
+
+#### Scenario: Unknown loader value
+
+- **WHEN** `PI_DASHBOARD_TS_LOADER=tsx`
+- **THEN** a warning SHALL be logged and the native loader SHALL be used
+
+#### Scenario: Native launch does not require jiti
+
+- **WHEN** no jiti package resolves from any anchor AND the native loader is selected
+- **THEN** `launchDashboardServer` SHALL NOT throw `JitiNotFoundError`
+
+#### Scenario: Restart keeps the running loader
+
+- **WHEN** a server launched with `PI_DASHBOARD_TS_LOADER=jiti` is restarted via `/api/restart` after the variable was unset
+- **THEN** the restarted server SHALL run under jiti
+
+#### Scenario: Bridge auto-start uses the native loader
+
+- **WHEN** the bridge extension auto-starts the server with `PI_DASHBOARD_TS_LOADER` unset and no jiti resolvable
+- **THEN** the server SHALL start under the native loader and the bridge SHALL NOT log a jiti-not-found failure
+
+#### Scenario: Worker threads keep the server's loader
+
+- **WHEN** the server was started with the native loader and a worker pool spawns a `.ts` worker
+- **THEN** the worker SHALL run under the same loader without adding jiti

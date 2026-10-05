@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change fix-jiti-cjs-transpile-safety. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: First-party TypeScript SHALL transpile to CommonJS without retaining `import.meta`
 
 No first-party TypeScript source reachable from a jiti-loaded entry point SHALL
@@ -111,9 +113,10 @@ The rule SHALL be derived from package manifests plus one import walk. The
 1. **`pi.extensions` entries** pointing at a `.ts` file — loaded by the pi host
    through jiti.
 2. **The dashboard server's own entry.** `packages/server` declares
-   `main: src/cli.ts`, and its `bin/pi-dashboard.mjs` wrapper re-execs Node with
-   `--import <jiti-url> cli.ts`. The whole of `packages/server/src/**` is
-   therefore jiti-evaluated. The `bin` field is `.mjs`, so no manifest limb
+   `main: src/cli.ts`. Its `bin/pi-dashboard.mjs` wrapper re-execs Node with
+   the Node-native loader by default and with `--import <jiti-url> cli.ts`
+   when `PI_DASHBOARD_TS_LOADER=jiti`. Because the jiti fallback can evaluate
+   it, the whole of `packages/server/src/**` SHALL stay in scope. The `bin` field is `.mjs`, so no manifest limb
    keyed on `bin` can discover this — it SHALL be seeded from a workspace whose
    `main` is a `.ts` file.
 3. **`pi-dashboard-plugin` `server` and `bridge` entries** pointing at a `.ts`
@@ -250,11 +253,19 @@ it is reached only through the Vite client path.
 #### Scenario: The dashboard server's own source is covered
 
 - **GIVEN** `packages/server`, whose `main` is `src/cli.ts` and whose
-  `bin/pi-dashboard.mjs` re-execs Node with `--import <jiti-url> cli.ts`
+  `bin/pi-dashboard.mjs` re-execs Node with `--import <jiti-url> cli.ts` when
+  `PI_DASHBOARD_TS_LOADER=jiti`
 - **WHEN** the gate computes its file set
 - **THEN** `packages/server/src/**` SHALL be in scope
 - **AND** the seed SHALL key on `main` resolving to a `.ts` file, since keying on
   `bin` would miss it — `bin` points at the `.mjs` wrapper
+
+#### Scenario: Seed 2 survives the native default
+
+- **GIVEN** `bin/pi-dashboard.mjs` defaults to the Node-native loader
+- **WHEN** the gate computes its seeds
+- **THEN** the `packages/server` main seed SHALL still be discovered
+- **AND** a test SHALL fail if it drops out
 
 #### Scenario: A raw-TypeScript `bin` is NOT in scope
 
@@ -321,4 +332,3 @@ disables the bridge, and SHALL note that the temp-file path requires a writable
   `SyntaxError` mentioning `import.meta`
 - **WHEN** they search `docs/faq.md` for that symptom
 - **THEN** they SHALL reach the same entry
-

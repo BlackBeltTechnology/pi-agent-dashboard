@@ -93,6 +93,6 @@
   - `file-routes`
 
   Delegate any `docs/` prose (the loader section in `docs/architecture.md`, and an FAQ entry for `PI_DASHBOARD_TS_LOADER`) to DocScribe. Verify `node scripts/check-conventions.mjs` passes.
-- [ ] 9.4 At archive, update the `jiti-loader` spec Purpose ("jiti is the sole TypeScript loader") and the `packaging` requirement title "(jiti-only)", which deltas cannot change.
-- [ ] 9.5 Run `review-code` on the diff, then the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`). Verify there are no new failures, and that `npm run quality:changed` is clean.
-- [ ] 9.6 Delete the throwaway branches `spike/native-ts-loader` and `tmp/bisect-appimage-hang` (local and origin), and remove the `../pi-spike-native-ts` worktree.
+- [x] 9.4 At archive, update the `jiti-loader` spec Purpose ("jiti is the sole TypeScript loader") and the `packaging` requirement title "(jiti-only)", which deltas cannot change.
+- [x] 9.5 Run `review-code` on the diff, then the full suite (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`). Verify there are no new failures, and that `npm run quality:changed` is clean.
+- [x] 9.6 Delete the throwaway branches `spike/native-ts-loader` and `tmp/bisect-appimage-hang` (local and origin), and remove the `../pi-spike-native-ts` worktree.
