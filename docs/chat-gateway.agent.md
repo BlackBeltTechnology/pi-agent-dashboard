@@ -13,8 +13,11 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - State directory (`~/.pi/dashboard/chat-gateway/`): `bindings.json` (routing), `channels.json` (provisioning), `command-log.json` (audit, 0600), `disarm.json` (latch, 0600).
 
 ## Discord Bot Setup
-- Discord Developer Portal: create application, add Bot, copy token, enable **Message Content Intent**.
-- OAuth2 URL Generator: scopes `bot`, `applications.commands`; perms Send Messages, Read Message History, Embed Links; authorize to guild.
+- Discord Developer Portal: create application, add Bot, copy token.
+- Bot → Authorization Flow: turn **Requires OAuth2 Code Grant** OFF. Invite fails `Integration requires code grant` when ON.
+- Privileged Gateway Intents: enable **Message Content Intent** + **Save Changes**. Off/unsaved fails login: `[discord] login failed (...): Used disallowed intents` in `server.log`.
+- OAuth2 URL Generator: scopes `bot`, `applications.commands`; perms View Channels, Send Messages, Embed Links, Read Message History, Manage Channels, Manage Roles, Create Public Threads, Create Private Threads, Send Messages in Threads; integer `378225642512`. Do NOT grant Administrator (bypasses channel overwrites).
+- Invite URL shape: `https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot%20applications.commands&permissions=378225642512&guild_id=<GUILD_ID>`; authorize to guild. Bot absent from guild → `provision_failed: Unknown Guild`.
 
 ## Dashboard Configuration
 - Settings → General → Chat Gateway (`ChatGatewaySettings`).
@@ -79,6 +82,8 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - Disarm command: `!disarm` whole message (`/^\s*!\s*disarm\s*$/i`); conversational instructions with steer prefix (`!`) ignored; `>= observe` can disarm; passive mirroring continues.
 - Disarm latch: global across layer (never per-binding; prevents failing open); survives restart via `disarm.json` (0600, atomic rename); boot seeds from file, falls back to config only if unpersisted; re-arm dashboard-only; single `setDisarmed` writer.
 - Lifecycle: workspace deletion deactivates binding; channel deletion drops binding, keeps sessions.
+- Provisioned channel: gateway serves the channel IT provisions per `teamControls.bindings.<workspaceId>` (`channels.json`), not pre-existing; created top-level (no category), named after workspace (e.g. `#pi-dashboard`); add new channel id to `groupChannels` (L4), else messages ignored.
+- Provisioned channel carries bot-self member allow (`DiscordChannelOps.selfId()`, `BOT_SELF_ALLOW`); without it `@everyone` VIEW deny locks bot out (403 `Missing Access` 50001). Channels provisioned before fix need one-time bot overwrite.
 - Command log: append-only ring buffer in `command-log.json` (0600) bounded by `auditRetention` (default 10000, max 1000000); synchronous rewrite for durability.
 - Command log validation/error: `isEntry` drops entries missing valid `outcome` on load; write errors report via `onPersistFailure` to `/api/health.plugins[]` instead of throwing.
 
@@ -88,4 +93,4 @@ Pull-only condensed map. Source: docs/chat-gateway.md.
 - `toolPolicy` (`allow`, `approval`, `defaultAction: "deny"`), `guardExtension` (string).
 - `teamControls`: `ceiling` (enum, default `observe`), `disarmed` (boolean, default false), `auditRetention` (integer, default 10000, max 1000000).
 - `teamControls.bindings.<id>`: `principals` (map ID → tier), `roles` (map role ID → tier <= control), `mirrorLevel` (enum, default `names-only`), `ceiling` (enum).
-- History: `See change: add-chat-gateway, add-chat-gateway-team-controls`.
+- History: `See change: add-chat-gateway, add-chat-gateway-team-controls, fix-chat-gateway-bot-self-overwrite`.
