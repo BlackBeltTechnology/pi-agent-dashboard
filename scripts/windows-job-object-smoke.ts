@@ -105,21 +105,7 @@ async function main(): Promise<void> {
     if (!isAlive(electronPid)) infra("app process exited before a server became healthy");
     await sleep(1000);
   }
-  if (!serverPid) {
-    try { child.kill(); } catch {}
-    // Print the throwaway HOME's logs so a boot failure is diagnosable from CI
-    // output alone (the HOME is gone once the runner is recycled).
-    // See change: fix-appimage-cold-boot-latency.
-    const tmp = process.env.TEMP || process.env.TMP || os.tmpdir();
-    for (const log of [
-      path.join(home, ".pi", "dashboard", "server.log"),
-      path.join(tmp, "pi-dashboard-electron.log"), // Electron main startup log (main.ts)
-    ]) {
-      const text = fs.existsSync(log) ? fs.readFileSync(log, "utf-8") : "(missing)";
-      console.error(`── ${log} (last 60 lines) ──\n${text.split("\n").slice(-60).join("\n")}`);
-    }
-    infra(`app never brought a server up on :${PORT}`);
-  }
+  if (!serverPid) { try { child.kill(); } catch {} infra(`app never brought a server up on :${PORT}`); }
   console.log(`[job-object-smoke] app pid=${electronPid} spawned server pid=${serverPid}`);
 
   // Emulate the crash: force-kill ONLY the Electron parent. The Job Object must
