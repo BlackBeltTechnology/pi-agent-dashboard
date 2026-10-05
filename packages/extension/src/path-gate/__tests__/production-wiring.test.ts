@@ -37,6 +37,12 @@ function setup(opts: { configFile?: string; readConfig?: () => { enabled: boolea
   return { gate, cwd, asked, ctx: { hasUI: true, cwd } };
 }
 
+/** Poll instead of fixed sleeps: the gate's async checkout probe is slow on a loaded runner. */
+async function until(cond: () => boolean, ms = 5000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 5));
+}
+
 describe("TUI visibility (review B2)", () => {
   it("the terminal question names the path being approved", async () => {
     const t = setup();
@@ -106,11 +112,11 @@ describe("denial suppression is scoped to the session that was asked (review r8/
     });
     const call = () => t.gate.handler({ toolName: "read", toolCallId: "tc", input: { path: "/etc/hosts" } }, t.ctx);
     const sCall = call(); // S asks and waits
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => asked.length >= 1);
     sid.v = "T";
     t.gate.onSessionStart();
     const tCall = call(); // T queues its OWN prompt (not behind S: per-session mutex)
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => asked.length >= 2);
     expect(asked).toHaveLength(2); // both prompts open concurrently, one per session
     resolvers[0]("Deny"); // S settles late → denial recorded under S
     expect((await sCall)?.reason).toContain("denied");
@@ -126,7 +132,7 @@ describe("denial suppression is scoped to the session that was asked (review r8/
     expect(await tCall).toBeUndefined();
     // and T is not suppressed by S's late denial
     const tAgain = call();
-    await new Promise((r) => setTimeout(r, 20));
+    await until(() => asked.length >= 3);
     expect(asked).toHaveLength(3);
     resolvers[2]("Allow once");
     expect(await tAgain).toBeUndefined();
