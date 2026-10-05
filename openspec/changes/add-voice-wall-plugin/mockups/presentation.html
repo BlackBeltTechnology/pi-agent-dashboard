@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprint 42 planning · Presentation</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<link rel="stylesheet" href="wall.css" />
+<script src="theme-init.js"></script>
+<style>
+  body { margin:0; }
+  .stage { min-height:100vh; display:grid; grid-template-rows:auto 1fr auto; background:var(--bg-primary); }
+  .p-head { display:flex; align-items:center; gap:16px; padding:2.2vh 3vw; }
+  .p-head h1 { font-size:clamp(18px, 2.4vw, 36px); margin:0; color:var(--text-primary); font-weight:800; }
+  .p-head .meta { font-size:clamp(12px, 1.2vw, 18px); color:var(--text-secondary); }
+  .p-body { display:grid; grid-template-columns:1.4fr 1fr; gap:2.4vw; padding:1vh 3vw 2vh; }
+  @media (max-width: 900px) { .p-body { grid-template-columns:1fr; } }
+  .p-area { background:var(--bg-secondary); border:1px solid var(--border-subtle); border-radius:16px; padding:2.4vh 2vw; display:flex; flex-direction:column; gap:1.6vh; }
+  .p-area h2 { margin:0; font-size:clamp(12px, 1.1vw, 18px); letter-spacing:.08em; text-transform:uppercase; color:var(--text-secondary); }
+  .p-item { font-size:clamp(18px, 2.1vw, 34px); line-height:1.3; color:var(--text-primary); }
+  .p-item small { display:block; font-size:clamp(12px, 1vw, 16px); color:var(--text-secondary); margin-top:.4vh; }
+  .p-foot { display:flex; align-items:center; gap:2vw; padding:1.6vh 3vw; border-top:1px solid var(--border-primary); font-size:clamp(11px, 1vw, 15px); color:var(--text-secondary); flex-wrap:wrap; }
+  .dots { display:flex; gap:8px; } .dots i { width:10px; height:10px; border-radius:50%; background:var(--border-secondary); display:block; } .dots i.on { background:var(--accent-blue); }
+  kbd { font-family:ui-monospace, Menlo, monospace; font-size:.9em; border:1px solid var(--border-secondary); border-bottom-width:2px; border-radius:4px; padding:0 5px; color:var(--text-primary); }
+  .qrbox { margin-left:auto; display:flex; align-items:center; gap:10px; }
+  .qr { width:64px; height:64px; display:grid; grid-template-columns:repeat(11,1fr); gap:1px; padding:5px; background:var(--bg-secondary); border:1px solid var(--border-secondary); border-radius:6px; }
+  .qr i { background:var(--text-primary); } .qr i.o { background:transparent; }
+  .progress { height:3px; background:var(--border-primary); } .progress span { display:block; height:100%; width:35%; background:var(--accent-blue); }
+  .mock-nav { position:fixed; left:10px; bottom:10px; display:flex; gap:6px; opacity:.85; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div>
+    <div class="p-head">
+      <span class="dot dot-live" aria-hidden="true" style="width:12px;height:12px"></span>
+      <h1>Sprint 42 planning</h1>
+      <span class="meta">acme-erp · live</span>
+    </div>
+    <div class="progress" aria-hidden="true"><span></span></div>
+  </div>
+
+  <div class="p-body" aria-live="polite">
+    <section class="p-area" aria-labelledby="pa1">
+      <h2 id="pa1">Decisions · 2 of 6</h2>
+      <div class="p-item">Cut over the logistics API on the weekend, not mid-week.<small>turn 212 · Anna K.</small></div>
+      <div class="p-item" style="color:var(--text-secondary)">Photo upload stays in v1.<small>confirms DEC-014</small></div>
+    </section>
+    <section class="p-area" aria-labelledby="pa2">
+      <h2 id="pa2">Open questions</h2>
+      <div class="p-item">Who signs off the cut-over runbook?</div>
+      <div class="p-item"><span class="tag t-warn" style="font-size:.5em; vertical-align:middle">conflicts</span> Release on the 14th vs. plan: the 21st</div>
+    </section>
+  </div>
+
+  <div class="p-foot">
+    <div class="dots" role="img" aria-label="View 2 of 6"><i></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+    <span><b style="color:var(--text-primary)">Auto</b> · next view in 12 s</span>
+    <span><kbd>←</kbd> <kbd>→</kbd> views · <kbd>A</kbd> auto · <kbd>F</kbd> full screen · <kbd>Esc</kbd> exit</span>
+    <div class="qrbox"><span style="text-align:right">Follow on your phone<br><b style="color:var(--text-primary)">scan to join</b></span><div class="qr" id="qr" role="img" aria-label="QR code with the view-only link"></div></div>
+  </div>
+</div>
+<div class="mock-nav"><a class="btn-ghost" href="index.html" style="background:var(--bg-secondary)">← All screens</a><button class="btn-ghost" style="background:var(--bg-secondary)" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Theme</button></div>
+<script>
+const q=document.getElementById("qr"); let h="";
+for(let i=0;i<121;i++){const r=Math.floor(i/11),c=i%11;const f=(r<3&&c<3)||(r<3&&c>7)||(r>7&&c<3);h+=`<i class="${f||((Math.imul(i+13,2654435761)>>>27)%3===0)?"":"o"}"></i>`;}
+q.innerHTML=h;
+</script>
+</body>
+</html>

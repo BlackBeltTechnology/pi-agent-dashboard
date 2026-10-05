@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sprint 42 planning · Live wall</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="va.css" />
+<link rel="stylesheet" href="wall.css" />
+<script src="theme-init.js"></script>
+<style>
+  [role=tabpanel][hidden] { display:none; }
+  .mock-nav { position:fixed; right:10px; top:56px; z-index:10; display:flex; gap:6px; }
+  .tr-line { display:grid; grid-template-columns:3.2em 8em 1fr; gap:10px; padding:6px 0; border-bottom:1px solid var(--border-subtle); font-size:14px; line-height:1.5; }
+  .tr-line .n { color:var(--text-secondary); font-variant-numeric:tabular-nums; font-size:12px; padding-top:2px; }
+  .tr-line .sp { font-weight:700; color:var(--text-primary); font-size:13px; }
+  .tr-line .tx { color:var(--text-primary); }
+  @media (max-width:640px){ .tr-line{ grid-template-columns:2.4em 1fr; } .tr-line .sp{ grid-column:2; } .tr-line .tx{ grid-column:2; } }
+  .node { fill:var(--bg-tertiary); stroke:var(--border-secondary); }
+  .node.d { stroke:var(--accent-green); } .node.q { stroke:var(--accent-blue); } .node.w { stroke:var(--accent-orange); }
+  .edge { stroke:var(--text-secondary); stroke-width:1.4; fill:none; }
+  svg text { fill:var(--text-primary); font-size:12px; font-family:inherit; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="dot dot-live" aria-hidden="true"></span>
+    <h1>Sprint 42 planning</h1>
+    <span class="who">acme-erp · live 00:14:32</span>
+    <span class="flex-1"></span>
+    <a href="presentation.html" class="btn-ghost" title="Full-screen room view (F)">Present ⤢</a>
+  </div>
+  <div class="strip" style="display:flex; align-items:center; gap:10px; padding:6px 16px; font-size:12px; color:var(--text-secondary); border-bottom:1px solid var(--border-primary); flex-wrap:wrap">
+    <span style="color:var(--text-primary)">anna.k@acme.example</span><span class="tag t-q">can type</span><span class="flex-1"></span><button class="link">Sign out</button>
+  </div>
+
+  <div class="wtabs" role="tablist" aria-label="Wall views">
+    <button class="wtab" role="tab" id="t-b" aria-controls="p-b" aria-selected="true" onclick="sel('b')">Board</button>
+    <button class="wtab" role="tab" id="t-g" aria-controls="p-g" aria-selected="false" onclick="sel('g')">Graph</button>
+    <button class="wtab" role="tab" id="t-t" aria-controls="p-t" aria-selected="false" onclick="sel('t')">Transcript</button>
+  </div>
+
+  <!-- BOARD -->
+  <main id="p-b" role="tabpanel" aria-labelledby="t-b" class="flex-1">
+    <div class="board" aria-live="polite" aria-relevant="additions">
+      <section class="area" aria-labelledby="a1"><div class="area-h"><h2 id="a1">Agenda</h2><span class="upd">3 / 5</span></div>
+        <div class="item done">✓ Scope of sprint 42</div>
+        <div class="item done">✓ Carry-over from sprint 41</div>
+        <div class="item fresh">→ Logistics API cut-over <span class="src">now discussing</span></div>
+        <div class="item">Release date</div>
+        <div class="item">Risks</div>
+      </section>
+      <section class="area" aria-labelledby="a2"><div class="area-h"><h2 id="a2">Decisions</h2><span class="upd">updated 1 min ago</span></div>
+        <div class="item fresh"><span class="tag t-dec">decided</span> Cut over the logistics API on the weekend, not mid-week. <span class="src">turn 212 · Anna K.</span></div>
+        <div class="item"><span class="tag t-dec">decided</span> Photo upload stays in v1. <span class="src">turn 88 · confirms DEC-014</span></div>
+      </section>
+      <section class="area" aria-labelledby="a3"><div class="area-h"><h2 id="a3">Open questions</h2></div>
+        <div class="item"><span class="tag t-q">question</span> Who signs off the cut-over runbook? <span class="src">turn 205</span></div>
+        <div class="item"><span class="tag t-warn">conflicts</span> "Release on the 14th" contradicts the published plan (the 21st). <span class="src">turn 198 · Release plan v3</span></div>
+      </section>
+      <section class="area" aria-labelledby="a4"><div class="area-h"><h2 id="a4">Parked for later</h2></div>
+        <div class="item">✕ Driver-app redesign: out of scope for this sprint <span class="src">parked at turn 140</span></div>
+        <div class="item"><span class="tag t-pend">pending</span> Checking the architecture doc for queue limits… <div class="ttl" aria-hidden="true"><span style="width:60%"></span></div></div>
+      </section>
+      <section class="area" aria-labelledby="a5"><div class="area-h"><h2 id="a5">Figures</h2></div>
+        <div class="figure" role="img" aria-label="Diagram: logistics API cut-over sequence">logistics-cutover.png</div>
+        <span class="src" style="font-size:11px; color:var(--text-secondary)">from docs/figures · referenced by the copilot</span>
+      </section>
+      <section class="area" aria-labelledby="a6"><div class="area-h"><h2 id="a6">Copilot</h2></div>
+        <div class="item">An effort estimate was asked. Estimates follow in writing after the call. <span class="src">standing answer</span></div>
+        <div class="item">Queue limit for the cut-over is in Architecture §4.2: 2,000 msgs/s.</div>
+      </section>
+    </div>
+  </main>
+
+  <!-- GRAPH -->
+  <main id="p-g" role="tabpanel" aria-labelledby="t-g" class="flex-1 p-4" hidden>
+    <div class="area" style="min-height:360px">
+      <div class="area-h"><h2>Decision graph</h2><span class="upd">bundled renderer · no CDN</span></div>
+      <svg viewBox="0 0 640 300" role="img" aria-label="Decision graph: Weekend cut-over depends on runbook sign-off and conflicts with release on the 14th" style="width:100%; height:auto">
+        <path class="edge" d="M160 70 L300 140"/><path class="edge" d="M160 230 L300 160"/><path class="edge" d="M440 150 L520 150"/>
+        <rect class="node d" x="20" y="45" width="140" height="50" rx="8"/><text x="90" y="75" text-anchor="middle">Weekend cut-over</text>
+        <rect class="node q" x="20" y="205" width="140" height="50" rx="8"/><text x="90" y="235" text-anchor="middle">Runbook sign-off?</text>
+        <rect class="node" x="300" y="125" width="140" height="50" rx="8"/><text x="370" y="155" text-anchor="middle">Logistics API</text>
+        <rect class="node w" x="520" y="125" width="110" height="50" rx="8"/><text x="575" y="155" text-anchor="middle">Release 14th?</text>
+      </svg>
+      <p class="text-xs" style="color:var(--text-secondary)">Same items as the Board, as nodes. The node outline matches the board tag (decided / question / conflicts), and every node also carries its text label (WCAG 1.4.1).</p>
+    </div>
+  </main>
+
+  <!-- TRANSCRIPT -->
+  <main id="p-t" role="tabpanel" aria-labelledby="t-t" class="flex-1 p-4" hidden>
+    <div class="area">
+      <div class="area-h"><h2>Transcript</h2><span class="upd">live · newest at bottom</span></div>
+      <div class="tr-line"><span class="n">210</span><span class="sp">Anna K.</span><span class="tx">If we do it mid-week, support takes the hit.</span></div>
+      <div class="tr-line"><span class="n">211</span><span class="sp">Speaker 3</span><span class="tx">Weekend works for us, with someone on call.</span></div>
+      <div class="tr-line"><span class="n">212</span><span class="sp">Robson</span><span class="tx">Then it's the weekend. I'll write it down.</span></div>
+      <p class="text-xs mt-2" style="color:var(--text-secondary)">Share-link viewers see this tab only if the host enabled "Viewers can see the transcript"; otherwise the tab is absent, not disabled.</p>
+    </div>
+  </main>
+
+  <!-- INPUT (signed-in + allowed only) -->
+  <div class="inputbar">
+    <form class="inputrow" onsubmit="return false">
+      <label for="say" class="sr-only">Message to the copilot</label>
+      <textarea id="say" maxlength="400" placeholder="Type to the copilot (seen by the copilot, not shown on the wall)">Add the runbook owner question to the follow-up mail</textarea>
+      <button class="btn-primary">Send</button>
+    </form>
+    <div class="flex gap-3 mt-1"><span class="counter">52 / 400</span><span class="counter">Sent as <b>[wall operator] anna.k</b></span></div>
+  </div>
+</div>
+
+<div class="mock-nav"><a class="btn-ghost" href="index.html" style="background:var(--bg-secondary)">← All screens</a><button class="btn-ghost" style="background:var(--bg-secondary)" onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'">Theme</button></div>
+<script>
+function sel(k){ for (const id of ["b","g","t"]) { document.getElementById("t-"+id).setAttribute("aria-selected", id===k); document.getElementById("p-"+id).hidden = id!==k; } }
+</script>
+</body>
+</html>
