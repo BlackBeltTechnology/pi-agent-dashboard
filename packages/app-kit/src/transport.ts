@@ -68,13 +68,16 @@ export async function authedFetch(input: string | URL | Request, init?: RequestI
   const url = apiUrl(isRequest ? input.url : String(input));
   const toDashboard = isDashboardOrigin(url);
   const headers = new Headers(init?.headers ?? (isRequest ? input.headers : undefined));
-  if (token && toDashboard && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+  // The kit's own bearer, when it attached one; `null` for a caller-supplied
+  // header, a foreign origin or `none` mode.
+  const sent = token && toDashboard && !headers.has("Authorization") ? { token, epoch: getCredentialEpoch() } : null;
+  if (sent) headers.set("Authorization", `Bearer ${sent.token}`);
 
   const target = isRequest ? new Request(url, input) : url;
   const res = await fetch(target, { ...init, headers, credentials: "omit" });
   // Only the dashboard can refuse the dashboard credential; a foreign origin's
   // 401/403 is that origin's business and is returned as-is.
-  if (toDashboard) checkRefusal(mode, res.status, token);
+  if (toDashboard) checkRefusal(mode, res.status, sent);
   return res;
 }
 
@@ -88,13 +91,16 @@ function sendableCredential(): { mode: "oidc" | "none"; token: string | null } {
 }
 
 /**
- * A dashboard 401 refuses the credential the request was sent with — only a
- * refusal of the STILL-live token signals the session (a late 401 for a token
- * that was since renewed or replaced must not sign out the newer session). In
- * `none` mode a 401/403 means the caller is not admitted.
+ * A dashboard 401 refuses the credential the request was sent with. Only a
+ * refusal of the kit's own bearer that is STILL the live credential (same token,
+ * same epoch) signals the session: a 401 for a caller-supplied header, or a late
+ * 401 for a token since renewed, replaced or re-issued, must not sign out the
+ * current session. In `none` mode a 401/403 means the caller is not admitted.
  */
-function checkRefusal(mode: "oidc" | "none", status: number, sentToken: string | null): void {
-  if (status === 401 && getAccessToken() === sentToken) notifySessionRefused();
+function checkRefusal(mode: "oidc" | "none", status: number, sent: { token: string; epoch: number } | null): void {
+  if (status === 401 && sent && getAccessToken() === sent.token && getCredentialEpoch() === sent.epoch) {
+    notifySessionRefused();
+  }
   if (mode === "none" && (status === 401 || status === 403)) throw new NotAdmittedError(status);
 }
 

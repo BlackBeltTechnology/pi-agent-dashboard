@@ -11,7 +11,7 @@
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { useAuth } from "react-oidc-context";
 import type { IdentityMode, Operator } from "../identity-state.js";
-import { getIdentityMode, onSessionRefused, setAccessToken, setActingOperator } from "../identity-state.js";
+import { getIdentityMode, onSessionRefused, setActingOperator, setCredential } from "../identity-state.js";
 
 export interface Identity {
   /** The identity mode the bridge rendered for. */
@@ -155,8 +155,9 @@ function OidcIdentity({ mode, loginUrl, providerLabel, resolveRole, children }: 
 
   const token = user?.access_token ?? null;
   useEffect(() => {
-    setAccessToken(token);
-    setActingOperator(operator);
+    // Atomic: a same-operator renewal keeps in-flight ticket mints valid; an
+    // account switch invalidates them.
+    setCredential(token, operator);
   }, [token, operator]);
 
   const role = useResolvedRole(operator, resolveRole);
@@ -190,8 +191,7 @@ function OidcIdentity({ mode, loginUrl, providerLabel, resolveRole, children }: 
     () =>
       onSessionRefused(() => {
         // Clear the local session; do NOT auto-redirect (that would loop).
-        setAccessToken(null);
-        setActingOperator(null);
+        setCredential(null, null);
         void auth.removeUser();
       }),
     [auth],
@@ -210,8 +210,7 @@ function OidcIdentity({ mode, loginUrl, providerLabel, resolveRole, children }: 
     signInReady: !auth.isLoading && metadataReady,
     signIn: () => void auth.signinRedirect(),
     signOut: () => {
-      setAccessToken(null);
-      setActingOperator(null);
+      setCredential(null, null);
       // The provider's own end-session endpoint. A failed end-session call still
       // drops the local user.
       auth.signoutRedirect().catch(() => {

@@ -24,6 +24,7 @@ export {
   resetIdentityState,
   setAccessToken,
   setActingOperator,
+  setCredential,
   setIdentityMode,
 } from "./identity-state.js";
 export {

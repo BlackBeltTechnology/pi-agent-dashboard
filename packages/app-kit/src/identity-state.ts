@@ -27,9 +27,10 @@ export type IdentityMode = "unknown" | "oidc" | "none" | "unavailable";
 let mode: IdentityMode = "unknown";
 let accessToken: string | null = null;
 /**
- * Bumped whenever the credential is dropped or changes hands (token cleared,
- * acting operator `(iss, sub)` changed, mode changed, reset) — NOT on a token
- * renewal for the same operator — so an async step can tell whether the
+ * Bumped whenever the credential is dropped or may have changed hands (token
+ * cleared, token replaced through the bare `setAccessToken`, acting operator
+ * `(iss, sub)` changed, mode changed, reset) — but NOT on a same-operator
+ * renewal through `setCredential` — so an async step can tell whether the
  * credential it started with is still the live one.
  */
 let credentialEpoch = 0;
@@ -57,10 +58,27 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
-/** Set (or clear) the live access token. */
+/**
+ * Set (or clear) the live access token alone. Without operator context a
+ * replacement cannot be told from an account switch, so any change invalidates
+ * in-flight work; renew through `setCredential` to keep it.
+ */
 export function setAccessToken(token: string | null): void {
-  if (token === null) credentialEpoch += 1;
+  if (token !== accessToken || token === null) credentialEpoch += 1;
   accessToken = token;
+}
+
+const sameOperator = (a: Operator | null, b: Operator | null) => a?.iss === b?.iss && a?.sub === b?.sub;
+
+/**
+ * Atomically set the token and the operator it belongs to. A new token for the
+ * SAME operator is a renewal and keeps in-flight work valid; a cleared token or
+ * a different operator invalidates it.
+ */
+export function setCredential(token: string | null, next: Operator | null): void {
+  if (token === null || !sameOperator(operator, next)) credentialEpoch += 1;
+  accessToken = token;
+  operator = next;
 }
 
 /** The acting operator, or null when nothing is signed in. */
@@ -70,7 +88,7 @@ export function currentOperator(): Operator | null {
 
 /** Set (or clear) the acting operator. */
 export function setActingOperator(next: Operator | null): void {
-  if (next?.iss !== operator?.iss || next?.sub !== operator?.sub) credentialEpoch += 1;
+  if (!sameOperator(operator, next)) credentialEpoch += 1;
   operator = next;
 }
 

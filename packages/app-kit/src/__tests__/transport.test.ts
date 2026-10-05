@@ -8,6 +8,7 @@ import {
   resetIdentityState,
   setAccessToken,
   setActingOperator,
+  setCredential,
   setIdentityMode,
 } from "../identity-state.js";
 import {
@@ -140,6 +141,40 @@ describe("authedFetch — origin-bound credential, cookies, refusal", () => {
     setAccessToken("new");
     respond(new Response("{}", { status: 401 }));
     expect((await pending).status).toBe(401);
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
+  it("a 401 for a caller's explicit Authorization does not sign out the live token (review r3 B2)", async () => {
+    setIdentityMode("oidc");
+    setAccessToken("t1");
+    const onRefused = vi.fn();
+    onSessionRefused(onRefused);
+    stubFetch(401);
+    await authedFetch("/api/x", { headers: { Authorization: "X" } });
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
+  it("a late 401 does not sign out a new session that reuses the same token value (review r3 B2)", async () => {
+    setIdentityMode("oidc");
+    setCredential("t1", { iss: "i", sub: "alice" });
+    const onRefused = vi.fn();
+    onSessionRefused(onRefused);
+    let respond: (r: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((r) => (respond = r))));
+    const pending = authedFetch("/api/x");
+    setCredential(null, null);
+    setCredential("t1", { iss: "i", sub: "alice" });
+    respond(new Response("{}", { status: 401 }));
+    await pending;
+    expect(onRefused).not.toHaveBeenCalled();
+  });
+
+  it("a 401 in none mode is not_admitted, not a session refusal", async () => {
+    setIdentityMode("none");
+    const onRefused = vi.fn();
+    onSessionRefused(onRefused);
+    stubFetch(401);
+    await expect(authedFetch("/api/x")).rejects.toBeInstanceOf(NotAdmittedError);
     expect(onRefused).not.toHaveBeenCalled();
   });
 
@@ -301,17 +336,37 @@ describe("ticketSocketUrl — E10 mode × mint result", () => {
     expect(await pending).toBeNull();
   });
 
-  it("a token renewal while the mint is in flight keeps the ticket", async () => {
-    setActingOperator({ iss: "https://kc/realms/r", sub: "alice" });
+  it("a same-operator renewal (setCredential) while the mint is in flight keeps the ticket", async () => {
     setIdentityMode("oidc");
-    setAccessToken("t");
+    setCredential("t", { iss: "https://kc/realms/r", sub: "alice" });
     let release: (t: string) => void = () => {};
     setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
     const pending = ticketSocketUrl("/ws");
-    setAccessToken("t-renewed");
-    setActingOperator({ iss: "https://kc/realms/r", sub: "alice" });
+    setCredential("t-renewed", { iss: "https://kc/realms/r", sub: "alice" });
     release("k1");
     expect(await pending).toBe("wss://dash.example.com/ws?ticket=k1");
+  });
+
+  it("an atomic account switch (setCredential) while the mint is in flight yields null (review r3 B1)", async () => {
+    setIdentityMode("oidc");
+    setCredential("alice-token", { iss: "https://kc/realms/r", sub: "alice" });
+    let release: (t: string) => void = () => {};
+    setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
+    const pending = ticketSocketUrl("/ws");
+    setCredential("bob-token", { iss: "https://kc/realms/r", sub: "bob" });
+    release("alice-ticket");
+    expect(await pending).toBeNull();
+  });
+
+  it("a bare setAccessToken replacement while the mint is in flight yields null (review r3 B1)", async () => {
+    setIdentityMode("oidc");
+    setCredential("alice-token", { iss: "https://kc/realms/r", sub: "alice" });
+    let release: (t: string) => void = () => {};
+    setTicketMinterForTests(() => new Promise<string>((r) => (release = r)));
+    const pending = ticketSocketUrl("/ws");
+    setAccessToken("bob-token");
+    release("alice-ticket");
+    expect(await pending).toBeNull();
   });
 
   it("appendWsTicket percent-encodes the ticket", () => {
