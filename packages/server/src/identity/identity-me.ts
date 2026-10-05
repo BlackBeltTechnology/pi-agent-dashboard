@@ -8,7 +8,7 @@
 import type { HostAction, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { HostPolicy } from "./host-access.js";
 import { HostActions } from "./host-resources.js";
-import { LOCAL_OPERATOR } from "./session-access.js";
+import { isLocalOperator } from "./session-access.js";
 
 /** Every core family action except the domain-event fan-out road. */
 export const CORE_ME_ACTIONS: readonly HostAction[] = Object.values(HostActions).filter(
@@ -30,7 +30,7 @@ export async function identityMe(input: {
   policy: HostPolicy;
 }): Promise<IdentityMe> {
   const { enforced, principal, policy } = input;
-  const localOperator = principal === LOCAL_OPERATOR;
+  const localOperator = isLocalOperator(principal);
   const shown =
     principal && !localOperator
       ? { iss: principal.iss, sub: principal.sub, ...(principal.email ? { email: principal.email } : {}) }

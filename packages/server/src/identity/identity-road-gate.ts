@@ -23,7 +23,7 @@ import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identi
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { HostPolicy } from "./host-access.js";
 import { classifyHttpRoad } from "./http-road-classification.js";
-import { canAccessSession, LOCAL_OPERATOR, sessionPrincipalOf } from "./session-access.js";
+import { canAccessSession, isLocalOperator, sessionPrincipalOf } from "./session-access.js";
 
 export interface IdentityRoadGateDeps {
   /** D21 enforcement predicate (resolver active AND login provider registered). */
@@ -58,7 +58,7 @@ export function createIdentityRoadGate(deps: IdentityRoadGateDeps) {
 
     // Non-session (or unclassified) road — the optional host policy.
     if (!deps.policy.hasPolicy()) return;
-    if (principal === LOCAL_OPERATOR) return;
+    if (isLocalOperator(principal)) return;
     if (!principal) {
       await reply.code(403).send({ success: false, error: "forbidden" });
       return;

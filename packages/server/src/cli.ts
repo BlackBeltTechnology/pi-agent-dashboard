@@ -658,6 +658,54 @@ export async function cmdTokenCreate(
   return 0;
 }
 
+/**
+ * `pi-dashboard login --local` — D23 break-glass (tasks 18.24). Proves control of
+ * the HOST (the 0600 local token), asks the running server for a one-time code
+ * and prints the link the browser exchanges for an in-memory local-operator
+ * bearer. Works with the IdP down. Returns the exit code (testable).
+ */
+export async function cmdLogin(
+  argv: string[],
+  opts: { port: number },
+  deps: TokenCreateDeps = {},
+): Promise<number> {
+  const out = deps.out ?? ((l: string) => console.log(l));
+  const err = deps.err ?? ((l: string) => console.error(l));
+  const fetchFn = deps.fetchImpl ?? fetch;
+  if (!argv.includes("--local")) {
+    err("usage: pi-dashboard login --local [--port <port>]");
+    return 2;
+  }
+  const localToken = deps.localToken !== undefined ? deps.localToken : safeEnsureLocalToken();
+  if (!localToken) {
+    err("[login] no local token available on this host; cannot prove host control");
+    return 1;
+  }
+  const base = `http://localhost:${opts.port}`;
+  try {
+    const res = await fetchFn(`${base}/api/identity/local-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", [LOCAL_TOKEN_HEADER]: localToken },
+      body: "{}",
+    });
+    if (!res.ok) {
+      err(`[login] failed to issue a code: HTTP ${res.status}`);
+      return 1;
+    }
+    const json = (await res.json()) as { success: boolean; data?: { code: string; expiresInSeconds: number }; error?: string };
+    if (!json.success || !json.data) {
+      err(`[login] failed to issue a code: ${json.error ?? "unknown error"}`);
+      return 1;
+    }
+    out(`${base}/?pi_local=${encodeURIComponent(json.data.code)}`);
+    out(`Open this link on this machine within ${json.data.expiresInSeconds} s (single-use). You sign in as the local operator (break-glass).`);
+    return 0;
+  } catch (e) {
+    err(`[login] dashboard not running at ${base} (${(e as Error).message ?? e})`);
+    return 1;
+  }
+}
+
 function safeEnsureLocalToken(): string | null {
   try {
     return ensureLocalToken();
@@ -805,6 +853,12 @@ async function main() {
     const { flags } = parseArgs(rawArgs.slice(1));
     const config = buildConfig(flags);
     process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port }));
+  }
+
+  if (rawArgs[0] === "login") {
+    const { flags } = parseArgs(rawArgs.slice(1));
+    const config = buildConfig(flags);
+    process.exit(await cmdLogin(rawArgs.slice(1), { port: config.port }));
   }
 
   const { subcommand, flags } = parseArgs(rawArgs);

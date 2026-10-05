@@ -146,7 +146,8 @@ import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
 import { identityMe } from "./identity/identity-me.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
-import { markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
+import { BreakGlass } from "./identity/break-glass.js";
+import { isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -1797,8 +1798,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // resolveRedirectBase is dynamic (and cheap), so capture the override once
   // rather than re-reading the config file on every authenticated request.
   const identityRedirectBaseOverride = config.authConfig?.redirectBaseUrl;
+  // D23 break-glass: one-time code → short-lived operator bearer (in-memory).
+  const breakGlass = new BreakGlass();
+  let lastBreakGlassUseWarnAt = 0;
   registerResolverHook(fastify, {
     registry: resolverRegistry,
+    breakGlass,
+    onBreakGlassUse: () => {
+      if (Date.now() - lastBreakGlassUseWarnAt > 60_000) {
+        lastBreakGlassUseWarnAt = Date.now();
+        console.warn("[identity] local-operator (break-glass) bearer in use — sees every session");
+      }
+    },
     isEnforced: identityEnforced,
     timeoutMs: loadConfig().identity.resolverTimeoutMs,
     getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
@@ -1861,6 +1872,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // D21: advertise login only while identity is enforced.
     publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.list() : []),
   );
+
+  // D23 break-glass. `local-code` proves control of the HOST (the 0600 local token,
+  // same OS user only) and mints a one-time code; `local-exchange` is the pre-auth
+  // redemption for an operator bearer. The CLI (`pi-dashboard login --local`)
+  // prints `http://localhost:<port>/?pi_local=<code>`; the browser exchanges it
+  // like `#pi_handoff` and keeps the bearer in memory (no cookies, D22).
+  fastify.post("/api/identity/local-code", async (request, reply) => {
+    if (!verifyLocalToken(request.headers as Record<string, unknown>, localToken)) {
+      reply.code(401);
+      return { success: false as const, error: "local_token_required" };
+    }
+    const issued = breakGlass.issueCode();
+    console.warn("[identity] break-glass: one-time local-operator code issued via the host-only local token");
+    return { success: true as const, data: issued };
+  });
+  fastify.post<{ Body: { code?: unknown } }>("/api/identity/local-exchange", async (request, reply) => {
+    const out = breakGlass.redeem(request.body?.code);
+    if (!out) {
+      reply.code(401);
+      return { error: "invalid_code" };
+    }
+    console.warn("[identity] break-glass: local-operator bearer issued (code redeemed)");
+    return { access_token: out.accessToken, expires_in: out.expiresIn, token_type: "Bearer" };
+  });
 
   // Route → registering plugin (D24, 18.28): `loadServerEntries` activates
   // plugins sequentially; `createContext` brackets each activation, so every
@@ -3599,7 +3634,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   principal?: Principal;
                   principalExpiresAt?: number;
                 };
-                bound.principal = Object.freeze({ ...upgradeAuth.principal });
+                // D23: the break-glass operator is matched by REFERENCE, so keep it
+                // (it is already frozen); every other principal is bound as a copy.
+                bound.principal = isLocalOperator(upgradeAuth.principal)
+                  ? upgradeAuth.principal
+                  : Object.freeze({ ...upgradeAuth.principal });
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
               browserGateway.wss.emit("connection", ws, request);
@@ -3635,6 +3674,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         identityRegistrations.freeze();
         const disarmed = identityDisarmedWarning(input);
         if (disarmed) console.warn(disarmed);
+        // D23: name the recovery path while enforced, so an IdP outage is never a mystery lockout.
+        if (identityArmed) {
+          console.log("[identity] identity is ENFORCED. Locked out (IdP unreachable)? On this host run: pi-dashboard login --local");
+        }
       }
 
       await fastify.listen({ port: config.port, host: config.host });

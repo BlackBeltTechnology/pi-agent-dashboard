@@ -29,6 +29,14 @@ describe("identityFloorAllows — D24 signed-out floor", () => {
     expect(identityFloorAllows({ ...base, path: "/api/health", method: "POST" })).toBe(false);
   });
 
+  it("lets ONLY the break-glass code exchange through as a POST (D23); every other POST stays refused", () => {
+    expect(identityFloorAllows({ ...base, path: "/api/identity/local-exchange", method: "POST" })).toBe(true);
+    expect(identityFloorAllows({ ...base, path: "/api/identity/local-exchange", method: "GET" })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: "/api/identity/local-code", method: "POST" })).toBe(false); // needs the local token
+    expect(identityFloorAllows({ ...base, path: "/api/identity/../config", method: "POST" })).toBe(false);
+    expect(identityFloorAllows({ ...base, path: "/api/identity/local-exchange/../../config", method: "POST" })).toBe(false);
+  });
+
   it("does not govern non-browser namespaces (SPA shell, plugin login pages, WS upgrade path, model proxy)", () => {
     for (const path of ["/", "/settings", "/assets/index.js", "/identity-login/start", "/auth/status", "/ws", "/v1/chat/completions"]) {
       expect(identityFloorAllows({ ...base, path })).toBe(true);

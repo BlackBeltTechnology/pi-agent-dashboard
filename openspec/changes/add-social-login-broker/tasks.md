@@ -8,3 +8,4 @@
   - [ ] 1.e Settings section: per-upstream enable / client id / masked secret / copyable callback URL / allowlist→tier; ephemeral-base warning; arm only after a successful test sign-in by an allowlisted `operate` user; one-shot import from legacy `auth.providers`.
   - [ ] 1.f Matrix scenario K (fake GitHub + fake Google) incl. account linking (GitHub then Google ⇒ same principal) and non-allowlisted refusal.
   - [ ] 1.g Follow-ups (separate items once 1.a–f land): Electron RFC 8252 loopback PKCE login replacing remote pairing; CLI device flow (`pi-dashboard login`); MCP OAuth (RFC 9728 metadata on `/mcp` 401 + dynamic registration) replacing hand-minted MCP tokens.
+- [ ] 1.h E2E: a second login plugin in the setup matrix (Keycloak + social-login buttons) once 1.a–1.f exist (moved from add-multi-user-identity-plane 18.33).

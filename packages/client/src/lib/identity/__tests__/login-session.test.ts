@@ -53,6 +53,60 @@ describe("bootLoginSession (D22 + login page)", () => {
     expect(getLoginSession()).toMatchObject({ phase: "idle", hadToken: true, error: undefined });
   });
 
+  it("D23 break-glass: ?pi_local=<code> is stripped at once, redeemed at /api/identity/local-exchange, bearer kept in memory", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ access_token: "pi_op_X", expires_in: 3600 })));
+    const d = deps("http://h/session/1?pi_local=CODE&keep=1", { fetchFn });
+    const done = bootLoginSession(d);
+    expect(d.history.replaceState).toHaveBeenCalledWith(null, "", "/session/1?keep=1");
+    await done;
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/identity/local-exchange");
+    expect(JSON.parse(String(init.body))).toEqual({ code: "CODE" });
+    expect(d.setToken).toHaveBeenCalledWith("pi_op_X", 3600);
+    expect(d.navigate).not.toHaveBeenCalled(); // has a token ⇒ stays on the dashboard
+    expect(getLoginSession()).toMatchObject({ phase: "idle", hadToken: true, error: undefined });
+  });
+
+  it("D23: a refused code is an error on the login page — no token, no loop", async () => {
+    const fetchFn = vi.fn(async () => new Response("{}", { status: 401 }));
+    const d = deps("http://h/?pi_local=BAD", { fetchFn });
+    await bootLoginSession(d);
+    expect(d.setToken).not.toHaveBeenCalled();
+    expect(getLoginSession()).toMatchObject({ error: "exchange_failed" });
+    expect(d.navigate).toHaveBeenCalled(); // enforced + no token ⇒ login page
+  });
+
+  it("D23: the code is redeemed even when login-config is unreachable (IdP / plugin down)", async () => {
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ access_token: "pi_op_Y", expires_in: 60 })));
+    const d = deps("http://h/?pi_local=CODE", {
+      fetchFn,
+      fetchConfig: async () => {
+        throw new Error("down");
+      },
+    });
+    await bootLoginSession(d);
+    expect(d.setToken).toHaveBeenCalledWith("pi_op_Y", 60);
+    expect(getLoginSession()).toMatchObject({ phase: "idle", hadToken: true });
+  });
+
+  it("DPoP-bound token is a non-goal: stored as a plain in-memory bearer, no DPoP key persisted across the redirect (LG-19)", async () => {
+    // A token whose JWT carries `cnf.jkt` is handed over like any other: the dashboard
+    // client keeps ONE opaque bearer in memory and never generates/persists a DPoP key.
+    const jwt = `h.${Buffer.from(JSON.stringify({ cnf: { jkt: "thumb" } })).toString("base64url")}.s`;
+    const fetchFn = vi.fn(async () => new Response(JSON.stringify({ access_token: jwt, expires_in: 300 })));
+    const persist = storage();
+    const session = storage("V");
+    const d = deps("http://h/#pi_handoff=abc", { storage: session, persist, fetchFn });
+    await bootLoginSession(d);
+    expect(d.setToken).toHaveBeenCalledWith(jwt, 300);
+    for (const k of [persist, session]) {
+      expect(k.getItem("dpop")).toBeNull();
+      expect(k.getItem("pi-dashboard:dpop-key")).toBeNull();
+    }
+    // The only persisted remnant is the last-provider hint, never key material.
+    expect((persist as Storage).getItem(LAST_PROVIDER_KEY)).not.toMatch(/jkt|dpop|key/i);
+  });
+
   it("redeems at the tokenUrl of the provider that STARTED the sign-in and remembers it (D25)", async () => {
     const fetchFn = vi.fn(async () => new Response(JSON.stringify({ access_token: "AT", expires_in: 300 })));
     const d = deps("http://h/#pi_handoff=abc", { storage: storage("V", "gh"), fetchFn });

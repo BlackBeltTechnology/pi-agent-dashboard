@@ -16,6 +16,8 @@ import { useSyncExternalStore } from "react";
 import {
   completeHandoff,
   LAST_PROVIDER_KEY,
+  LOCAL_CODE_PARAM,
+  LOCAL_EXCHANGE_PATH,
   LOGIN_PATH,
   LOGIN_REQUIRED,
   loginPathFor,
@@ -83,15 +85,24 @@ export async function bootLoginSession(deps: BootDeps): Promise<void> {
   const ret = readLoginReturn(loc.hash);
   const search = new URLSearchParams(loc.search);
   const signedOut = search.get(SIGNED_OUT_PARAM) === "1";
+  const localCode = search.get(LOCAL_CODE_PARAM);
   search.delete(SIGNED_OUT_PARAM);
+  search.delete(LOCAL_CODE_PARAM);
   const qs = search.toString();
   const here = `${loc.pathname}${qs ? `?${qs}` : ""}`;
 
   // Strip first, before any await, so the one-time code never lingers.
-  if (ret || signedOut) deps.history.replaceState(deps.history.state, "", `${here}${stripLoginReturn(loc.hash)}`);
+  if (ret || signedOut || localCode) deps.history.replaceState(deps.history.state, "", `${here}${stripLoginReturn(loc.hash)}`);
   if (signedOut) update({ signedOut: true });
   if (ret?.kind === "error") update(ret.reason === LOGIN_REQUIRED ? { silentMissed: true } : { error: ret.reason });
   if (ret?.kind === "handoff") update({ phase: "signing-in" });
+
+  // D23 break-glass: redeem BEFORE (and independent of) login-config — the point
+  // is to get in when the IdP / login plugin is down.
+  if (localCode) {
+    update({ phase: "signing-in" });
+    await redeemLocalCode(localCode, deps);
+  }
 
   let config: LoginConfig;
   try {
@@ -104,6 +115,26 @@ export async function bootLoginSession(deps: BootDeps): Promise<void> {
   if (ret?.kind === "handoff") await redeemHandoff(ret.code, config, deps);
   if (config.active === true && !deps.hasToken() && !PRE_SHELL_ROUTES.has(loc.pathname)) deps.navigate(loginPathFor(here));
   update({ phase: "idle" });
+}
+
+/** Exchange a host-issued one-time code for the in-memory local-operator bearer (D23). */
+async function redeemLocalCode(code: string, deps: BootDeps): Promise<void> {
+  try {
+    const res = await deps.fetchFn(LOCAL_EXCHANGE_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = res.ok ? ((await res.json()) as { access_token?: unknown; expires_in?: unknown }) : null;
+    if (!data || typeof data.access_token !== "string" || data.access_token.length === 0) {
+      update({ error: "exchange_failed" });
+      return;
+    }
+    deps.setToken(data.access_token, typeof data.expires_in === "number" && data.expires_in > 0 ? data.expires_in : 0);
+    update({ hadToken: true, error: undefined });
+  } catch {
+    update({ error: "exchange_failed" });
+  }
 }
 
 /** Redeem at the tokenUrl of the provider that STARTED the sign-in (D25). */
