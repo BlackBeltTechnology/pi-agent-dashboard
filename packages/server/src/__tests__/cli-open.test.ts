@@ -23,8 +23,14 @@ describe("cmdOpen", () => {
   });
   it("without --print opens the browser", async () => {
     const open = vi.fn();
-    expect(await cmdOpen(cfg, { out: () => {}, fetchImpl: ok("c"), open })).toBe(0);
+    expect(await cmdOpen(cfg, { out: () => {}, fetchImpl: ok("B".repeat(43)), open })).toBe(0);
     expect(open).toHaveBeenCalledTimes(1);
+  });
+  it("a malformed code from the server is refused before any browser launch", async () => {
+    const err: string[] = [];
+    const open = vi.fn();
+    expect(await cmdOpen(cfg, { err: (s) => err.push(s), fetchImpl: ok("x; rm -rf /"), open })).toBe(1);
+    expect(open).not.toHaveBeenCalled();
   });
   it("server down → exit 1 with 'server not running'", async () => {
     const err: string[] = [];

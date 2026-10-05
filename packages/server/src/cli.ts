@@ -719,8 +719,10 @@ export async function cmdOpen(
     err(`server not running on port ${config.port} (start it with: pi-dashboard start)`);
     return 1;
   }
-  if (!code) {
-    err("server returned no local-proof code");
+  // The code is a 32-byte base64url token; refuse anything else before it reaches a URL
+  // that is handed to the OS browser launcher.
+  if (typeof code !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(code)) {
+    err("server returned no valid local-proof code");
     return 1;
   }
   const url = `${base}/auth/local-proof?code=${encodeURIComponent(code)}`;
