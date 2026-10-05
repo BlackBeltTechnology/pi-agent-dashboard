@@ -78,6 +78,9 @@ export interface ServiceDeps {
 const GUARD_READY_MESSAGE = "team_guard_ready";
 const DEFAULT_MAX_CONVERSATIONS = 50;
 const DEFAULT_IDLE_MINUTES = 30;
+const DEFAULT_MAX_LIVE_SESSIONS = 10;
+/** `lastActivityAt` writes caused by streaming events are coalesced to at most one per this interval. */
+const ACTIVITY_WRITE_MS = 10_000;
 /** An event older than this is treated as replayed history. */
 const REPLAY_AGE_MS = 120_000;
 
@@ -117,6 +120,15 @@ interface Pending {
   settle: () => void;
 }
 
+/** `end` = `agent_end`, `activity` = turn / message start; replayed history and everything else ⇒ null. */
+function classifyLiveEvent(event: unknown, now: number): "end" | "activity" | null {
+  const e = event as { eventType?: string; timestamp?: number; replay?: boolean } | undefined;
+  if (!e || e.replay === true) return null;
+  if (typeof e.timestamp === "number" && now - e.timestamp > REPLAY_AGE_MS) return null;
+  if (e.eventType === "agent_end") return "end";
+  return e.eventType === "agent_start" || e.eventType === "message_start" ? "activity" : null;
+}
+
 function newConversationId(): string {
   return randomBytes(16).toString("base64url");
 }
@@ -125,7 +137,10 @@ export class ConversationService {
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly createLocks = new Map<string, Promise<void>>();
   private readonly pending = new Map<string, Pending>();
-  private readonly readySessions = new Set<string>();
+  /** runId → sessionId, from the guard's `team_guard_ready` (bounded). */
+  private readonly readyRuns = new Map<string, string>();
+  /** Last time a record was persisted for activity (debounce), by session id. */
+  private readonly activityWrittenAt = new Map<string, number>();
   private readonly unsubs: Array<() => void> = [];
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -154,9 +169,15 @@ export class ConversationService {
 
   start(sweepEveryMs = 5 * 60_000): void {
     this.d.records.scanAll();
-    this.d.host.registerPiHandler(GUARD_READY_MESSAGE, (_msg, sessionId) => {
-      this.readySessions.add(sessionId);
-      for (const p of this.pending.values()) if (p.sessionId === sessionId) p.settle();
+    this.d.host.registerPiHandler(GUARD_READY_MESSAGE, (msg, sessionId) => {
+      const runId = (msg as { payload?: { runId?: unknown } } | undefined)?.payload?.runId;
+      if (typeof runId !== "string" || runId.length === 0) return;
+      this.readyRuns.set(runId, sessionId);
+      if (this.readyRuns.size > 1000) {
+        const oldest = this.readyRuns.keys().next().value;
+        if (oldest !== undefined) this.readyRuns.delete(oldest);
+      }
+      this.pending.get(runId)?.settle();
     });
     this.unsubs.push(
       this.d.host.onSessionResolved((sessionId, ref) => {
@@ -190,18 +211,21 @@ export class ConversationService {
   private onEvent(sessionId: string, event: unknown): void {
     const loc = this.d.records.locate(sessionId);
     if (!loc) return;
-    const e = event as { eventType?: string; timestamp?: number; replay?: boolean } | undefined;
-    if (!e || e.replay === true) return;
-    if (typeof e.timestamp === "number" && this.now() - e.timestamp > REPLAY_AGE_MS) return;
+    const kind = classifyLiveEvent(event, this.now());
+    if (!kind) return;
+    const isEnd = kind === "end";
+    // Streaming events fire many times per turn: coalesce activity writes, always persist the turn end.
+    if (!isEnd && this.now() - (this.activityWrittenAt.get(sessionId) ?? 0) < ACTIVITY_WRITE_MS) return;
     const rec = this.d.records.read(loc);
     if (!rec || rec.sessionId !== sessionId) return;
     const stamp = this.iso();
-    if (e.eventType === "agent_end") {
+    this.activityWrittenAt.set(sessionId, this.now());
+    if (isEnd) {
       rec.lastAgentEndAt = stamp;
       rec.lastActivityAt = stamp;
-    } else if (e.eventType === "agent_start" || e.eventType === "message_start") {
+    } else {
       rec.lastActivityAt = stamp;
-    } else return;
+    }
     const s = this.d.host.getSession(sessionId);
     if (s?.sessionFile && s.sessionFile !== rec.sessionFile) rec.sessionFile = s.sessionFile;
     this.d.records.write(loc, rec);
@@ -232,8 +256,7 @@ export class ConversationService {
   }
 
   /** Persona's `projects` ids still usable by the caller (or `_ws`). */
-  private effectiveProjects(caller: Caller, p: Persona): Set<string> {
-    const usable = new Set(this.d.projects.usableBy(caller, this.d.access.mode()).map((x) => x.id));
+  private effectiveProjects(p: Persona, usable: ReadonlySet<string>): Set<string> {
     return new Set(p.projects.filter((id) => id === WORKSPACE_TARGET || usable.has(id)));
   }
 
@@ -343,6 +366,9 @@ export class ConversationService {
     resumeFile?: string,
   ): Promise<{ sessionId: string; sessionFile?: string; runId: string; spawnToken: string }> {
     if (!fs.existsSync(this.d.guardExtensionPath)) throw new TeamError(503, "guard_unavailable");
+    // An unconfined (`full`) persona must never run in multi-user mode, whatever mode it was authored in.
+    if (persona.tools === "full" && this.d.access.mode() === "multi") throw new TeamError(409, "persona_unavailable");
+    this.assertLiveCapacity(caller);
     const personaFile = this.d.renderPersona(persona, caller.uk);
     if (!fs.existsSync(personaFile)) {
       this.d.logger.error(`team.persona_render_failed personaKey=${persona.key}`);
@@ -360,7 +386,7 @@ export class ConversationService {
       settleFn = resolve;
     });
     const entry: Pending = { ready: false, settle: () => {} };
-    const readyAndBound = () => !!entry.sessionId && this.readySessions.has(entry.sessionId);
+    const readyAndBound = () => !!entry.sessionId && this.readyRuns.get(runId) === entry.sessionId;
     entry.settle = () => {
       if (readyAndBound()) settleFn();
     };
@@ -386,7 +412,7 @@ export class ConversationService {
           tools: [...PRESET_TOOLS[persona.tools]],
           ...(skills.length ? { skills } : {}),
           extensions: [this.d.guardExtensionPath],
-          extensionConfig: { team: { persona: personaFile, root: root.dir, tools: persona.tools } },
+          extensionConfig: { team: { persona: personaFile, root: root.dir, tools: persona.tools, runId } },
           appendSystemPrompt: [personaFile, ...contextFiles],
           noContextFiles: true,
           noProjectTrust: true,
@@ -417,10 +443,24 @@ export class ConversationService {
       throw err;
     } finally {
       if (timer) clearTimeout(timer);
+      this.readyRuns.delete(runId);
     }
   }
 
   // ── create / ensure ────────────────────────────────────────────────────────
+
+  /** Live pi processes are bounded per user (not only per conversation list), `maxLiveSessions` default 10. */
+  private assertLiveCapacity(caller: Caller): void {
+    const cap = this.d.config().maxLiveSessions;
+    const limit = typeof cap === "number" && cap >= 1 ? Math.floor(cap) : DEFAULT_MAX_LIVE_SESSIONS;
+    let live = 0;
+    for (const lr of this.d.records.scanAll()) {
+      if (lr.uk !== caller.uk) continue;
+      const s = this.d.host.getSession(lr.record.sessionId);
+      if (s && s.status !== "ended") live++;
+    }
+    if (live >= limit) throw new TeamError(429, "session_limit");
+  }
 
   private activeCount(caller: Caller, t: string, personaKey: string): number {
     return this.d.records.list(caller.uk, t, personaKey).filter((r) => !r.record.archived).length;
@@ -542,10 +582,15 @@ export class ConversationService {
       }
       throw err;
     }
+    // The conversation may have been archived / deleted while the spawn was in flight: never resurrect it.
+    const cur = this.d.records.read(l);
+    if (!cur || cur.archived) {
+      await this.d.host.abortSpawnedRun({ sessionId: bound.sessionId, graceful: true });
+      throw new TeamError(cur ? 409 : 404, cur ? "conversation_archived" : "conversation_not_found");
+    }
     const stamp = this.iso();
-    this.d.records.delete(l);
     this.d.records.write(l, {
-      ...rec,
+      ...cur,
       sessionId: bound.sessionId,
       sessionFile: bound.sessionFile ?? (fileExists ? file : undefined),
       runId: bound.runId,
@@ -570,6 +615,7 @@ export class ConversationService {
       .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt));
   }
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: title + archive validation with the merge-after-abort step; each branch is a single guard
   async patchConversation(
     caller: Caller,
     personaKey: string,
@@ -588,6 +634,9 @@ export class ConversationService {
       if (typeof body.archived !== "boolean") throw new TeamError(400, "invalid_archived");
       if (body.archived && !rec.archived) {
         await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+        // `onEvent` may have persisted activity while we awaited: merge into the fresh record.
+        const fresh = this.d.records.read(l);
+        if (fresh) Object.assign(rec, { lastAgentEndAt: fresh.lastAgentEndAt, lastActivityAt: fresh.lastActivityAt });
       }
       if (!body.archived && rec.archived && this.activeCount(caller, t, personaKey) >= this.maxConversations()) {
         throw new TeamError(409, "conversation_limit");
@@ -622,11 +671,13 @@ export class ConversationService {
       byPersona.set(r.personaKey, arr);
     }
     const personas = [...this.d.personas.listShared(), ...this.d.personas.listPrivate(caller.uk)];
+    // Computed ONCE per request (each call re-validates every project path on disk).
+    const usable = new Set(this.d.projects.usableBy(caller, mode).map((x) => x.id));
     const out: AgentView[] = [];
     const seen = new Set<string>();
 
     for (const p of personas) {
-      const assigned = this.effectiveProjects(caller, p).has(t) && p.projects.includes(t);
+      const assigned = this.effectiveProjects(p, usable).has(t) && p.projects.includes(t);
       const recs = byPersona.get(p.key) ?? [];
       const active = recs.filter((r) => !r.record.archived);
       if (!assigned && active.length === 0) continue;

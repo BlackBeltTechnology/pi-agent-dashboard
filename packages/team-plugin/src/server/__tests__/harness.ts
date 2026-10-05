@@ -58,7 +58,7 @@ function makeFakeHost(tmp: string): FakeHost {
         }
         host.sessions.set(sid, session);
         for (const h of resolvedHandlers) h(sid, ref as Record<string, unknown>);
-        if (host.behavior.ready) piHandlers.get("team_guard_ready")?.({}, sid);
+        if (host.behavior.ready) piHandlers.get("team_guard_ready")?.({ payload: { runId: (ref.team as { runId?: string }).runId } }, sid);
       };
       if (host.behavior.delayMs > 0) setTimeout(fire, host.behavior.delayMs);
       else queueMicrotask(fire);

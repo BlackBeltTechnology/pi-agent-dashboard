@@ -25,6 +25,30 @@ export interface RouteDeps {
   logger: { warn(msg: string): void; error(msg: string): void };
 }
 
+/** `POST /projects/match`: one count per project per request, duplicate cwds answered from the first lookup. */
+function matchFolders(d: RouteDeps, c: Caller, cwds: string[]) {
+  const mode = d.access.mode();
+  const counts = new Map<string, { agents: number; active: number }>();
+  const byCwd = new Map<string, unknown>();
+  const row = (cwd: string) => {
+    const p = d.projects.resolveFolder(c, mode, cwd);
+    if (p && !counts.has(p.id)) counts.set(p.id, d.conversations.folderCounts(c, p.id));
+    const n = p ? counts.get(p.id) : undefined;
+    return {
+      cwd,
+      project: p ? { id: p.id, name: p.name, available: p.available, source: p.source, agents: n?.agents ?? 0, active: n?.active ?? 0 } : null,
+      enableable: d.projects.enableable(c, cwd),
+      manageable: !!p && p.source === "folder" && c.admin,
+    };
+  };
+  return {
+    results: cwds.map((cwd) => {
+      if (!byCwd.has(cwd)) byCwd.set(cwd, row(cwd));
+      return byCwd.get(cwd);
+    }),
+  };
+}
+
 export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): Promise<void> {
   await fastify.register(async (scope) => {
     await scope.register(rateLimit, {
@@ -101,19 +125,7 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
         if (!Array.isArray(cwds) || cwds.length < 1 || cwds.length > 200 || !cwds.every((x) => typeof x === "string")) {
           throw new TeamError(400, "invalid_cwds");
         }
-        const mode = d.access.mode();
-        return {
-          results: (cwds as string[]).map((cwd) => {
-            const p = d.projects.resolveFolder(c, mode, cwd);
-            const counts = p ? d.conversations.folderCounts(c, p.id) : null;
-            return {
-              cwd,
-              project: p ? { id: p.id, name: p.name, available: p.available, source: p.source, agents: counts?.agents ?? 0, active: counts?.active ?? 0 } : null,
-              enableable: d.projects.enableable(c, cwd),
-              manageable: !!p && p.source === "folder" && c.admin,
-            };
-          }),
-        };
+        return matchFolders(d, c, cwds as string[]);
       }),
     );
 

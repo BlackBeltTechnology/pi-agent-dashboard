@@ -29,6 +29,10 @@ export class UsersStore {
   record(caller: Caller, now: Date = new Date()): void {
     const users = this.list();
     const i = users.findIndex((u) => u.iss === caller.iss && u.sub === caller.sub);
+    const prev = users[i];
+    const same = prev && prev.email === caller.email && prev.name === caller.name;
+    // `lastSeenAt` is a coarse hint: skip the file rewrite unless the profile changed or an hour passed.
+    if (same && now.getTime() - Date.parse(prev.lastSeenAt) < 3_600_000) return;
     const entry: KnownUser = {
       iss: caller.iss,
       sub: caller.sub,

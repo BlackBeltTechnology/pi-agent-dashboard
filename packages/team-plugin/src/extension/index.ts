@@ -31,7 +31,8 @@ export default function teamGuard(pi: PiLike, options?: { policy?: TeamPolicy | 
     pi.events?.emit("dashboard:plugin-message", {
       pluginId: TEAM_PLUGIN_ID,
       messageType: GUARD_READY_MESSAGE,
-      payload: {},
+      // The spawn's runId: readiness is per RUN, so a resumed session can never be credited with an old signal.
+      payload: { runId: process.env.PI_EXT_TEAM_RUN_ID },
     });
   pi.on("session_start", () => {
     // Only a session with a usable policy claims readiness.

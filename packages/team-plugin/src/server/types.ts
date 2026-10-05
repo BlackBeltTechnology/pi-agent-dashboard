@@ -105,6 +105,8 @@ export interface TeamConfig {
   skillCatalog?: Record<string, string>;
   idleMinutes?: number;
   maxConversations?: number;
+  /** Live pi processes per user (default 10). */
+  maxLiveSessions?: number;
   teamHome?: string;
   projects?: Record<string, ProjectConfigEntry>;
 }

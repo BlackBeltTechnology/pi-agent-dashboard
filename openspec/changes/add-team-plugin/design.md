@@ -540,6 +540,15 @@ No latency budget is set for Phase 1 (decision 2026-10-03); `GET /agents` stays 
 - **Replay detection** for `onEvent`: `event.replay === true` or a timestamp older than 120 s is treated as replayed history.
 - **API additions** (additive): `GET /me` returns `maxConversations` + the skill-catalog names; `POST /projects/match` rows carry
   `manageable` (admin ∧ folder-enabled). The app starts on the remembered target, else the first available project, else `_ws`.
+- **Audit hardening (2026-10-05).** (1) The guard refuses any `scheme:` path (pi converts `file://` to a real path) and
+  `write`/`edit` under `.git` / `.pi` / `.claude`. (2) The bridge (`packages/extension/src/command-handler.ts`) refuses
+  host-action prompts (`!`/`!!` bash, `/slash`, reload, new, model, shutdown, mgmt) when `PI_EXT_TEAM_TOOLS` is set — they
+  bypass `tool_call`. (3) A `full` persona never launches in multi-user mode (`409 persona_unavailable`), whatever mode
+  authored it. (4) Guard readiness is per RUN: the spawn projects `runId` (`PI_EXT_TEAM_RUN_ID`) and the ready message echoes it,
+  so a resumed session can never be credited with an earlier signal (camelCase keys project as `RUN_ID`). (5) A per-user live
+  cap (`maxLiveSessions`, default 10, `429 session_limit`). (6) Ensure/patch re-read the record after the awaited spawn/abort:
+  an archive/delete that lands mid-spawn is never undone. (7) Streaming `lastActivityAt` writes coalesce to ≤ 1 per 10 s; the turn
+  end is always persisted. (8) `/agents` computes the usable project set once per request; `/projects/match` memoises counts per project.
 - **Sign-in** reuses the dashboard's own login library (`dashboard-login.ts`: PKCE, handoff exchange, `signOutTarget`) through the
   `@dash` alias; the team API is never called before the identity layer reports a credential (or none is needed).
 - **E2E** runs on the identity-matrix lifecycle (one private dashboard, fake OIDC issuer with the real interactive flow, real pi,

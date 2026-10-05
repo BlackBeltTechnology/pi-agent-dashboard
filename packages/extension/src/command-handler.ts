@@ -260,6 +260,19 @@ const MANAGEMENT_COMMAND_EVENTS: Record<string, {
   dataFn: (args: string) => Record<string, unknown>;
 }> = {};
 
+/**
+ * Team sessions (add-team-plugin D7): the guard extension confines TOOL calls, but a prompt the bridge
+ * turns into a host action (`!cmd` bash, `/slash` extension commands, reload, new, model, shutdown,
+ * management) never reaches `tool_call`. Such a session's owner could run unconfined bash by typing
+ * `!id`. The spawn projects `PI_EXT_TEAM_TOOLS` into the pi process, so the bridge refuses those routes
+ * there; plain prompts, `/compact` and the dashboard-internal retry stay available.
+ */
+export function isTeamConfinedSession(env: NodeJS.ProcessEnv = process.env): boolean {
+  return typeof env.PI_EXT_TEAM_TOOLS === "string";
+}
+
+const TEAM_ALLOWED_PARSED: ReadonlySet<ParsedPrompt["type"]> = new Set(["passthrough", "compact", "retry"]);
+
 /** Parse input text to detect pi internal command prefixes */
 export function parseSendPrompt(text: string): ParsedPrompt {
   // 1. Check !! (must check before !)
@@ -545,6 +558,11 @@ export function createCommandHandler(
       switch (msg.type) {
         case "send_prompt": {
           const parsed = parseSendPrompt(msg.text);
+
+          if (isTeamConfinedSession() && !TEAM_ALLOWED_PARSED.has(parsed.type)) {
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
+            return undefined;
+          }
 
           // Non-turn commands (bash/compact/shutdown/reload/new/model/mgmt)
           // return early below and never produce a user `message_start`, so an

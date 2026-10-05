@@ -123,6 +123,24 @@ test("D7: the guard blocks a write outside the root and bash; an in-root write i
   expect(ws, "in-root write landed in the user's workspace").toBeTruthy();
 });
 
+test("D7: host-action prompts (`!cmd`, `/slash`) typed by the owner never run: the bridge refuses them in team sessions", async () => {
+  const marker = "/tmp/team-e2e-bash-marker.txt";
+  fs.rmSync(marker, { force: true });
+  await anna.page.goto(`${h.base}/apps/team/?project=_ws`);
+  await anna.page.locator('[data-key="shared:llm"]').getByTestId("talk").click();
+  await expect(anna.page).toHaveURL(/\/c\//, { timeout: 60_000 });
+  const turns = llm.requests.length;
+  await sendPrompt(anna.page, `!echo BASH-RAN > ${marker}`);
+  await new Promise((r) => setTimeout(r, 3_000));
+  expect(fs.existsSync(marker)).toBe(false);
+  await sendPrompt(anna.page, "/reload");
+  await new Promise((r) => setTimeout(r, 2_000));
+  expect(llm.requests.length).toBe(turns); // neither reached the model as a turn
+  await sendPrompt(anna.page, "PROMPT-AFTER-REFUSED plain text still works");
+  await waitForTurns(turns + 1);
+  expect(lastTurn().userTexts.join("\n")).toContain("PROMPT-AFTER-REFUSED");
+});
+
 test("F16: after a persona edit + restart the next turn follows the new instructions and the transcript is intact", async () => {
   const convId = (await h.api(anna, "GET", `/agents/${enc("shared:llm")}/conversations?project=_ws`)).json.conversations[0].id as string;
   const upd = await h.api(anna, "PUT", `/personas/${enc("shared:llm")}`, {
@@ -136,7 +154,9 @@ test("F16: after a persona edit + restart the next turn follows the new instruct
   expect(upd.status).toBe(200);
   expect((await h.api(anna, "POST", `/agents/${enc("shared:llm")}/conversations/${convId}/restart?project=_ws`)).status).toBe(200);
   await anna.page.goto(`${h.base}/apps/team/agent/${enc("shared:llm")}/c/${convId}?project=_ws`);
-  await expect(anna.page.getByText("PROMPT-ONE hello team").first()).toBeVisible({ timeout: 90_000 }); // resumed transcript
+  // Resumed transcript (virtualised: the newest rows render, so check a recent one; the whole history is
+  // asserted below through what reaches the model).
+  await expect(anna.page.getByText("PROMPT-GUARD do things").first()).toBeVisible({ timeout: 90_000 });
   const before = llm.requests.length;
   await sendPrompt(anna.page, "PROMPT-AFTER-EDIT");
   await waitForTurns(before + 1);

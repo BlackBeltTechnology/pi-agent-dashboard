@@ -452,6 +452,88 @@ describe("ensure (F1–F4, X1–X4)", () => {
   });
 });
 
+describe("hardening from the security audit", () => {
+  it("a `full` (bash) persona never launches in multi-user mode, even if authored in single-user mode", async () => {
+    h = await makeHarness({ config: { admins: [ADMIN] } });
+    fs.mkdirSync(path.join(h.home, "personas"), { recursive: true });
+    fs.writeFileSync(
+      path.join(h.home, "personas", "bash.json"),
+      JSON.stringify({ schemaVersion: 1, key: "shared:bash", scope: "shared", name: "Bash", description: "", avatar: { kind: "initials" }, role: "member", instructions: "", tools: "full", projects: ["_ws"], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", updatedBy: "x" }),
+    );
+    const r = await create("alice", "shared:bash");
+    expect(r.status).toBe(409);
+    expect(r.json.error).toBe("persona_unavailable");
+    expect(h.host.spawns.length).toBe(0);
+  });
+
+  it("live pi processes are capped per user (429 session_limit); an ended session frees capacity", async () => {
+    h = await makeHarness({ config: { maxLiveSessions: 2 } });
+    const a = await mkPersona("alice", "a");
+    const b = await mkPersona("alice", "b");
+    const c1 = (await create("alice", a)).json;
+    await create("alice", b);
+    const over = await create("alice", a);
+    expect(over.status).toBe(429);
+    expect(over.json.error).toBe("session_limit");
+    expect(h.host.spawns.length).toBe(2);
+    // bela is unaffected
+    expect((await create("bela", await mkPersona("bela", "x"))).status).toBe(201);
+    const sess = h.host.sessions.get(c1.sessionId);
+    if (sess) sess.status = "ended";
+    expect((await create("alice", a)).status).toBe(201);
+  });
+
+  it("readiness is per RUN: a ready signal for another run (or a stale one) does not credit this spawn", async () => {
+    h = await makeHarness({ spawnTimeoutMs: 80 });
+    const key = await mkPersona("alice", "a");
+    h.host.behavior.ready = false;
+    const pending = create("alice", key);
+    await new Promise((r) => setTimeout(r, 20));
+    h.host.piHandlers.get("team_guard_ready")?.({ payload: { runId: "some-other-run" } }, "sess-1");
+    h.host.piHandlers.get("team_guard_ready")?.({ payload: {} }, "sess-1");
+    const r = await pending;
+    expect(r.status).toBe(503);
+    expect(r.json.error).toBe("guard_unavailable");
+    expect((await list("alice", key)).json.conversations).toEqual([]);
+  });
+
+  it("archiving while a resume is still spawning never resurrects the conversation; the new session is ended", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: Date.now() });
+    const first = h.host.sessions.get(c.sessionId);
+    if (first) first.status = "ended";
+    h.host.behavior.delayMs = 120;
+    const ensuring = ensure("alice", key, c.id);
+    await new Promise((r) => setTimeout(r, 30));
+    await h.call("PATCH", `${API}/agents/${enc(key)}/conversations/${c.id}?project=_ws`, { user: "alice", body: { archived: true } });
+    const r = await ensuring;
+    expect(r.status).toBe(409);
+    expect(h.host.aborts.some((a) => a.sessionId === "sess-2" && a.graceful === true)).toBe(true);
+    expect((await list("alice", key)).json.conversations).toEqual([]);
+    expect((await list("alice", key, "_ws", true)).json.conversations.length).toBe(1);
+  });
+
+  it("streaming activity writes are coalesced; the turn end is always persisted", async () => {
+    const clock = { t: Date.parse("2026-01-01T12:00:00Z") };
+    h = await makeHarness({ now: () => clock.t });
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    const uk = await ukOf("alice");
+    const file = path.join(h.home, "users", uk, "conversations", "_ws", "private-a", `${c.id}.json`);
+    const at = () => JSON.parse(fs.readFileSync(file, "utf8")).lastActivityAt as string;
+    clock.t += 11_000;
+    h.host.emit(c.sessionId, { eventType: "message_start", timestamp: clock.t });
+    const first = at();
+    clock.t += 2_000;
+    h.host.emit(c.sessionId, { eventType: "message_start", timestamp: clock.t });
+    expect(at()).toBe(first); // within the coalescing window
+    h.host.emit(c.sessionId, { eventType: "agent_end", timestamp: clock.t });
+    expect(JSON.parse(fs.readFileSync(file, "utf8")).lastAgentEndAt).toBe(new Date(clock.t).toISOString());
+  });
+});
+
 describe("idle ending (F6–F8)", () => {
   const withClock = async (cfg: TeamConfig = {}) => {
     const clock = { t: Date.parse("2026-01-01T12:00:00Z") };

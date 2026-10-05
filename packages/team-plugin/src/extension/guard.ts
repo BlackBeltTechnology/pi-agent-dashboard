@@ -14,6 +14,10 @@ export const PRESET_TOOLS: Record<Preset, readonly string[]> = {
   full: ["read", "grep", "find", "ls", "write", "edit", "bash"],
 };
 
+/** Mutating tools additionally may not touch VCS / agent-config dirs (a planted hook or `.pi` resource would run for the operator). */
+const WRITE_TOOLS = new Set(["write", "edit"]);
+const PROTECTED_SEGMENTS = new Set([".git", ".pi", ".claude"]);
+
 /** Tools whose `path` argument is confined to the target root. */
 const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
@@ -59,9 +63,12 @@ function inside(root: string, p: string): boolean {
 /** Mirror pi's path normalisation (`@` prefix, unicode spaces) before resolving. */
 function normalise(raw: string): string | null {
   if (raw.includes("\0")) return null;
-  let p = raw.replace(/[\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, " ");
+  let p = raw.replace(/[\u00a0\u2000-\u200a\u202f\u205f\u3000]/g, " ");
   if (p.startsWith("@")) p = p.slice(1);
   if (p.startsWith("~")) return null; // pi expands ~ to the home dir: never confine-able lexically
+  // pi turns `file://…` into a real filesystem path; any `scheme:` prefix (≥ 2 chars, so a drive letter
+  // stays legal) is refused instead of mirroring every conversion pi might add.
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]+:/.test(p)) return null;
   return p;
 }
 
@@ -82,6 +89,9 @@ export function decideToolCall(toolName: unknown, input: unknown, policy: TeamPo
     if (n === null) return { allow: false, reason: "invalid_path" };
     const target = canonicalize(path.isAbsolute(n) ? n : path.join(root, n));
     if (!inside(root, target)) return { allow: false, reason: "path_outside_root" };
+    if (WRITE_TOOLS.has(toolName) && path.relative(root, target).split(path.sep).some((seg) => PROTECTED_SEGMENTS.has(seg))) {
+      return { allow: false, reason: "protected_path" };
+    }
   }
   return { allow: true };
 }

@@ -27,6 +27,7 @@ extra server and no extra Keycloak client are needed for the default same-origin
   "admins": [{ "iss": "https://idp.example/realms/r", "sub": "<keycloak user id>" }],
   "idleMinutes": 30,
   "maxConversations": 50,
+  "maxLiveSessions": 10,
   "skillCatalog": { "review": "/abs/path/to/skill" },
   "projects": {
     "billing": {
@@ -56,6 +57,12 @@ Isolation is **logical** (same OS user): file tools are confined to the target f
 are gated, project `.pi/` resources are never loaded (`--no-approve`), and the session folder is
 pinned (`--session-dir`). `bash` cannot be confined. Real sandboxing is out of scope.
 
+- **Host actions are refused too.** The guard confines tool calls; the bridge additionally refuses owner-typed
+  `!cmd` bash, `/slash` extension commands, `/reload`, `/new`, `/model` and shutdown prompts in team sessions
+  (`PI_EXT_TEAM_TOOLS`), so a team user cannot run host commands by typing them.
+- **Protected paths.** `write`/`edit` may not touch `.git/`, `.pi/` or `.claude/` inside a target (a planted hook or
+  `.pi` resource would run for the operator). Other files in a shared project remain writable by `files` agents.
+- **Resource caps.** `maxConversations` (50 active per agent × target) and `maxLiveSessions` (10 live pi processes per user).
 - **Projects are shared trees.** Every allowed user's agents read — and with the `files` preset
   write — the same files, with no locking. Narrow the audience with the per-project `users` list.
 - **Never point a project at secrets** (`~/.ssh`, cloud credentials, …). A project path may not

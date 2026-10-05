@@ -53,6 +53,10 @@ projects.json                                    folder-enabled projects (schema
 - Single-user needs host admission without credential: loopback, `trustedNetworks`, or same-host serving. Foreign origin refused by network guard.
 - `team-app` uses the dashboard login seam same-origin; app-kit OIDC for a foreign origin.
 
+## Config keys
+
+`admins`, `skillCatalog`, `idleMinutes` (30), `maxConversations` (50), `maxLiveSessions` (10), `teamHome`, `projects`. Unknown keys rejected (`additionalProperties: false`).
+
 ## Personas
 
 `schemaVersion: 1`, validated JSON store. Per-persona JSON file.
@@ -73,6 +77,7 @@ projects.json                                    folder-enabled projects (schema
 | `full` | `files` + `bash` |
 
 - `tools: "full"` accepted only in single-user mode, shared personas only. Multi-user write ⇒ rejected; listed unavailable.
+- `full` persona never launches in multi-user mode ⇒ `409 persona_unavailable`. Checked at spawn against live mode, not authoring mode.
 - `full` = unconfined. Badged.
 
 ## Targets
@@ -90,7 +95,8 @@ Two sources. The session cwd = the target.
 
 One conversation = one persistent pi session, keyed `(uk, personaKey, t, c)`.
 
-- **Create** `createConversation(principal, personaKey, t)`: persona readable else `404 persona_not_found`; `t` in persona `projects` else `409 persona_not_in_project`; target allowed else `404 project_not_found`; path re-check else `409 project_unavailable`. Lock per `(uk, personaKey, t)`. Active count < `maxConversations` (default 50) else `409 conversation_limit`. Spawn, wait, write record. No record on failure.
+- **Create** `createConversation(principal, personaKey, t)`: persona readable else `404 persona_not_found`; `t` in persona `projects` else `409 persona_not_in_project`; target allowed else `404 project_not_found`; path re-check else `409 project_unavailable`. Lock per `(uk, personaKey, t)`. Active count < `maxConversations` (default 50, per user × agent × target) else `409 conversation_limit`. Spawn, wait, write record. No record on failure.
+- **Live cap**: live pi processes bounded per user by `maxLiveSessions` (default 10, across all agents + targets). At cap ⇒ `429 session_limit`. Ended session frees capacity.
 - **Ensure** `ensureConversation(...)`: single-flight per `(uk, personaKey, t, c)`.
   - **Reuse** live session iff not ended, `cwd === T`, `principalOwner` matches, `pluginRefs.team.{personaKey, project, conversationId}` match.
   - **Resume** recorded `sessionFile` when it exists and persisted owner (live or archive) matches principal.
@@ -99,6 +105,9 @@ One conversation = one persistent pi session, keyed `(uk, personaKey, t, c)`.
 - **Titles**: `record.title` (user rename 1–80 cp) ?? session name (auto-namer) ?? first-prompt excerpt (≤ 60 cp) ?? `Beszélgetés · <date>`.
 - **Archive**: ends live session (graceful `abortSpawnedRun`), drops from default list + limit count. Restore re-checks limit.
 - **Delete**: ends live session, removes record. Session file stays on disk.
+- **Spawn races**: archive/delete mid-spawn aborts the spawned run; record never resurrected ⇒ `409 conversation_archived` (else `404 conversation_not_found`).
+- **Awaited-step re-read**: ensure + patch re-read record after awaited spawn/abort; merge `lastAgentEndAt`/`lastActivityAt` into fresh record.
+- **Activity**: streaming events (`agent_start`, `message_start`) coalesce `lastActivityAt` writes to ≤ 1 per 10 s. `agent_end` always written (`lastActivityAt` + `lastAgentEndAt`).
 - **Idle ending**: sweep every 5 min. Session idle > `idleMinutes` (default 30, `0` = off) gets graceful end. Ends between `idleMinutes` and +5 min.
 - `busy` sessions never ended. Live processes bounded by idle ending, not conversation count.
 - Logged `team.ensure {uk, personaKey, t, c, outcome, sessionId}` — never persona text, titles, paths.
@@ -141,10 +150,18 @@ Persona reaches prompt as a **base option**, not a per-turn handler.
 Logical isolation (same OS user). `full` cannot be confined.
 
 - Guard file verified at activation; routes answer `503 guard_unavailable` otherwise.
-- Extension sends `team_guard_ready` plugin message on session start. Session without ready signal aborted.
+- Extension sends `team_guard_ready {runId}` plugin message on session start. Server credits readiness per run; session without ready signal aborted.
+- Spawn projects `extensionConfig.team.runId` → env `PI_EXT_TEAM_RUN_ID` (camelCase → `RUN_ID`).
 - **Name gate** — deny-first `tool_call`: tool name not in preset blocked before execution. Covers extension tools, MCP, `codemode`/`tool_search`.
 - **Path gate** — path args of `read, write, edit, grep, find, ls` canonicalised (symlinks resolve) + must lie inside target root `T`. Missing arg = cwd = `T`. Unparseable policy/path ⇒ block.
+  - `~` + any `scheme:` path (≥ 2-char scheme, e.g. `file://…`) refused — pi converts `file://` to real path.
+  - `write`/`edit` refused under `.git`, `.pi`, `.claude` (`protected_path`).
+  - Unicode spaces normalised to plain space; set mirrors pi (`\u00A0\u2000-\u200A\u202F\u205F\u3000`).
 - Fail-closed. Policy from `PI_EXT_TEAM_TOOLS` + `PI_EXT_TEAM_ROOT`.
+
+### Host-action prompts
+
+Bridge (`packages/extension/src/command-handler.ts`) refuses host-action prompts in team sessions (`isTeamConfinedSession()`, env `PI_EXT_TEAM_TOOLS`): `!cmd`/`!!cmd` bash, `/slash` extension commands, `/reload`, `/new`, `/model`, `/quit`, management prompts. Plain text, `/compact`, dashboard-internal retry allowed. Reason: those routes bypass `tool_call`, so guard never sees them — owner could run unconfined bash via `!id`.
 
 ## REST surface
 
@@ -173,7 +190,8 @@ Logical isolation (same OS user). `full` cannot be confined.
 | `DELETE /agents/:key/conversations/:c?t` | end live session, delete record (file kept) |
 
 - Encapsulated scope with `@fastify/rate-limit` (mcp-server-plugin values). `ROUTE_TIERS` row + MCP classification per route.
-- `GET /agents` = one `listAll` pass, never spawns.
+- `GET /agents` = one `listAll` pass, never spawns. Usable project set computed once per request (each call re-validates every project path on disk).
+- `POST /projects/match` memoises folder counts per project per request; duplicate cwds answered from first lookup.
 
 ## App delivery
 
@@ -185,6 +203,10 @@ Logical isolation (same OS user). `full` cannot be confined.
 - Embedded host caught by `add-plugin-app-host`: global `/team/*` + folder `/folder/:encodedCwd/team/*`. **Deferred** — until it lands, claims not registered, folder entry + menu item open standalone `/apps/team/?project=<id>` in a new tab.
 - Optional standalone: same `dist/` + runtime `config.json` under `/apps/team/`. Needs CORS origin, HTTPS (PKCE), public Keycloak client.
 
+## Testing
+
+- Real-host E2E: `npm run test:e2e:team` (`playwright.team.config.ts`) — identity-matrix lifecycle vs real pi + local fake OpenAI-compatible provider (`tests/e2e/team/fake-llm.ts`).
+
 ## Trust boundary + known limits
 
 - Isolation logical, same OS user. Same-origin: shared browser storage + service-worker scope; XSS blast radius shared (both render agent output via `ChatView`). Use standalone for separation.
@@ -195,5 +217,5 @@ Logical isolation (same OS user). `full` cannot be confined.
 - Team session files in pi normal per-cwd folder ⇒ terminal `pi --resume` in a project lists them. Dashboard UI stays owner-filtered.
 - Operator `SYSTEM.md` applies to team sessions. Multi-tenant hosts should not use one.
 - No agent-to-agent delegation Phase 1. `full` persona can call dashboard REST / start `pi` — bypasses records + ownership (why single-user only).
-- No live-session cap Phase 1; idle ending bounds processes. Revisit in Phase 2.
+- Live sessions capped by `maxLiveSessions` (default 10 per user, `429 session_limit`). Idle ending also bounds processes.
 - Rollback: disable/uninstall plugin; `TEAM_HOME` + session files stay, reused on re-enable.

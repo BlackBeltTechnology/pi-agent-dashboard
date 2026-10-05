@@ -71,6 +71,23 @@ describe("E22: path gate rooted at the own workspace", () => {
     expect(decideToolCall("read", { path: "@notes.md" }, policy()).allow).toBe(true);
   });
 
+  it("URL-scheme paths cannot smuggle a real path past the guard (file://, @file://, others)", () => {
+    for (const p of ["file:///etc/passwd", "@file:///etc/passwd", "file:/etc/passwd", "FILE:///etc/passwd", "http://x/y", "data:text/plain,x"]) {
+      expect(decideToolCall("read", { path: p }, policy()).allow, p).toBe(false);
+      expect(decideToolCall("write", { path: p }, policy()).allow, p).toBe(false);
+    }
+  });
+
+  it("write/edit may not touch .git / .pi / .claude (planted hooks or resources would run for the operator); read still may", () => {
+    fs.mkdirSync(path.join(ws, ".git", "hooks"), { recursive: true });
+    for (const p of [".git/hooks/pre-commit", ".pi/extensions/x.ts", "sub/.git/config", ".claude/settings.json"]) {
+      expect(decideToolCall("write", { path: p }, policy()).allow, `write ${p}`).toBe(false);
+      expect(decideToolCall("edit", { path: p }, policy()).allow, `edit ${p}`).toBe(false);
+    }
+    expect(decideToolCall("read", { path: ".git/config" }, policy()).allow).toBe(true);
+    expect(decideToolCall("write", { path: "gitignore.txt" }, policy()).allow).toBe(true);
+  });
+
   it("a new file inside the root is allowed", () => {
     expect(decideToolCall("write", { path: "sub/new.txt" }, policy()).allow).toBe(true);
   });
@@ -126,6 +143,12 @@ describe("extension entry", () => {
     teamGuard(pi, { policy: { preset: "chat", root: ws } });
     handlers.session_start({}, {});
     expect(emitted[0]).toMatchObject({ pluginId: "team", messageType: "team_guard_ready" });
+    process.env.PI_EXT_TEAM_RUN_ID = "run-123";
+    const withRun: unknown[] = [];
+    teamGuard({ ...pi, events: { emit: (_n: string, p: unknown) => withRun.push(p) } }, { policy: { preset: "chat", root: ws } });
+    handlers.session_start({}, {});
+    expect(withRun[0]).toMatchObject({ payload: { runId: "run-123" } });
+    delete process.env.PI_EXT_TEAM_RUN_ID;
 
     const emitted2: unknown[] = [];
     teamGuard({ ...pi, events: { emit: (_n: string, p: unknown) => emitted2.push(p) } }, { policy: null });
