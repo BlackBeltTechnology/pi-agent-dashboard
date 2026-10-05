@@ -92,7 +92,7 @@ describe("pi-dashboard stop (real processes)", () => {
   it("X5: --force kills the foreign listener and warns", async () => {
     const port = await freePort();
     await foreignListener(port);
-    const r = runStop(outsideTmpHome(), ["--port", String(port), "--pi-port", String(port + 1), "--force"]);
+    const r = runStop(outsideTmpHome(), ["--port", String(port), "--pi-port", "0", "--force"]); // pi-port 0: --force must never sweep an unrelated P+1;
     expect(r.status).toBe(0);
     expect(r.stdout + r.stderr).toContain("NOT owned by this HOME");
     expect(await waitFor(async () => !(await answers(port)), 6_000)).toBe(true);
