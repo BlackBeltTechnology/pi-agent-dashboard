@@ -115,7 +115,7 @@ export function createVisitorSessionRegistry(deps: RegistryDeps): VisitorSession
         // times out the acquire).
         entry.timer = setTimeout(() => {
           inFlight.delete(key);
-          reject(new Error(`acquire register timeout for ${key}`));
+          /* mutated: timeout no longer rejects */
         }, timeoutMs);
         entry.timer.unref?.();
         fire();

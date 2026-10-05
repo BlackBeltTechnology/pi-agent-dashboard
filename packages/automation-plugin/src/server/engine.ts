@@ -18,6 +18,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isReservedEventType } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type {
   AutomationScope,
   DiscoveredAutomation,
@@ -102,7 +103,9 @@ export function buildRunPrompt(
  */
 export type RunDispatch =
   | { kind: "prompt"; text: string }
-  | { kind: "event"; eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion };
+  | { kind: "event"; eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion }
+  /** `buildEvent` produced an undeclared or reserved event type — the run must fail. */
+  | { kind: "refused"; reason: string };
 
 /** Resolve the dispatch for an automation's action against the registry. */
 export function buildRunDispatch(
@@ -120,6 +123,12 @@ export function buildRunDispatch(
   if (reg?.buildEvent) {
     const ev = reg.buildEvent({ payload, automation });
     if (ev && typeof ev.eventType === "string" && ev.eventType.length > 0) {
+      if (isReservedEventType(ev.eventType) || !reg.emits?.includes(ev.eventType)) {
+        return {
+          kind: "refused",
+          reason: `action "${reg.id}" tried to emit undeclared or reserved event "${ev.eventType}"`,
+        };
+      }
       return {
         kind: "event",
         eventType: ev.eventType,
@@ -642,6 +651,24 @@ export function createEngine(deps: EngineDeps): Engine {
     const childRec = storeStartChildRun(parent.scopeBase, parent.parentRunId, parent.name, {
       actionLabel,
     });
+
+    if (dispatch.kind === "refused") {
+      const refusedCtx = {
+        key: parent.key,
+        runId: childRec.runId,
+        parentRunId: parent.parentRunId,
+        actionLabel,
+        scopeBase: parent.scopeBase,
+        automation: childAutomation,
+        cwd: normalize(runCwd),
+        promptText: "",
+        ...(extra?.lease ? { lease: extra.lease } : {}),
+        ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
+        delivered: false,
+      } as RunContext;
+      ctx = refusedCtx;
+      throw new Error(dispatch.reason);
+    }
 
     ctx = {
       key: parent.key,

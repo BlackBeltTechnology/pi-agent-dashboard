@@ -494,6 +494,7 @@ describe("E7 — approve tier", () => {
       identity: {} as never,
       pairing: mgr,
       registry: reg,
+      localToken: "approve-local-token",
       hostAdmission: () => ({
         allowedHosts: [],
         publicBaseUrls: [],
@@ -516,7 +517,7 @@ describe("E7 — approve tier", () => {
       method: "POST",
       url: "/api/pair/approve",
       remoteAddress: "127.0.0.1",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-pi-local-token": "approve-local-token" },
       payload: { code: p1.code, confirmCode: r1.confirmCode, label: "agent", tier: "control" },
     });
     expect(a1.statusCode).toBe(200);
@@ -533,7 +534,7 @@ describe("E7 — approve tier", () => {
       method: "POST",
       url: "/api/pair/approve",
       remoteAddress: "127.0.0.1",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-pi-local-token": "approve-local-token" },
       payload: { code: p2.code, confirmCode: r2.confirmCode, label: "phone" },
     });
     expect(a2.statusCode).toBe(200);

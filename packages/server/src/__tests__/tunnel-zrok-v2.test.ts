@@ -51,7 +51,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", a
 // Avoid touching the real config file when a reserved name is persisted.
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<any>();
-  const def = { ...(actual.default ?? actual), existsSync: vi.fn(() => false), readFileSync: vi.fn(() => "{}"), writeFileSync: vi.fn() };
+  const def = { ...(actual.default ?? actual), existsSync: vi.fn(() => false), readFileSync: vi.fn(() => "{}"), writeFileSync: vi.fn(), renameSync: vi.fn(), chmodSync: vi.fn(), unlinkSync: vi.fn() };
   return { ...actual, default: def, ...def };
 });
 

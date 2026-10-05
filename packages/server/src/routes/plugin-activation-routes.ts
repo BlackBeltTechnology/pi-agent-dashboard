@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { writeConfigFileSecure } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   buildGraph,
   computeToggleImpact,
@@ -45,9 +46,7 @@ function readRawConfig(): Record<string, unknown> {
 function writeRawConfig(merged: Record<string, unknown>): void {
   const { dir, file } = configPaths();
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = `${file}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(merged, null, 2)}\n`);
-  fs.renameSync(tmp, file);
+  writeConfigFileSecure(file, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
 /**

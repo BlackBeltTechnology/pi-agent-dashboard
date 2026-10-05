@@ -54,7 +54,15 @@ node --input-type=module -e "
 import WebSocket from 'ws';
 
 const port = ${PORT};
-const ws = new WebSocket('ws://localhost:' + port + '/ws');
+// Prove we are on this host: required when `requireLocalProof` is on.
+// See change: harden-trust-and-credential-boundaries.
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+let localToken = '';
+try { localToken = readFileSync(join(homedir(), '.pi', 'dashboard', 'local', 'token'), 'utf-8').trim(); } catch {}
+const authHeaders = localToken ? { 'x-pi-local-token': localToken } : {};
+const ws = new WebSocket('ws://localhost:' + port + '/ws', { headers: authHeaders });
 
 ws.on('error', (err) => {
   console.error('Cannot connect to dashboard server on port ' + port + ':', err.message);
@@ -63,7 +71,7 @@ ws.on('error', (err) => {
 
 ws.on('open', () => {
   // Request session list via REST, then reload each
-  fetch('http://localhost:' + port + '/api/sessions')
+  fetch('http://localhost:' + port + '/api/sessions', { headers: authHeaders })
     .then(r => r.json())
     .then(res => {
       const sessions = res.data || [];

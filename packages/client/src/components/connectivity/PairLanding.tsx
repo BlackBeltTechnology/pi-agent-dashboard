@@ -16,7 +16,7 @@
  * See change: make-pairing-qr-camera-scannable.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { storeDeviceBearer } from "../../lib/pairing/device-auth.js";
+import { finishDevicePairing } from "../../lib/pairing/device-auth.js";
 import { t, useI18n } from "../../lib/i18n/i18n.js";
 import { challengeIdentity, postJson } from "../../lib/pairing/pair-protocol.js";
 import type { PairingPayload } from "../../lib/pairing/pairing-api.js";
@@ -97,8 +97,9 @@ export function PairLanding({ onPaired }: { onPaired?: (token: string) => void }
   useEffect(() => () => { cancelled.current = true; }, []);
 
   // Persist the minted bearer and route into the dashboard (or notify a caller).
-  const finishPaired = useCallback((token: string) => {
-    storeDeviceBearer(token);
+  // Same-origin: the exchange for the httpOnly cookie completes BEFORE navigation.
+  const finishPaired = useCallback(async (token: string) => {
+    await finishDevicePairing(token);
     setPhase("done");
     if (onPaired) onPaired(token);
     else window.location.href = "/";

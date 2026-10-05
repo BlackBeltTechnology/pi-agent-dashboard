@@ -21,6 +21,7 @@ import {
   parsePreferOverride,
 } from "./launch-source.js";
 import { ELECTRON_RESTART_EXIT_CODE } from "@blackbelt-technology/pi-dashboard-shared/electron-restart.js";
+import { localTokenHeaders } from "./local-proof-bootstrap.js";
 import { takeExitOwnership } from "./runtime-switch-ownership.js";
 import { readModeFile } from "./wizard-state.js";
 
@@ -513,7 +514,7 @@ export async function requestServerLaunch(opts: { force?: boolean } = {}): Promi
       if (status.running && opts.force) {
         emitLaunchStatus({ phase: "shutting-down-existing" });
         try {
-          await fetch(`${url}/api/shutdown`, { method: "POST", signal: AbortSignal.timeout(3000) });
+          await fetch(`${url}/api/shutdown`, { method: "POST", headers: localTokenHeaders(), signal: AbortSignal.timeout(3000) });
         } catch { /* fall through; spawn will report port conflict if anything */ }
         // Wait up to 5s for the port to close.
         const deadline = Date.now() + 5000;
@@ -551,11 +552,11 @@ export async function requestServerLaunch(opts: { force?: boolean } = {}): Promi
  * offer; if they survived, the next boot's liveness gate retracts them.
  * See change: fix-recovery-exit-intent (task 3.6).
  */
-const USER_QUIT_SHUTDOWN_INIT: RequestInit = {
+const userQuitShutdownInit = (): RequestInit => ({
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", ...localTokenHeaders() },
   body: JSON.stringify({ userQuit: true }),
-};
+});
 
 /** Stop the server if we started it and own it. */
 export async function stopServerIfNeeded(): Promise<void> {
@@ -577,7 +578,7 @@ export async function stopServerIfNeeded(): Promise<void> {
         });
         if (shouldStop) {
           try {
-            await fetch(`http://localhost:${port}/api/shutdown`, USER_QUIT_SHUTDOWN_INIT);
+            await fetch(`http://localhost:${port}/api/shutdown`, userQuitShutdownInit());
           } catch { /* already stopped */ }
         }
       }
@@ -588,6 +589,6 @@ export async function stopServerIfNeeded(): Promise<void> {
   // Legacy path: use serverStartedByUs flag.
   if (!serverStartedByUs) return;
   try {
-    await fetch(`http://localhost:${port}/api/shutdown`, USER_QUIT_SHUTDOWN_INIT);
+    await fetch(`http://localhost:${port}/api/shutdown`, userQuitShutdownInit());
   } catch { /* already stopped */ }
 }

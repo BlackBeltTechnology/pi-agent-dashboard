@@ -1442,6 +1442,13 @@ export interface AttachProposalChangedExtensionMessage {
  * does not know which events exist — it is a generic relay. Gated server-side
  * to trusted (priority ≤ 100) plugins. See change: automation-emit-configured-event.
  */
+export const RESERVED_EVENT_PREFIXES = ["roles:", "role:", "model:", "prompt:", "dashboard:", "ui:"] as const;
+
+/** True when `eventType` is in a namespace owned by host listeners (never plugin-emittable). */
+export function isReservedEventType(eventType: string): boolean {
+  return RESERVED_EVENT_PREFIXES.some((p) => eventType.startsWith(p));
+}
+
 export interface PluginEmitEventExtensionMessage {
   type: "plugin_emit_event";
   sessionId: string;
