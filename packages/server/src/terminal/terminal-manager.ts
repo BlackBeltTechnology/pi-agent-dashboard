@@ -186,7 +186,7 @@ export interface TerminalManagerOptions {
 }
 
 export interface TerminalManager {
-  spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession;
+  spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession;
   attach(id: string, ws: WebSocket): void;
   detach(id: string, ws: WebSocket): void;
   kill(id: string): void;
@@ -256,7 +256,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     }
   }
 
-  function spawn(cwd: string, opts?: { ephemeral?: boolean }): TerminalSession {
+  function spawn(cwd: string, opts?: { ephemeral?: boolean; owner?: { iss: string; sub: string } }): TerminalSession {
     const shell = detectShell();
     const id = generateId();
 
@@ -275,7 +275,11 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
     ) as Record<string, string>;
     const env = augmentEnvWithGitSource(baseEnv, whichSync) as Record<string, string>;
 
-    const p = pty.spawn(shell, [], {
+    // POSIX: start a login shell (as Terminal.app/iTerm do) so ~/.zprofile /
+    // ~/.bash_profile run — e.g. `brew shellenv` adding /opt/homebrew/bin,
+    // which the server's inherited PATH (GUI/launchd) usually lacks.
+    const shellArgs = process.platform === "win32" ? [] : ["-l"];
+    const p = pty.spawn(shell, shellArgs, {
       cwd,
       env,
       cols: 80,
@@ -289,6 +293,7 @@ export function createTerminalManager(options?: TerminalManagerOptions): Termina
       status: "active",
       createdAt: Date.now(),
       ...(opts?.ephemeral ? { ephemeral: true } : {}),
+      ...(opts?.owner ? { principalOwner: { iss: opts.owner.iss, sub: opts.owner.sub } } : {}),
     };
 
     const buffer = new RingBuffer(bufferSize);

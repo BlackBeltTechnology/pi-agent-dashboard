@@ -21,6 +21,8 @@ import type {
   PrincipalResolution,
 } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 
+import { LOCAL_OPERATOR_ISSUER } from "./session-access.js";
+
 /** Upper bound on `iss`/`sub`/`email` length — a DoS/abuse guard, not a spec. */
 const MAX_FIELD_LENGTH = 4096;
 /** Display-only `name` (D22 user line): tighter cap; invalid ⇒ dropped, never a reject. */
@@ -63,6 +65,9 @@ export function sanitizePrincipalResolution(
     const sub = ownData(principal, "sub");
     const email = ownData(principal, "email");
     if (!validString(iss) || !validString(sub)) return null;
+    // D23: the break-glass operator's issuer is reserved to the host. No resolver
+    // may mint it, so value-matching `isLocalOperator` cannot be forged.
+    if (iss === LOCAL_OPERATOR_ISSUER) return null;
     if (email !== undefined && !validString(email)) return null;
 
     const expiresAt = ownData(raw, "expiresAt");

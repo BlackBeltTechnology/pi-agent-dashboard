@@ -17,6 +17,9 @@ import { createMemorySessionManager } from "../session/memory-session-manager.js
 const owner = { iss: "https://kc/realms/app", sub: "user-1" };
 const other = { iss: "https://kc/realms/app", sub: "user-2" };
 
+/** `createBrowserGateway` takes ~25 positional optional deps; the newer tests set only a few. */
+const createGatewayLoose = createBrowserGateway as unknown as (...args: unknown[]) => ReturnType<typeof createBrowserGateway>;
+
 function makeFakeWs(principal?: { iss: string; sub: string }) {
   const ws = new EventEmitter() as EventEmitter & {
     send: ReturnType<typeof vi.fn>;
@@ -24,6 +27,7 @@ function makeFakeWs(principal?: { iss: string; sub: string }) {
     ping: ReturnType<typeof vi.fn>;
     terminate: ReturnType<typeof vi.fn>;
     readyState: number;
+    bufferedAmount: number;
     OPEN: number;
     principal?: { iss: string; sub: string };
   };
@@ -32,6 +36,7 @@ function makeFakeWs(principal?: { iss: string; sub: string }) {
   ws.ping = vi.fn();
   ws.terminate = vi.fn();
   ws.readyState = 1;
+  ws.bufferedAmount = 0;
   ws.OPEN = 1;
   if (principal) ws.principal = principal;
   return ws;
@@ -192,5 +197,223 @@ describe("gateway non-session host-policy gate", () => {
     await deliver(ws, { type: "retry_session", sessionId: "s1" });
     expect(sendToSession).toHaveBeenCalled();
     expect(authorize).not.toHaveBeenCalled();
+  });
+});
+
+// ── 18.37(a) bootstrap disclosure + (b) domain-event road ──────────────────
+describe("non-session bootstrap + domain events under a host policy (18.37)", () => {
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => errorSpy.mockRestore());
+
+  const types = (ws: { send: ReturnType<typeof vi.fn> }) =>
+    ws.send.mock.calls.map((c) => (JSON.parse(c[0] as string) as { type: string }).type);
+
+  function prefsGateway(active: boolean, policy: boolean) {
+    const sessionManager = createMemorySessionManager();
+    const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+    const preferencesStore = {
+      getPinnedDirectories: () => ["/p"],
+      getWorkspaces: () => [{ id: "w" }],
+      getCollapsedFolders: () => [],
+      getFavoriteModels: () => [],
+    };
+    // Owned by `owner`: enforced terminals are visible to their owner only (18.13).
+    const terminals = [{ id: "t1", principalOwner: owner }];
+    const terminalManager = { list: () => terminals, get: (id: string) => terminals.find((t) => t.id === id), on: vi.fn() };
+    // Positional deps: preferencesStore is #7, terminalManager #9, isResolverActive #25.
+    const gateway = createGatewayLoose(
+      sessionManager,
+      createMemoryEventStore(() => false),
+      piGateway,
+      undefined, undefined, undefined,
+      preferencesStore as never,
+      undefined,
+      terminalManager as never,
+      ...(new Array(15).fill(undefined) as []),
+      () => active,
+    );
+    gateway.setHostPolicy({ hasPolicy: () => policy, authorize: vi.fn(async () => true) as never });
+    return gateway;
+  }
+
+  it("under a policy, a socket WITHOUT grants gets no workspace/terminal bootstrap (fail-closed)", () => {
+    const g = prefsGateway(true, true);
+    const ws = makeFakeWs(owner);
+    g.wss.emit("connection", ws, {});
+    const t = types(ws);
+    expect(t).not.toContain("workspaces_updated");
+    expect(t).not.toContain("pinned_dirs_updated");
+    expect(t).not.toContain("terminal_added");
+    expect(t).toContain("sessions_snapshot"); // owner-filtered session state is unaffected
+  });
+
+  it("granted families are sent, denied ones are not", () => {
+    const g = prefsGateway(true, true);
+    const ws = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    ws.bootstrapGrants = { workspace: true, openspec: false, branch: false, terminal: false };
+    g.wss.emit("connection", ws, {});
+    const t = types(ws);
+    expect(t).toContain("workspaces_updated");
+    expect(t).toContain("pinned_dirs_updated");
+    expect(t).not.toContain("terminal_added");
+  });
+
+  it("no policy ⇒ unchanged bootstrap; inert plane ⇒ unchanged even with a policy", () => {
+    for (const [active, policy] of [[true, false], [false, true]] as const) {
+      const g = prefsGateway(active, policy);
+      const ws = makeFakeWs(owner);
+      g.wss.emit("connection", ws, {});
+      expect(types(ws)).toEqual(expect.arrayContaining(["workspaces_updated", "pinned_dirs_updated", "terminal_added"]));
+    }
+  });
+
+  it("live frames of a denied family are withheld too (terminal_added broadcast)", async () => {
+    const g = prefsGateway(true, true);
+    const yes = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    yes.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: true, terminals: "all" };
+    // Same principal (so ownership passes) — only the policy grant differs.
+    const no = makeFakeWs(owner) as ReturnType<typeof makeFakeWs> & { bootstrapGrants?: unknown };
+    no.bootstrapGrants = { workspace: true, openspec: true, branch: true, terminal: false, terminals: new Set<string>() };
+    g.wss.emit("connection", yes, {});
+    g.wss.emit("connection", no, {});
+    yes.send.mockClear();
+    no.send.mockClear();
+    g.broadcast({ type: "terminal_added", terminal: { id: "t2", principalOwner: owner } } as never);
+    await new Promise((r) => setTimeout(r, 20)); // decided on the ordered policy queue
+    expect(types(yes)).toContain("terminal_added");
+    expect(types(no)).not.toContain("terminal_added");
+  });
+
+  it("a plugin domain event is delivered only to sockets the policy permits (principal-less gets none)", async () => {
+    const g = prefsGateway(true, true);
+    const authorize = vi.fn(async ({ principal }: { principal: { sub: string } }) => principal.sub === "user-1");
+    g.setHostPolicy({ hasPolicy: () => true, authorize: authorize as never });
+    const a = makeFakeWs(owner);
+    const b = makeFakeWs(other);
+    const anon = makeFakeWs();
+    for (const w of [a, b, anon]) g.wss.emit("connection", w, {});
+    for (const w of [a, b, anon]) w.send.mockClear();
+    g.broadcastDomainEvent({ type: "goal_status", n: 1 } as never, "goal", "goal_status");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(types(a)).toContain("goal_status");
+    expect(types(b)).not.toContain("goal_status");
+    expect(types(anon)).not.toContain("goal_status");
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "domain.event", resource: { kind: "domain", pluginId: "goal", eventType: "goal_status" } }));
+  });
+
+  it("no policy ⇒ a domain event is the plain synchronous broadcast", () => {
+    const g = prefsGateway(true, false);
+    const a = makeFakeWs(owner);
+    const anon = makeFakeWs();
+    g.wss.emit("connection", a, {});
+    g.wss.emit("connection", anon, {});
+    a.send.mockClear();
+    anon.send.mockClear();
+    g.broadcastDomainEvent({ type: "goal_status" } as never, "goal", "goal_status");
+    expect(types(a)).toContain("goal_status");
+    expect(types(anon)).toContain("goal_status");
+  });
+
+  it("domain events keep their order under a policy (async decisions never reorder)", async () => {
+    const g = prefsGateway(true, true);
+    let n = 0;
+    g.setHostPolicy({ hasPolicy: () => true, authorize: (async () => { await new Promise((r) => setTimeout(r, n++ === 0 ? 30 : 0)); return true; }) as never });
+    const a = makeFakeWs(owner);
+    g.wss.emit("connection", a, {});
+    a.send.mockClear();
+    g.broadcastDomainEvent({ type: "ev", i: 1 } as never, "p", "ev");
+    g.broadcastDomainEvent({ type: "ev", i: 2 } as never, "p", "ev");
+    await new Promise((r) => setTimeout(r, 80));
+    const order = a.send.mock.calls.map((c) => (JSON.parse(c[0] as string) as { i?: number }).i).filter(Boolean);
+    expect(order).toEqual([1, 2]);
+  });
+
+  it("r3-B1 sibling: a policy-fanned domain event honours the gateway's transcript shedding on a saturated socket", async () => {
+    const g = prefsGateway(true, true);
+    g.setHostPolicy({ hasPolicy: () => true, authorize: vi.fn(async () => true) as never });
+    const slow = makeFakeWs(owner);
+    const fast = makeFakeWs(owner);
+    g.wss.emit("connection", slow, {});
+    g.wss.emit("connection", fast, {});
+    (slow as any).bufferedAmount = 64 * 1024 * 1024; // saturated: far above MAX_WS_BUFFER
+    slow.send.mockClear();
+    fast.send.mockClear();
+    for (let i = 0; i < 50; i++) g.broadcastDomainEvent({ type: "goal_status", n: i } as never, "goal", "goal_status");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(types(slow).filter((t) => t === "goal_status")).toHaveLength(0); // shed, not queued in the socket buffer
+    expect(types(fast).filter((t) => t === "goal_status").length).toBe(50); // the healthy socket is unaffected
+  });
+
+  // ── review r5 B1: inline-terminal commands WRITE into the supplied session ──
+  describe("inline-terminal commands honour session ownership (dispatch-level, two principals)", () => {
+    function inlineGateway(active: boolean) {
+      const sessionManager = createMemorySessionManager();
+      sessionManager.register({ id: "s1", cwd: "/p", source: "dashboard" } as never);
+      sessionManager.update("s1", { principalOwner: owner });
+      const eventStore = createMemoryEventStore(() => false);
+      const spawn = vi.fn((cwd: string, o?: { ephemeral?: boolean; owner?: unknown }) => ({
+        id: "t-inline", cwd, shell: "sh", status: "active" as const, createdAt: 0, ephemeral: true, ...(o?.owner ? { principalOwner: o.owner } : {}),
+      }));
+      const kill = vi.fn();
+      const live = new Map<string, any>();
+      const terminalManager = {
+        spawn: (cwd: string, o?: any) => { const t = spawn(cwd, o); live.set(t.id, t); return t; },
+        kill, list: () => [...live.values()], get: (id: string) => live.get(id), on: vi.fn(),
+        getTerminalRecord: () => ({ transcript: "", sawInput: false }), releaseTranscript: vi.fn(), isReleased: () => false,
+      };
+      const piGateway = { start: vi.fn(), stop: vi.fn(), sendToSession: vi.fn(), getConnectedSessionIds: vi.fn(() => []), hasSession: vi.fn(() => false), onEvent: vi.fn() } as unknown as PiGateway;
+      const gateway = createGatewayLoose(sessionManager, eventStore, piGateway, undefined, undefined, undefined, undefined, undefined, terminalManager as never, ...(new Array(15).fill(undefined) as []), () => active);
+      return { gateway, eventStore, spawn, kill, live };
+    }
+    const events = (es: ReturnType<typeof createMemoryEventStore>) => es.getEvents("s1", 0).map((e) => e.event.eventType);
+
+    it("the session owner may open and close an inline terminal in their session", async () => {
+      const { gateway, eventStore, spawn } = inlineGateway(true);
+      const ws = makeFakeWs(owner);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(spawn).toHaveBeenCalledWith("/p", expect.objectContaining({ ephemeral: true, owner }));
+      expect(events(eventStore)).toContain("inline_terminal_open");
+      await deliver(ws, { type: "close_inline_terminal", sessionId: "s1", terminalId: "t-inline" });
+      expect(events(eventStore)).toContain("inline_terminal_close");
+    });
+
+    it("a NON-owner cannot spawn a PTY or write events into another principal's session", async () => {
+      const { gateway, eventStore, spawn } = inlineGateway(true);
+      const ws = makeFakeWs(other);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(spawn).not.toHaveBeenCalled();
+      expect(events(eventStore)).not.toContain("inline_terminal_open");
+    });
+
+    it("a non-owner cannot close (kill + write a close event) a terminal in someone else's session, even one it owns itself", async () => {
+      const { gateway, eventStore, kill, live } = inlineGateway(true);
+      // The attacker owns a terminal of their own and names the VICTIM's session.
+      live.set("t-bela", { id: "t-bela", cwd: "/x", shell: "sh", status: "active", createdAt: 0, ephemeral: true, principalOwner: other });
+      const ws = makeFakeWs(other);
+      gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "close_inline_terminal", sessionId: "s1", terminalId: "t-bela" });
+      expect(kill).not.toHaveBeenCalled();
+      expect(events(eventStore)).not.toContain("inline_terminal_close");
+    });
+
+    it("principal-less sockets and unknown sessions are refused too; inert plane ⇒ unchanged", async () => {
+      const a = inlineGateway(true);
+      const anon = makeFakeWs();
+      a.gateway.wss.emit("connection", anon, {});
+      await deliver(anon, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      await deliver(anon, { type: "open_inline_terminal", sessionId: "does-not-exist", cwd: "/p" });
+      expect(a.spawn).not.toHaveBeenCalled();
+
+      const inert = inlineGateway(false);
+      const ws = makeFakeWs(other);
+      inert.gateway.wss.emit("connection", ws, {});
+      await deliver(ws, { type: "open_inline_terminal", sessionId: "s1", cwd: "/p" });
+      expect(inert.spawn).toHaveBeenCalled();
+    });
   });
 });

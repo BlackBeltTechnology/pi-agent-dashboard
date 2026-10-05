@@ -121,25 +121,28 @@ export class PolicyRegistry {
     principal: Principal;
     action: HostAction;
     resource: HostResource;
+    /** Advisory probe (UI `can` map): same decision, but a deny is NOT audited. */
+    probe?: boolean;
   }): Promise<boolean> {
     if (!this.policy) return true; // ungated
-    const { principal, action, resource } = input;
+    const { principal, action, resource, probe } = input;
+    const deny = probe ? () => {} : this.deny.bind(this);
     if (typeof action !== "string" || action.length === 0 || !resource || typeof resource.kind !== "string") {
-      this.deny(principal, action, resource, "unclassified");
+      deny(principal, action, resource, "unclassified");
       return false;
     }
     let result: unknown;
     try {
-      result = await withTimeout(this.policy(input), this.timeoutMs);
+      result = await withTimeout(this.policy({ principal, action, resource }), this.timeoutMs);
     } catch (err) {
-      this.deny(principal, action, resource, err === TIMEOUT ? "timeout" : "throw");
+      deny(principal, action, resource, err === TIMEOUT ? "timeout" : "throw");
       return false;
     }
     if (typeof result !== "boolean") {
-      this.deny(principal, action, resource, "non-boolean");
+      deny(principal, action, resource, "non-boolean");
       return false;
     }
-    if (!result) this.deny(principal, action, resource, "false");
+    if (!result) deny(principal, action, resource, "false");
     return result;
   }
 
