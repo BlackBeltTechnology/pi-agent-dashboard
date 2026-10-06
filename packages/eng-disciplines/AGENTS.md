@@ -85,6 +85,9 @@ Cross-cutting engineering-discipline skills for pi sessions. NL-triggered, ortho
 | `agents/rsfr-completeness.md` | Curated subagent def: `model: "@fast"` for reverse-spec completeness. |
 | `agents/rsfr-discovery.md` | Curated subagent def: `model: "@compact"` for reverse-spec discovery. |
 | `agents/rsfr-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec generator. Added after BASA run inherited parent Opus when `model` omitted. |
+| `agents/rsfr-sequence-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec optional sequence generator. |
+| `agents/rsfr-state-machine-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec optional state-machine generator. |
+| `agents/rsfr-ui-screen-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec optional UI screen generator. |
 | `package.json` | Manifest. `pi.skills[]` registers all 12 skills; `files[]` ships `.pi/skills/` (minus `reverse-spec-for-rebuild/eval/**`), `agents/`, README, NOTICE; `test` = `vitest run`. See change: add-reverse-spec-for-rebuild. |
 | `src/__tests__/diagrams.test.ts` | `diagrams.mjs` extract-model (fields, persistence flag, >64 KB piped output intact, exit 2), render-er… → see `src/__tests__/diagrams.test.ts.AGENTS.md` |
 | `src/__tests__/split.test.ts` | split.mjs units (budget flags, areas, parts within budget + valid XMI, kind-group packing, abbreviated ids, overview, determinism, state merge, sequence parts + framed fragment pieces, ER chunks + packing + self-contained source) and CLI (`check-size --strict`, build-site embedding + byte-identical, default no split, behaviour/ifml-parts exports). See change: add-diagram-splitting. |
