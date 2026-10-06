@@ -159,11 +159,9 @@ jobs:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          npm version "$VERSION" \
-            --no-git-tag-version \
-            --allow-same-version \
-            --workspaces \
-            --include-workspace-root
+          # `npm pkg set`, not `npm version`: the latter reifies the tree and
+          # newer npm refuses remote-tarball deps (xlsx) with EALLOWREMOTE.
+          npm pkg set version="$VERSION" --workspaces --include-workspace-root
 
       - name: Sync inter-package dep specifiers
         shell: bash
@@ -269,7 +267,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Set version from resolved tag
-        run: npm version "${{ needs.resolve.outputs.version }}" --no-git-tag-version --allow-same-version --workspaces --include-workspace-root
+        # `npm pkg set`, not `npm version`: npm@latest (OIDC) reifies on
+        # `npm version` and refuses the remote-tarball xlsx dep (EALLOWREMOTE).
+        run: npm pkg set version="${{ needs.resolve.outputs.version }}" --workspaces --include-workspace-root
 
       - name: Sync inter-package dep specifiers to bumped version
         run: node scripts/sync-versions.js
