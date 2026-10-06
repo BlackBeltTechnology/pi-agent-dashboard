@@ -31,7 +31,7 @@ export interface User {
   unauthenticatedTeamRequests: string[];
 }
 
-export interface TeamSession {
+interface TeamSession {
   id: string;
   pid?: number;
   cwd: string;
