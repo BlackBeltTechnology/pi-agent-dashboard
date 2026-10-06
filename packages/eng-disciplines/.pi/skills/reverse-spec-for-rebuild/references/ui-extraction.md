@@ -49,7 +49,8 @@ keeps every toolbar control).
 
 Reference adapter `angularjs-hta`: AngularJS 1.x under mshta (Plantifier) — ng-* attributes,
 `$rootScope.OpBar.<key>` toolbar, `str('key')` strings from `js/strings.js` + `CONF.strings`,
-lodash-merged `conf/` variants. A new stack (React, Vue, Delphi DFM, Oracle Forms, APEX,
+lodash-`defaultsDeep`-equivalent merge of `conf/` variants. App code is read statically
+(`js-literal.mjs`), never executed. A new stack (React, Vue, Delphi DFM, Oracle Forms, APEX,
 plain HTML…) needs only a new adapter; keep the record format.
 
 ## Gate rules (`gate.mjs`)

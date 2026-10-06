@@ -269,3 +269,60 @@ export const planViews = {};
     expect(r.stderr).toContain("unknown adapter nope");
   });
 });
+
+describe("angularjs-hta adapter reads app code statically (never executes it)", () => {
+  let app: string;
+  const put = (rel: string, text: string) => {
+    mkdirSync(dirname(join(app, rel)), { recursive: true });
+    writeFileSync(join(app, rel), text);
+  };
+  const readText = (p: string) => readFileSync(p, "utf8");
+  const lineAt = (src: string, i: number) => src.slice(0, i).split("\n").length;
+  beforeAll(() => {
+    app = mkdtempSync(join(tmpdir(), "hta-"));
+    put("js/strings.js", `// UI strings
+var _STR_ = {
+  hu: { save: 'Mentés', "orders_field_qty": "Menny\\u0151ség", add: \`Felvétel\`, },
+  gb: { orders_field_qty: 'Qty' }, // trailing comment
+};
+_STR_.hu.extra = "Extra";
+globalThis.__htaPwned = 1;
+`);
+    put("js/admin.js", `globalThis.__htaPwned = 2;
+var DEFAULT = {
+  orders: { settings: { qty: { display: true, size: [1, 2] }, note: { display: false, max: -5 } } },
+};
+`);
+    put("conf/acme/v1.json", JSON.stringify({ orders: { add: { settings: { qty: { size: [9] } } } }, strings: { hu: { save: "Ment" } }, list: [1] }));
+    put("conf/acme/conf-base-acme.json", '{"list": [7, 8], "__proto__": {"polluted": true}}');
+    put("conf/conf-base.json", JSON.stringify({ orders: { add: { settings: { note: { display: true } } } } }));
+  });
+  afterAll(() => rmSync(app, { recursive: true, force: true }));
+
+  it("strings: parses the _STR_ literal and later assignments without running strings.js", async () => {
+    const hta = await load("adapters/angularjs-hta.mjs");
+    const s = hta.strings(app, { strings: { hu: { add: "Hozzáad" } } }, readText);
+    expect(s).toEqual({ save: "Mentés", orders_field_qty: "Mennyőség", add: "Hozzáad", extra: "Extra" });
+    expect((globalThis as Record<string, unknown>).__htaPwned).toBeUndefined();
+  });
+
+  it("effectiveConfig: lodash-equivalent defaultsDeep (index-wise arrays), DEFAULT parsed, no vendored lodash needed", async () => {
+    const hta = await load("adapters/angularjs-hta.mjs");
+    const res = await hta.effectiveConfig(app, "conf/acme/v1.json", { join, readText, lineAt });
+    expect((globalThis as Record<string, unknown>).__htaPwned).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(res.conf.list).toEqual([1, 8]);
+    expect(res.defaultsCite).toBe("js/admin.js:2-4");
+    const f = Object.fromEntries(res.forms["orders.add"].fields.map((x: any) => [x.key, x]));
+    expect(f.qty.settings).toEqual({ size: [9, 2], display: true });
+    expect(f.note.settings).toEqual({ display: true, max: -5 });
+    expect(f.qty.label).toEqual({ hu: "Mennyőség", gb: "Qty" });
+  });
+
+  it("js-literal refuses non-literal code instead of evaluating it", async () => {
+    const { parseLiteralAt } = await load("js-literal.mjs");
+    expect(parseLiteralAt("{ a: [1, 'x', null, true], 'b': { c: -1.5e2 }, }", 0).value).toEqual({ a: [1, "x", null, true], b: { c: -150 } });
+    expect(() => parseLiteralAt("{ a: require('fs') }", 0)).toThrow(/not a literal/);
+    expect(() => parseLiteralAt("{ a: `x${1}` }", 0)).toThrow(/not a literal/);
+  });
+});

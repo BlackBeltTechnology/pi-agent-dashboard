@@ -2,6 +2,8 @@
 // Each pattern: kind, scope ("js" | "html" | "all"), global regex with a named group `name`.
 // Adding a stack = writing another file with this shape (see ../README.md).
 
+import { parseLiteralAt } from "../js-literal.mjs";
+
 export const id = "angularjs-hta";
 // Vendored third-party code is not part of the application UI.
 export const vendor = /^(angular|jquery|d3|vue|context-menu|moment|emoji-flags|JSON\.prune|lodash|lib|node_modules|\.git)$/;
@@ -54,40 +56,46 @@ export function keep(row) {
   return !/function\s+(alert|confirm|prompt|alertE)\b|(alert|confirm|prompt|alertE)\s*:\s*function/.test(row.text);
 }
 
+/** Own-key guard as lodash's safeGet: never walk into a prototype. */
+const UNSAFE = (obj, key) => key === "__proto__" || (key === "constructor" && typeof obj[key] === "function");
+const isObj = (v) => v !== null && typeof v === "object";
+
+/** lodash `_.defaultsDeep` semantics on JSON-like data: fill undefined keys only, recurse into objects/arrays index-wise. */
+export function defaultsDeep(target, ...sources) {
+  const fill = (t, src) => {
+    for (const k of Object.keys(src)) {
+      if (UNSAFE(t, k) || UNSAFE(src, k)) continue;
+      if (t[k] === undefined) Object.defineProperty(t, k, { value: structuredClone(src[k]), enumerable: true, writable: true, configurable: true });
+      else if (isObj(t[k]) && isObj(src[k])) fill(t[k], src[k]);
+    }
+  };
+  for (const src of sources) if (isObj(src)) fill(target, src);
+  return target;
+}
+
 /**
- * Effective configuration exactly as the app builds it, using the app's own vendored lodash
- * (so defaultsDeep semantics, incl. index-wise array merge, are identical):
+ * Effective configuration as the app builds it, read statically (application code is never executed;
+ * `defaultsDeep` above reproduces lodash's merge, incl. index-wise array merge):
  *   CONF = _.defaultsDeep(variant, conf/<cust>/conf-base-<cust>.json, conf/conf-base.json)   js/admin.js:25
  *   form = _.defaultsDeep(CONF.orders.add.settings, DEFAULT.orders.settings)                 js/order.js:137
  */
-export async function effectiveConfig(appDir, variant, { vm, join, readText, lineAt }) {
-  const ctx = vm.createContext({});
-  vm.runInContext(readText(join(appDir, "js/lodash/lodash.js")), ctx);
-  const _ = ctx._;
+export async function effectiveConfig(appDir, variant, { join, readText, lineAt }) {
   const cust = variant.split("/")[1];
   const layers = [variant, `conf/${cust}/conf-base-${cust}.json`, "conf/conf-base.json"];
   const json = (f) => JSON.parse(readText(join(appDir, f)));
-  const conf = _.defaultsDeep(...layers.map(json));
+  const conf = defaultsDeep(...layers.map(json));
 
   const admin = readText(join(appDir, "js/admin.js"));
   const at = admin.indexOf("var DEFAULT = {");
-  let depth = 0;
-  let end = at + "var DEFAULT = ".length;
-  for (let i = end; i < admin.length; i++) {
-    if (admin[i] === "{") depth++;
-    if (admin[i] === "}" && --depth === 0) {
-      end = i + 1;
-      break;
-    }
-  }
-  const DEFAULT = vm.runInContext(`(${admin.slice(at + "var DEFAULT = ".length, end)})`, ctx);
+  const parsed = parseLiteralAt(admin, at + "var DEFAULT = ".length);
+  const DEFAULT = parsed.value;
+  const end = parsed.end - 1; // index of the closing brace
   const defaultsCite = `js/admin.js:${lineAt(admin, at)}-${lineAt(admin, end)}`;
-  const form = _.defaultsDeep(_.cloneDeep(_.get(conf, "orders.add.settings", {})), DEFAULT.orders.settings);
+  const form = defaultsDeep(structuredClone(conf.orders?.add?.settings ?? {}), DEFAULT.orders.settings);
 
   // Labels exactly as js/order.js:139-147: STR["orders_field_"+key] (+ "_short"), CONF.strings overrides (js/admin.js:36-44).
-  vm.runInContext(readText(join(appDir, "js/strings.js")), ctx);
-  const STR = _.cloneDeep(ctx._STR_);
-  _.each(conf.strings, (strings, lang) => Object.assign((STR[lang] ??= {}), strings));
+  const STR = readStrings(readText(join(appDir, "js/strings.js")));
+  for (const [lang, strings] of Object.entries(conf.strings ?? {})) Object.assign((STR[lang] ??= {}), strings);
   const label = (lang, key) => STR[lang]?.[`orders_field_${key}`] ?? null;
 
   // Where each key is defined: one cite per layer (variant, customer base, conf-base, DEFAULT in admin.js).
@@ -147,7 +155,22 @@ export const shell = { file: "html/ang.htm" };
 export const planViews = { availableInputs: "input", filterInputs: "filter", tableInputs: "table" };
 /** UI strings: _STR_.hu from js/strings.js, overridden by CONF.strings.hu (as the app does). */
 export function strings(appDir, conf, readText) {
-  const src = readText(`${appDir}/js/strings.js`);
-  const STR = new Function(`${src}\nreturn _STR_;`)();
+  const STR = readStrings(readText(`${appDir}/js/strings.js`));
   return { ...(STR.hu || {}), ...((conf?.strings?.hu) || {}) };
+}
+
+/** `_STR_` from js/strings.js without running it: the `_STR_ = {...}` literal plus later `_STR_.a.b = <literal>` lines. */
+function readStrings(src) {
+  const decl = /(?:^|[^\w$.])_STR_\s*=\s*(?=[{[])/m.exec(src);
+  if (!decl) throw new Error("js/strings.js: no `_STR_ = {...}` literal");
+  const STR = parseLiteralAt(src, decl.index + decl[0].length).value;
+  const assign = /^\s*_STR_((?:\.[\w$]+|\[\s*(?:'[^']*'|"[^"]*")\s*\])+)\s*=\s*/gm;
+  for (const m of src.matchAll(assign)) {
+    const path = [...m[1].matchAll(/\.([\w$]+)|\[\s*(?:'([^']*)'|"([^"]*)")\s*\]/g)].map((p) => p[1] ?? p[2] ?? p[3]);
+    if (path.some((k) => k === "__proto__" || k === "constructor" || k === "prototype")) continue;
+    let o = STR;
+    for (const k of path.slice(0, -1)) o = isObj(o[k]) ? o[k] : (o[k] = {});
+    o[path.at(-1)] = parseLiteralAt(src, m.index + m[0].length).value;
+  }
+  return STR;
 }

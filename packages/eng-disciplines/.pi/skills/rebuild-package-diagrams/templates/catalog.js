@@ -1031,8 +1031,10 @@
   function fillPlans() {
     for (const f of document.querySelectorAll("iframe[data-plan]")) f.srcdoc = UI.plans[f.dataset.plan] || "";
   }
+  // new tab = wrapper page (catalog origin, no plan script) holding the plan in a sandboxed, origin-less frame
   function openPlan(sid) {
-    const url = URL.createObjectURL(new Blob([UI.plans[sid]], { type: "text/html" }));
+    const page = `<!doctype html><meta charset="utf-8"><title>Screen plan ${esc(sid)}</title><style>html,body,iframe{margin:0;border:0;width:100%;height:100%;display:block}</style><iframe sandbox="allow-scripts" srcdoc="${esc(UI.plans[sid] || "")}" title="Screen plan ${esc(sid)}"></iframe>`;
+    const url = URL.createObjectURL(new Blob([page], { type: "text/html" }));
     window.open(url, "_blank", "noopener");
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
