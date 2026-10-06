@@ -172,6 +172,16 @@ plan without a screen/dialog record. Catalog: screen page shows the plan in a sa
 tab; legend action links post `{type: "screen-plan-open", screen, action}` and open the action); header
 **Style kit** button → `#view=kit:`.
 
+## Diagram size budget (split large diagrams)
+
+Diagrams over a size budget are split deterministically into an overview plus parts:
+IFML by area (route + its dialogs) and by trigger-kind action groups, state machines by
+merging parallel transitions, sequences into `ref` parts, ER sets by authored cluster.
+Parameters: `--max-nodes` / `--max-edges` (default 30 / 40) on `build-site`, `behaviour`,
+`ifml-parts`, `check-size`; `render.sh` reads `MAX_NODES` / `MAX_EDGES` (`STRICT_SIZE=1`
+fails on a part still over). `diagrams.mjs check-size PKG [--strict]` lists every diagram and
+its split. Rules: `references/splitting.md`.
+
 ## Behaviour diagrams (sequence, collaboration, state machine, object)
 
 Records, gates, generators and masking: `references/behaviour-mapping.md`.

@@ -15,7 +15,10 @@
 //   sequence-from-ui <packageDir> <SCR#ACT> <out.json> -> deterministic draft sequence of a UI action
 //   objects-synth <packageDir> <Entity> <out.json> [--depth n] [--fanout n] -> synthetic object diagram
 //   objects-from-db <packageDir> <job.json> <out.json> -> masked object diagram from a JSON DB snapshot
-//   behaviour <packageDir> <outDir>          -> <id>.mmd per diagram (+ <id>.collab.mmd) and <id>.scxml per state machine
+//   behaviour <packageDir> <outDir>          -> <id>.mmd per diagram (+ <id>.collab.mmd, <id>.part-<n>.mmd) and <id>.scxml per state machine
+//   ifml-parts <packageDir> <outDir>         -> overview.mmd + <part>.xmi per IFML part
+//   check-size <packageDir> [--strict]       -> size of every diagram and its split; --strict: exit 1 if a part is over budget
+//   build-site / behaviour / ifml-parts / check-size take [--max-nodes n] [--max-edges n] (default 30 / 40)
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -25,6 +28,7 @@ import { buildIfml, checkIfmlXmi, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
+import { budgetOf, ifmlParts, sizeReport } from "./split.mjs";
 
 const USAGE = `usage:
   diagrams.mjs extract-model <model.md>
@@ -44,7 +48,22 @@ const USAGE = `usage:
   diagrams.mjs objects-synth <packageDir> <Entity> <out.json> [--depth <n>] [--fanout <n>]
   diagrams.mjs objects-from-db <packageDir> <job.json> <out.json>
   diagrams.mjs behaviour <packageDir> <outDir>
-  build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]`;
+  diagrams.mjs ifml-parts <packageDir> <outDir>
+  diagrams.mjs check-size <packageDir> [--strict]
+  build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]
+  build-site, behaviour, ifml-parts, check-size take [--max-nodes <n>] [--max-edges <n>] (default 30 / 40)`;
+
+/** Split budget flags off argv: {budget, rest}; bad value is bad usage. */
+function takeBudget(args) {
+  let budget;
+  try {
+    budget = budgetOf(args);
+  } catch (e) {
+    die(`diagrams: ${e.message}`);
+  }
+  const rest = args.filter((a, i) => !["--max-nodes", "--max-edges"].includes(a) && !["--max-nodes", "--max-edges"].includes(args[i - 1]));
+  return { budget, rest };
+}
 
 /** `--app <dir>` (or nothing) -> appDir; anything else is bad usage. */
 function appFlag(flag, app) {
@@ -118,12 +137,13 @@ const COMMANDS = {
     const useCases = readJson(join(pkg, "diagrams", "use-cases.json"));
     return report(checkUseCases(pkg, useCases, extractModel(readText(join(pkg, "model.md")))));
   },
-  "build-site": ([pkg, out, ...rest]) => {
+  "build-site": ([pkg, out, ...args]) => {
     if (!out) die(USAGE);
+    const { budget, rest } = takeBudget(args);
     const local = rest.includes("--local");
     const libs = parseLibs(rest.filter((a) => a !== "--local"));
     readText(join(pkg, "model.md"));
-    const { data, errors } = buildCatalog(pkg, { local });
+    const { data, errors } = buildCatalog(pkg, { local, budget });
     if (errors.length) return report(errors);
     writeFileSync(out, renderSite(data, libs));
     return 0;
@@ -200,13 +220,15 @@ const COMMANDS = {
     if (!gate.length) writeRecord(out, diagram);
     return report(gate);
   },
-  behaviour: ([pkg, outDir]) => {
-    const { errors, behaviour } = behaviourData(pkg);
+  behaviour: ([pkg, outDir, ...args]) => {
+    const { budget } = takeBudget(args);
+    const { errors, behaviour } = behaviourData(pkg, { budget });
     if (errors.length) return report(errors);
     mkdirSync(outDir, { recursive: true });
     for (const s of behaviour.sequences) {
       writeFileSync(join(outDir, `${s.id}.mmd`), s.mermaid);
       writeFileSync(join(outDir, `${s.id}.collab.mmd`), s.collab.mermaid);
+      for (const p of s.parts || []) writeFileSync(join(outDir, `${s.id}.part-${p.n}.mmd`), p.mermaid);
     }
     for (const m of behaviour.states) {
       writeFileSync(join(outDir, `${m.id}.mmd`), m.mermaid);
@@ -214,6 +236,27 @@ const COMMANDS = {
     }
     for (const o of behaviour.objects) writeFileSync(join(outDir, `${o.id}.mmd`), o.mermaid);
     return 0;
+  },
+  "ifml-parts": ([pkg, outDir, ...args]) => {
+    const { budget } = takeBudget(args);
+    const ui = readUi(pkg);
+    if (!ui.screens.length) die(`diagrams: no UI model (ui/screens/*.json) in ${pkg}`);
+    const split = ifmlParts(ui, budget, packageTitle(pkg));
+    const errors = split.parts.flatMap((p) => checkIfmlXmi(p.xmi).map((e) => `${p.id}: ${e}`));
+    if (errors.length) return report(errors);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "overview.mmd"), split.overview.mermaid);
+    for (const p of split.parts) writeFileSync(join(outDir, `${p.id}.xmi`), p.xmi);
+    return 0;
+  },
+  "check-size": ([pkg, ...args]) => {
+    const { budget, rest } = takeBudget(args);
+    if (rest.some((a) => a !== "--strict")) die(USAGE);
+    const { data, errors } = buildCatalog(pkg, { budget });
+    if (errors.length) return report(errors);
+    const { lines, over } = sizeReport({ ui: data.ui, behaviour: readBehaviour(pkg), er: data.er.clusters }, budget, data.meta.title);
+    process.stdout.write(`budget: ${budget.nodes} nodes, ${budget.edges} edges\n${lines.join("\n")}\n${over} over budget\n`);
+    return rest.includes("--strict") && over ? 1 : 0;
   },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
@@ -228,7 +271,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

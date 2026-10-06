@@ -531,9 +531,9 @@
   }
   const mLabel = (s, n = 42) => clip(String(s ?? ""), n).replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;");
   /** Element subset + flows for a set of screens: {els, flows, nid} with mermaid-safe ids. */
-  function ifmlSubset(screens) {
+  function ifmlSubset(screens, only = null) {
     const keep = new Set(screens);
-    const els = D.ifml.elements.filter((e) => keep.has(e.trace.screen));
+    const els = D.ifml.elements.filter((e) => keep.has(e.trace.screen) && (!only || only.has(e.id)));
     const ids = new Set(els.map((e) => e.id));
     const nid = Object.fromEntries(els.map((e, i) => [e.id, `n${i}`]));
     const isDone = (id) => els.find((e) => e.id === id)?.type === "ActionEvent";
@@ -587,8 +587,49 @@
     const shown = sub.els.filter((e) => ["Window", "Form", "OnSubmitEvent", "ViewElementEvent", "Action"].includes(e.type));
     return `<table><tr><th>IFML</th><th>Name</th><th>Trace</th></tr>${shown.map((e) => `<tr><td><span class="badge via">${esc(e.type)}</span>${isGuarded(e) ? ' <span class="badge k-GAP">guarded</span>' : ""}</td><td><a href="${ifmlTarget(e)}">${esc(e.name)}</a></td><td class="cite">${esc([e.trace.screen, e.trace.action || e.trace.dialog || e.trace.form].filter(Boolean).join(" › "))}</td></tr>`).join("")}</table>`;
   }
-  function viewIfml(arg) {
+  // ---------- IFML split (overview + parts, see references/splitting.md) ----------
+  const SPLIT = D.ifmlSplit;
+  const BUDGET = { nodes: 30, edges: 40, ...D.meta.budget };
+  const partById = Object.fromEntries(Array.from(SPLIT?.parts ?? [], (p) => [p.id, p]));
+  const isSplit = () => (SPLIT?.parts.length || 0) > 1;
+  const partsOfScreen = (sid) => (SPLIT?.parts || []).filter((p) => p.screens.some((s) => s.id === sid));
+  const partChip = (p) => `<a class="chip ifml" href="${link({ view: `ifml:part:${p.id}` })}">${esc(p.title)} <span class="cite">${p.size.nodes}/${p.size.edges}</span></a>`;
+  function viewIfmlOverview() {
+    const areas = SPLIT.overview.nodes.map((n) => `<h4>${esc(n.title)} <span class="meta">${n.screens} screen(s)</span></h4><div class="chips">${n.parts.map((id) => partChip(partById[id])).join("")}</div>`);
+    return `<h2>IFML overview</h2><p class="lede">The UI model (${SPLIT.size.nodes} elements, ${SPLIT.size.edges} flows) is split into ${SPLIT.parts.length} parts of at most ${BUDGET.nodes} elements / ${BUDGET.edges} flows. Areas group each route with the dialogs and panels it opens; arrows count navigation between areas. Click an area or a part.</p>
+      <div class="chips">${ifmlLink("full", "Whole model (large)")}<button class="chip" data-xmi>Download IFML XMI</button></div>
+      <h3>Areas</h3><div class="er" data-mmd="ifmlovw:"></div><h3>Parts</h3>${areas.join("")}`;
+  }
+  function viewIfmlPart(id) {
+    const p = partById[id];
+    if (!p) return viewIfmlOverview();
+    const area = SPLIT.overview.nodes.find((n) => n.id === p.area);
+    const sib = area.parts;
+    const i = sib.indexOf(id);
+    const nav = [i > 0 ? `<a class="chip" href="${link({ view: `ifml:part:${sib[i - 1]}` })}">← previous</a>` : "", i < sib.length - 1 ? `<a class="chip" href="${link({ view: `ifml:part:${sib[i + 1]}` })}">next →</a>` : ""].join("");
+    const ids = new Set([...p.xmi.matchAll(/xmi:id="([^"]+)"/g)].map((m) => m[1]));
+    const sub = ifmlSubset(uniq(p.screens.map((s) => s.id)), ids);
+    const screens = uniq(p.screens.map((s) => s.id)).map(scrChip).join("");
+    return `<p class="meta"><a href="${link({ view: "ifml:all" })}">IFML overview</a> › ${esc(area.title)} › ${esc(p.title)}</p>
+      <h2>IFML · ${esc(p.title)}</h2><p class="lede">Part ${i + 1} of ${sib.length} in area ${esc(area.title)}: ${p.size.nodes} elements, ${p.size.edges} flows (budget ${BUDGET.nodes}/${BUDGET.edges}). Flows to records outside this part are listed on the screen pages.</p>
+      <div class="chips">${nav}${screens}</div>
+      ${D.viewers.ifml ? `<div class="ifmlcanvas" id="ifmlcanvas" data-ifmljs="part:${esc(id)}"></div>` : `<div class="er" data-ifml="part:${esc(id)}"></div>`}
+      <h3>Elements</h3>${ifmlTable(sub)}`;
+  }
+  /** Split views take over: overview for "all", a part, or a split screen's first part; else null. */
+  function ifmlSplitView(arg) {
+    if (arg === "all" && isSplit()) return viewIfmlOverview();
+    if (arg.startsWith("part:")) return viewIfmlPart(arg.slice(5));
+    const parts = scrById[arg] ? partsOfScreen(arg) : [];
+    if (parts.length < 2) return null;
+    return `<div class="notice">${esc(arg)} is split into ${parts.length} parts: ${parts.map(partChip).join(" ")}</div>${viewIfmlPart(parts[0].id)}`;
+  }
+  function viewIfml(view) {
     if (!D.ifml) return viewHome();
+    return ifmlSplitView(view || "") || viewIfmlScope(view === "full" ? "all" : view);
+  }
+  /** Unsplit IFML view of a scope: all | sel | UC-id | screen id. */
+  function viewIfmlScope(arg) {
     const screens = ifmlScreens(arg);
     const sub = ifmlSubset(screens);
     const scope = arg === "all" ? "all screens" : arg === "sel" ? `selected use cases (${state.sel.join(", ") || "none"})` : arg;
@@ -603,9 +644,11 @@
     if (!el || !window.IfmlJS) return;
     const arg = el.dataset.ifmljs;
     const viewer = new window.IfmlJS({ container: el });
+    const part = arg.startsWith("part:") ? partById[arg.slice(5)] : null;
     try {
-      await viewer.importXML(D.ifmlXmi);
+      await viewer.importXML(part ? part.xmi : D.ifmlXmi);
     } catch (e) { el.innerHTML = `<div class="notice">IFML import failed: ${esc(e.message || e)}</div>`; return; }
+    if (part) return wireIfmlJs(viewer, true);
     const sub = ifmlSubset(ifmlScreens(arg));
     const inScope = new Set([...sub.els.map((e) => e.id), ...D.ifml.flows.filter((f) => sub.els.some((e) => e.id === f.source)).map((f) => f.id)]);
     const hot = ifmlHighlight(arg);
@@ -613,6 +656,10 @@
     const shapes = viewer.get("elementRegistry").getAll().filter((s) => s.businessObject && s.type !== "label" && s.parent);
     for (const s of shapes) markIfmlShape(canvas, s, arg === "all" || inScope.has(s.id), hot);
     zoomToScope(canvas, shapes.filter((s) => inScope.has(s.id) && s.width));
+    wireIfmlJs(viewer, false);
+  }
+  function wireIfmlJs(viewer, fit) {
+    if (fit) viewer.get("canvas").zoom("fit-viewport");
     viewer.get("eventBus").on("element.click", (ev) => {
       // ifml-moddle keeps the XMI id in $id; the diagram shape id equals it
       const g = D.ifml.elements.find((x) => x.id === ev.element.id || x.id === ev.element.businessObject?.$id);
@@ -638,7 +685,8 @@
     const el = document.querySelector("[data-ifml]");
     if (!el) return;
     const arg = el.dataset.ifml;
-    const sub = ifmlSubset(ifmlScreens(arg));
+    const part = arg.startsWith("part:") ? partById[arg.slice(5)] : null;
+    const sub = part ? ifmlSubset(uniq(part.screens.map((s) => s.id)), new Set([...part.xmi.matchAll(/xmi:id="([^"]+)"/g)].map((m) => m[1]))) : ifmlSubset(ifmlScreens(arg));
     if (!sub.els.length) { el.textContent = "No screen in scope."; return; }
     const text = ifmlText(sub, ifmlHighlight(arg));
     if (!window.mermaid) { el.innerHTML = `<div class="notice">Diagram viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(text)}</pre>`; return; }
@@ -685,11 +733,20 @@
       const names = el.dataset.er ? el.dataset.er.split("|").filter((n) => D.entities[n]) : [];
       if (!names.length) { el.textContent = "No entities."; continue; }
       if (!window.mermaid) { el.innerHTML = `<div class="notice">ER viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(erText(names))}</pre>`; continue; }
-      try {
-        const { svg } = await window.mermaid.render(`er${++erSeq}`, erText(names));
-        el.innerHTML = svg;
-      } catch (e) { el.innerHTML = `<div class="notice">ER render failed: ${esc(e.message || e)}</div>`; }
+      el.innerHTML = await erHtml(names);
     }
+  }
+  /** ER of an entity set; over the node budget one diagram per authored ER cluster, then chunks (erChunks, split.mjs). */
+  async function erHtml(names) {
+    const chunks = typeof erChunks === "function" ? erChunks(names, D.er.clusters || [], BUDGET.nodes) : [{ name: null, entities: names }];
+    const html = [];
+    for (const [i, c] of chunks.entries()) {
+      try {
+        const { svg } = await window.mermaid.render(`er${++erSeq}`, erText(c.entities));
+        html.push(chunks.length > 1 ? `<h4>${esc(c.name || "other entities")} <span class="meta">${i + 1}/${chunks.length} · ${c.entities.length} entities</span></h4>${svg}` : svg);
+      } catch (e) { html.push(`<div class="notice">ER render failed: ${esc(e.message || e)}</div>`); }
+    }
+    return html.join("");
   }
 
   let viewer = null;
@@ -892,8 +949,10 @@
       ...(s.action ? [["UI action", `<a href="${link({ view: `scr:${sId}`, focus: aId })}">${esc(s.action)}</a>`]] : []),
       ["Source", esc(s.source || "authored")],
     ]);
+    const parts = (s.parts || []).map((p) => `${behDiagram(`seqpart:${p.n}:${s.id}`, `Part ${p.n} · ${esc(p.title)} (${p.messages.length} steps)`)}`).join("");
+    const main = s.parts ? `<p class="meta">${s.parts.length} parts of at most ${BUDGET.edges} messages; the overview shows each as a <code>ref</code> block.</p>${behDiagram(`seq:${s.id}`, "Sequence overview")}${parts}` : behDiagram(`seq:${s.id}`, "Sequence");
     return `<h2>${esc(s.id)} ${esc(s.title || "")}</h2><p class="lede">${BEH_NAME.seq}</p>${facts}${behDownloads("seq", s)}
-      ${behDiagram(`seq:${s.id}`, "Sequence")}${behDiagram(`collab:${s.id}`, `Collaboration (${s.collab.messages} messages)`)}
+      ${main}${behDiagram(`collab:${s.id}`, `Collaboration (${s.collab.messages} messages)`)}
       <h3>Participants</h3>${rowsTable(["Id", "Kind", "Is"], s.participants.map((p) => [esc(p.id), esc(p.kind), participantCell(p)]))}
       <h3>Messages</h3>${rowsTable(["#", "From → to", "Message", "Cite", "Refs"], messageRows(s.messages, 0, []))}`;
   }
@@ -903,6 +962,7 @@
     const states = m.states.map((s) => [`<code>${esc(s.id)}</code>`, esc(s.value ?? ""), esc(s.label || ""), [s.initial ? "initial" : "", s.final ? "final" : ""].filter(Boolean).join(", "), citeSpan(s.cite)]);
     const trans = m.transitions.map((t) => [`${esc(t.from)} → ${esc(t.to)}`, esc(t.trigger), esc(t.guard || ""), esc((t.effects || []).join("; ")), citeSpan(t.cite), behRefs(t.refs)]);
     return `<h2>${esc(m.id)} ${esc(m.title || "")}</h2><p class="lede">${BEH_NAME.sm} of <a href="${link({ view: `ent:${m.entity}` })}">${esc(m.entity)}</a>.<code>${esc(m.field)}</code></p>${behDownloads("sm", m)}
+      ${m.merged ? `<p class="meta">${m.transitions.length} transitions drawn as ${m.merged} edges: transitions between the same two states are merged (budget ${BUDGET.edges} edges). Every transition is in the table below and in the SCXML.</p>` : ""}
       ${behDiagram(`sm:${m.id}`, "States")}
       <h3>States</h3>${rowsTable(["State", "Value", "Label", "", "Cite"], states)}
       <h3>Transitions</h3>${rowsTable(["From → to", "Trigger", "Guard", "Effects", "Cite", "Refs"], trans)}`;
@@ -919,6 +979,11 @@
   const behText = (key) => {
     const [kind, id] = key.split(/:(.*)/s);
     if (kind === "collab") return behById("seq", id)?.collab.mermaid;
+    if (kind === "ifmlovw") return SPLIT?.overview.mermaid;
+    if (kind === "seqpart") {
+      const [n, sid] = id.split(/:(.*)/s);
+      return behById("seq", sid)?.parts?.[Number(n) - 1]?.mermaid;
+    }
     return behById(kind, id)?.mermaid;
   };
   let behSeq = 0;
@@ -928,7 +993,18 @@
       if (!window.mermaid) { el.innerHTML = `<div class="notice">Diagram viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(text)}</pre>`; continue; }
       try {
         el.innerHTML = (await window.mermaid.render(`beh${++behSeq}`, text)).svg;
+        if (el.dataset.mmd === "ifmlovw:") wireOverview(el);
       } catch (err) { el.innerHTML = `<div class="notice">Render failed: ${esc(err.message || err)}</div><pre>${esc(text)}</pre>`; }
+    }
+  }
+  /** Overview nodes (a0, a1, …) open their area's first part. */
+  function wireOverview(el) {
+    const byNid = Object.fromEntries(SPLIT.overview.nodes.map((n) => [n.nid, n]));
+    for (const g of el.querySelectorAll("g.node")) {
+      const n = byNid[(g.id || "").match(/(?:^|-)(a\d+)(?:-|$)/)?.[1]];
+      if (!n) continue;
+      g.style.cursor = "pointer";
+      g.addEventListener("click", () => { location.hash = link({ view: `ifml:part:${n.parts[0]}` }); });
     }
   }
   function downloadBeh(spec) {

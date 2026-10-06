@@ -7,6 +7,7 @@ import { archViews, checkArch, readArch, toMermaidC4, toStructurizr } from "./ar
 import { behaviourData } from "./behaviour.mjs";
 import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
+import { DEFAULT_BUDGET, erChunks, ifmlParts } from "./split.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 const REF_RE = /\b(?:BR|QUIRK|GAP)-\d+\b/g;
@@ -47,6 +48,7 @@ function readEr(diagDir, model, errors) {
   const byName = new Map(model.entities.map((e) => [e.name, e]));
   const entities = {};
   const relations = [];
+  const clusters = [];
   const files = existsSync(erDir) ? readdirSync(erDir).filter((x) => x.endsWith(".json")).sort() : [];
   for (const f of files) {
     const er = JSON.parse(readFileSync(join(erDir, f), "utf8"));
@@ -57,8 +59,9 @@ function readEr(diagDir, model, errors) {
     }
     for (const ent of er.entities ?? []) addEntityRows(entities, ent, byName.get(ent.name));
     addRelations(relations, er.relations);
+    if (f !== "overview.json") clusters.push({ name: f.replace(/\.json$/, ""), entities: (er.entities ?? []).map((e) => e.name), relations: (er.relations ?? []).length });
   }
-  return { entities, relations };
+  return { entities, relations, clusters };
 }
 
 function bpmnFor(diagDir, uc) {
@@ -95,7 +98,7 @@ function uiActionsOf(uc, ui, errors) {
 }
 
 /** Assemble the catalog data object. Returns {data, errors}. */
-export function buildCatalog(pkgDir, { local = false } = {}) {
+export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } = {}) {
   const errors = [];
   const diagDir = join(pkgDir, "diagrams");
   const model = extractModel(readIf(join(pkgDir, "model.md")));
@@ -130,10 +133,10 @@ export function buildCatalog(pkgDir, { local = false } = {}) {
   const title = packageTitle(pkgDir);
   const arch = readArch(pkgDir);
   if (arch) errors.push(...checkArch(pkgDir, arch));
-  const beh = behaviourData(pkgDir, { local });
+  const beh = behaviourData(pkgDir, { local, budget });
   errors.push(...beh.errors);
   const data = {
-    meta: { title, built: new Date().toISOString().slice(0, 10) },
+    meta: { title, built: new Date().toISOString().slice(0, 10), budget },
     capabilities,
     items,
     entities,
@@ -146,7 +149,7 @@ export function buildCatalog(pkgDir, { local = false } = {}) {
       const full = { ...uc, ...b, altFlows: altFlowsFor(diagDir, uc), bpmnRefs: docRefs.filter((r) => items[r]) };
       return { ...full, uiActions: uiActionsOf(full, ui, errors) };
     }),
-    ...ifmlData(ui, title),
+    ...ifmlData(ui, title, budget),
     behaviour: beh.behaviour || { sequences: [], states: [], objects: [] },
     arch: arch && !errors.length ? { model: arch, views: archViews(arch), dsl: toStructurizr(arch, title), c4: toMermaidC4(arch, title) } : null,
   };
@@ -154,10 +157,10 @@ export function buildCatalog(pkgDir, { local = false } = {}) {
 }
 
 /** IFML graph + XMI when the package has a UI model. */
-const ifmlData = (ui, title) => {
-  if (!ui.screens.length) return { ifml: null, ifmlXmi: "" };
+const ifmlData = (ui, title, budget) => {
+  if (!ui.screens.length) return { ifml: null, ifmlXmi: "", ifmlSplit: null };
   const ifml = buildIfml(ui);
-  return { ifml, ifmlXmi: ifmlToXmi(ifml, title) };
+  return { ifml, ifmlXmi: ifmlToXmi(ifml, title), ifmlSplit: ifmlParts(ui, budget, title) };
 };
 
 const inlineScript = (s) => s.replace(/<\/script/gi, "<\\/script");
@@ -173,7 +176,8 @@ export function renderSite(data, libs) {
     "/*__MERMAID_JS__*/": inlineScript(libs.mermaid),
     "/*__IFML_JS__*/": inlineScript(libs.ifmlJs ?? ""),
     "/*__IFML_CSS__*/": (libs.ifmlCss ?? []).join("\n").replace(/<\/style/gi, "<\\/style"),
-    "/*__APP_JS__*/": inlineScript(readFileSync(join(TEMPLATES, "catalog.js"), "utf8")),
+    // erChunks runs in the page too (entity sets are chosen there): same source as the tested function.
+    "/*__APP_JS__*/": inlineScript(`${erChunks.toString()}\n${readFileSync(join(TEMPLATES, "catalog.js"), "utf8")}`),
     '"__DATA__"': json,
     "__TITLE__": data.meta.title.replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;")),
   };

@@ -5,6 +5,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { citeError, readArch, refResolver } from "./arch.mjs";
 import { extractModel, readIf, readUi } from "./lib.mjs";
+import { DEFAULT_BUDGET, mergeParallel, sequenceParts } from "./split.mjs";
 
 const readJsonDir = (dir, extra = {}) =>
   existsSync(dir)
@@ -125,6 +126,23 @@ export function sequenceMermaid(seq) {
   for (const p of seq.participants) out.push(`  ${p.kind === "actor" ? "actor" : "participant"} ${sid(p.id)} as ${lbl(p.label || p.id)}`);
   emitMessages(out, seq.messages, "  ");
   return `${out.join("\n")}\n`;
+}
+
+/** Sequence over budget: parts with their own diagrams + a main diagram showing each part as a `ref` block. */
+export function sequenceSplit(seq, budget = DEFAULT_BUDGET) {
+  const parts = sequenceParts(seq, budget);
+  if (!parts) return { parts: null, mermaid: sequenceMermaid(seq) };
+  const byId = new Map(seq.participants.map((p) => [p.id, p]));
+  const out = ["sequenceDiagram"];
+  for (const p of seq.participants) out.push(`  ${p.kind === "actor" ? "actor" : "participant"} ${sid(p.id)} as ${lbl(p.label || p.id)}`);
+  for (const p of parts) {
+    const ends = p.participants.length > 1 ? `${sid(p.participants[0])},${sid(p.participants[p.participants.length - 1])}` : sid(p.participants[0]);
+    out.push(`  Note over ${ends}: ref part ${p.n} · ${clip(lbl(p.title), 60)}`);
+  }
+  return {
+    mermaid: `${out.join("\n")}\n`,
+    parts: parts.map((p) => ({ ...p, mermaid: sequenceMermaid({ ...seq, participants: p.participants.map((id) => byId.get(id)), messages: p.messages }) })),
+  };
 }
 
 /** Collaboration (communication) diagram: messages numbered in sequence order on participant links. */
@@ -256,11 +274,14 @@ const clip = (x, n = 40) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
 const stLbl = (x) => clip(lbl(x).replace(/:/g, "꞉"));
 const transitionLabel = (t) => `${stLbl(t.trigger)}${t.guard ? ` [${stLbl(t.guard)}]` : ""}`;
 
-export function stateMermaid(sm) {
+/** Mermaid stateDiagram-v2; over the edge budget, parallel transitions are one edge with their count. */
+export function stateMermaid(sm, budget = DEFAULT_BUDGET) {
   const out = ["stateDiagram-v2"];
   for (const s of sm.states) if (s.label && s.label !== s.id) out.push(`  state "${stLbl(s.label)}" as ${sid(s.id)}`);
   for (const s of sm.states.filter((x) => x.initial)) out.push(`  [*] --> ${sid(s.id)}`);
-  for (const t of sm.transitions) out.push(`  ${sid(t.from)} --> ${sid(t.to)} : ${transitionLabel(t)}`);
+  const merged = mergeParallel(sm, budget);
+  if (merged) for (const e of merged) out.push(`  ${sid(e.from)} --> ${sid(e.to)} : ${e.count > 1 ? `${e.count} transitions` : transitionLabel(sm.transitions[e.transitions[0]])}`);
+  else for (const t of sm.transitions) out.push(`  ${sid(t.from)} --> ${sid(t.to)} : ${transitionLabel(t)}`);
   for (const s of sm.states.filter((x) => x.final)) out.push(`  ${sid(s.id)} --> [*]`);
   return `${out.join("\n")}\n`;
 }
@@ -536,15 +557,15 @@ export function objectMermaid(o) {
 // ---------- package-level ----------
 
 /** Gate everything; return the embedded form (diagrams rendered, refs/entities collected) or errors. */
-export function behaviourData(pkgDir, { local = false, appDir = null } = {}) {
+export function behaviourData(pkgDir, { local = false, appDir = null, budget = DEFAULT_BUDGET } = {}) {
   const b = readBehaviour(pkgDir, { local });
   const errors = [...checkSequences(pkgDir, b.sequences, appDir), ...checkStates(pkgDir, b.states, appDir), ...checkObjects(pkgDir, b.objects)];
   if (errors.length) return { errors, behaviour: null };
   return {
     errors,
     behaviour: {
-      sequences: b.sequences.map((s) => ({ ...s, entities: s.entities || [], refs: refsOfSequence(s), mermaid: sequenceMermaid(s), collab: collaboration(s) })),
-      states: b.states.map((m) => ({ ...m, refs: refsOfMachine(m), mermaid: stateMermaid(m), scxml: stateScxml(m) })),
+      sequences: b.sequences.map((s) => ({ ...s, entities: s.entities || [], refs: refsOfSequence(s), ...sequenceSplit(s, budget), collab: collaboration(s) })),
+      states: b.states.map((m) => ({ ...m, refs: refsOfMachine(m), mermaid: stateMermaid(m, budget), merged: mergeParallel(m, budget) ? mergeParallel(m, budget).length : null, scxml: stateScxml(m) })),
       objects: b.objects.map((o) => ({ ...o, entities: uniq(o.objects.map((x) => x.entity)), mermaid: objectMermaid(o) })),
     },
   };

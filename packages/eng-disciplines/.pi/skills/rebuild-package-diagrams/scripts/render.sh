@@ -4,6 +4,8 @@
 #   -> [ui/screens] ifml + check-ifml + round-trip ifml-diff (must be "no differences")
 #   -> [diagrams/sequences|state-machines|objects] check-sequences/check-states (--app) + check-objects + behaviour export
 #   -> build-site with every viewer found -> <packageDir>/diagrams/catalog.html
+#   -> check-size report (diagrams over the size budget are split into overview + parts)
+# MAX_NODES / MAX_EDGES set the size budget (default 30 / 40); STRICT_SIZE=1 fails when a part stays over it.
 # LOCAL=1 also gates and embeds real-data object diagrams from <packageDir>/_local/objects (local builds only).
 # Stops at the first failing step. Viewer overrides (optional):
 #   BPMN_JS_DIR  dir with bpmn-navigated-viewer.production.min.js, diagram-js.css, bpmn.css, bpmn-font/css/bpmn-embedded.css
@@ -18,6 +20,7 @@ PKG=$1
 APP=${2:-}
 SKILL=$(cd "$(dirname "$0")/.." && pwd)
 DG=(node "$SKILL/scripts/diagrams.mjs")
+BUDGET=(--max-nodes "${MAX_NODES:-30}" --max-edges "${MAX_EDGES:-40}")
 
 echo "1 use cases"
 "${DG[@]}" check-use-cases "$PKG"
@@ -35,6 +38,8 @@ if [ -d "$PKG/ui/screens" ]; then
   "${DG[@]}" ifml "$PKG" "$PKG/ui/ifml.xmi"
   "${DG[@]}" check-ifml "$PKG/ui/ifml.xmi"
   "${DG[@]}" ifml-diff "$PKG" "$PKG/ui/ifml.xmi"
+  rm -rf "$PKG/ui/ifml-parts"
+  "${DG[@]}" ifml-parts "$PKG" "$PKG/ui/ifml-parts" "${BUDGET[@]}"
 else
   echo "3 skip IFML (no ui/screens)"
 fi
@@ -45,10 +50,13 @@ if [ -d "$D/sequences" ] || [ -d "$D/state-machines" ] || [ -d "$D/objects" ] ||
   "${DG[@]}" check-sequences "$PKG" ${APP:+--app "$APP"}
   "${DG[@]}" check-states "$PKG" ${APP:+--app "$APP"}
   "${DG[@]}" check-objects "$PKG" ${LOCAL:+--local}
-  "${DG[@]}" behaviour "$PKG" "$D/behaviour"
+  "${DG[@]}" behaviour "$PKG" "$D/behaviour" "${BUDGET[@]}"
 else
   echo "3b skip behaviour (no diagrams/sequences, state-machines or objects)"
 fi
+
+echo "3c size budget (${MAX_NODES:-30} nodes / ${MAX_EDGES:-40} edges)"
+"${DG[@]}" check-size "$PKG" "${BUDGET[@]}" ${STRICT_SIZE:+--strict} | tail -1
 
 echo "4 catalog"
 VIEW=()
@@ -68,5 +76,5 @@ I=${IFML_JS_DIR:-$SKILL/assets/ifml-js}
 VIEW+=(--ifml-js "$I/ifml-navigated-viewer.production.min.js" --ifml-css "$I/diagram-js.css" --ifml-css "$I/ifml-font-embedded.css")
 OUT=$PKG/diagrams/catalog.html
 if [ -n "${LOCAL:-}" ]; then VIEW+=(--local); OUT=$PKG/_local/catalog.local.html; mkdir -p "$PKG/_local"; fi
-"${DG[@]}" build-site "$PKG" "$OUT" "${VIEW[@]}"
+"${DG[@]}" build-site "$PKG" "$OUT" "${VIEW[@]}" "${BUDGET[@]}"
 echo "RENDER OK"
