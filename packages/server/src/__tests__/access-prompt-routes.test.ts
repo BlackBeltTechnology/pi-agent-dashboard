@@ -313,3 +313,21 @@ describe("#E37 remembered refusals are listed and clearable", () => {
     expect((await app.inject({ method: "DELETE", url: `/api/access/refusals?${q}` })).statusCode).toBe(404);
   });
 });
+
+describe("agent-path surface (change: yolo-covers-agent-path-gate; test-plan #E28, #E29)", () => {
+  it("#E28 clears an agent-path refusal; an unknown plane is 400", async () => {
+    const { app } = await makeApp();
+    recordRefusal("agent-path", work);
+    const q = (plane: string) => `plane=${plane}&subject=${encodeURIComponent(work)}`;
+    expect((await app.inject({ method: "DELETE", url: `/api/access/refusals?${q("agent-path")}` })).statusCode).toBe(200);
+    expect(listRefusals()).toEqual([]);
+    expect((await app.inject({ method: "DELETE", url: `/api/access/refusals?${q("bogus")}` })).statusCode).toBe(400);
+  });
+
+  it("#E29 an agent-path auto-allow is listed as a yolo verdict", async () => {
+    const { app, yolo } = await makeApp();
+    await app.inject({ method: "POST", url: "/api/access/yolo", payload: { durationMinutes: 15, base: work, unscoped: true } });
+    expect(yolo.decideAgentPath({ path: path.join(work, "new.txt"), hostGateMode: "enforce" })).toBe("auto-allow");
+    expect((await view(app)).verdicts[0]).toMatchObject({ plane: "agent-path", answeredBy: "yolo" });
+  });
+});

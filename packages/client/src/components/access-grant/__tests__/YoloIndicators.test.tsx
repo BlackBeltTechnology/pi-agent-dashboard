@@ -137,3 +137,17 @@ describe("no indicator can be dismissed (10.72)", () => {
     expect(screen.getByTestId(id)).toBeTruthy();
   });
 });
+
+describe("agent path gate copy (change: yolo-covers-agent-path-gate, test-plan #F6)", () => {
+  it("pill and session banner name the agent for scoped and unscoped sessions", () => {
+    setSession(scopedSession(NOW, "/repo"));
+    renderAt(
+      <>
+        <YoloPill />
+        <YoloSessionIndicator cwd="/repo" />
+      </>,
+    );
+    expect(screen.getByTestId("yolo-pill").getAttribute("title")).toMatch(/agent/i);
+    expect(screen.getByTestId("yolo-session-indicator").textContent).toMatch(/agent/i);
+  });
+});

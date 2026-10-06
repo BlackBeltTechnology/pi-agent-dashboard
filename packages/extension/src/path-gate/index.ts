@@ -17,6 +17,7 @@ import { forbiddenGrantSubjects, isUngrantableSubject } from "@blackbelt-technol
 import type { PromptBus } from "../prompt-bus.js";
 import { GrantCache } from "./grant-cache.js";
 import { createGrantLink } from "./grant-link.js";
+import { createYoloLink } from "./yolo-link.js";
 import { createPathGateHandler, type GatePrompter } from "./handler.js";
 import { Suppression } from "./suppression.js";
 import { type PiResources, RootsProvider } from "./roots.js";
@@ -39,7 +40,7 @@ export interface PathGateOptions {
 }
 
 export function createPathGate(opts: PathGateOptions) {
-  const counters = { inRoot: 0, asked: 0, blocked: 0 };
+  const counters = { inRoot: 0, asked: 0, blocked: 0, yoloAllowed: 0 };
   const resources: PiResources = {
     agentDir: process.env.PI_CODING_AGENT_DIR || nodePath.join(os.homedir(), ".pi", "agent"),
     skillDirs: [],
@@ -52,6 +53,7 @@ export function createPathGate(opts: PathGateOptions) {
   });
   const grants = new GrantCache();
   const link = createGrantLink({ send: opts.send, sessionId: opts.getSessionId });
+  const yoloLink = createYoloLink({ send: opts.send, sessionId: opts.getSessionId });
 
   // Config is re-parsed only when the file's change signature moves (a stat per
   // call, no parse), so a Settings toggle applies from the very next tool call.
@@ -108,6 +110,9 @@ export function createPathGate(opts: PathGateOptions) {
     prompter,
     grantStoreMatch: () => link.storeMatches(),
     requestGrant: (r) => link.requestGrant(r),
+    yoloSupported: () => yoloLink.supported(),
+    yoloDecide: (r) => yoloLink.ask(r),
+    reportRefusal: (r) => yoloLink.reportRefusal(r),
     notify: opts.notify,
     log: opts.log,
     counters,
@@ -139,6 +144,11 @@ export function createPathGate(opts: PathGateOptions) {
     onServerMessage(msg: { type?: string }): boolean {
       if (msg?.type === "dashboard_identity") {
         link.handleIdentity(msg as { grantStoreId?: unknown });
+        yoloLink.handleIdentity(msg as { features?: unknown });
+        return true;
+      }
+      if (msg?.type === "path_yolo_result") {
+        yoloLink.handleResult(msg as { requestId?: unknown });
         return true;
       }
       if (msg?.type === "path_grant_result") {
@@ -149,6 +159,7 @@ export function createPathGate(opts: PathGateOptions) {
     },
     reset(): void {
       link.reset();
+      yoloLink.reset();
     },
   };
 }

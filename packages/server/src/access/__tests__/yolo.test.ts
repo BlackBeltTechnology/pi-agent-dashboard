@@ -353,3 +353,148 @@ describe("8b.6 / 8b.6a / #X10 environment activation", () => {
     expect(ask(y, mk("repo"))).toBeNull();
   });
 });
+
+describe("decideAgentPath (change: yolo-covers-agent-path-gate; test-plan #E1-#E15)", () => {
+  const agent = (y: YoloController, p: string, hostGateMode: "enforce" | "report" = "enforce") =>
+    y.decideAgentPath({ path: p, hostGateMode });
+  const unscoped = async (home?: string) => {
+    const y = new YoloController({
+      now: () => clock,
+      hostGateMode: () => mode,
+      isRefused,
+      ladder: async () => [],
+      onLog: () => {},
+      forbiddenEnv: home ? { homedir: home } : undefined,
+    });
+    await y.activate({ durationMs: 15 * MIN, base: tmp, unscoped: true });
+    return y;
+  };
+  const scoped = async (root: string) => {
+    const y = yolo();
+    await y.activate({ durationMs: 15 * MIN, base: root, root });
+    return y;
+  };
+
+  it("#E1 unscoped auto-allows an absolute out-of-root path and records it", async () => {
+    const y = await unscoped();
+    const before = y.counters().autoAllowed;
+    expect(agent(y, path.join(tmp, "outside", "f.txt"))).toBe("auto-allow");
+    expect(y.counters().autoAllowed).toBe(before + 1);
+    expect(y.history().at(-1)).toMatchObject({ plane: "agent-path", outcome: "auto-allowed" });
+  });
+
+  it("#E2 scoped: a sibling of the root is not answered", async () => {
+    const R = mk("R");
+    const sib = mk("R-sibling");
+    const y = await scoped(R);
+    expect(agent(y, path.join(sib, "f.txt"))).toBeNull();
+    expect(y.history()).toEqual([]);
+    expect(y.counters().autoAllowed).toBe(0);
+  });
+
+  it("#E3 scoped: a not-yet-existing subtree under the root is allowed", async () => {
+    const R = mk("R");
+    const y = await scoped(R);
+    expect(agent(y, path.join(R, "data", "new.json"))).toBe("auto-allow");
+  });
+
+  it("#E4 held filesystem plane: a not-yet-existing subject under the root is allowed", async () => {
+    const R = mk("R");
+    const y = await scoped(R);
+    expect(ask(y, path.join(R, "new.json"))).toBe("auto-allow");
+  });
+
+  it("#E5 a symlink out of the root is not within it, even for an absent tail", async () => {
+    const R = mk("R");
+    const outside = mk("elsewhere");
+    fs.symlinkSync(outside, path.join(R, "link"));
+    const y = await scoped(R);
+    expect(agent(y, path.join(R, "link", "new.conf"))).toBeNull();
+  });
+
+  it("#E6 unscoped never answers the agent control plane under the home", async () => {
+    const H = mk("home");
+    const y = await unscoped(H);
+    expect(agent(y, path.join(H, ".pi", "agent", "x.json"))).toBeNull();
+  });
+
+  it("#E7 unscoped declines a system directory and records nothing", async () => {
+    const y = await unscoped();
+    expect(agent(y, "/etc/cron.d/job")).toBeNull();
+    expect(y.history()).toEqual([]);
+  });
+
+  it("#E8 unscoped allows an absent file under the real temp dir", async () => {
+    const y = await unscoped();
+    const f = path.join(fs.realpathSync(os.tmpdir()), `yolo-new-${Math.random().toString(36).slice(2)}.txt`);
+    expect(agent(y, f)).toBe("auto-allow");
+  });
+
+  it("#E9 unscoped allows a project under the home", async () => {
+    const H = mk("home");
+    const y = await unscoped(H);
+    expect(agent(y, path.join(H, "proj", "new.txt"))).toBe("auto-allow");
+  });
+
+  it("#E10 a relative path is declined", async () => {
+    const y = await unscoped();
+    expect(agent(y, "foo/bar.txt")).toBeNull();
+  });
+
+  it("#E11 report mode never answers", async () => {
+    const y = await unscoped();
+    expect(agent(y, path.join(tmp, "x.txt"), "report")).toBeNull();
+  });
+
+  it("#E12 an expired or ended session never answers", async () => {
+    const y = await unscoped();
+    const f = path.join(tmp, "x.txt");
+    expect(agent(y, f)).toBe("auto-allow");
+    clock += 15 * MIN;
+    expect(agent(y, f)).toBeNull();
+    expect(y.status()).toBeNull();
+    const y2 = await unscoped();
+    expect(agent(y2, f)).toBe("auto-allow");
+    y2.end();
+    expect(agent(y2, f)).toBeNull();
+  });
+
+  it("#E13 an exact prior refusal wins over auto-allow", async () => {
+    const D = mk("D");
+    recordRefusal("agent-path", D);
+    const y = await unscoped();
+    expect(agent(y, path.join(D, "b.txt"))).toBe("refused-by-prior-refusal");
+    expect(y.history().at(-1)?.outcome).toBe("refused-by-prior-refusal");
+    expect(y.counters()).toEqual({ autoAllowed: 0, refusedByPriorRefusal: 1 });
+  });
+
+  it("#E14 a refusal for D does not cover an existing child directory", async () => {
+    const D = mk("D");
+    mk("D", "sub");
+    recordRefusal("agent-path", D);
+    const y = await unscoped();
+    expect(agent(y, path.join(D, "sub", "c.txt"))).toBe("auto-allow");
+  });
+
+  it("#E15 decide() with an empty subject is declined", async () => {
+    const y = await scoped(mk("R"));
+    expect(ask(y, "")).toBeNull();
+  });
+});
+
+describe("agent-path refusals persist (test-plan #E17)", () => {
+  it("survives a reset, clears, and drops unknown planes on load", () => {
+    recordRefusal("agent-path", "/srv/d");
+    __resetRefusalLedger();
+    expect(isRefused("agent-path", "/srv/d")).toBe(true);
+    expect(clearRefusal("agent-path", "/srv/d")).toBe(true);
+    __resetRefusalLedger();
+    expect(isRefused("agent-path", "/srv/d")).toBe(false);
+    fs.writeFileSync(
+      process.env.PI_ACCESS_REFUSALS_STORE as string,
+      JSON.stringify({ version: 1, refusals: [{ plane: "bogus", subject: "/x", refusedAt: 1 }] }),
+    );
+    __resetRefusalLedger();
+    expect(listRefusals()).toEqual([]);
+  });
+});

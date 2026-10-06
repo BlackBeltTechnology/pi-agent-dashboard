@@ -1493,6 +1493,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // announced to each bridge on registration. See change: ask-agent-file-access-in-chat.
   ensureGrantStoreId();
   wireEvents({
+    // Lazy: `yolo` is constructed further down; a pre-init call throws and the
+    // handler declines. See change: yolo-covers-agent-path-gate.
+    decideAgentPath: (p) =>
+      yolo.decideAgentPath({
+        path: p,
+        hostGateMode: resolveHostGateMode(process.env.PI_DASHBOARD_HOST_GATE, liveHostGateMode()).mode,
+      }),
     onBridgeRegister: (sid, identity) => {
       const outcome = extensionReloadGuard.onRegister(sid, identity);
       if (outcome !== "skipped") {

@@ -74,12 +74,12 @@ export function YoloPill({ store }: { store?: YoloStatusStore }) {
     ? i18nT(
         "yolo.pillTitleUnscoped",
         { remaining: yoloRemainingLabel(session, now) },
-        "YOLO is on EVERYWHERE: file access is auto-allowed on every folder ({remaining}). Open Access to end it.",
+        "YOLO is on EVERYWHERE: agent and dashboard file access is auto-allowed on every folder ({remaining}). Open Access to end it.",
       )
     : i18nT(
         "yolo.pillTitle",
         { remaining: yoloRemainingLabel(session, now) },
-        "YOLO is on: file access in its folders is auto-allowed ({remaining}). Open Access to end it.",
+        "YOLO is on: agent and dashboard file access in its folders is auto-allowed ({remaining}). Open Access to end it.",
       );
   return (
     <a
@@ -118,9 +118,9 @@ export function YoloSessionIndicator({ cwd, store }: { cwd: string | undefined; 
         ? i18nT(
             "yolo.sessionUnscoped",
             { remaining },
-            "YOLO everywhere: file access auto-allowed on every folder · {remaining}",
+            "YOLO everywhere: agent + dashboard file access auto-allowed on every folder · {remaining}",
           )
-        : i18nT("yolo.sessionScoped", { remaining }, "YOLO: file access here auto-allowed · {remaining}")}
+        : i18nT("yolo.sessionScoped", { remaining }, "YOLO: agent + dashboard file access here auto-allowed · {remaining}")}
     </a>
   );
 }
