@@ -42,7 +42,7 @@ PORT=$(jq -r .port ~/.pi/dashboard/config.json 2>/dev/null || echo 8000)
 lsof -i :$PORT
 ```
 
-`pi-dashboard stop` already kills by port (not just PID), so it handles stale-PID cases.
+`pi-dashboard stop` also sweeps the ports, but only kills listeners this HOME owns (lock sidecar / health identity); an unattributable holder is reported, not killed (see `stop --force` danger note in known-issues.md).
 
 ### `config.json`
 

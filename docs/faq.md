@@ -187,11 +187,16 @@ Commands:
 ```bash
 pi-dashboard start              # production daemon
 pi-dashboard start --dev        # dev mode (Vite proxy + fallback)
-pi-dashboard stop               # stop, also kills stale port holders
+pi-dashboard stop               # stop; honors --port/--pi-port; kills only port holders this HOME owns
+pi-dashboard stop --force       # DANGEROUS: kill EVERY listener on the resolved ports
 pi-dashboard restart            # restart (production)
 pi-dashboard restart --dev      # restart in dev mode
 ```
 
+- Port resolution identical to `start` (flag > env > file), including the temp-HOME guard; port `0` never inspected.
+- Sweep kills a holder only when this `HOME` proves ownership: `server.lock.meta.json` records that pid for the swept HTTP port, or `/api/health` reports this HOME's persisted `instanceId` with a matching pid. `server.pid` is not a proof for the sweep.
+- Non-owned holders are reported and left running. Exit code stays `0`, so `stop && start` chains keep working; the following `start` reports the port conflict.
+- `--force` kills every listener on the resolved ports. DANGEROUS: can kill another HOME's/user's dashboard, the Electron app's server, or an unrelated service. Use only to recover an orphaned listener nothing else can attribute. `restart` ignores `--force`.
 - Logs append to `~/.pi/dashboard/server.log` with timestamped headers per start.
 - `restart` delegates to `POST /api/restart` when dashboard already up.
 - Graceful restart via API: `curl -X POST http://localhost:8000/api/restart`. Body `{"dev":true|false}` switches mode.
@@ -234,6 +239,7 @@ Sequence:
 6. Port closed + `autoStart: false` → skip.
 
 - Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
 

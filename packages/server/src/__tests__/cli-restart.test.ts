@@ -51,6 +51,39 @@ describe("cmdRestart", () => {
     expect(cmdStartImpl).toHaveBeenCalledTimes(1);
   });
 
+  // E18: the fallback hands the SAME config to stop and never a force flag.
+  it("passes the restart config (only) to the stop fallback", async () => {
+    const cmdStopImpl = vi.fn(async (_cfg: ServerConfig) => {});
+    const cmdStartImpl = vi.fn(async () => {});
+    const isDashboardRunning = vi.fn(async () => ({ running: false }));
+    const C = makeConfig({ port: 18555 });
+    await cmdRestart(C, { isDashboardRunning, fetchImpl: vi.fn() as unknown as typeof fetch, cmdStopImpl, cmdStartImpl });
+    expect(cmdStopImpl.mock.calls[0]).toHaveLength(1);
+    expect(cmdStopImpl.mock.calls[0][0]).toBe(C);
+  });
+
+  // X7: a non-dashboard holder is not killed by restart's fallback; start reports it.
+  it("fallback does not kill a foreign port holder", async () => {
+    const { cmdStop } = await import("../cli.js");
+    const killProcess = vi.fn(async () => true);
+    const cmdStartImpl = vi.fn(async () => {});
+    const C = makeConfig({ port: 18555, piPort: 18556 });
+    await cmdRestart(C, {
+      isDashboardRunning: vi.fn(async () => ({ running: false, portConflict: true })) as any,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+      cmdStopImpl: (cfg) =>
+        cmdStop(cfg, {}, {
+          findPortHolders: () => [777],
+          killProcess,
+          readPid: () => null,
+          collectOwnedPids: async () => new Set(),
+        }),
+      cmdStartImpl,
+    });
+    expect(killProcess).not.toHaveBeenCalled();
+    expect(cmdStartImpl).toHaveBeenCalledWith(C);
+  });
+
   it("falls back to local stop/start when /api/restart returns non-2xx", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, text: async () => "boom" })) as unknown as typeof fetch;
     const cmdStopImpl = vi.fn(async () => {});
