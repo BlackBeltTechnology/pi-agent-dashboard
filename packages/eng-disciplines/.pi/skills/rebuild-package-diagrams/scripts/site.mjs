@@ -10,6 +10,7 @@ import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 import { checkLinks, mergeLinks, readLinks } from "./links.mjs";
 import { DEFAULT_BUDGET, erChunks, ifmlParts } from "./split.mjs";
+import { checkUsage, readMapping } from "./usage.mjs";
 import { checkVariability, readConfigInputs, readVariability, variabilityData } from "./variability.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
@@ -100,6 +101,30 @@ function uiActionsOf(uc, ui, errors) {
   return keys;
 }
 
+/** Shared: which actions/use cases each log type evidences. Local only: per-customer counts (_local/usage/usage.json). */
+function usageData(pkgDir, mapping, local) {
+  const shared = { mapping: (mapping.types ?? []).map(({ type, kind, actions, useCases, cite }) => ({ type, kind, actions: actions ?? [], useCases: useCases ?? [], cite })) };
+  const f = join(pkgDir, "_local", "usage", "usage.json");
+  return local && existsSync(f) ? { ...shared, ...JSON.parse(readFileSync(f, "utf8")) } : shared;
+}
+
+/** Gated optional analyses over the UI model: use-case links (merged first), CRUD, variability, usage. */
+function addAnalyses(pkgDir, data, { ui, model, local }, errors) {
+  const links = readLinks(pkgDir);
+  if (links) errors.push(...checkLinks(ui, data.useCases, links));
+  data.useCases = data.useCases.map((uc) => mergeLinks(uc, links?.find((r) => r.useCase === uc.id)));
+  const crud = readCrud(pkgDir);
+  if (crud) errors.push(...checkCrud(ui, model, crud));
+  data.crud = crud && !errors.length ? crudData(ui, data.useCases, model, crud) : null;
+  const variability = readVariability(pkgDir);
+  const inputs = variability && readConfigInputs(pkgDir);
+  if (variability) errors.push(...checkVariability(pkgDir, ui, inputs, variability));
+  data.variability = variability && !errors.length ? variabilityData(inputs, variability) : null;
+  const mapping = readMapping(pkgDir);
+  if (mapping) errors.push(...checkUsage(ui, data.useCases, mapping));
+  data.usage = mapping && !errors.length ? usageData(pkgDir, mapping, local) : null;
+}
+
 /** Assemble the catalog data object. Returns {data, errors}. */
 export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } = {}) {
   const errors = [];
@@ -156,16 +181,7 @@ export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } 
     behaviour: beh.behaviour || { sequences: [], states: [], objects: [] },
     arch: arch && !errors.length ? { model: arch, views: archViews(arch), dsl: toStructurizr(arch, title), c4: toMermaidC4(arch, title) } : null,
   };
-  const links = readLinks(pkgDir);
-  if (links) errors.push(...checkLinks(ui, data.useCases, links));
-  data.useCases = data.useCases.map((uc) => mergeLinks(uc, links?.find((r) => r.useCase === uc.id)));
-  const crud = readCrud(pkgDir);
-  if (crud) errors.push(...checkCrud(ui, model, crud));
-  data.crud = crud && !errors.length ? crudData(ui, data.useCases, model, crud) : null;
-  const variability = readVariability(pkgDir);
-  const inputs = variability && readConfigInputs(pkgDir);
-  if (variability) errors.push(...checkVariability(pkgDir, ui, inputs, variability));
-  data.variability = variability && !errors.length ? variabilityData(inputs, variability) : null;
+  addAnalyses(pkgDir, data, { ui, model, local }, errors);
   return { data, errors };
 }
 

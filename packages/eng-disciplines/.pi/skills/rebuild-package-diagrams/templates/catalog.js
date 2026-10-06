@@ -458,6 +458,34 @@
     ];
     return `<table>${rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
   }
+  // ---------- Usage evidence (references/usage.md) ----------
+  const actLink = (k) => {
+    const [sid, aid] = k.split("#");
+    return `<a href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(aid)}</a> <span class="cite">${esc(sid)}</span>`;
+  };
+  function usageMapping(U) {
+    return rowsTable(["Log type", "Kind", "Actions", "Use cases", "Cite"], U.mapping.map((t) => [`<code>${esc(t.type)}</code>`, esc(t.kind), t.actions.map(actLink).join("<br>"), t.useCases.map(ucChip).join(""), `<span class="cite">${esc(t.cite || "")}</span>`]));
+  }
+  function usageCounts(U) {
+    const custs = Object.keys(U.customers);
+    const ucIds = uniq(custs.flatMap((c) => Object.keys(U.customers[c].byUseCase))).sort();
+    const max = Math.max(1, ...custs.flatMap((c) => Object.values(U.customers[c].byUseCase)));
+    const heat = (n) => (n ? `<td class="heat" style="--h:${(n / max).toFixed(2)}">${n}</td>` : "<td></td>");
+    const ucRows = ucIds.map((id) => [ucChip(id), ...custs.map((c) => U.customers[c].byUseCase[id] || 0)]);
+    const src = custs.map((c) => { const x = U.customers[c]; return [esc(c), x.events, x.users, x.span ? `${esc(x.span.first)} … ${esc(x.span.last)} (${x.span.activeDays} days)` : "—", Object.entries(x.byKind).map(([k, n]) => `${esc(k)} ${n}`).join(", ")]; });
+    const acts = custs.map((c) => [esc(c), Object.entries(U.customers[c].byAction).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, n]) => `${actLink(k)} ${n}`).join("<br>")]);
+    return `<h3>Sources</h3>${rowsTable(["Customer", "Events", "Users", "Span", "Kinds"], src)}
+      <h3>Use cases by customer</h3><table class="crudm"><tr><th>Use case</th>${custs.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${ucRows.map(([u, ...ns]) => `<tr><th>${u}</th>${ns.map(heat).join("")}</tr>`).join("")}</table>
+      <h3>Most used actions</h3>${rowsTable(["Customer", "Actions"], acts)}
+      <h3>Not logged (${U.notLogged.length} actions)</h3><p class="meta">The code writes no log for these actions — no usage evidence either way.</p>`;
+  }
+  function viewUsage() {
+    const U = D.usage;
+    if (!U) return viewHome();
+    const lede = U.customers ? "Local build: counts aggregated from customer log snapshots (users pseudonymized). Never share this file." : "Which UI actions and use cases each application log type evidences. Counts appear only in the local build.";
+    return `<h2>Usage evidence</h2><p class="lede">${lede}</p>${U.customers ? usageCounts(U) : ""}<h3>Log types</h3>${usageMapping(U)}`;
+  }
+
   // ---------- Customer variability (references/variability.md) ----------
   const vState = (st) => `<span class="vstate vstate-${st}">${st}</span>`;
   const condText = (c) => `${c.path} ${c.op}${c.value !== undefined ? ` ${JSON.stringify(c.value)}` : ""}`;
@@ -878,7 +906,7 @@
   function renderTopnav() {
     const on = (cls) => state.view.startsWith(cls) || (cls === "beh" && /^(seq|sm|obj):/.test(state.view));
     const btn = (show, cls, view, text) => (show ? `<a class="chip ${cls}${on(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
-    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour") + btn(D.crud, "crud", "crud:", "CRUD") + btn(D.variability, "var", "var:", "Variability");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour") + btn(D.crud, "crud", "crud:", "CRUD") + btn(D.variability, "var", "var:", "Variability") + btn(D.usage, "use", "use:", D.usage?.customers ? "Usage (local)" : "Usage");
   }
   function archFacts(e) {
     const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
@@ -1152,7 +1180,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj, crud: viewCrud, var: viewVar };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj, crud: viewCrud, var: viewVar, use: viewUsage };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];

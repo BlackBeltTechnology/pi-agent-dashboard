@@ -135,3 +135,4 @@ td.crudc { text-align: center; }
 .vstate { display: inline-block; padding: 0 5px; border-radius: 3px; font: 600 11px/1.6 ui-monospace, monospace; color: #fff; }
 .vstate-on { background: #2e7d32; } .vstate-off { background: #5f6368; } .vstate-mixed { background: #8a4f00; }
 table.vmat th:first-child { white-space: normal; min-width: 280px; }
+td.heat { background: rgba(21, 101, 192, calc(0.08 + var(--h) * 0.37)); text-align: right; font-variant-numeric: tabular-nums; }

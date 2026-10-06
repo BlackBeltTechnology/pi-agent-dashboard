@@ -35,7 +35,7 @@ describe("eng-disciplines wiring", () => {
     const rows = [...skill.matchAll(/^\| [^|]+? \| `(rsfr-[\w-]+)` \| `[^`]+` \| `(@\w+)` \|/gm)];
     expect(rows.map((r) => r[1]).sort()).toEqual([
       "rsfr-auditor", "rsfr-completeness", "rsfr-crud-classifier", "rsfr-discovery", "rsfr-generator",
-      "rsfr-sequence-generator", "rsfr-state-machine-generator", "rsfr-uc-linker", "rsfr-ui-screen-generator", "rsfr-variability-classifier",
+      "rsfr-sequence-generator", "rsfr-state-machine-generator", "rsfr-uc-linker", "rsfr-ui-screen-generator", "rsfr-usage-mapper", "rsfr-variability-classifier",
     ]);
     for (const [, type, model] of rows) {
       expect(read(join(PKG, "agents", `${type}.md`))).toMatch(new RegExp(`^model: "${model}"$`, "m"));

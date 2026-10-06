@@ -26,6 +26,10 @@
 //   variability-draft <packageDir> <out.json> -> config paths read by code x value per variant (ui/_config-reads.json)
 //   check-variability <packageDir> <appDir> [--complete] -> exit 1 listing feature violations (--complete: every varying path)
 //   variability <packageDir> <outDir>        -> variability.csv, variability-customers.csv, variability-findings.md, feature-model.xml
+//   usage-draft <packageDir> <appDir> <job.json> <out.json> -> log types with counts per customer + code candidates
+//   check-usage <packageDir> <appDir> <job.json> [--complete] -> exit 1 listing log-type mapping violations
+//   usage <packageDir> <job.json> <outDir>   -> LOCAL usage.json, usage-findings.md, usage-by-usecase.csv (pseudonymized)
+//   check-usage-output <dir> <job.json>      -> exit 1 when an output file contains a source value
 //   build-site / behaviour / ifml-parts / check-size take [--max-nodes n] [--max-edges n] (default 30 / 40)
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -39,6 +43,7 @@ import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } fr
 import { checkLinks, linkDraft, readLinks, useCasesWithXml } from "./links.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 import { budgetOf, ifmlParts, sizeReport } from "./split.mjs";
+import { aggregateUsage, checkUsage, jobEvents, leakErrors, readJob, readMapping, sourceSecrets, usageDraft, usageMd } from "./usage.mjs";
 import { checkVariability, customersCsv, featureModelXml, readConfigInputs, readVariability, variabilityDraft, variabilityMd, variantsCsv } from "./variability.mjs";
 
 const USAGE = `usage:
@@ -69,6 +74,10 @@ const USAGE = `usage:
   diagrams.mjs variability-draft <packageDir> <out.json>
   diagrams.mjs check-variability <packageDir> <appDir> [--complete]
   diagrams.mjs variability <packageDir> <outDir>
+  diagrams.mjs usage-draft <packageDir> <appDir> <job.json> <out.json>
+  diagrams.mjs check-usage <packageDir> <appDir> <job.json> [--complete]
+  diagrams.mjs usage <packageDir> <job.json> <outDir>
+  diagrams.mjs check-usage-output <dir> <job.json>
   build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]
   build-site, behaviour, ifml-parts, check-size take [--max-nodes <n>] [--max-edges <n>] (default 30 / 40)`;
 
@@ -344,6 +353,35 @@ const COMMANDS = {
     writeFileSync(join(outDir, "feature-model.xml"), featureModelXml(v, data.meta.title));
     return 0;
   },
+  "usage-draft": ([pkg, app, jobFile, out]) => {
+    writeRecord(out, usageDraft(app, readJob(jobFile)));
+    return 0;
+  },
+  "check-usage": ([pkg, app, jobFile, flag]) => {
+    if (flag && flag !== "--complete") die(USAGE);
+    const mapping = readMapping(pkg);
+    if (!mapping) die(`diagrams: no diagrams/usage/mapping.json in ${pkg}`);
+    const events = flag ? jobEvents(readJob(jobFile)) : null;
+    return report(checkUsage(readUi(pkg), useCasesWithXml(pkg), mapping, { appDir: app, events, complete: !!flag }));
+  },
+  usage: ([pkg, jobFile, outDir]) => {
+    const mapping = readMapping(pkg);
+    if (!mapping) die(`diagrams: no diagrams/usage/mapping.json in ${pkg}`);
+    const { data, errors } = buildCatalog(pkg);
+    if (errors.length) return report(errors);
+    const u = aggregateUsage(jobEvents(readJob(jobFile)), mapping, data.ui, data.useCases);
+    const ucs = data.useCases.map((x) => x.id);
+    const custs = Object.keys(u.customers);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "usage.json"), `${JSON.stringify(u, null, 1)}\n`);
+    writeFileSync(join(outDir, "usage-findings.md"), usageMd(u, data.meta.title));
+    writeFileSync(join(outDir, "usage-by-usecase.csv"), `${[["use case", ...custs], ...ucs.map((id) => [id, ...custs.map((c) => u.customers[c].byUseCase[id] ?? 0)])].map((r) => r.join(",")).join("\n")}\n`);
+    return 0;
+  },
+  "check-usage-output": ([dir, jobFile]) => {
+    const job = readJob(jobFile);
+    return report(leakErrors(dir, sourceSecrets(jobEvents(job), { publicValues: job.publicValues })));
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -359,7 +397,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "uc-link-draft": 3, "check-uc-links": 1, "variability-draft": 2, "check-variability": 2, variability: 2, "check-crud": 1, crud: 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "uc-link-draft": 3, "check-uc-links": 1, "variability-draft": 2, "check-variability": 2, variability: 2, "usage-draft": 4, "check-usage": 3, usage: 3, "check-usage-output": 2, "check-crud": 1, crud: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

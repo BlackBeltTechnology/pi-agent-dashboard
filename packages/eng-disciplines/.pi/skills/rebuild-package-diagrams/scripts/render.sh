@@ -10,6 +10,8 @@
 #   -> check-size report (diagrams over the size budget are split into overview + parts)
 # MAX_NODES / MAX_EDGES set the size budget (default 30 / 40); STRICT_SIZE=1 fails when a part stays over it.
 # LOCAL=1 also gates and embeds real-data object diagrams from <packageDir>/_local/objects (local builds only).
+# USAGE_JOB=<job.json>: gate the usage mapping against every logged type; with LOCAL=1 also aggregate
+#   per-customer usage into <packageDir>/_local/usage (privacy-gated) and embed it in the local catalog.
 # Stops at the first failing step. Viewer overrides (optional):
 #   BPMN_JS_DIR  dir with bpmn-navigated-viewer.production.min.js, diagram-js.css, bpmn.css, bpmn-font/css/bpmn-embedded.css
 #   MERMAID_JS   mermaid.min.js (default: found next to `mmdc` when installed)
@@ -71,6 +73,17 @@ if [ -f "$D/variability/features.json" ]; then
   "${DG[@]}" variability "$PKG" "$D/variability-matrix"
 else
   echo "3bv skip variability (no diagrams/variability/features.json)"
+fi
+
+if [ -f "$D/usage/mapping.json" ]; then
+  echo "3bu usage evidence (mapping gate; counts only with LOCAL=1 and USAGE_JOB)"
+  if [ -n "${USAGE_JOB:-}" ] && [ -n "$APP" ]; then "${DG[@]}" check-usage "$PKG" "$APP" "$USAGE_JOB" --complete; fi
+  if [ -n "${LOCAL:-}" ] && [ -n "${USAGE_JOB:-}" ]; then
+    "${DG[@]}" usage "$PKG" "$USAGE_JOB" "$PKG/_local/usage"
+    "${DG[@]}" check-usage-output "$PKG/_local/usage" "$USAGE_JOB"
+  fi
+else
+  echo "3bu skip usage (no diagrams/usage/mapping.json)"
 fi
 
 if [ -d "$D/crud" ]; then
