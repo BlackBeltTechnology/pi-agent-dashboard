@@ -4197,7 +4197,7 @@ The `POST /api/restart` endpoint and `pi-dashboard restart` command perform faul
 3. Wait for old server's port to become free (up to 10s)
 4. Start new server with the same (or overridden) flags
 5. Verify health via `/api/health` (up to 10s)
-6. `pi-dashboard stop` also kills any stale processes holding the port (via `lsof`)
+6. `pi-dashboard stop` sweeps the ports `start` would bind, but kills only listeners this `HOME` proves it owns (`server.lock.meta.json` pid + `httpPort` match, or `/api/health` `instanceId` + pid match); `server.pid` is not a proof. Unattributable holders are reported + left running (exit 0). `--force` kills every listener (dangerous; orphan recovery only). `restart` ignores `--force`.
 
 The restart endpoint accepts `{ dev: boolean }` to switch between dev/production mode.
 

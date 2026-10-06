@@ -115,3 +115,14 @@ describe('failure diagnostics: server.log tail', () => {
     expect(logTail('', 80)).toBe('(server.log empty or missing)');
   });
 });
+
+describe('teardown targets only its own server (stop-ownership caller fix)', () => {
+  it('passes the booted --port/--pi-port to stop, guarded by Number.isInteger(port)', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('../../packages/electron/scripts/assert-bundled-server-plugin-load.mjs', import.meta.url),
+      'utf-8',
+    );
+    expect(src).toMatch(/"stop",\s*\.\.\.\(Number\.isInteger\(port\)\s*\?\s*\["--port", String\(port\), "--pi-port", String\(port \+ 1\)\]/);
+  });
+});
