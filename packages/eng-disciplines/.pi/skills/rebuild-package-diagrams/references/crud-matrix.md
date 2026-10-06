@@ -8,8 +8,8 @@ findings and exports are deterministic.
 
 1. `diagrams.mjs crud-draft PKG <SCR-id> <out.json>` — every `write` / `read` / `export` / `call`
    effect of the screen (`effect` = `<ACT-id>#<index>`), with `candidates` from an alias index of
-   `model.md`: entity name, plural, `CONF.db.tables.<key>`, `table <name>` and
-   `collection <name>` in `Persistence`, matched on identifiers and their camelCase / snake_case
+   `model.md`: entity name, plural, segments of dotted identifiers (config stop words dropped),
+   `table <name>` and `collection <name>` in `Persistence`, matched on identifiers and their camelCase / snake_case
    parts. Hints only: prose over-matches, data-layer functions hide the entity.
 2. Classifier (`reverse-spec-for-rebuild` `prompts/crud-classifier.md`, one subagent per screen
    batch) writes `PKG/diagrams/crud/<SCR-id>.json`:

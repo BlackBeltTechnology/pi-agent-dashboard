@@ -73,7 +73,7 @@ single-valued side (`1`, `0..1`) of a relation.
   side; values: first `allowed:` value, else a typed placeholder (`<field>-<n>`, `n`, `true`,
   `2026-01-0n`); a child copies a same-named field from its parent (keys stay consistent).
 - `objects-from-db <pkg> <job.json> <out>` — JSON database snapshot (tables of row objects,
-  UTF-8 or windows-1250). Job: `{title, source (relative to the job file), tables: {Entity: table},
+  UTF-16 by BOM, else UTF-8, else the job's `encoding`). Job: `{title, source (relative to the job file), encoding?, tables: {Entity: table},
   columns?: {Entity: {field: column}}, joins: [{from, fk, to, key}], seed: {entity, index | match},
   depth, limit, keep: [field]}`. Every join must match an ER relation (else exit 1, no data
   read into messages). Every value of a field not in `keep` is pseudonymized as `<field>~<k>`,

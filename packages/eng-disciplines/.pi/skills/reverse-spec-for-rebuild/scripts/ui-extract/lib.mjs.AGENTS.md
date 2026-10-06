@@ -1,0 +1,3 @@
+# .pi/skills/reverse-spec-for-rebuild/scripts/ui-extract/lib.mjs — index
+
+Shared helpers: `loadAdapter(nameOrPath)` (built-in `adapters/<name>.mjs` or file path; "unknown adapter" error), `adapterOrExit` (CLI exit 2), `decode` (UTF-16 BOM / UTF-8 / cp1250), `readText`, `listFiles`, `stripJsComments` (`quotedEnd`, `commentEnd`; line-preserving), `stripHtmlComments`, `lineAt`, `snippet`, `parseCite`. See change: promote-ui-extraction. `loadAdapter` merges `parent` chain (dialect key-wise, cycle refused); `adapterOrExit` applies `encoding`; `setLegacyEncoding`, default `windows-1252`; `TRIGGER_KINDS` vocabulary. See change: generalize-rebuild-skills.

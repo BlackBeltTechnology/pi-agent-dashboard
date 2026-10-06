@@ -1,0 +1,3 @@
+# src/__tests__/ui-extract.test.ts — index
+
+UI extraction: ported plan/kit units (parseHtml lines, buildKit tokens/cites/invalid decls/refused selector, planScreen expansion/conjuncts/numbering/linking, planPage font fallback), no `toolbar` hook → no filtering; CLI: built-in adapter name = same adapter by path (identical kit), project adapter by path without optional hooks, unlinked control exit 1, unknown adapter exit 2. See change: promote-ui-extraction. Neutral fixture profile; loader `parent`/cycle, decode/encoding, plain-HTML plan, dialect classes/lang, angularjs routes, gate trigger vocabulary; Plantifier profile tests moved to the pilot project. See change: generalize-rebuild-skills.

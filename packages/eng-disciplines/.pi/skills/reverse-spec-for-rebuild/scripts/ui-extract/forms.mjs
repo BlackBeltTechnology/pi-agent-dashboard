@@ -61,6 +61,9 @@ const model = {
 // OpenForms projection of the input view. Expressions the schema cannot express
 // (runtime option lists, JS validation conditions, conditional editability) are not translated:
 // they stay in the UI model and the rule catalog; helpText points at them.
+// Primary label language = the dialect's language; `labelLanguages` maps other app label keys to
+// OpenForms translation codes (e.g. {gb: "en"}).
+const LANG = adapter.dialect?.language ?? "en";
 const ofField = (f) => {
   const type = adapter.typeMap[f.type] ?? "text";
   const help = [
@@ -72,7 +75,7 @@ const ofField = (f) => {
   return {
     key: f.key,
     type,
-    label: f.label.hu ?? f.key,
+    label: f.label[LANG] ?? f.key,
     ...(f.required && { required: true }),
     ...(f.editable === false && { disabled: true }),
     ...(type === "text" && f.minLength && { validationRegex: `^.{${f.minLength},}$`, errorMessage: `min. ${f.minLength}` }),
@@ -85,7 +88,9 @@ const openForm = {
   formTitle: `${formId} (${eff.variant})`,
   formDescription: `Projected from ${form.merge}; source of truth: ${formId}.json`,
   pages: [{ pageId: "p1", sections: [{ sectionId: "s1", rows: inputs.map((f) => ({ columns: [{ width: 12, fields: [ofField(f)] }] })) }] }],
-  translations: { en: Object.fromEntries(inputs.filter((f) => f.label.gb).map((f) => [f.key, f.label.gb])) },
+  translations: Object.fromEntries(
+    Object.entries(adapter.labelLanguages ?? {}).map(([appLang, code]) => [code, Object.fromEntries(inputs.filter((f) => f.label[appLang]).map((f) => [f.key, f.label[appLang]]))]),
+  ),
 };
 
 writeFileSync(join(outDir, `${formId}.json`), `${JSON.stringify(model, null, 1)}\n`);

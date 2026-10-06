@@ -21,7 +21,7 @@ application sources.
 ```jsonc
 { "screen": "SCR-order",
   "entries": [ { "effect": "ACT-order-add-line#3", "entity": "Order", "op": "C", "note": "data.addOrderLine -> Orders.___add" } ],
-  "unmapped": [ { "effect": "ACT-order-save#1", "reason": "reads CONF only (configuration, not a domain entity)" } ] }
+  "unmapped": [ { "effect": "ACT-order-save#1", "reason": "reads configuration only (not a domain entity)" } ] }
 ```
 
 - `op`: `C` create (insert, `___add`, new row), `R` read (select, list, lookup shown or used),

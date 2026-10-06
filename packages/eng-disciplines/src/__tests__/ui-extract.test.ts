@@ -1,5 +1,5 @@
 /**
- * reverse-spec-for-rebuild UI extraction: style kit + screen plan units (ported from the Plantifier pilot)
+ * reverse-spec-for-rebuild UI extraction: style kit + screen plan units, adapter profiles + dialect
  * and the CLI contract (adapter by name or path, optional hooks, unlinked-control gate).
  * See change: promote-ui-extraction.
  */
@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SKILL } from "./files";
 
@@ -17,7 +17,10 @@ const load = async (f: string): Promise<any> => import(pathToFileURL(join(UX, f)
 const { parseHtml } = await load("lib-html.mjs");
 const { buildKit } = await load("style-kit.mjs");
 const { planPage, planScreen } = await load("screen-plan.mjs");
-const TOOLBAR = { ref: /OpBar\.(\w+)/g, assign: /OpBar\.(\w+)\s*=/g };
+const { loadAdapter, decode, setLegacyEncoding } = await load("lib.mjs");
+const PROFILE = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "legacy-ng-profile.mjs");
+const profile = await loadAdapter(PROFILE);
+const TOOLBAR = { ref: /TB\.(\w+)/g, assign: /TB\.(\w+)\s*=/g };
 
 describe("ui-extract units", () => {
 
@@ -81,16 +84,18 @@ describe("ui-extract units", () => {
     <tr ng-repeat="line in orderlines"><td>{{line.x}}</td></tr>
   </div>`;
   const SHELL = `<div id="header">
-    <span class="op-bar-elem product" ng-click="about()">Plantifier</span>
-    <span class="op-bar-elem" ng-if="OpBar.save || OpBar.lock"><button ng-if="OpBar.save" ng-click="OpBar.save.save()">{{str('save')}}</button>
-    <button ng-if="OpBar.test && OpBar.test.failed" ng-click="OpBar.test.fixAll()">fix</button></span>
-    <span class="op-bar-elem" ng-if="OpBar.import"><button ng-click="OpBar.import()">imp</button></span>
+    <span class="op-bar-elem product" ng-click="about()">App</span>
+    <span class="op-bar-elem" ng-if="TB.save || TB.lock"><button ng-if="TB.save" ng-click="TB.save.save()">{{str('save')}}</button>
+    <button ng-if="TB.test && TB.test.failed" ng-click="TB.test.fixAll()">fix</button></span>
+    <span class="op-bar-elem" ng-if="TB.import"><button ng-click="TB.import()">imp</button></span>
   </div>`;
   const ctx = (): any => ({
     templateFile: "html/order.htm",
     template: TEMPLATE,
     shellFile: "html/ang.htm",
     shell: SHELL,
+    shellToolbarId: "header",
+    dialect: profile.dialect,
     strings: { Add_order: "Felvétel", save: "Mentés" },
     toolbar: TOOLBAR,
     toolbarKeys: { save: "ACT-save" },
@@ -208,18 +213,19 @@ describe("ui-extract CLI", () => {
     app = join(dir, "app");
     pkg = join(dir, "pkg");
     put(app, "html/ang.htm", `<html><head><link rel="stylesheet" href="../css/main.css"></head><body>
-<div id="header"><span class="op-bar-elem" ng-if="OpBar.save"><button ng-click="OpBar.save.save()">{{str('save')}}</button></span></div>
+<div id="header"><span class="op-bar-elem" ng-if="TB.save"><button ng-click="TB.save.save()">{{str('save')}}</button></span></div>
 <div ng-view></div></body></html>`);
     put(app, "css/main.css", "html { font-family: Calibri; }\n.button { color: #3194FF; }\n#header { background: #222; }\n");
     put(app, "css/font-awesome-4.5.0/css/font-awesome.min.css", ".fa{display:inline-block}");
     put(app, "js/strings.js", "var _STR_ = { hu: { save: 'Mentés', add: 'Felvétel' } };\n");
-    put(app, "js/a.js", "function A($rootScope) {\n  $rootScope.OpBar.save = { save: save };\n}\n");
-    put(app, "html/a.htm", `<div>\n  <button class="button" ng-click="add()">{{str('add')}}</button>\n  <a ng-click="ghost()">?</a>\n</div>\n`);
+    put(app, "js/a.js", "function A($rootScope) {\n  $rootScope.TB.save = { save: save };\n}\n");
+    put(app, "index.html", `<html><head><link rel="stylesheet" href="css/main.css"></head></html>`);
+    put(app, "html/a.htm", `<div>\n  <button class="button" ng-click="add()">{{str('add')}}</button>\n  <a ng-click="ghost()" onclick="ghost()">?</a>\n</div>\n`);
     put(pkg, "ui/screens/SCR-a.json", JSON.stringify({
       id: "SCR-a", template: "html/a.htm", dialogs: [], fields: [],
       actions: [
-        { id: "ACT-add", label: "add", trigger: { kind: "ng-click", cite: "html/a.htm:2" } },
-        { id: "ACT-save", label: "save", trigger: { kind: "opbar", cite: "js/a.js:2" } },
+        { id: "ACT-add", label: "add", trigger: { kind: "click", cite: "html/a.htm:2" } },
+        { id: "ACT-save", label: "save", trigger: { kind: "toolbar", cite: "js/a.js:2" } },
       ],
       unmapped: [{ at: "html/a.htm:3", reason: "debug link" }],
     }));
@@ -227,9 +233,9 @@ describe("ui-extract CLI", () => {
   });
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-  it("style kit + plan: built-in adapter name and the same adapter by path give identical output", () => {
-    const builtin = join(UX, "adapters", "angularjs-hta.mjs");
-    for (const [adapter, out] of [["angularjs-hta", "k1"], [builtin, "k2"]]) {
+  it("style kit + plan: built-in adapter name and the same adapter by path give identical output; a profile plans", () => {
+    const builtin = join(UX, "adapters", "angularjs.mjs");
+    for (const [adapter, out] of [["angularjs", "k1"], [builtin, "k2"]]) {
       const r = run(join(UX, "style-kit.mjs"), app, adapter, join(dir, "job.json"), join(dir, out));
       expect(r.stderr).toBe("");
       expect(r.code).toBe(0);
@@ -237,7 +243,7 @@ describe("ui-extract CLI", () => {
     expect(readFileSync(join(dir, "k2", "style-kit.css"), "utf8")).toBe(readFileSync(join(dir, "k1", "style-kit.css"), "utf8"));
     put(pkg, "ui/style-kit.json", readFileSync(join(dir, "k1", "style-kit.json"), "utf8"));
     put(pkg, "ui/style-kit.css", readFileSync(join(dir, "k1", "style-kit.css"), "utf8"));
-    const r = run(join(UX, "screen-plan.mjs"), app, builtin, pkg, "SCR-a");
+    const r = run(join(UX, "screen-plan.mjs"), app, PROFILE, pkg, "SCR-a");
     expect(r.stderr).toBe("");
     expect(r.stdout).toContain("SCR-a: 3 controls, 0 unlinked");
     const html = readFileSync(join(pkg, "ui", "plans", "SCR-a.html"), "utf8");
@@ -252,7 +258,7 @@ export const shell = { file: "html/ang.htm" };
 export const planViews = {};
 `);
     const r = run(join(UX, "screen-plan.mjs"), app, join(dir, "my-adapter.mjs"), pkg, "SCR-a");
-    // no toolbar hook: the shell save button is not mapped through OpBar keys -> app shell; no strings hook: ‹placeholders›
+    // no toolbar hook: the shell save button is not mapped through TB keys -> app shell; no strings hook: ‹placeholders›
     expect(r.stderr).toBe("");
     expect(r.code).toBe(0);
     const s = JSON.parse(readFileSync(join(pkg, "ui/screens/SCR-a.json"), "utf8"));
@@ -263,6 +269,23 @@ export const planViews = {};
     expect(bad.stderr).toMatch(/SCR-a: unlinked control \d+ at html\/a\.htm:3/);
   });
 
+  it("gate: trigger kinds come from the stack-neutral vocabulary (no framework or app names)", () => {
+    const g = join(dir, "gpkg");
+    put(g, "ui/_inventory.json", JSON.stringify({ rows: [] }));
+    const rec = (kind: string) =>
+      put(g, "ui/screens/SCR-g.json", JSON.stringify({ id: "SCR-g", kind: "route", name: "g", template: "html/a.htm", scope: [], actions: [{ id: "ACT-g", label: "g", trigger: { kind, cite: "html/a.htm:2" } }] }));
+    for (const bad of ["ng-click", "opbar", "v-click"]) {
+      rec(bad);
+      const r = run(join(UX, "gate.mjs"), app, g);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toContain(`trigger kind '${bad}' is not in the vocabulary`);
+    }
+    for (const ok of ["click", "toolbar", "change", "context-menu", "dblclick"]) {
+      rec(ok);
+      expect(run(join(UX, "gate.mjs"), app, g).stdout).toContain("PASS 1 record(s)");
+    }
+  });
+
   it("an unknown adapter name is refused with usage, not a stack trace", () => {
     const r = run(join(UX, "style-kit.mjs"), app, "nope", join(dir, "job.json"), join(dir, "k3"));
     expect(r.code).toBe(2);
@@ -270,53 +293,79 @@ export const planViews = {};
   });
 });
 
-describe("angularjs-hta adapter reads app code statically (never executes it)", () => {
-  let app: string;
-  const put = (rel: string, text: string) => {
-    mkdirSync(dirname(join(app, rel)), { recursive: true });
-    writeFileSync(join(app, rel), text);
-  };
-  const readText = (p: string) => readFileSync(p, "utf8");
-  const lineAt = (src: string, i: number) => src.slice(0, i).split("\n").length;
-  beforeAll(() => {
-    app = mkdtempSync(join(tmpdir(), "hta-"));
-    put("js/strings.js", `// UI strings
-var _STR_ = {
-  hu: { save: 'Mentés', "orders_field_qty": "Menny\\u0151ség", add: \`Felvétel\`, },
-  gb: { orders_field_qty: 'Qty' }, // trailing comment
-};
-_STR_.hu.extra = "Extra";
-globalThis.__htaPwned = 1;
-`);
-    put("js/admin.js", `globalThis.__htaPwned = 2;
-var DEFAULT = {
-  orders: { settings: { qty: { display: true, size: [1, 2] }, note: { display: false, max: -5 } } },
-};
-`);
-    put("conf/acme/v1.json", JSON.stringify({ orders: { add: { settings: { qty: { size: [9] } } } }, strings: { hu: { save: "Ment" } }, list: [1] }));
-    put("conf/acme/conf-base-acme.json", '{"list": [7, 8], "__proto__": {"polluted": true}}');
-    put("conf/conf-base.json", JSON.stringify({ orders: { add: { settings: { note: { display: true } } } } }));
-  });
-  afterAll(() => rmSync(app, { recursive: true, force: true }));
-
-  it("strings: parses the _STR_ literal and later assignments without running strings.js", async () => {
-    const hta = await load("adapters/angularjs-hta.mjs");
-    const s = hta.strings(app, { strings: { hu: { add: "Hozzáad" } } }, readText);
-    expect(s).toEqual({ save: "Mentés", orders_field_qty: "Mennyőség", add: "Hozzáad", extra: "Extra" });
-    expect((globalThis as Record<string, unknown>).__htaPwned).toBeUndefined();
+describe("adapter profiles, dialect, encoding (stack-level skill, app knowledge in a profile)", () => {
+  it("a profile with `parent` merges over the built-in adapter, dialect key-wise", () => {
+    expect(profile.id).toBe("legacy-ng-fixture");
+    expect(profile.patterns.some((p: any) => p.kind === "controller")).toBe(true); // from angularjs
+    expect(profile.dialect.bindAttrs).toEqual(["ng-bind", "ng-bind-html"]); // inherited key
+    expect(profile.dialect.language).toBe("hu"); // profile key
+    expect(profile.dialect.condition({ "ng-hide": "x" })).toBe("!(x)");
   });
 
-  it("effectiveConfig: lodash-equivalent defaultsDeep (index-wise arrays), DEFAULT parsed, no vendored lodash needed", async () => {
-    const hta = await load("adapters/angularjs-hta.mjs");
-    const res = await hta.effectiveConfig(app, "conf/acme/v1.json", { join, readText, lineAt });
-    expect((globalThis as Record<string, unknown>).__htaPwned).toBeUndefined();
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
-    expect(res.conf.list).toEqual([1, 8]);
-    expect(res.defaultsCite).toBe("js/admin.js:2-4");
-    const f = Object.fromEntries(res.forms["orders.add"].fields.map((x: any) => [x.key, x]));
-    expect(f.qty.settings).toEqual({ size: [9, 2], display: true });
-    expect(f.note.settings).toEqual({ display: true, max: -5 });
-    expect(f.qty.label).toEqual({ hu: "Mennyőség", gb: "Qty" });
+  it("a parent cycle and an unknown parent are refused", async () => {
+    const d = mkdtempSync(join(tmpdir(), "prof-"));
+    writeFileSync(join(d, "a.mjs"), `export const parent = ${JSON.stringify(join(d, "b.mjs"))};`);
+    writeFileSync(join(d, "b.mjs"), `export const parent = ${JSON.stringify(join(d, "a.mjs"))};`);
+    writeFileSync(join(d, "c.mjs"), `export const parent = "nope";`);
+    await expect(loadAdapter(join(d, "a.mjs"))).rejects.toThrow(/parent cycle/);
+    await expect(loadAdapter(join(d, "c.mjs"))).rejects.toThrow(/unknown adapter nope/);
+    rmSync(d, { recursive: true, force: true });
+  });
+
+  it("decode: UTF-16 BOM, then valid UTF-8, then the legacy code page (default windows-1252, profile-set)", () => {
+    const ow = Buffer.from([0x6f, 0xf5]); // "o" + 0xF5: ő in windows-1250, õ in windows-1252
+    expect(decode(Buffer.from([0xff, 0xfe, 0x41, 0x00])).text).toBe("A");
+    expect(decode(Buffer.from("ő", "utf8")).text).toBe("ő");
+    expect(decode(ow, "windows-1252").text).toBe("oõ");
+    setLegacyEncoding("windows-1250");
+    expect(decode(ow).text).toBe("oő");
+    setLegacyEncoding("windows-1252");
+    expect(decode(ow).text).toBe("oõ");
+    expect(() => setLegacyEncoding("no-such-code-page")).toThrow();
+  });
+
+  it("without a dialect the plan reads plain HTML: no interpolation, only HTML controls and on* handlers", () => {
+    const p = planScreen({
+      templateFile: "a.html",
+      template: `<div>\n<button onclick="go()">Go {{x}}</button>\n<a ng-click="y()">y</a>\n<input name="q">\n</div>`,
+      strings: {},
+      screen: { id: "SCR-p", actions: [{ id: "ACT-go", covers: ["a.html:2"] }], unmapped: [], dialogs: [], fields: [{ key: "q", cite: "a.html:4" }] },
+    });
+    expect(p.controls.map((c: any) => c.at)).toEqual(["a.html:2", "a.html:4"]);
+    expect(p.unlinked).toEqual([]);
+    expect(p.html).toContain("Go {{x}}");
+    expect(p.html).toContain('class="pl-view"');
+    const page = planPage(p, { screen: { id: "SCR-p", actions: [{ id: "ACT-go" }] }, templateFile: "a.html" }, "");
+    expect(page).toContain('<html lang="en">');
+    expect(page).toContain(".pl-dialog { position: static");
+  });
+
+  it("dialect classes and language reach the plan page and dialogs", () => {
+    const p = planScreen({
+      templateFile: "a.html",
+      template: "<div></div>",
+      strings: {},
+      dialect: profile.dialect,
+      screen: { id: "SCR-d", actions: [], unmapped: [], dialogs: [{ id: "DLG-x", kind: "confirm", message: "sure?", buttons: ["OK"] }] },
+    });
+    expect(p.dialogs).toContain('class="dlg pl-dialog"');
+    expect(p.dialogs).toContain('<div class="dlg-h">');
+    expect(p.dialogs).toContain('class="button sk-button pl-ctl"');
+    const page = planPage(p, { screen: { id: "SCR-d", actions: [] }, templateFile: "a.html", dialect: profile.dialect }, "");
+    expect(page).toContain('<html lang="hu">');
+    expect(page).toContain(".pl-dialog.dlg { position: static");
+  });
+
+  it("built-in angularjs routes: $routeProvider.when and ui-router .state", async () => {
+    const ng = await load("adapters/angularjs.mjs");
+    const src: Record<string, string> = {
+      "app.js": "app.config(function ($routeProvider) {\n  $routeProvider.when('/orders', { templateUrl: 'orders.html', controller: 'OrdersCtrl' });\n});\n",
+      "states.js": "$stateProvider\n  .state('detail', { url: '/detail/:id', templateUrl: 'detail.html' });\n",
+      "orders.html": "<div></div>",
+    };
+    const rows = ng.routes(Object.keys(src), (f: string) => src[f]);
+    expect(rows.filter((r: any) => r.kind === "route").map((r: any) => `${r.name}@${r.file}:${r.line}`)).toEqual(["/orders@app.js:2", "/detail/:id@states.js:2"]);
+    expect(rows.find((r: any) => r.kind === "template").name).toBe("orders.html");
   });
 
   it("js-literal refuses non-literal code instead of evaluating it", async () => {

@@ -6,11 +6,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, normalize } from "node:path";
 import { pathToFileURL } from "node:url";
+import { parseLiteralAt } from "./js-literal.mjs";
 import { adapterOrExit, parseCite, readText } from "./lib.mjs";
 import { escAttr, escHtml, isVoid, parseHtml } from "./lib-html.mjs";
 
-const CONTROL_TAGS = new Set(["button", "input", "select", "textarea", "ui-select"]);
-const DROP_TAGS = new Set(["ui-select-choices", "notification-bar", "vue-modal", "script", "style"]);
+const BASE_CONTROL_TAGS = ["button", "input", "select", "textarea"];
+const BASE_DROP_TAGS = ["script", "style"];
 const KEEP_ATTRS = new Set(["class", "style", "type", "title", "colspan", "rowspan", "id", "value", "placeholder", "width", "height", "align", "valign"]);
 
 // text from a template: existing entities (&nbsp;) stay, bare & < > are escaped
@@ -19,26 +20,71 @@ const short = (s, n = 26) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /** Toolbar keys an expression references, by the adapter's `toolbar.ref` pattern (none without the hook). */
 const toolbarRefs = (s, ctx) => (ctx.toolbar ? [...String(s ?? "").matchAll(new RegExp(ctx.toolbar.ref.source, "g"))].map((m) => m[1]) : []);
 
-/** {{expr}} -> display text: str('k') labels, field labels, ‹placeholders›. */
+const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const firstAttr = (a, names) => names.map((n) => a[n]).find((v) => v);
+
+/**
+ * Template dialect of the adapter (`adapter.dialect`), normalized. Every template-language rule the
+ * plan applies comes from here; without a dialect the plan reads plain HTML.
+ * Keys: interpolation [open, close]; controlTags/dropTags/selectTags; controlAttrs (make an element a
+ * control), refAttrs (scanned for toolbar refs), labelAttrs (label fallback), bindAttrs (text binding);
+ * condition(attrs) -> expr|null; repeat(attrs) -> expr|null; repeatList(expr) -> form-view list name|null;
+ * repeatLabel(expr); switchValues(attrs) -> values|undefined; switchType(field); exprText(expr, env, ctx)
+ * -> {text}|{ph}|undefined; decide(conjunct, env) -> true|false|undefined; classes {view, dialog,
+ * dialogHeader, dialogBody, dialogFooter, button}; language (field-label language, page lang).
+ */
+const DIALECT_DEFAULTS = {
+  interpolation: null,
+  controlTags: [],
+  dropTags: [],
+  selectTags: [],
+  controlAttrs: ["onclick", "onchange"],
+  refAttrs: [],
+  labelAttrs: ["onclick", "name"],
+  bindAttrs: [],
+  condition: () => null,
+  repeat: () => null,
+  repeatList: () => null,
+  repeatLabel: (x) => x,
+  switchValues: () => undefined,
+  switchType: (f) => f.type,
+  exprText: () => undefined,
+  decide: () => undefined,
+  language: "en",
+};
+const CLASS_DEFAULTS = { view: "pl-view", dialog: "", dialogHeader: "pl-dlg-h", dialogBody: "pl-dlg-b", dialogFooter: "pl-dlg-f", button: "" };
+
+export function dialectOf(d = {}) {
+  const x = { ...DIALECT_DEFAULTS, ...d };
+  const [open, close] = x.interpolation ?? [null, null];
+  const body = open && `${reEsc(open)}[\\s\\S]*?${reEsc(close)}`;
+  return {
+    ...x,
+    open,
+    close,
+    interp: body ? new RegExp(`(${body})`) : null,
+    interpAll: body ? new RegExp(body, "g") : null,
+    controlTags: new Set([...BASE_CONTROL_TAGS, ...x.controlTags]),
+    dropTags: new Set([...x.dropTags, ...BASE_DROP_TAGS]),
+    selectTags: new Set(x.selectTags),
+    classes: { ...CLASS_DEFAULTS, ...(d.classes ?? {}) },
+  };
+}
+const hasInterp = (v, D) => D.open !== null && String(v).includes(D.open);
+const fieldLabel = (field, D) => field.label?.[D.language] ?? field.key;
+
+/** Interpolated expression -> display text (dialect first), else a ‹placeholder›. */
 function exprText(expr, env, ctx) {
-  const e = expr.trim();
-  // str('k'), optionally inside a lodash case wrapper: _.capitalize(str('k'))
-  const s = e.match(/^(?:_\.(capitalize|upperFirst|toUpper|toLower)\(\s*)?str\(\s*['"]([^'"]+)['"]\s*\)\s*\)?$/);
-  if (s) {
-    const t = ctx.strings[s[2]] ?? s[2];
-    const f = { capitalize: (x) => x.charAt(0).toUpperCase() + x.slice(1).toLowerCase(), upperFirst: (x) => x.charAt(0).toUpperCase() + x.slice(1), toUpper: (x) => x.toUpperCase(), toLower: (x) => x.toLowerCase() }[s[1]];
-    return { text: f ? f(t) : t };
-  }
-  if (env.field && /label\(\s*key\s*\)/.test(e)) return { text: env.field.label?.hu ?? env.field.key };
-  if (env.field && /\[\s*key\s*\]/.test(e)) return { ph: env.field.key };
-  return { ph: short(e) };
+  return ctx.D.exprText(expr.trim(), env, ctx) ?? { ph: short(expr.trim()) };
 }
 function renderText(text, env, ctx) {
+  const D = ctx.D;
+  if (!D.interp) return escText(text);
   return text
-    .split(/(\{\{[\s\S]*?\}\})/)
+    .split(D.interp)
     .map((part) => {
-      if (!part.startsWith("{{")) return escText(part);
-      const r = exprText(part.slice(2, -2), env, ctx);
+      if (!part.startsWith(D.open)) return escText(part);
+      const r = exprText(part.slice(D.open.length, -D.close.length), env, ctx);
       return r.text !== undefined ? escHtml(r.text) : `<span class="pl-ph">‹${escHtml(r.ph)}›</span>`;
     })
     .join("");
@@ -52,7 +98,7 @@ function resolveTarget(at, a, env, ctx) {
   if (un) return { unmapped: un.reason };
   const fld = (ctx.screen.fields || []).find((f) => (f.covers || []).includes(at) || String(f.cite || "").split(/;\s*/).includes(at));
   if (fld) return { field: `${ctx.screen.id}#${fld.key}` };
-  const key = [a["ng-click"], a["ng-model"], a["on-select"], a["ng-if"]].flatMap((x) => toolbarRefs(x, ctx)).find((k) => ctx.toolbarKeys?.[k]);
+  const key = ctx.D.refAttrs.map((n) => a[n]).flatMap((x) => toolbarRefs(x, ctx)).find((k) => ctx.toolbarKeys?.[k]);
   if (key) return { action: ctx.toolbarKeys[key] };
   if (env.field) return { field: `${ctx.form.id ?? "form"}#${env.field.key}` };
   // the shell's own controls (logo/about, navigation) are on every screen: app shell, not this screen's model
@@ -66,8 +112,8 @@ function controlLabel(node, a, env, ctx) {
   })(node);
   const shown = renderText(text, env, ctx).replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
   if (shown) return shown;
-  if (env.field) return env.field.label?.hu ?? env.field.key;
-  return a["ng-click"] || a["ng-model"] || a.placeholder || node.tag;
+  if (env.field) return fieldLabel(env.field, ctx.D);
+  return firstAttr(a, ctx.D.labelAttrs) || a.placeholder || node.tag;
 }
 
 /** Register a control (one per source line); returns its number and whether this is the first render. */
@@ -82,7 +128,8 @@ function control(node, a, env, ctx, st) {
 
 /** Static classes (bindings dropped) + mapped kit classes + plan markers, de-duplicated. */
 function classList(a, extraClass, ctx) {
-  const cls = [...String(a.class ?? "").replace(/\{\{[\s\S]*?\}\}/g, "").split(/\s+/).filter(Boolean)];
+  const raw = String(a.class ?? "");
+  const cls = [...(ctx.D.interpAll ? raw.replace(ctx.D.interpAll, "") : raw).split(/\s+/).filter(Boolean)];
   for (const c of [...cls]) if (ctx.kitClasses?.[c]) cls.push(ctx.kitClasses[c]);
   cls.push(...extraClass);
   return [...new Set(cls)];
@@ -93,13 +140,13 @@ function outAttrs(node, a, extraClass, title, ctx, file) {
   const cls = classList(a, extraClass, ctx);
   const out = [];
   for (const [k, v] of Object.entries(a)) {
-    if (k === "class" || !KEEP_ATTRS.has(k) || String(v).includes("{{")) continue;
+    if (k === "class" || !KEEP_ATTRS.has(k) || hasInterp(v, ctx.D)) continue;
     out.push(`${k}="${escAttr(v)}"`);
   }
   if (cls.length) out.unshift(`class="${escAttr(cls.join(" "))}"`);
   if (title) out.push(`title="${escAttr(title)}"`);
   if (node.tag === "img") {
-    const src = a.src && !a.src.includes("{{") ? ctx.asset?.(a.src, file) : null;
+    const src = a.src && !hasInterp(a.src, ctx.D) ? ctx.asset?.(a.src, file) : null;
     out.push(src ? `src="${src}"` : BLANK_IMG);
   }
   return out.length ? ` ${out.join(" ")}` : "";
@@ -124,29 +171,16 @@ function conjuncts(cond) {
   parts.push(cond.slice(start));
   return parts.map((x) => x.trim().replace(/^\((.*)\)$/, "$1").trim());
 }
-/** A conjunct decidable inside a field repeat: true/false, or undefined when unknown. */
-function decide(c, env) {
-  if (c === "$last") return env.fieldLast;
-  if (c === "$first") return env.fieldIndex === 0;
-  const t = c.match(/^(?:val|col)\.type\s*===?\s*['"](\w+)['"]$/);
-  return t ? env.field.type === t[1] : undefined;
-}
-
-function fieldSwitchType(field) {
-  return (field.flags || []).includes("dyn") ? "dyn" : field.type;
-}
-
 /** Visibility of an element: {hidden} when it cannot show here, else its condition and toolbar refs. */
 function visibility(node, a, env, ctx) {
-  if (DROP_TAGS.has(node.tag)) return { hidden: true };
-  if (env.field && a["ng-switch-when"] !== undefined) {
-    const vals = a["ng-switch-when"].split(a["ng-switch-when-separator"] || "\u0000");
-    if (!vals.includes(fieldSwitchType(env.field))) return { hidden: true };
-  }
-  const cond = a["ng-if"] ?? a["ng-show"] ?? (a["ng-hide"] !== undefined ? `!(${a["ng-hide"]})` : null);
+  const D = ctx.D;
+  if (D.dropTags.has(node.tag)) return { hidden: true };
+  const vals = env.field ? D.switchValues(a) : undefined;
+  if (vals && !vals.includes(D.switchType(env.field))) return { hidden: true };
+  const cond = D.condition(a);
   const refs = toolbarRefs(cond, ctx);
   if (refs.length && !refs.some((k) => ctx.toolbarKeys?.[k])) return { hidden: true };
-  if (cond && env.field && conjuncts(cond).some((c) => decide(c, env) === false)) return { hidden: true };
+  if (cond && env.field && conjuncts(cond).some((c) => D.decide(c, env) === false)) return { hidden: true };
   return { cond, refs };
 }
 
@@ -167,7 +201,7 @@ function markers(cond, refs, env) {
 
 /** Numbered callout of a control: badge (first render of its line only) + data-pl attribute. */
 function callout(node, a, env, ctx, st, extra) {
-  const isCtl = CONTROL_TAGS.has(node.tag) || a["ng-click"] || a["ng-model"] || a["ng-change"] || a["on-select"];
+  const isCtl = ctx.D.controlTags.has(node.tag) || ctx.D.selectTags.has(node.tag) || firstAttr(a, ctx.D.controlAttrs);
   if (!isCtl) return { badge: "", dataPl: "" };
   const { n, first } = control(node, a, env, ctx, st);
   extra.push("pl-ctl");
@@ -175,9 +209,9 @@ function callout(node, a, env, ctx, st, extra) {
 }
 
 function elementBody(node, a, env, ctx, st) {
-  // Angular shows an element's own content until the binding resolves: prefer it when there is any
+  // an element's own content shows until a text binding resolves: prefer it when there is any
   const hasOwn = node.children.some((c) => c.tag || (c.text ?? "").trim());
-  const bind = a["ng-bind"] || a["ng-bind-html"];
+  const bind = firstAttr(a, ctx.D.bindAttrs);
   if (bind && !hasOwn) return `<span class="pl-ph">‹${escHtml(short(bind))}›</span>`;
   const inner = { ...env, repeat: null };
   return node.children.map((c) => emitNode(c, inner, ctx, st)).join("");
@@ -190,7 +224,7 @@ function emitElement(node, env, ctx, st) {
   if (vis.hidden) return "";
   const { extra, title } = markers(vis.cond, vis.refs, env);
   const { badge, dataPl } = callout(node, a, env, ctx, st, extra);
-  if (node.tag === "ui-select") {
+  if (ctx.D.selectTags.has(node.tag)) {
     return `${badge}<span${outAttrs(node, a, ["pl-select", "sk-input", ...extra], title, ctx, env.file)}${dataPl}><span class="pl-ph">‹${escHtml(env.field?.key ?? "select")}›</span> ▾</span>`;
   }
   const body = elementBody(node, a, env, ctx, st);
@@ -200,15 +234,15 @@ function emitElement(node, env, ctx, st) {
 
 function emitNode(node, env, ctx, st) {
   if (node.text !== undefined) return renderText(node.text, env, ctx);
-  const rep = node.attrs["ng-repeat"];
+  const rep = ctx.D.repeat(node.attrs);
   if (!rep) return emitElement(node, env, ctx, st);
-  const m = rep.match(/^\s*\(\s*(\w+)\s*,\s*\w+\s*\)\s+in\s+(\w+)/);
-  const view = m && ctx.formViews?.[m[2]];
+  const list = ctx.D.repeatList(rep);
+  const view = list && ctx.formViews?.[list];
   if (view && ctx.form) {
     const fields = ctx.form.fields.filter((f) => (f.views || []).includes(view));
     return fields.map((field, i) => emitElement(node, { ...env, field, fieldIndex: i, fieldLast: i === fields.length - 1 }, ctx, st)).join("");
   }
-  return emitElement(node, { ...env, repeat: rep.split("|")[0].trim() }, ctx, st);
+  return emitElement(node, { ...env, repeat: ctx.D.repeatLabel(rep) }, ctx, st);
 }
 
 const findById = (n, id) => (n.attrs?.id === id ? n : (n.children || []).reduce((hit, c) => hit || (c.tag ? findById(c, id) : null), null));
@@ -224,34 +258,38 @@ function otherEntries(ctx, st) {
     st.controls.push(c);
     (groups[kind] ||= []).push(c);
   }
-  const TITLE = { "context-menu": "Context menu", key: "Keyboard", auto: "Automatic / not user-triggered", opbar: "Toolbar (outside the shell markup)" };
+  const TITLE = { "context-menu": "Context menu", key: "Keyboard", auto: "Automatic / not user-triggered", toolbar: "Toolbar (outside the shell markup)" };
   return Object.entries(groups)
     .map(([kind, cs]) => `<div class="pl-group"><h4>${escHtml(TITLE[kind] || kind)}</h4><ul class="sk-menu pl-menu">${cs.map((c) => `<li class="pl-ctl" data-pl="${c.n}"><span class="pl-n" data-pl="${c.n}">${c.n}</span> ${escHtml(c.label)}</li>`).join("")}</ul></div>`)
     .join("");
 }
 
+const cls = (...xs) => escAttr(xs.filter(Boolean).join(" "));
+
 function dialogsHtml(ctx, st) {
+  const K = ctx.D.classes;
   return (ctx.screen.dialogs || [])
     .map((d) => {
       const buttons = (d.buttons || ["OK"]).map((b) => {
         const c = { n: st.controls.length + 1, at: d.cite || "", where: "dialog", label: `${d.id}: ${b}`, target: { dialog: d.id, action: d.from } };
         st.controls.push(c);
-        return `<span class="pl-n" data-pl="${c.n}">${c.n}</span><button class="button sk-button pl-ctl" data-pl="${c.n}">${escHtml(b)}</button>`;
+        return `<span class="pl-n" data-pl="${c.n}">${c.n}</span><button class="${cls(K.button, "sk-button pl-ctl")}" data-pl="${c.n}">${escHtml(b)}</button>`;
       });
       const msg = String(d.message ?? "");
       const key = msg.split(/\s/)[0];
       const text = ctx.strings[key] ? `${ctx.strings[key]}${msg.length > key.length ? ` <span class="pl-ph">${escHtml(msg.slice(key.length).trim())}</span>` : ""}` : escHtml(msg);
-      return `<div class="modalw pl-dialog" id="pl-${escAttr(d.id)}"><div class="modal-header">${escHtml(d.id)} <span class="pl-kind">${escHtml(d.kind || "")}</span></div><div class="modal-cnt">${text}</div><div class="modal-footer">${buttons.join(" ")}</div></div>`;
+      return `<div class="${cls(K.dialog, "pl-dialog")}" id="pl-${escAttr(d.id)}"><div class="${escAttr(K.dialogHeader)}">${escHtml(d.id)} <span class="pl-kind">${escHtml(d.kind || "")}</span></div><div class="${escAttr(K.dialogBody)}">${text}</div><div class="${escAttr(K.dialogFooter)}">${buttons.join(" ")}</div></div>`;
     })
     .join("");
 }
 
 /** Build the plan fragments + control register. Pure (ctx carries all inputs). */
-export function planScreen(ctx) {
+export function planScreen(context) {
+  const ctx = { ...context, D: dialectOf(context.dialect) };
   const st = { controls: [], byAt: new Map() };
   let header = "";
-  if (ctx.shell) {
-    const h = findById(parseHtml(ctx.shell), "header");
+  if (ctx.shell && ctx.shellToolbarId) {
+    const h = findById(parseHtml(ctx.shell), ctx.shellToolbarId);
     if (h) header = emitNode(h, { file: ctx.shellFile, where: "toolbar" }, ctx, st);
   }
   const view = parseHtml(ctx.template)
@@ -260,7 +298,7 @@ export function planScreen(ctx) {
   const others = otherEntries(ctx, st);
   const dialogs = dialogsHtml(ctx, st);
   const unlinked = st.controls.filter((c) => !c.target);
-  return { html: `${header}<div class="page layout">${view}</div>`, others, dialogs, controls: st.controls, unlinked };
+  return { html: `${header}<div class="${cls(ctx.D.classes.view)}">${view}</div>`, others, dialogs, controls: st.controls, unlinked };
 }
 
 // ---------- page ----------
@@ -313,7 +351,7 @@ body.sk-plan { margin: 0; font-family: var(--sk-font-base, sans-serif); backgrou
 .pl-menu { list-style: none; padding: 0; margin: 0; display: inline-block; border: 1px solid #bbb; background: #fff; min-width: 260px; }
 .pl-menu li { padding: 3px 8px; border-bottom: 1px solid #eee; }
 .pl-dialogs { display: flex; flex-wrap: wrap; gap: 12px; }
-.pl-dialog.modalw { position: static !important; display: inline-block !important; width: 300px; margin: 0; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
+.pl-dialog__DLG__ { position: static !important; display: inline-block !important; width: 300px; margin: 0; box-shadow: 0 1px 6px rgba(0,0,0,.25); }
 .pl-kind { font-size: 9pt; color: #888; }
 /* the app is a full-window flex layout: give it a window */
 .pl-screen { overflow: auto; }
@@ -345,9 +383,11 @@ function fontFallbacks(fonts = []) {
 
 export function planPage(p, ctx, kitCss, extraCss = "") {
   const linked = p.controls.length - p.unlinked.length;
+  const D = dialectOf(ctx.dialect);
+  const css = PLAN_CSS.replace("__DLG__", D.classes.dialog ? `.${D.classes.dialog}` : "");
   return `<!doctype html>
-<html lang="hu"><head><meta charset="utf-8"><title>Screen plan — ${escHtml(ctx.screen.id)}</title>
-<style>${kitCss}</style><style>${extraCss}</style><style>${PLAN_CSS}${fontFallbacks(ctx.kitFonts)}</style></head>
+<html lang="${escAttr(D.language)}"><head><meta charset="utf-8"><title>Screen plan — ${escHtml(ctx.screen.id)}</title>
+<style>${kitCss}</style><style>${extraCss}</style><style>${css}${fontFallbacks(ctx.kitFonts)}</style></head>
 <body class="sk-plan" data-screen="${escAttr(ctx.screen.id)}">
 <div class="pl-top"><h1>${escHtml(ctx.screen.id)} — ${escHtml(ctx.screen.name || "")}</h1><span>${p.controls.length} controls, ${linked} linked · source ${escHtml(ctx.templateFile)} + toolbar ${escHtml(ctx.shellFile || "")} · style kit</span></div>
 <div class="pl-wrap"><div class="pl-screen"><div class="pl-frame" style="width:${ctx.frame?.[0] ?? 1366}px;height:${ctx.frame?.[1] ?? 768}px"><div id="complete-page">${p.html}</div></div>
@@ -370,13 +410,19 @@ function dataUri(file) {
 function toolbarKeysOf(appDir, actions, toolbar) {
   const keys = {};
   if (!toolbar) return keys;
-  for (const a of actions.filter((x) => x.trigger?.kind === "opbar")) {
+  for (const a of actions.filter((x) => x.trigger?.kind === "toolbar")) {
     const c = parseCite(a.trigger.cite);
     if (!c) continue;
     const lines = readText(join(appDir, c.file)).split("\n").slice(c.from - 1, c.to);
     for (const m of lines.join("\n").matchAll(new RegExp(toolbar.assign.source, "g"))) keys[m[1]] ??= a.id;
   }
   return keys;
+}
+
+/** Shell page around every screen (optional adapter hook): file, text, toolbar element id. */
+function shellOf(appDir, shell) {
+  if (!shell) return { shellFile: null, shell: "", shellToolbarId: null };
+  return { shellFile: shell.file, shell: readText(join(appDir, shell.file)), shellToolbarId: shell.toolbarId ?? null };
 }
 
 async function main([appDir, adapterName, pkgDir, screenId, effective]) {
@@ -401,9 +447,9 @@ async function main([appDir, adapterName, pkgDir, screenId, effective]) {
     screen,
     templateFile: screen.template,
     template: readText(join(appDir, screen.template)),
-    shellFile: adapter.shell.file,
-    shell: readText(join(appDir, adapter.shell.file)),
-    strings: adapter.strings ? adapter.strings(appDir, conf.conf, readText) : {},
+    ...shellOf(appDir, adapter.shell),
+    dialect: adapter.dialect,
+    strings: adapter.strings ? adapter.strings(appDir, conf.conf, readText, { parseLiteralAt }) : {},
     toolbar: adapter.toolbar,
     toolbarKeys: toolbarKeysOf(appDir, screen.actions, adapter.toolbar),
     form,

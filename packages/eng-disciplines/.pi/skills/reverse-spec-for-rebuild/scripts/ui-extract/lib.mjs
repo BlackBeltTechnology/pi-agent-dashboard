@@ -5,27 +5,52 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 /**
  * Stack adapter by built-in name (adapters/<name>.mjs) or by file path (a project's own adapter).
+ * A profile may declare `parent: "<adapter>"`: it is merged over that adapter, `dialect` key-wise.
  * Throws "unknown adapter <x>" when neither exists; CLIs report it and exit 2.
  */
-export async function loadAdapter(nameOrPath) {
+export async function loadAdapter(nameOrPath, seen = new Set()) {
   const isPath = /[\\/]|\.m?js$/.test(nameOrPath);
   const file = isPath ? resolve(nameOrPath) : join(dirname(fileURLToPath(import.meta.url)), "adapters", `${nameOrPath}.mjs`);
   if (!existsSync(file)) throw new Error(`unknown adapter ${nameOrPath} (built-in name or path to an adapter .mjs)`);
-  return import(pathToFileURL(file).href);
+  if (seen.has(file)) throw new Error(`adapter ${nameOrPath}: parent cycle`);
+  seen.add(file);
+  const mod = { ...(await import(pathToFileURL(file).href)) };
+  if (!mod.parent) return mod;
+  const base = await loadAdapter(mod.parent, seen);
+  return { ...base, ...mod, dialect: { ...(base.dialect ?? {}), ...(mod.dialect ?? {}) } };
 }
 
 /** CLI helper: load the adapter or print the reason and exit 2. */
 export async function adapterOrExit(nameOrPath) {
   try {
-    return await loadAdapter(nameOrPath);
+    const adapter = await loadAdapter(nameOrPath);
+    if (adapter.encoding) setLegacyEncoding(adapter.encoding);
+    return adapter;
   } catch (e) {
     process.stderr.write(`${e.message}\n`);
     process.exit(2);
   }
 }
 
-/** Decode bytes: UTF-16 by BOM (app's Unicode retry, js/gen.js:530), UTF-8 when valid (BOM stripped), else as the legacy code page. */
-export function decode(buf, legacy = "windows-1250") {
+/**
+ * Action trigger kinds (stack-neutral): user gestures, toolbar / menu items, dialog buttons,
+ * keys, and `auto` (timers, watchers, load). Framework attribute names map onto these.
+ */
+export const TRIGGER_KINDS = new Set([
+  "click", "dblclick", "change", "select", "submit", "toolbar", "menu", "context-menu", "modal-button", "key",
+  "auto", "load", "timer", "focus", "blur", "drag", "drop", "wheel",
+  "mousedown", "mouseup", "mousemove", "mouseenter", "mouseleave", "ifml",
+]);
+
+let LEGACY = "windows-1252";
+/** Legacy code page for sources that are neither UTF-16 (BOM) nor valid UTF-8 (adapter `encoding`). */
+export function setLegacyEncoding(enc) {
+  new TextDecoder(enc); // throws on an unknown label
+  LEGACY = enc;
+}
+
+/** Decode bytes: UTF-16 by BOM, UTF-8 when valid (BOM stripped), else as the legacy code page. */
+export function decode(buf, legacy = LEGACY) {
   if (buf[0] === 0xff && buf[1] === 0xfe) return { text: new TextDecoder("utf-16le").decode(buf.subarray(2)), encoding: "utf-16le" };
   if (buf[0] === 0xfe && buf[1] === 0xff) return { text: new TextDecoder("utf-16be").decode(buf.subarray(2)), encoding: "utf-16be" };
   try {
@@ -39,7 +64,7 @@ export function decode(buf, legacy = "windows-1250") {
 export const readText = (file) => decode(readFileSync(file)).text;
 
 /** Recursively list files under dir whose name matches re (sorted, relative to root). */
-export function listFiles(root, dir, re, skip = /^(node_modules|lib|lodash|\.git)$/) {
+export function listFiles(root, dir, re, skip = /^(node_modules|\.git)$/) {
   const out = [];
   const walk = (d) => {
     for (const name of readdirSync(d).sort()) {

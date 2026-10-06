@@ -67,7 +67,7 @@ repeated.
 ## Interoperability (checked 2026-10-06)
 
 - `ifml-moddle` 0.3.1 / `ifml-js` 0.3.0 (engine of ifml.io and the VS Code ifml-io extension):
-  the Plantifier export imports with 0 warnings and renders (173 shapes). Re-saved unchanged
+  a 39-screen pilot export imports with 0 warnings and renders (173 shapes). Re-saved unchanged
   by the `ifml-js` modeler it diffs as "no differences" (regression fixture
   `src/__tests__/fixtures/ifml-js-modeler-resave.xmi`); a modeler edit (rename an action,
   delete an event) diffs as exactly that.

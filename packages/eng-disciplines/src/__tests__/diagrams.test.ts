@@ -23,7 +23,7 @@ const MODEL = `# Domain model
 ## Order
 Capabilities: orders
 Identity: order_id
-Persistence: row of the table named by CONF.db.tables.order.name
+Persistence: row of the table named by cfg.tables.order.name
 <!-- cite: ref=js/order.js:1-9, confidence=inferred -->
 
 - \`order_id\` — string; required (BR-001).
@@ -891,7 +891,7 @@ describe("behaviour diagrams (sequence, collaboration, state machine, object)", 
         {
           id: "ACT-add",
           label: "Add",
-          trigger: { kind: "ng-click", cite: "js/order.js:2" },
+          trigger: { kind: "click", cite: "js/order.js:2" },
           handler: { name: "add", cite: "js/order.js:3-9" },
           guards: ["BR-001"],
           effects: [
@@ -1042,6 +1042,25 @@ describe("behaviour diagrams (sequence, collaboration, state machine, object)", 
     expect(bad.code).toBe(1);
     for (const s of ["OBJ-bad: o1: Order has no field colour", "x: unknown entity Invoice", "link o1-o2: no ER relation Order-Order", "l1: more than one Order"])
       expect(bad.stderr).toContain(s);
+  });
+
+  it("objects-from-db decodes UTF-16 by BOM, else UTF-8, else the job's encoding", () => {
+    const rows = { ord: [{ ID: "A-1", ST: "nyitő" }] };
+    const job = (source: string, encoding?: string) => {
+      const f = join(dir, `enc-${encoding ?? "none"}-${source.slice(-6)}.json`);
+      writeFileSync(f, JSON.stringify({ title: "enc", source, tables: { Order: "ord" }, columns: { Order: { order_id: "ID", status: "ST" } }, joins: [], seed: { entity: "Order", index: 0 }, depth: 0, keep: ["status"], ...(encoding && { encoding }) }));
+      return f;
+    };
+    const cp = join(dir, "cp_db.json");
+    writeFileSync(cp, Buffer.from(JSON.stringify(rows).replace("ő", "\u0000"), "latin1").map((b) => (b === 0 ? 0xf5 : b)));
+    const u16 = join(dir, "u16_db.json");
+    writeFileSync(u16, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify(rows), "utf16le")]));
+    const out = join(pkg, "_local", "objects", "OBJ-enc.json");
+    expect(run(dir, "objects-from-db", pkg, job(cp), out).code).toBe(1);
+    expect(run(dir, "objects-from-db", pkg, job(cp, "windows-1250"), out).stderr).toBe("");
+    expect(read(out)).toContain("nyitő");
+    expect(run(dir, "objects-from-db", pkg, job(u16), out).stderr).toBe("");
+    expect(read(out)).toContain("nyitő");
   });
 
   it("objects-from-db masks every non-kept value, gates joins, and stays local unless --local", () => {

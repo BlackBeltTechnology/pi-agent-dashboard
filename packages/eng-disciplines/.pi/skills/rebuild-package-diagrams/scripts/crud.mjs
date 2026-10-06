@@ -6,7 +6,7 @@ import { join } from "node:path";
 // call: data-layer functions (data.createInactivity, …) write too
 const DATA_KINDS = new Set(["write", "read", "export", "call"]);
 const OPS = ["C", "R", "U", "D"];
-const STOP = new Set(["named", "of", "the", "row", "rows", "by", "per", "name", "table", "tables"]);
+const STOP = new Set(["named", "of", "the", "row", "rows", "by", "per", "name", "table", "tables", "db", "cfg", "conf", "config", "settings", "data"]);
 
 /** Lower-case identifiers of a text plus their camelCase / snake_case parts. */
 function tokens(text) {
@@ -18,12 +18,12 @@ function tokens(text) {
   return out;
 }
 
-/** Entity -> aliases: name, plural, CONF.db.tables keys, table and collection names in its Persistence. */
+/** Entity -> aliases: name, plural, segments of dotted identifiers, table and collection names in its Persistence. */
 export function aliasIndex(model) {
   return model.entities.map((e) => {
     const p = e.persistence || "";
     const al = new Set([e.name.toLowerCase(), `${e.name.toLowerCase()}s`]);
-    for (const m of p.matchAll(/CONF\.db\.tables\.(\w+)/g)) al.add(m[1].toLowerCase());
+    for (const m of p.matchAll(/\b\w+(?:\.\w+)+/g)) for (const seg of m[0].split(".")) al.add(seg.toLowerCase());
     for (const m of p.matchAll(/\btable\s+(\w+)/gi)) al.add(m[1].toLowerCase());
     for (const m of p.matchAll(/\b(?:collection|colection)\s+(\w+)/gi)) al.add(m[1].toLowerCase());
     return { entity: e.name, aliases: [...al].filter((a) => !STOP.has(a)) };

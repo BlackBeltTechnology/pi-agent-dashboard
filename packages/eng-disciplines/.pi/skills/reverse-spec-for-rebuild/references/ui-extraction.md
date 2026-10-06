@@ -7,7 +7,7 @@ model inside the rebuild package (`PKG/ui/`), which `rebuild-package-diagrams` r
 output cites `file:line` relative to the application root (`APP`).
 
 `UX` below is `node <this skill dir>/scripts/ui-extract`. `<adapter>` is a built-in name
-(`angularjs-hta`) or a path to a project adapter `.mjs`.
+(`angularjs`) or a path to a project adapter / profile `.mjs`.
 
 ## Steps
 
@@ -40,18 +40,32 @@ Required for steps 1-3: `id`, `vendor` (dir regex skipped), `sources` (`[{dir, r
 `formViews`, `typeMap` (stack type → `text|number|date|boolean|dropdown`).
 
 Style kit + plans: `styleSources(app, readText)` (app-owned stylesheets in link order,
-vendor excluded), `shell` (`{file}` of the page around every screen), `planViews`
-(template repeat source → form view). Optional: `planAssets` (third-party CSS needed for
-fidelity, e.g. an icon font), `strings(app, conf, readText)` (UI string table for labels),
-`toolbar` (`{ref, assign}` regexes with group 1 = toolbar key: `ref` finds keys in
-conditions/handlers, `assign` finds keys a toolbar action enables; without it the plan
-keeps every toolbar control).
+vendor excluded), `planViews` (template repeat source → form view). Optional: `shell`
+(`{file, toolbarId}`: the page around every screen and the id of its toolbar element),
+`planAssets` (third-party CSS needed for fidelity, e.g. an icon font),
+`strings(app, conf, readText, helpers)` (UI string table for labels), `toolbar` (`{ref, assign}`
+regexes with group 1 = toolbar key: `ref` finds keys in conditions/handlers, `assign` finds keys
+a toolbar action enables; without it the plan keeps every toolbar control), `encoding` (legacy
+code page for sources that are neither UTF-16 nor valid UTF-8; default `windows-1252`),
+`labelLanguages` (`{appLabelKey: openFormsLanguage}` for form translations).
 
-Reference adapter `angularjs-hta`: AngularJS 1.x under mshta (Plantifier) — ng-* attributes,
-`$rootScope.OpBar.<key>` toolbar, `str('key')` strings from `js/strings.js` + `CONF.strings`,
-lodash-`defaultsDeep`-equivalent merge of `conf/` variants. App code is read statically
+**Template dialect** (`dialect`, read by `screen-plan.mjs`; without it the plan reads plain
+HTML): `interpolation` (`[open, close]`), `controlTags` / `selectTags` / `dropTags`,
+`controlAttrs` (make an element a control), `refAttrs` (scanned for toolbar keys),
+`labelAttrs` (label fallback), `bindAttrs` (text bindings), `condition(attrs)`,
+`repeat(attrs)`, `repeatList(expr)` (form-field repeat source), `repeatLabel(expr)`,
+`switchValues(attrs)`, `switchType(field)`, `exprText(expr, env, ctx)` (`{text}` | `{ph}` |
+undefined: i18n calls, field label/key expressions), `decide(conjunct, env)` (true/false/undefined
+inside a field repeat), `classes` (`view`, `dialog`, `dialogHeader`, `dialogBody`,
+`dialogFooter`, `button`), `language` (field-label language, page `lang`).
+
+**Profiles.** An adapter file with `parent: "<built-in name or path>"` is merged over its parent
+(`dialect` key-wise). Hooks receive helpers (`join`, `readText`, `lineAt`, `parseLiteralAt`), so a
+profile needs no import from the skill. Built-in `angularjs`: AngularJS 1.x — ng-* inventory
+patterns, `$routeProvider.when` / ui-router `.state` routes, `templateUrl` loads, `$uibModal`,
+native dialogs, ng-* dialect with `{{ }}` and `'key' | translate`. App code is read statically
 (`js-literal.mjs`), never executed. A new stack (React, Vue, Delphi DFM, Oracle Forms, APEX,
-plain HTML…) needs only a new adapter; keep the record format.
+plain HTML…) needs only a new adapter; a new application only a profile. Keep the record format.
 
 ## Gate rules (`gate.mjs`)
 
@@ -91,7 +105,7 @@ otherwise breaks every later rule. A job component selector absent from the CSS 
 
 ## Pitfalls
 
-- Sources may be UTF-16 (BOM) or cp1250; always read through `lib.mjs` `readText`.
+- Sources may be UTF-16 (BOM) or a legacy code page (adapter `encoding`); always read through `lib.mjs` `readText`.
 - Count only uncommented code: strip comments preserving line numbers before matching.
 - Tracing stops at the data-layer boundary — say so in the effect `target`, do not guess.
 - Browser checks of a regenerated plan/catalog: open a fresh URL; an in-place reload can

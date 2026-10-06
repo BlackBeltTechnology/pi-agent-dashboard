@@ -5,7 +5,7 @@
 | class | put on the ER diagram | typical signals in `model.md` |
 |---|---|---|
 | domain | yes | persisted business rows (orders, items, stock, plan events), or the in-memory aggregate that owns them and is rebuilt from them |
-| config | no (optional appendix) | `CONF.*`, config JSON, rule/definition tables read only at startup |
+| config | no (optional appendix) | config globals / files, rule/definition tables read only at startup |
 | ui | no | screen/modal/grid state, drag objects, view descriptors |
 | test | no | test cases, assertion registries |
 | technical | no | base classes, DB drivers, factories, logs, caches |

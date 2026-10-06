@@ -4,7 +4,7 @@
 // Exit 0 = clean, 1 = violations (printed on stderr), 2 = bad usage.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseCite, readText } from "./lib.mjs";
+import { parseCite, readText, TRIGGER_KINDS } from "./lib.mjs";
 
 const [appDir, pkgDir] = process.argv.slice(2);
 if (!appDir || !pkgDir) {
@@ -89,6 +89,7 @@ for (const f of files) {
     const A = `${W} ${a.id}`;
     unique(A, a.id);
     if (a.trigger?.cite) checkCite(`${A} trigger`, a.trigger.cite);
+    if (a.trigger && !TRIGGER_KINDS.has(a.trigger.kind)) err(A, `trigger kind '${a.trigger.kind}' is not in the vocabulary (${[...TRIGGER_KINDS].join(", ")})`);
     if (a.handler) {
       checkCite(`${A} handler`, a.handler.cite);
       const c = parseCite(a.handler.cite);

@@ -18,7 +18,7 @@ to the application root. `scripts/ui-extract/gate.mjs` checks every rule marked 
     { "file": "js/tasks.js", "from": 836, "to": 870 }
   ],
   "forms": [                               // config-driven forms (forms.mjs output) [gate: ui/forms/<form>.json exists]
-    { "form": "FRM-order-line--plb", "region": "new order lines", "cite": "html/order.htm:18-60" }
+    { "form": "FRM-order-line--custA", "region": "new order lines", "cite": "html/order.htm:18-60" }
   ],
   "fields": [                              // template-defined inputs not covered by a forms/ record
     { "key": "realTaskStart", "label": "…", "type": "text|date|number|checkbox|select|textarea",
@@ -26,8 +26,8 @@ to the application root. `scripts/ui-extract/gate.mjs` checks every rule marked 
   ],
   "actions": [{
     "id": "ACT-order-save",                // [gate: unique]
-    "label": "Save",                       // visible text or str() key
-    "trigger": { "kind": "ng-click|opbar|context-menu|key|modal-button|auto", "cite": "…" },   // opbar = toolbar item enabled by code (adapter `toolbar` hook)
+    "label": "Save",                       // visible text or string-table key
+    "trigger": { "kind": "click|change|toolbar|context-menu|key|modal-button|auto|…", "cite": "…" },   // [gate: kind in lib.mjs TRIGGER_KINDS] toolbar = toolbar item enabled by code (adapter `toolbar` hook)
     "handler": { "name": "save", "cite": "js/order.js:400-460" },   // [gate: name occurs in cited lines]
     "guards": ["BR-244"],                  // refusals before any effect (lock, time domain, rights) — NOT input validation [gate]
     "effects": [                           // traced call chain = BPMN service tasks

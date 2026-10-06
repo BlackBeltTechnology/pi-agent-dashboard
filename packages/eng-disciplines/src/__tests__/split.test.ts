@@ -20,7 +20,7 @@ const run = (cwd: string, ...args: string[]) => {
 };
 
 const act = (id: string, kind: string, extra = {}) => ({ id, label: id, trigger: { kind }, effects: [{ kind: "write", step: `Do ${id}` }], ...extra });
-/** Route SCR-big: 6 opbar, 6 context-menu, 4 key actions; panel opened from it; a second route; an orphan dialog. */
+/** Route SCR-big: 6 toolbar, 6 context-menu, 4 key actions; panel opened from it; a second route; an orphan dialog. */
 const ui = () => ({
   forms: {},
   screens: [
@@ -30,16 +30,16 @@ const ui = () => ({
       name: "Big",
       fields: [{ key: "q", label: "Q", type: "text" }],
       actions: [
-        ...[1, 2, 3, 4, 5, 6].map((n) => act(`ACT-bar-${n}`, "opbar")),
+        ...[1, 2, 3, 4, 5, 6].map((n) => act(`ACT-bar-${n}`, "toolbar")),
         ...[1, 2, 3, 4, 5, 6].map((n) => act(`ACT-menu-${n}`, "context-menu")),
         ...[1, 2, 3, 4].map((n) => act(`ACT-key-${n}`, "key")),
       ],
       dialogs: [{ id: "DLG-sure", kind: "confirm", from: "ACT-bar-1" }],
       navigation: [{ to: "SCR-panel" }],
     },
-    { id: "SCR-panel", kind: "panel", name: "Panel", actions: [act("ACT-p", "ng-click")], navigation: [{ to: "DLG-edit" }] },
+    { id: "SCR-panel", kind: "panel", name: "Panel", actions: [act("ACT-p", "click")], navigation: [{ to: "DLG-edit" }] },
     { id: "DLG-edit", kind: "modal", name: "Edit", actions: [act("ACT-ok", "modal-button")] },
-    { id: "SCR-small", kind: "route", name: "Small", actions: [act("ACT-s", "ng-click")], navigation: [{ to: "DLG-edit" }] },
+    { id: "SCR-small", kind: "route", name: "Small", actions: [act("ACT-s", "click")], navigation: [{ to: "DLG-edit" }] },
     { id: "DLG-orphan", kind: "modal", name: "Orphan", actions: [] },
   ],
 });
@@ -76,7 +76,7 @@ describe("IFML areas and parts", () => {
     const budget = { nodes: 16, edges: 40 };
     const r = S.ifmlParts(ui(), budget);
     const big = r.parts.filter((p: { screens: { id: string }[] }) => p.screens.some((s) => s.id === "SCR-big"));
-    expect(big.map((p: { id: string }) => p.id)).toEqual(["P-SCR-big-opbar", "P-SCR-big-context-menu", "P-SCR-big-key"]);
+    expect(big.map((p: { id: string }) => p.id)).toEqual(["P-SCR-big-toolbar", "P-SCR-big-context-menu", "P-SCR-big-key"]);
     expect(big[0].screens[0].actions).toEqual(["ACT-bar-1", "ACT-bar-2", "ACT-bar-3", "ACT-bar-4", "ACT-bar-5", "ACT-bar-6"]);
     for (const p of r.parts) {
       expect(p.size.nodes, p.id).toBeLessThanOrEqual(budget.nodes);
@@ -85,7 +85,7 @@ describe("IFML areas and parts", () => {
     // the panel left SCR-big's area as its own part; tighter budget chunks a kind group
     expect(r.parts.map((p: { id: string }) => p.id)).toContain("P-SCR-panel");
     const tight = S.ifmlParts(ui(), { nodes: 8, edges: 40 });
-    expect(tight.parts.map((p: { id: string }) => p.id)).toContain("P-SCR-big-opbar-2");
+    expect(tight.parts.map((p: { id: string }) => p.id)).toContain("P-SCR-big-toolbar-2");
   });
 
   it("forms/fields that do not fit beside the first action get their own parts, chunked by field; every part fits", () => {
@@ -108,7 +108,7 @@ describe("IFML areas and parts", () => {
     for (const k of [...Array.from({ length: 9 }, (_, i) => `FRM-big.f${i}`), ...Array.from({ length: 4 }, (_, i) => `fields.s${i}`)])
       expect(all.split(`xmi:id="P.SCR-big.${k}"`).length - 1, k).toBe(1);
     // action parts carry no forms
-    expect(big.find((p: { id: string }) => p.id === "P-SCR-big-opbar").xmi).not.toContain('xmi:type="ifml:Form"');
+    expect(big.find((p: { id: string }) => p.id === "P-SCR-big-toolbar").xmi).not.toContain('xmi:type="ifml:Form"');
   });
 
   it("packs adjacent small trigger-kind groups into one part", () => {
@@ -241,7 +241,7 @@ describe("CLI: check-size, build-site, behaviour export", () => {
     expect(r.stderr).toBe("");
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/^ifml all: \d+ nodes, \d+ edges -> \d+ parts/m);
-    expect(r.stdout).toMatch(/^ifml P-SCR-big-opbar(-1)?: /m);
+    expect(r.stdout).toMatch(/^ifml P-SCR-big-toolbar(-1)?: /m);
     expect(r.stdout).toContain("sm SM-x: 5 transitions -> 1 edges");
     expect(r.stdout).toContain("seq SEQ-x: 5 messages -> 2 parts");
     expect(run(dir, "check-size", pkg, "--max-nodes", "16", "--max-edges", "3", "--strict").code).toBe(0);
@@ -290,6 +290,6 @@ describe("CLI: check-size, build-site, behaviour export", () => {
     const r = run(dir, "ifml-parts", pkg, parts, "--max-nodes", "16");
     expect(r.stderr).toBe("");
     expect(readFileSync(join(parts, "overview.mmd"), "utf8")).toMatch(/^flowchart TB/);
-    expect(readFileSync(join(parts, "P-SCR-big-opbar.xmi"), "utf8")).toContain("ifml:Window");
+    expect(readFileSync(join(parts, "P-SCR-big-toolbar.xmi"), "utf8")).toContain("ifml:Window");
   });
 });

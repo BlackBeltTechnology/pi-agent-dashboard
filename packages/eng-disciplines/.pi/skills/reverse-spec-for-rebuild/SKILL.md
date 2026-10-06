@@ -217,7 +217,9 @@ For a target with a user interface, after the package gate and before promotion
 final). Full commands, adapter contract and rules: `references/ui-extraction.md`;
 record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
 (dependency-free); stack specifics in an adapter (built-in
-`scripts/ui-extract/adapters/angularjs-hta.mjs`, or a project adapter by path).
+`scripts/ui-extract/adapters/angularjs.mjs`, or a project adapter by path). Application
+knowledge (config layering, string tables, toolbar conventions, code page, template
+helpers) goes in a **project-owned profile** with `parent: "<built-in>"` — never into the skill.
 
 1. **Inventory + effective config + forms** (deterministic): `inventory.mjs`,
    `config.mjs` per customer variant, `forms.mjs` / `screen-form.mjs`.
@@ -322,7 +324,7 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
 - **Subagent concurrency cap** — the host may admit only a few subagents at once
   (pi-dashboard: 2) and refuses the rest of a single-message batch. A refused
   spawn is not a failed generator: re-issue it when a running one finishes.
-- **UI sources** may be UTF-16 or cp1250 and carry commented-out code: read
+- **UI sources** may be UTF-16 or a legacy code page (profile `encoding`) and carry commented-out code: read
   through `scripts/ui-extract/lib.mjs`, which decodes and strips comments
   keeping line numbers. Input validations are effects, never guards (the gate
   refuses them).

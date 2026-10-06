@@ -22,6 +22,8 @@ Read-only on the application. Write exactly one file: `{PKG}/ui/screens/{ID}.jso
 2. Read the template and every handler they reach. For each user action, trace the handler
    call chain to its effects (validation, DB/collection writes, ERP/export, navigation,
    dialogs, notifications). Stop tracing at the data layer boundary and cite it.
+   `trigger.kind` is stack-neutral (`click`, `change`, `toolbar`, `context-menu`, `key`,
+   `modal-button`, `auto`, DOM event names — the gate's list): never a framework attribute name.
 3. Link existing package items instead of restating behaviour. For any code range run
    `node {SKILL}/scripts/ui-extract/refs-for.mjs {PKG} <file> <from> <to>` to see which BR/QUIRK/GAP cite it;
    use `grep -n "^### Requirement:" {PKG}/capabilities/*/spec.md` for requirement names.

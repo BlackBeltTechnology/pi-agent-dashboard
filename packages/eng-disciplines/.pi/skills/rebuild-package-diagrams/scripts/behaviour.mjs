@@ -435,13 +435,15 @@ export function objectsSynth(pkgDir, seed, { depth = 2, fanout = 2 } = {}) {
   return { id: `OBJ-${seed}`, title: `${seed} (synthetic)`, source: "synthetic", masked: false, objects, links };
 }
 
-const decodeJson = (buf) => {
-  for (const enc of ["utf-8", "windows-1250"]) {
+/** Snapshot JSON: UTF-16 by BOM, else UTF-8, else the job's `encoding` (legacy code page). */
+const decodeJson = (buf, encoding) => {
+  const tries = buf[0] === 0xff && buf[1] === 0xfe ? ["utf-16le"] : buf[0] === 0xfe && buf[1] === 0xff ? ["utf-16be"] : ["utf-8", encoding].filter(Boolean);
+  for (const enc of tries) {
     try {
       return JSON.parse(new TextDecoder(enc, { fatal: enc === "utf-8" }).decode(buf).replace(/^\uFEFF/, ""));
     } catch {}
   }
-  throw new Error("source is not JSON in UTF-8 or windows-1250");
+  throw new Error(`source is not JSON in ${tries.join(" or ")}${encoding ? "" : " (set the job's encoding for a legacy code page)"}`);
 };
 
 /** Problems with a db extraction job (no source values in any message). */
@@ -530,7 +532,7 @@ function walkJoins(job, store, rowsOf, rels, seed) {
 export function objectsFromDb(pkgDir, job) {
   const entities = new Map(modelOf(pkgDir).entities.map((e) => [e.name, e]));
   const rels = erRelations(pkgDir);
-  const db = decodeJson(readFileSync(job.source));
+  const db = decodeJson(readFileSync(job.source), job.encoding);
   const errs = jobErrors(job, rels, entities, db);
   if (errs.length) return { errors: errs };
   const rowsOf = (ent) => db[job.tables[ent]];

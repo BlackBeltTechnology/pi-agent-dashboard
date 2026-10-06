@@ -34,10 +34,10 @@ event). Fragments: `alt` (with `else`), `opt`, `loop`, `par`.
 ## Method
 
 1. Read the draft, the action in `ui/screens/`, and the architecture elements with their cites.
-2. Follow each effect past the data-layer boundary: the data service, collections, DB facade,
-   DB worker, ERP handler, file/Excel/ActiveX calls. Add a participant only for an architecture
+2. Follow each effect past the data-layer boundary: data service, repositories/caches, DB facade,
+   worker processes, external-system adapters, file / office-automation / COM calls. Add a participant only for an architecture
    element that the call actually reaches (`kind: element`, `ref` = element id); never invent one.
-   Stop at the process boundary (SQL sent, file written, ActiveX call made) and say so in `label`.
+   Stop at the process boundary (SQL sent, file written, COM/OS call made) and say so in `label`.
 3. Every message carries a cite to the line that sends it. Add `refs` (BR/QUIRK/GAP ids or
    `spec:<cap>#<Requirement>`) only for ids that exist and describe this step; find them with
    `node {SKILL}/scripts/ui-extract/refs-for.mjs {PKG} <file> <from> <to>`. Never invent ids.

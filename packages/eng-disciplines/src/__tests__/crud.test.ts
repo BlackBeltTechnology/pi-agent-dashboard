@@ -6,10 +6,12 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { PKG } from "./files";
 
-const DIAGRAMS = join(PKG, ".pi", "skills", "rebuild-package-diagrams", "scripts", "diagrams.mjs");
+const DSK = join(PKG, ".pi", "skills", "rebuild-package-diagrams");
+const DIAGRAMS = join(DSK, "scripts", "diagrams.mjs");
 const run = (cwd: string, ...args: string[]) => {
   const r = spawnSync(process.execPath, [DIAGRAMS, ...args], { cwd, encoding: "utf8" });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -20,14 +22,14 @@ const MODEL = `# Domain model
 ## Order
 Capabilities: x
 Identity: id
-Persistence: row of the table named by CONF.db.tables.orders.name
+Persistence: row of the table named by cfg.tables.orders.name
 
 - \`id\` — string; required.
 
 ## Line
 Capabilities: x
 Identity: id
-Persistence: rows of CONF.db.tables.lines (table order_lines), collection OrderLines
+Persistence: rows of cfg.tables.lines (table order_lines), collection OrderLines
 
 - \`id\` — string; required.
 
@@ -56,7 +58,7 @@ const SCREENS = [
     scope: [],
     actions: [
       { id: "ACT-add", label: "Add", effects: [eff("validate", "check"), eff("write", "OrderLines.___add(line) and data.addOrder(order)")] },
-      { id: "ACT-view", label: "View", effects: [eff("read", "reads CONF.db.tables.orders rows"), eff("state", "zoom")] },
+      { id: "ACT-view", label: "View", effects: [eff("read", "reads cfg.tables.orders rows"), eff("state", "zoom")] },
     ],
   },
   { id: "SCR-b", kind: "route", name: "B", template: "b.htm", scope: [], actions: [{ id: "ACT-del", label: "Del", effects: [eff("write", "Orders.___del({id})"), eff("call", "data.archiveOrder(id)")] }] },
@@ -103,6 +105,11 @@ describe("crud-draft", () => {
     expect(d.effects[0].candidates).toEqual(["Line", "Order"]);
     expect(d.effects[1].candidates).toEqual(["Order"]);
     expect(d.effects[0]).toMatchObject({ kind: "write", cite: "js/a.js:1" });
+  });
+  it("aliases: name, plural, table/collection phrases and dotted-identifier segments (no app convention)", async () => {
+    const { aliasIndex } = await import(pathToFileURL(join(DSK, "scripts", "crud.mjs")).href);
+    const [a] = aliasIndex({ entities: [{ name: "Stock", persistence: "rows of settings.db.tables.stock_rows; table stk" }] });
+    expect(a.aliases.sort()).toEqual(["stk", "stock", "stock_rows", "stocks"]);
   });
   it("includes call effects (data-layer functions can write)", () => {
     const out = join(dir, "draft-b.json");
