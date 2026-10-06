@@ -567,6 +567,49 @@ export function resolveAgentPathGate(
   return cfg;
 }
 
+/**
+ * Per-process bridge activation. `PI_DASHBOARD_BRIDGE` (off/0/false/no |
+ * on/1/true/yes, trimmed, case-insensitive) overrides `bridge.enabled`; any
+ * other value defers to config. Default enabled. The server stamps
+ * `PI_DASHBOARD_BRIDGE=on` on every session spawn, so this only affects
+ * user-launched pi processes. See change: add-bridge-env-opt-out.
+ */
+export interface BridgeActivationConfig {
+  enabled: boolean;
+}
+
+export const DEFAULT_BRIDGE_ACTIVATION: BridgeActivationConfig = { enabled: true };
+
+export function parseBridgeActivation(raw: unknown): BridgeActivationConfig {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return { enabled: typeof r.enabled === "boolean" ? r.enabled : DEFAULT_BRIDGE_ACTIVATION.enabled };
+}
+
+const BRIDGE_ENV_OFF = new Set(["off", "0", "false", "no"]);
+const BRIDGE_ENV_ON = new Set(["on", "1", "true", "yes"]);
+
+/**
+ * Env-only half of the resolution: `false`/`true` when `PI_DASHBOARD_BRIDGE`
+ * holds a recognised value, `undefined` when config must decide.
+ */
+export function bridgeEnvOverride(
+  env: Record<string, string | undefined> = process.env,
+): boolean | undefined {
+  const v = env.PI_DASHBOARD_BRIDGE?.trim().toLowerCase();
+  if (v === undefined) return undefined;
+  if (BRIDGE_ENV_OFF.has(v)) return false;
+  if (BRIDGE_ENV_ON.has(v)) return true;
+  return undefined;
+}
+
+/** Resolve bridge activation: env > config > default (on). */
+export function resolveBridgeEnabled(
+  cfg: BridgeActivationConfig,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return bridgeEnvOverride(env) ?? cfg.enabled;
+}
+
 export interface DashboardConfig {
   port: number;
   piPort: number;
@@ -767,6 +810,8 @@ export interface DashboardConfig {
    */
   accessGrants: AccessGrantsConfig;
   agentPathGate: AgentPathGateConfig;
+  /** Per-process bridge activation (see `BridgeActivationConfig`). */
+  bridge: BridgeActivationConfig;
   /** Networks trusted for full access without authentication (CIDR, wildcard, exact IP) */
   trustedNetworks: string[];
   /**
@@ -1253,6 +1298,7 @@ const DEFAULTS: DashboardConfig = {
   devBuildOnReload: false,
   accessGrants: { promptEnabled: false },
   agentPathGate: { ...DEFAULT_AGENT_PATH_GATE },
+  bridge: { ...DEFAULT_BRIDGE_ACTIVATION },
   defaultModel: "",
   defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
@@ -2052,6 +2098,7 @@ export function loadConfig(): DashboardConfig {
             : defaults.accessGrants.promptEnabled,
       },
       agentPathGate: parseAgentPathGate(parsed.agentPathGate),
+      bridge: parseBridgeActivation(parsed.bridge),
       knownServers: parseKnownServers(parsed.knownServers),
       reattachPlacement: parseReattachPlacement(parsed.reattachPlacement),
       reopenSessionsAfterShutdown: parseReopenSessionsAfterShutdown(parsed.reopenSessionsAfterShutdown),

@@ -72,7 +72,30 @@ describe("Process Manager", () => {
     });
 
     it("adds no endpoint pin when none is given", () => {
-      expect(buildTmuxCommand("/p", true).join(" ")).not.toContain("PI_DASHBOARD_");
+      expect(buildTmuxCommand("/p", true).join(" ")).not.toMatch(/PI_DASHBOARD_(URL|SOCKET)/);
+    });
+
+    // (test-plan #E11) A pane inherits the tmux SERVER's env, so the bridge
+    // activation stamp rides per-window `-e` unconditionally. See change:
+    // add-bridge-env-opt-out (D5).
+    describe.each([true, false])("stamps PI_DASHBOARD_BRIDGE=on (session exists: %s)", (exists) => {
+      it.each([
+        ["no options", () => buildTmuxCommand("/p", exists)],
+        [
+          "token + endpoint + heap",
+          () =>
+            buildTmuxCommand("/p", exists, { spawnToken: "tok" } as never, ["pi"], "--max-old-space-size=4096", {
+              url: "ws://localhost:9999",
+              socket: "/h/gateway-9999.sock",
+            }),
+        ],
+      ])("%s", (_label, build) => {
+        const cmd = build();
+        const idxs = cmd.flatMap((a, i) => (a === "PI_DASHBOARD_BRIDGE=on" ? [i] : []));
+        expect(idxs).toHaveLength(1);
+        expect(cmd[idxs[0] - 1]).toBe("-e");
+        expect(idxs[0]).toBeLessThan(cmd.indexOf("-c"));
+      });
     });
 
     it("should not set PI_DASHBOARD_SPAWNED env var", () => {
@@ -107,7 +130,8 @@ describe("Process Manager", () => {
       );
       expect(cmd).toContain("PI_DASHBOARD_SPAWN_TOKEN=tok-1");
       expect(cmd).toContain("NODE_OPTIONS=--max-old-space-size=512");
-      expect(cmd.filter((a) => a === "-e")).toHaveLength(2);
+      // token + heap + the unconditional bridge stamp (add-bridge-env-opt-out D5).
+      expect(cmd.filter((a) => a === "-e")).toHaveLength(3);
     });
 
     it("emits no -e NODE_OPTIONS pair when no ceiling is configured", () => {
@@ -384,7 +408,9 @@ describe("Process Manager", () => {
           expect(eIdx).toBeGreaterThanOrEqual(0);
           expect(cmd[eIdx + 1]).toBe(`PI_DASHBOARD_SPAWN_TOKEN=${spawnToken}`);
         } else {
-          expect(eIdx).toBe(-1);
+          // Only the unconditional bridge stamp (add-bridge-env-opt-out D5).
+          expect(cmd.filter((a) => a === "-e")).toHaveLength(1);
+          expect(cmd[eIdx + 1]).toBe("PI_DASHBOARD_BRIDGE=on");
           expect(cmd.filter(e => e.startsWith("PI_DASHBOARD_SPAWN_TOKEN=")).length).toBe(0);
         }
       }
@@ -556,8 +582,12 @@ describe("buildTmuxCommand: per-window spawn token", () => {
     expect(cmd).toContain(`PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
   });
 
-  it("omits -e entirely when there is no token", () => {
-    expect(buildTmuxCommand("/home/user/project", true)).not.toContain("-e");
+  it("emits only the bridge -e pair when there is no token", () => {
+    // The bridge activation stamp is unconditional (add-bridge-env-opt-out D5).
+    const cmd = buildTmuxCommand("/home/user/project", true);
+    expect(cmd.filter((a) => a === "-e")).toHaveLength(1);
+    expect(cmd[cmd.indexOf("-e") + 1]).toBe("PI_DASHBOARD_BRIDGE=on");
+    expect(cmd.some((a) => a.startsWith("PI_DASHBOARD_SPAWN_TOKEN="))).toBe(false);
   });
 
   it("keeps a metacharacter token RAW (argv element, not shell-escaped)", () => {

@@ -18,3 +18,5 @@ Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via 
 `parseHostGateMode(raw, absentDefault = "enforce")`: `undefined` → enforce, recognised string → itself, anything else → report (typo cannot lock operator out). `DEFAULTS.hostGate` = `{ mode: "enforce" }` (the loadConfig early returns — no file, empty, malformed JSON — bypass the parser). See change: harden-server-request-surfaces.
 
 `AgentPathGateConfig {enabled=true, timeoutSeconds=120}`, `DEFAULT_AGENT_PATH_GATE`, `parseAgentPathGate`, `resolveAgentPathGate(cfg, env)` (`PI_DASHBOARD_AGENT_PATH_GATE=off|on` override); `DashboardConfig.agentPathGate`. See change: ask-agent-file-access-in-chat.
+
+`BridgeActivationConfig {enabled}` + `DEFAULT_BRIDGE_ACTIVATION` (`enabled:true`), `parseBridgeActivation` (non-boolean → true), `bridgeEnvOverride(env)` (`PI_DASHBOARD_BRIDGE` off/0/false/no | on/1/true/yes, trimmed, case-insensitive; else `undefined`), `resolveBridgeEnabled(cfg, env)` (env > config). `DashboardConfig.bridge` always set by `loadConfig`/`DEFAULTS`; NOT seeded by `ensureConfig`. See change: add-bridge-env-opt-out.

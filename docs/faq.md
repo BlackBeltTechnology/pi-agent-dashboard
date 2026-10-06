@@ -248,6 +248,37 @@ Cross-refs:
 - README.md:470
 - docs/architecture.md:13
 
+## How do I keep the bridge out of my own pi sessions?
+
+Problem: dashboard server registers bridge in `~/.pi/agent/settings.json` → every pi process on host loads it. Loads `ask_user` tool, canvas, role/model tools, `dashboard-*` commands, `pi-dashboard` MCP server, per-turn prompt fragment, connect + auto-start. `autoStart: false` only stops server spawn.
+
+Env opt-out: `PI_DASHBOARD_BRIDGE=off` (`0`, `false`, `no` also; trimmed, case-insensitive). Bridge inert in that process: nothing registered, no connect, no auto-start, no output.
+
+Example: `PI_DASHBOARD_BRIDGE=off pi`
+
+Force-enable: `on`, `1`, `true`, `yes`.
+
+Config opt-out: `{ "bridge": { "enabled": false } }` in `~/.pi/dashboard/config.json`. Default `true`. Non-boolean → `true`. Not seeded by `ensureConfig()`. No Settings UI toggle.
+
+Precedence: env > config > default (on). Unrecognised / empty env → config decides.
+
+Dashboard-spawned sessions always attach. Server stamps `PI_DASHBOARD_BRIDGE=on` in `buildSpawnEnv` (`packages/server/src/spawn-process/process-manager.ts`) + per-window `-e PI_DASHBOARD_BRIDGE=on` in `buildTmuxCommand`. tmux panes inherit tmux server env. Descendants (nested pi, subagents) inherit `on`. Explicit `PI_DASHBOARD_BRIDGE=off` on descendant still wins.
+
+Fail-open: config read error → bridge activates.
+
+Caveats:
+- Package skills (`pi-dashboard`, `browser`, `project-init`, `doctor`) still load — pi loads from package manifest, outside extension factory.
+- Inert pi never registers → no session card. `npm run reload` skips it.
+- pi typed in dashboard terminal panel follows env/config (no stamp).
+- Windows Terminal spawn relies on `wt.exe` env propagation (not guaranteed).
+
+See change: add-bridge-env-opt-out.
+
+Cross-refs:
+- packages/extension/src/bridge-activation.ts (`shouldActivateBridge`)
+- packages/shared/src/config.ts (`resolveBridgeEnabled`, `bridgeEnvOverride`)
+- Issue #818
+
 ## How do I retry the dashboard server launch from the Electron app?
 
 Initial `ensureServer()` attempts run during Electron startup. Failure shows loading page with "Cannot connect to dashboard server".

@@ -75,6 +75,13 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Per-process bridge opt-out** (#818). `PI_DASHBOARD_BRIDGE=off` (also `0`/`false`/`no`)
+  or `bridge.enabled: false` in `~/.pi/dashboard/config.json` makes the bridge inert in a
+  user-launched pi: no tools, commands, MCP server, prompt fragment, connection or auto-start.
+  Env wins over config; `on`/`1`/`true`/`yes` force-enables. Dashboard-spawned sessions are
+  unaffected: the server stamps `PI_DASHBOARD_BRIDGE=on` (spawn env + per-window tmux `-e`).
+  Proposed by @mcowger.
+
 - **`@blackbelt-technology/pi-dashboard-app-kit`** — new library for a standalone SPA
   served from its own origin that talks to a dashboard host. It reads the
   dashboard URL at runtime (`/config.json`), sets the identity mode from the login

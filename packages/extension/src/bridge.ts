@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig, resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { shouldActivateBridge } from "./bridge-activation.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import type {
   ServerToExtensionMessage,
@@ -212,6 +213,10 @@ function getBridgeState(): BridgeState {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Per-process opt-out, decided before ANY registration: an inert bridge
+  // registers no tool/command/handler/MCP and never connects or auto-starts.
+  // Dashboard spawns stamp PI_DASHBOARD_BRIDGE=on. See change: add-bridge-env-opt-out.
+  if (!shouldActivateBridge(process.env, () => loadConfig().bridge)) return;
   try {
     // Activate provider management before bridge init so providers are
     // registered before session_start fires and models_list is sent.
