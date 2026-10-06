@@ -40,6 +40,14 @@ import {
 } from "./resize.js";
 
 export default function imageFitExtension(pi: ExtensionAPI): void {
+  // No ctx exists yet: hold load-time diagnostics (config warnings, the
+  // disabled notice) until session_start, so they reach pi's UI instead of
+  // the TUI prompt line.
+  log.deferUntilContext();
+  pi.on("session_start", async (_event, ctx) => {
+    log.useUiSink(ctx);
+  });
+
   const config: ImageFitConfig = readConfigFromEnv();
 
   if (config.disabled) {

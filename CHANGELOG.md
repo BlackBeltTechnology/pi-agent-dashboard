@@ -166,6 +166,14 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **pi-image-fit no longer writes into the TUI prompt line** (#784, thanks
+  @axelbaumlisto). Resize telemetry now updates a `pi-image-fit` footer status
+  (`ctx.ui.setStatus`), so the dashboard gets no transcript row per screenshot.
+  Warnings use `ctx.ui.notify`. Print/JSON modes keep console output. Load-time
+  messages wait for `session_start`. The output follows the live session after
+  `/reload`, a new session or a fork. New `PI_IMAGE_FIT_QUIET=1` silences all
+  output.
+
 - **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
   (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients
   that accept compression (undici `fetch`, pi's built-in MCP client), so

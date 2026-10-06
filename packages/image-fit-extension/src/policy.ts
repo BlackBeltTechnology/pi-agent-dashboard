@@ -14,6 +14,7 @@
  *    diminishing returns >90.
  */
 
+import { parseBool } from "./env.js";
 import * as log from "./log.js";
 
 export interface ImageFitConfig {
@@ -33,13 +34,6 @@ export const DEFAULTS: Readonly<ImageFitConfig> = Object.freeze({
   maxBytes: 4 * 1024 * 1024, // 4 MiB
   quality: 85,
 });
-
-const TRUTHY = new Set(["1", "true", "yes", "on"]);
-
-function parseBool(raw: string | undefined): boolean {
-  if (!raw) return false;
-  return TRUTHY.has(raw.trim().toLowerCase());
-}
 
 interface ParseRules {
   min: number;
