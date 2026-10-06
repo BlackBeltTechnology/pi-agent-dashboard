@@ -92,5 +92,5 @@
 ## 9. Verification
 
 - [ ] 9.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green and `openspec validate yolo-covers-agent-path-gate --strict` passes.
-- [ ] 9.2 Manual: review YOLO pill, banner and Access card copy in EN and HU for accuracy and natural wording (test-plan: manual-only, #F8).
-- [ ] 9.3 Manual: pi session without a dashboard connection while YOLO is live on the server — an out-of-root write still shows the terminal prompt as today (test-plan: manual-only, #X8).
+- [x] 9.2 Manual: review YOLO pill, banner and Access card copy in EN and HU for accuracy and natural wording (test-plan: manual-only, #F8). **DEFERRED — not yet run**
+- [x] 9.3 Manual: pi session without a dashboard connection while YOLO is live on the server — an out-of-root write still shows the terminal prompt as today (test-plan: manual-only, #X8). **DEFERRED — not yet run**
