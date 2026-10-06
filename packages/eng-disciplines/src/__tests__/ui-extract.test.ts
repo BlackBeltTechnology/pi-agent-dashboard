@@ -23,9 +23,9 @@ describe("ui-extract units", () => {
 
   it("parseHtml keeps line numbers, void and self-closing elements", () => {
     const t = parseHtml('<div class="a">\n  <input ng-model="x">\n  <br />\n  <span>{{y}}</span>\n</div>');
-    const div = t.children.find((n) => n.tag === "div");
+    const div = t.children.find((n: any) => n.tag === "div");
     assert.equal(div.line, 1);
-    const [input, br, span] = div.children.filter((n) => n.tag);
+    const [input, br, span] = div.children.filter((n: any) => n.tag);
     assert.equal(input.tag, "input");
     assert.equal(input.line, 2);
     assert.equal(input.attrs["ng-model"], "x");
@@ -42,12 +42,12 @@ describe("ui-extract units", () => {
   it("buildKit tokenizes colours, keeps layout rules, extracts mapped components with cites", () => {
     const kit = buildKit(CSS, { components: { button: [".button"], "toolbar-item": [".op-bar-elem"] } });
     // #333 and rgb(51,51,51) are one colour token; white -> #ffffff
-    const c333 = kit.tokens.color.find((t) => t.value === "#333333");
+    const c333 = kit.tokens.color.find((t: any) => t.value === "#333333");
     assert.equal(c333.uses, 3);
     const twice = buildKit({ "css/a.css": ".x { color: #fff; border: 1px solid #fff; }" }, {});
     assert.deepEqual(twice.tokens.color[0].cites, ["css/a.css:1"], "a rule using a colour twice is cited once");
     assert.equal(twice.tokens.color[0].uses, 2);
-    assert.ok(kit.tokens.color.some((t) => t.value === "#ffffff" && t.uses === 2));
+    assert.ok(kit.tokens.color.some((t: any) => t.value === "#ffffff" && t.uses === 2));
     assert.equal(kit.tokens.font[0].value, "Calibri");
     assert.ok(!kit.css.includes("#3194FF"), "literal colours replaced by variables");
     assert.match(kit.css, /\.button \{ background: var\(--sk-c-3194ff\);/);
@@ -86,7 +86,7 @@ describe("ui-extract units", () => {
     <button ng-if="OpBar.test && OpBar.test.failed" ng-click="OpBar.test.fixAll()">fix</button></span>
     <span class="op-bar-elem" ng-if="OpBar.import"><button ng-click="OpBar.import()">imp</button></span>
   </div>`;
-  const ctx = () => ({
+  const ctx = (): any => ({
     templateFile: "html/order.htm",
     template: TEMPLATE,
     shellFile: "html/ang.htm",
@@ -152,7 +152,7 @@ describe("ui-extract units", () => {
 
   it("planScreen numbers controls and links them to actions, unmapped reasons and toolbar keys", () => {
     const p = planScreen(ctx());
-    const byLine = Object.fromEntries(p.controls.map((c) => [c.at, c]));
+    const byLine = Object.fromEntries(p.controls.map((c: any) => [c.at, c]));
     assert.equal(byLine["html/order.htm:7"].target.action, "ACT-add");
     assert.equal(byLine["html/order.htm:4"].target.unmapped, "config-driven date input");
     assert.equal(byLine["html/ang.htm:3"].target.action, "ACT-save");
@@ -160,9 +160,9 @@ describe("ui-extract units", () => {
     assert.equal(byLine["html/ang.htm:2"].target.shell, true);
     // template fields recorded on the screen link by cite
     assert.equal(byLine["html/order.htm:9"].target.field, "SCR-x#note");
-    assert.deepEqual(p.unlinked.map((c) => c.at), ["html/order.htm:8"]);
+    assert.deepEqual(p.unlinked.map((c: any) => c.at), ["html/order.htm:8"]);
     // one callout per source line even when a repeat renders the line twice
-    assert.equal(p.controls.filter((c) => c.at === "html/order.htm:5").length, 1);
+    assert.equal(p.controls.filter((c: any) => c.at === "html/order.htm:5").length, 1);
     assert.match(p.html, /data-pl="\d+"/);
   });
 

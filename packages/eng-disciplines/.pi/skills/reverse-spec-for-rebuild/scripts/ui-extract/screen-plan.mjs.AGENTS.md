@@ -1,0 +1,3 @@
+# .pi/skills/reverse-spec-for-rebuild/scripts/ui-extract/screen-plan.mjs — index
+
+`screen-plan.mjs <app> <adapter> <pkg> <ID> [effective.json]` → `ui/plans/<ID>.html`; `planScreen(ctx)` → {html, others, dialogs, controls, unlinked}, `planPage`. Field-repeat expansion, switch-branch + `$first`/`$last`/type conjuncts, `visibility`/`markers`/`callout`/`elementBody`, toolbar filtering only with adapter `toolbar` (`toolbarRefs`, `toolbarKeysOf`), optional `strings`/`planAssets`; exit 1 names unlinked controls. See change: promote-ui-extraction.
