@@ -195,6 +195,11 @@ export interface SessionOptions {
   skills?: string[];
   noSkills?: boolean;
   extensions?: string[];
+  /** add-team-plugin D12: see `SessionFlags`. */
+  appendSystemPrompt?: string[];
+  noContextFiles?: boolean;
+  noProjectTrust?: boolean;
+  sessionDir?: string;
   /**
    * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
    * by `buildSpawnEnv` on the headless mechanism. Name+key are uppercased

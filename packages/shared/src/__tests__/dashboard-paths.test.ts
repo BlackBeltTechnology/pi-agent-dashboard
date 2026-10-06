@@ -8,6 +8,7 @@
  *
  * See change: harvest-bootstrap-survivor-fixes (cherry-pick 1).
  */
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -197,5 +198,34 @@ describe("dashboard-paths getters", () => {
       expect(path.basename(installerLog)).toBe("server.log");
       expect(path.dirname(serverLog)).not.toBe(path.dirname(installerLog));
     });
+  });
+});
+
+describe("piSessionDirForCwd (add-team-plugin D15)", () => {
+  it("E40: matches pi's default per-cwd session folder for POSIX paths", async () => {
+    // pi-core's barrel re-exports via `.ts` specifiers this project's resolver cannot type: load by shape.
+    const { SessionManager } = (await import("@earendil-works/pi-coding-agent")) as unknown as {
+      SessionManager: { create(cwd: string): { getSessionDir(): string } };
+    };
+    const { piSessionDirForCwd } = await import("../dashboard-paths.js");
+    const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-agent-parity-"));
+    const prev = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
+    try {
+      for (const cwd of ["/Users/a/repo", "/tmp/x y"]) {
+        const pi = SessionManager.create(cwd).getSessionDir();
+        expect(piSessionDirForCwd(cwd, { agentDirEnv: agentDir })).toBe(pi);
+      }
+    } finally {
+      if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = prev;
+      fs.rmSync(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("E40: Windows-style cwd encodes separators and the drive colon", async () => {
+    const { piSessionDirForCwd } = await import("../dashboard-paths.js");
+    const dir = piSessionDirForCwd("C:\\work\\repo", { piSessionsDir: "/s" });
+    expect(path.basename(dir)).toBe("--C--work-repo--");
   });
 });

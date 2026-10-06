@@ -375,6 +375,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-system-one-plugin':
         specifier: ^0.8.0
         version: link:../system-one-plugin
+      '@blackbelt-technology/pi-dashboard-team-plugin':
+        specifier: ^0.8.0
+        version: link:../team-plugin
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -1487,6 +1490,116 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.8(react@19.2.8)
+
+  packages/team-app:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.8.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-app-kit':
+        specifier: ^0.8.0
+        version: link:../app-kit
+      '@blackbelt-technology/pi-dashboard-client-utils':
+        specifier: ^0.8.0
+        version: link:../client-utils
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.8.0
+        version: link:../shared
+      '@blackbelt-technology/pi-dashboard-web':
+        specifier: ^0.8.0
+        version: link:../client
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      react-oidc-context:
+        specifier: ^3.3.1
+        version: 3.3.1(oidc-client-ts@3.5.0)(react@19.2.8)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.1.0
+        version: 4.3.3(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+      '@testing-library/jest-dom':
+        specifier: ^7.0.1
+        version: 7.0.1(@testing-library/dom@10.4.1)(vitest@4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.4.0)(jsdom@25.0.1(supports-color@8.1.1))(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0)))
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(supports-color@8.1.1)(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(supports-color@8.1.1)
+      tailwindcss:
+        specifier: ^4.1.0
+        version: 4.3.3
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0)
+      vitest:
+        specifier: ^4.0.0
+        version: 4.1.11(@opentelemetry/api@1.9.0)(@types/node@26.4.0)(jsdom@25.0.1(supports-color@8.1.1))(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/team-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.8.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-client-utils':
+        specifier: ^0.8.0
+        version: link:../client-utils
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.8.0
+        version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      '@mdi/js':
+        specifier: ^7.4.47
+        version: 7.4.47
+      '@mdi/react':
+        specifier: ^1.6.1
+        version: 1.6.1
+      react:
+        specifier: '>=18.0.0'
+        version: 19.2.8
+      react-dom:
+        specifier: '>=18.0.0'
+        version: 19.2.8(react@19.2.8)
+      wouter:
+        specifier: '>=3.0.0'
+        version: 3.10.0(react@19.2.8)
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.1.0
+        version: 16.3.3(@testing-library/dom@10.4.1)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(supports-color@8.1.1)(vite@6.4.3(@types/node@26.4.0)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.23.12)(yaml@2.9.0))
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+      jsdom:
+        specifier: ^25.0.1
+        version: 25.0.1(supports-color@8.1.1)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/untrusted-content-guard:
     dependencies:

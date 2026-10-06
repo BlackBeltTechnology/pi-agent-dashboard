@@ -134,4 +134,53 @@ describe("pluginSpawnToSessionOptions", () => {
     });
     expect(argv).not.toContain("--no-extensions");
   });
+  // ── add-team-plugin D12: appendSystemPrompt / noContextFiles / noProjectTrust / sessionDir ──
+  describe("team persona scope fields (add-team-plugin)", () => {
+    it("E1: appendSystemPrompt + noContextFiles map to argv", () => {
+      const argv = argvFor({
+        cwd: "/w",
+        scope: { appendSystemPrompt: ["/t/persona.md"], noContextFiles: true },
+      });
+      expect(argv).toContain("--append-system-prompt");
+      expect(argv[argv.indexOf("--append-system-prompt") + 1]).toBe("/t/persona.md");
+      expect(argv).toContain("--no-context-files");
+    });
+
+    it("E2: two paths → two separate flag pairs, in order", () => {
+      const argv = argvFor({ cwd: "/w", scope: { appendSystemPrompt: ["/a.md", "/b.md"] } });
+      expect(argv).toEqual(["--append-system-prompt", "/a.md", "--append-system-prompt", "/b.md"]);
+    });
+
+    it("E3: relative / empty / NUL / non-string entries and non-boolean toggles are dropped", () => {
+      const scope = {
+        appendSystemPrompt: ["persona.md", "", "/x\u0000y", 5],
+        noContextFiles: "yes",
+      } as unknown as NonNullable<PluginSpawnOptions["scope"]>;
+      expect(() => argvFor({ cwd: "/w", scope })).not.toThrow();
+      const argv = argvFor({ cwd: "/w", scope });
+      expect(argv).not.toContain("--append-system-prompt");
+      expect(argv).not.toContain("--no-context-files");
+    });
+
+    it("E4: absent fields leave argv byte-identical; tools-only scope adds only --tools", () => {
+      expect(argvFor({ cwd: "/w", model: "m" })).toEqual(["--model", "m"]);
+      expect(argvFor({ cwd: "/w", scope: { tools: ["read"] } })).toEqual(["--tools", "read"]);
+    });
+
+    it("E29: noProjectTrust:true → --no-approve; non-boolean → absent", () => {
+      expect(argvFor({ cwd: "/w", scope: { noProjectTrust: true } })).toContain("--no-approve");
+      const bad = { noProjectTrust: "yes" } as unknown as NonNullable<PluginSpawnOptions["scope"]>;
+      expect(argvFor({ cwd: "/w", scope: bad })).not.toContain("--no-approve");
+    });
+
+    it("E39: sessionDir → --session-dir only for a clean absolute path", () => {
+      const argv = argvFor({ cwd: "/w", scope: { sessionDir: "/s/--repo--" } });
+      expect(argv).toEqual(["--session-dir", "/s/--repo--"]);
+      for (const bad of ["rel", "", "/x\u0000y"]) {
+        expect(argvFor({ cwd: "/w", scope: { sessionDir: bad } })).not.toContain("--session-dir");
+      }
+      const nonString = { sessionDir: 5 } as unknown as NonNullable<PluginSpawnOptions["scope"]>;
+      expect(argvFor({ cwd: "/w", scope: nonString })).not.toContain("--session-dir");
+    });
+  });
 });

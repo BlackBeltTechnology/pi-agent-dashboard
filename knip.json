@@ -471,6 +471,32 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/team-app": {
+      "entry": [
+        "src/standalone.tsx",
+        "src/team-app.tsx",
+        "vite.config.ts",
+        "vite.aliases.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ]
+    },
+    "packages/team-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/extension/index.ts",
+        "scripts/*.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/mockup-loop": {
       "entry": [
         "src/extension.ts",
