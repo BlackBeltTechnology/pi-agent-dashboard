@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   canonicalSubject,
+  isResolvedSubjectWithin,
   isSameSubject,
   isSubjectWithin,
   volumeCaseInsensitive,
@@ -148,5 +149,22 @@ describe("Unicode normalisation", () => {
     if (fs.existsSync(nfd)) {
       expect(isSameSubject(accented, nfd)).toBe(true);
     }
+  });
+});
+
+describe("isResolvedSubjectWithin (test-plan #E16; change: yolo-covers-agent-path-gate)", () => {
+  it("answers containment for an already-resolved, possibly absent candidate", () => {
+    const repo = mk("repo");
+    mk("repo-secrets");
+    const real = fs.realpathSync(repo);
+    const realDir = fs.realpathSync(dir);
+    expect(isResolvedSubjectWithin(path.join(real, "a", "new"), repo)).toBe(true);
+    expect(isResolvedSubjectWithin(path.join(realDir, "repo-secrets", "f"), repo)).toBe(false);
+    expect(isResolvedSubjectWithin(real, repo)).toBe(true);
+    expect(isResolvedSubjectWithin(path.join(real, "a"), path.join(dir, "missing-root"))).toBe(false);
+    const upper = path.join(path.dirname(real), path.basename(real).toUpperCase(), "a");
+    expect(isResolvedSubjectWithin(upper, repo, { caseInsensitive: true })).toBe(true);
+    // the strict contract is unchanged: an absent candidate is never "within"
+    expect(isSubjectWithin(path.join(real, "a", "new"), repo)).toBe(false);
   });
 });

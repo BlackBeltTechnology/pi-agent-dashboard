@@ -156,8 +156,33 @@ export function isSubjectWithin(
   const cc = canonicalSubject(candidate, opts);
   const ca = canonicalSubject(ancestor, opts);
   if (!cc || !ca) return false;
-  if (cc.canonical === ca.canonical) return true;
-  const rel = path.relative(ca.canonical, cc.canonical);
+  return withinCanonical(cc.canonical, ca.canonical);
+}
+
+/** Component-wise containment of two already-canonical strings (equal counts). */
+function withinCanonical(cc: string, ca: string): boolean {
+  if (cc === ca) return true;
+  const rel = path.relative(ca, cc);
   // `..` or `../x` escapes; a child NAMED `..foo` does not.
   return rel !== "" && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+/**
+ * Containment for a candidate that is ALREADY resolved (nearest-existing-ancestor
+ * realpath + non-existent tail), so a not-yet-existing file can be tested.
+ * The ancestor (a root) is canonicalised strictly; the candidate is NFC-folded
+ * and case-folded by the volume rule of its nearest existing ancestor.
+ * See change: yolo-covers-agent-path-gate.
+ */
+export function isResolvedSubjectWithin(
+  resolved: string,
+  ancestor: string,
+  opts?: { caseInsensitive?: boolean },
+): boolean {
+  if (!resolved || !path.isAbsolute(resolved)) return false;
+  const ca = canonicalSubject(ancestor, opts);
+  if (!ca) return false;
+  const caseInsensitive = opts?.caseInsensitive ?? volumeCaseInsensitive(resolved);
+  const nfc = resolved.normalize("NFC");
+  return withinCanonical(caseInsensitive ? nfc.toLowerCase() : nfc, ca.canonical);
 }

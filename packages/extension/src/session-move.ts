@@ -127,6 +127,12 @@ export function createMoveCoordinator(opts: {
   sessionFile?: string;
   /** Surfaced to the user before the move proceeds. */
   warn?: (line: string) => void;
+  /**
+   * Receives the path-gate frames (`dashboard_identity`, `path_yolo_result`,
+   * `path_grant_result`) the target sends: the coordinator owns the target's
+   * inbound handler, so without this they are dropped. See change: yolo-covers-agent-path-gate.
+   */
+  onServerMessage?: (msg: { type?: string }) => void;
 }): MoveCoordinator {
   const timeoutMs = opts.timeoutMs ?? MOVE_TIMEOUT;
   const log = opts.log ?? ((line: string) => console.log(line));
@@ -198,6 +204,10 @@ export function createMoveCoordinator(opts: {
 
           target.onMessage((raw) => {
             const msg = raw as { type?: string; instanceId?: string; token?: string };
+            if (msg?.type === "dashboard_identity" || msg?.type === "path_yolo_result" || msg?.type === "path_grant_result") {
+              opts.onServerMessage?.(msg);
+              return;
+            }
             // Sent in reply to the provisional AND to a refused commit; either
             // way nothing moved, so the origin keeps serving.
             if (msg?.type === "provisional_rejected") return settle({ ok: false, cause: "refused" });

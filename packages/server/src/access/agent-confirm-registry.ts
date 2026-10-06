@@ -13,6 +13,13 @@ const REDEEM_WINDOW_MS = 5_000;
 const DEFAULT_TTL_MS = 120_000;
 const CAP_PER_SESSION = 32;
 
+/**
+ * `confirm` entries are redeemable by a `path_grant_request`; `select` entries
+ * (the gate's select prompt) only by a `path_gate_refusal`. Never cross-kind.
+ * See change: yolo-covers-agent-path-gate.
+ */
+export type RegistryKind = "select" | "confirm";
+
 type State = "pending" | "settled" | "used" | "cancelled";
 
 interface Entry {
@@ -38,16 +45,22 @@ export function createAgentConfirmRegistry(opts: AgentConfirmRegistryOptions = {
   const getTtl = opts.getTtlMs ?? (() => DEFAULT_TTL_MS);
   const redeem = opts.redeemWindowMs ?? REDEEM_WINDOW_MS;
   const cap = opts.capPerSession ?? CAP_PER_SESSION;
-  const bySession = new Map<string, Map<string, Entry>>();
+  const bySession = new Map<string, Record<RegistryKind, Map<string, Entry>>>();
+  const find = (sessionId: string, promptId: string, kind?: RegistryKind): Entry | undefined => {
+    const m = bySession.get(sessionId);
+    if (!m) return undefined;
+    return kind ? m[kind].get(promptId) : (m.confirm.get(promptId) ?? m.select.get(promptId));
+  };
 
   return {
     /** Record a forwarded confirm prompt. A replay of a known promptId is ignored. */
-    observe(sessionId: string, promptId: string, info: { path: string; subject: string }): void {
-      let m = bySession.get(sessionId);
-      if (!m) {
-        m = new Map();
-        bySession.set(sessionId, m);
+    observe(sessionId: string, promptId: string, info: { path: string; subject: string }, kind: RegistryKind = "confirm"): void {
+      let all = bySession.get(sessionId);
+      if (!all) {
+        all = { select: new Map(), confirm: new Map() };
+        bySession.set(sessionId, all);
       }
+      const m = all[kind];
       if (m.has(promptId)) return; // first sight only — never extends expiresAt
       m.set(promptId, { path: info.path, subject: info.subject, expiresAt: now() + getTtl(), state: "pending" });
       while (m.size > cap) {
@@ -58,15 +71,19 @@ export function createAgentConfirmRegistry(opts: AgentConfirmRegistryOptions = {
     },
     /** `prompt_cancel` (timeout / gate cancel): never redeemable again. */
     cancel(sessionId: string, promptId: string): void {
-      const e = bySession.get(sessionId)?.get(promptId);
-      if (e) e.state = "cancelled";
+      for (const kind of ["select", "confirm"] as const) {
+        const e = find(sessionId, promptId, kind);
+        if (e) e.state = "cancelled";
+      }
     },
     /** `prompt_dismiss` (emitted on every settlement): redeemable for a short window. */
     settle(sessionId: string, promptId: string): void {
-      const e = bySession.get(sessionId)?.get(promptId);
-      if (e && e.state === "pending") {
-        e.state = "settled";
-        e.settledAt = now();
+      for (const kind of ["select", "confirm"] as const) {
+        const e = find(sessionId, promptId, kind);
+        if (e && e.state === "pending") {
+          e.state = "settled";
+          e.settledAt = now();
+        }
       }
     },
     clearSession(sessionId: string): void {
@@ -81,8 +98,9 @@ export function createAgentConfirmRegistry(opts: AgentConfirmRegistryOptions = {
       promptId: string,
       req: { path: string; subject: string },
       sameSubject: (a: string, b: string) => boolean,
+      kind: RegistryKind = "confirm",
     ): ConsumeResult {
-      const e = bySession.get(sessionId)?.get(promptId);
+      const e = find(sessionId, promptId, kind);
       if (!e) return { ok: false, error: "unknown confirmation" };
       if (e.state === "used") return { ok: false, error: "confirmation already used" };
       if (e.state === "cancelled") return { ok: false, error: "confirmation was cancelled" };

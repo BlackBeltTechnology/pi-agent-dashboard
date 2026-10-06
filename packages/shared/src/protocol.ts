@@ -802,7 +802,40 @@ export interface PathGrantResultMessage {
  */
 export interface DashboardIdentityMessage {
   type: "dashboard_identity";
-  grantStoreId: string;
+  /** Absent when the server has no announceable grant store. */
+  grantStoreId?: string;
+  /** Server capability flags, e.g. `"path-yolo"`. See change: yolo-covers-agent-path-gate. */
+  features?: string[];
+}
+
+/**
+ * Bridge → server: at the would-prompt point of the agent path gate, ask whether
+ * a live YOLO session answers it. See change: yolo-covers-agent-path-gate.
+ */
+export interface PathYoloRequestMessage {
+  type: "path_yolo_request";
+  requestId: string;
+  sessionId: string;
+  /** Absolute, canonical path of the gated call. */
+  path: string;
+  access: "r" | "w";
+  tool: string;
+}
+
+/** Server → bridge: outcome of a {@link PathYoloRequestMessage}. */
+export interface PathYoloResultMessage {
+  type: "path_yolo_result";
+  requestId: string;
+  verdict: "auto-allow" | "refused" | "decline";
+}
+
+/** Bridge → server: the operator denied/dismissed a gate select prompt (fire-and-forget). */
+export interface PathGateRefusalMessage {
+  type: "path_gate_refusal";
+  sessionId: string;
+  promptId: string;
+  path: string;
+  subject: string;
 }
 
 export interface ProcessInfo {
@@ -983,6 +1016,8 @@ export type ExtensionToServerMessage =
   | PromptDismissMessage
   | PromptCancelMessage
   | PathGrantRequestMessage
+  | PathYoloRequestMessage
+  | PathGateRefusalMessage
   | ReplayCompleteMessage
   | FirstMessageUpdateMessage
   | RolesListMessage
@@ -1571,6 +1606,7 @@ export type ServerToExtensionMessage =
   | HeartbeatAckMessage
   | RegisterRejectedExtensionMessage
   | PathGrantResultMessage
+  | PathYoloResultMessage
   | DashboardIdentityMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage

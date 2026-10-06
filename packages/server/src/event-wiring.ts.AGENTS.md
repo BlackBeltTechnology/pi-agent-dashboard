@@ -28,3 +28,5 @@ Carries the one-release `dispatch_extension_command` TOMBSTONE: on receipt it `c
 
 - Plugin `lifecycle.hidden === true` (fresh resolution only) → `sessionManager.update(sessionId, { hidden: true })` + `browserGateway.broadcastSessionUpdated(sessionId, { hidden: true })`; pinned by `__tests__/plugin-lifecycle-hidden.test.ts`. See change: hide-chat-gateway-sessions.
 - `lifecycle.hidden` apply now writes `{ hidden: true, pluginHidden: true }` (intent survives restart respawn). See change: fix-plugin-hidden-across-restart.
+
+- Identity frame always sent with `features:["path-yolo"]` (`grantStoreId` only when announceable); `path_yolo_request`/`path_gate_refusal` handled via `access/agent-yolo.ts`; select `agent-path-gate` prompts observed (kind `select`); lazy dep `decideAgentPath`. See change: yolo-covers-agent-path-gate.

@@ -519,3 +519,27 @@ describe("a commit the target refuses is a no-op, not a lost session", () => {
     expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
   });
 });
+
+describe("path-gate frames from the move target (change: yolo-covers-agent-path-gate, test-plan #X5)", () => {
+  it("forwards dashboard_identity to the path gate instead of dropping it", async () => {
+    const forwarded: unknown[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    const made: ReturnType<typeof fakeConnection>[] = [];
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      connect: (url) => {
+        const c = fakeConnection(url);
+        made.push(c);
+        return c;
+      },
+      onServerMessage: (m) => forwarded.push(m),
+    });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    made[0].inbound?.({ type: "dashboard_identity", grantStoreId: "tok", features: ["path-yolo"] });
+    acceptProvisional(made[0]);
+    expect((await move).ok).toBe(true);
+    expect(forwarded).toEqual([{ type: "dashboard_identity", grantStoreId: "tok", features: ["path-yolo"] }]);
+  });
+});

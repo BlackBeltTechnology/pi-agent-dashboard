@@ -233,3 +233,19 @@ describe("grant-store-id", () => {
     expect(readGrantStoreId(dir)).toBe("swapped");
   });
 });
+
+describe("registry kinds (change: yolo-covers-agent-path-gate; test-plan #E18)", () => {
+  it("never redeems across kinds and caps each kind separately", () => {
+    const reg = createAgentConfirmRegistry({ now: () => t });
+    const info = { path: "/o/d/a.txt", subject: "/o/d" };
+    reg.observe("S1", "sel", info, "select");
+    reg.observe("S1", "conf", info, "confirm");
+    expect(reg.consume("S1", "sel", info, () => true, "confirm")).toMatchObject({ ok: false });
+    expect(reg.consume("S1", "conf", info, () => true, "select")).toMatchObject({ ok: false });
+    expect(reg.consume("S1", "sel", info, () => true, "select")).toMatchObject({ ok: true });
+    expect(reg.consume("S1", "sel", info, () => true, "select")).toMatchObject({ ok: false });
+    reg.observe("S1", "C2", info, "confirm");
+    for (let i = 0; i < 40; i++) reg.observe("S1", `s${i}`, info, "select");
+    expect(reg.consume("S1", "C2", info, () => true, "confirm")).toMatchObject({ ok: true });
+  });
+});
