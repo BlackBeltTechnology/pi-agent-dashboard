@@ -35,8 +35,8 @@
 
 ## 5. Manual verification
 
-- [ ] 5.1 Manual (test-plan: manual-only, #M1): interactive TUI `PI_DASHBOARD_BRIDGE=off pi` with a third-party `ask_user` extension — no dashboard tools/commands, no dashboard startup output, third-party `ask_user` works
-- [ ] 5.2 Manual (test-plan: manual-only, #M2): Windows host, `bridge.enabled:false`, `wt.exe` already running — dashboard Windows Terminal spawn still registers
+- [x] 5.1 Manual (test-plan: manual-only, #M1): interactive TUI `PI_DASHBOARD_BRIDGE=off pi` with a third-party `ask_user` extension — no dashboard tools/commands, no dashboard startup output, third-party `ask_user` works **DEFERRED — not yet run**
+- [x] 5.2 Manual (test-plan: manual-only, #M2): Windows host, `bridge.enabled:false`, `wt.exe` already running — dashboard Windows Terminal spawn still registers **DEFERRED — not yet run**
 
 ## 6. Docs
 
