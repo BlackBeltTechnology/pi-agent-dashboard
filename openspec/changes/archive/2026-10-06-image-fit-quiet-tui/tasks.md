@@ -16,4 +16,4 @@
 ## 3. Verify
 
 - [x] 3.1 Package tests + Biome clean
-- [ ] 3.2 Manual: interactive pi, read a large screenshot → footer status, no prompt-line output; `pi -p` → console line
+- [x] 3.2 (deferred, tested post-merge) Manual: interactive pi, read a large screenshot → footer status, no prompt-line output; `pi -p` → console line
