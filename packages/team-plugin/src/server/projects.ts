@@ -53,14 +53,19 @@ function parseUsers(v: unknown): UsersSpec | null {
   return null;
 }
 
+/** Strip leading/trailing "-" with plain loops (no backtracking regex on caller-controlled input). */
+function trimDashes(v: string): string {
+  let a = 0;
+  let b = v.length;
+  while (a < b && v[a] === "-") a++;
+  while (b > a && v[b - 1] === "-") b--;
+  return v.slice(a, b);
+}
+
 function slugify(base: string): string {
-  const s = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/, "");
-  return isSlug(s) ? s : "project";
+  const s = trimDashes(base.toLowerCase().replace(/[^a-z0-9]+/g, "-")).slice(0, 40);
+  const t = trimDashes(s);
+  return isSlug(t) ? t : "project";
 }
 
 export class ProjectRegistry {
