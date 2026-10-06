@@ -12,6 +12,8 @@
  *      backend): sign in at the IdP → back on the plugin page with the token in
  *      memory → bearer API + ticketed socket → sign out ends the IdP session.
  */
+import fs from "node:fs";
+import path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { lanIPv4, readState } from "./matrix-lifecycle.js";
 import { SCENARIOS, type Scenario } from "./scenarios.js";
@@ -149,6 +151,24 @@ for (const s of SCENARIOS) {
         expect(new URL(page.url()).hash).toBe("");
         await page.waitForTimeout(1_500);
         await expect(login).toHaveAttribute("data-variant", "error"); // no silent retry loop
+      });
+      test("IdP down + break-glass gets in: `login --local` code → ?pi_local= → local operator, no IdP (D23)", async ({ page, request }) => {
+        const home = readState().instances[s.id].home;
+        const token = fs.readFileSync(path.join(home, ".pi", "dashboard", "local", "token"), "utf8").trim();
+        const issued = await request.post(`${base(s)}/api/identity/local-code`, { headers: { "x-pi-local-token": token }, data: {} });
+        expect(issued.status()).toBe(200);
+        const { code } = (await issued.json()).data as { code: string };
+        // Signed out + IdP down: the login page is what a visitor sees (control).
+        await page.goto(`${base(s)}/`);
+        await expect(page.getByTestId("login-page")).toBeVisible({ timeout: 20_000 });
+        // The host operator's link gets in: login page gone, user line names the break-glass operator.
+        await page.goto(`${base(s)}/?pi_local=${encodeURIComponent(code)}`);
+        await expect(page.getByTestId("user-bar")).toContainText("Local operator (break-glass)", { timeout: 20_000 });
+        await expect(page.getByTestId("login-page")).toHaveCount(0);
+        expect(page.url()).not.toContain("pi_local"); // code stripped at once
+        // One-time: the same code is dead.
+        const again = await request.post(`${base(s)}/api/identity/local-exchange`, { data: { code } });
+        expect(again.status()).toBe(401);
       });
       test("plugin sign-in with the IdP down shows the plugin's error page", async ({ page }) => {
         await page.goto(`${base(s)}/identity-login/`);

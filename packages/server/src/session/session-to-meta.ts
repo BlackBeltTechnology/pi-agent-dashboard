@@ -97,6 +97,9 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // session. `undefined` (a normal user session) serializes to no key, so the
     // byte-identity guard holds. See change: detach-automation-goal-from-core.
     recover: session.recover,
+    // Plugin-declared hide intent; same full-overwrite hazard as `recover`.
+    // Undefined on user sessions → no key. See change: fix-plugin-hidden-across-restart.
+    pluginHidden: session.pluginHidden,
     // Session classification + automation-run identity. MUST be enumerated here
     // because this save is a FULL overwrite (not a merge) — the spawn seam
     // merges them onto the sidecar, and omitting them here wipes both on the

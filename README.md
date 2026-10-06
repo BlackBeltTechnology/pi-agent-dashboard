@@ -9,12 +9,12 @@
 [![CI](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@blackbelt-technology/pi-agent-dashboard)](https://www.npmjs.com/package/@blackbelt-technology/pi-agent-dashboard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/DrNebZ3pF5)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/uQsJgsejb)
 
 **One browser tab to command an army of [pi](https://github.com/badlogic/pi-mono) agents.** Spawn parallel sessions, watch reasoning live, attach OpenSpec changes, ship work — from your laptop or phone.
 
 🌐 **Website & demo:** [blackbelttechnology.github.io/pi-agent-dashboard](https://blackbelttechnology.github.io/pi-agent-dashboard) — animated tour, screenshots, and install guide.
-💬 **Community:** [Join our Discord](https://discord.gg/DrNebZ3pF5) — questions, help, and release news.
+💬 **Community:** [Join our Discord](https://discord.gg/uQsJgsejb) — questions, help, and release news.
 📝 **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
 
 > **Note:** This dashboard only works with [pi](https://github.com/badlogic/pi-mono). Oh My Pi is **not** supported.
@@ -442,7 +442,8 @@ In the Electron app, if the initial launch attempts fail (or the server is stopp
 ```bash
 pi-dashboard start           # background daemon (production)
 pi-dashboard start --dev     # dev mode (proxy to Vite, fallback to production build)
-pi-dashboard stop            # stop daemon (also kills stale port holders)
+pi-dashboard stop            # stop daemon; also kills port holders THIS HOME owns (lock sidecar / health identity)
+pi-dashboard stop --force    # DANGEROUS: kills EVERY listener on the ports - another HOME's/user's dashboard, the Electron server, or an unrelated service. Only to recover an orphaned listener nothing else can attribute; `restart` ignores it
 pi-dashboard restart         # restart (production)
 pi-dashboard restart --dev   # restart in dev mode
 pi-dashboard status          # daemon status

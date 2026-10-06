@@ -8,62 +8,62 @@
       "order": 0
     },
     {
-      "id": "pi-update",
-      "name": "Pi Update",
-      "color": "#3b82f6",
-      "order": 1
-    },
-    {
       "id": "copilot-assistant",
       "name": "Copilot / Assistant",
-      "order": 2
+      "order": 1
     },
     {
       "id": "ai-team",
       "name": "AI Team",
       "color": "#a855f7",
-      "order": 3
+      "order": 2
     },
     {
       "id": "next-phase",
       "name": "Next phase",
       "color": "#3b82f6",
-      "order": 4
+      "order": 3
     },
     {
       "id": "kowledge-base",
       "name": "Kowledge Base",
       "color": "#f97316",
-      "order": 5
+      "order": 4
     },
     {
       "id": "electrun-execution",
       "name": "Electrun execution",
       "color": "#a855f7",
-      "order": 6
+      "order": 5
     },
     {
       "id": "future",
       "name": "Future",
       "color": "#f97316",
-      "order": 7
+      "order": 6
     },
     {
       "id": "separate-functions-to-plugins",
       "name": "Separate functions to plugins",
       "color": "#ef4444",
-      "order": 8
+      "order": 7
     },
     {
       "id": "ui-extensions",
       "name": "UI Extensions",
       "color": "#eab308",
-      "order": 9
+      "order": 8
     },
     {
       "id": "security",
       "name": "Security",
       "color": "#ef4444",
+      "order": 9
+    },
+    {
+      "id": "pi-update",
+      "name": "Pi Update",
+      "color": "#3b82f6",
       "order": 10
     }
   ],
@@ -107,8 +107,8 @@
     "add-lora-dataset-export-skill": "kowledge-base",
     "security-boundary-audit": "security",
     "sanitize-untrusted-rendered-content": "security",
-    "harden-untrusted-content-ingestion": "security",
-    "harden-trust-and-credential-boundaries": "security",
+    "harden-untrusted-content-ingestion": "ui",
+    "harden-trust-and-credential-boundaries": "ui",
     "harden-server-capability-bounds": "security",
     "harden-electron-renderer-boundary": "security",
     "fix-git-checkout-command-injection": "security",
@@ -291,7 +291,15 @@
     "extract-standalone-app-kit": "ai-team",
     "add-team-plugin": "ai-team",
     "add-voice-wall-plugin": "copilot-assistant",
-    "add-voice-assistant-dashboard-plugin": "copilot-assistant"
+    "add-voice-assistant-dashboard-plugin": "copilot-assistant",
+    "ask-agent-file-access-in-chat": "ui",
+    "remediate-accent-text-contrast": "ui",
+    "improve-kb-settings-sources-and-search": "ui",
+    "add-plugin-app-host": "ui",
+    "add-passkey-user-auth": "ui",
+    "add-multi-user-identity-plane": "ui",
+    "fix-appimage-cold-boot-latency": "ui",
+    "bundle-plugin-third-party-deps": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [],
@@ -304,7 +312,7 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "speed-up-ci-affected-tests"
+      "bundle-plugin-third-party-deps"
     ],
     "next-phase": [
       "add-session-trajectory-view",
@@ -330,15 +338,8 @@
       "focus-driven-folder-compaction"
     ],
     "security": [
-      "security-boundary-audit",
-      "harden-untrusted-content-ingestion",
       "harden-server-capability-bounds",
-      "harden-trust-and-credential-boundaries",
-      "fix-git-checkout-command-injection",
-      "add-supervised-tool-approval",
-      "add-universal-network-guard",
-      "harden-electron-renderer-boundary",
-      "sanitize-untrusted-rendered-content"
+      "harden-electron-renderer-boundary"
     ],
     "pi-update": [
       "cleanup-stale-fork-specs"

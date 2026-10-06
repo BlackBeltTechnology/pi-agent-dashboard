@@ -58,7 +58,7 @@ describe("mergeCwdPolicy — non-weakening composition algebra", () => {
 
   it("CE19: policy allowlist applies when the caller omits tools", () => {
     const merged = mergeCwdPolicy({ tools: ["read"] }, {} as CwdPolicy);
-    expect(merged.tools).toEqual(["read"]);
+    expect(merged.tools).toEqual(["read"]); // intersected with the policy
   });
 
   it("CE20: composition is order-independent across 3+ ancestors", () => {
@@ -249,5 +249,23 @@ describe("CwdPolicyRegistry — symlink robustness (canonical OR lexical)", () =
     // The tightening floor must STILL apply (lexical match) — never fail open.
     expect(reg.resolve(target)?.noTools).toBe(true);
     unlinkSync(target);
+  });
+});
+
+describe("mergeCwdPolicy — persona scope fields pass through (add-team-plugin E5)", () => {
+  it("appendSystemPrompt / noContextFiles / noProjectTrust / sessionDir are untouched", () => {
+    const options = {
+      tools: ["read", "write"],
+      appendSystemPrompt: ["/t/persona.md"],
+      noContextFiles: true,
+      noProjectTrust: true,
+      sessionDir: "/s/--w--",
+    };
+    const merged = mergeCwdPolicy({ tools: ["read"] }, options) as typeof options & { tools?: string[] };
+    expect(merged.appendSystemPrompt).toEqual(["/t/persona.md"]);
+    expect(merged.noContextFiles).toBe(true);
+    expect(merged.noProjectTrust).toBe(true);
+    expect(merged.sessionDir).toBe("/s/--w--");
+    expect(merged.tools).toEqual(["read"]); // intersected with the policy
   });
 });

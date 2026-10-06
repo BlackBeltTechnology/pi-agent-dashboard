@@ -246,6 +246,9 @@ export function sessionFromMeta(
     // classify an interrupted session without re-reading the sidecar. Absent
     // ⇒ recoverable (default true). See change: detach-automation-goal-from-core.
     recover: meta.recover,
+    // Plugin-declared hide intent, honoured by the register decision on a
+    // non-reattach re-register after restart. See change: fix-plugin-hidden-across-restart.
+    pluginHidden: meta.pluginHidden,
     // Reconstruct worktree parentage from the persisted grouping subset so
     // cold-start grouping (no live bridge) collapses this session under its
     // parent repo via `resolveSessionGroupPath`, matching live-bridge grouping.

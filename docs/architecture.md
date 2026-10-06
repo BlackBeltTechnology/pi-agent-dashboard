@@ -1000,7 +1000,7 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 **Plugin settings persistence:**
 - All plugin settings live under `plugins.<id>.*` in `~/.pi/dashboard/config.json`. The dashboard core never reads or writes another plugin's namespace.
 - Each manifest may declare a `configSchema` (JSON Schema 7); the loader validates on read (with defaults applied) and on write (rejects invalid).
-- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers.
+- `POST /api/config/plugins/:id` accepts a partial config for a single plugin and broadcasts `plugin_config_update { id, config }` to all subscribed browsers. Omitted keys keep stored values: validation runs on a clone so Ajv `useDefaults` cannot inject defaults into the merge; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - The client-side `pluginContext.usePluginConfig<T>()` hook is reactive — consumers re-render within one frame of a write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate to `plugins.<id>.*` on the plugin's first server boot.
 
@@ -1305,6 +1305,18 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
 - `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
+
+### Plugin Session Lifecycle Declarations (`hide-chat-gateway-sessions`)
+
+`ServerPluginContext.spawnSession` accepts `PluginSpawnOptions.lifecycle: PluginSessionLifecycle` (`packages/dashboard-plugin-runtime/src/server/server-context.ts`). Owning plugin declares per-session lifecycle decisions; core reads the flags, never the plugin name.
+
+- `recover?: boolean` — `false` opts owned session out of cold-start recovery (default recoverable). Persisted to `.meta.json` only when `false` (additive opt-out byte).
+- `finalizeOnSocketClose?: boolean` — `true` finalizes owned session on socket close, no reconnect grace. In-memory only; read at pi-gateway socket-close finalize branch.
+- `hidden?: boolean` — `true` hides owned session from board on FIRST register. Same `hidden` flag as headless auto-hide (`packages/server/src/session/memory-session-manager.ts`); revealed by "show hidden" toggle. Persisted to `.meta.json`, broadcast via `broadcastSessionUpdated`. Applied on fresh spawn-token resolution only (`packages/server/src/event-wiring.ts`); reattach never re-applies, so a later operator unhide survives. Persists the INTENT as `pluginHidden: true` on the session + `.meta.json` (`session-to-meta.ts`, restored by `sessionFromMeta` in `session-scanner.ts`) so a post-restart respawn re-register (`registerReason: "spawn"`, no token) keeps hidden. `register` order: reattach → `existing.hidden`; `visibilityIntent`; `existing.pluginHidden === true` → hidden; else headless heuristic. Explicit `visibilityIntent: "visible"` still wins. Pre-fix hidden sessions carry no `pluginHidden` → not migrated. See change: fix-plugin-hidden-across-restart.
+- `pending-plugin-ref-registry.ts` (`packages/server/src/pending/`) files a lifecycle record when ANY of `recover`/`finalizeOnSocketClose`/`hidden` set.
+- Sibling hook `ServerPluginContext.shutdownSession(sessionId): Promise<boolean>` ends a session like the dashboard **Shutdown**. Trusted plugins only (manifest `priority <= 100`); untrusted or unknown session → `false`. Reuses `browserGateway.shutdownSession` — same body as `POST /api/session/:id/shutdown`, never a parallel `{type:"shutdown"}` path (#449/#452). First consumer: chat-gateway `!close`. See change: chat-gateway-close-command.
+- First consumer: chat-gateway spawn/resume (`sessionVisibility: "hidden"` default). See [`chat-gateway.md`](chat-gateway.md).
+- See change: hide-chat-gateway-sessions, fix-plugin-hidden-across-restart.
 
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
 
@@ -4185,7 +4197,7 @@ The `POST /api/restart` endpoint and `pi-dashboard restart` command perform faul
 3. Wait for old server's port to become free (up to 10s)
 4. Start new server with the same (or overridden) flags
 5. Verify health via `/api/health` (up to 10s)
-6. `pi-dashboard stop` also kills any stale processes holding the port (via `lsof`)
+6. `pi-dashboard stop` sweeps the ports `start` would bind, but kills only listeners this `HOME` proves it owns (`server.lock.meta.json` pid + `httpPort` match, or `/api/health` `instanceId` + pid match); `server.pid` is not a proof. Unattributable holders are reported + left running (exit 0). `--force` kills every listener (dangerous; orphan recovery only). `restart` ignores `--force`.
 
 The restart endpoint accepts `{ dev: boolean }` to switch between dev/production mode.
 
@@ -4193,14 +4205,34 @@ The restart endpoint accepts `{ dev: boolean }` to switch between dev/production
 
 Dashboard server spawned via `node --import <loader> <cli.ts>` from 4 call sites (`packages/server/src/cli.ts` `cmdStart`, `packages/extension/src/server-launcher.ts` `launchServer`, `packages/electron/src/lib/server-lifecycle.ts` `launchServer`, `packages/server/src/restart-helper.ts` `buildOrchestratorScript`). On Node ≥ 20, Windows's ESM loader parses **both** `--import` loader position AND entry-script position as URLs. Raw Windows path like `B:\Dev\cli.ts` parses with scheme `b:` (not in ESM loader's `file`/`data`/`node` allowlist) + crashes with `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Node has drive-letter heuristic that auto-wraps common Windows paths with `file://` before URL parse in entry-script position, but heuristic has known gaps for less-common drives (`A:`, `B:`, …), so reliance unsafe.
 
-Both positions are wrapped as `file://` URLs universally:
+Loader position wrapped as `file://` universally; entry position wrapped per `shouldUrlWrapEntry(loader, platform)` — raw for tsx, jiti, and the native loader on every OS, `file://` only for other / unknown loaders on win32:
 
-- `packages/shared/src/platform/node-spawn.ts` — `toFileUrl(pathOrUrl)` (idempotent path → file:// URL, handles Windows drive letters on POSIX hosts) and `spawnNodeScript(opts)` (wraps both loader and entry before delegating to `platform/exec.ts::spawn`). This is the canonical chokepoint.
+- `packages/shared/src/platform/node-spawn.ts` — `toFileUrl(pathOrUrl)` (idempotent path → file:// URL, handles Windows drive letters on POSIX hosts) and `spawnNodeScript(opts)` (wraps loader; applies `shouldUrlWrapEntry` to entry before delegating to `platform/exec.ts::spawn`). Canonical chokepoint.
 - `packages/shared/src/resolve-jiti.ts` — `resolveJitiImport()` and `resolveJitiFromAnchor(anchorPath)` return `pathToFileURL(registerPath).href` for the loader position.
 - `packages/server/src/cli.ts` — routes through `spawnNodeScript`.
-- `packages/extension/src/server-launcher.ts`, `packages/electron/src/lib/server-lifecycle.ts`, `packages/server/src/restart-helper.ts` — wrap the entry `cliPath` with `toFileUrl(cliPath)` before argv construction.
+- `packages/extension/src/server-launcher.ts`, `packages/electron/src/lib/server-lifecycle.ts`, `packages/server/src/spawn-process/restart-helper.ts` — build argv via `buildNodeImportArgvParts`, which wraps loader + applies `shouldUrlWrapEntry` to entry.
 
-The URL form is cross-platform safe (Linux/macOS accept `file://` URLs identically to raw paths), so no platform gating is needed. A repo-level lint test (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) refuses any new call site that passes a raw identifier as argv after `--import` / `--loader`, preventing regression. Mirrors the `platform/exec.ts` + `no-direct-child-process.test.ts` pattern. See changes: `fix-windows-server-parity` (loader position), `fix-windows-entry-script-url` (entry-script position).
+The URL form is cross-platform safe (Linux/macOS accept `file://` URLs identically to raw paths). Entry wrapping is platform-gated via `shouldUrlWrapEntry`. A repo-level lint test (`packages/shared/src/__tests__/no-raw-node-import.test.ts`) refuses any new call site that passes a raw identifier as argv after `--import` / `--loader`, preventing regression. Mirrors the `platform/exec.ts` + `no-direct-child-process.test.ts` pattern. See changes: `fix-windows-server-parity` (loader position), `fix-windows-entry-script-url` (entry-script position).
+
+#### TypeScript loader (native default, jiti opt-in)
+
+Every fresh server launch boots the Node-native TS loader by default: `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (+ `native-ts-hooks.mjs`). Hooks strip types via `module.stripTypeScriptTypes` in `transform` mode. No transpile cache.
+
+**Why:** jiti cache dir `resources/server/node_modules/.cache/jiti` read-only on FUSE-mounted AppImage → every launch cold-transpiles → >240 s boot on Ubuntu 22.04. Native boots in 3–5 s (spike CI runs 37285545559, 37286703495). See change: `fix-appimage-cold-boot-latency`.
+
+**Selection:** `selectTsLoader(env)` in `packages/shared/src/platform/ts-loader-select.mjs` (plain `.mjs`, runs pre-loader). `PI_DASHBOARD_TS_LOADER=jiti` → jiti (rollback). Unknown value → warn + native. Reads launching process env; `opts.env` overlay never selects.
+
+**Launch sites:** `launchDashboardServer` (`packages/shared/src/server-launcher.ts`; log header `…, loader <url>)`), `packages/server/bin/pi-dashboard.mjs`, Electron `spawnFromSource`, bridge auto-start, `start-server.{sh,cmd,ps1}` (fixed bundle path `node_modules/@blackbelt-technology/pi-dashboard-shared/src/platform/native-ts-register.mjs`), `assert-bundled-server-plugin-load.mjs`, Electron Doctor launch test.
+
+**Workers** keep inherited loader (native or jiti); `fit-worker-pool.workerExecArgv` adds selected loader when none.
+
+**`/api/restart`** keeps running loader → loader switch needs fresh launch (`pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start`, or Electron relaunch).
+
+**Entry wrap:** entry raw for native AND jiti on every OS (`shouldUrlWrapEntry` false for both); loader position always `file://`. Why: under any `--import` loader Node `path.resolve()`s the main entry before building its URL → `file:///D:/…` entry becomes `D:\<cwd>\file:\D:\…` → `ERR_MODULE_NOT_FOUND` (win32 CI run 37347903583).
+
+**Loader-neutral source:** server-loaded TS must not use bare `require`/`__dirname`/`__filename`/`module.exports`/`exports.` nor value-import `.tsx`; use `createRequire(import.meta.url)`. Gate: `scripts/check-loader-neutral-source.mjs` (AST, wired into `npm test`).
+
+pi extensions + plugin bridges still load under pi's jiti (separate process).
 
 #### stdout + stderr capture parity
 
@@ -5257,7 +5289,7 @@ Pre-fix, both cases shared the misleading wording "Server failed to start within
 
 ### The runtime jiti version contract (Defect 2 defense)
 
-`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. The Windows-non-tsx arm wraps with `file://` to sidestep Node's drive-letter URL-scheme parsing (`B:`, `A:` are otherwise treated as URL schemes). This rule **assumes** the jiti loader is from `pi-coding-agent@0.70.x` (jiti 2.x), which correctly handles `file:///` URL entries on Windows. Newer jiti versions (2.6.5 in pi 0.71.x) misnormalize triple-slash URLs.
+`shouldUrlWrapEntry()` in `packages/shared/src/platform/node-spawn.ts` decides whether the entry-script position in `node --import <loader> <entry>` argv needs `file://` URL wrapping. Entry raw for tsx, jiti, and the native loader (`platform/native-ts-register.mjs`) on every OS. Only other / unknown loaders on win32 wrap with `file://` — sidesteps Node's drive-letter URL-scheme parse (`B:`, `A:` otherwise read as URL schemes). Loader position always `file://`. See change: `fix-appimage-cold-boot-latency`.
 
 The contract holds because Defect 1's fix populates `~/.pi-dashboard/` with `pi-coding-agent` at the offline-cacache-pinned version. The runtime `resolveJitiFromPi()` chain is `managed → system`; once managed is populated with the pinned version, system pi (which may be a newer 0.71.x) is never reached.
 
@@ -5823,6 +5855,23 @@ Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure
 Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
 
 See change: fix-kb-search-retrieval-quality.
+
+### Sources, trust & dashboard reindex
+
+Settings page `packages/kb-plugin/src/client/KbSettingsPanel.tsx`. Add via `KbSourceAdd`. Kind toggle `Folder | Git repo | URL`. `Browse…` uses host primitive `ui:path-picker` (soft hook — hidden on older hosts). Folder inside cwd stored relative (`docs`); outside stored absolute + `outside folder` badge. GitHub/GitLab/`git@`/`git:` refs auto-select Git. Folder mode refuses `scheme://`, `git@`, `git:`, `npm:` refs. One source per `ref`; ref = index root; duplicate refs erase each other's chunks.
+
+`reindexAll` (`packages/kb-plugin/src/server/kb-routes.ts`) walks `cfg.allSourceSpecs` — all kinds (filesystem/git/https/npm) via engine resolvers. Each source isolated: failure → `error` outcome, job `jobStatus:"error"`, `lastError` `"N source(s) failed: …"` (≤500 chars); untrusted → skipped, job stays idle; failed/skipped source keeps prior chunks. `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server event loop. Reindex gate = saved `allSourceSpecs.length > 0`.
+
+Trust = TOFU, global. Store `~/.pi/dashboard/kb-source-trust.json`, keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`. Grant path: UI trust dialog (`Trust & add` / `Add without trusting` / `Cancel`) → `PUT /api/kb/config` `trustRefs`, or `POST /api/kb/source-trust {ref}`. Server records SAVED spec matched by exact `ref` (404 none, 409 duplicate refs, 400 filesystem, 500 persist failure). `untrustedRefs` in PUT response lists grants that failed. Trust-store write atomic (`tmp`+rename); `recordTrust` returns boolean. Fetch-side SSRF/zip-slip guards from change `harden-untrusted-content-ingestion` (`net-guard.ts`, `archive-guard.ts`).
+
+### KB source & search routes
+
+- `GET /api/kb/sources?cwd=` — per-source kind, files, trusted, outside, last outcome.
+- `GET /api/kb/search?cwd=&q=&limit=&docType=` — read-only test search over SAVED index. Opens existing store only — no init, no migrate, no create. `q` 1–512, `limit` 1–50 (default 10), `docType` `doc|agents|source-md`. No reindex, no verdicts. Stale schema → `needsReindex:true`.
+
+All cwd-guarded (`isAllowedCwd`).
+
+See change: improve-kb-settings-sources-and-search.
 
 ## Pi Gateway Transport & Identity
 

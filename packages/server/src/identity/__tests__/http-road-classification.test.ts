@@ -117,3 +117,14 @@ describe("classifyHttpRoad — roads", () => {
     expect(classifyHttpRoad("GET", "/api/git/status")).toMatchObject({ resource: { route: "/api/git/status" } });
   });
 });
+
+describe("proxied roads (18.37c)", () => {
+  it("/live/* classifies live.<verb>, /editor/* classifies editor.write", () => {
+    expect(classifyHttpRoad("GET", "/live/:id/*")).toEqual({ road: "non-session", action: "live.read", resource: { kind: "live", route: "/live/:id/*" } });
+    expect(classifyHttpRoad("POST", "/live/:id/*")).toMatchObject({ action: "live.write" });
+    expect(classifyHttpRoad("GET", "/editor/:id/*")).toEqual({ road: "non-session", action: "editor.write", resource: { kind: "editor", route: "/editor/:id/*" } });
+  });
+  it("other non-/api roads stay unclassified", () => {
+    expect(classifyHttpRoad("GET", "/assets/x.js")).toBeUndefined();
+  });
+});

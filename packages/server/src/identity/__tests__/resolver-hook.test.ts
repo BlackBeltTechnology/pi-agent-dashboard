@@ -1,6 +1,7 @@
 import type { AuthContext, ResolverOutcome } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { BreakGlass } from "../break-glass.js";
 import { registerResolverHook } from "../resolver-hook.js";
 import { BUNDLED_RESOLVER_PLUGIN_ID, ResolverRegistry } from "../resolver-registry.js";
 
@@ -13,7 +14,7 @@ afterEach(async () => {
 
 async function build(
   registry: ResolverRegistry,
-  opts: { deviceAuthed?: boolean; isEnforced?: () => boolean } = {},
+  opts: { deviceAuthed?: boolean; isEnforced?: () => boolean; breakGlass?: BreakGlass; onBreakGlassUse?: () => void } = {},
 ): Promise<FastifyInstance> {
   app = Fastify();
   app.decorateRequest("isAuthenticated", false);
@@ -29,6 +30,8 @@ async function build(
     isEnforced: opts.isEnforced ?? (() => registry.hasActiveResolver()),
     timeoutMs: 1000,
     getPublicBase: () => "https://ext.example.com",
+    breakGlass: opts.breakGlass,
+    onBreakGlassUse: opts.onBreakGlassUse,
   });
   app.get("/probe", async (req) => ({
     principal: (req as { principal?: unknown }).principal ?? null,
@@ -109,5 +112,37 @@ describe("registerResolverHook — device bearer (§4.5)", () => {
     expect(body.principal).toBeNull();
     expect(body.isAuthenticated).toBe(true);
     expect(body.authVia).toBe("device");
+  });
+});
+
+describe("registerResolverHook — D23 break-glass operator bearer", () => {
+  function operatorToken(bg: BreakGlass): string {
+    return bg.redeem(bg.issueCode().code)!.accessToken;
+  }
+
+  it("claims the local operator for a live operator bearer — before any resolver, even with none registered", async () => {
+    const bg = new BreakGlass();
+    let uses = 0;
+    const a = await build(new ResolverRegistry([]), { isEnforced: () => true, breakGlass: bg, onBreakGlassUse: () => uses++ });
+    const res = await a.inject({ method: "GET", url: "/probe", headers: { authorization: `Bearer ${operatorToken(bg)}` } });
+    expect(res.json()).toMatchObject({
+      principal: { iss: "urn:pi-dashboard:local-operator", sub: "local-operator" },
+      isAuthenticated: true,
+      authVia: "principal",
+    });
+    expect(uses).toBe(1);
+  });
+
+  it("an unknown pi_op_ bearer is refused 401 and never reaches a resolver (no oracle for IdP tokens)", async () => {
+    const a = await build(new ResolverRegistry([]), { isEnforced: () => true, breakGlass: new BreakGlass() });
+    const res = await a.inject({ method: "GET", url: "/probe", headers: { authorization: "Bearer pi_op_forged" } });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("is inert while identity is not enforced", async () => {
+    const bg = new BreakGlass();
+    const a = await build(new ResolverRegistry([]), { isEnforced: () => false, breakGlass: bg });
+    const res = await a.inject({ method: "GET", url: "/probe", headers: { authorization: `Bearer ${operatorToken(bg)}` } });
+    expect(res.json()).toMatchObject({ principal: null, isAuthenticated: false });
   });
 });

@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@blackbelt-technology/pi-dashboard-app-kit/react": ["../app-kit/src/react/index.ts"],
+      "@blackbelt-technology/pi-dashboard-app-kit": ["../app-kit/src/index.ts"],
+      "@blackbelt-technology/pi-dashboard-web/chat-embed": ["../client/src/chat-embed/index.ts"],
+      "@blackbelt-technology/pi-dashboard-shared/*": ["../shared/src/*"],
+      "@blackbelt-technology/pi-dashboard-client-utils/*": ["../client-utils/src/*"],
+      "@blackbelt-technology/dashboard-plugin-runtime/server": ["../dashboard-plugin-runtime/src/server/index.ts"],
+      "@blackbelt-technology/dashboard-plugin-runtime": ["../dashboard-plugin-runtime/src/index.ts"],
+      "@dash/*": ["../client/src/*"]
+    }
+  },
+  "include": ["src"]
+}

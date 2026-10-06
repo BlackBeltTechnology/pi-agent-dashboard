@@ -183,7 +183,7 @@ export function installDeviceAuthFetch(): void {
  * Returns null when this browser is unpaired (cookie/loopback auth path) or the
  * mint fails — callers fall back to opening the socket without a ticket.
  */
-export async function mintWsTicket(scope: "browser" = "browser"): Promise<string | null> {
+export async function mintWsTicket(scope: "browser" | "terminal" | "live" = "browser"): Promise<string | null> {
   const token = getApiBearer();
   const cookieOnly = !token && isDevicePaired();
   if (!token && !cookieOnly) return null;

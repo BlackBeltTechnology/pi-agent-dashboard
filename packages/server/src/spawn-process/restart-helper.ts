@@ -21,7 +21,13 @@ import path from "node:path";
 export interface RestartParams {
   /** Absolute path to the server CLI (typically process.argv[1]) */
   cliPath: string;
-  /** Loader value from --import (e.g. file:// URL). Empty string = none. */
+  /**
+   * Loader value from --import (e.g. file:// URL). Empty string = none.
+   * Always the RUNNING server's loader (native or jiti) — restart never
+   * re-reads `PI_DASHBOARD_TS_LOADER`, so a loader switch (incl. the jiti
+   * rollback) needs a fresh launch, not `/api/restart`.
+   * See change: fix-appimage-cold-boot-latency (design D4).
+   */
   loader: string;
   /** Port the server listens on */
   port: number;

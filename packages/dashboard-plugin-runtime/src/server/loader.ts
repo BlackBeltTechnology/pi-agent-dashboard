@@ -466,7 +466,11 @@ export async function loadServerEntries(deps: ServerLoadDeps): Promise<void> {
     // registers again.
     getWsRouteRegistry().beginActivation(manifest.id);
     try {
-      const mod = await import(plugin.serverEntryPath);
+      // By file:// URL, never the raw path: native ESM rejects a raw Windows
+      // `D:\…` specifier and parses a raw path as a URL everywhere (a `#` in
+      // a directory becomes a fragment). jiti tolerated both.
+      // See change: fix-appimage-cold-boot-latency.
+      const mod = await import(url.pathToFileURL(plugin.serverEntryPath).href);
       if (typeof mod.default !== "function") {
         throw new Error(`Server entry at ${plugin.serverEntryPath} has no default export function`);
       }

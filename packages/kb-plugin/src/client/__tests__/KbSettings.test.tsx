@@ -31,7 +31,7 @@ function configResponse(over: Partial<KbConfigResponse> = {}): KbConfigResponse 
     // ResolvedConfig carrying `resolvedSources` (filesystem-only, includes
     // legacy roots[]). The pre-fix mock omitted it, which read as empty and
     // let an inverted banner assertion pass (test-plan #E12).
-    config: { sources: [{ kind: "filesystem", ref: "docs" }], include: ["**/*.md"], exclude: ["**/node_modules/**"], dbPath: ".pi/dashboard/kb/index.db", resolvedSources: [{ id: "docs", dir: "/repo/docs", priority: 0 }] } as KbConfigResponse["config"],
+    config: { sources: [{ kind: "filesystem", ref: "docs" }], include: ["**/*.md"], exclude: ["**/node_modules/**"], dbPath: ".pi/dashboard/kb/index.db", resolvedSources: [{ id: "docs", dir: "/repo/docs", priority: 0 }], allSourceSpecs: [{ kind: "filesystem", ref: "docs" }] } as KbConfigResponse["config"],
     ...over,
   };
 }
@@ -42,7 +42,8 @@ function cfgResponse(o: { origin?: KbConfigResponse["origin"]; sources?: number;
   return {
     origin: o.origin ?? "project",
     projectPath: "/repo/.pi/dashboard/knowledge_base.json",
-    config: { sources: refs(o.sources ?? 1), resolvedSources: resolvedEntries(o.resolved ?? 1) } as KbConfigResponse["config"],
+    // `allSourceSpecs` is what the dashboard reindex walks (every saved spec, any kind) and what the gate reads.
+    config: { sources: refs(o.sources ?? 1), resolvedSources: resolvedEntries(o.resolved ?? 1), allSourceSpecs: refs(o.resolved ?? 1) } as KbConfigResponse["config"],
   };
 }
 function refs(n: number): SourceConfig[] {

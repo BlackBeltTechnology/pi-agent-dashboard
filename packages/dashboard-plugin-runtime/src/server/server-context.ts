@@ -4,8 +4,9 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { BrowserLoginConfig, HostAccessPolicyFn, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
@@ -167,6 +168,12 @@ export interface PluginSessionLifecycle {
   recover?: boolean;
   /** `true` finalizes the session on socket close (no reconnect grace). */
   finalizeOnSocketClose?: boolean;
+  /**
+   * `true` hides the owned session from the board on its FIRST register (same
+   * `hidden` flag the headless auto-hide sets; revealed by "show hidden").
+   * Never re-applied on reattach. See change: hide-chat-gateway-sessions.
+   */
+  hidden?: boolean;
 }
 
 /**
@@ -247,6 +254,19 @@ export interface PluginSpawnOptions {
      * filesystem paths, for which every delimiter is unsafe (design D8).
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
+    /**
+     * Repeatable → `--append-system-prompt <path>` per entry. ABSOLUTE paths
+     * only (pi treats a non-existent path as literal prompt text). Rendered by
+     * pi as base-option `addendum`, so it survives the bridge's per-turn
+     * splice in any load order. See change: add-team-plugin (D12).
+     */
+    appendSystemPrompt?: string[];
+    /** `--no-context-files` (bare toggle): skip AGENTS.md/CLAUDE.md discovery. */
+    noContextFiles?: boolean;
+    /** `--no-approve` (bare toggle): skip trust-gated project `.pi/` resources. */
+    noProjectTrust?: boolean;
+    /** `--session-dir <abs path>`; relative / empty / NUL ⇒ dropped. */
+    sessionDir?: string;
   };
 
   /**
@@ -313,6 +333,12 @@ function isSafeArgvString(v: unknown): v is string {
 function sanitizeArgvList(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   return v.filter(isSafeArgvString);
+}
+
+/** Like {@link sanitizeArgvList} but keeps only ABSOLUTE paths (add-team-plugin D12). */
+function sanitizeAbsolutePathList(v: unknown): string[] | undefined {
+  const list = sanitizeArgvList(v);
+  return list?.filter((p) => isAbsolute(p));
 }
 
 /** A NUL-free string (empty allowed — env values may legitimately be empty). */
@@ -406,6 +432,14 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     if (extensions) result.extensions = extensions;
     const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
     if (extensionConfig) result.extensionConfig = extensionConfig;
+    // add-team-plugin (D12): absolute-path-only, boolean-only.
+    const append = sanitizeAbsolutePathList(scope.appendSystemPrompt);
+    if (append && append.length > 0) result.appendSystemPrompt = append;
+    if (scope.noContextFiles === true) result.noContextFiles = true;
+    if (scope.noProjectTrust === true) result.noProjectTrust = true;
+    if (isSafeArgvString(scope.sessionDir) && isAbsolute(scope.sessionDir)) {
+      result.sessionDir = scope.sessionDir;
+    }
   }
   return result;
 }
@@ -544,6 +578,15 @@ export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnRe
  * See change: automation-ui-mockup-parity.
  */
 export type AbortSessionFn = (sessionId: string) => boolean;
+
+/**
+ * End a session exactly like the dashboard's Shutdown control (same host body:
+ * process terminated for any spawn strategy, manual-close liveness written,
+ * unregistered + broadcast). Gated to first-party / trusted plugins like
+ * `abortSession`: untrusted plugins get a hook that resolves `false`. Resolves
+ * `false` for an unknown session. See change: chat-gateway-close-command.
+ */
+export type ShutdownSessionFn = (sessionId: string) => Promise<boolean>;
 
 /**
  * Terminate a plugin-spawned driver session (generic kill primitive shared by
@@ -858,6 +901,11 @@ export interface ServerPluginContext {
    */
   abortSession: AbortSessionFn;
   /**
+   * End a session like the dashboard's Shutdown control. Trusted plugins
+   * only; untrusted ⇒ resolves `false`. See change: chat-gateway-close-command.
+   */
+  shutdownSession: ShutdownSessionFn;
+  /**
    * Terminate an automation run's spawned session (Stop + completion).
    * Gated to first-party/trusted plugins; untrusted plugins get a hook that
    * resolves `false`. See change: fix-automation-stop-zombie-runs.
@@ -986,6 +1034,8 @@ export interface ServerPluginContext {
    * plane. See openspec: add-multi-user-identity-plane.
    */
   registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam (D24). Optional — absent when the host does not wire the identity plane. */
+  identity?: PluginIdentitySeam;
   logger: PluginLogger;
 }
 
@@ -1016,6 +1066,26 @@ export type RegisterBrowserLoginConfigFn = (
   config: Omit<BrowserLoginConfig, "pluginId">,
 ) => () => void;
 
+/**
+ * Plugin CONSUMER seam for the identity plane (D24, 18.27): read the caller's
+ * principal, ask the ONE host policy, store per-user data. Host-bound per
+ * plugin (the id namespaces `authorize` actions as `plugin:<id>:<action>` and
+ * the `userDataDir`). Optional — absent when the host does not wire identity.
+ * See openspec: add-multi-user-identity-plane.
+ */
+export interface PluginIdentitySeam {
+  /** Identity enforced (D21 latch)? */
+  isEnforced(): boolean;
+  /** The frozen principal the host resolved on a plugin HTTP route, else null. */
+  principalOf(request: unknown): Principal | null;
+  /** The principal behind a plugin WS upgrade's `Authorization` credential, else null. */
+  principalOfUpgrade(request: import("node:http").IncomingMessage): Promise<Principal | null>;
+  /** Ask the ONE trusted policy; the host namespaces `action` as `plugin:<id>:<action>`. No policy ⇒ true. */
+  authorize(principal: Principal, action: string, resource: HostResource): Promise<boolean>;
+  /** Per-user storage `<plugin data>/users/<sha256(iss,sub)>` (created 0700). */
+  userDataDir(principal: Principal): string;
+}
+
 /** Dependencies injected by the server to construct a ServerPluginContext. */
 export interface ServerContextDeps {
   fastify: FastifyInstance;
@@ -1034,6 +1104,8 @@ export interface ServerContextDeps {
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
+  /** Optional: hosts without it give plugins a refusing no-op. */
+  shutdownSession?: ShutdownSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
   registerCwdPolicy: RegisterCwdPolicyFn;
   unregisterCwdPolicy: UnregisterCwdPolicyFn;
@@ -1085,6 +1157,8 @@ export interface ServerContextDeps {
    * — absent when the host does not wire the identity plane.
    */
   registerBrowserLoginConfig?: RegisterBrowserLoginConfigFn;
+  /** Identity consumer seam, bound to this plugin by the host (D24, 18.27). */
+  identity?: PluginIdentitySeam;
   /** Workspace seam (optional on test hosts; the context defaults it). See change: add-chat-gateway-team-controls. */
   listWorkspaces?: ListWorkspacesFn;
   onWorkspacesChanged?: OnWorkspacesChangedFn;
@@ -1115,6 +1189,7 @@ export function createServerPluginContext(
     sendExtensionMessage: deps.sendExtensionMessage,
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
+    shutdownSession: deps.shutdownSession ?? (async () => false),
     abortSpawnedRun: deps.abortSpawnedRun,
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,
@@ -1165,6 +1240,7 @@ export function createServerPluginContext(
     ...(deps.registerBrowserLoginConfig
       ? { registerBrowserLoginConfig: deps.registerBrowserLoginConfig }
       : {}),
+    ...(deps.identity ? { identity: deps.identity } : {}),
     logger,
   };
 }

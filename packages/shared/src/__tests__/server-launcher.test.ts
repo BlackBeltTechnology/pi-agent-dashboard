@@ -6,7 +6,7 @@
  * orchestration logic is exercised without spawning a real child or
  * touching the filesystem.
  */
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,6 +63,8 @@ function baseOpts(overrides: Partial<Parameters<typeof launchDashboardServer>[0]
   };
 }
 
+afterEach(() => { vi.unstubAllEnvs(); });
+
 describe("launchDashboardServer — happy path", () => {
   it("returns childPid + reportedPid + healthOk on first health-ok poll", async () => {
     const result = await launchDashboardServer(baseOpts());
@@ -72,6 +74,8 @@ describe("launchDashboardServer — happy path", () => {
   });
 
   it("delegates argv to spawnNodeScript with loader + entry + args", async () => {
+    // jiti opt-in pins the injected `_resolveJiti` URL as the loader.
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
     const spy = spawnSpy(() => makeFakeChild());
     await launchDashboardServer(baseOpts({
       _spawnNodeScript: spy,
@@ -90,6 +94,7 @@ describe("launchDashboardServer — happy path", () => {
 
 describe("launchDashboardServer — jiti resolution", () => {
   it("throws JitiNotFoundError when resolveJiti returns null (no spawn)", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
     const spawn = spawnSpy(() => makeFakeChild());
     await expect(launchDashboardServer(baseOpts({
       _resolveJiti: () => null,
@@ -414,5 +419,75 @@ describe("launchDashboardServer — env overlay (#720)", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+/**
+ * E8–E11 — TypeScript loader selection. Native is the default; jiti only on
+ * PI_DASHBOARD_TS_LOADER=jiti read from the LAUNCHING process env (an
+ * `opts.env` overlay never changes the selection).
+ * See change: fix-appimage-cold-boot-latency (design D1, D4).
+ */
+describe("launchDashboardServer — TS loader selection", () => {
+  const NATIVE_RE = /^file:\/\/.*\/platform\/native-ts-register\.mjs$/;
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("E8: opts.env PI_DASHBOARD_TS_LOADER=jiti does not select jiti", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    const resolveJiti = vi.fn(() => "file:///j/jiti-register.mjs");
+    const spawn = spawnSpy(() => makeFakeChild());
+    await launchDashboardServer(baseOpts({
+      env: { PI_DASHBOARD_TS_LOADER: "jiti" },
+      _resolveJiti: resolveJiti,
+      _spawnNodeScript: spawn,
+    }));
+    expect(spawn.mock.calls[0]![0]!.loader).toMatch(NATIVE_RE);
+    expect(resolveJiti).not.toHaveBeenCalled();
+  });
+
+  it("E9: default launch uses the native register and names it in the log header", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    const writes: string[] = [];
+    const fsStub = {
+      mkdirSync: vi.fn(),
+      openSync: vi.fn(() => 7),
+      writeSync: vi.fn((_fd: number, s: any) => { writes.push(String(s)); return 0; }),
+      closeSync: vi.fn(),
+    };
+    const spawn = spawnSpy(() => makeFakeChild());
+    await launchDashboardServer(baseOpts({
+      cliPath: "/x/cli.ts",
+      stdio: { logFile: "/var/log/d/server.log" },
+      extraArgs: ["--port", "8000"],
+      _fs: fsStub as any,
+      _spawnNodeScript: spawn,
+    }));
+    const call = spawn.mock.calls[0]![0]!;
+    expect(call.loader).toMatch(NATIVE_RE);
+    expect(call.entry).toBe("/x/cli.ts");
+    expect(call.args).toEqual(["--port", "8000"]);
+    expect(writes[0]!.trimEnd().endsWith(`, loader ${call.loader})`)).toBe(true);
+  });
+
+  it("E10: PI_DASHBOARD_TS_LOADER=jiti keeps the jiti loader and the raw entry", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
+    for (const cliPath of ["/x/cli.ts", "C:\\x\\cli.ts"]) {
+      const spawn = spawnSpy(() => makeFakeChild());
+      await launchDashboardServer(baseOpts({
+        cliPath,
+        _resolveJiti: () => "file:///j/jiti-register.mjs",
+        _spawnNodeScript: spawn,
+      }));
+      const call = spawn.mock.calls[0]![0]!;
+      expect(call.loader).toBe("file:///j/jiti-register.mjs");
+      expect(call.entry).toBe(cliPath);
+    }
+  });
+
+  it("E11: a missing jiti is fatal only when jiti is selected", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    await expect(launchDashboardServer(baseOpts({ _resolveJiti: () => null }))).resolves.toMatchObject({ healthOk: true });
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", "jiti");
+    await expect(launchDashboardServer(baseOpts({ _resolveJiti: () => null }))).rejects.toBeInstanceOf(JitiNotFoundError);
   });
 });

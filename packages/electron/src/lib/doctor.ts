@@ -43,6 +43,7 @@ import {
 // eliminate-electron-runtime-install (no offline cache; bundle is immutable).
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { normalizeEnvPathKey } from "@blackbelt-technology/pi-dashboard-shared/platform/env-path-key.js";
+import { resolveNativeTsLoader, selectTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
@@ -388,16 +389,39 @@ async function runDoctorInner(): Promise<DoctorReport> {
 }
 
 /**
- * Build the `node --import <jiti> -e "import <spec>; ..."` probe command for the
+ * Pick the Server launch test's `--import` loader with the same rule as the
+ * real launch: native by default, jiti only on `PI_DASHBOARD_TS_LOADER=jiti`.
+ * `missing` names the absent component (jiti opt-in only).
+ * See change: fix-appimage-cold-boot-latency (design D4).
+ */
+export function selectServerLaunchTestLoader(deps: {
+  env: NodeJS.ProcessEnv;
+  resolveJiti: () => string | null;
+  resolveNative: () => string;
+}): { loaderUrl: string | null; missing: string | null } {
+  if (selectTsLoader(deps.env) === "jiti") {
+    const jiti = deps.resolveJiti();
+    return jiti ? { loaderUrl: jiti, missing: null } : { loaderUrl: null, missing: "No jiti loader (install pi)" };
+  }
+  try {
+    return { loaderUrl: deps.resolveNative(), missing: null };
+  } catch {
+    // Surface as a missing component so the rest of the report survives.
+    return { loaderUrl: null, missing: "No native TypeScript loader (native-ts-register.mjs not found)" };
+  }
+}
+
+/**
+ * Build the `node --import <loader> -e "import <spec>; ..."` probe command for the
  * Server launch test. The import spec MUST be a `file://` URL, never a raw
  * filesystem path: on Windows a raw absolute path begins with a drive letter
  * (`C:\`), which Node's ESM resolver treats as a URL scheme and rejects with
  * ERR_UNSUPPORTED_ESM_URL_SCHEME. `pathToFileURL` produces the universal form.
  */
-export function buildServerLaunchTestCmd(args: { nodeBin: string; jitiUrl: string; testCli: string }): string {
-  const { nodeBin, jitiUrl, testCli } = args;
+export function buildServerLaunchTestCmd(args: { nodeBin: string; loaderUrl: string; testCli: string }): string {
+  const { nodeBin, loaderUrl, testCli } = args;
   const importSpec = JSON.stringify(pathToFileURL(testCli).href);
-  return `"${nodeBin}" --import "${jitiUrl}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
+  return `"${nodeBin}" --import "${loaderUrl}" -e "import ${importSpec.replace(/"/g, '\\"')}; setTimeout(() => process.exit(0), 100)"`;
 }
 
 /**
@@ -425,10 +449,13 @@ async function runServerLaunchTest(
   const { hasBundledServer, bundledServerCli, bundledNode } = ctx;
   const testCli = hasBundledServer ? bundledServerCli : null;
   // ToolResolver.resolveJiti probes the managed pi install at MANAGED_DIR
-  // automatically; no constructor arg needed for that lookup. extraBinDirs
-  // is forwarded so binDir-aware probes match the rest of doctor's checks.
-  const resolver = new ToolResolver({});
-  const jitiUrl = resolver.resolveJiti({ anchor: testCli ?? undefined });
+  // automatically; no constructor arg needed for that lookup. Consulted only
+  // under the jiti opt-in — the default probe uses the native loader.
+  const { loaderUrl, missing } = selectServerLaunchTestLoader({
+    env: process.env,
+    resolveJiti: () => new ToolResolver({}).resolveJiti({ anchor: testCli ?? undefined }),
+    resolveNative: () => resolveNativeTsLoader({ anchor: testCli ?? undefined }),
+  });
   const pick = pickNodeForServer({
     bundledNodeDir: getBundledNodeDir(),
     processExecPath: process.execPath,
@@ -436,19 +463,19 @@ async function runServerLaunchTest(
   });
   const nodeBin = pick.nodeBin;
 
-  if (!testCli || !jitiUrl) {
+  if (!testCli || !loaderUrl) {
     checks.push({
       name: "Server launch test",
       section: "server",
       status: "error",
       message: "Cannot test launch — missing components",
-      detail: [testCli ? null : "No server CLI", jitiUrl ? null : "No jiti loader (install pi)"].filter(Boolean).join(", "),
+      detail: [testCli ? null : "No server CLI", missing].filter(Boolean).join(", "),
     });
     return;
   }
 
   const env = buildServerLaunchTestEnv(bundledNode, process.env, process.platform);
-  const cmd = buildServerLaunchTestCmd({ nodeBin, jitiUrl, testCli });
+  const cmd = buildServerLaunchTestCmd({ nodeBin, loaderUrl, testCli });
   const r = safeExec(cmd, { timeoutMs: 15000, env });
   if (r.ok) {
     checks.push({
@@ -460,7 +487,7 @@ async function runServerLaunchTest(
     return;
   }
   const messages: Record<string, string> = {
-    "not-found": "Server launch test: jiti or server CLI binary missing",
+    "not-found": "Server launch test: TypeScript loader or server CLI binary missing",
     "permission-denied": "Server launch test: binary not executable",
     timeout: "Server hung during launch test (15s deadline exceeded)",
     "non-zero-exit": "Server fails to start",

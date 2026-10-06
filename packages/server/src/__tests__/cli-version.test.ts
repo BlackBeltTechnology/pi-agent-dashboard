@@ -53,6 +53,9 @@ function makeIsolatedWrapper(pkgJsonContent: string | null): { wrapper: string; 
   return { wrapper, cleanup: () => rmSync(tmp, { recursive: true, force: true }) };
 }
 
+// The jiti-miss cases (b)/(d)/(d') pin PI_DASHBOARD_TS_LOADER=jiti: the native
+// loader is the default, and a missing jiti is fatal only under that opt-in.
+// See change: fix-appimage-cold-boot-latency.
 describe("bin/pi-dashboard.mjs --version short-circuit (Bug B)", () => {
   it("(a) --version with no jiti reachable → exit 0, stdout = pkg.version", () => {
     const fakePkg = JSON.stringify({ name: "pi-dashboard-test", version: "9.9.9-isolated" });
@@ -93,7 +96,7 @@ describe("bin/pi-dashboard.mjs --version short-circuit (Bug B)", () => {
     try {
       const result = spawnSync(process.execPath, [wrapper, "start"], {
         encoding: "utf-8",
-        env: { ...process.env, NODE_PATH: "" },
+        env: { ...process.env, NODE_PATH: "", PI_DASHBOARD_TS_LOADER: "jiti" },
         timeout: 10_000,
       });
       expect(result.status).toBe(1);
@@ -122,7 +125,7 @@ describe("bin/pi-dashboard.mjs --version short-circuit (Bug B)", () => {
     try {
       const result = spawnSync(process.execPath, [wrapper, "--version"], {
         encoding: "utf-8",
-        env: { ...process.env, NODE_PATH: "" },
+        env: { ...process.env, NODE_PATH: "", PI_DASHBOARD_TS_LOADER: "jiti" },
         timeout: 10_000,
       });
       // Fall-through: jiti unreachable in tmp dir → legacy install-hint fires.
@@ -139,7 +142,7 @@ describe("bin/pi-dashboard.mjs --version short-circuit (Bug B)", () => {
     try {
       const result = spawnSync(process.execPath, [wrapper, "--version"], {
         encoding: "utf-8",
-        env: { ...process.env, NODE_PATH: "" },
+        env: { ...process.env, NODE_PATH: "", PI_DASHBOARD_TS_LOADER: "jiti" },
         timeout: 10_000,
       });
       expect(result.status).toBe(1);

@@ -26,6 +26,7 @@ import { execSync } from "./platform/exec.js";
 import { getGitSourceReadout } from "./platform/git-source.js";
 import { buildNativeModuleManifest, findAbiMismatches, type probeNativeModuleAbi } from "./platform/native-module-abi.js";
 import { type ResolvedRuntime, resolvedFamilyEntries } from "./platform/spawn-runtime.js";
+import { resolveNativeTsLoader, selectTsLoader } from "./platform/ts-loader-select.mjs";
 import { readZrokEnvironment } from "./zrok-env.js";
 
 // Used by the TypeScript-loader check to locate bundled jiti/tsx via
@@ -949,6 +950,11 @@ export interface SharedChecksDeps {
     moduleName: string,
     treeRoot: string,
   ) => Promise<{ ok: boolean; detail?: string }> | { ok: boolean; detail?: string };
+  /**
+   * Env read for the TypeScript-loader selection (`PI_DASHBOARD_TS_LOADER`).
+   * Defaults to `process.env`. See change: fix-appimage-cold-boot-latency.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorCheck[]> {
@@ -1244,13 +1250,21 @@ export async function runSharedChecks(deps: SharedChecksDeps): Promise<DoctorChe
     );
   }
 
-  // TypeScript loader (jiti preferred; tsx accepted as fallback)
-  // The dashboard server runs via jiti by default (see shared/server-launcher.ts
-  // resolveJiti). tsx was the legacy choice and is still accepted if jiti is
-  // unavailable. The check passes when EITHER loader is resolvable so users
-  // running on jiti don't see a spurious error.
+  // TypeScript loader. The server boots on the Node-native loader by default
+  // (`platform/native-ts-register.mjs`, shipped in this package), so the row
+  // is OK without any jiti. Only under the PI_DASHBOARD_TS_LOADER=jiti opt-in
+  // does it look for jiti (tsx still accepted as the legacy fallback).
+  // See change: fix-appimage-cold-boot-latency (design D4).
   checks.push(
     await safeCheck("TypeScript loader", "server", () => {
+      if (selectTsLoader(deps.env ?? process.env) === "native") {
+        return {
+          name: "TypeScript loader",
+          section: "server",
+          status: "ok",
+          message: `native (Node type stripping) at ${resolveNativeTsLoader()}`,
+        };
+      }
       const managedJitiPkg = path.join(managedDir, "node_modules", "jiti", "package.json");
       const managedTsxPkg = path.join(managedDir, "node_modules", "tsx", "package.json");
 

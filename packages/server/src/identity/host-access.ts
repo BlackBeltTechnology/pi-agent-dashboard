@@ -13,7 +13,8 @@ import type { HostAction, HostResource, Principal } from "@blackbelt-technology/
 /** The slice of `PolicyRegistry` this gate needs (keeps callers decoupled). */
 export interface HostPolicy {
   hasPolicy(): boolean;
-  authorize(input: { principal: Principal; action: HostAction; resource: HostResource }): Promise<boolean>;
+  /** `probe: true` ⇒ advisory (UI `can` map): decided the same way, never audited. */
+  authorize(input: { principal: Principal; action: HostAction; resource: HostResource; probe?: boolean }): Promise<boolean>;
 }
 
 /**

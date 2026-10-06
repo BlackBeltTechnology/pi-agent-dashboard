@@ -38,7 +38,8 @@ describe("identityMe", () => {
     expect(me.can["config.read"]).toBe(true);
     expect(me.can["config.write"]).toBe(false);
     expect(authorize).toHaveBeenCalledTimes(CORE_ME_ACTIONS.length);
-    expect(authorize).toHaveBeenCalledWith({ principal: anna, action: "terminal.create", resource: { kind: "terminal" } });
+    // probe:true — advisory UI probes must not flood the denied-action audit trail (18.37d).
+    expect(authorize).toHaveBeenCalledWith({ principal: anna, action: "terminal.create", resource: { kind: "terminal" }, probe: true });
   });
 
   it("enforced + policy + no principal ⇒ nothing allowed", async () => {

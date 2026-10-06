@@ -1598,7 +1598,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         const reg = browserGateway.headlessPidRegistry;
         let ref: Record<string, unknown> | undefined;
         let ownerId: string | undefined;
-        let lifecycle: { recover?: boolean; finalizeOnSocketClose?: boolean } | undefined;
+        let lifecycle: { recover?: boolean; finalizeOnSocketClose?: boolean; hidden?: boolean } | undefined;
         const resolved = msg.spawnToken ? pendingPluginRefRegistry?.resolve(msg.spawnToken) : null;
         if (resolved) {
           // First register: consumed from the token store. Promote onto the
@@ -1659,6 +1659,18 @@ export function wireEvents(deps: EventWiringDeps): void {
             inMemory.finalizeOnSocketClose = lifecycle.finalizeOnSocketClose;
           }
           if (Object.keys(inMemory).length > 0) sessionManager.update(sessionId, inMemory);
+          // Plugin-declared hide (e.g. chat-gateway Discord sessions): the same
+          // `hidden` flag the headless auto-hide sets, persisted via the routine
+          // `.meta.json` save. Fresh resolution only — this block never re-runs
+          // on reattach, so a later unhide survives. Broadcast, or every open
+          // board keeps the card until a full refresh.
+          // See change: hide-chat-gateway-sessions.
+          if (lifecycle.hidden === true) {
+            // `pluginHidden` persists the INTENT so a post-restart respawn
+            // re-register keeps it hidden. See change: fix-plugin-hidden-across-restart.
+            sessionManager.update(sessionId, { hidden: true, pluginHidden: true });
+            browserGateway.broadcastSessionUpdated(sessionId, { hidden: true });
+          }
           if (lifecycle.recover === false) {
             const session = sessionManager.get(sessionId);
             if (session?.sessionFile) {

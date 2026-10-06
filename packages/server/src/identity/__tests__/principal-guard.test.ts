@@ -5,6 +5,13 @@ const NOW = 1_700_000_000_000;
 const SKEW = 30;
 const future = NOW + 60_000;
 
+describe("sanitizePrincipalResolution — reserved break-glass issuer (D23)", () => {
+  it("rejects a resolver that claims the host-reserved local-operator issuer", () => {
+    const raw = { principal: { iss: "urn:pi-dashboard:local-operator", sub: "local-operator" }, expiresAt: future };
+    expect(sanitizePrincipalResolution(raw, SKEW, NOW)).toBeNull();
+  });
+});
+
 describe("sanitizePrincipalResolution — validate/copy/freeze (§3.3 / D3)", () => {
   it("accepts a well-formed resolution and returns a frozen copy", () => {
     const raw = { principal: { iss: "https://kc", sub: "u1", email: "a@b.c" }, expiresAt: future };

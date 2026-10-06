@@ -16,7 +16,7 @@ This skill is the **TOOL** half of a pair; the **METHOD** is `systematic-debuggi
 
 Reach for the inspector when the state you need is expensive or impossible to log:
 
-- **The jiti server** (`packages/server`, TypeScript run directly via jiti) — request handlers whose failure depends on accumulated in-memory state.
+- **The dashboard server** (`packages/server`, TypeScript run directly via the native loader, or jiti on the `PI_DASHBOARD_TS_LOADER=jiti` opt-in) — request handlers whose failure depends on accumulated in-memory state.
 - **The restart orchestrator / PTY workers** (`restart-helper.ts`) — a detached process whose closure state you can't `console.log` from the parent.
 - **Dual WebSocket server closure state** — connection maps and buffers held in closures across the bridge and browser servers.
 - **The Electron main process** — lifecycle/bootstrap state that never reaches a browser console.
@@ -49,9 +49,29 @@ If a single well-placed `console.log` would answer the question, use the log. Th
 
 In `repl` mode you can read any in-scope variable by name — this is the fastest way to answer "what is `x` right now?".
 
-## Tier 2 — pi-dashboard jiti launch (spike-verified)
+## Tier 2 — pi-dashboard native-loader launch (the default)
 
-This repo runs TypeScript **directly through jiti** (no `dist/*.js` build). Launch the target with the inspector and jiti's register hook:
+The dashboard server runs TypeScript **directly** (no `dist/*.js` build) through the Node-native loader `@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs` (`module.stripTypeScriptTypes`, transform mode). Launch the target with the inspector and that register module:
+
+```bash
+node --inspect-brk=<port> --enable-source-maps --import <native-ts-register-url> cli.ts
+```
+
+Resolve the URL by package specifier, never by path arithmetic:
+
+```js
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+const req = createRequire(process.argv[1] ?? import.meta.url);
+const hook = pathToFileURL(req.resolve("@blackbelt-technology/pi-dashboard-shared/platform/native-ts-register.mjs")).href;
+```
+
+- Type erasure replaces types with whitespace, so `.ts` lines stay aligned for ordinary code; TS-only constructs that transform mode rewrites (`enum`, `namespace`, parameter properties) may shift columns. Keep `--enable-source-maps` on.
+- The log header names the running loader: `grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1`.
+
+## Tier 2b — jiti launch (`PI_DASHBOARD_TS_LOADER=jiti` opt-in, spike-verified)
+
+Under the jiti fallback (`PI_DASHBOARD_TS_LOADER=jiti`) the server runs TypeScript through jiti. Launch the target with the inspector and jiti's register hook:
 
 ```bash
 node --inspect-brk=<port> --enable-source-maps --import <jiti-register-hook-url> cli.ts
@@ -129,7 +149,7 @@ Use it as the ready-made "dump the frame" step whenever the REPL's interactivity
 
 ## Verification
 
-- [ ] The launch recipe used jiti's register hook resolved via `createRequire`, not a hard-coded path
+- [ ] The launch recipe used the selected loader (native register or jiti hook) resolved via `createRequire`, not a hard-coded path
 - [ ] `.ts` breakpoints were set directly (no emitted-JS workaround)
 - [ ] An empty `locations` at set-time was treated as deferred, not failed
 - [ ] The paused frame's locals were read (via `repl`, `exec`, or `cdp-inspect.ts`) — the actual state, not a guess

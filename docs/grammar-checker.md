@@ -21,7 +21,7 @@ Per-suggestion Accept/Dismiss + Apply-all button. Offset-safe apply — correcti
 
 Config namespace: `plugins.grammar.*` in `~/.pi/dashboard/config.json`.
 
-Server writes via `POST /api/config/plugins/grammar`; validated by plugin `configSchema.json` (additionalProperties false).
+Server writes via `POST /api/config/plugins/grammar`; validated by plugin `configSchema.json` (additionalProperties false). Partial body keeps stored keys: omitted keys keep saved values (`fix-plugin-config-partial-write`).
 
 ### Config Fields
 

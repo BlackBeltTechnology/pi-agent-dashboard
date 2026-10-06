@@ -187,11 +187,16 @@ Commands:
 ```bash
 pi-dashboard start              # production daemon
 pi-dashboard start --dev        # dev mode (Vite proxy + fallback)
-pi-dashboard stop               # stop, also kills stale port holders
+pi-dashboard stop               # stop; honors --port/--pi-port; kills only port holders this HOME owns
+pi-dashboard stop --force       # DANGEROUS: kill EVERY listener on the resolved ports
 pi-dashboard restart            # restart (production)
 pi-dashboard restart --dev      # restart in dev mode
 ```
 
+- Port resolution identical to `start` (flag > env > file), including the temp-HOME guard; port `0` never inspected.
+- Sweep kills a holder only when this `HOME` proves ownership: `server.lock.meta.json` records that pid for the swept HTTP port, or `/api/health` reports this HOME's persisted `instanceId` with a matching pid. `server.pid` is not a proof for the sweep.
+- Non-owned holders are reported and left running. Exit code stays `0`, so `stop && start` chains keep working; the following `start` reports the port conflict.
+- `--force` kills every listener on the resolved ports. DANGEROUS: can kill another HOME's/user's dashboard, the Electron app's server, or an unrelated service. Use only to recover an orphaned listener nothing else can attribute. `restart` ignores `--force`.
 - Logs append to `~/.pi/dashboard/server.log` with timestamped headers per start.
 - `restart` delegates to `POST /api/restart` when dashboard already up.
 - Graceful restart via API: `curl -X POST http://localhost:8000/api/restart`. Body `{"dev":true|false}` switches mode.
@@ -234,6 +239,7 @@ Sequence:
 6. Port closed + `autoStart: false` → skip.
 
 - Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
 
@@ -277,6 +283,47 @@ Cross-refs:
 - packages/electron/src/lib/pick-node.ts
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
+
+## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+
+Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+
+POSIX:
+
+```
+pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+```
+
+PowerShell:
+
+```
+pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+```
+
+Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+
+`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+
+POSIX:
+
+```
+grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1
+```
+
+PowerShell:
+
+```
+Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
+```
+
+Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+
+Cross-refs:
+- packages/shared/src/platform/ts-loader-select.mjs
+- packages/shared/src/platform/native-ts-register.mjs
+- docs/architecture.md
 
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 
@@ -1186,6 +1233,7 @@ Plugin config:
 - All settings under `plugins.<id>.*` in `~/.pi/dashboard/config.json`.
 - Manifest may declare `configSchema` (JSON Schema 7); Ajv validates on read (with defaults) + write (rejects invalid).
 - `POST /api/config/plugins/:id` accepts partial config; broadcasts `plugin_config_update { id, config }`.
+- Partial write keeps omitted keys: validation clones the body so Ajv `useDefaults` cannot reset stored values; defaults fill only never-stored keys (`fix-plugin-config-partial-write`).
 - `pluginContext.usePluginConfig<T>()` reactive — re-renders within one frame of write.
 - Legacy top-level keys (e.g. `openspec.*`) auto-migrate on plugin's first server boot.
 
@@ -3119,6 +3167,38 @@ Check in order:
 - WRITE discipline missing → `"write": true` required. `inject: "off"` injects nothing and makes `write` inert.
 
 See change: inject-dox-doctrine-and-describe.
+
+## How do I add a KB source (folder, git repo, or URL) from the dashboard?
+
+Settings → Knowledge Base → add-source row. Toggle kind: `Folder | Git repo | URL`.
+
+- **Folder** — click `Browse…` (host `ui:path-picker`; hidden on older hosts) or type a path. Inside cwd → stored relative (`docs`). Outside cwd → stored absolute + `outside folder` badge.
+- **Git repo** — paste `https://github.com/…`, `https://gitlab.com/…`, `git@…`, or `git:` — kind auto-selects Git. Optional `pin` (branch/tag), `subdir`, `refresh`.
+- **URL** — `https://…` docs source.
+- One source per `ref` (ref = index root). Duplicate ref refused — edit the existing source; two sources sharing a ref erase each other's chunks.
+- Adding a remote source opens trust dialog: `Trust & add` / `Add without trusting` / `Cancel`.
+
+Then reindex from the panel. Reindex runs only when ≥1 saved source.
+
+See change: improve-kb-settings-sources-and-search.
+
+Cross-refs:
+- docs/architecture.md §Sources, trust & dashboard reindex
+- packages/kb-plugin/src/client/KbSettingsPanel.tsx
+
+## Why did my KB source fail or show untrusted after reindex?
+
+Per-source outcomes, dashboard reindex:
+
+- **Untrusted remote source** → skipped; job stays idle; prior chunks kept. Grant via trust dialog, `POST /api/kb/source-trust {ref}`, or `PUT /api/kb/config` `trustRefs`.
+- **Failure** → source marked `error`; job `jobStatus:"error"`; `lastError` `"N source(s) failed: …"` (≤500 chars). Other sources still index; failed source keeps prior chunks.
+- `git`/`https` resolution async (`execFile`, 120 s timeout) — never blocks server.
+- Trust is TOFU and global (`~/.pi/dashboard/kb-source-trust.json`), keyed sha256 of `{kind,ref,subdir,pin}`. One grant covers identical spec in every folder. Revoke under Access → `DELETE /api/kb/source-trust`.
+- `untrustedRefs` in `PUT /api/kb/config` response = grants that failed. Never assumed success.
+
+Details: `docs/architecture.md` §Sources, trust & dashboard reindex.
+
+See change: improve-kb-settings-sources-and-search.
 
 ## How do I connect Claude Code / Cursor to the dashboard MCP?
 

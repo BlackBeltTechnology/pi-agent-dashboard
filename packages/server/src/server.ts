@@ -20,7 +20,7 @@ import { CONFIG_DIR, CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, lo
 import { createPushService, type PushService } from "./push/push-service.js";
 import { registerPushRoutes } from "./routes/push-routes.js";
 import { CustomEventGroupsStore } from "@blackbelt-technology/pi-dashboard-shared/custom-event-groups-store.js";
-import type { Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
+import type { HostAction, HostResource, Principal } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import { parseLaunchSource } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
@@ -152,7 +152,15 @@ import { getRouteOwnerRegistry } from "./identity/route-owner-registry.js";
 import { identityMe } from "./identity/identity-me.js";
 import { registerResolverHook } from "./identity/resolver-hook.js";
 import { ResolverRegistry } from "./identity/resolver-registry.js";
-import { markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
+import { buildAuthContext } from "./identity/auth-context.js";
+import { type BootstrapGrants, DENY_ALL_GRANTS, decideBootstrapGrants } from "./identity/bootstrap-grants.js";
+import { BreakGlass } from "./identity/break-glass.js";
+import { dispatchResolvers } from "./identity/dispatch.js";
+import { createPluginIdentity } from "./identity/plugin-identity.js";
+import { scheduleAtExpiry } from "./identity/socket-lifetime.js";
+import { authorizeRoadUpgrade } from "./identity/upgrade-gate.js";
+import { HostActions, hostResource } from "./identity/host-resources.js";
+import { canAccessSession, isLocalOperator, markLocalOperator, sessionPrincipalOf } from "./identity/session-access.js";
 import {
   clientBuildDiagnostic,
   clientBuildSnapshotFor,
@@ -467,6 +475,9 @@ function resolvedPiVersion(): string | undefined {
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: legacy server wiring, grandfathered; decompose in a dedicated refactor, not piecemeal
+/** Plugin frames that are NOT domain events: replay-cached UI intents and settings echoes. */
+const NON_DOMAIN_PLUGIN_FRAMES: ReadonlySet<string> = new Set(["plugin_intents", "plugin_config_update"]);
+
 export async function createServer(config: ServerConfig): Promise<DashboardServer> {
   // Ensure bridge extension is registered in pi's global settings
   // (needed for bundled installs where pi can't discover it from package.json)
@@ -1821,8 +1832,42 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // resolveRedirectBase is dynamic (and cheap), so capture the override once
   // rather than re-reading the config file on every authenticated request.
   const identityRedirectBaseOverride = config.authConfig?.redirectBaseUrl;
+  // D23 break-glass: one-time code → short-lived operator bearer (in-memory).
+  const breakGlass = new BreakGlass();
+  let lastBreakGlassUseWarnAt = 0;
+  // Principal behind a (plugin) WS upgrade's `Authorization` credential: the host's
+  // own operator bearer first, else the trusted resolvers. null ⇒ unauthenticated.
+  const resolveUpgradePrincipal = async (req: import("node:http").IncomingMessage): Promise<Principal | null> => {
+    const authz = req.headers.authorization;
+    const op = breakGlass.resolveBearer(authz);
+    if (op) return op.principal;
+    if (typeof authz === "string" && /^Bearer pi_op_/.test(authz)) return null;
+    const ctx = buildAuthContext(
+      {
+        method: "GET",
+        url: req.url ?? "/",
+        ip: req.socket.remoteAddress ?? "",
+        headers: req.headers as Record<string, string | string[] | undefined>,
+        isAuthenticated: false,
+      },
+      resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
+    );
+    const out = await dispatchResolvers(ctx, {
+      resolvers: resolverRegistry.ordered(),
+      timeoutMs: loadConfig().identity.resolverTimeoutMs,
+      log: (msg) => console.warn(msg),
+    });
+    return out.kind === "claim" ? out.resolution.principal : null;
+  };
   registerResolverHook(fastify, {
     registry: resolverRegistry,
+    breakGlass,
+    onBreakGlassUse: () => {
+      if (Date.now() - lastBreakGlassUseWarnAt > 60_000) {
+        lastBreakGlassUseWarnAt = Date.now();
+        console.warn("[identity] local-operator (break-glass) bearer in use — sees every session");
+      }
+    },
     isEnforced: identityEnforced,
     timeoutMs: loadConfig().identity.resolverTimeoutMs,
     getPublicBase: () => resolveRedirectBase(config.port, identityRedirectBaseOverride).base,
@@ -1886,6 +1931,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // D21: advertise login only while identity is enforced.
     publicLoginConfig(identityEnforced() ? browserLoginConfigRegistry.list() : []),
   );
+
+  // D23 break-glass. `local-code` proves control of the HOST (the 0600 local token,
+  // same OS user only) and mints a one-time code; `local-exchange` is the pre-auth
+  // redemption for an operator bearer. The CLI (`pi-dashboard login --local`)
+  // prints `http://localhost:<port>/?pi_local=<code>`; the browser exchanges it
+  // like `#pi_handoff` and keeps the bearer in memory (no cookies, D22).
+  fastify.post("/api/identity/local-code", async (request, reply) => {
+    if (!verifyLocalToken(request.headers as Record<string, unknown>, localToken)) {
+      reply.code(401);
+      return { success: false as const, error: "local_token_required" };
+    }
+    const issued = breakGlass.issueCode();
+    console.warn("[identity] break-glass: one-time local-operator code issued via the host-only local token");
+    return { success: true as const, data: issued };
+  });
+  fastify.post<{ Body: { code?: unknown } }>("/api/identity/local-exchange", async (request, reply) => {
+    const out = breakGlass.redeem(request.body?.code);
+    if (!out) {
+      reply.code(401);
+      return { error: "invalid_code" };
+    }
+    console.warn("[identity] break-glass: local-operator bearer issued (code redeemed)");
+    return { access_token: out.accessToken, expires_in: out.expiresIn, token_type: "Bearer" };
+  });
 
   // Route → registering plugin (D24, 18.28): `loadServerEntries` activates
   // plugins sequentially; `createContext` brackets each activation, so every
@@ -2959,7 +3028,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
                 }
-                browserGateway.broadcast(msg as ServerToBrowserMessage);
+                // §10 / 18.37b: a plugin's GLOBAL (non-session) frame is a domain event.
+                // Enforced + a host policy ⇒ per-socket policy fan-out; else the plain
+                // broadcast. Session-scoped frames, intents and config echoes keep
+                // their own roads (owner-gated / replay-cached / settings).
+                if (m && typeof m.type === "string" && m.sessionId == null && !NON_DOMAIN_PLUGIN_FRAMES.has(m.type)) {
+                  browserGateway.broadcastDomainEvent(msg as ServerToBrowserMessage, plugin.manifest.id, m.type);
+                } else {
+                  browserGateway.broadcast(msg as ServerToBrowserMessage);
+                }
               },
               subscribeSession: (sessionId, handler) => {
                 // Trusted gate — same priority rule as the other control-plane
@@ -3115,6 +3192,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 const trusted = (plugin.manifest.priority ?? 1000) <= 100;
                 if (!trusted) return false;
                 return piGateway.sendToSession(sessionId, { type: "abort", sessionId });
+              },
+              // Session-shutdown hook (Chat Gateway `!close`). Reuses the ONE
+              // shutdown body the browser + REST paths share — never a parallel
+              // {type:"shutdown"} send (#449/#452). Same trust gate as above.
+              // See change: chat-gateway-close-command.
+              shutdownSession: async (sessionId) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return false;
+                if (!sessionManager.get(sessionId)) return false;
+                await browserGateway.shutdownSession(sessionId);
+                return true;
               },
               // Terminate an automation run's spawned session. Same trust
               // gate as spawnSession/abortSession. `graceful` sends a clean-
@@ -3422,6 +3510,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Identity plane (D16): a TRUSTED resolver plugin publishes its
               // browser login descriptor; core stamps the owning pluginId (F6)
               // and relays it pre-auth. Untrusted plugin ⇒ no-op registrar.
+              // D24 consumer seam (18.27): principal, policy, per-user data for THIS plugin.
+              identity: createPluginIdentity(plugin.manifest.id, {
+                isEnforced: identityEnforced,
+                principalOfRequest: (req) => sessionPrincipalOf(req as object),
+                resolveUpgrade: resolveUpgradePrincipal,
+                policy: policyRegistry,
+                pluginDataRoot: (pid) => path.join(os.homedir(), ".pi", "dashboard", "plugins", pid),
+              }),
               registerBrowserLoginConfig: (loginConfig) => {
                 const id = plugin.manifest.id;
                 if (!resolverRegistry.isTrusted(id)) {
@@ -3583,7 +3679,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // principal-bearing identity ticket — cookie / local-IPC token /
         // trusted-network / no-ticket browser upgrades are all refused. Other
         // scopes (terminal/live) and the inert era are unchanged.
-        const requireIdentityTicket = scope === "browser" && identityEnforced();
+        // 18.13: while enforced the terminal + live scopes also require a
+        // principal-bearing ticket — they were the legacy loopback / local-token /
+        // trusted-network / principal-less-ticket allowances that bypassed it.
+        const requireIdentityTicket = (scope === "browser" || scope === "terminal" || scope === "live") && identityEnforced();
         const upgradeAuth = authorizeWsUpgrade({
           cookieHeader: request.headers.cookie,
           remoteAddress,
@@ -3613,8 +3712,39 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // "/ws" would destroy the authorized upgrade. `routeScopeForUrl` strips
         // the query, so scope stays query-string-safe by construction and
         // auth-scope + routing-scope cannot drift.
+        // Review B2: a ticket proves WHO; the optional host policy still decides
+        // whether that principal may reach the terminal / live roads. Bounded +
+        // fail-closed (`authorizeRoadUpgrade`); unchanged when inert or no policy.
+        const gateRoadUpgrade = (action: HostAction, resource: HostResource, proceed: () => void) => {
+          if (!identityEnforced() || !policyRegistry.hasPolicy()) {
+            proceed();
+            return;
+          }
+          authorizeRoadUpgrade({
+            enforced: true,
+            policy: policyRegistry,
+            principal: upgradeAuth.principal ?? null,
+            action,
+            resource,
+          })
+            .then((ok) => {
+              if (ok) {
+                proceed();
+              } else {
+                socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+                socket.destroy();
+              }
+            })
+            .catch(() => socket.destroy());
+        };
+
         switch (scope) {
-          case "browser":
+          case "browser": {
+            // 18.37a: decide the non-session policy grants BEFORE the upgrade
+            // completes (the policy is async; the gateway's connect handler is
+            // not). Only when enforced AND a policy exists — otherwise the
+            // upgrade proceeds synchronously, byte-for-byte as before.
+            const finishBrowserUpgrade = (grants?: BootstrapGrants) =>
             browserGateway.wss.handleUpgrade(request, socket, head, (ws) => {
               // §9.3: attach the immutable principal + its expiry resolved at
               // upgrade so every session road can owner-gate. Absent in the
@@ -3625,18 +3755,63 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   principal?: Principal;
                   principalExpiresAt?: number;
                 };
-                bound.principal = Object.freeze({ ...upgradeAuth.principal });
+                // D23: the break-glass operator is matched by REFERENCE, so keep it
+                // (it is already frozen); every other principal is bound as a copy.
+                bound.principal = isLocalOperator(upgradeAuth.principal)
+                  ? upgradeAuth.principal
+                  : Object.freeze({ ...upgradeAuth.principal });
                 bound.principalExpiresAt = upgradeAuth.principalExpiresAt;
               }
+              if (grants) (ws as { bootstrapGrants?: BootstrapGrants }).bootstrapGrants = grants;
               browserGateway.wss.emit("connection", ws, request);
             });
+            if (identityEnforced() && policyRegistry.hasPolicy()) {
+              decideBootstrapGrants(upgradeAuth.principal, policyRegistry, terminalManager.list())
+                .then(finishBrowserUpgrade, () => finishBrowserUpgrade(DENY_ALL_GRANTS))
+                .catch((err) => {
+                  console.error("[ws-gate] browser upgrade failed after the policy decision:", err);
+                  socket.destroy();
+                });
+            } else {
+              finishBrowserUpgrade();
+            }
             break;
-          case "terminal":
-            terminalGateway.handleUpgrade(request, socket, head);
+          }
+          case "terminal": {
+            // 18.13: owner equality on the PTY attach (shell I/O is the most
+            // sensitive surface). Inert ⇒ no gate; break-glass operator ⇒ all.
+            // Review B2: the host policy also decides `terminal.read` BEFORE the
+            // upgrade; B1: the attached socket closes at the ticket's expiry.
+            const termId = terminalGateway.parseTerminalId(request.url ?? "")?.split("?")[0];
+            gateRoadUpgrade(HostActions.terminalRead, hostResource.terminal(termId), () =>
+              terminalGateway.handleUpgrade(
+                request,
+                socket,
+                head,
+                identityEnforced()
+                  ? (id) =>
+                      canAccessSession({
+                        active: true,
+                        principal: upgradeAuth.principal ?? null,
+                        owner: terminalManager.get(id)?.principalOwner,
+                      })
+                  : undefined,
+                upgradeAuth.principalExpiresAt,
+              ),
+            );
             break;
-          case "live":
-            handleLiveServerUpgrade(liveServerManager, request, socket, head);
+          }
+          case "live": {
+            // Review B2 (policy `live.read` before the upgrade) + B1 (a proxied
+            // dev-server socket must not outlive the ticket's principal).
+            gateRoadUpgrade(HostActions.liveRead, { kind: "live", route: (request.url ?? "").split("?")[0] }, () => {
+              // Chunked past the 32-bit timer cap (`scheduleAtExpiry`), released on close.
+              const cancelExpiry = scheduleAtExpiry(upgradeAuth.principalExpiresAt, () => socket.destroy());
+              socket.once("close", cancelExpiry);
+              handleLiveServerUpgrade(liveServerManager, request, socket, head);
+            });
             break;
+          }
           default:
             socket.destroy();
         }
@@ -3661,6 +3836,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         identityRegistrations.freeze();
         const disarmed = identityDisarmedWarning(input);
         if (disarmed) console.warn(disarmed);
+        // D23: name the recovery path while enforced, so an IdP outage is never a mystery lockout.
+        if (identityArmed) {
+          console.log("[identity] identity is ENFORCED. Locked out (IdP unreachable)? On this host run: pi-dashboard login --local");
+        }
       }
 
       await fastify.listen({ port: config.port, host: config.host });

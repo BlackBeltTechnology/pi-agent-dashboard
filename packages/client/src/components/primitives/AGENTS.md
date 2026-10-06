@@ -12,6 +12,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `InlineRenameInput.tsx` | Autofocusing inline text input for rename. Enter → `onConfirm(trim)`, Escape/blur → `onCancel`; `confirmedRef` guards double-fire. Exports `InlineRenameInput`. |
 | `LogBlock.tsx` | Shared monospace log/stderr inset panel. Exports `LogBlock`. Labelled header + copy (always FULL text) + collapse/expand or `preview` (last-N lines) mode; bounded `maxHeightClass` scroll; empty/whitespace text → renders nothing. Registered as UI primitive `ui:log-block` (main.tsx) for the flows-plugin code-node log preview. See change: redesign-directory-card. |
 | `PathPicker.tsx` | Reusable keyboard-first path picker with typeahead directory list. → see `PathPicker.tsx.AGENTS.md` |
+| `PathPickerDialog.tsx` | Host impl of `ui:path-picker` plugin primitive. `Dialog` + single-select `PathPicker`; verifies confirmed path is a directory via `/api/browse` before `onSelect`. See change: improve-kb-settings-sources-and-search. |
 | `PiLogo.tsx` | Inline SVG brand mark (geometric Π). Exports `PiLogo`. Props: `size` (default 24), `className`, `title`. → see `PiLogo.tsx.AGENTS.md` |
 | `SearchableSelectDialog.tsx` | Re-export shim. Forwards to `@blackbelt-technology/pi-dashboard-client-utils/SearchableSelectDialog`. Symbol migrated in change `complete-flows-plugin-migration` (Layer 0). |
 | `Toast.tsx` | Canonical `ToastVariant = error\|warning\|success\|info\|neutral` (re-exported by `useAsyncAction`,… → see `Toast.tsx.AGENTS.md` |

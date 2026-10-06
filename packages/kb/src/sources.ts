@@ -7,16 +7,30 @@
 // (`parseSourceKind`/`computeIdentity`) — reimplemented here to keep this
 // publishable package self-contained (no kb→server dependency).
 
-import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
+import { execFile } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns git clone/pull + tar/zip extract for remote resolvers, no pi-dashboard-shared dep)
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { type ArchiveKind, extractArchiveSafely } from "./archive-guard.js";
 import type { SourceConfig } from "./config.js";
 import { assertPublicHost, guardedFetch, type LookupAll } from "./net-guard.js";
 import { isTrusted, recordTrust } from "./trust.js";
+
+const execFileAsync = promisify(execFile);
+/** Per-git-call bound: a hung clone must not pin a job forever. */
+const GIT_TIMEOUT_MS = 120_000;
+const GIT_MAX_BUFFER = 16 * 1024 * 1024;
+
+/** Thrown when a remote source has no trust record (and none was granted). Classifiable by callers. */
+export class KbUntrustedSourceError extends Error {
+  constructor(public readonly spec: SourceConfig) {
+    super(`remote source ${spec.kind ?? classifyRef(spec.ref)}:${spec.ref} not trusted — run interactively or pre-approve`);
+    this.name = "KbUntrustedSourceError";
+  }
+}
 
 export type KbSourceKind = "filesystem" | "npm" | "git" | "https";
 
@@ -38,7 +52,7 @@ export interface ResolveCtx {
     /** Replaces `guardedFetch` for the https resolver. */
     fetch?: (url: string) => Promise<Buffer>;
     /** Replaces the `git` binary: receives argv, returns stdout. */
-    git?: (args: string[]) => string;
+    git?: (args: string[]) => string | Promise<string>;
     /** Replaces `dns.lookup` for the git host check. */
     lookup?: LookupAll;
     /** Overrides the archive entry-count / expanded-byte limits. */
@@ -99,7 +113,7 @@ async function ensureTrusted(spec: SourceConfig, ctx: ResolveCtx): Promise<void>
   if (isTrusted(spec)) return;
   const prompt = ctx.promptTrust ?? (async () => false);
   const ok = await prompt(spec);
-  if (!ok) throw new Error(`remote source ${spec.kind}:${spec.ref} not trusted — run interactively or pre-approve`);
+  if (!ok) throw new KbUntrustedSourceError(spec);
   recordTrust(spec);
 }
 
@@ -190,7 +204,7 @@ export const gitResolver: SourceResolver = {
     const hooks = ctx.testHooks ?? {};
     // execFile (argv array, no shell) — never interpolate url/ref/pin into a
     // shell string (command-injection-safe even with hostile refs).
-    const git = hooks.git ?? ((args: string[]) => execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }));
+    const git = hooks.git ?? (async (args: string[]) => (await execFileAsync("git", args, { encoding: "utf8", timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER })).stdout);
     const rawRef = spec.ref.startsWith("git:") ? spec.ref.slice(4) : spec.ref;
     if (/^[a-z][a-z0-9+.-]*::/i.test(rawRef)) throw new Error(`git transport helper refs are not allowed: ${rawRef}`);
     const url = gitUrlOf(spec);
@@ -213,7 +227,7 @@ export const gitResolver: SourceResolver = {
       "-c", "http.followRedirects=false", "-c", "submodule.recurse=false", "-c", "fetch.recurseSubmodules=false",
     );
     if (target.scheme === "https" && !isIPLiteral(target.host)) {
-      const m = /git version (\d+)\.(\d+)/.exec(git(["version"]));
+      const m = /git version (\d+)\.(\d+)/.exec(await git(["version"]));
       if (m && (Number(m[1]) > 2 || (Number(m[1]) === 2 && Number(m[2]) >= 37))) {
         const ip = addrs[0].family === 6 ? `[${addrs[0].address}]` : addrs[0].address;
         hardening.push("-c", `http.curloptResolve=${target.host}:${target.port || "443"}:${ip}`);
@@ -232,7 +246,7 @@ export const gitResolver: SourceResolver = {
       // URL. On a mismatch refuse WITHOUT mutating the cache: nothing is deleted or replaced, so a
       // concurrent resolver using this clone can never lose it.
       let origins: string[] = [];
-      try { origins = git(["-C", cloneDir, "config", "--get-all", "remote.origin.url"]).split("\n").map((l) => l.trim()).filter(Boolean); } catch { /* treated as a mismatch */ }
+      try { origins = (await git(["-C", cloneDir, "config", "--get-all", "remote.origin.url"])).split("\n").map((l) => l.trim()).filter(Boolean); } catch { /* treated as a mismatch */ }
       if (origins.length !== 1) {
         throw new Error(`git cache entry ${cloneDir} has ${origins.length} configured origin URLs (expected exactly 1: ${url}); remove it and retry`);
       }
@@ -242,14 +256,14 @@ export const gitResolver: SourceResolver = {
     }
     if (!hasGit) {
       mkdirSync(ctx.cacheDir, { recursive: true });
-      git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
+      await git([...hardening, "clone", "--depth", "1", ...(ref ? ["--branch", ref] : []), "--", url, cloneDir]);
     } else if (shouldPull) {
       if (ref) {
-        git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
-        git([...hardening, "-C", cloneDir, "checkout", "--no-recurse-submodules", ref]);
-      } else git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
+        await git([...hardening, "-C", cloneDir, "fetch", "--no-recurse-submodules", "--depth", "1", "origin", ref]);
+        await git([...hardening, "-C", cloneDir, "checkout", "--no-recurse-submodules", ref]);
+      } else await git([...hardening, "-C", cloneDir, "pull", "--no-recurse-submodules", "--ff-only"]);
     }
-    const rev = git(["-C", cloneDir, "rev-parse", "--short", "HEAD"]).trim();
+    const rev = (await git(["-C", cloneDir, "rev-parse", "--short", "HEAD"])).trim();
     const dir = spec.subdir ? join(cloneDir, spec.subdir) : cloneDir;
     return { id: spec.ref, dir, priority: spec.priority ?? 0, identity: sourceIdentity(spec, ctx.cwd), revision: rev };
   },
@@ -376,7 +390,7 @@ export const httpsResolver: SourceResolver = {
         if (kind) {
           const archive = join(stage, kind === "zip" ? "archive.zip" : "archive.tar");
           writeFileSync(archive, body);
-          extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
+          await extractArchiveSafely(kind, archive, out, hooks.archiveLimits);
         } else {
           writeFileSync(join(out, plainFileName(url.pathname)), body);
         }

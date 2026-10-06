@@ -33,8 +33,11 @@ const OWNERS = [
 export function seedIdentitySessions(sessionsRoot, issuer) {
   if (!issuer) throw new Error("seed-identity-sessions: issuer (argv[3]) is required");
   fs.mkdirSync(sessionsRoot, { recursive: true });
-  // Recent so both land inside the default snapshot window.
-  const baseTime = Date.parse("2026-09-01T12:00:00.000Z");
+  // Recent so both land inside the default snapshot window AND survive the boot
+  // auto-archive sweep (`sessionList.archiveAfterDays`) — a fixed past date is a
+  // time bomb: once it ages past that window the seeded sessions are archived and
+  // never reach the live list. Anchored an hour back, to the second.
+  const baseTime = Math.floor((Date.now() - 3_600_000) / 1000) * 1000;
 
   for (const [i, owner] of OWNERS.entries()) {
     const cwd = `/fixtures/identity-${owner.sub}`;

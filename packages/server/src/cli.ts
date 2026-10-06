@@ -8,7 +8,13 @@ import { fileURLToPath } from "node:url";
  * Usage:
  *   pi-dashboard                    Start server in foreground (default)
  *   pi-dashboard start [flags]      Start server as background daemon
- *   pi-dashboard stop               Stop running daemon
+ *   pi-dashboard stop [--port n] [--pi-port n] [--force]
+ *                                   Stop running daemon. The port sweep kills only listeners
+ *                                   this HOME owns. --force kills EVERY listener on those
+ *                                   ports - DANGEROUS: it can kill another HOME's or user's
+ *                                   dashboard, the Electron app's server, or an unrelated
+ *                                   service. Use only to recover an orphaned listener nothing
+ *                                   else can attribute. `restart` ignores --force.
  *   pi-dashboard restart [flags]    Restart daemon
  *   pi-dashboard status             Show daemon status
  *   pi-dashboard runtime            Print the resolved spawn runtime (diagnostic)
@@ -46,6 +52,8 @@ import {
 } from "./lifecycle/recovery-server.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import { isServerRunning, readPid, removePid } from "./spawn-process/server-pid.js";
+import { collectOwnedPids, partitionHolders } from "./lifecycle/stop-ownership.js";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 // Re-exports for back-compat — other modules / tests may import these from cli.
 export const parseNetstatListeners = platformParseNetstatListeners;
@@ -80,7 +88,8 @@ type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export interface ParsedArgs {
   subcommand: Subcommand | null;
-  flags: Partial<ServerConfig>;
+  /** `force` is read only by `stop`; it never enters `ServerConfig`. */
+  flags: Partial<ServerConfig> & { force?: boolean };
 }
 
 /**
@@ -88,7 +97,7 @@ export interface ParsedArgs {
  * Exported for testing.
  */
 export function parseArgs(args: string[]): ParsedArgs {
-  const flags: Partial<ServerConfig> = {};
+  const flags: Partial<ServerConfig> & { force?: boolean } = {};
   let subcommand: Subcommand | null = null;
 
   for (let i = 0; i < args.length; i++) {
@@ -121,6 +130,8 @@ export function parseArgs(args: string[]): ParsedArgs {
       flags.ephemeral = true;
     } else if (arg === "--no-tunnel") {
       flags.tunnel = false;
+    } else if (arg === "--force") {
+      flags.force = true;
     }
   }
 
@@ -168,12 +179,15 @@ export function guardTempHomePort<T extends number | null>(
 /**
  * Build the full server config from CLI flags, env vars, and config file.
  */
-export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
+export function buildConfig(
+  flags: Partial<ServerConfig>,
+  warn: (msg: string) => void = console.warn,
+): ServerConfig {
   const fileConfig = loadConfig();
   const resolvedPort =
     flags.port ?? (parseInt(process.env.PI_DASHBOARD_PORT ?? "") || null) ?? fileConfig.port;
   return {
-    port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir()),
+    port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir(), warn),
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
     host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
     // The `--host` FLAG, kept alongside the resolved value. `pendingBindHost`
@@ -453,28 +467,75 @@ async function killProcess(pid: number, label: string): Promise<boolean> {
 // Local alias to preserve prior internal references.
 const isProcessAlive = (pid: number) => platformIsProcessAlive(pid);
 
-async function cmdStop(): Promise<void> {
-  const config = loadConfig();
-  const pid = readPid();
+export interface StopDeps {
+  findPortHolders: (port: number) => number[];
+  killProcess: (pid: number, label: string) => Promise<boolean>;
+  readPid: () => number | null;
+  removePid: () => void;
+  isProcessAlive: (pid: number) => boolean;
+  collectOwnedPids: (config: ServerConfig) => Promise<Set<number>>;
+}
+
+/**
+ * `pi-dashboard stop`. Ports come from the resolved config (same chain as
+ * `start`). The port sweep kills only listeners this HOME provably owns;
+ * `--force` kills every listener. See change: fix-cli-stop-foreign-home-kill.
+ */
+export async function cmdStop(
+  config: ServerConfig,
+  opts: { force?: boolean } = {},
+  injected?: Partial<StopDeps>,
+): Promise<void> {
+  const d: StopDeps = {
+    findPortHolders,
+    killProcess,
+    readPid,
+    removePid,
+    isProcessAlive,
+    collectOwnedPids,
+    ...injected,
+  };
+  // Evidence first: after the PID-file kill the health probe can no longer answer.
+  const owned = await d.collectOwnedPids(config);
+  const pid = d.readPid();
   let stopped = false;
 
   // Try PID file first
   if (pid !== null) {
-    if (isProcessAlive(pid)) {
-      stopped = await killProcess(pid, "Dashboard server");
+    if (d.isProcessAlive(pid)) {
+      stopped = await d.killProcess(pid, "Dashboard server");
     } else {
       console.log("Dashboard server is not running (cleaned up stale PID file)");
     }
-    removePid();
+    d.removePid();
   }
 
-  // Safety net: kill any process still holding our ports
+  // Port sweep: ownership-scoped. Non-positive ports (ephemeral) are never inspected.
+  const holders = new Map<number, number[]>();
   for (const port of [config.port, config.piPort]) {
-    for (const holder of findPortHolders(port)) {
-      if (holder !== pid) {
-        console.log(`Killing stale process ${holder} on port ${port}`);
-        await killProcess(holder, `Stale process on port ${port}`);
-      }
+    if (!(port > 0)) continue;
+    for (const holder of d.findPortHolders(port)) {
+      if (stopped && holder === pid) continue;
+      const ports = holders.get(holder) ?? [];
+      if (!ports.includes(port)) ports.push(port);
+      holders.set(holder, ports);
+    }
+  }
+  const { owned: mine, foreign } = partitionHolders(holders, owned);
+  for (const h of mine) {
+    console.log(`Killing stale process ${h.pid} on port(s) ${h.ports.join(",")}`);
+    await d.killProcess(h.pid, `Stale process on port ${h.ports.join(",")}`);
+  }
+  const dir = getDashboardConfigDir();
+  for (const h of foreign) {
+    const ports = h.ports.join(",");
+    if (opts.force) {
+      console.warn(`--force: killing pid ${h.pid} on port(s) ${ports}, NOT owned by this HOME (${dir})`);
+      await d.killProcess(h.pid, `Process on port ${ports}`);
+    } else {
+      console.log(
+        `port(s) ${ports} held by pid ${h.pid}, not owned by this HOME (${dir}); not killing. Re-run with --force to kill it anyway.`,
+      );
     }
   }
 
@@ -503,7 +564,7 @@ export async function cmdRestart(
   injected?: {
     isDashboardRunning?: typeof isDashboardRunning;
     fetchImpl?: typeof fetch;
-    cmdStopImpl?: () => Promise<void>;
+    cmdStopImpl?: (cfg: ServerConfig) => Promise<void>;
     cmdStartImpl?: (cfg: ServerConfig) => Promise<void>;
   },
 ): Promise<void> {
@@ -518,7 +579,7 @@ async function cmdRestartImpl(
   config: ServerConfig,
   probe: typeof isDashboardRunning,
   fetchFn: typeof fetch,
-  stopFn: () => Promise<void>,
+  stopFn: (cfg: ServerConfig) => Promise<void>,
   startFn: (cfg: ServerConfig) => Promise<void>,
 ): Promise<void> {
   const status = await probe(config.port);
@@ -549,7 +610,7 @@ async function cmdRestartImpl(
     // Fall through to local sequence on HTTP failure so the user is never
     // left with a half-restarted server.
   }
-  await stopFn();
+  await stopFn(config);
   await startFn(config);
 }
 
@@ -567,6 +628,8 @@ export interface TokenCreateDeps {
   localToken?: string | null;
   out?: (line: string) => void;
   err?: (line: string) => void;
+  /** Request bound for `cmdLogin` (ms); default 5000. */
+  timeoutMs?: number;
 }
 
 const TOKEN_TIERS = ["observe", "control", "operate"] as const;
@@ -659,6 +722,56 @@ export async function cmdTokenCreate(
     );
   }
   return 0;
+}
+
+/**
+ * `pi-dashboard login --local` — D23 break-glass (tasks 18.24). Proves control of
+ * the HOST (the 0600 local token), asks the running server for a one-time code
+ * and prints the link the browser exchanges for an in-memory local-operator
+ * bearer. Works with the IdP down. Returns the exit code (testable).
+ */
+export async function cmdLogin(
+  argv: string[],
+  opts: { port: number },
+  deps: TokenCreateDeps = {},
+): Promise<number> {
+  const out = deps.out ?? ((l: string) => console.log(l));
+  const err = deps.err ?? ((l: string) => console.error(l));
+  const fetchFn = deps.fetchImpl ?? fetch;
+  if (!argv.includes("--local")) {
+    err("usage: pi-dashboard login --local [--port <port>]");
+    return 2;
+  }
+  const localToken = deps.localToken !== undefined ? deps.localToken : safeEnsureLocalToken();
+  if (!localToken) {
+    err("[login] no local token available on this host; cannot prove host control");
+    return 1;
+  }
+  const base = `http://localhost:${opts.port}`;
+  try {
+    const res = await fetchFn(`${base}/api/identity/local-code`, {
+      method: "POST",
+      headers: { "content-type": "application/json", [LOCAL_TOKEN_HEADER]: localToken },
+      body: "{}",
+      // A server that accepts the connection but never answers must not hang recovery.
+      signal: AbortSignal.timeout(deps.timeoutMs ?? 5000),
+    });
+    if (!res.ok) {
+      err(`[login] failed to issue a code: HTTP ${res.status}`);
+      return 1;
+    }
+    const json = (await res.json()) as { success: boolean; data?: { code: string; expiresInSeconds: number }; error?: string };
+    if (!json.success || !json.data) {
+      err(`[login] failed to issue a code: ${json.error ?? "unknown error"}`);
+      return 1;
+    }
+    out(`${base}/?pi_local=${encodeURIComponent(json.data.code)}`);
+    out(`Open this link on this machine within ${json.data.expiresInSeconds} s (single-use). You sign in as the local operator (break-glass).`);
+    return 0;
+  } catch (e) {
+    err(`[login] dashboard not running at ${base} (${(e as Error).message ?? e})`);
+    return 1;
+  }
 }
 
 function localTokenHeader(): Record<string, string> {
@@ -880,15 +993,22 @@ async function main() {
     process.exit(await cmdTokenCreate(rawArgs.slice(1), { port: config.port }));
   }
 
+  if (rawArgs[0] === "login") {
+    const { flags } = parseArgs(rawArgs.slice(1));
+    const config = buildConfig(flags);
+    process.exit(await cmdLogin(rawArgs.slice(1), { port: config.port }));
+  }
+
   const { subcommand, flags } = parseArgs(rawArgs);
-  const config = buildConfig(flags);
+  // `stop` binds nothing, so the temp-HOME "refusing to bind" warning is noise there.
+  const config = buildConfig(flags, subcommand === "stop" ? () => {} : undefined);
 
   switch (subcommand) {
     case "start":
       await cmdStart(config);
       break;
     case "stop":
-      await cmdStop();
+      await cmdStop(config, { force: flags.force === true });
       break;
     case "restart":
       await cmdRestart(config);

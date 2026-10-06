@@ -6,10 +6,15 @@
 Settings → General → Gmail guides Google Cloud setup.
 Create project; enable Gmail API; configure Branding and Audience; upload Desktop `client_secret_*.json`; test sign-in.
 Google offers no setup API; dashboard never runs `gcloud`.
-Workspace users choose Internal; others choose External and add test users.
+Audience Internal admits ONLY accounts of GCP project's own Workspace org.
+Account from another org (second Workspace domain, gmail.com) → Google page `Error 403: org_internal`.
+Fix → audience External; add each account as test user.
+One OAuth client per dashboard (multiple clients = non-goal).
 External apps in Testing status expire refresh tokens after 7 days; Internal/Workspace apps unaffected; panel shows `testing: 7-day`.
 Every tool call except `gmail_accounts` names `account` by alias or email; no default account.
 Accounts remain user-global across dashboard pi sessions.
+
+See change: improve-gmail-settings-ux.
 
 ## Package layout
 
@@ -53,6 +58,33 @@ Remote browser cannot reach dashboard-host `127.0.0.1`; paste full redirect URL.
 Re-auth requires same `sub`; mismatch returns `account_mismatch`.
 New account without refresh token fails without persistence.
 Lower level applies immediately when scopes cover it; higher level starts full-scope re-consent.
+Google may show a sign-in error on its own page and never redirects back → loopback callback waits until its 300 s timeout (code `timeout`).
+While flow waiting, settings show `<details data-testid="gmail-google-error">` "Google showed an error instead of returning here?".
+Buttons for closed code list: `org_internal`, `access_denied`, `admin_policy_enforced`, `other` (`gmail-report-<code>`).
+Click → latch code in `reportedRef`, `setFlow(null)`, `oauthFlowClient.cancel(flowId)`.
+Both poll callbacks (pending + done) return early while latched; host terminal `"Cancelled"` never overwrites code; flow view never re-mounts.
+Latch resets on new flow (`addAccount`, `startFlow`).
+While flow set, panel shows `gmail-consent-hint` "tick every permission (Select all)"; host drops `auth_url.instructions` → plugin renders hint.
+Unticked Gmail scope → persist throws `scope_missing` → "add the account again with every permission ticked".
+
+See change: improve-gmail-settings-ux.
+
+## Sign-in errors
+
+`packages/gmail-plugin/src/client/wizard.ts` → `errorKey(code)` maps every flow code to an i18n key; unknown → `errGeneric`; `"Cancelled"` matched case-insensitively → `errCancelled`.
+`ERROR_EN` holds English sentences (`t()` fallback).
+`errorStep`: `org_internal`/`access_denied` → step 3; `admin_policy_enforced` → null (fix lives in that account's Workspace Admin console: trust client id; message interpolates `{clientId}`).
+UI renders sentence + raw code in muted `gmail-flow-error-code` span.
+
+Closed code set `KNOWN_FLOW_CODES` lives in `packages/gmail-plugin/src/shared/flow-codes.ts` (`knownFlowCode(code)` exact match → code | null).
+Shared by client table + server log allow-list.
+
+Server `startSignIn` (`packages/gmail-plugin/src/server/routes.ts`) wraps `loginFlow.login`, `persist`, and the `deps.oauth.startFlow` catch.
+Each logs `logger.warn("[gmail] sign-in failed: <code>")` with code from `knownFlowCode(err.code)` else `sign_in_failed`.
+Per-call `logged` flag → exactly once (a login throwing before first event also rejects startFlow with `PluginFlowStartError("login_failed")`).
+Never logs email, message, URL, token. Original error rethrown unchanged.
+
+See change: improve-gmail-settings-ux.
 
 ## Token lease
 
@@ -108,6 +140,18 @@ Mailbox reads carry `details.untrusted = true`; bridge declares reads untrusted 
 Confirmation shows account, recipients, subject, body preview; headless sessions block writes; dismissal or timeout denies.
 `gmail_reply` threads via `In-Reply-To`, `References`, `threadId`; archive removes `INBOX`.
 
+## Gmail API errors
+
+Bridge 403 classification (`packages/gmail-plugin/src/bridge/gmail-api.ts` `classify403`).
+Reads Google `reason` only from `error.details[]` entries whose `@type` ends `google.rpc.ErrorInfo` + legacy `error.errors[].reason`.
+`SERVICE_DISABLED`/`accessNotConfigured` (and `metadata.service` absent or `gmail.googleapis.com`) → tool code `api_disabled`.
+Message names project number only when `metadata.consumer` matches `^projects/(\d{1,20})$`; then `gcloud services enable gmail.googleapis.com --project=<n>`.
+`ACCESS_TOKEN_SCOPE_INSUFFICIENT`/`insufficientPermissions` → `scope_insufficient` (re-authenticate with every permission ticked).
+Anything else / parse failure → unchanged `gmail_error: Gmail returned HTTP 403`.
+Google free text (`message`, `activationUrl`) never echoed.
+
+See change: improve-gmail-settings-ux.
+
 ## Storage
 
 `~/.pi/agent/plugin-credentials.json` stores plaintext mode 0600 under namespace `gmail`.
@@ -131,6 +175,19 @@ Responses omit tokens and client secret.
 | `POST` | `/api/plugins/gmail/accounts/:sub/reauth` | Re-consent current level. |
 | `PATCH` | `/api/plugins/gmail/accounts/:sub` | Change alias. |
 | `DELETE` | `/api/plugins/gmail/accounts/:sub` | Attempt remote revoke; delete local account. |
+
+## Settings UI
+
+Revoke requires host `ui:confirm-dialog`; no DELETE until confirmed.
+Alias blur shows `gmail-alias-feedback` ("Saved" role=status, or mapped `alias_taken`/`invalid_alias` sentence).
+Level `<option>`s read `<tier> — <description>`.
+Add-account select has visible `<label>` + `gmail-cross-org-hint`.
+Collapsed wizard `<summary data-testid="gmail-setup-summary">` shows `✓ project <projectId>`, else `✓ <clientId>`, else `not configured`.
+Theme uses only declared host tokens (`--border-primary`, `--bg-tertiary`, `--severity-{success,warning,error}-*`, `--accent` step highlight, `--accent-text` links).
+`.focus-ring` on every control.
+`packages/gmail-plugin/src/client` added to `SCAN_ROOTS` in `scripts/theme-token-guard.mjs`.
+
+See change: improve-gmail-settings-ux.
 
 ## Test override
 

@@ -48,6 +48,7 @@ import { ToolCallStep } from "./components/chat/ToolCallStep.js";
 import { LoginGate } from "./components/identity/LoginGate.js";
 import { MarkdownContent } from "./components/preview/MarkdownContent.js";
 import { LogBlock } from "./components/primitives/LogBlock.js";
+import { PathPickerDialog } from "./components/primitives/PathPickerDialog.js";
 import { OAuthFlowView } from "./components/settings/OAuthFlowView.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
 import { installGrantChannelFetch } from "./lib/access-grants/grant-channel.js";
@@ -117,6 +118,9 @@ registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.logBlock, LogBlock);
 // Generic OAuth sign-in flow body for plugin settings sections.
 // See change: expose-plugin-credential-and-oauth-seams (D6).
 registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.oauthFlow, OAuthFlowView);
+// Folder picker for plugin settings (transient input; soft hook only).
+// See change: improve-kb-settings-sources-and-search.
+registerUiPrimitive(primitiveRegistry, UI_PRIMITIVE_KEYS.pathPicker, PathPickerDialog);
 
 // `toolCallStep` primitive — plugin timelines (e.g. flow-plugin's
 // MinimalChatView) consume this to render tool calls with the same

@@ -4,7 +4,7 @@
 // `sha256(canonical(SourceSpec))` so editing the spec re-prompts.
 // Persisted at `~/.pi/dashboard/kb-source-trust.json`.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SourceConfig } from "./config.js";
@@ -55,13 +55,19 @@ function load(): TrustMap {
   return {};
 }
 
-function save(map: TrustMap): void {
+/** Atomic (tmp + rename in the same dir): a failed write leaves the prior file intact. */
+function save(map: TrustMap): boolean {
   const p = storePath();
+  const tmp = `${p}.${process.pid}.tmp`;
   try {
     mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, JSON.stringify(map, null, 2), "utf8");
+    writeFileSync(tmp, JSON.stringify(map, null, 2), "utf8");
+    renameSync(tmp, p);
+    return true;
   } catch (err) {
+    try { rmSync(tmp, { force: true }); } catch { /* best effort */ }
     console.warn(`[kb-source-trust] failed to persist: ${(err as Error)?.message}`);
+    return false;
   }
 }
 
@@ -69,10 +75,11 @@ export function isTrusted(s: SourceConfig): boolean {
   return isEntry(load()[sourceHash(s)]);
 }
 
-export function recordTrust(s: SourceConfig): void {
+/** Returns false when the grant could not be persisted (logged). Synchronous: grants never interleave. */
+export function recordTrust(s: SourceConfig): boolean {
   const map = load();
   map[sourceHash(s)] = { subject: sourceSubject(s) };
-  save(map);
+  return save(map);
 }
 
 /**

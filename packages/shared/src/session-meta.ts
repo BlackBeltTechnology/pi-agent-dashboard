@@ -230,6 +230,14 @@ export interface SessionMeta {
    * See change: detach-automation-goal-from-core.
    */
   recover?: boolean;
+  /**
+   * Core-owned "hidden by its owning plugin" intent, set when a spawn's
+   * `lifecycle.hidden` is applied. Persisted (like `recover`) so a NON-reattach
+   * re-register after a restart (respawn: `registerReason:"spawn"`, no token)
+   * keeps the session hidden instead of re-deciding from the headless
+   * heuristic. Absent on user sessions (byte-identical sidecars). See change: fix-plugin-hidden-across-restart.
+   */
+  pluginHidden?: boolean;
 
   // Cache freshness — compared against .jsonl mtime
   cachedAt?: number;

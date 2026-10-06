@@ -7,5 +7,5 @@
     "rootDir": "."
   },
   "include": ["packages/*/src"],
-  "exclude": ["node_modules", "dist", "packages/*/dist"]
+  "exclude": ["node_modules", "dist", "packages/*/dist", "packages/team-app"]
 }

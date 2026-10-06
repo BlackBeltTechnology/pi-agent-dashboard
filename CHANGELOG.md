@@ -83,6 +83,44 @@ see [`docs/release-process.md`](docs/release-process.md).
   opens reconnecting sockets with a fresh single-use ticket on every attempt. The
   `.` entry is framework-free; `./react` adds the identity bridge. No host changes.
 
+- **One Discord thread per conversation.** A new message in a Chat Gateway
+  channel now opens a thread on it and runs that conversation in its own
+  session; reply inside the thread to continue it. The channel stays a clean
+  list of conversations. Turn it off in Settings \ Chat Gateway ("One thread per
+  conversation", `threadPerConversation: false`) to go back to one shared
+  session per channel. If the bot cannot open a thread (missing Create Public
+  Threads), it answers in the channel instead.
+
+- **Close a Discord conversation with `!close`.** Send `!close` inside a
+  thread to end it. A conversation the bot started is shut down like the
+  dashboard's Shutdown button; a thread you attached to a dashboard session
+  is only detached, and the session keeps running. Either way the thread is
+  archived. Requires control access. Plugins get a matching
+  `ctx.shutdownSession(id)` hook (trusted plugins only).
+
+- **Reach your dashboard sessions from Discord.** In a workspace channel,
+  `!sessions` lists the live sessions in that workspace and `!attach <number>`
+  opens a thread for one: its activity shows there, and your messages in the
+  thread go to it. The new "Show dashboard sessions on Discord" setting (off
+  by default) gives every session in a bound workspace its own thread
+  automatically, existing ones and new ones as they start. It sends their
+  activity to Discord at the channel's mirror level.
+
+- **Discord chat sessions stay off the board.** Sessions the Chat Gateway
+  starts or resumes are now hidden by default, like automation runs; turn on
+  "show hidden" to see them. Settings \ Chat Gateway "Chat sessions on the
+  board" (`sessionVisibility: "shown"`) brings them back. Sessions it attaches
+  to are yours and are never hidden. For plugin authors: `spawnSession` accepts
+  `lifecycle: { hidden: true }` to hide the session on its first register.
+
+- **Discord release announcements.** The Release workflow (`publish.yml`)
+  gains a best-effort `discord-announce` job that posts each production
+  release's notes to the community Discord through the
+  `DISCORD_RELEASE_WEBHOOK` repo secret. Prereleases are skipped, an unset
+  secret skips cleanly, mentions are suppressed, and a webhook failure never
+  fails the release. The community invite link moves to
+  `discord.gg/uQsJgsejb` (README, site, sidebar button).
+
 - **Radius sign-in.** Radius (Earendil's AI gateway) is now listed on the
   providers page (Account badge) and signs in through the usual
   browser/device-code choice. It stays hidden while `models.json` points
@@ -173,6 +211,35 @@ see [`docs/release-process.md`](docs/release-process.md).
   messages wait for `session_start`. The output follows the live session after
   `/reload`, a new session or a fork. New `PI_IMAGE_FIT_QUIET=1` silences all
   output.
+
+- **Saving one plugin setting no longer resets the others.** Writing part
+  of a plugin's config through `POST /api/config/plugins/:id` reset every
+  setting left out of the request to its default (e.g. the Chat Gateway's
+  allowed folders, allowlist and admins). Settings you don't send now keep
+  their saved values.
+
+- **Hidden Discord sessions stay hidden after a dashboard restart.** A
+  restart can bring a Chat Gateway session back as a fresh registration, which
+  re-decided its visibility and put it back on the board. The "hidden by its
+  plugin" choice is now saved with the session and honoured on every restart.
+  Sessions hidden before this fix are not migrated: they reappear once, and new
+  ones stay hidden.
+
+- **Chat Gateway runs your Discord message and keeps the session.** A message
+  in a bound channel started a session but never ran, and every later message
+  started yet another session. The gateway matched spawns on a key the
+  dashboard reserves for itself (`spawnToken`), which the host strips, so no
+  spawn was ever bound. It now uses its own key, and the message that starts
+  (or resumes) a session runs as that session's first prompt instead of asking
+  you to repeat it.
+
+- **Chat Gateway can see the Discord channels it creates.** A provisioned
+  workspace channel denied View to `@everyone`, and that deny applied to the
+  bot too, so on a real server the bot was locked out of its own channel
+  (403 Missing Access) and never received messages. Channel creation and every
+  access reconcile now add an allow overwrite for the bot itself (view, send,
+  embed, read history, threads). Channels provisioned before this fix need the
+  bot added to their permissions once (or a one-off access change).
 
 - **`/mcp` answers complete, standard tool results.** Large `/mcp` responses
   (e.g. `tools/list`) were sent gzip-encoded with an empty body to clients

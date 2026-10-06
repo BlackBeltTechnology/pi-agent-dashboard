@@ -25,17 +25,35 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
+  classifyRef,
   indexSource,
   type KbConfig,
+  KbUntrustedSourceError,
+  listTrustedSources,
   loadConfig,
   readStaleness,
+  recordTrust,
+  resolverFor,
   revokeTrustByHash,
+  type SourceConfig,
   SqliteFtsStore,
+  searchOptsFromConfig,
+  sourceHash,
+  sourceSubject,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
 import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
+import { isOutside } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
-import type { KbConfigPatch, KbReindexResult, KbStats } from "../shared/kb-plugin-types.js";
+import type {
+  KbConfigPatch,
+  KbReindexResult,
+  KbSearchDocType,
+  KbSearchResponse,
+  KbSourceOutcome,
+  KbSourceStatus,
+  KbStats,
+} from "../shared/kb-plugin-types.js";
 import type { KbJobRegistry } from "./job-registry.js";
 
 export interface KbRouteDeps {
@@ -55,13 +73,15 @@ export function projectConfigPath(cwd: string): string {
  *  See change: extract-mcp-client-plugin. */
 export { isAllowedCwd };
 
-/** Reject a cwd that is missing or not a known folder. Returns true when handled. */
-function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => string[]): cwd is undefined {
+/** Send the refusal for a cwd that is missing or not an admitted folder (400 / 403).
+ *  Callers test admission with the shared `isAllowedCwd` DIRECTLY, not through a
+ *  wrapper, so static analysis can see the guard (see
+ *  `.github/codeql/extensions/cwd-guard.model.yml`). */
+function denyCwd(reply: FastifyReply, cwd: string | undefined): void {
   if (!cwd) {
     reply.code(400).send({ error: "Missing cwd" });
-    return true;
+    return;
   }
-  if (isAllowedCwd(cwd, known)) return false;
   // Bare `{ error }` shape preserved; `reason`/`hint` are additive (design
   // D7/D18). Pin the refused directory to admit it on retry. See change:
   // add-access-grants-and-review.
@@ -70,7 +90,6 @@ function rejectCwd(reply: FastifyReply, cwd: string | undefined, known: () => st
     reason: "cwd is not a known session or pinned directory.",
     hint: "Pin this directory to allow it, or open a session rooted in it.",
   });
-  return true;
 }
 
 /** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store. */
@@ -104,28 +123,60 @@ function countStale(cwd: string): number {
   return stale;
 }
 
-/** Run `indexSource` over the folder's resolved (filesystem) sources. */
-export async function reindexAll(cwd: string): Promise<KbReindexResult> {
+type SourceKind = "filesystem" | "npm" | "git" | "https";
+
+/** Classify a saved spec (resolver choice, remote vs filesystem) without rewriting it before hashing. */
+function kindOf(spec: SourceConfig): SourceKind {
+  return (spec.kind ?? classifyRef(spec.ref)) as SourceKind;
+}
+
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Index every saved source spec (`cfg.allSourceSpecs`), each resolved on its own
+ * so one failing source never aborts the others (`resolveAll` aborts on the
+ * first throw). Untrusted remote sources are skipped, not fatal; a failed or
+ * skipped source keeps its previously indexed chunks (`indexSource` only sweeps
+ * a root it actually walked). `promptTrust` is trust-store only: the server can
+ * never grant trust during a walk.
+ */
+export async function reindexAll(cwd: string, log?: { info(m: string): void; warn(m: string): void }): Promise<KbReindexResult> {
   const { store, cfg } = openStore(cwd);
   try {
     let changed = 0;
-    for (const src of cfg.resolvedSources) {
-      const stats = await indexSource(
-        store,
-        { root: src.id, dir: src.dir },
-        {
-          include: cfg.include,
-          exclude: cfg.exclude,
-          extensions: cfg.extensions,
-          indexAgentsFiles: cfg.indexAgentsFiles,
-          includeSourceMarkdown: cfg.includeSourceMarkdown,
-          respectGitignore: cfg.respectGitignore,
+    const outcomes: KbSourceOutcome[] = [];
+    for (const spec of cfg.allSourceSpecs) {
+      const started = Date.now();
+      try {
+        const src = await resolverFor(kindOf(spec)).resolve(spec, {
           cwd,
-        },
-      );
-      changed += stats.changed;
+          cacheDir: cfg.cacheDirAbs,
+          promptTrust: async () => false,
+        });
+        const stats = await indexSource(
+          store,
+          { root: src.id, dir: src.dir },
+          {
+            include: cfg.include,
+            exclude: cfg.exclude,
+            extensions: cfg.extensions,
+            indexAgentsFiles: cfg.indexAgentsFiles,
+            includeSourceMarkdown: cfg.includeSourceMarkdown,
+            respectGitignore: cfg.respectGitignore,
+            cwd,
+          },
+        );
+        changed += stats.changed;
+        outcomes.push({ ref: spec.ref, status: "ok", ...(src.revision ? { revision: src.revision } : {}), at: Date.now() });
+        log?.info(`[kb-plugin] source ok ref=${spec.ref} kind=${kindOf(spec)} ms=${Date.now() - started}`);
+      } catch (e) {
+        const untrusted = e instanceof KbUntrustedSourceError;
+        outcomes.push({ ref: spec.ref, status: untrusted ? "untrusted" : "error", error: errMsg(e), at: Date.now() });
+        if (untrusted) log?.info(`[kb-plugin] source skipped (not trusted) ref=${spec.ref} ms=${Date.now() - started}`);
+        else log?.warn(`[kb-plugin] source failed ref=${spec.ref} ms=${Date.now() - started}: ${errMsg(e)}`);
+      }
     }
-    return { changed, chunks: store.counts().chunks };
+    return { changed, chunks: store.counts().chunks, outcomes };
   } finally {
     store.close();
   }
@@ -150,7 +201,7 @@ type PutResult = { ok: true; projectPath: string } | { ok: false; code: number; 
  * the DEFAULTS-filled validation output). Returns a discriminated result; the
  * route maps it to a status code. Writes nothing on a validation failure.
  */
-export function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
+function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
   const path = projectConfigPath(cwd);
   let current: Partial<KbConfig> = {};
   if (existsSync(path)) {
@@ -174,13 +225,78 @@ export function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
   return { ok: true, projectPath: writeProjectConfig(cwd, merged) };
 }
 
+type GrantResult =
+  | { ok: true; hash: string; subject: string }
+  | { ok: false; code: 400 | 404 | 409 | 500; error: string };
+
+/**
+ * Grant TOFU trust to ONE saved remote source, identified by exact `ref` in the
+ * folder's EFFECTIVE saved config (project merged over global — the list reindex
+ * walks). The recorded spec is the saved object, never request data, so grant and
+ * reindex hash identically. Trust is global; the cwd guard only limits which
+ * folder's config may be granted from.
+ */
+function grantSourceTrust(cwd: string, ref: string): GrantResult {
+  const matches = loadConfig(cwd).allSourceSpecs.filter((s) => s.ref === ref);
+  if (matches.length === 0) return { ok: false, code: 404, error: `no saved source with ref ${ref}` };
+  if (matches.length > 1) return { ok: false, code: 409, error: `more than one saved source has ref ${ref}; resolve the duplicate first` };
+  const spec = matches[0];
+  if (kindOf(spec) === "filesystem") return { ok: false, code: 400, error: "filesystem sources do not need trust" };
+  if (!recordTrust(spec)) return { ok: false, code: 500, error: "could not persist the trust record" };
+  return { ok: true, hash: sourceHash(spec), subject: sourceSubject(spec) };
+}
+
+type PatchTrustResult =
+  | { ok: true; projectPath: string; untrustedRefs: string[] }
+  | { ok: false; code: number; error: string };
+
+/**
+ * Shared core of `PUT /api/kb/config` and the `config.set` plugin action: apply
+ * the patch, and only after a VALID write grant `trustRefs`. Refs that cannot be
+ * granted (unmatched, ambiguous, filesystem, persist failure) are returned as
+ * `untrustedRefs` so no surface ever claims a grant that did not happen.
+ */
+export function applyConfigPatchAndTrust(cwd: string, body: KbConfigPatch): PatchTrustResult {
+  const result = applyConfigPatch(cwd, body);
+  if (!result.ok) return result;
+  const refs = Array.isArray(body.trustRefs) ? body.trustRefs.filter((r): r is string => typeof r === "string") : [];
+  const untrustedRefs = refs.filter((ref) => !grantSourceTrust(cwd, ref).ok);
+  return { ok: true, projectPath: result.projectPath, untrustedRefs };
+}
+
+const SEARCH_DOC_TYPES: readonly KbSearchDocType[] = ["doc", "agents", "source-md"];
+const MAX_QUERY_CHARS = 512;
+
+type SearchQuery = { q: string; docType?: KbSearchDocType; limit: number } | { error: string };
+
+/** Validate `GET /api/kb/search` inputs: q 1-512 chars, docType in the lane set, limit clamped to [1,50] (default 10). */
+function parseSearchQuery(query: { q?: string; limit?: string; docType?: string }): SearchQuery {
+  const q = (query.q ?? "").trim();
+  if (q.length < 1 || q.length > MAX_QUERY_CHARS) return { error: `q must be 1-${MAX_QUERY_CHARS} characters` };
+  const docType = query.docType === "" ? undefined : query.docType; // an empty lane means "all lanes"
+  if (docType !== undefined && !SEARCH_DOC_TYPES.includes(docType as KbSearchDocType)) {
+    return { error: `docType must be one of ${SEARCH_DOC_TYPES.join(", ")}` };
+  }
+  // Whole-string integer only: "1junk" / "abc" fall back to the default rather than being half-parsed.
+  const limit = /^\d+$/.test(query.limit ?? "") ? Math.min(50, Math.max(1, Number(query.limit))) : 10;
+  return { q, limit, ...(docType ? { docType: docType as KbSearchDocType } : {}) };
+}
+
+/** Lexical `outside` label for a filesystem ref (same shared helper the client uses). */
+function refIsOutside(cwd: string, ref: string): boolean {
+  return isOutside(cwd, isAbsolute(ref) ? ref : resolve(cwd, ref));
+}
+
 export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void {
   const { knownCwds, registry } = deps;
 
   // ── GET stats ──────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/stats", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const { store } = openStore(cwd);
     let counts: { files: number; chunks: number };
     try {
@@ -212,9 +328,12 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // fix-kb-index-feedback.
   fastify.post<{ Querystring: { cwd?: string } }>("/api/kb/reindex", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     if (!registry.isRunning(cwd)) {
-      const { promise } = registry.start(cwd, async () => reindexAll(cwd));
+      const { promise } = registry.start(cwd, async () => reindexAll(cwd, fastify.log));
       // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
       // unhandled rejection. Use `fastify.log` (not `req.log`): the request is
       // already finalized by the time the walk settles.
@@ -229,7 +348,10 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
   // ── GET config ─────────────────────────────────────────────────
   fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const cfg = loadConfig(cwd);
     return { config: cfg as KbConfig, origin: cfg.origin, projectPath: projectConfigPath(cwd) };
   });
@@ -254,22 +376,141 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
     return { success: true };
   });
 
+  // ── GET search ─────────────────────────────────────────────────
+  // Read-only test search over the SAVED index. Existing-only store open (no
+  // init/migrate/mkdir), never reindexes, no verdict enrichment (sync fs/git on
+  // the event loop). `store.search` is sync but user-initiated, bounded by q/limit.
+  fastify.get<{ Querystring: { cwd?: string; q?: string; limit?: string; docType?: string } }>("/api/kb/search", async (req, reply) => {
+    const { cwd } = req.query;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
+    const parsed = parseSearchQuery(req.query);
+    if ("error" in parsed) {
+      reply.code(400);
+      return { error: parsed.error };
+    }
+    const { q, docType, limit } = parsed;
+
+    const started = Date.now();
+    const cfg = loadConfig(cwd);
+    let store: SqliteFtsStore | null = null;
+    try {
+      store = SqliteFtsStore.openExisting(cfg.dbAbsPath);
+      if (!store) return { hits: [], tookMs: Date.now() - started } satisfies KbSearchResponse;
+      const schema = store.hasCurrentSchema();
+      if (!schema.table) return { hits: [], tookMs: Date.now() - started } satisfies KbSearchResponse;
+      if (!schema.current) return { hits: [], tookMs: Date.now() - started, needsReindex: true as const } satisfies KbSearchResponse;
+      // Every saved spec feeds rootPriority (narrow config ResolvedSource: id+priority only).
+      const sources = cfg.allSourceSpecs.map((s) => ({ id: s.ref, dir: "", priority: s.priority ?? 0 }));
+      const opts = { ...searchOptsFromConfig(cfg, { sources }), limit, ...(docType ? { docType } : {}) };
+      const hits = store.search(q, opts).map((h) => ({
+        root: h.root,
+        path: h.path,
+        headingPath: h.headingPath,
+        chunkId: h.chunkId,
+        snippet: h.snippet,
+        score: h.score,
+        docType: h.docType,
+        ...(h.suppressedSections ? { suppressedSections: h.suppressedSections } : {}),
+      }));
+      return { hits, tookMs: Date.now() - started } satisfies KbSearchResponse;
+    } catch (e) {
+      fastify.log.error(`[kb-plugin] search failed for ${cwd}: ${errMsg(e)}`);
+      reply.code(500);
+      return { error: errMsg(e) };
+    } finally {
+      store?.close();
+    }
+  });
+
+  // ── GET sources ────────────────────────────────────────────────
+  // Per-source status. NOT folded into /stats (polled every second, shared with
+  // the sidebar row). Never creates the db; `files` is a cheap GROUP BY on the
+  // (root,path) PK — no per-root FTS scan.
+  fastify.get<{ Querystring: { cwd?: string } }>("/api/kb/sources", async (req, reply) => {
+    const { cwd } = req.query;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
+    const cfg = loadConfig(cwd);
+    let files: Record<string, number> = {};
+    let store: SqliteFtsStore | null = null;
+    try {
+      store = SqliteFtsStore.openExisting(cfg.dbAbsPath);
+      if (store) files = store.filesByRoot();
+    } catch (e) {
+      fastify.log.warn(`[kb-plugin] sources count failed for ${cwd}: ${errMsg(e)}`);
+    } finally {
+      store?.close();
+    }
+    const trustedHashes = new Set(listTrustedSources().map((t) => t.hash));
+    const outcomes = new Map(registry.outcomesFor(cwd).map((o) => [o.ref, o]));
+    const sources: KbSourceStatus[] = cfg.allSourceSpecs.map((spec) => {
+      const kind = kindOf(spec);
+      const o = outcomes.get(spec.ref);
+      return {
+        ref: spec.ref,
+        kind,
+        files: files[spec.ref] ?? 0,
+        trusted: kind === "filesystem" ? null : trustedHashes.has(sourceHash(spec)),
+        outside: kind === "filesystem" && refIsOutside(cwd, spec.ref),
+        ...(o ? { lastStatus: o.status, lastAt: o.at } : {}),
+        ...(o?.error ? { lastError: o.error } : {}),
+        ...(o?.revision ? { revision: o.revision } : {}),
+      };
+    });
+    return { sources };
+  });
+
+  // ── POST /api/kb/source-trust ──────────────────────────────────
+  // Grant (consent made in the dashboard dialog). Keyed by `ref` against the
+  // SAVED effective config only; see grantSourceTrust.
+  fastify.post<{ Querystring: { cwd?: string }; Body: { ref?: string } }>("/api/kb/source-trust", async (req, reply) => {
+    const { cwd } = req.query;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
+    const ref = req.body?.ref;
+    if (typeof ref !== "string" || ref.length === 0) {
+      reply.code(400);
+      return { error: "ref is required" };
+    }
+    const g = grantSourceTrust(cwd, ref);
+    if (!g.ok) {
+      reply.code(g.code);
+      return { error: g.error };
+    }
+    return { hash: g.hash, subject: g.subject };
+  });
+
   // ── PUT config ─────────────────────────────────────────────────
   fastify.put<{ Querystring: { cwd?: string }; Body: KbConfigPatch }>("/api/kb/config", async (req, reply) => {
     const { cwd } = req.query;
-    if (rejectCwd(reply, cwd, knownCwds)) return;
+    if (!isAllowedCwd(cwd, knownCwds)) {
+      denyCwd(reply, cwd);
+      return;
+    }
     const body = (req.body ?? {}) as KbConfigPatch;
 
-    const result = applyConfigPatch(cwd, body);
+    const result = applyConfigPatchAndTrust(cwd, body);
     if (!result.ok) {
       reply.code(result.code);
       return { error: result.error };
     }
     if (body.reindex && !registry.isRunning(cwd)) {
       // Fire-and-forget: the row polls `/stats` for completion.
-      registry.start(cwd, async () => reindexAll(cwd)).promise.catch(() => {});
+      registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
     }
     const cfg = loadConfig(cwd);
-    return { config: cfg as KbConfig, origin: cfg.origin, projectPath: result.projectPath };
+    return {
+      config: cfg as KbConfig,
+      origin: cfg.origin,
+      projectPath: result.projectPath,
+      ...(result.untrustedRefs.length > 0 ? { untrustedRefs: result.untrustedRefs } : {}),
+    };
   });
 }

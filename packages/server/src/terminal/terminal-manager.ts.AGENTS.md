@@ -13,3 +13,7 @@ See change: preserve-inline-terminal-transcript, fit-attachments-for-display.
 PTY env `{ ...process.env, ...hints }` passes through `normalizeEnvPathKey` before `augmentEnvWithGitSource` (bundled-source PATH write no longer duplicates win32 `Path`). See change: fix-windows-path-env-key-casing.
 
 `spawn` runs shared `stripDashboardHeapFlag` over `{ ...process.env, ...hints }` before `normalizeEnvPathKey`: drops the dashboard's own marker-matched old-space token AND the `PI_DASHBOARD_HEAP_FLAG` marker; operator flag (incl. identical value without marker) preserved. Terminal headroom regression: inherited 8192 → runtime default. See change: guard-server-heap-and-store-coupling (D4).
+
+- Identity plane: `spawn(cwd, {ephemeral?, owner?})` stamps `principalOwner` `{iss,sub}` (copy). Owner rule = sessions (equality; ownerless invisible to humans; operator sees all). See change: add-multi-user-identity-plane (18.13).
+
+POSIX PTY spawns `$SHELL -l` (login shell) so `~/.zprofile`/`~/.bash_profile` run (e.g. `brew shellenv` → `/opt/homebrew/bin`); server's inherited GUI/launchd PATH lacks Homebrew. win32 args stay `[]`.

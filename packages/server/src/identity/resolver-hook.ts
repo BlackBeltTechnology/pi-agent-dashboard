@@ -18,6 +18,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { buildAuthContext } from "./auth-context.js";
+import type { BreakGlass } from "./break-glass.js";
 import { dispatchResolvers } from "./dispatch.js";
 import type { ResolverRegistry } from "./resolver-registry.js";
 
@@ -30,6 +31,10 @@ export interface ResolverHookDeps {
   /** Configured public base URL for canonical `htu` (D6a); null → Host header. */
   getPublicBase: () => string | null | undefined;
   log?: (msg: string) => void;
+  /** D23 break-glass operator bearers, resolved by the host BEFORE any resolver. */
+  breakGlass?: BreakGlass;
+  /** Called when a live operator bearer authenticates a request (warn-log hook). */
+  onBreakGlassUse?: () => void;
 }
 
 /** Register the resolver-dispatch onRequest branch. */
@@ -56,6 +61,27 @@ export function registerResolverHook(fastify: FastifyInstance, deps: ResolverHoo
     if (authState.isAuthenticated && authState.authVia === "device") return;
     // A prior principal claim already resolved this request (defensive).
     if (authState.principal != null) return;
+
+    // D23: a host-issued operator bearer (`pi_op_…`) is the host's own credential.
+    // It is resolved here, never offered to an IdP resolver. A `pi_op_` bearer that
+    // is not live is a refusal, not a fall-through (no oracle, no resolver traffic).
+    if (deps.breakGlass) {
+      const authz = request.headers.authorization;
+      if (typeof authz === "string" && /^Bearer pi_op_/.test(authz)) {
+        const op = deps.breakGlass.resolveBearer(authz);
+        if (!op) {
+          reply.code(401).send({ error: "invalid_credential" });
+          return reply;
+        }
+        const r = request as { principal?: unknown; principalExpiresAt?: unknown; isAuthenticated?: boolean; authVia?: string };
+        r.principal = op.principal;
+        r.principalExpiresAt = op.expiresAt;
+        r.isAuthenticated = true;
+        r.authVia = "principal";
+        deps.onBreakGlassUse?.();
+        return;
+      }
+    }
 
     const ctx = buildAuthContext(
       {

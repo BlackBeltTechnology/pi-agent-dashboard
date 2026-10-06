@@ -7,6 +7,30 @@
  */
 import type { HostSeam, SeamSession, SeamSpawnOptions, SpawnOutcome } from "../seam.js";
 
+/**
+ * Copy of `CORE_RESERVED_REF_KEYS` in
+ * `packages/server/src/pending/pending-plugin-ref-registry.ts` (chat-gateway
+ * does not depend on the server package). Keep in sync.
+ */
+const CORE_RESERVED_REF_KEYS: ReadonlySet<string> = new Set([
+  "sessionId",
+  "cwd",
+  "source",
+  "status",
+  "closedReason",
+  "live",
+  "liveEpoch",
+  "recover",
+  "finalizeOnSocketClose",
+  "spawnToken",
+  "sessionFile",
+  "startedAt",
+  "endedAt",
+  "name",
+  "nameSource",
+  "pluginRefs",
+]);
+
 export interface FakeSeam extends HostSeam {
   /** Live sessions returned by listSessions(). */
   sessions: SeamSession[];
@@ -31,12 +55,17 @@ export interface FakeSeam extends HostSeam {
   emitFrame(sessionId: string, frame: unknown): void;
   /** Resolve a spawn as the host would on session_register. */
   resolveSpawn(sessionId: string, pluginRef: Record<string, unknown>): void;
+  /** Session ids passed to `shutdownSession`. */
+  shutdowns: string[];
+  /** Forward one session event as the host's `onEvent` stream would. */
+  emitSessionEvent(sessionId: string): void;
 }
 
 export function createFakeSeam(): FakeSeam {
   let tokenSeq = 0;
   const frameHandlers = new Map<string, (frame: unknown) => void>();
   const resolvedHandlers: Array<(id: string, ref: Record<string, unknown>) => void> = [];
+  const eventHandlers: Array<(id: string) => void> = [];
 
   const seam: FakeSeam = {
     sessions: [],
@@ -44,6 +73,7 @@ export function createFakeSeam(): FakeSeam {
     sentPrompts: [],
     sentResponses: [],
     spawns: [],
+    shutdowns: [],
     spawnResult: { success: true },
     persistedAllowlists: [],
     assignedRefs: [],
@@ -64,6 +94,10 @@ export function createFakeSeam(): FakeSeam {
       return true;
     },
     abort: () => false,
+    async shutdownSession(sessionId) {
+      seam.shutdowns.push(sessionId);
+      return true;
+    },
     async spawn(opts) {
       seam.spawns.push(opts);
       return seam.spawnResult;
@@ -80,6 +114,16 @@ export function createFakeSeam(): FakeSeam {
     persistAllowlist(ids) {
       seam.persistedAllowlists.push([...ids]);
     },
+    onSessionEvent(handler) {
+      eventHandlers.push(handler);
+      return () => {
+        const i = eventHandlers.indexOf(handler);
+        if (i >= 0) eventHandlers.splice(i, 1);
+      };
+    },
+    emitSessionEvent(sessionId) {
+      for (const h of [...eventHandlers]) h(sessionId);
+    },
     onSessionResolved(handler) {
       resolvedHandlers.push(handler);
       return () => {
@@ -92,7 +136,14 @@ export function createFakeSeam(): FakeSeam {
       frameHandlers.get(sessionId)?.(frame);
     },
     resolveSpawn(sessionId, pluginRef) {
-      for (const h of resolvedHandlers) h(sessionId, pluginRef);
+      // Mirror the REAL host: the pending-ref registry drops core-reserved keys
+      // before the owner is notified, so a plugin can only correlate through a
+      // key it owns. Passing the raw ref here hid a production bug where the
+      // gateway correlated on `spawnToken` (reserved) and never bound a spawn.
+      const delivered = Object.fromEntries(
+        Object.entries(pluginRef).filter(([k]) => !CORE_RESERVED_REF_KEYS.has(k)),
+      );
+      for (const h of resolvedHandlers) h(sessionId, delivered);
     },
   };
   return seam;

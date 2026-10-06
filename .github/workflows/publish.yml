@@ -344,6 +344,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-chat-gateway-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
             "@blackbelt-technology/pi-dashboard-mcp-client-plugin"
+            "@blackbelt-technology/pi-dashboard-team-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/pi-dashboard-deck3d"
             "@blackbelt-technology/anti-slop-frontend"
@@ -749,3 +750,48 @@ jobs:
           gh workflow run deploy-site.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref develop
+
+  # ── Discord release announcement (best-effort, terminal) ─────────────
+  # Posts the GitHub Release notes to the community Discord via an incoming
+  # webhook stored in the DISCORD_RELEASE_WEBHOOK repo secret. Best-effort:
+  # npm + the GitHub Release have already shipped, so a webhook outage must
+  # never red the release (continue-on-error). Prereleases stay quiet. The
+  # secret is read through env only and the step exits 0 when it is unset,
+  # so forks and repos without the secret skip cleanly. allowed_mentions is
+  # empty so changelog text can never ping @everyone / roles / users.
+  # Rollback: delete this job or the secret.
+  discord-announce:
+    needs: [resolve, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' && needs.resolve.outputs.is_prerelease != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Post release notes to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set — skipping Discord announcement"
+            exit 0
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json name,url,body > release.json
+          # Embed description cap is 4096 chars; keep headroom for the suffix.
+          jq '{
+            username: "pi-dashboard releases",
+            allowed_mentions: { parse: [] },
+            embeds: [{
+              title: ("Released " + (.name // env.TAG)),
+              url: .url,
+              color: 5793266,
+              description: ((.body // "") | if length > 3800 then .[0:3800] + "\n\n… (truncated — see the full release notes)" else . end)
+            }]
+          }' release.json > payload.json
+          curl --fail-with-body -sS -X POST -H "Content-Type: application/json" \
+            --data @payload.json "$DISCORD_WEBHOOK_URL"
+          echo "Announced $TAG on Discord"
