@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-deck3d",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Deterministic Markdown → self-contained 3D presentation engine: Deck IR, mermaid harvest in headless chromium, three.js runtime, effects corpus and props. Exposed as the deck3d CLI and the deck3d pi skill.",
   "type": "module",
   "repository": {

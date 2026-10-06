@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-flows-plugin",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Flow rendering plugin for pi-dashboard — pi-flows event reaction (FlowDashboard, FlowAgentCard, FlowArchitect, etc.)",
   "license": "MIT",
   "publishConfig": {
@@ -89,9 +89,9 @@
   },
   "//deps-rationale": "client-utils retained for hooks (useMobile, useZoomPan) and Phase-2 extension-ui slot consumers (AgentMetricSlot, BreadcrumbSlot, GateSlot, aggregateGateState helper). All UI primitive components (AgentCardShell, MarkdownContent, ConfirmDialog, DialogPortal, SearchableSelectDialog, ZoomControls, format-tokens, format-duration) flow through the UI primitive registry per add-plugin-ui-primitive-registry.",
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "@fastify/rate-limit": "^11.2.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",

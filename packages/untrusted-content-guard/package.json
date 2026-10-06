@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-untrusted-content-guard",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Pi extension that detects and neutralises hidden prompt-injection payloads in untrusted tool results, spotlights them, and gates sensitive tools behind confirmation after untrusted content was read.",
   "type": "module",
   "repository": {

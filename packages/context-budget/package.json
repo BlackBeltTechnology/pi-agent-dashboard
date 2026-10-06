@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-context-budget",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Per-turn context budget meter: captures the real provider payload via before_provider_request and attributes it to system-prompt blocks, skill catalogue entries and per-tool schemas. Proves a context trim actually reached the wire.",
   "type": "module",
   "license": "MIT",

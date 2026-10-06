@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-agent-dashboard",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Web dashboard for monitoring and interacting with pi agent sessions",
   "repository": {
     "type": "git",
@@ -116,9 +116,9 @@
     "node": ">=22.19.0 <27"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-extension": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-server": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-web": "^0.8.0"
+    "@blackbelt-technology/pi-dashboard-extension": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-server": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-web": "^0.9.0"
   },
   "optionalDependencies": {
     "appdmg": "^0.6.6"
@@ -126,8 +126,8 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.10.0",
     "@biomejs/biome": "2.5.11",
-    "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "@earendil-works/pi-ai": "^1.0.0",
     "@playwright/test": "1.62.1",
     "acorn": "^8.17.0",

@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-mcp-client-plugin",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "First-party dashboard plugin managing pi's built-in MCP configuration: Pi-global + trusted-folder mcp.json view with live state from `pi mcp list`, validated atomic writes, and global + folder MCP management surfaces.",
   "license": "MIT",
   "publishConfig": {
@@ -46,8 +46,8 @@
     "wouter": ">=3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.9.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "ajv": "^8.17.1"
