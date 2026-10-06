@@ -152,9 +152,10 @@ async function spawnArm(label, strategy) {
 }
 
 (async () => {
-  // X2: env off is inert; control arm (env unset) attaches.
-  await userArm("X2-A", {}, { PI_DASHBOARD_BRIDGE: "off" }, false);
-  await userArm("X2-B", {}, { PI_DASHBOARD_BRIDGE: undefined }, true);
+  // X2: env off is inert; control arm (env unset) attaches. Pin config on so a
+  // pre-existing operator opt-out cannot make the control arm fail spuriously.
+  await userArm("X2-A", { bridge: { enabled: true } }, { PI_DASHBOARD_BRIDGE: "off" }, false);
+  await userArm("X2-B", { bridge: { enabled: true } }, { PI_DASHBOARD_BRIDGE: undefined }, true);
   // X3: config off is inert; env on overrides config.
   await userArm("X3-A", { bridge: { enabled: false } }, { PI_DASHBOARD_BRIDGE: undefined }, false);
   await userArm("X3-B", { bridge: { enabled: false } }, { PI_DASHBOARD_BRIDGE: "on" }, true);
