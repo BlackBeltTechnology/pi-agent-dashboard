@@ -4,11 +4,12 @@
  *
  * See change: fix-appimage-cold-boot-latency (test-plan E7).
  */
-import { describe, expect, it, vi } from "vitest";
+
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
-import { resolveNativeTsLoader, selectTsLoader } from "../platform/ts-loader-select.mjs";
+import { describe, expect, it, vi } from "vitest";
+import { nativeTransformSupported, resolveNativeTsLoader, selectTsLoader } from "../platform/ts-loader-select.mjs";
 
 describe("selectTsLoader (E7)", () => {
   it.each([
@@ -28,6 +29,53 @@ describe("selectTsLoader (E7)", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toContain("PI_DASHBOARD_TS_LOADER");
     expect(warn.mock.calls[0]![0]).toContain("tsx");
+  });
+});
+
+// Node 26 dropped `stripTypeScriptTypes({ mode: "transform" })` (only "strip"),
+// and strip mode rejects parameter properties the server uses. Such a Node
+// must boot with jiti instead of crashing in the native hooks.
+describe("selectTsLoader without native transform support", () => {
+  it.each([
+    ["unset", {}],
+    ["native", { PI_DASHBOARD_TS_LOADER: "native" }],
+    ["jiti", { PI_DASHBOARD_TS_LOADER: "jiti" }],
+  ] as const)("%s → jiti", (_label, env) => {
+    expect(selectTsLoader(env, vi.fn(), false)).toBe("jiti");
+  });
+
+  it("keeps native when transform is supported", () => {
+    expect(selectTsLoader({}, vi.fn(), true)).toBe("native");
+  });
+});
+
+describe("nativeTransformSupported", () => {
+  it("false when stripTypeScriptTypes is missing", () => {
+    expect(nativeTransformSupported({})).toBe(false);
+  });
+
+  it("false when transform mode is rejected (Node 26)", () => {
+    const stripTypeScriptTypes = () => {
+      throw Object.assign(new TypeError("options.mode must be one of: 'strip'"), { code: "ERR_INVALID_ARG_VALUE" });
+    };
+    expect(nativeTransformSupported({ stripTypeScriptTypes })).toBe(false);
+  });
+
+  it("true when transform mode works, and silences only the probe's ExperimentalWarning", () => {
+    const original = process.emitWarning;
+    const stripTypeScriptTypes = vi.fn((_src: string, opts: { mode: string }) => {
+      process.emitWarning("stripTypeScriptTypes is an experimental feature and might change at any time", "ExperimentalWarning");
+      return opts.mode;
+    });
+    const spy = vi.spyOn(process, "emitWarning").mockImplementation(() => {});
+    try {
+      expect(nativeTransformSupported({ stripTypeScriptTypes })).toBe(true);
+      expect(stripTypeScriptTypes.mock.calls[0]![1]).toMatchObject({ mode: "transform" });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      process.emitWarning = original;
+    }
   });
 });
 
