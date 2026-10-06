@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Browser relay — current screencast placement (as-built)</title>
+<style>
+  :root{--bg:#0f1115;--bg2:#171a21;--bg3:#1f2430;--bd:#2c3240;--tx:#e6e8ee;--tx2:#a9b0bf;--tx3:#6f7789;--acc:#4f8cff;--warn:#e0a83a}
+  *{box-sizing:border-box}
+  body{margin:0;font:13px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;background:#0a0b0e;color:var(--tx);padding:24px}
+  h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:28px 0 8px;color:var(--tx)}
+  p.note{color:var(--tx2);margin:0 0 10px;max-width:980px}
+  code{background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:12px}
+  .frame{border:1px solid var(--bd);border-radius:8px;background:var(--bg);overflow:hidden}
+  .app{display:flex;height:440px}
+  .sidebar{width:230px;border-right:1px solid var(--bd);background:var(--bg2);padding:8px;display:flex;flex-direction:column;gap:6px}
+  .card{border:1px solid var(--bd);border-radius:6px;padding:6px 8px;background:var(--bg)}
+  .card.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+  .card .t{font-weight:600;font-size:12px} .card .s{color:var(--tx3);font-size:11px}
+  .pill{display:inline-block;margin-top:4px;font-size:10px;padding:1px 7px;border-radius:999px;background:#1d3a6b;color:#bcd3ff;border:1px solid #3462b3}
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px}
+  .hdr{display:flex;justify-content:space-between;align-items:center;padding:0 4px 8px}
+  .hdr b{font-size:13px;font-weight:500}
+  .btn{font-size:11px;padding:3px 8px;border:1px solid var(--bd);border-radius:4px;background:transparent;color:var(--tx)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;overflow:auto}
+  .tile{position:relative;border:1px solid var(--bd);border-radius:4px;overflow:hidden;background:#ffffff0d}
+  .tile .tt{font-size:10px;color:var(--tx3);padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .shot{aspect-ratio:16/10;background:#fff;color:#222;display:flex;flex-direction:column}
+  .shot .bar{height:16px;background:#24292f}
+  .shot .body{flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px}
+  .shot .in{width:55%;height:12px;border:1px solid #ccc;border-radius:3px}
+  .shot .go{width:55%;height:14px;background:#2da44e;border-radius:3px}
+  .shot.jira .bar{background:#0052cc}
+  .ov{position:absolute;inset:18px 0 0 0;background:rgba(15,17,21,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:8px;font-size:11px;color:var(--tx2)}
+  .chat{flex:1;display:flex;flex-direction:column;gap:6px}
+  .msg{background:var(--bg2);border:1px solid var(--bd);border-radius:6px;padding:6px 8px;max-width:75%;color:var(--tx2)}
+  .msg.u{align-self:flex-end;background:#1b2b4a}
+  .composer{border:1px solid var(--bd);border-radius:6px;padding:8px;color:var(--tx3)}
+  .row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:300px;height:560px;border:1px solid var(--bd);border-radius:22px;background:var(--bg);padding:12px 10px;display:flex;flex-direction:column}
+  .phone .grid{grid-template-columns:1fr}
+  .ann{font-size:11px;color:var(--warn);margin-top:6px}
+  .callout{border-left:3px solid var(--warn);padding:4px 10px;color:var(--tx2);margin:8px 0;max-width:980px}
+  .states{display:grid;grid-template-columns:repeat(4,220px);gap:12px}
+  .state h3{font-size:11px;color:var(--tx2);margin:0 0 4px;font-weight:500}
+  .wait{padding:12px;font-size:11px;color:var(--tx3)}
+  .ns{min-height:64px;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px;font-size:11px;color:var(--tx2);background:rgba(15,17,21,.9)}
+</style>
+</head>
+<body>
+<h1>Browser relay: where the screencast is placed today (as built)</h1>
+<p class="note">Sources: <code>packages/browser-plugin/src/client/LiveViewTile.tsx</code>, <code>BrowserRelayBadge.tsx</code>, <code>relay-store.ts</code>, and in the shell <code>SessionContentGate.tsx</code> and <code>App.tsx</code> (<code>renderSession</code>). Change: <code>add-browser-relay</code> and <code>fix-browser-live-view-subscribe-and-reopen</code>.</p>
+
+<h2>A. Desktop: the live view replaces the session detail (chat and composer)</h2>
+<p class="note">The view uses the <code>content-view</code> slot. While <code>hasLiveInstance()</code> is true (at least one relay instance with at least one tab, not dismissed), <code>SessionContentGate</code> renders the slot <b>instead of</b> the chat for the selected session. The relay is global, so this happens for <b>every</b> session you select, not only the one that is driving the browser.</p>
+<div class="frame"><div class="app">
+  <div class="sidebar">
+    <div class="card sel"><div class="t">fix-login-flow</div><div class="s">streaming · pi-agent-dashboard</div><span class="pill">2 browser tabs</span></div>
+    <div class="card"><div class="t">docs-refresh</div><div class="s">idle · pi-agent-dashboard</div><span class="pill">2 browser tabs</span></div>
+    <div class="card"><div class="t">kb-eval</div><div class="s">ended</div><span class="pill">2 browser tabs</span></div>
+  </div>
+  <div class="main">
+    <div class="hdr"><b>Live browser view</b><button class="btn">Close</button></div>
+    <div class="grid">
+      <div class="tile"><div class="tt">Sign in to GitHub · github.com/login</div>
+        <div class="shot"><div class="bar"></div><div class="body"><div class="in"></div><div class="in"></div><div class="go"></div></div></div></div>
+      <div class="tile"><div class="tt">Jira · acme.atlassian.net/browse/PI-42</div>
+        <div class="shot jira"><div class="bar"></div><div class="body"><div class="in" style="width:80%"></div><div class="in" style="width:80%;height:40px"></div></div></div></div>
+    </div>
+    <div class="ann">One tile per {instanceId, tabId}. Grid is 1 column below md and 2 columns at md and up. Each frame is an &lt;img&gt; set to the JPEG at w-full h-auto. Clicks, mouse moves, wheel and keys on the tile go out as <code>browser_relay_input</code> with coordinates normalized to [0,1]. There is no session header, no chat and no composer.</div>
+  </div>
+</div></div>
+
+<h2>B. After clicking Close: the chat comes back and the badge is the way to reopen</h2>
+<p class="note"><code>dismissLiveView()</code> sets the gate to false, so the chat renders again. The <code>session-card-badge</code> pill ("N browser tabs") is a button that calls <code>reopenLiveView()</code>. A material change in instances or tabs also brings the view back on its own.</p>
+<div class="frame"><div class="app" style="height:300px">
+  <div class="sidebar">
+    <div class="card sel"><div class="t">fix-login-flow</div><div class="s">streaming</div><span class="pill">2 browser tabs ⟲</span></div>
+    <div class="card"><div class="t">docs-refresh</div><div class="s">idle</div><span class="pill">2 browser tabs</span></div>
+  </div>
+  <div class="main">
+    <div class="chat">
+      <div class="msg u">Use the browser and log into GitHub</div>
+      <div class="msg">Navigated to github.com/login. A login form was detected…</div>
+    </div>
+    <div class="composer">Message pi…</div>
+  </div>
+</div></div>
+
+<h2>C. Mobile: the same claim takes over the whole content area</h2>
+<div class="row">
+  <div class="phone">
+    <div class="hdr"><b>☰ Live browser view</b><button class="btn">Close</button></div>
+    <div class="grid">
+      <div class="tile"><div class="tt">Sign in to GitHub</div><div class="shot"><div class="bar"></div><div class="body"><div class="in"></div><div class="in"></div><div class="go"></div></div></div></div>
+      <div class="tile"><div class="tt">Jira · PI-42</div><div class="shot jira"><div class="bar"></div><div class="body"><div class="in" style="width:80%"></div></div></div></div>
+    </div>
+  </div>
+  <div style="max-width:520px">
+    <div class="callout">Tiles stack in one column. The frame scales to the full width, so a 1280-px page is shrunk to roughly 280 px. Input is <b>click only</b>: <code>onClick</code>, <code>onMouseMove</code>, <code>onWheel</code> and key events. There are no touch handlers, no pinch-zoom and no soft-keyboard bridge. Tapping does register as a click, but typing requires a hardware keyboard to focus the tile.</div>
+    <div class="callout">The tile also mounts its own <code>browser_relay_status</code> listener, so it still updates when no session card is mounted, as on mobile.</div>
+  </div>
+</div>
+
+<h2>D. Per-tile states (overlays)</h2>
+<div class="states">
+  <div class="state"><h3>No frame yet</h3><div class="tile"><div class="tt">github.com/login</div><div class="wait">Waiting for frames…</div></div></div>
+  <div class="state"><h3>state = no-frames (2 s with no frames)</h3><div class="tile"><div class="tt">github.com/login</div><div class="shot"><div class="bar"></div><div class="body"></div></div>
+    <div class="ov">No repaints — tab may be idle or in the background<button class="btn">Bring to front</button></div></div></div>
+  <div class="state"><h3>detached · devtools (input blocked)</h3><div class="tile"><div class="tt">github.com/login</div><div class="shot"><div class="bar"></div><div class="body"></div></div>
+    <div class="ov">DevTools open on this tab — close it to resume</div></div></div>
+  <div class="state"><h3>detached · no-session (inline, no frame)</h3><div class="tile"><div class="tt">chrome-extension://…</div>
+    <div class="ns">Tab not viewable yet — the agent has not attached to it (extension pages cannot be viewed)</div></div></div>
+</div>
+
+<h2>Observations on the current placement</h2>
+<div class="callout">1. The view is not an editor-pane tab. The research record (<code>docs/research/user-browser-in-editor-view.md</code>) proposed an <code>rbi:&lt;id&gt;</code> viewer in the editor pane. What shipped is a whole-content <code>content-view</code> takeover.</div>
+<div class="callout">2. The view is global, not per session. <code>isLiveViewActive</code> ignores the session, so any selected session shows the browser and every card shows the badge.</div>
+<div class="callout">3. You can't see the chat and the browser side by side. Close is the only way to toggle between them.</div>
+<div class="callout">4. Priority 500 is shared with other <code>content-view</code> claims (flows 100, blackhole 200). How claims that are all active at once get resolved depends on <code>ContentViewSlot</code>.</div>
+</body>
+</html>
