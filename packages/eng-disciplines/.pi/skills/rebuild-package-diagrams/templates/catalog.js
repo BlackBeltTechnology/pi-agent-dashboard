@@ -343,7 +343,7 @@
       <h3>Entities</h3><div class="chips">${u.entities.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("")}</div>
       <div class="er" data-er="${esc(u.entities.join("|"))}"></div>
       <h3>Related use cases</h3>${relatedHtml([u])}
-      ${archSection((r) => r === u.id)}`;
+      ${archSection((r) => r === u.id)}${behSection({ uc: u.id })}`;
   }
 
   const listOr = (items, none = "<li>None</li>") => items.join("") || none;
@@ -356,7 +356,7 @@
       ${UI.screens.length ? `<h3>UI actions</h3>${uiActionsTable(id)}` : ""}
       <h3>Use cases</h3><div class="chips">${listOr(backlinks((u) => u.refSource[id]).map(ucChip), "None")}</div>
       <h3>Requirements mentioning it</h3><ul>${listOr((itemReqs[id] || []).map((k) => `<li>${reqLink(k)}</li>`))}</ul>
-      ${archSection((r) => r === id)}`;
+      ${archSection((r) => r === id)}${behSection({ ref: id })}`;
   }
   function viewItem(id) {
     const it = D.items[id];
@@ -428,7 +428,7 @@
       <h3>ER neighbourhood</h3><div class="er" data-er="${esc(neigh.join("|"))}"></div>
       ${rels.length ? `<table><tr><th>From</th><th>Card.</th><th>To</th><th>Label</th><th>Evidence</th></tr>${rels.map((r) => `<tr><td>${esc(r.from)}</td><td>${esc(r.cardinality)}${r.confidence === "confirmed" ? "" : " (inferred)"}</td><td>${esc(r.to)}</td><td>${esc(r.label)}</td><td>${esc(r.evidence)}</td></tr>`).join("")}</table>` : "<p>No ER relation drawn.</p>"}
       <h3>Fields (${e.fields.length})</h3><table><tr><th>Field</th><th>Type</th><th>Required</th><th>Nullable</th></tr>${e.fields.map((f) => `<tr><td><code>${esc(f.name)}</code></td><td>${esc(f.type)}</td><td>${f.required ? "yes" : ""}</td><td>${f.nullable ? "yes" : ""}</td></tr>`).join("")}</table>
-      <h3>Use cases</h3><div class="chips">${backlinks((u) => u.entities.includes(name)).map(ucChip).join("") || "None"}</div>`;
+      <h3>Use cases</h3><div class="chips">${backlinks((u) => u.entities.includes(name)).map(ucChip).join("") || "None"}</div>${behSection({ entity: name })}`;
   }
 
   const citeSpan = (c) => (c ? ` <span class="cite">${esc(c)}</span>` : "");
@@ -465,7 +465,7 @@
     const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
     const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
     const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
-    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}${planSection(sid)}
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}${behSection({ screen: sid })}${planSection(sid)}
       <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
       <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
       ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
@@ -771,8 +771,9 @@
   }
   /** Header buttons: Architecture and IFML (each only when the package has it). */
   function renderTopnav() {
-    const btn = (on, cls, view, text) => (on ? `<a class="chip ${cls}${state.view.startsWith(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
-    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit");
+    const on = (cls) => state.view.startsWith(cls) || (cls === "beh" && /^(seq|sm|obj):/.test(state.view));
+    const btn = (show, cls, view, text) => (show ? `<a class="chip ${cls}${on(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour");
   }
   function archFacts(e) {
     const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
@@ -834,6 +835,115 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // ---------- behaviour: sequences (+ collaboration), state machines, object diagrams ----------
+  const B = D.behaviour || { sequences: [], states: [], objects: [] };
+  const BEH = { seq: B.sequences, sm: B.states, obj: B.objects };
+  const behById = (kind, id) => BEH[kind].find((x) => x.id === id);
+  const BEH_NAME = { seq: "Sequence", sm: "State machine", obj: "Object diagram" };
+  const behChip = (kind, r) => `<a class="chip beh" href="${link({ view: `${kind}:${r.id}` })}">${esc(r.id)} ${esc(r.title || "")}${r.local ? " · local" : ""}</a>`;
+  const behCount = () => B.sequences.length + B.states.length + B.objects.length;
+  /** Records pointing at a rule/quirk/gap, entity, use case or screen. */
+  function behSection({ ref, entity, uc, screen }) {
+    const hit = {
+      seq: B.sequences.filter((s) => (ref && s.refs.includes(ref)) || (entity && s.entities.includes(entity)) || (uc && s.useCase === uc) || (screen && (s.action || "").split("#")[0] === screen) || (screen && s.participants.some((p) => p.ref === screen))),
+      sm: B.states.filter((m) => (ref && m.refs.includes(ref)) || (entity && m.entity === entity)),
+      obj: B.objects.filter((o) => entity && o.entities.includes(entity)),
+    };
+    const chips = Object.entries(hit).flatMap(([k, rs]) => rs.map((r) => behChip(k, r)));
+    return chips.length ? `<h3>Behaviour</h3><div class="chips">${chips.join("")}</div>` : "";
+  }
+  const behDiagram = (key, title) => `<h3>${title}</h3><div class="behd" data-mmd="${esc(key)}"></div>`;
+  const behDownloads = (kind, r) => `<div class="chips"><button class="chip" data-beh-dl="${kind}:${esc(r.id)}:mmd">Mermaid (.mmd)</button>${kind === "seq" ? `<button class="chip" data-beh-dl="seq:${esc(r.id)}:collab">Collaboration (.mmd)</button>` : ""}${kind === "sm" ? `<button class="chip" data-beh-dl="sm:${esc(r.id)}:scxml">SCXML</button>` : ""}</div>`;
+  const behRefs = (refs) => (refs || []).map(refChip).join("");
+  function viewBeh() {
+    const group = (kind, list, lede) => `<h3>${BEH_NAME[kind]}s (${list.length})</h3><p class="meta">${lede}</p><div class="chips">${list.map((r) => behChip(kind, r)).join("") || "None"}</div>`;
+    return `<h2>Behaviour</h2><p class="lede">Dynamic models of the legacy system, each element cited to code and linked to rules, quirks and gaps.</p>
+      ${group("seq", B.sequences, "Who calls whom for one user action (UML sequence); each also shown as a collaboration diagram with numbered messages.")}
+      ${group("sm", B.states, "Lifecycle of one entity field: states (allowed values from the model), transitions with trigger, guard and effects.")}
+      ${group("obj", B.objects, "Concrete instances of ER entities and their links: synthetic, or masked real data (local builds only).")}`;
+  }
+  function participantCell(p) {
+    if (p.kind === "element" && A) return archChip(p.ref);
+    if (p.kind === "screen" && scrById[p.ref]) return scrChip(p.ref);
+    return esc(p.label || p.id);
+  }
+  function messageRows(list, depth, out) {
+    for (const m of list || []) {
+      if (m.fragment) {
+        out.push([`<b>${esc(m.fragment)}</b>`, "", `<i>${esc(m.label)}</i>`, "", behRefs(m.refs)]);
+        messageRows(m.messages, depth + 1, out);
+        if (m.else) {
+          out.push(["<b>else</b>", "", `<i>${esc(m.else.label)}</i>`, "", ""]);
+          messageRows(m.else.messages, depth + 1, out);
+        }
+        continue;
+      }
+      out.push([String(out.filter((r) => r.n).length + 1), `${esc(m.from)} → ${esc(m.to)}`, `${"&nbsp;&nbsp;".repeat(depth)}${esc(m.label)}${m.note ? `<div class="meta">${esc(m.note)}</div>` : ""}`, citeSpan(m.cite), behRefs(m.refs)]);
+      out[out.length - 1].n = true;
+    }
+    return out;
+  }
+  function viewSeq(id) {
+    const s = behById("seq", id);
+    if (!s) return viewBeh();
+    const [sId, aId] = (s.action || "").split("#");
+    const facts = rowsTable(["", ""], [
+      ...(s.useCase && ucById[s.useCase] ? [["Use case", ucChip(s.useCase)]] : []),
+      ...(s.action ? [["UI action", `<a href="${link({ view: `scr:${sId}`, focus: aId })}">${esc(s.action)}</a>`]] : []),
+      ["Source", esc(s.source || "authored")],
+    ]);
+    return `<h2>${esc(s.id)} ${esc(s.title || "")}</h2><p class="lede">${BEH_NAME.seq}</p>${facts}${behDownloads("seq", s)}
+      ${behDiagram(`seq:${s.id}`, "Sequence")}${behDiagram(`collab:${s.id}`, `Collaboration (${s.collab.messages} messages)`)}
+      <h3>Participants</h3>${rowsTable(["Id", "Kind", "Is"], s.participants.map((p) => [esc(p.id), esc(p.kind), participantCell(p)]))}
+      <h3>Messages</h3>${rowsTable(["#", "From → to", "Message", "Cite", "Refs"], messageRows(s.messages, 0, []))}`;
+  }
+  function viewSm(id) {
+    const m = behById("sm", id);
+    if (!m) return viewBeh();
+    const states = m.states.map((s) => [`<code>${esc(s.id)}</code>`, esc(s.value ?? ""), esc(s.label || ""), [s.initial ? "initial" : "", s.final ? "final" : ""].filter(Boolean).join(", "), citeSpan(s.cite)]);
+    const trans = m.transitions.map((t) => [`${esc(t.from)} → ${esc(t.to)}`, esc(t.trigger), esc(t.guard || ""), esc((t.effects || []).join("; ")), citeSpan(t.cite), behRefs(t.refs)]);
+    return `<h2>${esc(m.id)} ${esc(m.title || "")}</h2><p class="lede">${BEH_NAME.sm} of <a href="${link({ view: `ent:${m.entity}` })}">${esc(m.entity)}</a>.<code>${esc(m.field)}</code></p>${behDownloads("sm", m)}
+      ${behDiagram(`sm:${m.id}`, "States")}
+      <h3>States</h3>${rowsTable(["State", "Value", "Label", "", "Cite"], states)}
+      <h3>Transitions</h3>${rowsTable(["From → to", "Trigger", "Guard", "Effects", "Cite", "Refs"], trans)}`;
+  }
+  function viewObj(id) {
+    const o = behById("obj", id);
+    if (!o) return viewBeh();
+    const badge = o.masked ? `<span class="badge sev-high">masked${o.keep?.length ? ` (kept: ${esc(o.keep.join(", "))})` : ""}</span>` : `<span class="badge via">${esc(o.source)}</span>`;
+    return `<h2>${esc(o.id)} ${esc(o.title || "")}</h2><p class="lede">${BEH_NAME.obj} · source ${esc(o.source)} ${badge}${o.local ? ' <span class="badge sev-key">local build only</span>' : ""}</p>${behDownloads("obj", o)}
+      <div class="chips">${o.entities.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("")}</div>
+      ${behDiagram(`obj:${o.id}`, "Objects")}
+      <h3>Objects</h3>${rowsTable(["Object", "Entity", "Values"], o.objects.map((x) => [`<code>${esc(x.id)}</code>`, esc(x.entity), Object.entries(x.attrs || {}).map(([k, v]) => `<code>${esc(k)}</code> = ${esc(v === null ? "null" : v)}`).join("<br>")]))}`;
+  }
+  const behText = (key) => {
+    const [kind, id] = key.split(/:(.*)/s);
+    if (kind === "collab") return behById("seq", id)?.collab.mermaid;
+    return behById(kind, id)?.mermaid;
+  };
+  let behSeq = 0;
+  async function drawBeh() {
+    for (const el of document.querySelectorAll("[data-mmd]")) {
+      const text = behText(el.dataset.mmd) || "";
+      if (!window.mermaid) { el.innerHTML = `<div class="notice">Diagram viewer not embedded (build without <code>--mermaid</code>).</div><pre>${esc(text)}</pre>`; continue; }
+      try {
+        el.innerHTML = (await window.mermaid.render(`beh${++behSeq}`, text)).svg;
+      } catch (err) { el.innerHTML = `<div class="notice">Render failed: ${esc(err.message || err)}</div><pre>${esc(text)}</pre>`; }
+    }
+  }
+  function downloadBeh(spec) {
+    const [kind, id, what] = spec.split(":");
+    const r = behById(kind, id);
+    if (!r) return;
+    const text = what === "scxml" ? r.scxml : what === "collab" ? r.collab.mermaid : r.mermaid;
+    const url = URL.createObjectURL(new Blob([text], { type: what === "scxml" ? "application/xml" : "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${id}${what === "collab" ? ".collab" : ""}.${what === "scxml" ? "scxml" : "mmd"}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // ---------- screen plans + style kit ----------
   /** Original-layout plan of a screen: sandboxed frame (scripts, no same-origin) filled after render. */
   function planSection(sid) {
@@ -879,7 +989,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
@@ -894,6 +1004,7 @@
     void drawIfml();
     void drawIfmlJs();
     void drawArch();
+    void drawBeh();
     fillPlans();
     if (state.focus) document.getElementById(state.focus)?.scrollIntoView({ block: "start" });
   }
@@ -903,11 +1014,12 @@
     if ("xmi" in t.dataset) downloadXmi();
     else if (t.dataset.dl) downloadArch(t.dataset.dl);
     else if (t.dataset.planOpen) openPlan(t.dataset.planOpen);
+    else if (t.dataset.behDl) downloadBeh(t.dataset.behDl);
     else return false;
     return true;
   }
   document.addEventListener("click", (ev) => {
-    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi],[data-dl],[data-plan-open]");
+    const t = ev.target.closest("[data-tab],[data-toggle],[data-clear],[data-flow],[data-xmi],[data-dl],[data-plan-open],[data-beh-dl]");
     if (!t) return;
     if (handleDownload(t)) return;
     if (t.dataset.tab) { state.tab = t.dataset.tab; renderTabs(); renderList(); return; }

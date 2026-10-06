@@ -67,6 +67,13 @@ function writeEr(name: string, er: unknown): string {
   return p;
 }
 
+/** The catalog JSON embedded in a built site. */
+function embedded(html: string) {
+  const m = html.match(/<script type="application\/json" id="catalog-data">([\s\S]*?)<\/script>/);
+  expect(m).not.toBeNull();
+  return JSON.parse((m as RegExpMatchArray)[1]);
+}
+
 const goodEr = {
   entities: [
     { name: "Order", fields: [{ name: "order_id", key: "PK" }, { name: "note" }] },
@@ -277,11 +284,6 @@ describe("use-case catalog and site", () => {
     for (const s of ["UC-01", "Invoice", "spec:orders#Nope", "BR-404", "bpmn/x.bpmn", "duplicate", "UC-02"]) expect(r.stderr).toContain(s);
   });
 
-  const embedded = (html: string) => {
-    const m = html.match(/<script type="application\/json" id="catalog-data">([\s\S]*?)<\/script>/);
-    expect(m).not.toBeNull();
-    return JSON.parse((m as RegExpMatchArray)[1]);
-  };
 
   it("build-site embeds the package as JSON and escapes </script", () => {
     writeUc([uc()]);
@@ -783,6 +785,287 @@ describe("use-case catalog and site", () => {
     const none = join(dir, "noarch.html");
     expect(run(dir, "build-site", pkg, none).code).toBe(0);
     expect(embedded(read(none)).arch).toBeNull();
+  });
+});
+
+describe("behaviour diagrams (sequence, collaboration, state machine, object)", () => {
+  let pkg: string;
+  let app: string;
+  const BMODEL = MODEL.replace(
+    "- `note` — string; optional, nullable.\n  <!-- cite: ref=js/order.js:4, confidence=inferred -->",
+    "- `note` — string; optional, nullable.\n  <!-- cite: ref=js/order.js:4, confidence=inferred -->\n- `status` — string; required; allowed: 'open', 'closed', 'cancelled'; default: 'open' (BR-001).\n  <!-- cite: ref=js/order.js:5, confidence=confirmed -->",
+  );
+  const put = (rel: string, v: unknown) => {
+    mkdirSync(dirname(join(pkg, rel)), { recursive: true });
+    writeFileSync(join(pkg, rel), typeof v === "string" ? v : JSON.stringify(v));
+  };
+  const clear = (rel: string) => rmSync(join(pkg, rel), { recursive: true, force: true });
+  const sm = (over: Record<string, unknown> = {}) => ({
+    id: "SM-order-status",
+    entity: "Order",
+    field: "status",
+    title: "Order status",
+    states: [
+      { id: "open", value: "open", initial: true },
+      { id: "closed", value: "closed", final: true },
+      { id: "cancelled", value: "cancelled", final: true },
+    ],
+    transitions: [
+      { from: "open", to: "closed", trigger: "ship", guard: "all lines shipped", refs: ["BR-001"], cite: "js/order.js:5" },
+      { from: "open", to: "cancelled", trigger: "cancel", refs: ["QUIRK-002"], cite: "js/order.js:6-7" },
+    ],
+    ...over,
+  });
+
+  beforeAll(() => {
+    pkg = join(dir, "behpkg");
+    app = join(dir, "behapp");
+    mkdirSync(join(app, "js"), { recursive: true });
+    writeFileSync(join(app, "js", "order.js"), "x\n".repeat(30));
+    writeFileSync(join(app, "js", "data.js"), "x\n".repeat(30));
+    put("model.md", BMODEL);
+    put("rules.md", "# Business rules\n\n## BR-001\n- Class: explicit\n- Statement: Order id is required.\n- Capabilities: orders\n");
+    put("quirks.md", "# Quirks\n\n## QUIRK-002 Odd\n- Observed: x\n");
+    put("gaps.md", "# Gaps\n\n## GAP-003 Unknown\n- Unknown: y\n");
+    put("capabilities/orders/spec.md", "# orders\n\n## Requirements\n### Requirement: Add single and unique orders\nThe screen SHALL add (BR-001).\n");
+    put("diagrams/er/orders.json", goodEr);
+    put("diagrams/use-cases.json", []);
+    put("diagrams/architecture.json", {
+      elements: [
+        { id: "planner", kind: "person", name: "Planner", cites: ["js/order.js:1"] },
+        { id: "app", kind: "system", name: "App", cites: ["js/order.js:1"] },
+        { id: "client", kind: "container", parent: "app", name: "Client", cites: ["js/order.js:1"] },
+        { id: "c_order", kind: "component", parent: "client", name: "Order screen", cites: ["js/order.js:1-30"] },
+        { id: "c_data", kind: "component", parent: "client", name: "Data service", cites: ["js/data.js:1"] },
+      ],
+      relations: [{ from: "c_order", to: "c_data", label: "stores via" }],
+    });
+    put("ui/screens/s0.json", {
+      id: "SCR-order",
+      kind: "route",
+      name: "Orders",
+      template: "html/order.htm",
+      scope: [],
+      forms: [],
+      actions: [
+        {
+          id: "ACT-add",
+          label: "Add",
+          trigger: { kind: "ng-click", cite: "js/order.js:2" },
+          handler: { name: "add", cite: "js/order.js:3-9" },
+          guards: ["BR-001"],
+          effects: [
+            { kind: "validate", step: "Check line", target: "line.correct()", cite: "js/order.js:4", refs: ["BR-001"] },
+            { kind: "write", step: "Store order", target: "data.add (data layer boundary)", cite: "js/data.js:10-12; js/order.js:6", refs: ["QUIRK-002"] },
+            { kind: "notify", step: "Report error", target: "alertE", cite: "js/order.js:8" },
+          ],
+        },
+      ],
+      dialogs: [],
+    });
+  });
+
+  it("sequence-from-ui drafts a gated sequence: guard alt, lifelines by cite file; collaboration numbers messages", () => {
+    const out = join(pkg, "diagrams", "sequences", "SEQ-add.json");
+    const r = run(dir, "sequence-from-ui", pkg, "SCR-order#ACT-add", out);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const seq = JSON.parse(read(out));
+    expect(seq.action).toBe("SCR-order#ACT-add");
+    expect(seq.participants.map((p: { id: string }) => p.id)).toEqual(["user", "SCR-order", "c_data"]);
+    expect(seq.participants[2]).toMatchObject({ kind: "element", ref: "c_data" });
+    expect(seq.messages[0]).toMatchObject({ from: "user", to: "SCR-order", label: "Add", cite: "js/order.js:2" });
+    const alt = seq.messages[1];
+    expect(alt).toMatchObject({ fragment: "alt", refs: ["BR-001"] });
+    expect(alt.messages.map((m: { to: string; label: string }) => `${m.to}:${m.label}`)).toEqual(["SCR-order:Check line", "c_data:Store order", "user:Report error"]);
+    expect(alt.else.messages[0]).toMatchObject({ from: "SCR-order", to: "user", refs: ["BR-001"] });
+    expect(alt.messages[1].cite).toBe("js/data.js:10-12");
+    expect(run(dir, "check-sequences", pkg, "--app", app).code).toBe(0);
+    const site = join(dir, "beh.html");
+    const b = run(dir, "build-site", pkg, site);
+    expect(b.stderr).toBe("");
+    const beh = embedded(read(site)).behaviour;
+    expect(beh.sequences[0].mermaid).toMatch(/^sequenceDiagram/);
+    expect(beh.sequences[0].mermaid).toContain("alt ");
+    expect(beh.sequences[0].mermaid).toContain("else ");
+    expect(beh.sequences[0].collab.mermaid).toMatch(/^flowchart/);
+    expect(beh.sequences[0].collab.mermaid).toContain("3: Store order");
+  });
+
+  it("check-sequences refuses unknown participants, refs, actions and bad cites", () => {
+    put("diagrams/sequences/SEQ-bad.json", {
+      id: "SEQ-bad",
+      title: "bad",
+      useCase: "UC-77",
+      action: "SCR-order#ACT-nope",
+      participants: [{ id: "user", kind: "actor" }, { id: "x", kind: "element", ref: "c_ghost" }],
+      messages: [
+        { from: "user", to: "ghost", label: "hi", cite: "js/order.js:2" },
+        { fragment: "loop", label: "each", messages: [{ from: "user", to: "x", label: "go", refs: ["BR-999"], cite: "js/order.js:99" }] },
+      ],
+    });
+    const r = run(dir, "check-sequences", pkg, "--app", app);
+    clear("diagrams/sequences/SEQ-bad.json");
+    expect(r.code).toBe(1);
+    for (const s of ["SEQ-bad", "ghost", "c_ghost", "UC-77", "ACT-nope", "BR-999", "past end"]) expect(r.stderr).toContain(s);
+  });
+
+  it("check-states passes a valid machine (Mermaid + SCXML) and refuses each defect", () => {
+    put("diagrams/state-machines/SM-order-status.json", sm());
+    expect(run(dir, "check-states", pkg, "--app", app).stderr).toBe("");
+    const outDir = join(dir, "behout");
+    const x = run(dir, "behaviour", pkg, outDir);
+    expect(x.code).toBe(0);
+    const mmd = read(join(outDir, "SM-order-status.mmd"));
+    expect(mmd).toMatch(/^stateDiagram-v2/);
+    expect(mmd).toContain("[*] --> open");
+    expect(mmd).toContain("open --> closed : ship [all lines shipped]");
+    expect(mmd).toContain("closed --> [*]");
+    const long = "x".repeat(80);
+    const states = sm().states.map((x, i) => (i === 1 ? { ...x, label: long } : x));
+    put("diagrams/state-machines/SM-order-status.json", sm({ states, transitions: [...sm().transitions, { from: "closed", to: "open", trigger: long, guard: long, cite: "js/order.js:5" }] }));
+    run(dir, "behaviour", pkg, outDir);
+    const clipped = read(join(outDir, "SM-order-status.mmd"));
+    expect(clipped).toContain(`closed --> open : ${"x".repeat(39)}… [${"x".repeat(39)}…]`);
+    expect(read(join(outDir, "SM-order-status.scxml"))).toContain(`cond="${long}"`);
+    expect(clipped).toContain(`state "${"x".repeat(39)}…" as closed`);
+    put("diagrams/state-machines/SM-order-status.json", sm({ transitions: [...sm().transitions, { from: "closed", to: "open", trigger: "reload (data.js:1024)", cite: "js/order.js:5" }] }));
+    run(dir, "behaviour", pkg, outDir);
+    expect(read(join(outDir, "SM-order-status.mmd"))).toContain("closed --> open : reload (data.js꞉1024)");
+    put("diagrams/state-machines/SM-order-status.json", sm());
+    const scxml = read(join(outDir, "SM-order-status.scxml"));
+    expect(scxml).toContain('<scxml xmlns="http://www.w3.org/2005/07/scxml" version="1.0" initial="open"');
+    expect(scxml).toContain('<transition event="ship" target="closed" cond="all lines shipped"/>');
+    expect(scxml).toContain('<final id="cancelled"');
+    expect(existsSync(join(outDir, "SEQ-add.mmd"))).toBe(true);
+    const bad = sm({
+      id: "SM-bad",
+      field: "colour",
+      states: [
+        { id: "open", value: "open", initial: true },
+        { id: "gone", value: "vanished", initial: true },
+        { id: "lost", value: "closed" },
+      ],
+      transitions: [
+        { from: "open", to: "nowhere", trigger: "x", cite: "js/order.js:5" },
+        { from: "open", to: "open", trigger: "y", refs: ["GAP-404"] },
+      ],
+    });
+    put("diagrams/state-machines/SM-bad.json", bad);
+    put("diagrams/state-machines/SM-bad2.json", sm({ id: "SM-bad2", states: [{ id: "open", value: "open", initial: true }, { id: "odd", value: "vanished" }], transitions: [] }));
+    const r = run(dir, "check-states", pkg);
+    clear("diagrams/state-machines/SM-bad.json");
+    clear("diagrams/state-machines/SM-bad2.json");
+    expect(r.code).toBe(1);
+    for (const s of ["SM-bad: unknown field Order.colour", "2 initial states", "unknown state nowhere", "no cite", "GAP-404", "lost: unreachable", "SM-bad2: state odd: value vanished not among allowed values of Order.status"])
+      expect(r.stderr).toContain(s);
+  });
+
+  it("objects-synth generates a gated object diagram; check-objects refuses bad attrs, links and multiplicity", () => {
+    const out = join(pkg, "diagrams", "objects", "OBJ-order.json");
+    const r = run(dir, "objects-synth", pkg, "Order", out);
+    expect(r.stderr).toBe("");
+    const o = JSON.parse(read(out));
+    expect(o.source).toBe("synthetic");
+    const order = o.objects.find((x: { entity: string }) => x.entity === "Order");
+    expect(order.attrs.status).toBe("open");
+    const lines = o.objects.filter((x: { entity: string }) => x.entity === "OrderLine");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].attrs.order_id).toBe(order.attrs.order_id);
+    expect(o.links).toHaveLength(2);
+    expect(run(dir, "check-objects", pkg).code).toBe(0);
+    put("diagrams/er/one.json", { entities: [{ name: "OpBar", fields: [{ name: "unique" }] }], relations: [{ from: "Order", to: "OpBar", cardinality: "1:1", label: "has", confidence: "inferred", evidence: "none" }] });
+    const one = join(dir, "OBJ-one.json");
+    expect(run(dir, "objects-synth", pkg, "Order", one).stderr).toBe("");
+    clear("diagrams/er/one.json");
+    const oo = JSON.parse(read(one)).objects;
+    expect(oo.filter((x: { entity: string }) => x.entity === "OpBar")).toHaveLength(1);
+    expect(oo.filter((x: { entity: string }) => x.entity === "OrderLine")).toHaveLength(2);
+    put("diagrams/objects/OBJ-bad.json", {
+      id: "OBJ-bad",
+      title: "bad",
+      source: "synthetic",
+      objects: [
+        { id: "o1", entity: "Order", attrs: { colour: "red" } },
+        { id: "o2", entity: "Order", attrs: {} },
+        { id: "l1", entity: "OrderLine", attrs: {} },
+        { id: "x", entity: "Invoice", attrs: {} },
+      ],
+      links: [
+        { from: "o1", to: "l1" },
+        { from: "o2", to: "l1" },
+        { from: "o1", to: "o2" },
+      ],
+    });
+    const bad = run(dir, "check-objects", pkg);
+    clear("diagrams/objects/OBJ-bad.json");
+    expect(bad.code).toBe(1);
+    for (const s of ["OBJ-bad: o1: Order has no field colour", "x: unknown entity Invoice", "link o1-o2: no ER relation Order-Order", "l1: more than one Order"])
+      expect(bad.stderr).toContain(s);
+  });
+
+  it("objects-from-db masks every non-kept value, gates joins, and stays local unless --local", () => {
+    const db = join(dir, "snap_db.json");
+    writeFileSync(db, JSON.stringify({
+      ord: [{ ID: "A-17", NOTE: "ACME secret", ST: "open" }, { ID: "B-2", NOTE: "other", ST: "closed" }],
+      lin: [{ LID: "L1", OID: "A-17" }, { LID: "L2", OID: "A-17" }, { LID: "L3", OID: "B-2" }],
+    }));
+    const job = join(dir, "objjob.json");
+    const jobBody = {
+      title: "Order A from snapshot",
+      source: db,
+      tables: { Order: "ord", OrderLine: "lin" },
+      columns: { Order: { order_id: "ID", note: "NOTE", status: "ST" }, OrderLine: { line_id: "LID", order_id: "OID" } },
+      joins: [{ from: "Order", fk: "ID", to: "OrderLine", key: "OID" }],
+      seed: { entity: "Order", index: 0 },
+      depth: 2,
+      keep: ["status"],
+    };
+    writeFileSync(job, JSON.stringify(jobBody));
+    const out = join(pkg, "_local", "objects", "OBJ-real.json");
+    const r = run(dir, "objects-from-db", pkg, job, out);
+    expect(r.stderr).toBe("");
+    const text = read(out);
+    for (const secret of ["A-17", "ACME", "L1", "L2", "B-2"]) expect(text).not.toContain(secret);
+    const o = JSON.parse(text);
+    expect(o.masked).toBe(true);
+    const order = o.objects.find((x: { entity: string }) => x.entity === "Order");
+    expect(order.attrs.status).toBe("open");
+    const lines = o.objects.filter((x: { entity: string }) => x.entity === "OrderLine");
+    expect(lines).toHaveLength(2);
+    expect(lines[0].attrs.order_id).toBe(order.attrs.order_id);
+    const site = join(dir, "beh2.html");
+    run(dir, "build-site", pkg, site);
+    expect(embedded(read(site)).behaviour.objects.map((x: { id: string }) => x.id)).not.toContain("OBJ-real");
+    expect(run(dir, "build-site", pkg, site, "--local").stderr).toBe("");
+    const local = embedded(read(site)).behaviour.objects.find((x: { id: string }) => x.id === "OBJ-real");
+    expect(local.local).toBe(true);
+    writeFileSync(job, JSON.stringify({ ...jobBody, joins: [{ from: "Order", fk: "ID", to: "Order", key: "ID" }] }));
+    const bad = run(dir, "objects-from-db", pkg, job, join(dir, "x.json"));
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("join Order.ID -> Order.ID: no ER relation Order-Order");
+    expect(bad.stderr).not.toContain("A-17");
+  });
+
+  it("build-site embeds behaviour backlink data: refs, entities, use cases and actions", () => {
+    put("diagrams/state-machines/SM-order-status.json", sm());
+    const site = join(dir, "beh3.html");
+    const b = run(dir, "build-site", pkg, site);
+    expect(b.stderr).toBe("");
+    const beh = embedded(read(site)).behaviour;
+    const m = beh.states.find((x: { id: string }) => x.id === "SM-order-status");
+    expect(m.refs).toEqual(["BR-001", "QUIRK-002"]);
+    expect(m.scxml).toContain("<scxml");
+    const seq = beh.sequences.find((x: { id: string }) => x.id === "SEQ-add");
+    expect(seq.refs).toEqual(["BR-001", "QUIRK-002"]);
+    expect(seq.entities).toEqual([]);
+    put("diagrams/state-machines/SM-bad.json", sm({ id: "SM-bad", refs: undefined, transitions: [{ from: "open", to: "closed", trigger: "x", refs: ["BR-999"], cite: "js/order.js:5" }] }));
+    rmSync(site);
+    const bad = run(dir, "build-site", pkg, site);
+    clear("diagrams/state-machines/SM-bad.json");
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("BR-999");
+    expect(existsSync(site)).toBe(false);
   });
 });
 

@@ -23,7 +23,7 @@ export function readArch(pkgDir) {
 }
 
 /** Ref resolver over the whole package (rules, specs, capabilities, screens, use cases). */
-function refResolver(pkgDir) {
+export function refResolver(pkgDir) {
   const r = packageResolver(pkgDir);
   const screens = new Set(readUi(pkgDir).screens.flatMap((s) => [s.id, ...(s.dialogs || []).map((d) => d.id)]));
   const ucs = new Set(JSON.parse(readIf(join(pkgDir, "diagrams", "use-cases.json")) || "[]").map((u) => u.id));
@@ -45,7 +45,7 @@ function lineCount(path) {
 }
 
 /** Problem with one cite, or null; `appDir` also checks the file and line range. */
-function citeError(c, appDir) {
+export function citeError(c, appDir) {
   const m = String(c).match(CITE_RE);
   if (!m) return `malformed cite ${c} (need file:line or file:a-b)`;
   if (!appDir) return null;

@@ -2,7 +2,9 @@
 # Full render of a rebuild package with every gate: render.sh <packageDir> [appDir]
 #   check-use-cases -> [architecture.json] check-architecture (+ --app) + arch
 #   -> [ui/screens] ifml + check-ifml + round-trip ifml-diff (must be "no differences")
+#   -> [diagrams/sequences|state-machines|objects] check-sequences/check-states (--app) + check-objects + behaviour export
 #   -> build-site with every viewer found -> <packageDir>/diagrams/catalog.html
+# LOCAL=1 also gates and embeds real-data object diagrams from <packageDir>/_local/objects (local builds only).
 # Stops at the first failing step. Viewer overrides (optional):
 #   BPMN_JS_DIR  dir with bpmn-navigated-viewer.production.min.js, diagram-js.css, bpmn.css, bpmn-font/css/bpmn-embedded.css
 #   MERMAID_JS   mermaid.min.js (default: found next to `mmdc` when installed)
@@ -37,6 +39,17 @@ else
   echo "3 skip IFML (no ui/screens)"
 fi
 
+D=$PKG/diagrams
+if [ -d "$D/sequences" ] || [ -d "$D/state-machines" ] || [ -d "$D/objects" ] || { [ -n "${LOCAL:-}" ] && [ -d "$PKG/_local/objects" ]; }; then
+  echo "3b behaviour (sequence, collaboration, state machine, object)"
+  "${DG[@]}" check-sequences "$PKG" ${APP:+--app "$APP"}
+  "${DG[@]}" check-states "$PKG" ${APP:+--app "$APP"}
+  "${DG[@]}" check-objects "$PKG" ${LOCAL:+--local}
+  "${DG[@]}" behaviour "$PKG" "$D/behaviour"
+else
+  echo "3b skip behaviour (no diagrams/sequences, state-machines or objects)"
+fi
+
 echo "4 catalog"
 VIEW=()
 B=${BPMN_JS_DIR:-$SKILL/../../../../pi-forms-bpmn/.pi/skills/bpmn-package-explorer/assets/bpmn-js}
@@ -53,5 +66,7 @@ fi
 if [ -n "$M" ] && [ -f "$M" ]; then VIEW+=(--mermaid "$M"); else echo "  no mermaid (set MERMAID_JS)"; fi
 I=${IFML_JS_DIR:-$SKILL/assets/ifml-js}
 VIEW+=(--ifml-js "$I/ifml-navigated-viewer.production.min.js" --ifml-css "$I/diagram-js.css" --ifml-css "$I/ifml-font-embedded.css")
-"${DG[@]}" build-site "$PKG" "$PKG/diagrams/catalog.html" "${VIEW[@]}"
+OUT=$PKG/diagrams/catalog.html
+if [ -n "${LOCAL:-}" ]; then VIEW+=(--local); OUT=$PKG/_local/catalog.local.html; mkdir -p "$PKG/_local"; fi
+"${DG[@]}" build-site "$PKG" "$OUT" "${VIEW[@]}"
 echo "RENDER OK"

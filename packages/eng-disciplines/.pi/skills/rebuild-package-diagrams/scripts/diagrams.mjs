@@ -10,10 +10,17 @@
 //   ifml-to-ui <file.xmi> <outDir>           -> ui/screens + ui/forms from any IFML XMI
 //   ifml-diff <packageDir> <file.xmi> [--apply] -> element diff vs the package UI model (exit 1 if different);
 //                                               --apply merges additions/renames/guards/validations, never deletes
-// Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml.
+//   check-sequences | check-states <packageDir> [--app <appDir>] -> exit 1 listing behaviour-record violations
+//   check-objects <packageDir> [--local]      -> exit 1 listing object-diagram violations
+//   sequence-from-ui <packageDir> <SCR#ACT> <out.json> -> deterministic draft sequence of a UI action
+//   objects-synth <packageDir> <Entity> <out.json> [--depth n] [--fanout n] -> synthetic object diagram
+//   objects-from-db <packageDir> <job.json> <out.json> -> masked object diagram from a JSON DB snapshot
+//   behaviour <packageDir> <outDir>          -> <id>.mmd per diagram (+ <id>.collab.mmd) and <id>.scxml per state machine
+// Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
+import { behaviourData, checkObjects, checkSequences, checkStates, objectsFromDb, objectsSynth, readBehaviour, sequenceFromUi } from "./behaviour.mjs";
 import { buildIfml, checkIfmlXmi, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
@@ -31,7 +38,28 @@ const USAGE = `usage:
   diagrams.mjs ifml-diff <packageDir> <file.xmi> [--apply]
   diagrams.mjs check-architecture <packageDir> [--app <appDir>]
   diagrams.mjs arch <packageDir> <outDir>
-  build-site also takes [--ifml-js <file>] [--ifml-css <file>]...`;
+  diagrams.mjs check-sequences|check-states <packageDir> [--app <appDir>]
+  diagrams.mjs check-objects <packageDir> [--local]
+  diagrams.mjs sequence-from-ui <packageDir> <SCR-id#ACT-id> <out.json>
+  diagrams.mjs objects-synth <packageDir> <Entity> <out.json> [--depth <n>] [--fanout <n>]
+  diagrams.mjs objects-from-db <packageDir> <job.json> <out.json>
+  diagrams.mjs behaviour <packageDir> <outDir>
+  build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]`;
+
+/** `--app <dir>` (or nothing) -> appDir; anything else is bad usage. */
+function appFlag(flag, app) {
+  if (flag && (flag !== "--app" || !app)) die(USAGE);
+  return app ?? null;
+}
+
+/** Record id from its output file (`OBJ-x.json` -> `OBJ-x`). */
+const idOf = (out) => basename(out).replace(/\.json$/, "");
+
+/** Write a JSON record, creating its directory. */
+function writeRecord(out, record) {
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, `${JSON.stringify(record, null, 1)}\n`);
+}
 
 function die(msg, code = 2) {
   process.stderr.write(`${msg}\n`);
@@ -92,9 +120,10 @@ const COMMANDS = {
   },
   "build-site": ([pkg, out, ...rest]) => {
     if (!out) die(USAGE);
-    const libs = parseLibs(rest);
+    const local = rest.includes("--local");
+    const libs = parseLibs(rest.filter((a) => a !== "--local"));
     readText(join(pkg, "model.md"));
-    const { data, errors } = buildCatalog(pkg);
+    const { data, errors } = buildCatalog(pkg, { local });
     if (errors.length) return report(errors);
     writeFileSync(out, renderSite(data, libs));
     return 0;
@@ -131,6 +160,61 @@ const COMMANDS = {
     writeFileSync(join(outDir, "c4.md"), toMermaidC4(model, packageTitle(pkg)));
     return 0;
   },
+  "check-sequences": ([pkg, flag, app]) => report(checkSequences(pkg, readBehaviour(pkg).sequences, appFlag(flag, app))),
+  "check-states": ([pkg, flag, app]) => report(checkStates(pkg, readBehaviour(pkg).states, appFlag(flag, app))),
+  "check-objects": ([pkg, flag]) => {
+    if (flag && flag !== "--local") die(USAGE);
+    return report(checkObjects(pkg, readBehaviour(pkg, { local: !!flag }).objects));
+  },
+  "sequence-from-ui": ([pkg, ref, out]) => {
+    let seq;
+    try {
+      seq = sequenceFromUi(pkg, ref);
+    } catch (e) {
+      return report([e.message]);
+    }
+    const errors = checkSequences(pkg, [seq]);
+    if (!errors.length) writeRecord(out, seq);
+    return report(errors);
+  },
+  "objects-synth": ([pkg, entity, out, ...opts]) => {
+    const num = (f, d) => (opts.includes(f) ? Number(opts[opts.indexOf(f) + 1]) : d);
+    let o;
+    try {
+      o = { ...objectsSynth(pkg, entity, { depth: num("--depth", 2), fanout: num("--fanout", 2) }), id: idOf(out) };
+    } catch (e) {
+      return report([e.message]);
+    }
+    const errors = checkObjects(pkg, [o]);
+    if (!errors.length) writeRecord(out, o);
+    return report(errors);
+  },
+  "objects-from-db": ([pkg, jobFile, out]) => {
+    const job = readJson(jobFile);
+    if (job.source && !isAbsolute(job.source)) job.source = resolve(dirname(jobFile), job.source);
+    if (!existsSync(job.source || "")) die("diagrams: job source not found");
+    const { errors, diagram } = objectsFromDb(pkg, job);
+    if (errors.length) return report(errors);
+    diagram.id = job.id || idOf(out);
+    const gate = checkObjects(pkg, [diagram]);
+    if (!gate.length) writeRecord(out, diagram);
+    return report(gate);
+  },
+  behaviour: ([pkg, outDir]) => {
+    const { errors, behaviour } = behaviourData(pkg);
+    if (errors.length) return report(errors);
+    mkdirSync(outDir, { recursive: true });
+    for (const s of behaviour.sequences) {
+      writeFileSync(join(outDir, `${s.id}.mmd`), s.mermaid);
+      writeFileSync(join(outDir, `${s.id}.collab.mmd`), s.collab.mermaid);
+    }
+    for (const m of behaviour.states) {
+      writeFileSync(join(outDir, `${m.id}.mmd`), m.mermaid);
+      writeFileSync(join(outDir, `${m.id}.scxml`), m.scxml);
+    }
+    for (const o of behaviour.objects) writeFileSync(join(outDir, `${o.id}.mmd`), o.mermaid);
+    return 0;
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -144,7 +228,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

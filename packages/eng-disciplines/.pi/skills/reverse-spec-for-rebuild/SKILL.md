@@ -232,8 +232,15 @@ record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
    `unmapped` reason — fix the record (step 2-3), or the adapter.
 5. **Flows from code** per use case: `flow.mjs` → layout → `check-trace`;
    `compare.mjs` against the prose flow, and report the differences.
-6. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
-   its gates, catalog with screen plans, style kit, IFML and flows).
+6. **Behaviour models** (optional): per key user action, a `rebuild-package-diagrams`
+   `sequence-from-ui` draft deepened by one subagent with `prompts/sequence-generator.md`;
+   per stateful entity field (a `model.md` field with `allowed:` values or a lock/report
+   flag), one subagent with `prompts/state-machine-generator.md`. Each record is accepted
+   only when `check-sequences` / `check-states` with `--app` pass; route gate lines back as
+   findings. Candidate quirks the generators report go to the merge as findings, never
+   straight into `quirks.md`.
+7. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
+   its gates, catalog with screen plans, style kit, IFML, flows and behaviour diagrams).
 
 ## Subagent routing
 
@@ -244,6 +251,8 @@ record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
 | auditor | `prompts/auditor-rebuild.md` | `@research` | read-only | one per capability, single message; then 1 cross-cutting |
 | completeness | `prompts/completeness.md` | `@fast` | writes `completeness.md` | 1 |
 | UI screen generator (optional) | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
+| sequence generator (optional) | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
+| state-machine generator (optional) | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
 
 No roles configured (or a role unbound) -> omit `model` and the subagent
 inherits the session model. Keep the auditor the strongest model available: it
@@ -300,6 +309,9 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   `.reverse-spec-scratch` as NOT ignored even when `.reverse-spec-scratch/` is in
   an ignore file; always query `.reverse-spec-scratch/`.
 - **Quirks are not fixes** — the spec stays faithful; the rebuilder decides.
+- **Subagent concurrency cap** — the host may admit only a few subagents at once
+  (pi-dashboard: 2) and refuses the rest of a single-message batch. A refused
+  spawn is not a failed generator: re-issue it when a running one finishes.
 - **UI sources** may be UTF-16 or cp1250 and carry commented-out code: read
   through `scripts/ui-extract/lib.mjs`, which decodes and strips comments
   keeping line numbers. Input validations are effects, never guards (the gate
@@ -334,5 +346,7 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   *(Business rule catalog)*
 - Optional UI model: `gate.mjs` PASS, every `screen-plan.mjs` run 0 unlinked,
   every flow from code passed `check-trace`. *(Frontend UI-model extraction)*
+- Optional behaviour models: `check-sequences` and `check-states` with `--app` exit 0.
+  *(Behaviour-model generation)*
 - Promotion happened only after `ask_user` confirmation and `G check-dest`
   exit 0, by move. *(Rebuild package layout and promotion)*

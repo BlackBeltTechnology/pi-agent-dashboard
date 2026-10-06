@@ -172,6 +172,25 @@ plan without a screen/dialog record. Catalog: screen page shows the plan in a sa
 tab; legend action links post `{type: "screen-plan-open", screen, action}` and open the action); header
 **Style kit** button → `#view=kit:`.
 
+## Behaviour diagrams (sequence, collaboration, state machine, object)
+
+Records, gates, generators and masking: `references/behaviour-mapping.md`.
+
+1. **Sequences**: `diagrams.mjs sequence-from-ui PKG <SCR#ACT> PKG/diagrams/sequences/<SEQ-id>.json`
+   drafts one per user action from the UI model (guards → `alt`, effects → messages, lifelines
+   by architecture component). Deepen past the data layer with `reverse-spec-for-rebuild`'s
+   sequence generator. Gate: `check-sequences PKG --app APP`. Collaboration diagrams are
+   projected automatically.
+2. **State machines**: one per stateful entity field, written by `reverse-spec-for-rebuild`'s
+   state-machine generator into `PKG/diagrams/state-machines/`. Gate: `check-states PKG --app APP`.
+3. **Object diagrams**: `objects-synth PKG <Entity> PKG/diagrams/objects/<OBJ-id>.json` (shared);
+   real data only with `objects-from-db PKG <job.json> PKG/_local/objects/<OBJ-id>.json` (masked
+   unless `keep`; `_local/` stays out of version control and out of the shared catalog).
+   Gate: `check-objects PKG [--local]`.
+4. `render.sh` gates them, exports `PKG/diagrams/behaviour/` (`.mmd`, `.collab.mmd`, `.scxml`)
+   and embeds them; `LOCAL=1 render.sh …` writes `PKG/_local/catalog.local.html` with real data.
+   Catalog: **Behaviour** button, sequence/state-machine/object pages, backlinks.
+
 ## Architecture (C4 and C5)
 
 Optional `PKG/diagrams/architecture.json` (people, systems, containers, components, deployment
