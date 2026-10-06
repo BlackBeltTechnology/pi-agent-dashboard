@@ -88,6 +88,29 @@ describe("IFML areas and parts", () => {
     expect(tight.parts.map((p: { id: string }) => p.id)).toContain("P-SCR-big-opbar-2");
   });
 
+  it("forms/fields that do not fit beside the first action get their own parts, chunked by field; every part fits", () => {
+    const u = ui();
+    const fld = (k: string) => ({ key: k, label: k, type: "text", conditions: [{ kind: "validation", when: `${k}!=null` }] });
+    u.forms = { "FRM-big": { id: "FRM-big", fields: Array.from({ length: 9 }, (_, i) => fld(`f${i}`)) } } as never;
+    (u.screens[0] as Record<string, unknown>).forms = [{ form: "FRM-big" }];
+    u.screens[0].fields = Array.from({ length: 4 }, (_, i) => fld(`s${i}`));
+    const budget = { nodes: 16, edges: 40 };
+    const r = S.ifmlParts(u, budget);
+    const big = r.parts.filter((p: { screens: { id: string }[] }) => p.screens.some((s) => s.id === "SCR-big"));
+    for (const p of big) {
+      expect(p.size.nodes, p.id).toBeLessThanOrEqual(budget.nodes);
+      expect(I.checkIfmlXmi(p.xmi), p.id).toEqual([]);
+    }
+    const forms = big.filter((p: { id: string }) => p.id.startsWith("P-SCR-big-forms"));
+    expect(forms.length).toBeGreaterThan(1);
+    // every field lands in exactly one part, with the whole-model element id
+    const all = big.map((p: { xmi: string }) => p.xmi).join("\n");
+    for (const k of [...Array.from({ length: 9 }, (_, i) => `FRM-big.f${i}`), ...Array.from({ length: 4 }, (_, i) => `fields.s${i}`)])
+      expect(all.split(`xmi:id="P.SCR-big.${k}"`).length - 1, k).toBe(1);
+    // action parts carry no forms
+    expect(big.find((p: { id: string }) => p.id === "P-SCR-big-opbar").xmi).not.toContain('xmi:type="ifml:Form"');
+  });
+
   it("packs adjacent small trigger-kind groups into one part", () => {
     const u = ui();
     u.screens[0].actions.push(act("ACT-dbl", "dblclick"), act("ACT-wheel", "wheel"));

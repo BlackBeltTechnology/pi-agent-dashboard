@@ -330,7 +330,9 @@ it reaches by navigation or dialog opening (ties to the alphabetically first rou
 records form a shared area). The catalog SHALL show an overview map of areas with cross-area
 navigation counts. Each area within budget SHALL be one part; otherwise each screen SHALL be a
 part, and a screen over budget SHALL be split into action groups by trigger kind, chunked to the
-budget; adjacent groups that fit together SHALL share one part. Every part SHALL carry its own laid-out IFML XMI that passes `check-ifml`.
+budget; adjacent groups that fit together SHALL share one part. A split screen's forms and fields SHALL
+ride with its first action group, or, when they do not fit beside its first action, SHALL lead as their
+own parts packed field by field to the budget. Every part SHALL carry its own laid-out IFML XMI that passes `check-ifml`.
 
 #### Scenario: Small groups packed
 - **WHEN** a screen over budget has several trigger kinds with one action each
@@ -339,6 +341,10 @@ budget; adjacent groups that fit together SHALL share one part. Every part SHALL
 #### Scenario: Large screen split by trigger kind
 - **WHEN** a screen has toolbar, context-menu and keyboard actions and exceeds the budget
 - **THEN** it becomes one part per trigger kind, each within budget, each with its own XMI
+
+#### Scenario: Large form split from the actions
+- **WHEN** a screen's forms and fields alone exceed the budget beside its first action
+- **THEN** they become `P-<screen>-forms[-n]` parts, each within budget, every field in exactly one part
 
 #### Scenario: Drill-down
 - **WHEN** the reader clicks an area in the IFML overview

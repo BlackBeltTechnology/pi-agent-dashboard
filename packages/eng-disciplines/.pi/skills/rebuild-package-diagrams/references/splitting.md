@@ -24,7 +24,9 @@ nodes = states, edges = transitions. Sequence: edges = messages. ER: nodes = ent
    in area order into parts `P-<first screen>`; a screen over budget is split into action groups
    by `trigger.kind` (first appearance), each group chunked to the budget (`-1`, `-2`), and
    adjacent unchunked groups packed while they fit (`P-<screen>-<kind>-<kind>`, more than 3 kinds
-   → `<k1>-<k2>-plus<n>`). The screen's forms/fields go with its first part.
+   → `<k1>-<k2>-plus<n>`). The screen's forms/fields go with its first part; when they do not fit beside
+   its first action they lead as their own parts `P-<screen>-forms[-n]`, packed field by field
+   (a form's field list cut per part, element ids unchanged).
 3. Each part is a reduced UI model → `buildIfml` → laid-out XMI (passes `check-ifml`); element
    ids equal the whole model's, so click-through and backlinks still resolve. Flows to records
    outside the part are dropped from the part (the screen pages list them).

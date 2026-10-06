@@ -78,8 +78,19 @@ export function ifmlSize(model) {
   return { nodes: model.elements.filter((e) => e.type !== "ActionEvent").length, edges: model.flows.length };
 }
 
-/** A screen record reduced to some actions (null = whole); forms/fields only in the screen's first part. */
-function reduced(s, actions, first) {
+const hasLayout = (s) => Boolean((s.forms || []).length || (s.fields || []).length);
+
+/** Forms + fields a part shows: layout "all" = every one, an atom list [{form|null, key|null}] = those, else none. */
+function layoutOf(s, layout) {
+  if (layout === "all") return { forms: s.forms, fields: s.fields };
+  if (!layout) return { forms: [], fields: [] };
+  const forms = new Set(layout.map((a) => a.form).filter(Boolean));
+  const fields = new Set(layout.filter((a) => !a.form).map((a) => a.key));
+  return { forms: (s.forms || []).filter((f) => forms.has(f.form)), fields: (s.fields || []).filter((f) => fields.has(f.key)) };
+}
+
+/** A screen record reduced to some actions (null = whole) and a layout (see layoutOf). */
+function reduced(s, actions, layout) {
   if (!actions) return s;
   const keep = new Set(actions);
   return {
@@ -87,33 +98,67 @@ function reduced(s, actions, first) {
     actions: (s.actions || []).filter((a) => keep.has(a.id)),
     dialogs: (s.dialogs || []).filter((d) => keep.has(d.from)),
     navigation: [],
-    forms: first ? s.forms : [],
-    fields: first ? s.fields : [],
+    ...layoutOf(s, layout),
   };
+}
+
+/** Form records cut to the fields an atom-list layout picks (element ids unchanged). */
+function formsFor(ui, picks) {
+  const forms = { ...ui.forms };
+  for (const atoms of picks.map((p) => p.layout).filter(Array.isArray)) {
+    for (const key of new Set(atoms.map((a) => a.form).filter(Boolean))) {
+      const keep = new Set(atoms.filter((a) => a.form === key).map((a) => a.key));
+      forms[key] = { ...ui.forms[key], fields: (ui.forms[key]?.fields || []).filter((f) => keep.has(f.key)) };
+    }
+  }
+  return forms;
 }
 
 function partOf(ui, id, title, area, picks, name) {
   const byId = new Map(ui.screens.map((s) => [s.id, s]));
-  const screens = picks.map((p) => reduced(byId.get(p.id), p.actions, p.first));
-  const model = buildIfml({ ...ui, screens });
+  const screens = picks.map((p) => reduced(byId.get(p.id), p.actions, p.layout));
+  const model = buildIfml({ ...ui, forms: formsFor(ui, picks), screens });
   return { id, title, area, screens: picks.map(({ id: sid, actions }) => ({ id: sid, actions })), size: ifmlSize(model), xmi: ifmlToXmi(model, `${name} — ${title}`) };
 }
 const sizeOfPicks = (ui, picks) => partOf(ui, "x", "x", "x", picks, "x").size;
 
-/** Action groups of one screen by trigger kind (first appearance), each chunked to the budget. */
+/** Items cut in order into chunks; a chunk grows while `ok(chunk, index)` holds (a lone item always stays). */
+function greedyChunks(items, ok) {
+  const chunks = [[]];
+  for (const it of items) {
+    const cur = chunks[chunks.length - 1];
+    if (cur.length && !ok([...cur, it], chunks.length - 1)) chunks.push([it]);
+    else cur.push(it);
+  }
+  return chunks;
+}
+
+/** Forms/fields of a screen as their own groups ("forms"), packed field by field to the budget. */
+function layoutGroups(ui, s, budget) {
+  const formAtoms = [...new Set((s.forms || []).map((f) => f.form))].flatMap((form) => {
+    const keys = (ui.forms[form]?.fields || []).map((f) => f.key);
+    return keys.length ? keys.map((key) => ({ form, key })) : [{ form, key: null }];
+  });
+  const atoms = [...formAtoms, ...(s.fields || []).map((f) => ({ form: null, key: f.key }))];
+  const chunks = greedyChunks(atoms, (layout) => fits(sizeOfPicks(ui, [{ id: s.id, actions: [], layout }]), budget));
+  return chunks.map((c, i) => ({ kind: "forms", n: chunks.length > 1 ? i + 1 : 0, actions: [], layout: c }));
+}
+
+/**
+ * Groups of one screen: its forms/fields ride with the first action group, or, when they do not fit
+ * beside the first action, lead as their own "forms" groups; then action groups by trigger kind
+ * (first appearance), each chunked to the budget.
+ */
 function screenGroups(ui, s, budget) {
   const kinds = [...new Set((s.actions || []).map((a) => a.trigger?.kind || "other"))];
-  const groups = [];
+  const firstAction = (s.actions || []).slice(0, 1).map((a) => a.id);
+  const lead = hasLayout(s) && !fits(sizeOfPicks(ui, [{ id: s.id, actions: firstAction, layout: "all" }]), budget);
+  const groups = lead ? layoutGroups(ui, s, budget) : [];
   for (const kind of kinds) {
     const ids = s.actions.filter((a) => (a.trigger?.kind || "other") === kind).map((a) => a.id);
-    const chunks = [[]];
-    for (const id of ids) {
-      const cur = chunks[chunks.length - 1];
-      const first = !groups.length && chunks.length === 1;
-      if (cur.length && !fits(sizeOfPicks(ui, [{ id: s.id, actions: [...cur, id], first }]), budget)) chunks.push([id]);
-      else cur.push(id);
-    }
-    chunks.forEach((c, i) => groups.push({ kind, n: chunks.length > 1 ? i + 1 : 0, actions: c, first: !groups.length }));
+    const layoutAt = (i) => (!groups.length && i === 0 ? "all" : undefined);
+    const chunks = greedyChunks(ids, (actions, i) => fits(sizeOfPicks(ui, [{ id: s.id, actions, layout: layoutAt(i) }]), budget));
+    chunks.forEach((c, i) => groups.push({ kind, n: chunks.length > 1 ? i + 1 : 0, actions: c, layout: groups.length ? undefined : "all" }));
   }
   return groups;
 }
@@ -124,7 +169,7 @@ function packGroups(ui, s, groups, budget) {
   for (const g of groups) {
     const last = out[out.length - 1];
     const joinable = last && !last.n && !g.n;
-    if (joinable && fits(sizeOfPicks(ui, [{ id: s.id, actions: [...last.actions, ...g.actions], first: last.first }]), budget)) {
+    if (joinable && fits(sizeOfPicks(ui, [{ id: s.id, actions: [...last.actions, ...g.actions], layout: last.layout }]), budget)) {
       last.kinds.push(g.kind);
       last.actions.push(...g.actions);
     } else out.push({ ...g, kinds: [g.kind], actions: [...g.actions] });
@@ -140,7 +185,7 @@ function groupParts(ui, s, areaId, budget, name) {
   return packGroups(ui, s, screenGroups(ui, s, budget), budget).map((g) => {
     const id = `P-${s.id}-${kindsText(g.kinds, "-", "-plus")}${g.n ? `-${g.n}` : ""}`;
     const title = `${clipName(s.name || s.id)} · ${kindsText(g.kinds, ", ", " +")}${g.n ? ` ${g.n}` : ""}`;
-    return partOf(ui, id, title, areaId, [{ id: s.id, actions: g.actions, first: g.first }], name);
+    return partOf(ui, id, title, areaId, [{ id: s.id, actions: g.actions, layout: g.layout }], name);
   });
 }
 
@@ -157,7 +202,8 @@ function areaParts(ui, area, budget, name) {
   };
   for (const id of area.screens) {
     const one = { id, actions: null };
-    const tooBig = !fits(sizeOfPicks(ui, [one]), budget) && (byId.get(id).actions || []).length > 1;
+    const s = byId.get(id);
+    const tooBig = !fits(sizeOfPicks(ui, [one]), budget) && ((s.actions || []).length > 1 || hasLayout(s));
     if (tooBig || (pack.length && !fits(sizeOfPicks(ui, [...pack, one]), budget))) flush();
     if (tooBig) parts.push(...groupParts(ui, byId.get(id), area.id, budget, name));
     else pack.push(one);
