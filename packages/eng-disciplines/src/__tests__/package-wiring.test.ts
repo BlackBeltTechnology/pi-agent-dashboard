@@ -29,6 +29,16 @@ describe("eng-disciplines wiring", () => {
     expect(files.indexOf(".pi/skills/")).toBeGreaterThanOrEqual(0);
   });
 
+  it("ships rsfr-* agents whose frontmatter model matches the SKILL routing table", () => {
+    expect(pkg.files).toContain("agents/");
+    const skill = read(join(PKG, ".pi/skills/reverse-spec-for-rebuild/SKILL.md"));
+    const rows = [...skill.matchAll(/^\| \w+ \| `(rsfr-[\w-]+)` \| `[^`]+` \| `(@\w+)` \|/gm)];
+    expect(rows.map((r) => r[1]).sort()).toEqual(["rsfr-auditor", "rsfr-completeness", "rsfr-discovery", "rsfr-generator"]);
+    for (const [, type, model] of rows) {
+      expect(read(join(PKG, "agents", `${type}.md`))).toMatch(new RegExp(`^model: "${model}"$`, "m"));
+    }
+  });
+
   it("E12: NOTICE credits greenfield (Apache-2.0) and keeps prior credits", () => {
     const notice = read(join(PKG, "NOTICE"));
     for (const s of ["greenfield", "Apache-2.0", "agent-skills", "hermes-agent"]) expect(notice).toContain(s);
