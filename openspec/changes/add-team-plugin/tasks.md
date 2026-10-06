@@ -52,8 +52,8 @@ Plugin: `P = packages/team-plugin`. App: `A = packages/team-app`. Requires `extr
 
 ## 7. Close-out
 
-- [ ] 7.1 `Audit` subagent pass (security + perf) on the diff; `security-hardening` follow-ups — verify: no Critical/Major open
-- [ ] 7.2 `review-code` inline review — verify: no Critical/Major open
+- [x] 7.1 `Audit` subagent pass (security + perf) on the diff; `security-hardening` follow-ups — verify: no Critical/Major open — done: Audit findings fixed (guard scheme/protected paths, bridge host-action refusal, per-run readiness, `full` multi-user, live-session cap, races, perf)
+- [x] 7.2 `review-code` inline review — verify: no Critical/Major open — done: ship-it local review, 3 rounds, final BLOCKING_COUNT 0
 - [x] 7.3 AGENTS.md rows for every new file (P, A); DocScribe for `docs/team-plugin.md` — verify: rows present
 
 ## 8. Tests (from test-plan.md)
