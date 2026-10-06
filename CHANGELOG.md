@@ -219,6 +219,11 @@ see [`docs/release-process.md`](docs/release-process.md).
   `/reload`, a new session or a fork. New `PI_IMAGE_FIT_QUIET=1` silences all
   output.
 
+- **The dashboard server boots on Node 26 again.** Node 26 dropped the
+  type-transform mode the native TypeScript loader relies on, so the
+  server exited at startup. On such a Node it now boots with the jiti
+  loader automatically; Node 22/24 keep the faster native loader.
+
 - **Saving one plugin setting no longer resets the others.** Writing part
   of a plugin's config through `POST /api/config/plugins/:id` reset every
   setting left out of the request to its default (e.g. the Chat Gateway's
