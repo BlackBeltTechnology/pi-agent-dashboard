@@ -14,6 +14,9 @@
  *    diminishing returns >90.
  */
 
+import { parseBool } from "./env.js";
+import * as log from "./log.js";
+
 export interface ImageFitConfig {
   /** When true, extension registers no hooks. */
   disabled: boolean;
@@ -31,13 +34,6 @@ export const DEFAULTS: Readonly<ImageFitConfig> = Object.freeze({
   maxBytes: 4 * 1024 * 1024, // 4 MiB
   quality: 85,
 });
-
-const TRUTHY = new Set(["1", "true", "yes", "on"]);
-
-function parseBool(raw: string | undefined): boolean {
-  if (!raw) return false;
-  return TRUTHY.has(raw.trim().toLowerCase());
-}
 
 interface ParseRules {
   min: number;
@@ -78,7 +74,7 @@ export interface ReadConfigOptions {
  */
 export function readConfigFromEnv(opts: ReadConfigOptions = {}): ImageFitConfig {
   const env = opts.env ?? process.env;
-  const warn = opts.warn ?? ((msg: string) => console.warn(msg));
+  const warn = opts.warn ?? log.warn;
 
   const disabled = parseBool(env.PI_IMAGE_FIT_DISABLE);
   const maxEdge = parsePositiveInt(
