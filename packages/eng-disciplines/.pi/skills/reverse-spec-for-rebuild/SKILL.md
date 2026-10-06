@@ -210,6 +210,31 @@ the repository. Never derive the slug by hand).
     say so and ask for another destination. On exit 0 MOVE (not copy) `PKG` to
     the destination. Never promote without explicit confirmation. Finally `G unlock "$SLUG" "$RUN_ID"` (also when the user declines promotion).
 
+## Frontend UI model (optional, after step 13)
+
+For a target with a user interface, after the package gate and before promotion
+(the UI model cites the package's BR/QUIRK/GAP ids, so the catalogs must be
+final). Full commands, adapter contract and rules: `references/ui-extraction.md`;
+record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
+(dependency-free); stack specifics in an adapter (built-in
+`scripts/ui-extract/adapters/angularjs-hta.mjs`, or a project adapter by path).
+
+1. **Inventory + effective config + forms** (deterministic): `inventory.mjs`,
+   `config.mjs` per customer variant, `forms.mjs` / `screen-form.mjs`.
+2. **Screen records.** One subagent per screen or dialog, in a SINGLE message,
+   with `prompts/ui-screen-generator.md` filled by `fill.mjs` from a screen job;
+   each writes only `PKG/ui/screens/<ID>.json`.
+3. **Gate.** `gate.mjs APP PKG` until PASS; route a failing record back to its
+   generator with the gate lines. Never hand-edit a record to pass.
+4. **Style kit + screen plans** (deterministic): `style-kit.mjs` (kit job maps
+   components to real selectors), then `screen-plan.mjs` per screen and dialog;
+   an unlinked control (exit 1) means the record misses an action, field or
+   `unmapped` reason — fix the record (step 2-3), or the adapter.
+5. **Flows from code** per use case: `flow.mjs` → layout → `check-trace`;
+   `compare.mjs` against the prose flow, and report the differences.
+6. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
+   its gates, catalog with screen plans, style kit, IFML and flows).
+
 ## Subagent routing
 
 | Role | Prompt | Model | Access | Parallel |
@@ -218,6 +243,7 @@ the repository. Never derive the slug by hand).
 | generator | `prompts/generator-rebuild.md` | `@fast` | writes its spec + fragment | one per capability, single message |
 | auditor | `prompts/auditor-rebuild.md` | `@research` | read-only | one per capability, single message; then 1 cross-cutting |
 | completeness | `prompts/completeness.md` | `@fast` | writes `completeness.md` | 1 |
+| UI screen generator (optional) | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
 
 No roles configured (or a role unbound) -> omit `model` and the subagent
 inherits the session model. Keep the auditor the strongest model available: it
@@ -233,6 +259,8 @@ PKG/_manifest.json                 discovery manifest (checked by `G check-manif
 PKG/capabilities/<cap>/spec.md     OpenSpec full form, inline cite comments (rendered by the merge)
 PKG/_fragments/<cap>.spec.md       unmerged spec with local refs (merge input)
 PKG/_fragments/<cap>.json          merge input, kept for re-runs
+PKG/ui/                            optional UI model: _inventory.json, _effective/, forms/, screens/,
+                                   style-kit.{json,css}, plans/<ID>.html
 ```
 
 Citation format and confidence levels: `references/provenance.md`. Templates:
@@ -272,6 +300,10 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   `.reverse-spec-scratch` as NOT ignored even when `.reverse-spec-scratch/` is in
   an ignore file; always query `.reverse-spec-scratch/`.
 - **Quirks are not fixes** — the spec stays faithful; the rebuilder decides.
+- **UI sources** may be UTF-16 or cp1250 and carry commented-out code: read
+  through `scripts/ui-extract/lib.mjs`, which decodes and strips comments
+  keeping line numbers. Input validations are effects, never guards (the gate
+  refuses them).
 
 ## Verification
 
@@ -300,5 +332,7 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   shown. *(Grounding audit and revise loop)*
 - Re-run with the previous package kept surviving ids and reused none.
   *(Business rule catalog)*
+- Optional UI model: `gate.mjs` PASS, every `screen-plan.mjs` run 0 unlinked,
+  every flow from code passed `check-trace`. *(Frontend UI-model extraction)*
 - Promotion happened only after `ask_user` confirmation and `G check-dest`
   exit 0, by move. *(Rebuild package layout and promotion)*

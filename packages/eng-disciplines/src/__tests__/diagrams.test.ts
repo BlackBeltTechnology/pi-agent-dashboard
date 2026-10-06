@@ -365,6 +365,30 @@ describe("use-case catalog and site", () => {
     for (const [id, f] of Object.entries(forms)) writeFileSync(join(pkg, "ui", "forms", `${id}.json`), JSON.stringify(f));
   };
 
+  it("render.sh: minimal package skips architecture + IFML and writes the catalog; a failing gate stops it", () => {
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    rmSync(join(pkg, "diagrams", "architecture.json"), { force: true });
+    const cat = join(pkg, "diagrams", "catalog.html");
+    rmSync(cat, { force: true });
+    writeUc([uc()]);
+    const sh = (...a: string[]) => spawnSync("bash", [join(DSKILL, "scripts", "render.sh"), ...a], { encoding: "utf8" });
+    const ok = sh(pkg);
+    expect(ok.stderr).toBe("");
+    expect(ok.status).toBe(0);
+    expect(ok.stdout).toContain("skip architecture");
+    expect(ok.stdout).toContain("skip IFML");
+    expect(existsSync(cat)).toBe(true);
+    expect(embedded(read(cat)).viewers.ifml).toBe(true);
+    rmSync(cat);
+    writeUc([uc({ refs: ["BR-999"] })]);
+    const bad = sh(pkg);
+    writeUc([uc()]);
+    expect(bad.status).not.toBe(0);
+    expect(bad.stderr).toContain("BR-999");
+    expect(existsSync(cat)).toBe(false);
+    expect(sh().status).toBe(2);
+  });
+
   it("build-site embeds screen plans and the style kit; refuses an orphan plan", () => {
     writeUc([uc()]);
     writeUi([screen()]);

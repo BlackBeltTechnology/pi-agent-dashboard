@@ -82,6 +82,17 @@ still produced and checked.
    `(quirk)`. A `GAP-` on a node means the step depends on unknown config/data — keep it,
    do not guess the branch.
 
+## One-command render
+
+`scripts/render.sh PKG [APP]` runs every applicable gate and render step and stops at
+the first failure: `check-use-cases` → `check-architecture` (`--app APP`) + `arch` when
+`diagrams/architecture.json` exists → `ifml` + `check-ifml` + round-trip `ifml-diff`
+(must print "no differences") when `ui/screens/` exists → `build-site` to
+`PKG/diagrams/catalog.html` with every viewer found: bpmn-js (`BPMN_JS_DIR`, default the
+sibling `bpmn-package-explorer` assets), Mermaid (`MERMAID_JS`, default next to `mmdc`),
+IFML from the vendored `assets/ifml-js/` (ifml-js 0.3.0, bpmn.io licence: keep the
+watermark; override `IFML_JS_DIR`). Ends with `RENDER OK`. The steps below are what it runs.
+
 ## Procedure — browsable catalog (one HTML file)
 
 1. Prerequisites: ER files gated, `use-cases.json` passing `check-use-cases`, each drawn
@@ -152,8 +163,8 @@ still produced and checked.
 
 ## Screen plans and style kit (optional)
 
-Produced by an extraction step outside this skill (one per stack; e.g. Delta-Dot `ui-extract/style-kit.mjs`
-+ `screen-plan.mjs`): `PKG/ui/style-kit.json` (colour/font tokens with uses and cites, font-size and radius
+Produced by the `reverse-spec-for-rebuild` frontend UI phase (its `ui-extract` programs
+`style-kit.mjs` + `screen-plan.mjs` with a stack adapter): `PKG/ui/style-kit.json` (colour/font tokens with uses and cites, font-size and radius
 scales, components = original selectors + declarations + cite) and `PKG/ui/plans/<screenId>.html`
 (self-contained page: original template + toolbar flattened, styled with the kit, every control numbered
 and linked to an action, field, unmapped reason or the app shell). `build-site` embeds both and refuses a
