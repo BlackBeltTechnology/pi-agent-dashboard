@@ -28,6 +28,10 @@ Read-only on the application. Write exactly one file: `{PKG}/ui/screens/{ID}.jso
    Never invent ids. If behaviour has no package item, describe it in the effect's `target`.
 4. Every in-scope behavioural inventory row must be in some `covers` list or in `unmapped`
    with a reason (e.g. "column sort header, view-only", "debug alert").
+   Every template control (input, select, button, clickable element) must also be linkable by
+   `screen-plan.mjs`: a field's or action trigger's `cite` must be the exact line where the
+   control's tag STARTS (a range like `x.htm:6-8`, or the later line holding `ng-model`, does
+   not link it). Unbound inputs and radio groups read by id/class are fields too.
 5. Run the gate and fix until your record is clean:
    `node {SKILL}/scripts/ui-extract/gate.mjs {APP} {PKG} 2>&1 | grep -E "^{ID}\.json|^PASS|^FAIL"`
    (other records may be in progress; only lines starting with `{ID}.json` are yours).
