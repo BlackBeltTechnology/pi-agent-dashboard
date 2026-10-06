@@ -7,10 +7,8 @@
  *     kind), with the subject re-derived from the path by the gate rule.
  * See change: yolo-covers-agent-path-gate.
  */
-import * as fs from "node:fs";
 import nodePath from "node:path";
 import { isSameSubject } from "@blackbelt-technology/pi-dashboard-shared/canonical-subject.js";
-import { realpathNearestAncestor } from "@blackbelt-technology/pi-dashboard-shared/forbidden-subjects.js";
 import type {
   PathGateRefusalMessage,
   PathYoloRequestMessage,
@@ -24,7 +22,7 @@ export interface AgentYoloDeps {
   /** Lazy: absent (YOLO not constructed yet) → every request declines. */
   decideAgentPath?: (path: string) => YoloAgentVerdict;
   registry: AgentConfirmRegistry;
-  recordRefusal: (plane: "agent-path", subject: string) => unknown;
+  recordRefusal: (plane: "agent-path", subject: string) => { ok: true } | { ok: false; error?: string };
   log?: (line: string) => void;
 }
 
@@ -32,14 +30,6 @@ function makeLog(deps: AgentYoloDeps): (line: string) => void {
   const sink = deps.log ?? ((l: string) => console.log(l));
   // Paths / ids are attacker-influenced: strip control characters at the single emission point.
   return (line) => sink(line.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "?"));
-}
-
-function isDirectory(p: string): boolean {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
 }
 
 export function handlePathYoloRequest(
@@ -89,9 +79,13 @@ export function handlePathGateRefusal(connectionSessionId: string, msg: PathGate
     "select",
   );
   if (!consumed.ok) return drop(consumed.error);
-  const real = realpathNearestAncestor(msg.path);
-  const subject = isDirectory(real) ? real : nodePath.dirname(real);
-  if (subject !== consumed.subject && !isSameSubject(subject, consumed.subject)) return drop("subject mismatch");
-  deps.recordRefusal("agent-path", subject);
-  log(`[path-gate] refusal recorded session=${connectionSessionId} subject=${subject}`);
+  // The subject the server bound when it saw the prompt — NOT a fresh resolution of
+  // `msg.path`, whose symlinks may have moved while the prompt was open (a swap must
+  // not drop the refusal). The claimed subject was already validated inside consume.
+  const saved = deps.recordRefusal("agent-path", consumed.subject);
+  if (saved && saved.ok === false) {
+    log(`[path-gate] refusal NOT persisted session=${connectionSessionId} error=${saved.error ?? "unknown"}`);
+    return;
+  }
+  log(`[path-gate] refusal recorded session=${connectionSessionId} subject=${consumed.subject}`);
 }

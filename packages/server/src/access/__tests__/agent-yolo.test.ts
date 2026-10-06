@@ -2,7 +2,9 @@
  * Server handlers for the agent path gate's YOLO frames.
  * See change: yolo-covers-agent-path-gate — test-plan #E19–#E25.
  */
+import * as fs from "node:fs";
 import os from "node:os";
+import nodePath from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createAgentConfirmRegistry } from "../agent-confirm-registry.js";
 import { handlePathGateRefusal, handlePathYoloRequest, type YoloAgentVerdict } from "../agent-yolo.js";
@@ -90,5 +92,35 @@ describe("handlePathGateRefusal", () => {
     observe(s, file, home);
     handlePathGateRefusal("A", rmsg({ path: file, subject: home }), s.deps);
     expect(s.recordRefusal).toHaveBeenCalledWith("agent-path", expect.any(String));
+  });
+});
+
+describe("CodeRabbit follow-ups", () => {
+  it("records the OBSERVED subject even when the path's symlink moved after observe", () => {
+    const root = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), "cr-yolo-")));
+    try {
+      const dir = nodePath.join(root, "dir");
+      fs.mkdirSync(dir);
+      const elsewhere = nodePath.join(root, "elsewhere");
+      fs.mkdirSync(elsewhere);
+      const link = nodePath.join(root, "lnk");
+      fs.symlinkSync(dir, link);
+      const s = setup();
+      s.registry.observe("A", "P", { path: nodePath.join(link, "a.txt"), subject: dir }, "select");
+      fs.rmSync(link); fs.symlinkSync(elsewhere, link); // the path moved while the prompt was open
+      handlePathGateRefusal("A", rmsg({ path: nodePath.join(link, "a.txt"), subject: dir }), s.deps);
+      expect(s.recordRefusal).toHaveBeenCalledWith("agent-path", dir);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("logs a persistence failure instead of a durable record", () => {
+    const s = setup();
+    s.registry.observe("A", "P", { path: "/o/dir/a.txt", subject: "/o/dir" }, "select");
+    (s.deps as { recordRefusal: () => unknown }).recordRefusal = () => ({ ok: false, error: "disk full" });
+    handlePathGateRefusal("A", rmsg(), s.deps);
+    expect(s.logs.some((l) => l.includes("refusal NOT persisted") && l.includes("disk full"))).toBe(true);
+    expect(s.logs.some((l) => l.includes("refusal recorded"))).toBe(false);
   });
 });

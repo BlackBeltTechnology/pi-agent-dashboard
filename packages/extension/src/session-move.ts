@@ -136,6 +136,13 @@ export function createMoveCoordinator(opts: {
 }): MoveCoordinator {
   const timeoutMs = opts.timeoutMs ?? MOVE_TIMEOUT;
   const log = opts.log ?? ((line: string) => console.log(line));
+  /**
+   * Path-gate frames arriving on the target BEFORE the commit: held, not applied.
+   * The target does not own sends yet, so acting on its identity would let the
+   * path gate pair the target's host claim with the origin's wire. Delivered on a
+   * successful commit, dropped on any abort. See change: yolo-covers-agent-path-gate.
+   */
+  const stagedServerMessages: Array<{ type?: string }> = [];
 
   // The single source of truth for "who is serving". Never inferred from
   // socket state: during the overlap BOTH sockets are open.
@@ -205,7 +212,7 @@ export function createMoveCoordinator(opts: {
           target.onMessage((raw) => {
             const msg = raw as { type?: string; instanceId?: string; token?: string };
             if (msg?.type === "dashboard_identity" || msg?.type === "path_yolo_result" || msg?.type === "path_grant_result") {
-              opts.onServerMessage?.(msg);
+              stagedServerMessages.push(msg);
               return;
             }
             // Sent in reply to the provisional AND to a refused commit; either
@@ -242,6 +249,8 @@ export function createMoveCoordinator(opts: {
         });
 
         if (!outcome.ok) return abort(outcome.cause);
+        // The target owns sends now: apply what it announced during the handshake.
+        for (const m of stagedServerMessages.splice(0)) opts.onServerMessage?.(m);
 
         // Tell the ORIGIN where the session went, in the one window where
         // both facts are known and it can still be reached: after the commit

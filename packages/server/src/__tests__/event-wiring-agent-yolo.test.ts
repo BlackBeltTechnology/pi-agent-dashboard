@@ -12,7 +12,7 @@ import { createServer, type DashboardServer, type ServerConfig } from "../server
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const baseConfig: ServerConfig = {
-  port: 0, piPort: 0, host: "127.0.0.1", dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
+  port: 0, piPort: 0, host: "127.0.0.1", gatewayTcp: true, dev: true, autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
 };
 
 describe("agent path gate × YOLO wiring", () => {
