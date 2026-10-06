@@ -131,3 +131,4 @@ td.crudc { text-align: center; }
 .crudop { display: inline-block; min-width: 1.2em; margin: 0 1px; border-radius: 3px; font: 600 11px/1.5 ui-monospace, monospace; text-align: center; color: #fff; }
 .crudop-C { background: #2e7d32; } .crudop-R { background: #1565c0; } .crudop-U { background: #8a4f00; } .crudop-D { background: #c62828; }
 .chip.crud { border-color: #555; }
+.noui { color: var(--muted); font-style: italic; }

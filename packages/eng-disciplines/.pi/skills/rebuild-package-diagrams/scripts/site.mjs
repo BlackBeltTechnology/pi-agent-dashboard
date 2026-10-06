@@ -8,6 +8,7 @@ import { behaviourData } from "./behaviour.mjs";
 import { checkCrud, crudData, readCrud } from "./crud.mjs";
 import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
+import { checkLinks, mergeLinks, readLinks } from "./links.mjs";
 import { DEFAULT_BUDGET, erChunks, ifmlParts } from "./split.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
@@ -154,6 +155,9 @@ export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } 
     behaviour: beh.behaviour || { sequences: [], states: [], objects: [] },
     arch: arch && !errors.length ? { model: arch, views: archViews(arch), dsl: toStructurizr(arch, title), c4: toMermaidC4(arch, title) } : null,
   };
+  const links = readLinks(pkgDir);
+  if (links) errors.push(...checkLinks(ui, data.useCases, links));
+  data.useCases = data.useCases.map((uc) => mergeLinks(uc, links?.find((r) => r.useCase === uc.id)));
   const crud = readCrud(pkgDir);
   if (crud) errors.push(...checkCrud(ui, model, crud));
   data.crud = crud && !errors.length ? crudData(ui, data.useCases, model, crud) : null;

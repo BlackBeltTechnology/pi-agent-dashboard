@@ -4,6 +4,7 @@
 #   -> [ui/screens] ifml + check-ifml + round-trip ifml-diff (must be "no differences")
 #   -> [diagrams/sequences|state-machines|objects] check-sequences/check-states (--app) + check-objects + behaviour export
 #   -> build-site with every viewer found -> <packageDir>/diagrams/catalog.html
+#   -> [diagrams/uc-links] check-uc-links --complete (gate; links feed screens/uiActions of use cases)
 #   -> [diagrams/crud] check-crud + crud export (diagrams/crud-matrix/)
 #   -> check-size report (diagrams over the size budget are split into overview + parts)
 # MAX_NODES / MAX_EDGES set the size budget (default 30 / 40); STRICT_SIZE=1 fails when a part stays over it.
@@ -54,6 +55,13 @@ if [ -d "$D/sequences" ] || [ -d "$D/state-machines" ] || [ -d "$D/objects" ] ||
   "${DG[@]}" behaviour "$PKG" "$D/behaviour" "${BUDGET[@]}"
 else
   echo "3b skip behaviour (no diagrams/sequences, state-machines or objects)"
+fi
+
+if [ -d "$D/uc-links" ]; then
+  echo "3b'' use-case UI links (gate, every use case)"
+  "${DG[@]}" check-uc-links "$PKG" --complete
+else
+  echo "3b'' skip use-case links (no diagrams/uc-links)"
 fi
 
 if [ -d "$D/crud" ]; then

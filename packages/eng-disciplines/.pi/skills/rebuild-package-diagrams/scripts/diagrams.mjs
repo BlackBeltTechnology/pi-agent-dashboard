@@ -21,6 +21,8 @@
 //   crud-draft <packageDir> <SCR-id> <out.json> -> write/read/export effects of a screen with entity candidates
 //   check-crud <packageDir> [--complete]     -> exit 1 listing CRUD-record violations (--complete: every screen with data effects)
 //   crud <packageDir> <outDir>               -> crud.csv (entity x use case), crud-screens.csv, crud-findings.md
+//   uc-link-draft <packageDir> <UC-id> <out.json> -> BPMN steps + UI actions sharing refs with the use case
+//   check-uc-links <packageDir> [--complete] -> exit 1 listing use-case link violations (--complete: every use case)
 //   build-site / behaviour / ifml-parts / check-size take [--max-nodes n] [--max-edges n] (default 30 / 40)
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -31,6 +33,7 @@ import { checkCrud, crudCsv, crudDraft, findingsMd, readCrud } from "./crud.mjs"
 import { buildIfml, checkIfmlXmi, ifmlIdErrors, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
+import { checkLinks, linkDraft, readLinks, useCasesWithXml } from "./links.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 import { budgetOf, ifmlParts, sizeReport } from "./split.mjs";
 
@@ -57,6 +60,8 @@ const USAGE = `usage:
   diagrams.mjs crud-draft <packageDir> <SCR-id> <out.json>
   diagrams.mjs check-crud <packageDir> [--complete]
   diagrams.mjs crud <packageDir> <outDir>
+  diagrams.mjs uc-link-draft <packageDir> <UC-id> <out.json>
+  diagrams.mjs check-uc-links <packageDir> [--complete]
   build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]
   build-site, behaviour, ifml-parts, check-size take [--max-nodes <n>] [--max-edges <n>] (default 30 / 40)`;
 
@@ -294,6 +299,20 @@ const COMMANDS = {
     writeFileSync(join(outDir, "crud-findings.md"), findingsMd(c.findings, data.meta.title));
     return 0;
   },
+  "uc-link-draft": ([pkg, uc, out]) => {
+    try {
+      writeRecord(out, linkDraft(readUi(pkg), useCasesWithXml(pkg), uc));
+    } catch (e) {
+      return report([e.message]);
+    }
+    return 0;
+  },
+  "check-uc-links": ([pkg, flag]) => {
+    if (flag && flag !== "--complete") die(USAGE);
+    const records = readLinks(pkg);
+    if (!records) die(`diagrams: no diagrams/uc-links in ${pkg}`);
+    return report(checkLinks(readUi(pkg), useCasesWithXml(pkg), records, { complete: !!flag }));
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -309,7 +328,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "check-crud": 1, crud: 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "uc-link-draft": 3, "check-uc-links": 1, "check-crud": 1, crud: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

@@ -172,6 +172,16 @@ plan without a screen/dialog record. Catalog: screen page shows the plan in a sa
 tab; legend action links post `{type: "screen-plan-open", screen, action}` and open the action); header
 **Style kit** button → `#view=kit:`.
 
+## Use-case UI links (optional, after the UI model)
+
+BPMN step → UI action links per use case, each with evidence (a ref shared by use case and
+action, or a cite inside the action's handler/effect cites), or a `noUi` reason. `uc-link-draft
+PKG <UC>` lists steps and ref-sharing candidates; `reverse-spec-for-rebuild`'s linker writes
+`PKG/diagrams/uc-links/<UC>.json`; gate `check-uc-links PKG --complete` (also in `render.sh`
+and `build-site`). Links extend each use case's `screens` / `uiActions` (CRUD columns, IFML
+scope, flows) and show as a step → action table on the use-case page. Rules:
+`references/uc-links.md`.
+
 ## CRUD matrix (optional, after the UI model)
 
 Entity × use case / screen C/R/U/D matrix with findings (never written, never read, created but

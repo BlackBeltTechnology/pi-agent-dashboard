@@ -336,7 +336,7 @@
     if (!u) return viewHome();
     return `<h2>${u.id} ${esc(u.name)}</h2><p class="lede">Actor: <b>${esc(u.actor)}</b> · Trigger: ${esc(u.trigger)}</p>${selectButton(u.id)}
       <h3>Flow</h3>${flowsHtml([u])}
-      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml([u])}${uiActionsOfUc(u)}${ifmlLink(u.id, "IFML view of this use case")}` : ""}
+      ${UI.screens.length ? `<h3>Screens and forms</h3>${screensHtml([u])}${uiActionsOfUc(u)}${uiLinksOfUc(u)}${ifmlLink(u.id, "IFML view of this use case")}` : ""}
       <h3>Requirements</h3>${u.reqKeys.map((k) => reqs[k] ? `<details class="card"><summary>${esc(reqs[k].name)} <span class="cite">${esc(reqs[k].cap)}</span></summary><div class="text">${md(reqs[k].text)}</div>${cites(reqs[k].cites)}${scenariosHtml(reqs[k])}</details>` : "").join("")}
       <h3>Rules, quirks and gaps</h3><table><tr><th>ID</th><th>Statement</th><th>Source</th></tr>${u.allRefs.map((r) => `<tr><td class="idc"><a href="${link({ view: `item:${r}` })}">${r}</a><br>${kindBadge(r)}</td><td>${md(clip(D.items[r].statement, 600))}</td><td><span class="badge via">${u.refSource[r]}</span></td></tr>`).join("")}</table>
       <h3>Open questions</h3>${questionsTable(questionsFor(u.allRefs))}
@@ -516,6 +516,18 @@
       const a = (scrById[sid]?.actions || []).find((x) => x.id === aid);
       return `<a class="chip scr" href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(a?.label || aid)} <span class="cite">${esc(sid)}</span></a>`;
     }).join("")}</div>`;
+  }
+  /** Gated use-case links: BPMN step -> UI action with its evidence; or the reason it has no UI. */
+  function uiLinksOfUc(u) {
+    if (u.noUi) return `<p class="noui">No UI: ${esc(u.noUi)}</p>`;
+    if (!(u.uiLinks || []).length) return "";
+    const rows = u.uiLinks.map((l) => {
+      const [sid, aid] = l.action.split("#");
+      const a = (scrById[sid]?.actions || []).find((x) => x.id === aid);
+      const ev = l.evidence?.refs ? `<div class="chips">${l.evidence.refs.map(refChip).join("")}</div>` : `<span class="cite">${esc(l.evidence?.cite || "")}</span>`;
+      return `<tr><td>${esc(l.stepName || l.step)} <span class="cite">${esc(l.step)}</span></td><td><a href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(a?.label || aid)}</a> <span class="cite">${esc(sid)}</span></td><td>${ev}</td></tr>`;
+    });
+    return `<h4>Steps realised by UI actions</h4><table><tr><th>Step</th><th>Action</th><th>Evidence</th></tr>${rows.join("")}</table>`;
   }
   /** Screens shown for an IFML view argument: all | sel | UC-id | screen id. */
   function ifmlScreens(arg) {
