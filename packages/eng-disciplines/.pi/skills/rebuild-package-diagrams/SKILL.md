@@ -1,6 +1,6 @@
 ---
 name: rebuild-package-diagrams
-description: Draw a reverse-spec rebuild package as pictures — an ER diagram (Mermaid erDiagram) of the domain entities in model.md, the use cases of capabilities/*/spec.md as BPMN business processes, and one self-contained browsable HTML catalog that merges selected use cases — with every box, edge and task traced to the package and checked by a script. Use on "make an ER diagram from the entities", "draw the data model", "show the use cases as BPMN", "business process diagram from the spec", "browsable HTML of the reverse-engineered package", "merge related use cases", or in Hungarian "ER diagram az entitásokból", "üzleti folyamat BPMN-ben", "esetek folyamatábraként".
+description: Render a reverse-spec rebuild package as traced, script-checked visuals — a Mermaid ER diagram of model.md entities, capability use cases as BPMN processes, and one browsable HTML catalog. Use on "ER diagram from the entities", "draw the data model", "use cases as BPMN", "browsable HTML of the rebuild package", "ER diagram az entitásokból", "üzleti folyamat BPMN-ben".
 ---
 
 # Rebuild package diagrams
