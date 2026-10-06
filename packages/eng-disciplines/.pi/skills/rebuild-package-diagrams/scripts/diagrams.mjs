@@ -23,6 +23,9 @@
 //   crud <packageDir> <outDir>               -> crud.csv (entity x use case), crud-screens.csv, crud-findings.md
 //   uc-link-draft <packageDir> <UC-id> <out.json> -> BPMN steps + UI actions sharing refs with the use case
 //   check-uc-links <packageDir> [--complete] -> exit 1 listing use-case link violations (--complete: every use case)
+//   variability-draft <packageDir> <out.json> -> config paths read by code x value per variant (ui/_config-reads.json)
+//   check-variability <packageDir> <appDir> [--complete] -> exit 1 listing feature violations (--complete: every varying path)
+//   variability <packageDir> <outDir>        -> variability.csv, variability-customers.csv, variability-findings.md, feature-model.xml
 //   build-site / behaviour / ifml-parts / check-size take [--max-nodes n] [--max-edges n] (default 30 / 40)
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,6 +39,7 @@ import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } fr
 import { checkLinks, linkDraft, readLinks, useCasesWithXml } from "./links.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 import { budgetOf, ifmlParts, sizeReport } from "./split.mjs";
+import { checkVariability, customersCsv, featureModelXml, readConfigInputs, readVariability, variabilityDraft, variabilityMd, variantsCsv } from "./variability.mjs";
 
 const USAGE = `usage:
   diagrams.mjs extract-model <model.md>
@@ -62,6 +66,9 @@ const USAGE = `usage:
   diagrams.mjs crud <packageDir> <outDir>
   diagrams.mjs uc-link-draft <packageDir> <UC-id> <out.json>
   diagrams.mjs check-uc-links <packageDir> [--complete]
+  diagrams.mjs variability-draft <packageDir> <out.json>
+  diagrams.mjs check-variability <packageDir> <appDir> [--complete]
+  diagrams.mjs variability <packageDir> <outDir>
   build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]
   build-site, behaviour, ifml-parts, check-size take [--max-nodes <n>] [--max-edges <n>] (default 30 / 40)`;
 
@@ -313,6 +320,30 @@ const COMMANDS = {
     if (!records) die(`diagrams: no diagrams/uc-links in ${pkg}`);
     return report(checkLinks(readUi(pkg), useCasesWithXml(pkg), records, { complete: !!flag }));
   },
+  "variability-draft": ([pkg, out]) => {
+    const inputs = readConfigInputs(pkg);
+    if (!inputs) return report([`no ui/_config-reads.json in ${pkg} (run config-reads.mjs)`]);
+    writeRecord(out, variabilityDraft(inputs));
+    return 0;
+  },
+  "check-variability": ([pkg, app, flag]) => {
+    if (flag && flag !== "--complete") die(USAGE);
+    const rec = readVariability(pkg);
+    if (!rec) die(`diagrams: no diagrams/variability/features.json in ${pkg}`);
+    return report(checkVariability(pkg, readUi(pkg), readConfigInputs(pkg), rec, { appDir: app, complete: !!flag }));
+  },
+  variability: ([pkg, outDir]) => {
+    if (!readVariability(pkg)) die(`diagrams: no diagrams/variability/features.json in ${pkg}`);
+    const { data, errors } = buildCatalog(pkg);
+    if (errors.length) return report(errors);
+    const v = data.variability;
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "variability.csv"), variantsCsv(v));
+    writeFileSync(join(outDir, "variability-customers.csv"), customersCsv(v));
+    writeFileSync(join(outDir, "variability-findings.md"), variabilityMd(v, data.meta.title));
+    writeFileSync(join(outDir, "feature-model.xml"), featureModelXml(v, data.meta.title));
+    return 0;
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -328,7 +359,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "uc-link-draft": 3, "check-uc-links": 1, "check-crud": 1, crud: 2 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "uc-link-draft": 3, "check-uc-links": 1, "variability-draft": 2, "check-variability": 2, variability: 2, "check-crud": 1, crud: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

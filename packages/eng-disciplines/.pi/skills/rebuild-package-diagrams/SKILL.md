@@ -182,6 +182,18 @@ and `build-site`). Links extend each use case's `screens` / `uiActions` (CRUD co
 scope, flows) and show as a step → action table on the use-case page. Rules:
 `references/uc-links.md`.
 
+## Customer variability (optional, configurable apps)
+
+Which behaviour each customer's configuration switches on. Inputs from `reverse-spec-for-rebuild`:
+`ui/_config-reads.json` (`config-reads.mjs`: paths read by code + variants with customer/env) and
+`ui/_effective/`. `variability-draft PKG out.json` → path × variant values; its classifier writes
+`diagrams/variability/features.json`; gate `check-variability PKG APP --complete` (`render.sh` with
+APP; `build-site` structural). `variability PKG outDir` → `variability.csv` (feature × variant),
+`variability-customers.csv`, `variability-findings.md` (dead everywhere, single-customer,
+constant, customers without own feature, unreachable UI per customer), `feature-model.xml`
+(FeatureIDE). Catalog: **Variability** view (by customer / by variant, customer pages with
+unreachable UI), feature table on affected screens. Rules: `references/variability.md`.
+
 ## CRUD matrix (optional, after the UI model)
 
 Entity × use case / screen C/R/U/D matrix with findings (never written, never read, created but

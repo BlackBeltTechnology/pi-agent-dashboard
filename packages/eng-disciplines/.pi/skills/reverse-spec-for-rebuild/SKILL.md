@@ -246,6 +246,11 @@ helpers) goes in a **project-owned profile** with `parent: "<built-in>"` — nev
    inside the action's code), or records `noUi`; accepted only when `check-uc-links` passes;
    finish with `check-uc-links PKG --complete`. Links extend each use case's screens and UI
    actions (CRUD columns, IFML scope, flows).
+7a. **Customer variability** (optional, configurable apps): `config-reads.mjs APP <adapter> PKG`
+   (adapter hooks `configReads`, `variantInfo`) → `ui/_config-reads.json`; one subagent with
+   `prompts/variability-classifier.md` writes `diagrams/variability/features.json`; accepted only
+   when `check-variability PKG APP --complete` passes. Route findings (dead everywhere,
+   single-customer, constant) to the merge as gaps/questions.
 7b. **CRUD matrix** (optional): per screen batch one subagent with `prompts/crud-classifier.md`
    classifies every data effect (from `rebuild-package-diagrams` `crud-draft`) as entity + C/R/U/D
    or unmapped; accepted only when `check-crud` passes; finish with `check-crud PKG --complete`.
@@ -266,6 +271,7 @@ helpers) goes in a **project-owned profile** with `parent: "<built-in>"` — nev
 | sequence generator (optional) | `rsfr-sequence-generator` | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
 | state-machine generator (optional) | `rsfr-state-machine-generator` | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
 | use-case linker (optional) | `rsfr-uc-linker` | `prompts/uc-linker.md` | `@fast` | writes `diagrams/uc-links/<UC>.json` per use case | one per use-case batch |
+| variability classifier (optional) | `rsfr-variability-classifier` | `prompts/variability-classifier.md` | `@fast` | writes `diagrams/variability/features.json` | 1 |
 | CRUD classifier (optional) | `rsfr-crud-classifier` | `prompts/crud-classifier.md` | `@fast` | writes `diagrams/crud/<SCR>.json` per screen | one per screen batch (~30 effects) |
 
 Use these exact `subagent_type` names: the package ships matching
@@ -366,6 +372,7 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
   every flow from code passed `check-trace`. *(Frontend UI-model extraction)*
 - Optional behaviour models: `check-sequences` and `check-states` with `--app` exit 0.
 - Optional use-case links: `check-uc-links PKG --complete` exits 0. *(use-case linking step)*
+- Optional variability: `check-variability PKG APP --complete` exits 0. *(variability step)*
 - Optional CRUD matrix: `check-crud PKG --complete` exits 0. *(CRUD classification step)*
   *(Behaviour-model generation)*
 - Promotion happened only after `ask_user` confirmation and `G check-dest`

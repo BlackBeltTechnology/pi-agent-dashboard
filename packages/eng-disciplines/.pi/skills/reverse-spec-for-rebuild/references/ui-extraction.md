@@ -47,7 +47,9 @@ vendor excluded), `planViews` (template repeat source → form view). Optional: 
 regexes with group 1 = toolbar key: `ref` finds keys in conditions/handlers, `assign` finds keys
 a toolbar action enables; without it the plan keeps every toolbar control), `encoding` (legacy
 code page for sources that are neither UTF-16 nor valid UTF-8; default `windows-1252`),
-`labelLanguages` (`{appLabelKey: openFormsLanguage}` for form translations).
+`labelLanguages` (`{appLabelKey: openFormsLanguage}` for form translations), `configReads` (global
+regex, group 1 = dotted config path read by code; for `config-reads.mjs`), `variantInfo(variantPath)`
+(→ `{customer, env: prod|demo|test|local}`; default customer = variant, env prod).
 
 **Template dialect** (`dialect`, read by `screen-plan.mjs`; without it the plan reads plain
 HTML): `interpolation` (`[open, close]`), `controlTags` / `selectTags` / `dropTags`,

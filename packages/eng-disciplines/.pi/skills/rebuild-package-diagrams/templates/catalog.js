@@ -458,6 +458,42 @@
     ];
     return `<table>${rows.filter(([, v]) => v).map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>`;
   }
+  // ---------- Customer variability (references/variability.md) ----------
+  const vState = (st) => `<span class="vstate vstate-${st}">${st}</span>`;
+  const condText = (c) => `${c.path} ${c.op}${c.value !== undefined ? ` ${JSON.stringify(c.value)}` : ""}`;
+  const featCell = (f) => `<b>${esc(f.name)}</b> <span class="cite">${esc(f.id)} · ${esc(condText(f.condition))}</span>`;
+  const affectChips = (a) => [...(a.screens || []).map(scrChip), ...(a.actions || []).map((k) => { const [sid, aid] = k.split("#"); return `<a class="chip scr" href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(aid)} <span class="cite">${esc(sid)}</span></a>`; }), ...(a.refs || []).map(refChip)].join("");
+  function viewVar(arg) {
+    const V = D.variability;
+    if (!V) return viewHome();
+    if (V.customers.includes(arg)) return viewVarCustomer(V, arg);
+    const byVariant = arg === "variants";
+    const cols = byVariant ? V.variants : V.customers.map((c) => ({ id: c }));
+    const head = cols.map((c) => (byVariant ? `<th class="crudh" title="${esc(c.variant)}">${esc(c.id)}${c.env !== "prod" ? ` (${esc(c.env)})` : ""}</th>` : `<th><a href="${link({ view: `var:${c.id}` })}">${esc(c.id)}</a></th>`)).join("");
+    const rows = V.features.map((f) => `<tr><th>${featCell(f)}</th>${cols.map((c) => `<td>${vState(byVariant ? f.byVariant[c.id] : V.byCustomer[f.id][c.id])}</td>`).join("")}</tr>`).join("");
+    const toggle = `<div class="chips"><a class="chip${byVariant ? "" : " active"}" href="${link({ view: "var:" })}">by customer</a><a class="chip${byVariant ? " active" : ""}" href="${link({ view: "var:variants" })}">by config variant</a></div>`;
+    const F = V.findings;
+    const fl = (ids) => `<div class="chips">${ids.map((x) => `<span class="chip">${esc(x)}</span>`).join("") || "None"}</div>`;
+    return `<h2>Customer variability</h2><p class="lede">Which behaviour each customer's configuration switches on: ${V.features.length} features from config paths the code reads, evaluated on ${V.variants.length} config variants of ${V.customers.length} customers. Production variants decide a customer's state; demo/test/local variants are shown per variant.</p>${toggle}
+      <div class="crudwrap"><table class="crudm vmat"><tr><th>Feature</th>${head}</tr>${rows}</table></div>
+      <h3>Findings</h3><h4>Dead everywhere (${F.dead.length})</h4>${fl(F.dead)}<h4>Single-customer features (${F.single.length})</h4>${fl(F.single.map((x) => `${x.id} (${x.customer})`))}<h4>Constant across all variants (${F.constant.length})</h4>${fl(F.constant)}<h4>Customers without an own feature (${F.withoutOwn.length})</h4>${fl(F.withoutOwn)}
+      <h3>Configuration that is data, not behaviour (${V.data.length})</h3>${rowsTable(["Path", "Reason"], V.data.map((d) => [`<code>${esc(d.path)}</code>`, esc(d.reason)]))}`;
+  }
+  function viewVarCustomer(V, c) {
+    const rows = V.features.map((f) => [vState(V.byCustomer[f.id][c]), featCell(f), affectChips(f.affects || {})]);
+    const un = V.unreachable[c] || [];
+    return `<h2>Customer ${esc(c)}</h2><p class="meta">Variants: ${V.variants.filter((v) => v.customer === c).map((v) => `${esc(v.id)} (${esc(v.env)})`).join(", ")}</p>
+      <h3>Unreachable UI (${un.length})</h3><div class="chips">${affectChips({ screens: un.filter((x) => !x.includes("#")), actions: un.filter((x) => x.includes("#")) }) || "None"}</div>
+      <h3>Features</h3>${rowsTable(["State", "Feature", "Affects"], rows)}`;
+  }
+  function varScreenSection(sid) {
+    const V = D.variability;
+    if (!V) return "";
+    const fs = V.features.filter((f) => (f.affects?.screens || []).includes(sid) || (f.affects?.actions || []).some((k) => k.startsWith(`${sid}#`)));
+    if (!fs.length) return "";
+    const off = V.customers.filter((c) => (V.unreachable[c] || []).includes(sid));
+    return `<h3>Customer variability</h3>${off.length ? `<p>Screen unreachable for: ${off.map((c) => `<a href="${link({ view: `var:${c}` })}">${esc(c)}</a>`).join(", ")}</p>` : ""}${rowsTable(["Feature", ...V.customers], fs.map((f) => [featCell(f), ...V.customers.map((c) => vState(V.byCustomer[f.id][c]))]))}`;
+  }
   function viewScreen(sid) {
     const x = scrById[sid];
     if (!x) return viewHome();
@@ -465,7 +501,7 @@
     const dialogs = (x.dialogs || []).map((d) => [esc(d.id), esc(d.kind), md(String(d.message ?? "")), esc((d.buttons || []).join(" / ")), esc(d.from || "") + citeSpan(d.cite)]);
     const nav = (x.navigation || []).map((n) => [scrById[n.to] ? scrChip(n.to) : esc(n.to), md(n.trigger || ""), citeSpan(n.cite)]);
     const unmapped = (x.unmapped || []).map((u) => `<li><span class="cite">${esc(u.at)}</span> ${esc(u.reason)}</li>`).join("");
-    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}${behSection({ screen: sid })}${planSection(sid)}
+    return `<h2>${esc(x.id)} ${esc(x.name)}</h2>${screenFacts(x)}${ifmlLink(sid, "IFML view of this screen")}${archSection((r) => r === sid)}${behSection({ screen: sid })}${varScreenSection(sid)}${planSection(sid)}
       <h3>Use cases</h3><div class="chips">${listOr(screenUcs(sid).map(ucChip), "None")}</div>
       <h3>Forms</h3><div class="chips">${listOr((x.forms || []).map((f) => `${formChip(f.form)} <span class="cite">${esc(f.region || "")}${f.cite ? ` · ${esc(f.cite)}` : ""}</span>`), "None")}</div>
       ${fields.length ? `<h3>Fields</h3>${rowsTable(["Key", "Label", "Type", "Required", "Binding"], fields)}` : ""}
@@ -842,7 +878,7 @@
   function renderTopnav() {
     const on = (cls) => state.view.startsWith(cls) || (cls === "beh" && /^(seq|sm|obj):/.test(state.view));
     const btn = (show, cls, view, text) => (show ? `<a class="chip ${cls}${on(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
-    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour") + btn(D.crud, "crud", "crud:", "CRUD");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour") + btn(D.crud, "crud", "crud:", "CRUD") + btn(D.variability, "var", "var:", "Variability");
   }
   function archFacts(e) {
     const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
@@ -1116,7 +1152,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj, crud: viewCrud };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj, crud: viewCrud, var: viewVar };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];

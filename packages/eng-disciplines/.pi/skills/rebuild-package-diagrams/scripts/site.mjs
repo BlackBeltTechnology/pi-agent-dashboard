@@ -10,6 +10,7 @@ import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 import { checkLinks, mergeLinks, readLinks } from "./links.mjs";
 import { DEFAULT_BUDGET, erChunks, ifmlParts } from "./split.mjs";
+import { checkVariability, readConfigInputs, readVariability, variabilityData } from "./variability.mjs";
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 const REF_RE = /\b(?:BR|QUIRK|GAP)-\d+\b/g;
@@ -161,6 +162,10 @@ export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } 
   const crud = readCrud(pkgDir);
   if (crud) errors.push(...checkCrud(ui, model, crud));
   data.crud = crud && !errors.length ? crudData(ui, data.useCases, model, crud) : null;
+  const variability = readVariability(pkgDir);
+  const inputs = variability && readConfigInputs(pkgDir);
+  if (variability) errors.push(...checkVariability(pkgDir, ui, inputs, variability));
+  data.variability = variability && !errors.length ? variabilityData(inputs, variability) : null;
   return { data, errors };
 }
 

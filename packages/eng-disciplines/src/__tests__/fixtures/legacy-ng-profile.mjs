@@ -6,6 +6,10 @@ export const shell = { file: "html/ang.htm", toolbarId: "header" };
 export const toolbar = { ref: /TB\.(\w+)/, assign: /TB\.(\w+)\s*=/ };
 export const planViews = { availableInputs: "input", filterInputs: "filter", tableInputs: "table" };
 export const styleSources = () => ["css/main.css"];
+/** Config reads: `cfg.a.b` -> "a.b". */
+export const configReads = /\bcfg((?:\.[A-Za-z_$][\w$]*)+)/g;
+/** conf/<customer>/<name>.json; `demo-*` files are demo variants. */
+export const variantInfo = (v) => ({ customer: v.split("/")[1], env: /\/demo-/.test(v) ? "demo" : "prod" });
 /** String table: the first object literal of js/strings.js, `hu` branch. */
 export function strings(appDir, conf, readText, { parseLiteralAt }) {
   const src = readText(`${appDir}/js/strings.js`);

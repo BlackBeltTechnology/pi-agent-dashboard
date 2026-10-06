@@ -10,20 +10,22 @@ features; a gate checks every feature against code and configs; evaluation per v
 
 ## What Changes
 
-- Adapter hooks (stack/app knowledge stays in the project profile, see `generalize-rebuild-skills`):
-  `configReads` (`{re}` with group 1 = config path, e.g. a profile's `CONF\.([\w.]+)`),
-  `variants(app)` → `[{id, customer, env: prod|demo|test|local}]`; effective configs come from the
-  existing `effectiveConfig` hook (`ui/_effective/`).
-- `diagrams.mjs variability-draft <pkg> <app> <adapter> <out.json>`: config paths **read by code**
-  (`configReads` matches with cite) × value per variant from `ui/_effective/*.json`, grouped by
-  top-level key; flags paths that vary and paths absent everywhere.
+- Extraction (`reverse-spec-for-rebuild` `ui-extract/config-reads.mjs <app> <adapter> <pkg>`, needs
+  the adapter): adapter hooks `configReads` (global regex, group 1 = dotted config path read by
+  code, e.g. a profile's `\bCONF((?:\.\w+)+)`) and `variantInfo(variantPath)` → `{customer, env:
+  prod|demo|test|local}` (default: customer = variant, env prod) → `PKG/ui/_config-reads.json`
+  `{reads: [{path, cites}], variants: [{id, variant, customer, env}]}` (comments stripped).
+  Effective configs: the existing `effectiveConfig` hook (`ui/_effective/<id>.json`).
+- `diagrams.mjs variability-draft <pkg> <out.json>` (no adapter needed): each read path × value per
+  variant, grouped by top-level key; flags paths that vary and paths absent everywhere.
 - Record `diagrams/variability/features.json`:
   `features: [{id: "F-…", name, kind: toggle|option|parameter, condition: {path, op: exists|eq|ne|truthy|in, value?},
   cites: ["file:line"], affects: {screens, actions, refs}}]`, `data: [{path, reason}]` (config that is
   data, not behaviour), written by `rsfr-variability-classifier` (`prompts/variability-classifier.md`).
-- **Gate `check-variability <pkg> --app <app> --adapter <adapter> [--complete]`**:
-  - condition path is read in code at a cited line (cite text contains the path's last segment);
-  - path exists in ≥1 effective config, or the feature is marked `deadEverywhere`;
+- Record `diagrams/variability/features.json` (one classifier run; Plantifier reads only 62 paths).
+- **Gate `check-variability <pkg> <app> [--complete]`**:
+  - condition path is a read path (or below one), every cite line contains the path's last segment;
+  - `deadEverywhere` ⇔ the condition is false in every variant;
   - `affects` screens/actions/refs resolve; feature ids unique;
   - `--complete`: every code-read path that varies across variants is in a feature or in `data`.
 - Assembly (deterministic): evaluate each condition on each variant → feature × variant and feature ×

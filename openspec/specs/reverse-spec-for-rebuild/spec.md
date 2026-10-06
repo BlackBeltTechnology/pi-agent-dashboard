@@ -278,3 +278,10 @@ The UI phase SHALL include an optional linker step: one `rsfr-uc-linker` subagen
 #### Scenario: Gate loop
 - **WHEN** the linker's record fails `check-uc-links`
 - **THEN** the failing lines go back to the same linker and the record is never hand-edited to pass
+
+### Requirement: Variability classifier step
+The UI phase SHALL include an optional variability step: `rsfr-variability-classifier` subagents, one per config-key batch, fill `prompts/variability-classifier.md`, write only `diagrams/variability/` records, and are accepted only when `check-variability` passes.
+
+#### Scenario: Gate loop
+- **WHEN** the record fails `check-variability`
+- **THEN** the failing lines go back to the classifier and the record is never hand-edited to pass

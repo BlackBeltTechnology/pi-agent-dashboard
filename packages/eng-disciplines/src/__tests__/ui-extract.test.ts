@@ -286,6 +286,28 @@ export const planViews = {};
     }
   });
 
+  it("config-reads: code reads of config paths (comments ignored) + variants classified by the profile", () => {
+    put(app, "js/cfgread.js", "if (cfg.orders.unique) x();\n// cfg.commented.out\nvar n = cfg.planner.mode, m = cfg.orders.unique;\n");
+    put(pkg, "ui/_effective/A--prod.json", JSON.stringify({ variant: "conf/A/prod.json", conf: {} }));
+    put(pkg, "ui/_effective/A--demo.json", JSON.stringify({ variant: "conf/A/demo-1.json", conf: {} }));
+    const r = run(join(UX, "config-reads.mjs"), app, PROFILE, pkg);
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+    const o = JSON.parse(readFileSync(join(pkg, "ui", "_config-reads.json"), "utf8"));
+    expect(o.reads).toEqual([
+      { path: "orders.unique", cites: ["js/cfgread.js:1", "js/cfgread.js:3"] },
+      { path: "planner.mode", cites: ["js/cfgread.js:3"] },
+    ]);
+    expect(o.variants).toEqual([
+      { id: "A--demo", variant: "conf/A/demo-1.json", customer: "A", env: "demo" },
+      { id: "A--prod", variant: "conf/A/prod.json", customer: "A", env: "prod" },
+    ]);
+    put(dir, "nohook.mjs", 'export const id = "n"; export const sources = [{ dir: "js", re: /\\.js$/ }]; export const vendor = /^x$/;');
+    const bad = run(join(UX, "config-reads.mjs"), app, join(dir, "nohook.mjs"), pkg);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toContain("adapter has no configReads hook");
+  });
+
   it("an unknown adapter name is refused with usage, not a stack trace", () => {
     const r = run(join(UX, "style-kit.mjs"), app, "nope", join(dir, "job.json"), join(dir, "k3"));
     expect(r.code).toBe(2);

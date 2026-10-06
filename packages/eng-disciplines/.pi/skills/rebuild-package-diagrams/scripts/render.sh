@@ -5,6 +5,7 @@
 #   -> [diagrams/sequences|state-machines|objects] check-sequences/check-states (--app) + check-objects + behaviour export
 #   -> build-site with every viewer found -> <packageDir>/diagrams/catalog.html
 #   -> [diagrams/uc-links] check-uc-links --complete (gate; links feed screens/uiActions of use cases)
+#   -> [diagrams/variability] check-variability --complete (APP) + export (diagrams/variability-matrix/)
 #   -> [diagrams/crud] check-crud + crud export (diagrams/crud-matrix/)
 #   -> check-size report (diagrams over the size budget are split into overview + parts)
 # MAX_NODES / MAX_EDGES set the size budget (default 30 / 40); STRICT_SIZE=1 fails when a part stays over it.
@@ -62,6 +63,14 @@ if [ -d "$D/uc-links" ]; then
   "${DG[@]}" check-uc-links "$PKG" --complete
 else
   echo "3b'' skip use-case links (no diagrams/uc-links)"
+fi
+
+if [ -f "$D/variability/features.json" ]; then
+  echo "3bv customer variability (gate, every varying config path)"
+  if [ -n "$APP" ]; then "${DG[@]}" check-variability "$PKG" "$APP" --complete; else echo "  (no APP: cite lines not checked)"; fi
+  "${DG[@]}" variability "$PKG" "$D/variability-matrix"
+else
+  echo "3bv skip variability (no diagrams/variability/features.json)"
 fi
 
 if [ -d "$D/crud" ]; then

@@ -132,3 +132,6 @@ td.crudc { text-align: center; }
 .crudop-C { background: #2e7d32; } .crudop-R { background: #1565c0; } .crudop-U { background: #8a4f00; } .crudop-D { background: #c62828; }
 .chip.crud { border-color: #555; }
 .noui { color: var(--muted); font-style: italic; }
+.vstate { display: inline-block; padding: 0 5px; border-radius: 3px; font: 600 11px/1.6 ui-monospace, monospace; color: #fff; }
+.vstate-on { background: #2e7d32; } .vstate-off { background: #5f6368; } .vstate-mixed { background: #8a4f00; }
+table.vmat th:first-child { white-space: normal; min-width: 280px; }
