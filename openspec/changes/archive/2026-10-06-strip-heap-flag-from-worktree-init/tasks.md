@@ -16,6 +16,6 @@
 
 ## 3. Closeout
 
-- [x] 3.1 Update `worktree-init.ts` row in `packages/server/src/git-worktree/AGENTS.md` (`See change: strip-heap-flag-from-worktree-init`)
-- [ ] 3.2 `review-code` pass on the diff
-- [ ] 3.3 Manual QA: restart server, create a worktree from the dashboard, run init → `pnpm install` / `vite build` completes (no exit 134) (test-plan: manual-only)
+- [x] 3.1 Update `worktree-init.ts` record in its sidecar `packages/server/src/git-worktree/worktree-init.ts.AGENTS.md` (directory row is a pointer) (`See change: strip-heap-flag-from-worktree-init`)
+- [x] 3.2 `review-code` pass on the diff
+- [x] 3.3 Manual QA: restart server, create a worktree from the dashboard, run init → `pnpm install` / `vite build` completes (no exit 134) (test-plan: manual-only) **DEFERRED — not yet run**
