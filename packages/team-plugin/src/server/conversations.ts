@@ -10,7 +10,7 @@ import type { PluginSpawnOptions } from "@blackbelt-technology/dashboard-plugin-
 import { piSessionDirForCwd } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { PRESET_TOOLS } from "../extension/guard.js";
 import type { Access } from "./access.js";
-import { canonicalize, type TeamPaths } from "./paths.js";
+import { canonicalize, type TeamPaths, userKey } from "./paths.js";
 import { cpLength } from "./persona.js";
 import type { ProjectRegistry } from "./projects.js";
 import type { LocatedRecord, Locator, RecordStore } from "./records.js";
@@ -242,6 +242,8 @@ export class ConversationService {
       if (r.archived) continue;
       const s = this.d.host.getSession(r.sessionId);
       if (!s || s.status === "ended" || s.status === "streaming") continue;
+      // Multi-user: only end a session the record's user owns (a misbound record must not reach another user's).
+      if (this.d.access.mode() === "multi" && (!s.principalOwner || userKey(s.principalOwner.iss, s.principalOwner.sub) !== lr.uk)) continue;
       const last = Date.parse(r.lastAgentEndAt ?? r.lastActivityAt ?? r.startedAt);
       if (Number.isFinite(last) && this.now() - last > idle) {
         void this.d.host.abortSpawnedRun({ sessionId: r.sessionId, graceful: true });
@@ -574,7 +576,12 @@ export class ConversationService {
       return { sessionId: rec.sessionId };
     }
     if (live && live.status !== "ended") {
-      // A live session that cannot be reused (cwd moved / owner drift): end it before resuming.
+      // Ownership BEFORE any side effect: a live session that is not this user's is never touched.
+      if (!this.ownerMatches(live, caller)) {
+        this.logEnsure(caller, personaKey, t, c, "unrecoverable", rec.sessionId);
+        throw new TeamError(409, "conversation_unrecoverable");
+      }
+      // Ours but not reusable (cwd moved): end it before resuming.
       await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
     }
 
@@ -655,7 +662,7 @@ export class ConversationService {
     if (body.archived !== undefined) {
       if (typeof body.archived !== "boolean") throw new TeamError(400, "invalid_archived");
       if (body.archived && !rec.archived) {
-        await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+        await this.endOwnSession(caller, rec.sessionId);
         // `onEvent` may have persisted activity while we awaited: merge into the fresh record.
         const fresh = this.d.records.read(l);
         if (!fresh) throw new TeamError(404, "conversation_not_found"); // deleted while we awaited: never write it back
@@ -670,14 +677,21 @@ export class ConversationService {
     return this.view({ c, record: rec }, this.d.personas.get(personaKey, caller.uk));
   }
 
+  /** End a conversation's session only when it is the caller's: a stale / misbound record never lets one user end another's session. */
+  private async endOwnSession(caller: Caller, sessionId: string): Promise<void> {
+    const s = this.d.host.getSession(sessionId);
+    if (s && !this.ownerMatches(s, caller)) return;
+    await this.d.host.abortSpawnedRun({ sessionId, graceful: true });
+  }
+
   async restartConversation(caller: Caller, personaKey: string, t: string, c: string): Promise<void> {
     const { rec } = this.requireRecord(caller, personaKey, t, c);
-    await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+    await this.endOwnSession(caller, rec.sessionId);
   }
 
   async deleteConversation(caller: Caller, personaKey: string, t: string, c: string): Promise<void> {
     const { l, rec } = this.requireRecord(caller, personaKey, t, c);
-    await this.d.host.abortSpawnedRun({ sessionId: rec.sessionId, graceful: true });
+    await this.endOwnSession(caller, rec.sessionId);
     this.d.records.delete(l);
   }
 

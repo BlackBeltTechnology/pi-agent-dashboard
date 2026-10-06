@@ -536,6 +536,38 @@ describe("hardening from the security audit", () => {
     expect((await ensure(undefined, k2, c2.id)).status).toBe(200);
   });
 
+  it("a LIVE session owned by someone else is never aborted or replaced (F2: the foreign session stays untouched)", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    const foreign = h.host.sessions.get(c.sessionId);
+    if (!foreign) throw new Error("no session");
+    foreign.principalOwner = { iss: "https://iss", sub: "mallory" }; // misbound record: the live session is mallory's
+    const spawns = h.host.spawns.length;
+    const aborts = h.host.aborts.length;
+    const r = await ensure("alice", key, c.id);
+    expect(r.status).toBe(409);
+    expect(r.json.error).toBe("conversation_unrecoverable");
+    expect(h.host.spawns.length).toBe(spawns);
+    expect(h.host.aborts.length).toBe(aborts);
+    expect(foreign.status).not.toBe("ended");
+  });
+
+  it("restart / archive / delete never end a session that is not the caller's", async () => {
+    h = await makeHarness();
+    const key = await mkPersona("alice", "a");
+    const c = (await create("alice", key)).json;
+    const foreign = h.host.sessions.get(c.sessionId);
+    if (!foreign) throw new Error("no session");
+    foreign.principalOwner = { iss: "https://iss", sub: "mallory" };
+    const base = `${API}/agents/${enc(key)}/conversations/${c.id}`;
+    await h.call("POST", `${base}/restart?project=_ws`, { user: "alice" });
+    await h.call("PATCH", `${base}?project=_ws`, { user: "alice", body: { archived: true } });
+    await h.call("DELETE", `${base}?project=_ws`, { user: "alice" });
+    expect(h.host.aborts.length).toBe(0);
+    expect(foreign.status).not.toBe("ended");
+  });
+
   it("archiving while the conversation is deleted concurrently never writes the record back", async () => {
     h = await makeHarness();
     const key = await mkPersona("alice", "a");
