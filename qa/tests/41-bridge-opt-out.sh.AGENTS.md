@@ -1,0 +1,3 @@
+# 41-bridge-opt-out.sh — index
+
+L2 (test-plan #X2–#X5). Node driver diffs `/ws` `session_added` per arm. X2: user `pi --mode rpc` with `PI_DASHBOARD_BRIDGE=off` → no session in 15 s; control arm (unset) registers. X3: `config.json` `bridge.enabled:false` → inert; `PI_DASHBOARD_BRIDGE=on` overrides → registers. X4/X5: `bridge.enabled:false` + `spawnStrategy` headless/tmux → `POST /api/session/spawn` still registers (server stamps `PI_DASHBOARD_BRIDGE=on`). No faux fixture/model (faux-model-integration-tests allows one faux VM smoke). Trap restores `~/.pi/dashboard/config.json`. `SKIP:`+exit 0 when pi absent; X5 skipped when tmux absent. Env: `DASHBOARD_PORT` (default 8000). Registered in `run-all.sh`. See change: add-bridge-env-opt-out.

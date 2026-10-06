@@ -142,6 +142,22 @@ describe("buildSpawnEnv with spawnRuntime (test-plan E13 env half, task 3.1)", (
   });
 });
 
+// (test-plan #E10) Dashboard spawns always activate the bridge, overriding an
+// inherited opt-out. See change: add-bridge-env-opt-out (D5).
+describe("buildSpawnEnv stamps PI_DASHBOARD_BRIDGE=on (test-plan E10)", () => {
+  it.each([
+    ["inherited off, no token", { PI_DASHBOARD_BRIDGE: "off" }, undefined],
+    ["inherited off, with token", { PI_DASHBOARD_BRIDGE: "off" }, "tok"],
+    ["absent, no token", {}, undefined],
+    ["absent, with token", {}, "tok"],
+  ] as Array<[string, NodeJS.ProcessEnv, string | undefined]>)("%s", (_label, extra, spawnToken) => {
+    const base: NodeJS.ProcessEnv = { PATH: process.env.PATH, ...extra };
+    const env = buildSpawnEnv(base, { spawnToken });
+    expect(env.PI_DASHBOARD_BRIDGE).toBe("on");
+    expect(base.PI_DASHBOARD_BRIDGE).toBe(extra.PI_DASHBOARD_BRIDGE);
+  });
+});
+
 describe("applySpawnRuntimeToPiArgv (test-plan E13 argv half, task 3.2)", () => {
   const rt = {
     ...fakeRuntimeAt("/resolved/bin"),
