@@ -36,6 +36,17 @@ let accessToken: string | null = null;
 let credentialEpoch = 0;
 let operator: Operator | null = null;
 const refusedListeners = new Set<() => void>();
+const changeListeners = new Set<() => void>();
+
+function notifyChange(): void {
+  for (const l of changeListeners) l();
+}
+
+/** Subscribe to any change of mode / credential / operator; returns an unsubscribe fn. See change: add-team-plugin (AppHost.identity). */
+export function onIdentityChange(listener: () => void): () => void {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
 
 /** The current identity mode. */
 export function getIdentityMode(): IdentityMode {
@@ -46,6 +57,7 @@ export function getIdentityMode(): IdentityMode {
 export function setIdentityMode(next: IdentityMode): void {
   if (next !== mode) credentialEpoch += 1;
   mode = next;
+  notifyChange();
 }
 
 /** The current credential epoch (see `credentialEpoch`). */
@@ -66,6 +78,7 @@ export function getAccessToken(): string | null {
 export function setAccessToken(token: string | null): void {
   if (token !== accessToken || token === null) credentialEpoch += 1;
   accessToken = token;
+  notifyChange();
 }
 
 const sameOperator = (a: Operator | null, b: Operator | null) => a?.iss === b?.iss && a?.sub === b?.sub;
@@ -79,6 +92,7 @@ export function setCredential(token: string | null, next: Operator | null): void
   if (token === null || !sameOperator(operator, next)) credentialEpoch += 1;
   accessToken = token;
   operator = next;
+  notifyChange();
 }
 
 /** The acting operator, or null when nothing is signed in. */
@@ -90,6 +104,7 @@ export function currentOperator(): Operator | null {
 export function setActingOperator(next: Operator | null): void {
   if (!sameOperator(operator, next)) credentialEpoch += 1;
   operator = next;
+  notifyChange();
 }
 
 /** Subscribe to "the server refused this token"; returns an unsubscribe fn. */
@@ -110,4 +125,5 @@ export function resetIdentityState(): void {
   credentialEpoch += 1;
   operator = null;
   refusedListeners.clear();
+  changeListeners.clear();
 }

@@ -105,3 +105,39 @@ describe("Bridge launchServer → launchDashboardServer forwarding", () => {
     expect(r.message).not.toContain("~/.pi/dashboard/server.log");
   });
 });
+
+/**
+ * E20 — bridge auto-start under the native default: the REAL shared launcher
+ * (seams injected through the mocked entry point) with no resolvable jiti and
+ * `PI_DASHBOARD_TS_LOADER` unset launches on the native register and reports
+ * a log-owning success (no `logOwned: false` / jiti-not-found path).
+ * See change: fix-appimage-cold-boot-latency (design D4).
+ */
+describe("Bridge launchServer under the native loader (E20)", () => {
+  it("launches with the native register when jiti is unresolvable", async () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    try {
+      const actual = await vi.importActual<typeof import("@blackbelt-technology/pi-dashboard-shared/server-launcher.js")>(
+        "@blackbelt-technology/pi-dashboard-shared/server-launcher.js",
+      );
+      const { EventEmitter } = await import("node:events");
+      const resolveJiti = vi.fn(() => null);
+      const spawnSeam = vi.fn(() => Object.assign(new EventEmitter(), { pid: 4242, exitCode: null, signalCode: null, unref: () => {} }));
+      launchSpy.mockImplementationOnce((opts) => actual.launchDashboardServer({
+        ...opts,
+        _resolveJiti: resolveJiti,
+        _spawnNodeScript: spawnSeam as never,
+        _isDashboardRunning: (async () => ({ running: true, pid: 4242 })) as never,
+        _fs: { mkdirSync: () => undefined, openSync: () => 9, writeSync: () => 0, closeSync: () => undefined } as never,
+        _sleep: () => Promise.resolve(),
+      }));
+      const r = await launchServer(cfg);
+      expect(r).toMatchObject({ success: true, logOwned: true, childPid: 4242 });
+      expect(resolveJiti).not.toHaveBeenCalled();
+      const spawnOpts = (spawnSeam.mock.calls[0] as unknown as [{ loader: string }])[0];
+      expect(spawnOpts.loader).toMatch(/^file:\/\/.*\/platform\/native-ts-register\.mjs$/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});

@@ -53,6 +53,7 @@
   },
   "files": [
     ".pi/skills/",
+    "agents/",
     "!.pi/skills/reverse-spec-for-rebuild/eval/**",
     "README.md",
     "NOTICE",

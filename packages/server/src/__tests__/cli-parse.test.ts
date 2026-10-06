@@ -1,7 +1,7 @@
 /**
  * Tests for CLI argument parsing.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -182,6 +182,34 @@ describe("buildConfig host resolution", () => {
   // guard is wired through buildConfig — an explicit --port 8000 must be remapped
   // to an ephemeral port so a test/isolated server can never shadow a real
   // dashboard on localhost:8000. See change: guard-temp-home-production-port.
+  // E1: stop resolves ports like start; the injected warn is used, console.warn is not.
+  it.each([
+    [{}, 0],
+    [{ port: 8000 }, 0],
+    [{ port: 18555 }, 18555],
+  ])("buildConfig(%j, noop) resolves port %i without console.warn", (flags, expected) => {
+    const noop = vi.fn();
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const saved = process.env.PI_DASHBOARD_PORT;
+    delete process.env.PI_DASHBOARD_PORT;
+    try {
+      // default file port is 8000; only the 8000 cases trip the guard
+      expect(buildConfig(flags, noop).port).toBe(expected);
+      expect(spy).not.toHaveBeenCalled();
+      expect(noop).toHaveBeenCalledTimes(expected === 0 ? 1 : 0);
+    } finally {
+      spy.mockRestore();
+      if (saved !== undefined) process.env.PI_DASHBOARD_PORT = saved;
+    }
+  });
+
+  // E17
+  it("parseArgs reads --force", () => {
+    expect(parseArgs(["stop", "--force"]).flags.force).toBe(true);
+    expect(parseArgs(["stop"]).flags.force).toBeUndefined();
+    expect(parseArgs(["restart", "--force"]).flags.force).toBe(true);
+  });
+
   it("remaps an explicit production port 8000 to ephemeral under a temp HOME", () => {
     expect(buildConfig({ port: PRODUCTION_DEFAULT_PORT }).port).toBe(0);
   });

@@ -42,7 +42,8 @@
       "browser-plugin",
       "keycloak-resolver-plugin",
       "chat-gateway",
-      "system-one-plugin"
+      "system-one-plugin",
+      "team-plugin"
     ]
   },
   "main": "src/cli.ts",

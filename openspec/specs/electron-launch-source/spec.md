@@ -102,7 +102,8 @@ The Electron app SHALL spawn the server via a single primitive `spawnFromSource(
 #### Scenario: All non-attach sources spawn identically
 
 - **WHEN** `spawnFromSource(source, config)` is invoked for any non-`attach` source kind
-- **THEN** the spawn argv SHALL be `[<resolved-node-bin>, "--import", <jiti-loader>, <cliPath-maybe-url-wrapped>, "--port", <port>, "--pi-port", <piPort>]`
+- **THEN** the spawn argv SHALL be `[<resolved-node-bin>, "--import", <selected-ts-loader>, <cliPath-maybe-url-wrapped>, "--port", <port>, "--pi-port", <piPort>]`
+- **AND** `<selected-ts-loader>` SHALL be the Node-native register module by default, or the jiti register hook when `PI_DASHBOARD_TS_LOADER=jiti` (see `server-launch`)
 - **AND** `<resolved-node-bin>` SHALL be the `nodeBin` returned by `pickNodeForServer`
 - **AND** the env SHALL include `DASHBOARD_STARTER: "Electron"`
 - **AND** the cwd SHALL be `source.cwd`
@@ -153,19 +154,24 @@ The `pi-dashboard` CLI wrapper (`packages/server/bin/pi-dashboard.mjs`) SHALL an
 
 #### Scenario: Other subcommands still fail loud on missing jiti
 
-- **WHEN** `pi-dashboard start` (or any non-version argv) is invoked AND jiti is NOT resolvable
+- **WHEN** `pi-dashboard start` (or any non-version argv) is invoked with `PI_DASHBOARD_TS_LOADER=jiti` AND jiti is NOT resolvable
 - **THEN** the wrapper SHALL behave as before: print the existing "cannot find jiti" install hint to stderr AND exit with code 1
+
+#### Scenario: Native loader does not need jiti
+
+- **WHEN** `pi-dashboard start` is invoked with `PI_DASHBOARD_TS_LOADER` unset AND jiti is NOT resolvable
+- **THEN** the wrapper SHALL re-exec Node with `--import <native-ts-register.mjs URL>` and SHALL NOT print the "cannot find jiti" hint
 
 #### Scenario: --version on a healthy install
 
 - **WHEN** `pi-dashboard --version` is invoked AND jiti IS resolvable
 - **THEN** the wrapper SHALL still take the short-circuit path (read sibling `package.json`, print, exit 0)
-- **AND** SHALL NOT re-exec node with a jiti loader
+- **AND** SHALL NOT re-exec node with a TypeScript loader
 
 #### Scenario: --version on a corrupt install
 
 - **WHEN** `pi-dashboard --version` is invoked AND the wrapper's sibling `package.json` cannot be read or parsed
-- **THEN** the wrapper SHALL fall through to the existing jiti-resolution path (which, if jiti is also absent, prints the legacy install hint)
+- **THEN** the wrapper SHALL fall through to the selected loader's resolution path (which, for jiti with jiti absent, prints the legacy install hint)
 - **AND** SHALL NOT silently exit 0 with an empty version
 
 ### Requirement: spawnFromSource passes bundled-Node dir via getBundledNodeDir()

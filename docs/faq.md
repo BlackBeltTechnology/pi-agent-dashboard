@@ -187,11 +187,16 @@ Commands:
 ```bash
 pi-dashboard start              # production daemon
 pi-dashboard start --dev        # dev mode (Vite proxy + fallback)
-pi-dashboard stop               # stop, also kills stale port holders
+pi-dashboard stop               # stop; honors --port/--pi-port; kills only port holders this HOME owns
+pi-dashboard stop --force       # DANGEROUS: kill EVERY listener on the resolved ports
 pi-dashboard restart            # restart (production)
 pi-dashboard restart --dev      # restart in dev mode
 ```
 
+- Port resolution identical to `start` (flag > env > file), including the temp-HOME guard; port `0` never inspected.
+- Sweep kills a holder only when this `HOME` proves ownership: `server.lock.meta.json` records that pid for the swept HTTP port, or `/api/health` reports this HOME's persisted `instanceId` with a matching pid. `server.pid` is not a proof for the sweep.
+- Non-owned holders are reported and left running. Exit code stays `0`, so `stop && start` chains keep working; the following `start` reports the port conflict.
+- `--force` kills every listener on the resolved ports. DANGEROUS: can kill another HOME's/user's dashboard, the Electron app's server, or an unrelated service. Use only to recover an orphaned listener nothing else can attribute. `restart` ignores `--force`.
 - Logs append to `~/.pi/dashboard/server.log` with timestamped headers per start.
 - `restart` delegates to `POST /api/restart` when dashboard already up.
 - Graceful restart via API: `curl -X POST http://localhost:8000/api/restart`. Body `{"dev":true|false}` switches mode.
@@ -234,6 +239,7 @@ Sequence:
 6. Port closed + `autoStart: false` → skip.
 
 - Concurrent spawns from multiple pi sessions fail harmlessly with `EADDRINUSE`.
+- Stale holder recovery: `pi-dashboard stop` (kills owned holders only) or `pi-dashboard stop --force` for an orphan nothing on disk attributes.
 - Disable via `"autoStart": false` in `~/.pi/dashboard/config.json`.
 - Bridge honours `PI_DASHBOARD_URL=ws://host:port` to point at remote server instead of localhost.
 
@@ -277,6 +283,47 @@ Cross-refs:
 - packages/electron/src/lib/pick-node.ts
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
+
+## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+
+Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+
+POSIX:
+
+```
+pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+```
+
+PowerShell:
+
+```
+pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+```
+
+Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+
+`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+
+POSIX:
+
+```
+grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1
+```
+
+PowerShell:
+
+```
+Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
+```
+
+Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+
+Cross-refs:
+- packages/shared/src/platform/ts-loader-select.mjs
+- packages/shared/src/platform/native-ts-register.mjs
+- docs/architecture.md
 
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 

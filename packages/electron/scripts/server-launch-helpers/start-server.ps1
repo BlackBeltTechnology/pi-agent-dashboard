@@ -1,8 +1,9 @@
 # =============================================================================
 # start-server.ps1 - manual launch of the bundled dashboard server (PowerShell)
 #
-# Resolves bundled node.exe + bundled jiti loader from THIS script's location
-# and invokes the same argv shape that the Electron main process uses.
+# Resolves bundled node.exe + the bundled TypeScript loader from THIS script's
+# location and invokes the same argv shape that the Electron main process uses.
+# Loader: Node-native (default) or jiti when PI_DASHBOARD_TS_LOADER=jiti.
 # No system Node required.
 #
 # Usage:
@@ -13,7 +14,7 @@
 #
 # Argv contract: packages/shared/src/platform/node-spawn.ts
 #   ::buildNodeImportArgvParts
-# See change: add-bundle-manual-launch-scripts.
+# See changes: add-bundle-manual-launch-scripts, fix-appimage-cold-boot-latency.
 # =============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -28,16 +29,26 @@ if (-not (Test-Path $nodeExe)) {
   exit 1
 }
 
-# jiti loader as file:// URL (forward slashes required)
-$jitiPath = Join-Path $svrDir 'node_modules\jiti\lib\jiti-register.mjs'
-if (-not (Test-Path $jitiPath)) {
-  Write-Error "Bundled jiti loader not found at: $jitiPath"
+# TypeScript loader as file:// URL (forward slashes required):
+# native by default, jiti when PI_DASHBOARD_TS_LOADER=jiti.
+$useJiti = $env:PI_DASHBOARD_TS_LOADER -ceq 'jiti'
+# Unknown non-empty values warn and fall back to native (parity with selectTsLoader).
+if ($env:PI_DASHBOARD_TS_LOADER -and -not $useJiti -and $env:PI_DASHBOARD_TS_LOADER -cne 'native') {
+  Write-Warning "unknown PI_DASHBOARD_TS_LOADER=`"$($env:PI_DASHBOARD_TS_LOADER)`"; using the native TypeScript loader (valid: native, jiti)."
+}
+$loaderPath = if ($useJiti) {
+  Join-Path $svrDir 'node_modules\jiti\lib\jiti-register.mjs'
+} else {
+  Join-Path $svrDir 'node_modules\@blackbelt-technology\pi-dashboard-shared\src\platform\native-ts-register.mjs'
+}
+if (-not (Test-Path $loaderPath)) {
+  Write-Error "Bundled TypeScript loader not found at: $loaderPath"
   exit 1
 }
-$jitiUrl = "file:///" + ($jitiPath -replace '\\','/')
+$loaderUrl = "file:///" + ($loaderPath -replace '\\','/')
 
-# Entry as raw Windows path (Node's drive-letter heuristic accepts it;
-# jiti's JITI VERSION CONTRACT requires raw path for entry position).
+# Entry: RAW Windows path for both loaders (Node path.resolve()s the main
+# entry, so a file:// entry breaks; jiti also misnormalises file:/// URLs).
 $cli = Join-Path $svrDir 'packages\server\src\cli.ts'
 if (-not (Test-Path $cli)) {
   Write-Error "Bundled cli.ts not found at: $cli"
@@ -48,7 +59,7 @@ if (-not (Test-Path $cli)) {
 $childArgs = if ($args.Count -eq 0) { @('start') } else { $args }
 
 Set-Location $svrDir
-& $nodeExe --import $jitiUrl $cli @childArgs
+& $nodeExe --import $loaderUrl $cli @childArgs
 $ec = $LASTEXITCODE
 
 Write-Host ""

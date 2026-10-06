@@ -21,6 +21,7 @@
 export const REAL_PROCESS_TESTS: readonly string[] = [
   // signal — SIGTERMs a real wrapper → jiti-loaded server, reads boot-state.
   "src/__tests__/cli-signal-forwarding.test.ts",
+  "src/__tests__/cli-stop-real.test.ts",
   // wrapper — spawns the real `bin/pi-dashboard.mjs` in isolated tmp trees.
   "src/__tests__/cli-version.test.ts",
   // full-server — real `pi` subprocess + bridge extension + live /ws gateway.

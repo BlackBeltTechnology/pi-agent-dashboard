@@ -244,16 +244,20 @@ record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
 
 ## Subagent routing
 
-| Role | Prompt | Model | Access | Parallel |
-|---|---|---|---|---|
-| discovery | `prompts/discovery.md` | `@compact` | read-only | 1 |
-| generator | `prompts/generator-rebuild.md` | `@fast` | writes its spec + fragment | one per capability, single message |
-| auditor | `prompts/auditor-rebuild.md` | `@research` | read-only | one per capability, single message; then 1 cross-cutting |
-| completeness | `prompts/completeness.md` | `@fast` | writes `completeness.md` | 1 |
-| UI screen generator (optional) | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
-| sequence generator (optional) | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
-| state-machine generator (optional) | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
+| Role | `subagent_type` | Prompt | Model | Access | Parallel |
+|---|---|---|---|---|---|
+| discovery | `rsfr-discovery` | `prompts/discovery.md` | `@compact` | read-only | 1 |
+| generator | `rsfr-generator` | `prompts/generator-rebuild.md` | `@fast` | writes its spec + fragment | one per capability, single message |
+| auditor | `rsfr-auditor` | `prompts/auditor-rebuild.md` | `@research` | read-only | one per capability, single message; then 1 cross-cutting |
+| completeness | `rsfr-completeness` | `prompts/completeness.md` | `@fast` | writes `completeness.md` | 1 |
+| UI screen generator (optional) | — | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
+| sequence generator (optional) | — | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
+| state-machine generator (optional) | — | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
 
+Use these exact `subagent_type` names: the package ships matching
+`agents/<type>.md` files whose frontmatter pins the model, so an omitted
+`model` still routes correctly (an unknown type silently inherits the session
+model). Pass `model` explicitly as well; never omit it while the role is bound.
 No roles configured (or a role unbound) -> omit `model` and the subagent
 inherits the session model. Keep the auditor the strongest model available: it
 is the hallucination safety net; a fast generator is safe only behind it and the

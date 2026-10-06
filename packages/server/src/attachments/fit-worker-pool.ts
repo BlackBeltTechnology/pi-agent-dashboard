@@ -22,7 +22,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { isJitiLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { isJitiLoader, isNativeTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/node-spawn.js";
+import { resolveNativeTsLoader, selectTsLoader } from "@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs";
 import { type FitRequest, type FitResponse, fitBlocks } from "./fit-worker.js";
 
 export interface FitWorkerPoolOptions {
@@ -65,7 +66,7 @@ const DEBUG =
  *
  * The worker entry is a `.ts` file, loadable ONLY under a TypeScript loader.
  * Production inherits one (`bin/pi-dashboard.mjs` spawns the CLI with
- * `--import <jiti-register>`), so this normally returns `process.execArgv`
+ * `--import <native-ts-register | jiti-register>`), so this normally returns `process.execArgv`
  * untouched.
  *
  * A host that does NOT supply one — vitest, or an embedder importing the
@@ -75,15 +76,37 @@ const DEBUG =
  * exactly the multi-hundred-ms stall the worker exists to prevent, with no
  * signal that it was happening. Supply the loader when it is absent.
  *
- * Falls through to the inherited argv when jiti cannot be resolved — the
- * in-process fallback still guarantees correctness, only not the offload.
+ * Any known TS loader already in `execArgv` (native or jiti) counts as
+ * present. Otherwise the selected loader is added (native by default, jiti on
+ * `PI_DASHBOARD_TS_LOADER=jiti`). Falls through to the inherited argv when
+ * jiti is selected but cannot be resolved — the in-process fallback still
+ * guarantees correctness, only not the offload.
+ * See change: fix-appimage-cold-boot-latency (design D4).
  */
-function workerExecArgv(workerUrl: string): string[] {
-  const inherited = [...process.execArgv];
+export interface WorkerExecArgvDeps {
+  execArgv?: readonly string[];
+  env?: NodeJS.ProcessEnv;
+  resolveJiti?: () => string | null;
+  resolveNative?: () => string;
+}
+
+export function workerExecArgv(workerUrl: string, deps: WorkerExecArgvDeps = {}): string[] {
+  const inherited = [...(deps.execArgv ?? process.execArgv)];
   if (!workerUrl.endsWith(".ts")) return inherited;
-  if (inherited.some(isJitiLoader)) return inherited;
-  const loader = new ToolResolver().resolveJiti({ anchor: fileURLToPath(import.meta.url) });
-  // `resolveJiti` returns a `pathToFileURL(...).href` or null — never a raw OS
+  if (inherited.some((a) => isJitiLoader(a) || isNativeTsLoader(a))) return inherited;
+  const anchor = fileURLToPath(import.meta.url);
+  let loader: string | null;
+  try {
+    loader = selectTsLoader(deps.env ?? process.env) === "jiti"
+      ? (deps.resolveJiti ?? (() => new ToolResolver().resolveJiti({ anchor })))()
+      : (deps.resolveNative ?? (() => resolveNativeTsLoader({ anchor })))();
+  } catch {
+    // `resolveNativeTsLoader` throws when the register cannot be located; the
+    // documented contract is the inherited argv (the pool then fits in-process
+    // for this worker, rather than disabling every worker via spawnSlot's catch).
+    loader = null;
+  }
+  // Both locators return a `pathToFileURL(...).href` (or null) — never a raw OS
   // path — so the Windows drive-letter hazard `no-raw-node-import` guards is not
   // reachable here. There is no entry-script position either: the worker entry
   // is passed to `new Worker()` as a URL object, not through argv.
@@ -91,7 +114,7 @@ function workerExecArgv(workerUrl: string): string[] {
 }
 
 function defaultWorkerUrl(): string {
-  // Sibling .ts entry; jiti loads it in the worker — inherited via `execArgv`,
+  // Sibling .ts entry; the TS loader loads it in the worker — inherited via `execArgv`,
   // or supplied by `workerExecArgv` when the host has no TS loader.
   const here = dirname(fileURLToPath(import.meta.url));
   return pathToFileURL(resolve(here, "fit-worker.ts")).href;

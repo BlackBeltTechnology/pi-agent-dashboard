@@ -4,6 +4,7 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
 import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
@@ -253,6 +254,19 @@ export interface PluginSpawnOptions {
      * filesystem paths, for which every delimiter is unsafe (design D8).
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
+    /**
+     * Repeatable → `--append-system-prompt <path>` per entry. ABSOLUTE paths
+     * only (pi treats a non-existent path as literal prompt text). Rendered by
+     * pi as base-option `addendum`, so it survives the bridge's per-turn
+     * splice in any load order. See change: add-team-plugin (D12).
+     */
+    appendSystemPrompt?: string[];
+    /** `--no-context-files` (bare toggle): skip AGENTS.md/CLAUDE.md discovery. */
+    noContextFiles?: boolean;
+    /** `--no-approve` (bare toggle): skip trust-gated project `.pi/` resources. */
+    noProjectTrust?: boolean;
+    /** `--session-dir <abs path>`; relative / empty / NUL ⇒ dropped. */
+    sessionDir?: string;
   };
 
   /**
@@ -319,6 +333,12 @@ function isSafeArgvString(v: unknown): v is string {
 function sanitizeArgvList(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   return v.filter(isSafeArgvString);
+}
+
+/** Like {@link sanitizeArgvList} but keeps only ABSOLUTE paths (add-team-plugin D12). */
+function sanitizeAbsolutePathList(v: unknown): string[] | undefined {
+  const list = sanitizeArgvList(v);
+  return list?.filter((p) => isAbsolute(p));
 }
 
 /** A NUL-free string (empty allowed — env values may legitimately be empty). */
@@ -412,6 +432,14 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     if (extensions) result.extensions = extensions;
     const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
     if (extensionConfig) result.extensionConfig = extensionConfig;
+    // add-team-plugin (D12): absolute-path-only, boolean-only.
+    const append = sanitizeAbsolutePathList(scope.appendSystemPrompt);
+    if (append && append.length > 0) result.appendSystemPrompt = append;
+    if (scope.noContextFiles === true) result.noContextFiles = true;
+    if (scope.noProjectTrust === true) result.noProjectTrust = true;
+    if (isSafeArgvString(scope.sessionDir) && isAbsolute(scope.sessionDir)) {
+      result.sessionDir = scope.sessionDir;
+    }
   }
   return result;
 }

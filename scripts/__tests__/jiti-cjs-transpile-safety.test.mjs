@@ -190,3 +190,27 @@ describe("no jiti-loaded module retains import.meta in code position", () => {
     expect(res.violates).toBe(false);
   });
 });
+
+/**
+ * E29 — seed 2 survives the native-loader default: the bin wrapper still names
+ * jiti (the PI_DASHBOARD_TS_LOADER=jiti fallback), so `bootstrapsJiti` keeps
+ * `packages/server/src/cli.ts` as a seed and the server tree in scope. The
+ * kind tags are a pure relabel of the three seed lists, so this gate's file
+ * set is unchanged by them.
+ * See change: fix-appimage-cold-boot-latency (design D5).
+ */
+describe("seed 2 survives the native default (E29)", () => {
+  it("mainTs still contains packages/server/src/cli.ts", () => {
+    // OS separators: discovery returns `path.relative` results.
+    const cli = path.join("packages", "server", "src", "cli.ts");
+    expect(seeds.mainTs).toContain(cli);
+    expect(files).toContain(cli);
+  });
+
+  it("tagged seeds relabel exactly the three seed lists", () => {
+    const byKind = (...kinds) => seeds.tagged.filter((s) => kinds.includes(s.kind)).map((s) => s.entry).sort();
+    expect(byKind("piExtension")).toEqual([...seeds.piExtensions].sort());
+    expect(byKind("serverMain")).toEqual([...seeds.mainTs].sort());
+    expect(byKind("pluginServer", "pluginBridge")).toEqual([...seeds.pluginEntries].sort());
+  });
+});

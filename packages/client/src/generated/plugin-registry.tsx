@@ -12,6 +12,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { McpSettingsClaim, FolderMcpSection, FolderMcpPage } from "@blackbelt-technology/pi-dashboard-mcp-client-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
+import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technology/pi-dashboard-team-plugin";
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
@@ -466,6 +467,27 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "team",
+        "displayName": "AI Team",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "sidebar-folder-section",
+                "component": "FolderTeamSection"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "team", priority: 100, slot: "sidebar-folder-section", Component: FolderTeamSection },
+    ],
+    catalog: team_catalog,
+  },
+  {
+    manifest: {
         "id": "blackhole",
         "displayName": "Blackhole",
         "priority": 200,
@@ -650,4 +672,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4fa376910075de0dee568fe70dff24bf2a906d116bceeb790764b73f2cbdd413";
+export const PLUGIN_REGISTRY_HASH = "6c39baf2339f7a190e4aa29d4261b141aad7136261947783bb3df81d31c27ae9";

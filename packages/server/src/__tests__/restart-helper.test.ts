@@ -43,6 +43,20 @@ describe("buildOrchestratorScript", () => {
     expect(script).toMatch(/"start"/);
   });
 
+  // E19 — restart keeps the running loader; PI_DASHBOARD_TS_LOADER (unset →
+  // native) is never consulted. See change: fix-appimage-cold-boot-latency.
+  it("E19: re-uses the given jiti loader even when the env would select native", () => {
+    vi.stubEnv("PI_DASHBOARD_TS_LOADER", undefined as unknown as string);
+    try {
+      const script = buildOrchestratorScript({ ...baseParams, loader: "file:///j/jiti/lib/jiti-register.mjs" });
+      const args = JSON.parse(script.match(/const ARGS = (\[.*\]);/)![1]!) as string[];
+      expect(args.slice(0, 2)).toEqual(["--import", "file:///j/jiti/lib/jiti-register.mjs"]);
+      expect(script).not.toContain("native-ts-register");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("omits --import when loader is empty", () => {
     const script = buildOrchestratorScript({ ...baseParams, loader: "" });
     expect(script).not.toMatch(/"--import"/);
