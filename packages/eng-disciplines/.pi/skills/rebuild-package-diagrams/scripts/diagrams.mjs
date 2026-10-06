@@ -24,7 +24,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
 import { behaviourData, checkObjects, checkSequences, checkStates, objectsFromDb, objectsSynth, readBehaviour, sequenceFromUi } from "./behaviour.mjs";
-import { buildIfml, checkIfmlXmi, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
+import { buildIfml, checkIfmlXmi, ifmlIdErrors, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
@@ -151,6 +151,8 @@ const COMMANDS = {
   ifml: ([pkg, out]) => {
     const ui = readUi(pkg);
     if (!ui.screens.length) die(`diagrams: no UI model (ui/screens/*.json) in ${pkg}`);
+    const idErrors = ifmlIdErrors(ui);
+    if (idErrors.length) return report(idErrors);
     const xmi = ifmlToXmi(buildIfml(ui), packageTitle(pkg));
     const errors = checkIfmlXmi(xmi);
     if (!errors.length) writeFileSync(out, xmi);
@@ -241,6 +243,8 @@ const COMMANDS = {
     const { budget } = takeBudget(args);
     const ui = readUi(pkg);
     if (!ui.screens.length) die(`diagrams: no UI model (ui/screens/*.json) in ${pkg}`);
+    const idErrors = ifmlIdErrors(ui);
+    if (idErrors.length) return report(idErrors);
     const split = ifmlParts(ui, budget, packageTitle(pkg));
     const errors = split.parts.flatMap((p) => checkIfmlXmi(p.xmi).map((e) => `${p.id}: ${e}`));
     if (errors.length) return report(errors);
@@ -261,6 +265,8 @@ const COMMANDS = {
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
+    const idErrors = ifmlIdErrors(readUi(pkg));
+    if (idErrors.length) return report(idErrors);
     const lines = diffGraphs(buildIfml(readUi(pkg)), edited);
     process.stdout.write(`${lines.length ? lines.join("\n") : "no differences"}\n`);
     if (!flag) return lines.length ? 1 : 0;

@@ -521,6 +521,19 @@ describe("use-case catalog and site", () => {
     expect(c.code).toBe(0);
   });
 
+  it("ifml refuses ids that the XMI id sanitizer would alter (lossy or ambiguous trace)", () => {
+    writeUc([uc()]);
+    writeUi([screen({ actions: [{ id: "ACT x", label: "x", effects: [] }], dialogs: [], navigation: [], fields: [{ key: "order.date", label: "D", type: "date" }] })], {});
+    const out = join(dir, "lossy.xmi");
+    rmSync(out, { force: true });
+    const r = run(dir, "ifml", pkg, out);
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("ACT x");
+    expect(r.stderr).toContain("order.date");
+    expect(existsSync(out)).toBe(false);
+  });
+
   it("ifml exits 2 without a UI model; check-ifml refuses non-conforming XMI", () => {
     rmSync(join(pkg, "ui"), { recursive: true, force: true });
     const none = join(dir, "none.xmi");
@@ -629,6 +642,22 @@ describe("use-case catalog and site", () => {
     expect(again.stdout).not.toContain("Print sheet");
   });
 
+  it("ifml-diff --apply changes validation rules of screen template fields, not only form fields", () => {
+    writeUc([uc()]);
+    writeUi([screen({ forms: [], actions: [], dialogs: [], navigation: [], fields: [{ key: "start", label: "Start", type: "date", conditions: [{ kind: "validation", when: "start!=null" }] }] })], {});
+    const base = join(dir, "tpl.xmi");
+    expect(run(dir, "ifml", pkg, base).code).toBe(0);
+    const x = read(base).replace('body="start!=null"', 'body="start&gt;today"');
+    expect(x).toContain("start&gt;today");
+    const edited = join(dir, "tpl-edited.xmi");
+    writeFileSync(edited, x);
+    const a = run(dir, "ifml-diff", pkg, edited, "--apply");
+    const rec = JSON.parse(read(join(pkg, "ui", "screens", "s0.json")));
+    rmSync(join(pkg, "ui"), { recursive: true, force: true });
+    expect(a.stderr).toBe("");
+    expect(rec.fields[0].conditions).toEqual([{ kind: "validation", when: "start>today" }]);
+  });
+
   it("build-site embeds the IFML model and XMI; use cases list actions from ui: lines of alternate flows", () => {
     ifmlUi();
     writeFileSync(
@@ -724,6 +753,12 @@ describe("use-case catalog and site", () => {
           { id: "badnode", kind: "node", name: "N", hosts: ["ordermod"] },
           { id: "badref", kind: "container", name: "R", parent: "app", refs: ["BR-999"], cites: ["js/order.js:99"] },
           { id: "ui", kind: "container", name: "dup", parent: "app" },
+          { id: "zeroline", kind: "container", name: "Z", parent: "app", cites: ["js/order.js:0"] },
+          { id: "reversed", kind: "container", name: "Rv", parent: "app", cites: ["js/order.js:9-2"] },
+          { id: "cyc1", kind: "node", name: "C1", parent: "cyc2" },
+          { id: "cyc2", kind: "node", name: "C2", parent: "cyc1" },
+          { id: "api-v1", kind: "container", name: "A1", parent: "app" },
+          { id: "api_v1", kind: "container", name: "A2", parent: "app" },
         ],
         relations: [{ from: "planner", to: "ghost", label: "x" }],
       }),
@@ -731,6 +766,10 @@ describe("use-case catalog and site", () => {
     const bad = run(dir, "check-architecture", pkg, "--app", appDir());
     expect(bad.code).toBe(1);
     for (const x of ["badcomp", "badnode", "ordermod", "BR-999", "js/order.js:99", "duplicate", "ghost"]) expect(bad.stderr).toContain(x);
+    expect(bad.stderr).toMatch(/zeroline.*js\/order\.js:0/);
+    expect(bad.stderr).toMatch(/reversed.*js\/order\.js:9-2/);
+    expect(bad.stderr).toMatch(/cyc1.*cycle/);
+    expect(bad.stderr).toMatch(/api_v1.*api-v1|api-v1.*api_v1/);
     const out = join(dir, "arch-bad.html");
     rmSync(out, { force: true });
     expect(run(dir, "build-site", pkg, out).code).toBe(1);
@@ -748,6 +787,7 @@ describe("use-case catalog and site", () => {
     expect(r.code).toBe(0);
     const dsl = read(join(out, "workspace.dsl"));
     for (const x of ["workspace", "person", "softwareSystem", "container", "component", "deploymentNode", "containerInstance", "systemContext", "views"]) expect(dsl).toContain(x);
+    expect(dsl).not.toContain("theme default");
     const c4 = read(join(out, "c4.md"));
     expect(c4).toContain("C4Context");
     expect(c4).toContain("C4Container");
@@ -1085,5 +1125,15 @@ describe("skill text", () => {
         expect(existsSync(join(DSKILL, m[1])), `${f}: ${m[1]}`).toBe(true);
       }
     }
+  });
+});
+
+describe("catalog.js screen plans stay sandboxed", () => {
+  it("openPlan wraps the plan in a sandboxed srcdoc frame instead of opening it with the catalog origin", () => {
+    const js = read(join(DSKILL, "templates", "catalog.js"));
+    const body = js.slice(js.indexOf("function openPlan("), js.indexOf("\n  }\n", js.indexOf("function openPlan(")));
+    expect(body).not.toMatch(/new Blob\(\[UI\.plans\[sid\]\]/);
+    expect(body).toMatch(/<iframe sandbox="allow-scripts" srcdoc="\$\{esc\(UI\.plans\[sid\]/);
+    expect(body).not.toContain("allow-same-origin");
   });
 });

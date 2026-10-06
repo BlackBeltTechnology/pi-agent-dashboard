@@ -48,10 +48,12 @@ function lineCount(path) {
 export function citeError(c, appDir) {
   const m = String(c).match(CITE_RE);
   if (!m) return `malformed cite ${c} (need file:line or file:a-b)`;
+  const [start, end] = [Number(m[2]), Number(m[3] || m[2])];
+  if (start < 1 || end < start) return `cite ${c} — bad line range`;
   if (!appDir) return null;
   const f = join(appDir, m[1]);
   if (!existsSync(f)) return `cite ${c} — no such file`;
-  return Number(m[3] || m[2]) > lineCount(f) ? `cite ${c} — past end of file` : null;
+  return end > lineCount(f) ? `cite ${c} — past end of file` : null;
 }
 
 const citeErrors = (who, cites, appDir) => (cites || []).map((c) => citeError(c, appDir)).filter(Boolean).map((x) => `${who}: ${x}`);
@@ -87,6 +89,28 @@ function relationErrors(r, i, byId, resolve, appDir) {
   ];
 }
 
+/** Distinct ids that export as the same DSL / Mermaid identifier. */
+function identCollisions(byId) {
+  const seen = new Map();
+  const errors = [];
+  for (const id of byId.keys()) {
+    const other = seen.get(ident(id));
+    if (other) errors.push(`element ${id}: exports as ${ident(id)}, same as ${other}`);
+    else seen.set(ident(id), id);
+  }
+  return errors;
+}
+
+/** The element where the parent chain of `e` loops back, or null when it ends. */
+function cycleVia(e, byId) {
+  const seen = new Set([e.id]);
+  for (let p = byId.get(e.parent); p; p = byId.get(p.parent)) {
+    if (seen.has(p.id)) return p.id;
+    seen.add(p.id);
+  }
+  return null;
+}
+
 /** Violations of the architecture model; `appDir` also resolves cites against the code. */
 export function checkArch(pkgDir, model, appDir = null) {
   const resolve = refResolver(pkgDir);
@@ -96,7 +120,12 @@ export function checkArch(pkgDir, model, appDir = null) {
     if (byId.has(e.id)) errors.push(`element ${e.id}: duplicate id`);
     else byId.set(e.id, e);
   }
+  errors.push(...identCollisions(byId));
   for (const e of model.elements || []) errors.push(...elementErrors(e, byId, resolve, appDir));
+  for (const e of byId.values()) {
+    const via = cycleVia(e, byId);
+    if (via) errors.push(`element ${e.id}: parent cycle via ${via}`);
+  }
   for (const [i, r] of (model.relations || []).entries()) errors.push(...relationErrors(r, i, byId, resolve, appDir));
   return errors;
 }
@@ -291,7 +320,7 @@ export function toStructurizr(model, title) {
     if (nodes.length) out.push(`    deployment ${ident(s.id)} "Production" { include * autolayout lr }`);
   }
   for (const c of model.elements.filter((e) => e.kind === "container" && kids(model, e.id).length)) out.push(`    component ${ident(c.id)} { include * autolayout lr }`);
-  out.push("    theme default", "  }", "}");
+  out.push("  }", "}");
   return `${out.join("\n")}\n`;
 }
 

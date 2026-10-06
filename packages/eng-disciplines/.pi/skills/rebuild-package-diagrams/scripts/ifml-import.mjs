@@ -208,7 +208,7 @@ function mergeScreen(cur, imp) {
     else cur.actions.push(a);
   }
   pushNew((cur.dialogs ||= []), imp.dialogs, "id");
-  pushNew((cur.fields ||= []), imp.fields, "key");
+  mergeFields((cur.fields ||= []), imp.fields);
   pushNew((cur.forms ||= []), imp.forms, "form");
   const nav = new Set((cur.navigation || []).map((n) => n.to));
   for (const n of imp.navigation) if (!nav.has(n.to)) (cur.navigation ||= []).push(n);
@@ -216,15 +216,20 @@ function mergeScreen(cur, imp) {
 }
 
 function mergeForm(cur, imp) {
-  const have = byKey(cur.fields, "key");
-  for (const f of imp.fields) {
+  mergeFields((cur.fields ||= []), imp.fields);
+}
+
+/** New fields are added; validation conditions of existing fields are updated by position or appended. */
+function mergeFields(fields, imported) {
+  const have = byKey(fields, "key");
+  for (const f of imported || []) {
     const c = have[f.key];
     if (!c) {
-      cur.fields.push(f);
+      fields.push(f);
       continue;
     }
     const vals = (c.conditions || []).filter((x) => x.kind === "validation");
-    f.conditions.forEach((v, i) => {
+    (f.conditions || []).forEach((v, i) => {
       if (vals[i]) vals[i].when = v.when;
       else (c.conditions ||= []).push(v);
     });

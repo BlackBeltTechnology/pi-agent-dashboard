@@ -17,6 +17,25 @@ const FLOW_MODEL = "InteractionFlowModel_1";
  */
 export const xid = (...parts) => parts.map((p) => String(p).replace(/[^A-Za-z0-9_-]/g, "_")).join(".");
 
+/** Ids xid would alter (outside [A-Za-z0-9_-], incl. "."): such ids collide or break the trace, so they are refused. */
+export function ifmlIdErrors(ui) {
+  const named = ui.screens.flatMap((s) => idsOfScreen(ui, s));
+  const errors = named.filter(([, id]) => !/^[A-Za-z0-9_-]+$/.test(String(id))).map(([what, id]) => `${what} "${id}": IFML ids allow only A-Z a-z 0-9 _ -`);
+  return [...new Set(errors)];
+}
+
+/** [what, id] pairs of one screen that end up in XMI ids. */
+function idsOfScreen(ui, s) {
+  const forms = [...new Set((s.forms || []).map((f) => f.form))];
+  return [
+    ["screen", s.id],
+    ...(s.dialogs || []).map((d) => [`screen ${s.id} dialog`, d.id]),
+    ...(s.actions || []).map((a) => [`screen ${s.id} action`, a.id]),
+    ...(s.fields || []).map((f) => [`screen ${s.id} field`, f.key]),
+    ...forms.flatMap((key) => [[`screen ${s.id} form`, key], ...(ui.forms[key]?.fields || []).map((f) => [`form ${key} field`, f.key])]),
+  ];
+}
+
 // ---------- projection ----------
 
 function newModel(alias = {}) {
