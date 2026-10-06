@@ -284,6 +284,47 @@ Cross-refs:
 - packages/electron/src/lib/server-lifecycle.ts
 - packages/shared/src/server-launcher.ts
 
+## Server fails to start / behaves differently after the native TS loader switch — how to roll back?
+
+Since change `fix-appimage-cold-boot-latency` the server boots the Node-native TS loader by default. Roll back to jiti.
+
+POSIX:
+
+```
+pi-dashboard stop && PI_DASHBOARD_TS_LOADER=jiti pi-dashboard start
+```
+
+PowerShell:
+
+```
+pi-dashboard stop; $env:PI_DASHBOARD_TS_LOADER = "jiti"; pi-dashboard start
+```
+
+Electron: set `PI_DASHBOARD_TS_LOADER=jiti` in the launching environment, then relaunch the app. Windows: `setx PI_DASHBOARD_TS_LOADER jiti` for new processes, or `$env:` before launching.
+
+`/api/restart` keeps the running loader — it does NOT switch. Fresh launch required.
+
+Check which loader a launch used. Header names the loader (`native-ts-register.mjs` or jiti URL).
+
+POSIX:
+
+```
+grep "launch (parent pid" ~/.pi/dashboard/server.log | tail -1
+```
+
+PowerShell:
+
+```
+Select-String -Path "$HOME\.pi\dashboard\server.log" -SimpleMatch "launch (parent pid" | Select-Object -Last 1
+```
+
+Node < 22.19 unsupported by the server whatever the loader — server enforces floor `>= 22.19` (`engines` `>=22.19.0`, `packages/shared/src/node-version.ts`); upgrade Node. A Node build lacking `module.stripTypeScriptTypes` (embedded/stripped builds) fails with error naming `PI_DASHBOARD_TS_LOADER=jiti` — set it to boot with jiti.
+
+Cross-refs:
+- packages/shared/src/platform/ts-loader-select.mjs
+- packages/shared/src/platform/native-ts-register.mjs
+- docs/architecture.md
+
 ## Electron shows "Server managed externally" in the tray — what does that mean?
 
 Tray menu ownership-aware. Shows "Server managed externally" (disabled row) when server on port not owned by this Electron. Happens when server started by `pi-dashboard start` terminal (standalone), by a pi session (bridge), or by another Electron instance.

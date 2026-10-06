@@ -6,9 +6,15 @@ import { readFileSync, realpathSync } from "node:fs";
  *
  * The actual CLI is `../src/cli.ts`. This wrapper exists because a
  * `#!/usr/bin/env` shebang cannot interpolate a dynamic `--import`
- * loader path. The wrapper resolves jiti from `process.argv[1]`'s
- * module graph at runtime and re-execs Node with
- * `--import <jiti-url> cli.ts <args>`.
+ * loader path. The wrapper selects the TypeScript loader at runtime and
+ * re-execs Node with `--import <loader-url> cli.ts <args>`:
+ *   - default: the Node-native loader shipped by
+ *     `@blackbelt-technology/pi-dashboard-shared` (`platform/native-ts-register.mjs`),
+ *     located by package specifier from this file;
+ *   - `PI_DASHBOARD_TS_LOADER=jiti`: jiti, resolved from `process.argv[1]`.
+ * Selection uses the shared `.mjs` helper `platform/ts-loader-select.mjs`
+ * (plain JS — runs before any TS loader). A missing jiti is fatal only when
+ * jiti is selected. See change: fix-appimage-cold-boot-latency (D1, D4, D8).
  *
  * Since `@blackbelt-technology/pi-dashboard-server` declares `jiti` as
  * a direct runtime dependency, `createRequire(argv[1]).resolve("jiti/...")`
@@ -16,8 +22,7 @@ import { readFileSync, realpathSync } from "node:fs";
  * hoisted, pnpm). A miss therefore indicates a corrupted install, not
  * a missing prerequisite. The error message reflects that.
  *
- * No tsx fallback: jiti is the sole supported TypeScript loader.
- * Mirrors the resolution shape in
+ * No tsx fallback. The jiti lookup mirrors the resolution shape in
  * `packages/shared/src/platform/binary-lookup.ts::ToolResolver.resolveJiti`
  * (cannot import the .ts module before a TS loader is registered, so
  * the lookup is inlined).
@@ -86,7 +91,31 @@ function resolveJitiUrl() {
   return null;
 }
 
-const loader = resolveJitiUrl();
+// Loader selection via the shared helper. Dynamic import so a corrupted
+// install (helper unresolvable) still reaches a readable error, and the jiti
+// opt-in still works without it.
+let tsLoaderSelect = null;
+try {
+  tsLoaderSelect = await import("@blackbelt-technology/pi-dashboard-shared/platform/ts-loader-select.mjs");
+} catch {
+  /* handled below */
+}
+const loaderKind = tsLoaderSelect
+  ? tsLoaderSelect.selectTsLoader(process.env)
+  : process.env.PI_DASHBOARD_TS_LOADER === "jiti" ? "jiti" : null;
+if (!loaderKind) {
+  process.stderr.write(
+    "pi-dashboard: cannot find the native TypeScript loader (@blackbelt-technology/pi-dashboard-shared).\n" +
+      "Your install may be corrupted. Try:\n" +
+      "  npm install -g @blackbelt-technology/pi-agent-dashboard\n" +
+      "Workaround: set PI_DASHBOARD_TS_LOADER=jiti to boot with the jiti loader.\n",
+  );
+  process.exit(1);
+}
+
+const loader = loaderKind === "jiti"
+  ? resolveJitiUrl()
+  : tsLoaderSelect.resolveNativeTsLoader({ anchor: fileURLToPath(import.meta.url) });
 if (!loader) {
   // jiti is a direct dep of @blackbelt-technology/pi-dashboard-server, so a
   // miss here means the install is corrupted (deleted node_modules entry,
@@ -105,11 +134,13 @@ if (!loader) {
 }
 
 // Mirrors shouldUrlWrapEntry() in packages/shared/src/platform/node-spawn.ts:
-// jiti misnormalises file:/// URL entries on Windows (verified live on
-// Node 22.18.0 + jiti 2.7.0 in a standalone install — the entry gets
-// re-prepended with cwd as if it were a relative specifier). Pass the
-// RAW path on every platform; Node's drive-letter heuristic handles
-// `C:\…` entries directly. See change: fix-windows-standalone-spawn.
+// the entry is passed RAW for both loaders, on every platform. jiti
+// misnormalises file:/// URL entries on Windows (verified live on Node 22.18.0
+// + jiti 2.7.0), and with any `--import` loader Node itself runs the main
+// entry through `path.resolve()` first, so a `file:///D:/…` entry becomes a
+// cwd-relative path (native loader, windows-latest CI run 37347903583).
+// Node's drive-letter heuristic handles raw `C:\…` entries directly.
+// See changes: fix-windows-standalone-spawn, fix-appimage-cold-boot-latency.
 const entry = cliPath;
 
 // Heap ceiling for the standalone launch path, from `serverHeap.maxOldSpaceMb`.

@@ -38,9 +38,12 @@ export interface LaunchResult {
    * Whether the spawn reached the log-owning path (i.e. `launchDashboardServer`
    * opened `~/.pi/dashboard/server.log` before failing). `false` only for
    * failures that abort BEFORE the log fd is opened (currently just
-   * `JitiNotFoundError` — loader resolution precedes log creation). Callers use
-   * this to avoid pointing users at a `server.log` that was never written.
-   * See change: fix-bridge-server-start-diagnostics (CodeRabbit #3).
+   * `JitiNotFoundError` — loader resolution precedes log creation). That error
+   * is thrown only under the `PI_DASHBOARD_TS_LOADER=jiti` opt-in; the default
+   * native loader never needs jiti. Callers use this to avoid pointing users at
+   * a `server.log` that was never written.
+   * See changes: fix-bridge-server-start-diagnostics (CodeRabbit #3),
+   * fix-appimage-cold-boot-latency.
    */
   logOwned?: boolean;
 }
@@ -168,7 +171,7 @@ export async function launchServer(config: DashboardConfig): Promise<LaunchResul
     return { success: true, message: "Server started", childPid: result.childPid, logOwned: true };
   } catch (err: unknown) {
     if (err instanceof JitiNotFoundError) {
-      // Thrown before the log fd is opened — no server.log exists.
+      // jiti opt-in only. Thrown before the log fd is opened — no server.log exists.
       return { success: false, message: err.message, logOwned: false };
     }
     if (err instanceof PortConflictError) {

@@ -1,3 +1,5 @@
 # asciidoc-preview.spec.ts — index
 
 L3 AsciiDoc preview styling (change: asciidoc-support, test-plan #F1–#F6). `/view @styling.adoc` → editor pane, then COMPUTED-STYLE asserts on the `.asciidoc-body` scope: heading sizes strictly decreasing h1>h2>h3>body, `.admonitionblock` border-left ≥2px + own background, `table.frame-none.grid-none` cells zero-border but padded, `table.stripes-even` even≠odd≠header backgrounds, `#toc` panel background + deeper nested `padding-left`. F6 flips the theme via `theme-picker-trigger` (sidebar stays mounted next to the pane) and asserts the heading colour retargets while a `window.__adocNoReload` sentinel SURVIVES — visibility alone cannot distinguish an in-place retarget from a reload that re-renders the same preview.
+
+F1 native-loader case: preview renders headings, no `require is not defined`, harness server.log spawn header names `native-ts-register.mjs`. See change: fix-appimage-cold-boot-latency.

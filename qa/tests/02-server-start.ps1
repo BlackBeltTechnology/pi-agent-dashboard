@@ -54,6 +54,76 @@ try {
                     exit 1
                 }
 
+                # --- Native TS loader on Windows, incl. a B: drive (test-plan #X4) ---
+                # See change: fix-appimage-cold-boot-latency. The default launch
+                # boots on native-ts-register.mjs with a RAW entry path; the B:
+                # relaunch below checks that a raw drive-letter entry is not
+                # parsed as a URL scheme (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+                $logPath = Join-Path $env:USERPROFILE ".pi\dashboard\server.log"
+                function Get-LastLaunchHeader {
+                    (Get-Content $logPath -ErrorAction SilentlyContinue | Select-String -SimpleMatch "launch (parent pid" | Select-Object -Last 1).Line
+                }
+                $header = Get-LastLaunchHeader
+                if (-not $header -or $header -notmatch "native-ts-register\.mjs") {
+                    Write-Host "FAIL (#X4): default launch header does not name native-ts-register.mjs: $header"
+                    exit 1
+                }
+                Write-Host "OK: default launch header names the native TS loader"
+
+                # Relaunch from a subst B: drive mapped onto the install root.
+                try { pi-dashboard stop 2>$null } catch {}
+                Start-Sleep -Seconds 3
+                $prefix = (npm prefix -g).Trim()
+                $wrapper = Get-ChildItem -Path (Join-Path $prefix "node_modules") -Recurse -Filter "pi-dashboard.mjs" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match "pi-dashboard-server\\bin\\pi-dashboard\.mjs$" } | Select-Object -First 1
+                if (-not $wrapper) {
+                    Write-Host "FAIL (#X4): could not locate pi-dashboard-server\bin\pi-dashboard.mjs under $prefix"
+                    exit 1
+                }
+                subst B: /D 2>$null | Out-Null
+                # Native commands do not throw under $ErrorActionPreference: check
+                # the exit code, or a failed mapping surfaces as a vague health timeout.
+                subst B: $prefix
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "FAIL (#X4): subst B: $prefix failed (exit $LASTEXITCODE) — is B: already in use?"
+                    exit 1
+                }
+                try {
+                    $bWrapper = "B:" + $wrapper.FullName.Substring($prefix.Length)
+                    Write-Host "Launching from the B: drive: $bWrapper"
+                    $bProc = Start-Process -FilePath "node" -ArgumentList "`"$bWrapper`" start" -PassThru -WindowStyle Hidden -WorkingDirectory "B:\"
+                    $bReady = $false
+                    for ($j = 0; $j -lt 30; $j++) {
+                        try {
+                            $r = Invoke-WebRequest -Uri "http://localhost:8000/api/health" -UseBasicParsing -TimeoutSec 2
+                            if ($r.StatusCode -eq 200) { $bReady = $true; break }
+                        } catch {}
+                        Start-Sleep -Seconds 1
+                    }
+                    $bHeader = Get-LastLaunchHeader
+                    $logText = Get-Content $logPath -Raw -ErrorAction SilentlyContinue
+                    if (-not $bReady) {
+                        Write-Host "FAIL (#X4): B: drive launch never reached /api/health. Last header: $bHeader"
+                        exit 1
+                    }
+                    # Node may realpath the subst drive back to its target, so the
+                    # header's cli path is not asserted — only the loader and the
+                    # absence of the URL-scheme failure.
+                    if ($bHeader -notmatch "native-ts-register\.mjs") {
+                        Write-Host "FAIL (#X4): B: launch header does not name native-ts-register.mjs: $bHeader"
+                        exit 1
+                    }
+                    if ($logText -match "ERR_UNSUPPORTED_ESM_URL_SCHEME") {
+                        Write-Host "FAIL (#X4): server.log carries ERR_UNSUPPORTED_ESM_URL_SCHEME"
+                        exit 1
+                    }
+                    Write-Host "OK (#X4): native launch from B: is healthy, no ERR_UNSUPPORTED_ESM_URL_SCHEME"
+                } finally {
+                    try { pi-dashboard stop 2>$null } catch {}
+                    Start-Sleep -Seconds 2
+                    subst B: /D 2>$null | Out-Null
+                }
+
                 Write-Host "PASS: Server started successfully"
                 $ready = $true
                 break

@@ -95,33 +95,63 @@ export function workspaceIndex(root = repoRoot) {
 }
 
 /**
+ * The plugin manifest the runtime would use for a workspace: an adjacent
+ * `dashboard-plugin.json` wins over `package.json#pi-dashboard-plugin`
+ * (`dashboard-plugin-runtime/src/server/loader.ts`). `undefined` when neither.
+ */
+export function pluginManifestOf(dir, manifest) {
+  const adjacent = path.join(dir, "dashboard-plugin.json");
+  if (existsSync(adjacent)) return readJson(adjacent) ?? undefined;
+  return manifest["pi-dashboard-plugin"];
+}
+
+/**
  * Seed set: entry points jiti evaluates. Three seeds, each derived from
  * manifests — see the capability spec for why one seed is not enough.
+ *
+ * `tagged` relabels the same entries by KIND, for gates scoped to a subset:
+ * `piExtension` | `serverMain` | `pluginServer` | `pluginBridge`. The
+ * loader-neutral gate walks only `serverMain` + `pluginServer` (the server's
+ * own loader); `piExtension` + `pluginBridge` are evaluated by pi's jiti.
+ * See change: fix-appimage-cold-boot-latency (design D5).
  */
 export function discoverSeeds(root = repoRoot) {
   const { dirs } = workspaceIndex(root);
-  const seeds = { piExtensions: [], mainTs: [], pluginEntries: [] };
+  const seeds = { piExtensions: [], mainTs: [], pluginEntries: [], tagged: [] };
   const isTs = (v) => typeof v === "string" && SOURCE_EXT.includes(path.extname(v));
   for (const { dir, manifest } of dirs) {
     const rel = (p) => path.relative(root, path.resolve(dir, p));
     // Seed 1 — `pi.extensions` `.ts` entries, loaded by the pi host via jiti.
     for (const e of manifest.pi?.extensions ?? []) {
-      if (isTs(e)) seeds.piExtensions.push(rel(e));
+      if (isTs(e)) {
+        seeds.piExtensions.push(rel(e));
+        seeds.tagged.push({ kind: "piExtension", entry: rel(e) });
+      }
     }
     // Seed 2 — a workspace whose `main` is a TypeScript file AND whose `bin`
     // wrapper bootstraps jiti. `packages/server` declares `main: src/cli.ts`
-    // and its `bin/pi-dashboard.mjs` re-execs Node with
-    // `--import <jiti-url> cli.ts`, so its whole `src/**` is jiti-evaluated.
+    // and its `bin/pi-dashboard.mjs` re-execs Node with `--import <loader>
+    // cli.ts` — the native loader by default, jiti on the
+    // PI_DASHBOARD_TS_LOADER=jiti fallback. Its whole `src/**` stays in jiti
+    // scope because that fallback can evaluate it (the wrapper still names
+    // jiti, which is what `bootstrapsJiti` keys on).
     // Keying on `bin` alone cannot find the entry (`bin` is the `.mjs`
     // wrapper); keying on `main` alone is too wide — it also matches plain
     // libraries like `packages/bus-client`, which no host re-execs.
-    if (isTs(manifest.main) && bootstrapsJiti(dir, manifest)) seeds.mainTs.push(rel(manifest.main));
+    if (isTs(manifest.main) && bootstrapsJiti(dir, manifest)) {
+      seeds.mainTs.push(rel(manifest.main));
+      seeds.tagged.push({ kind: "serverMain", entry: rel(manifest.main) });
+    }
     // Seed 3 — `pi-dashboard-plugin` `server`/`bridge` entries, loaded at
     // `dashboard-plugin-runtime/src/server/loader.ts` via dynamic `import()`
     // over glob-discovered paths, so no static specifier exists to walk.
-    const pd = manifest["pi-dashboard-plugin"];
-    for (const key of ["server", "bridge"]) {
-      if (isTs(pd?.[key])) seeds.pluginEntries.push(rel(pd[key]));
+    // Both manifest forms, with the runtime's precedence.
+    const pd = pluginManifestOf(dir, manifest);
+    for (const [key, kind] of [["server", "pluginServer"], ["bridge", "pluginBridge"]]) {
+      if (isTs(pd?.[key])) {
+        seeds.pluginEntries.push(rel(pd[key]));
+        seeds.tagged.push({ kind, entry: rel(pd[key]) });
+      }
     }
   }
   return seeds;
@@ -149,7 +179,7 @@ function workspaceBases(spec, byName) {
   return [...fromMain, path.resolve(dir, "src", "index"), path.resolve(dir, "index")];
 }
 
-function resolveFirstParty(spec, fromFile, root, byName) {
+export function resolveFirstParty(spec, fromFile, root, byName) {
   if (!spec || spec.startsWith("node:") || spec.startsWith("data:")) return null;
   const bases = spec.startsWith(".")
     ? [path.resolve(path.dirname(fromFile), spec.replace(/\.js$/, ""))]
@@ -185,7 +215,7 @@ export function specifiersOf(source) {
 }
 
 /** All source files under a directory, honouring the exclusion rules. */
-function filesUnder(absDir, root) {
+export function filesUnder(absDir, root) {
   const out = [];
   const walk = (dir) => {
     let entries;

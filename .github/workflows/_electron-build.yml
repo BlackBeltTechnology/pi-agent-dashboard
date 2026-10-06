@@ -558,9 +558,12 @@ jobs:
             exit 1
           fi
           echo "Probing $APPIMAGE against ubuntu:22.04 (glibc 2.35)"
+          # PI_DASHBOARD_TS_LOADER passes through only when set on the step
+          # (a throwaway-branch dispatch forces `jiti` to prove the failure path).
           docker run --rm \
             -v "$PWD/$(dirname "$APPIMAGE")":/art:ro \
             -e APPIMAGE_NAME="$(basename "$APPIMAGE")" \
+            -e PI_DASHBOARD_TS_LOADER \
             ubuntu:22.04 bash -euo pipefail -c '
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends \
@@ -608,15 +611,55 @@ jobs:
               export HOME=/root/pi-home
               mkdir -p "$HOME/.pi/dashboard"
               touch "$HOME/.pi/dashboard/first-run-done"
+              LOG="$HOME/.pi/dashboard/server.log"
+              # One de-noise filter for both paths: Chromium floods container
+              # stderr with dbus/GPU noise that buries the server output.
+              denoise() { grep -vaE "dbus|object_proxy|gpu_|Vulkan|GLX|libva|EGL|angle|viz\." "$1" 2>/dev/null || true; }
+              # Per-phase boot timing. The logs carry no per-line timestamps
+              # ([plugin-loader] and "Dashboard server running" are plain
+              # console output), so this 1 s health-poll loop records the
+              # elapsed second at which each marker FIRST appears — enough
+              # resolution against a 90 s budget. Budget: 90 s (CI container +
+              # xvfb slack). Measured with the native loader: health at 4-6 s
+              # (CI runs 37347903583, 37359343373); the jiti loader missed the
+              # budget (run 37347958369). Distinct from the 30 s launch-to-health contract of
+              # ci-electron-on-demand-build, which this step does not replace.
+              # See change: fix-appimage-cold-boot-latency (design D6).
+              declare -A AT=()
+              mark() { if [ -z "${AT[$1]:-}" ]; then AT[$1]=$2; fi; }
+              timing_table() {
+                echo "--- boot timing (s since electron exec, 1 s resolution) ---"
+                printf "%-22s %s\n" marker elapsed_s
+                for k in electron_start spawn_header first_plugin_loader last_plugin_loader server_running health_200; do
+                  printf "%-22s %s\n" "$k" "${AT[$k]:--}"
+                done
+                echo "spawn header: $(denoise "$LOG" | grep -aF "launch (parent pid" | head -1 | cut -c1-400)"
+              }
+              LAST_PL=0
               xvfb-run -a "$BIN" --no-sandbox > /tmp/electron.log 2>&1 &
               APP_PID=$!
-              for i in $(seq 1 90); do
-                if curl -fsS -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
+              # Electron start = the exec itself (t=0), not its first log line:
+              # a silent Electron could otherwise reach health with no start row.
+              AT[electron_start]=0
+              # Elapsed-time deadline (not an iteration count) and a per-request
+              # timeout, so a stalled /api/health cannot push the step past 90 s.
+              T0=$SECONDS
+              while [ $((SECONDS - T0)) -lt 90 ]; do
+                i=$((SECONDS - T0))
+                if denoise "$LOG" | grep -aqF "launch (parent pid"; then mark spawn_header "$i"; fi
+                PL=$(denoise "$LOG" | grep -acF "[plugin-loader]" || true); PL=${PL:-0}
+                if [ "$PL" -gt 0 ]; then mark first_plugin_loader "$i"; fi
+                if [ "$PL" -gt "$LAST_PL" ]; then AT[last_plugin_loader]=$i; LAST_PL=$PL; fi
+                if denoise "$LOG" | grep -aqF "Dashboard server running"; then mark server_running "$i"; fi
+                if curl -fsS --max-time 2 -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
+                  AT[health_200]=$i
+                  timing_table
                   echo "Reached /api/health on Ubuntu 22.04 after ${i}s"; exit 0
                 fi
                 sleep 1
               done
               echo "::error::AppImage did not reach /api/health on Ubuntu 22.04 within 90s"
+              timing_table
               # Diagnostics. A bare `tail -80` proved useless: Chromium floods
               # stderr with dbus and GPU noise inside a container, so the
               # interesting server output scrolls out of that window and the
@@ -641,12 +684,11 @@ jobs:
               # The bundled server is a CHILD process and logs to its own file,
               # NOT to the Electron stdout captured above — which is why the
               # port-guard warning was invisible on the first failed run.
-              echo "--- server.log (the bundled server writes here, not stdout) ---"
-              cat "$HOME/.pi/dashboard/server.log" || echo "(no server.log)"
+              echo "--- server.log, de-noised (the bundled server writes here, not stdout) ---"
+              if [ -f "$LOG" ]; then denoise "$LOG"; else echo "(no server.log)"; fi
               echo "--- electron.log in full, minus dbus/GPU noise ---"
               TOTAL=$(wc -l < /tmp/electron.log || echo 0)
-              grep -vaE "dbus|object_proxy|gpu_|Vulkan|GLX|libva|EGL|angle|viz\." \
-                /tmp/electron.log > /tmp/electron.clean.log || true
+              denoise /tmp/electron.log > /tmp/electron.clean.log
               KEPT=$(wc -l < /tmp/electron.clean.log || echo 0)
               echo "(log had $TOTAL lines; $KEPT remain after the noise filter)"
               cat /tmp/electron.clean.log || true

@@ -553,3 +553,35 @@ describe("autoRebuild unattended executor (task 5.4 / spec X6 run half)", () => 
     expect(checks.find((c) => c.name.startsWith("ABI mismatch:"))).toBeDefined();
   });
 });
+
+/**
+ * E30 (doctor-core half) — the TypeScript-loader row follows the selection:
+ * native (default) is OK without any jiti; the jiti opt-in still looks for
+ * jiti and errors when none resolves.
+ * See change: fix-appimage-cold-boot-latency (design D4).
+ */
+describe("TypeScript loader row follows PI_DASHBOARD_TS_LOADER (E30)", () => {
+  const emptyManaged = () => fs.mkdtempSync(path.join(os.tmpdir(), "doctor-tsl-"));
+  const baseDeps = (env: NodeJS.ProcessEnv): SharedChecksDeps => ({
+    managedDir: emptyManaged(),
+    detectSystemNode: () => ({ found: true, path: "/usr/bin/node" }),
+    detectPi: () => ({ found: true, path: "/usr/bin/pi", source: "system" }),
+    detectOpenSpec: () => ({ found: true, path: "/usr/bin/openspec", source: "system" }),
+    dnsLookup: async () => undefined,
+    env,
+  });
+  const row = (checks: DoctorCheck[]) => checks.find((c) => c.name === "TypeScript loader")!;
+
+  it("env unset → OK row naming the native register", async () => {
+    const r = row(await runSharedChecks(baseDeps({})));
+    expect(r.status).toBe("ok");
+    expect(r.message).toMatch(/native/);
+    expect(r.message).toContain("native-ts-register.mjs");
+    expect(r.message).not.toMatch(/jiti/);
+  });
+
+  it("jiti opt-in → still probes for jiti/tsx (not the native row)", async () => {
+    const r = row(await runSharedChecks(baseDeps({ PI_DASHBOARD_TS_LOADER: "jiti" })));
+    expect(r.message).not.toContain("native-ts-register.mjs");
+  });
+});

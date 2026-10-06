@@ -32,6 +32,21 @@ therefore a cold transpile.
   (plugin-graph growth, or loss of a cache warmed at build time). This is recorded as
   documentation only (D7).
 
+**D7 attribution findings** (task 9.1; `unsquashfs -lls` listings of the v0.8.0 x64 AppImage,
+released 2026-08-26, and the spike build `f58e56b` from CI run 37286703495):
+- H1 inverted. The 08-26 AppImage ships **no** `resources/server/node_modules/.cache/jiti`. The
+  current one ships 934 cache entries, warmed at build time. The entries are third-party modules
+  only (no first-party server or plugin source), and their hash suffixes are path-keyed. Some
+  modules appear under two hashes, which points at a build-path key. At runtime the bundle lives
+  under a different path and the dir is read-only squashfs, so the shipped cache cannot help: it
+  neither hits nor can be rewritten. A lost warm cache did not cause the regression.
+- H2 supported, but not sufficient. First-party server-loaded `.ts` grew from 562 to 1006 under
+  `resources/server/packages/`, and from 500 to 800 under `node_modules/@blackbelt-technology/`.
+  Plugin manifests grew from 4 to 12. That is about 1.6–1.8× more source to cold-transpile on
+  every launch. It does not by itself explain 18 s → over 240 s (more than 13×).
+- Still open: the superlinear part, for example jiti's per-module overhead on the larger graph or
+  CJS-interop re-imports. It is moot for the default path, because native has no transpile cache.
+
 **How workers get their loader.**
 - Three worker pools inherit the loader through `execArgv: [...process.execArgv]`:
   - `openspec-poll-worker-pool.ts:102`
@@ -58,6 +73,8 @@ wrapper always passes a raw entry (`bin/pi-dashboard.mjs:107-113`) and cannot im
 Node's default resolver accepts `file://` entries, and the wrap is what protects `A:`/`B:` drives
 from `ERR_UNSUPPORTED_ESM_URL_SCHEME` (`node-spawn.ts:4-25`, `:115-165`). The jiti exemption is
 jiti-specific: it mishandles `file:///` entries. The native hooks delegate resolution to Node first.
+*(Refuted at ship time — see D8 revised. Under any `--import` loader, Node runs the main entry
+through `path.resolve()` before building its URL, so a `file:///D:/…` entry fails on Windows.)*
 
 **Bundled Node.** Electron bundles Node v24.15.0 (`packages/electron/scripts/_node-version.sh`).
 
@@ -131,7 +148,7 @@ from any anchor that can see the shared package.
 - `server-launcher.ts` uses D1/D2 and puts the selected loader into the spawn log header
   (`… loader <url>`), as the spike did.
 - `bin/pi-dashboard.mjs` uses the same `.mjs` helper. A missing jiti is fatal only when jiti is
-  selected. The entry is raw for jiti, and URL-wrapped on Windows for native (D8).
+  selected. The entry is raw for both loaders on every OS (D8, revised).
 - `start-server.{sh,cmd,ps1}` honour `PI_DASHBOARD_TS_LOADER` and default to the bundled native
   register module.
 - `fit-worker-pool.ts` treats any known TS loader in `execArgv` as present (a native-or-jiti
@@ -190,16 +207,25 @@ from any anchor that can see the shared package.
   measured boot time in the workflow comment, and cross-reference the separate 30 s
   launch-to-health contract in `ci-electron-on-demand-build`, which this step does not replace.
 
-**D8: Native loader keeps the existing entry-wrap rule.**
-- The `shouldUrlWrapEntry` rule is unchanged. Native is neither jiti nor tsx, so its entry is
-  URL-wrapped on Windows and passed raw on POSIX. That keeps the `A:`/`B:` drive protection.
-- The pre-loader wrapper (`bin/pi-dashboard.mjs:107-113`) mirrors the rule in plain JS: raw for
-  jiti, `pathToFileURL` for native on win32. It already carries a "mirrors shouldUrlWrapEntry"
-  comment, and an L1 parity test pins the mirror.
+**D8 (revised at ship time, 2026-10-05): Native loader passes the entry raw on every OS.**
+- `shouldUrlWrapEntry` returns `false` for the native loader, as it already does for jiti and tsx.
+  The loader position stays `file://`-wrapped.
+- Why: the original D8 kept native on the default rule (URL-wrapped entry on win32) to protect
+  `A:`/`B:` drives. The first real Windows run refuted it. In the win32-x64 leg of CI run
+  37347903583, the plugin-load gate's native boot failed with
+  `Cannot find module 'D:\…\server\file:\D:\…\cli.ts'`. Under any `--import` loader, Node runs
+  the main entry through `path.resolve()` before it builds the URL, so a `file:///` entry becomes
+  cwd-relative. This is the same symptom the JITI VERSION CONTRACT attributes to jiti.
+- Every launch site passes the raw entry: `buildNodeImportArgvParts` (via `shouldUrlWrapEntry`),
+  `bin/pi-dashboard.mjs` (`const entry = cliPath`), `start-server.{cmd,ps1}`, and the plugin-load
+  gate's `bootArgv`. An L1 parity test pins the wrapper mirror (E15).
+- `B:`-drive behaviour of a raw entry stays unverified. It is the manual X4 follow-up
+  (`qa/tests/02-server-start.ps1`, `subst B:`).
 - `node-spawn.ts` adds `isNativeTsLoader(loader)` (segment match `platform/native-ts-register.mjs`,
-  either separator). `fit-worker-pool.ts` uses it to see that a TS loader is already present.
-- *Rejected:* a raw entry for native. That would lose `B:`-drive safety on an unverified inference
-  (cycle-3 review).
+  either separator). `fit-worker-pool.ts` uses it to see that a TS loader is already present, and
+  `shouldUrlWrapEntry` uses it for the raw-entry rule.
+- *Superseded:* "native keeps the default URL-wrap on win32" (cycle-3 review). The in-flight patch
+  was approved by the user, overriding the "not patched in-flight" risk rule below.
 
 **D7: jiti regression attribution, documentation only.**
 - List `node_modules/.cache/jiti` in the 08-26 AppImage and in the current one (H1). Compare
@@ -218,9 +244,11 @@ from any anchor that can see the shared package.
     jiti explicitly. They stay as-is, as jiti-fallback coverage.
   - the plugin-load gate (`assert-bundled-server-plugin-load.mjs`) is switched to the selected
     loader (D4), so it runs on native
-- [Windows launch] → Native with a URL-wrapped entry has not been run on real Windows. Verify a
+- [Windows launch] → Native with a URL-wrapped entry had not been run on real Windows. Verify a
   Windows launch (electron windows job or the qa Windows VM) before shipping. A failure returns
-  the change to planning; the predicate is not patched in-flight.
+  the change to planning; the predicate is not patched in-flight. *(Ship time: the win32 CI leg
+  failed. The user approved an in-flight patch to a raw entry (D8 revised), re-verified on the
+  win32 CI leg. The `B:` drive run is the manual X4 follow-up.)*
 - [JSON import attributes] → The spike put the attribute fix-up in `load` and never imported
   JSON, so neither placement is verified (*unverified*). The JSON scenario's L1 test decides.
 - [`stripTypeScriptTypes` stability] → It is still marked experimental or release-candidate
