@@ -17,7 +17,7 @@ const dest = path.join(pluginDir, "dist", "app");
 
 if (!existsSync(path.join(appDir, "package.json"))) {
   // Published tarball consumers have no sibling workspace; the prebuilt dist/app ships instead.
-  console.log("[team-plugin] team-app workspace not present — keeping existing dist/app");
+  process.stderr.write("[team-plugin] team-app workspace not present — keeping existing dist/app\n");
   process.exit(0);
 }
 
@@ -38,4 +38,5 @@ if (!existsSync(path.join(out, "index.html"))) {
 rmSync(dest, { recursive: true, force: true });
 mkdirSync(path.dirname(dest), { recursive: true });
 cpSync(out, dest, { recursive: true });
-console.log(`[team-plugin] app copied to ${path.relative(process.cwd(), dest)}`);
+// stderr: `npm pack --json` (verify-plugin-install-load) parses this process's stdout.
+process.stderr.write(`[team-plugin] app copied to ${path.relative(process.cwd(), dest)}\n`);
