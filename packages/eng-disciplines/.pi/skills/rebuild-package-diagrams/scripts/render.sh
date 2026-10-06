@@ -4,6 +4,7 @@
 #   -> [ui/screens] ifml + check-ifml + round-trip ifml-diff (must be "no differences")
 #   -> [diagrams/sequences|state-machines|objects] check-sequences/check-states (--app) + check-objects + behaviour export
 #   -> build-site with every viewer found -> <packageDir>/diagrams/catalog.html
+#   -> [diagrams/crud] check-crud + crud export (diagrams/crud-matrix/)
 #   -> check-size report (diagrams over the size budget are split into overview + parts)
 # MAX_NODES / MAX_EDGES set the size budget (default 30 / 40); STRICT_SIZE=1 fails when a part stays over it.
 # LOCAL=1 also gates and embeds real-data object diagrams from <packageDir>/_local/objects (local builds only).
@@ -53,6 +54,14 @@ if [ -d "$D/sequences" ] || [ -d "$D/state-machines" ] || [ -d "$D/objects" ] ||
   "${DG[@]}" behaviour "$PKG" "$D/behaviour" "${BUDGET[@]}"
 else
   echo "3b skip behaviour (no diagrams/sequences, state-machines or objects)"
+fi
+
+if [ -d "$D/crud" ]; then
+  echo "3b' CRUD matrix"
+  "${DG[@]}" check-crud "$PKG"
+  "${DG[@]}" crud "$PKG" "$D/crud-matrix"
+else
+  echo "3b' skip CRUD (no diagrams/crud)"
 fi
 
 echo "3c size budget (${MAX_NODES:-30} nodes / ${MAX_EDGES:-40} edges)"

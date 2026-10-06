@@ -239,7 +239,12 @@ record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
    only when `check-sequences` / `check-states` with `--app` pass; route gate lines back as
    findings. Candidate quirks the generators report go to the merge as findings, never
    straight into `quirks.md`.
-7. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
+7. **CRUD matrix** (optional): per screen batch one subagent with `prompts/crud-classifier.md`
+   classifies every data effect (from `rebuild-package-diagrams` `crud-draft`) as entity + C/R/U/D
+   or unmapped; accepted only when `check-crud` passes; finish with `check-crud PKG --complete`.
+   Route its findings (never written / never read / created never deleted / untouched) and
+   tables with no model entity to the merge as gaps or questions.
+8. **Render**: the `rebuild-package-diagrams` skill's `render.sh PKG APP` (all
    its gates, catalog with screen plans, style kit, IFML, flows and behaviour diagrams).
 
 ## Subagent routing
@@ -253,6 +258,7 @@ record format: `references/ui-model.md`. Programs: `scripts/ui-extract/`
 | UI screen generator (optional) | `rsfr-ui-screen-generator` | `prompts/ui-screen-generator.md` | `@fast` | writes its `ui/screens/<ID>.json` | one per screen/dialog, single message |
 | sequence generator (optional) | `rsfr-sequence-generator` | `prompts/sequence-generator.md` | `@fast` | writes its `diagrams/sequences/<ID>.json` | one per user action |
 | state-machine generator (optional) | `rsfr-state-machine-generator` | `prompts/state-machine-generator.md` | `@fast` | writes its `diagrams/state-machines/<ID>.json` | one per entity field |
+| CRUD classifier (optional) | `rsfr-crud-classifier` | `prompts/crud-classifier.md` | `@fast` | writes `diagrams/crud/<SCR>.json` per screen | one per screen batch (~30 effects) |
 
 Use these exact `subagent_type` names: the package ships matching
 `agents/<type>.md` files whose frontmatter pins the model, so an omitted
@@ -351,6 +357,7 @@ Citation format and confidence levels: `references/provenance.md`. Templates:
 - Optional UI model: `gate.mjs` PASS, every `screen-plan.mjs` run 0 unlinked,
   every flow from code passed `check-trace`. *(Frontend UI-model extraction)*
 - Optional behaviour models: `check-sequences` and `check-states` with `--app` exit 0.
+- Optional CRUD matrix: `check-crud PKG --complete` exits 0. *(CRUD classification step)*
   *(Behaviour-model generation)*
 - Promotion happened only after `ask_user` confirmation and `G check-dest`
   exit 0, by move. *(Rebuild package layout and promotion)*

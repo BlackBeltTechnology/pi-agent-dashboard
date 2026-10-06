@@ -164,10 +164,8 @@ describe("state machine and sequence splitting", () => {
   it("cuts a fragment only when it alone exceeds the budget, each piece keeping its frame", () => {
     const big = { id: "SEQ-y", participants: [{ id: "user" }, { id: "SCR" }], messages: [msg(0), { fragment: "alt", label: "ok", messages: [1, 2, 3, 4, 5].map(msg), else: { label: "no", messages: [msg(6)] } }] };
     const parts = S.sequenceParts(big, { nodes: 30, edges: 2 });
-    // biome-ignore lint/suspicious/noExplicitAny: test data
     const frames = parts.flatMap((p: any) => p.messages.filter((m: any) => m.fragment).map((m: any) => `${m.label}:${m.messages.length}`));
     expect(frames).toEqual(["ok (1/3):2", "ok (2/3):2", "ok (3/3):1", "else no:1"]);
-    // biome-ignore lint/suspicious/noExplicitAny: test data
     for (const p of parts) expect(p.messages.reduce((n: number, m: any) => n + (m.fragment ? m.messages.length : 1), 0)).toBeLessThanOrEqual(2);
   });
 

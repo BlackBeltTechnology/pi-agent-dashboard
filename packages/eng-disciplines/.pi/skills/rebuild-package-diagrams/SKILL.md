@@ -172,6 +172,14 @@ plan without a screen/dialog record. Catalog: screen page shows the plan in a sa
 tab; legend action links post `{type: "screen-plan-open", screen, action}` and open the action); header
 **Style kit** button → `#view=kit:`.
 
+## CRUD matrix (optional, after the UI model)
+
+Entity × use case / screen C/R/U/D matrix with findings (never written, never read, created but
+never deleted, untouched). `crud-draft PKG <SCR>` drafts each screen's data effects with entity
+candidates; `reverse-spec-for-rebuild`'s CRUD classifier writes `PKG/diagrams/crud/<SCR>.json`;
+gate `check-crud PKG --complete`; `crud PKG <outDir>` exports CSV + findings; `render.sh` does both
+and the catalog gets a **CRUD** view. Rules: `references/crud-matrix.md`.
+
 ## Diagram size budget (split large diagrams)
 
 Diagrams over a size budget are split deterministically into an overview plus parts:

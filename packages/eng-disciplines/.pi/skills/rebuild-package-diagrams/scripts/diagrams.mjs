@@ -18,12 +18,16 @@
 //   behaviour <packageDir> <outDir>          -> <id>.mmd per diagram (+ <id>.collab.mmd, <id>.part-<n>.mmd) and <id>.scxml per state machine
 //   ifml-parts <packageDir> <outDir>         -> overview.mmd + <part>.xmi per IFML part
 //   check-size <packageDir> [--strict]       -> size of every diagram and its split; --strict: exit 1 if a part is over budget
+//   crud-draft <packageDir> <SCR-id> <out.json> -> write/read/export effects of a screen with entity candidates
+//   check-crud <packageDir> [--complete]     -> exit 1 listing CRUD-record violations (--complete: every screen with data effects)
+//   crud <packageDir> <outDir>               -> crud.csv (entity x use case), crud-screens.csv, crud-findings.md
 //   build-site / behaviour / ifml-parts / check-size take [--max-nodes n] [--max-edges n] (default 30 / 40)
 // Exit 2 on bad usage / unreadable input. See change: add-rebuild-package-diagrams, add-catalog-ifml, add-behaviour-diagrams.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
 import { behaviourData, checkObjects, checkSequences, checkStates, objectsFromDb, objectsSynth, readBehaviour, sequenceFromUi } from "./behaviour.mjs";
+import { checkCrud, crudCsv, crudDraft, findingsMd, readCrud } from "./crud.mjs";
 import { buildIfml, checkIfmlXmi, ifmlIdErrors, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
 import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
@@ -50,6 +54,9 @@ const USAGE = `usage:
   diagrams.mjs behaviour <packageDir> <outDir>
   diagrams.mjs ifml-parts <packageDir> <outDir>
   diagrams.mjs check-size <packageDir> [--strict]
+  diagrams.mjs crud-draft <packageDir> <SCR-id> <out.json>
+  diagrams.mjs check-crud <packageDir> [--complete]
+  diagrams.mjs crud <packageDir> <outDir>
   build-site also takes [--ifml-js <file>] [--ifml-css <file>]... [--local]
   build-site, behaviour, ifml-parts, check-size take [--max-nodes <n>] [--max-edges <n>] (default 30 / 40)`;
 
@@ -262,6 +269,31 @@ const COMMANDS = {
     process.stdout.write(`budget: ${budget.nodes} nodes, ${budget.edges} edges\n${lines.join("\n")}\n${over} over budget\n`);
     return rest.includes("--strict") && over ? 1 : 0;
   },
+  "crud-draft": ([pkg, screen, out]) => {
+    try {
+      writeRecord(out, crudDraft(readUi(pkg), extractModel(readText(join(pkg, "model.md"))), screen));
+    } catch (e) {
+      return report([e.message]);
+    }
+    return 0;
+  },
+  "check-crud": ([pkg, flag]) => {
+    if (flag && flag !== "--complete") die(USAGE);
+    const records = readCrud(pkg);
+    if (!records) die(`diagrams: no diagrams/crud in ${pkg}`);
+    return report(checkCrud(readUi(pkg), extractModel(readText(join(pkg, "model.md"))), records, { complete: !!flag }));
+  },
+  crud: ([pkg, outDir]) => {
+    if (!readCrud(pkg)) die(`diagrams: no diagrams/crud in ${pkg}`);
+    const { data, errors } = buildCatalog(pkg);
+    if (errors.length) return report(errors);
+    const c = data.crud;
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "crud.csv"), crudCsv(c.byUseCase, c.useCases));
+    writeFileSync(join(outDir, "crud-screens.csv"), crudCsv(c.byScreen, c.screens));
+    writeFileSync(join(outDir, "crud-findings.md"), findingsMd(c.findings, data.meta.title));
+    return 0;
+  },
   "ifml-diff": ([pkg, file, flag]) => {
     if (flag && flag !== "--apply") die(USAGE);
     const edited = parseIfmlXmi(readText(file));
@@ -277,7 +309,7 @@ const COMMANDS = {
   },
 };
 
-const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1 };
+const ARITY = { "extract-model": 1, "render-er": 2, "check-trace": 2, "check-use-cases": 1, "build-site": 2, ifml: 2, "check-ifml": 1, "ifml-to-ui": 2, "ifml-diff": 2, "check-architecture": 1, arch: 2, "check-sequences": 1, "check-states": 1, "check-objects": 1, "sequence-from-ui": 3, "objects-synth": 3, "objects-from-db": 3, behaviour: 2, "ifml-parts": 2, "check-size": 1, "crud-draft": 3, "check-crud": 1, crud: 2 };
 
 function main([cmd, ...args]) {
   if (!COMMANDS[cmd] || args.length < ARITY[cmd]) die(USAGE);

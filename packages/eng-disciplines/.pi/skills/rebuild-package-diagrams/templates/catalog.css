@@ -120,3 +120,14 @@ iframe.plan { width: 100%; height: 860px; border: 1px solid var(--line); border-
 .ifmlcanvas { height: 72vh; border: 1px solid #ddd; background: #fff; }
 .djs-element.ifml-dim { opacity: 0.22; }
 .djs-element.ifml-hot .djs-visual > :first-child { stroke: #1f6f43 !important; stroke-width: 3px !important; fill: #e6f4ea !important; }
+
+/* CRUD matrix */
+.crudwrap { overflow: auto; max-height: 75vh; border: 1px solid var(--line); border-radius: 6px; }
+table.crudm { width: auto; font-size: 12px; }
+table.crudm th, table.crudm td { padding: 3px 6px; white-space: nowrap; }
+table.crudm tr:first-child th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+th.crudh a { writing-mode: vertical-rl; transform: rotate(180deg); display: inline-block; max-height: 160px; overflow: hidden; text-overflow: ellipsis; }
+td.crudc { text-align: center; }
+.crudop { display: inline-block; min-width: 1.2em; margin: 0 1px; border-radius: 3px; font: 600 11px/1.5 ui-monospace, monospace; text-align: center; color: #fff; }
+.crudop-C { background: #2e7d32; } .crudop-R { background: #1565c0; } .crudop-U { background: #8a4f00; } .crudop-D { background: #c62828; }
+.chip.crud { border-color: #555; }

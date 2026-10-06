@@ -34,7 +34,7 @@ describe("eng-disciplines wiring", () => {
     const skill = read(join(PKG, ".pi/skills/reverse-spec-for-rebuild/SKILL.md"));
     const rows = [...skill.matchAll(/^\| [^|]+? \| `(rsfr-[\w-]+)` \| `[^`]+` \| `(@\w+)` \|/gm)];
     expect(rows.map((r) => r[1]).sort()).toEqual([
-      "rsfr-auditor", "rsfr-completeness", "rsfr-discovery", "rsfr-generator",
+      "rsfr-auditor", "rsfr-completeness", "rsfr-crud-classifier", "rsfr-discovery", "rsfr-generator",
       "rsfr-sequence-generator", "rsfr-state-machine-generator", "rsfr-ui-screen-generator",
     ]);
     for (const [, type, model] of rows) {

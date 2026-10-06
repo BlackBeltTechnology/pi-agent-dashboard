@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { archViews, checkArch, readArch, toMermaidC4, toStructurizr } from "./arch.mjs";
 import { behaviourData } from "./behaviour.mjs";
+import { checkCrud, crudData, readCrud } from "./crud.mjs";
 import { buildIfml, ifmlToXmi } from "./ifml.mjs";
 import { CARD, checkQuestions, checkUi, checkUseCases, extractModel, parseCatalog, parseRoles, parseSpec, readIf, readUi, renderEr } from "./lib.mjs";
 import { DEFAULT_BUDGET, erChunks, ifmlParts } from "./split.mjs";
@@ -153,6 +154,9 @@ export function buildCatalog(pkgDir, { local = false, budget = DEFAULT_BUDGET } 
     behaviour: beh.behaviour || { sequences: [], states: [], objects: [] },
     arch: arch && !errors.length ? { model: arch, views: archViews(arch), dsl: toStructurizr(arch, title), c4: toMermaidC4(arch, title) } : null,
   };
+  const crud = readCrud(pkgDir);
+  if (crud) errors.push(...checkCrud(ui, model, crud));
+  data.crud = crud && !errors.length ? crudData(ui, data.useCases, model, crud) : null;
   return { data, errors };
 }
 

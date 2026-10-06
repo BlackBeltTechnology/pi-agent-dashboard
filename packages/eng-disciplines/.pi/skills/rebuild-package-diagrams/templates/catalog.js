@@ -343,7 +343,7 @@
       <h3>Entities</h3><div class="chips">${u.entities.map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("")}</div>
       <div class="er" data-er="${esc(u.entities.join("|"))}"></div>
       <h3>Related use cases</h3>${relatedHtml([u])}
-      ${archSection((r) => r === u.id)}${behSection({ uc: u.id })}`;
+      ${archSection((r) => r === u.id)}${behSection({ uc: u.id })}${crudUcSection(u.id)}`;
   }
 
   const listOr = (items, none = "<li>None</li>") => items.join("") || none;
@@ -428,7 +428,7 @@
       <h3>ER neighbourhood</h3><div class="er" data-er="${esc(neigh.join("|"))}"></div>
       ${rels.length ? `<table><tr><th>From</th><th>Card.</th><th>To</th><th>Label</th><th>Evidence</th></tr>${rels.map((r) => `<tr><td>${esc(r.from)}</td><td>${esc(r.cardinality)}${r.confidence === "confirmed" ? "" : " (inferred)"}</td><td>${esc(r.to)}</td><td>${esc(r.label)}</td><td>${esc(r.evidence)}</td></tr>`).join("")}</table>` : "<p>No ER relation drawn.</p>"}
       <h3>Fields (${e.fields.length})</h3><table><tr><th>Field</th><th>Type</th><th>Required</th><th>Nullable</th></tr>${e.fields.map((f) => `<tr><td><code>${esc(f.name)}</code></td><td>${esc(f.type)}</td><td>${f.required ? "yes" : ""}</td><td>${f.nullable ? "yes" : ""}</td></tr>`).join("")}</table>
-      <h3>Use cases</h3><div class="chips">${backlinks((u) => u.entities.includes(name)).map(ucChip).join("") || "None"}</div>${behSection({ entity: name })}`;
+      <h3>Use cases</h3><div class="chips">${backlinks((u) => u.entities.includes(name)).map(ucChip).join("") || "None"}</div>${behSection({ entity: name })}${crudEntitySection(name)}`;
   }
 
   const citeSpan = (c) => (c ? ` <span class="cite">${esc(c)}</span>` : "");
@@ -830,7 +830,7 @@
   function renderTopnav() {
     const on = (cls) => state.view.startsWith(cls) || (cls === "beh" && /^(seq|sm|obj):/.test(state.view));
     const btn = (show, cls, view, text) => (show ? `<a class="chip ${cls}${on(cls) ? " active" : ""}" href="${link({ view })}">${text}</a>` : "");
-    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour");
+    $("topnav").innerHTML = btn(A, "arch", `arch:${A?.views[0].id}`, "Architecture") + btn(D.ifml, "ifml", "ifml:all", "IFML") + btn(UI.styleKit, "kit", "kit:", "Style kit") + btn(behCount(), "beh", "beh:", "Behaviour") + btn(D.crud, "crud", "crud:", "CRUD");
   }
   function archFacts(e) {
     const hostedOn = A.model.elements.filter((x) => (x.hosts || []).includes(e.id)).map((x) => x.id);
@@ -900,6 +900,43 @@
   const behChip = (kind, r) => `<a class="chip beh" href="${link({ view: `${kind}:${r.id}` })}">${esc(r.id)} ${esc(r.title || "")}${r.local ? " · local" : ""}</a>`;
   const behCount = () => B.sequences.length + B.states.length + B.objects.length;
   /** Records pointing at a rule/quirk/gap, entity, use case or screen. */
+  // ---------- CRUD matrix (references/crud-matrix.md) ----------
+  const CRUD_OPS = { C: "create", R: "read", U: "update", D: "delete" };
+  const crudCell = (ops) => (ops ? [...ops].map((o) => `<span class="crudop crudop-${o}" title="${CRUD_OPS[o]}">${o}</span>`).join("") : "");
+  const entLink = (e) => `<a href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`;
+  const FINDINGS = [
+    ["neverWritten", "Never written by the UI", "read only — written by an import, the ERP or another system?"],
+    ["neverRead", "Never read by the UI", "written but not shown — export target, audit trail or dead data?"],
+    ["createdNeverDeleted", "Created but never deleted", "grows forever — archival or clean-up elsewhere?"],
+    ["untouched", "Untouched by the UI", "persistent but no UI effect — background job, ERP side or unused?"],
+  ];
+  function viewCrud(arg) {
+    const C = D.crud;
+    if (!C) return viewHome();
+    const bySc = arg === "scr";
+    const cols = bySc ? C.screens : C.useCases.filter((u) => Object.keys(C.byUseCase[u] || {}).length);
+    const map = bySc ? C.byScreen : C.byUseCase;
+    const ents = Object.keys(C.byEntity).sort();
+    const head = cols.map((c) => `<th class="crudh"><a href="${link({ view: bySc ? `scr:${c}` : `uc:${c}` })}" title="${esc(bySc ? scrById[c]?.name || c : ucById[c]?.name || c)}">${esc(c.replace(/^(SCR|DLG)-/, ""))}</a></th>`).join("");
+    const rows = ents.map((e) => `<tr><th>${entLink(e)}</th>${cols.map((c) => `<td class="crudc">${crudCell(map[c]?.[e])}</td>`).join("")}</tr>`).join("");
+    const toggle = `<div class="chips"><a class="chip${bySc ? "" : " active"}" href="${link({ view: "crud:uc" })}">by use case</a><a class="chip${bySc ? " active" : ""}" href="${link({ view: "crud:scr" })}">by screen</a></div>`;
+    const finds = FINDINGS.map(([k, h, q]) => `<h4>${h} (${C.findings[k].length})</h4><p class="meta">${q}</p><div class="chips">${C.findings[k].map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)}</a>`).join("") || "None"}</div>`).join("");
+    return `<h2>CRUD matrix</h2><p class="lede">Which use case or screen creates, reads, updates or deletes each entity, from the classified UI effects (each cited to code). ${ents.length} entities touched; findings cover the persistent entities of the model.</p>${toggle}
+      <div class="crudwrap"><table class="crudm"><tr><th>Entity</th>${head}</tr>${rows}</table></div><h3>Findings</h3>${finds}`;
+  }
+  function crudEntitySection(name) {
+    const list = D.crud?.byEntity[name];
+    if (!list) return "";
+    return `<h3>CRUD</h3>${rowsTable(["Op", "Action", "Effect", "Note"], list.map((x) => {
+      const [sid, aid] = x.action.split("#");
+      return [crudCell(x.op), `<a href="${link({ view: `scr:${sid}`, focus: aid })}">${esc(x.action)}</a>`, `<code>${esc(x.effect)}</code>`, esc(x.note)];
+    }))}`;
+  }
+  function crudUcSection(id) {
+    const row = D.crud?.byUseCase[id];
+    if (!row || !Object.keys(row).length) return "";
+    return `<h3>CRUD</h3><div class="chips">${Object.keys(row).sort().map((e) => `<a class="chip" href="${link({ view: `ent:${e}` })}">${esc(e)} ${crudCell(row[e])}</a>`).join("")}</div>`;
+  }
   function behSection({ ref, entity, uc, screen }) {
     const hit = {
       seq: B.sequences.filter((s) => (ref && s.refs.includes(ref)) || (entity && s.entities.includes(entity)) || (uc && s.useCase === uc) || (screen && (s.action || "").split("#")[0] === screen) || (screen && s.participants.some((p) => p.ref === screen))),
@@ -1067,7 +1104,7 @@
   }
 
   // ---------- render + events ----------
-  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj };
+  const VIEWS = { merge: viewMerge, uc: viewUseCase, item: viewItem, req: viewReq, cap: viewCap, ent: viewEntity, q: viewQuestion, scr: viewScreen, form: viewForm, ifml: viewIfml, arch: viewArch, archel: viewArchEl, kit: viewKit, beh: viewBeh, seq: viewSeq, sm: viewSm, obj: viewObj, crud: viewCrud };
   function render() {
     readHash();
     const kind = state.view === "merge" ? "merge" : state.view.split(":")[0];
