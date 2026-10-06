@@ -127,6 +127,12 @@ describe("workerExecArgv", () => {
     expect(workerExecArgv("file:///w/fit-worker.ts", { ...deps, env: { PI_DASHBOARD_TS_LOADER: "jiti" } })).toEqual(["--import", JITI]);
   });
 
+  it("a native register that cannot be located returns the inherited argv (documented fallback), never throws", () => {
+    const inherited = ["--max-old-space-size=512"];
+    const resolveNative = () => { throw new Error("cannot locate native-ts-register.mjs"); };
+    expect(workerExecArgv("file:///w/fit-worker.ts", { execArgv: inherited, env: {}, resolveNative })).toEqual(inherited);
+  });
+
   it("E18: the default native locator yields a real register URL", () => {
     const argv = workerExecArgv("file:///w/fit-worker.ts", { execArgv: [], env: {} });
     expect(argv[0]).toBe("--import");

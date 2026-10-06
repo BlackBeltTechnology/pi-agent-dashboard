@@ -95,9 +95,17 @@ export function workerExecArgv(workerUrl: string, deps: WorkerExecArgvDeps = {})
   if (!workerUrl.endsWith(".ts")) return inherited;
   if (inherited.some((a) => isJitiLoader(a) || isNativeTsLoader(a))) return inherited;
   const anchor = fileURLToPath(import.meta.url);
-  const loader = selectTsLoader(deps.env ?? process.env) === "jiti"
-    ? (deps.resolveJiti ?? (() => new ToolResolver().resolveJiti({ anchor })))()
-    : (deps.resolveNative ?? (() => resolveNativeTsLoader({ anchor })))();
+  let loader: string | null;
+  try {
+    loader = selectTsLoader(deps.env ?? process.env) === "jiti"
+      ? (deps.resolveJiti ?? (() => new ToolResolver().resolveJiti({ anchor })))()
+      : (deps.resolveNative ?? (() => resolveNativeTsLoader({ anchor })))();
+  } catch {
+    // `resolveNativeTsLoader` throws when the register cannot be located; the
+    // documented contract is the inherited argv (the pool then fits in-process
+    // for this worker, rather than disabling every worker via spawnSlot's catch).
+    loader = null;
+  }
   // Both locators return a `pathToFileURL(...).href` (or null) — never a raw OS
   // path — so the Windows drive-letter hazard `no-raw-node-import` guards is not
   // reachable here. There is no entry-script position either: the worker entry
