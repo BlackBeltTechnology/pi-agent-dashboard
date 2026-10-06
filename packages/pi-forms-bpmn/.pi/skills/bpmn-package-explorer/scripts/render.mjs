@@ -12,7 +12,7 @@
 
 import { mkdtempSync, mkdirSync, readdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, symlinkSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname, relative, extname } from 'node:path';
+import { join, dirname, relative, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadManifest, validatePackage } from './manifest.mjs';
 import { writeDiagnostics, DIAGNOSTICS_FILE } from './diagnostics.mjs';
@@ -37,7 +37,10 @@ function walkFiles(dir, base = '') {
  * Assemble a render root for a package directory.
  * @returns { renderRoot, data, validation }
  */
-export async function assembleRenderRoot(pkgDir, outDir) {
+export async function assembleRenderRoot(pkgDirIn, outDir) {
+  // Absolute: a relative symlink target resolves against the LINK's directory, so
+  // a relative pkgDir (e.g. ".") would make every artifact link point at itself.
+  const pkgDir = resolve(pkgDirIn);
   const { manifest } = loadManifest(pkgDir);
   if (!manifest) throw new Error(`no valid package.yaml in ${pkgDir}`);
   const validation = await validatePackage(pkgDir);
