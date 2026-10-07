@@ -1,5 +1,37 @@
 ## MODIFIED Requirements
 
+### Requirement: Folder KB stats retrieval
+
+The stats endpoint SHALL return the current knowledge-base statistics for a validated folder without creating any file or directory, and the client SHALL expose them for display.
+
+#### Scenario: Stats shape for a folder
+
+- **WHEN** stats are requested for an allowed folder
+- **THEN** the response contains `files`, `chunks`, `indexed`, `staleCount`, `indexing`, and `jobStatus`
+- **AND** `indexed` is true only when `chunks` is greater than 0
+- **AND** `staleCount` reports the number of drifted source files
+- **AND** `indexing` is true only while a reindex job is running for that folder
+- **AND** `jobStatus` is one of `idle`, `running`, or `error`
+- **AND** `folderMissing` is true only when the folder does not exist as a directory
+- **AND** `sourceCount` is the number of source specs in the folder's resolved KB config (project, global and default layers merged), and `0` when `folderMissing` is true
+
+#### Scenario: Folder not allowed
+
+- **WHEN** stats are requested with the `cwd` parameter absent, or for a folder that is not an admitted folder
+- **THEN** the request is rejected before any store is opened
+- **AND** no stats are returned
+
+#### Scenario: No selected folder on the client
+
+- **WHEN** the client has no current folder
+- **THEN** no stats are fetched and the displayed stats are cleared
+
+#### Scenario: Reading stats has no filesystem side effects
+
+- **WHEN** stats are requested for an allowed folder that has no index database, whose index database is unreadable or uses an outdated schema, or that does not exist
+- **THEN** stats are returned with zero counts
+- **AND** no directory or database file is created
+
 ### Requirement: Live polling while indexing
 
 The client SHALL poll the stats endpoint at a fixed interval while a reindex job is running and SHALL stop polling once the job settles, or as soon as a stats fetch is refused as a cwd-admission refusal (`403 { error: "cwd not allowed" }`), regardless of job state.
@@ -42,8 +74,14 @@ The client SHALL synchronously acknowledge a reindex request with a pending stat
 
 #### Scenario: Reindex request rejected
 
-- **WHEN** the reindex request itself is rejected, for a reason other than a cwd-admission refusal, so no job started
+- **WHEN** the reindex request itself is rejected, for a reason other than a cwd-admission refusal or a `409` precondition refusal, so no job started
 - **THEN** the pending state is cleared and a reindex error is surfaced immediately
+
+#### Scenario: Reindex request refused by a precondition
+
+- **WHEN** the reindex request responds `409 { error: "folder missing" }` or `409 { error: "no sources configured" }`
+- **THEN** the pending state is cleared without surfacing a reindex error
+- **AND** fresh stats are fetched so the folder's missing or no-sources state is shown
 
 #### Scenario: Reindex request refused for cwd admission
 
@@ -120,7 +158,7 @@ All concurrently mounted consumers of a folder's KB stats SHALL observe one iden
 
 #### Scenario: Error channels are shared
 
-- **WHEN** a reindex trigger is rejected for a folder for a reason other than a cwd-admission refusal
+- **WHEN** a reindex trigger is rejected for a folder for a reason other than a cwd-admission refusal or a `409` precondition refusal (`folder missing` / `no sources configured`)
 - **THEN** every consumer of that folder observes the reindex error (the failure is real folder state, not private to the consumer that clicked)
 - **AND** a subsequent reindex from any consumer clears it
 
