@@ -7,11 +7,12 @@ The section SHALL render a KB status summary derived from the folder's KB stats 
 #### Scenario: Status summary reflects KB state
 
 - **WHEN** the folder's KB stats are available, or the folder's KB requests were refused as a cwd-admission refusal (`403 { error: "cwd not allowed" }`)
-- **THEN** the section shows one of the ordered states: denied, error, indexing, not-indexed, stale, or populated
+- **THEN** the section shows one of the ordered states: denied, missing, error, indexing, no-sources, not-indexed, stale, or populated
 - **AND** the populated/stale states show the folder's chunk count, with a stale badge when there are stale entries
 - **AND** the indexing state shows the in-progress file count
 - **AND** the denied state shows a `not allowed` label rendered without the error accent or error color
-- **AND** denied precedes error, which precedes indexing, which precedes loading, the not-indexed and count-based states
+- **AND** the missing state shows a non-error `folder missing` label, and the no-sources state shows a `no sources` label
+- **AND** denied precedes missing, which precedes error, which precedes indexing, which precedes loading, which precedes no-sources, the not-indexed and count-based states
 
 #### Scenario: Opening settings in every state
 
@@ -30,14 +31,18 @@ The KB folder section's **sidebar** placement SHALL NOT render an action control
 
 That menu contribution SHALL be made ONLY from the section's sidebar placement. The worktree-card placement's scope has no folder actions menu, and the section SHALL register nothing there — otherwise its item lands in a scope with nothing to render it. See `folder-actions-menu` → "Card-placement sections do not register".
 
-The **card** placement SHALL instead render a compact KB control as a **sibling of the pill, outside the pill root**, so the card surface has a direct action affordance despite having no folder actions menu, while the pill itself stays action-free in every placement (no interactive element nests inside the pill's button root). The sibling control SHALL express the same state-varying action as the menu item — "Pin folder" in the `denied` state, "Retry" in the `error` state, in-progress and disabled in the `indexing` state, "Index now" in the `not-indexed` state, and "Reindex now" in the `stale` or `populated` state — and SHALL be disabled for the whole busy window (pending or a running job). Activating the sibling control, by pointer or keyboard, SHALL trigger only its action; it SHALL NOT also activate the pill's open-settings navigation. Its state label SHALL remain perceivable while the control is disabled.
+The **card** placement SHALL instead render a compact KB control as a **sibling of the pill, outside the pill root**, so the card surface has a direct action affordance despite having no folder actions menu, while the pill itself stays action-free in every placement (no interactive element nests inside the pill's button root). The sibling control SHALL express the same state-varying action as the menu item — "Pin folder" in the `denied` state, disabled "Folder missing" in the `missing` state, "Configure sources" (opens KB settings, no reindex) whenever the folder reports zero configured sources, "Retry" in the `error` state, in-progress and disabled in the `indexing` state, "Index now" in the `not-indexed` state, and "Reindex now" in the `stale` or `populated` state — and SHALL be disabled for the whole busy window (pending or a running job). Activating the sibling control, by pointer or keyboard, SHALL trigger only its action; it SHALL NOT also activate the pill's open-settings navigation. Its state label SHALL remain perceivable while the control is disabled.
 
-Each placement exposes ONE affordance, and each expresses every state through its own attributes rather than separate controls. The **menu item** (sidebar) varies its label, badge and disabled state: "Pin folder" in `denied`, "Retry" in `error`, disabled with an in-progress indication in `indexing`, "Index now" in `not-indexed`, "Reindex now" in `stale` or `populated`, carrying the stale badge when stale. The **sibling control** (card) varies its accessible name/tooltip and disabled state with the same labels; it carries NO badge — the pill's inline stale marker already renders that fact on the same card.
+Each placement exposes ONE affordance, and each expresses every state through its own attributes rather than separate controls. The **menu item** (sidebar) varies its label, badge and disabled state: "Pin folder" in `denied`, disabled "Folder missing" in `missing`, "Configure sources" when zero sources are configured, "Retry" in `error`, disabled with an in-progress indication in `indexing`, "Index now" in `not-indexed`, "Reindex now" in `stale` or `populated`, carrying the stale badge when stale. The **sibling control** (card) varies its accessible name/tooltip and disabled state with the same labels; it carries NO badge — the pill's inline stale marker already renders that fact on the same card.
 
 #### Scenario: State varies the single menu item
 
 - **WHEN** the KB is in the `denied` state
 - **THEN** the menu SHALL show one KB item labelled "Pin folder" that pins the folder and SHALL NOT call `reindex()`
+- **WHEN** the KB is in the `missing` state
+- **THEN** the menu SHALL show one disabled KB item labelled "Folder missing" that sends nothing
+- **WHEN** the folder reports zero configured sources (and is not denied, missing, pending, or indexing), including when it is in the `error` state
+- **THEN** the menu SHALL show one KB item labelled "Configure sources" that opens the folder's KB settings page and SHALL NOT call `reindex()`
 - **WHEN** the KB is in the `error` state
 - **THEN** the menu SHALL show one KB item labelled "Retry" that calls `reindex()` on activation
 - **WHEN** the KB is in the `indexing` state
@@ -60,7 +65,7 @@ Each placement exposes ONE affordance, and each expresses every state through it
 #### Scenario: Card placement renders a sibling reindex control
 
 - **WHEN** the KB folder section renders in the card placement
-- **THEN** exactly one compact KB control SHALL render as a sibling of the pill, outside the pill root, whose action matches the KB state (Pin folder / Retry / Index now / Reindex now)
+- **THEN** exactly one compact KB control SHALL render as a sibling of the pill, outside the pill root, whose action matches the KB state (Pin folder / Folder missing / Configure sources / Retry / Index now / Reindex now)
 - **AND** no folder-actions-menu item SHALL be registered from the card placement
 - **AND** the sidebar placement SHALL render no such sibling control
 
@@ -73,8 +78,8 @@ Each placement exposes ONE affordance, and each expresses every state through it
 #### Scenario: Card sibling control does not open settings
 
 - **WHEN** the user activates the card placement's sibling control by pointer or by keyboard
-- **THEN** only that control's action (reindex or pin) SHALL be triggered
-- **AND** the KB settings page SHALL NOT open from that activation
+- **THEN** only that control's action (reindex, pin, or open settings for Configure sources) SHALL be triggered
+- **AND** the KB settings page SHALL NOT open from that activation unless the action is Configure sources
 
 ### Requirement: Error state from client-side and poll failures
 
@@ -88,7 +93,7 @@ The section SHALL treat a rejected reindex trigger or a persistent stats-poll ou
 - **THEN** the section renders the `error` state
 - **WHEN** the folder's KB stats report `jobStatus === "error"`
 - **THEN** the section renders the `error` state
-- **AND** the client-side error (`reindexError` or `error`) takes precedence over the stats-derived state when present
+- **AND** the client-side error (`reindexError` or `error`) takes precedence over the stats-derived state when present, except the `denied` and `missing` states, which outrank it
 
 #### Scenario: Cwd refusal drives denied, not error
 
