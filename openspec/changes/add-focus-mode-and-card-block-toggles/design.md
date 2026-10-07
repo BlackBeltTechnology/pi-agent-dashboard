@@ -55,7 +55,7 @@ One mechanism only: a CSS gate. Client sets `data-fx-status="off"` / `data-fx-gl
 *Alternative*: skip mounting the layers in React. Rejected — two mechanisms for one switch, and the board row would need the same branch.
 
 ### D6. Accordion (folded in from `focus-driven-folder-compaction`)
-Pure helpers in `packages/client/src/lib/folder-focus.ts`: `demandsAttention`, `resolveActiveCwd`, `resolveGroupRenderMode` (decision table in `specs/folder-focus`). Selection beats header click; header-click cwd is component state. Changes vs the replaced design:
+Pure helpers in `packages/client/src/lib/folder-focus.ts`: `demandsAttention`, `resolveActiveCwd`, `resolveGroupRenderMode` (decision table in `specs/folder-focus`). Latest intent wins: `resolveActiveCwd(selectedCwd, activatedCwd, lastIntent)` where `lastIntent` is `"select" | "activate"`, updated on session selection and on folder header-body / compact-row activation (mockup finding D-1); activated cwd + intent are component state. Changes vs the replaced design:
 - Pinned-open set is server-persisted (`expandedFolders` in D1, message `set_folder_expanded {path, expanded}`), never pruned for missing sessions — matching the collapsed-folder rules.
 - Compact modes reuse the **condensed (collapsed) header**, not the full header — Focus is about space; the old "keep full header" decision contradicts the minimalist goal.
 - `folderListMode` / `folderAttentionPeek` stay in server config (`config.ts`), written via the existing Settings save path (`SettingsPanel.tsx:335` builds a partial; `/api/config` PATCH, `packages/server/src/routes/system-routes.ts:514`) and propagated like other config fields; the effective mode may come from the focus profile.

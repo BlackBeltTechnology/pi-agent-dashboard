@@ -57,7 +57,7 @@ When no focus profile is stored, Focus mode SHALL apply a built-in minimalist pr
 
 ### Requirement: Save current as focus profile
 
-Settings SHALL offer `Save current as my focus profile`, which stores, for every offered section and effect id, the value that id resolves to with Focus off and no folder override (global default → legacy parent's global default → visible), plus the configured folder list mode. The stored profile is explicit: later changes to global defaults SHALL NOT change it. Settings SHALL also offer per-row editing of the profile with the states `Not set` / `Show` / `Hide` for the same rows as the global block, and `Reset to default`.
+Settings SHALL offer `Save current as my focus profile`, which stores, for every offered section and effect id, the value that id resolves to with Focus off and no folder override (global default → legacy parent's global default → visible), plus the configured folder list mode. The stored profile is explicit: later changes to global defaults SHALL NOT change it. Settings SHALL also offer per-row editing of the profile with the states `Not set` / `Show` / `Hide` for the same rows as the global block, behind a collapsed `Customize profile` disclosure, and `Reset to default`. The first edit while the built-in profile is in use SHALL first store a copy of the built-in profile's explicit values, then apply the edit.
 
 #### Scenario: Capture current globals
 - **GIVEN** global `git = hidden`, `flows = visible` and folder list mode `classic`
@@ -70,8 +70,30 @@ Settings SHALL offer `Save current as my focus profile`, which stores, for every
 - **THEN** the stored profile SHALL contain `openspec-badge = hidden`
 
 #### Scenario: Edit one profile row
+- **GIVEN** a stored custom profile
 - **WHEN** the user sets the profile row `badge-automation` to `Show`
 - **THEN** the stored profile SHALL contain `badge-automation = visible` and no other key SHALL change
+
+#### Scenario: First edit copies the built-in profile
+- **GIVEN** no stored profile (built-in in use)
+- **WHEN** the user sets the profile row `badge-goal` to `Show`
+- **THEN** a custom profile SHALL be stored that equals the built-in profile's explicit values for every offered id, with `badge-goal = visible`, and `folderListMode = accordion`
+- **AND** the profile label SHALL change from built-in to custom
+
+### Requirement: Focus notice on settings pages
+
+While Focus mode is on, the global card-blocks settings, the directory Session cards page and the Effects settings SHALL show a notice stating that Focus is on, that the page shows the user's normal settings, and a `Turn off Focus` action.
+
+#### Scenario: Notice explains a muted change
+- **GIVEN** Focus mode on with the built-in profile
+- **WHEN** the user opens the global card-blocks settings
+- **THEN** a notice stating Focus is on SHALL render with a `Turn off Focus` action
+- **AND** activating it SHALL turn Focus mode off
+
+#### Scenario: No notice when off
+- **GIVEN** Focus mode off
+- **WHEN** any of those settings pages renders
+- **THEN** no Focus notice SHALL render
 
 ### Requirement: Focus toggle entry points
 

@@ -37,9 +37,10 @@
 
 ## 7. Focus mode core (Phase B)
 
-- [ ] 7.1 `CardSectionsContext`: expose focus state + actions `setFocusEnabled`, `saveCurrentAsFocusProfile`, `setFocusProfileRow`, `resetFocusProfile`. Verify: unit tests for `Capture current globals` and `Edit one profile row`.
+- [ ] 7.1 `CardSectionsContext`: expose focus state + actions `setFocusEnabled`, `saveCurrentAsFocusProfile`, `setFocusProfileRow`, `resetFocusProfile`. First row edit while the built-in profile is active stores a copy of its explicit values, then applies the edit. Verify: unit tests for `Capture current globals`, `Edit one profile row`, `First edit copies the built-in profile`.
 - [ ] 7.2 Sidebar-header Focus toggle button (`aria-pressed`, Enter/Space, visible on-state). Verify: test `Sidebar toggle`.
-- [ ] 7.3 Settings: Focus section — on/off, profile rows (`Not set` / `Show` / `Hide`), Save current, Reset to default. Verify: component tests.
+- [ ] 7.3 Settings › Sessions: Focus section — on/off, profile label (Built-in / Custom), Save current, Reset to default, profile rows (`Not set` / `Show` / `Hide`) behind a collapsed `Customize profile` disclosure; match `mockups/focus-and-blocks.html` tab 4. Verify: component tests.
+- [ ] 7.4 `Focus is on · Turn off Focus` notice on global card blocks, folder Session cards and Effects settings (mockup tabs 2, 3, 5). Verify: component test per `Focus notice on settings pages`.
 
 ## 8. Focus verification (Phase B)
 
@@ -48,7 +49,7 @@
 
 ## 9. Accordion helpers + config (Phase C)
 
-- [ ] 9.1 `packages/client/src/lib/folder-focus.ts`: `demandsAttention`, `resolveActiveCwd` (worktree → main path), `resolveGroupRenderMode`. Verify: tests for every `folder-focus` / `Attention predicate` scenario.
+- [ ] 9.1 `packages/client/src/lib/folder-focus.ts`: `demandsAttention`, `resolveActiveCwd` (worktree → main path, latest intent wins), `resolveGroupRenderMode`. Verify: tests for every `folder-focus` / `Attention predicate` scenario.
 - [ ] 9.2 `packages/shared/src/config.ts`: `folderListMode` (unknown → `classic`), `folderAttentionPeek` (default true); Settings → Sessions select + nested toggle. Verify: config parse tests; settings component test.
 - [ ] 9.3 `expandedFolders` client state from snapshot + `set_folder_expanded`; pinning open clears collapsed. Verify: tests for `Pinned-open folders` scenarios.
 
@@ -76,7 +77,7 @@
 - [ ] 12.8 L1 folder-scoped `fx-*` write rejected in `packages/server/src/__tests__/card-sections-handler.test.ts` (exemplar: same file): `{path:"/a", section:"fx-status-animation"}` · handler · unchanged, no broadcast; global write accepted (test-plan #E8)
 - [ ] 12.9 L1 render-mode table in new `packages/client/src/lib/__tests__/folder-focus.test.ts` (exemplar: `packages/shared/src/__tests__/card-sections.test.ts`): all 16 focused × collapsed × pinned × attention combos + peek off · `resolveGroupRenderMode` · matches spec table; peek off + attention → `compactEmpty` (test-plan #E9)
 - [ ] 12.10 L1 attention predicate in `packages/client/src/lib/__tests__/folder-focus.test.ts` (exemplar: same new file): ask_user / streaming / active / unread / idle+read / ended+read · `demandsAttention` · true,true,true,true,false,false (test-plan #E10)
-- [ ] 12.11 L1 active-folder derivation in `packages/client/src/lib/__tests__/folder-focus.test.ts` (exemplar: same new file): selected worktree session (main `/repo`), header click `/bar` · `resolveActiveCwd` · `/repo`; deselect → `/bar`; `/bar` gone → `null` (test-plan #E11)
+- [ ] 12.11 L1 active-folder derivation in `packages/client/src/lib/__tests__/folder-focus.test.ts` (exemplar: same new file): select worktree session (main `/repo`), activate `/bar`, select `/repo` session again · `resolveActiveCwd` after each step · `/repo` → `/bar` → `/repo`; `/bar` gone → `null` (test-plan #E11)
 - [ ] 12.12 L1 pin/collapse exclusion in `packages/server/src/__tests__/preferences-store.test.ts` (exemplar: same file, collapsedFolders cases): `/foo` collapsed · pin then collapse · mutually exclusive after each step; disk round-trip keeps both lists (test-plan #E12)
 - [ ] 12.13 L1 folder list mode parse in the existing shared config test (exemplar: `questionFirst` parse case in `packages/shared/src/__tests__/`): `classic`/`accordion`/`grid`/absent · parse · `classic`/`accordion`/`classic`/`classic`; peek default `true` (test-plan #E13)
 - [ ] 12.14 L1 OpenSpec phase shown once in `packages/client/src/components/__tests__/SessionCard.card-sections.test.tsx` (exemplar: same file): phase + tags `[]`/`["x"]`, badge on/off, desktop + mobile · render · phase exactly once with badge on, zero with off; tags strip never contains phase (test-plan #E14)
@@ -91,6 +92,8 @@
 - [ ] 12.23 L1 corrupt focus state on load in `packages/server/src/__tests__/preferences-store-card-sections.test.ts` (exemplar: same file): `focus={enabled:"x", profile:{sections:{"__proto__":true,"git":"no"}}}` · load · focus off, empty profile, no prototype key, other prefs intact (test-plan #X1)
 - [ ] 12.24 L1 focus + expandedFolders survive restart in `packages/server/src/__tests__/preferences-store-card-sections.test.ts` (exemplar: same file): focus on + profile + `expandedFolders:["/a"]` · recreate store · identical snapshot (test-plan #X2)
 - [ ] 12.25 L1 writes disabled during socket gap in `packages/client/src/components/__tests__/CardSectionsSection.test.tsx` (exemplar: same file, `canWrite` cases): `connected=false` · toggle Focus / effect · controls disabled, nothing sent (test-plan #X3)
+- [ ] 12.25a L1 first edit copies built-in profile in `packages/client/src/lib/state/__tests__/CardSectionsContext.focus.test.ts` (exemplar: `packages/client/src/components/__tests__/CardSectionsSection.test.tsx`): no stored profile · set `badge-goal` Show · stored = built-in explicit values + `badge-goal=true`, mode accordion, label Custom (test-plan #E22)
+- [ ] 12.25b L1 Focus notice on settings pages in `packages/client/src/components/__tests__/CardSectionsSection.test.tsx` + `CardSectionsPage.test.tsx` (exemplar: same files): Focus on/off × 3 pages · render + click `Turn off Focus` · notice only when on; click turns Focus off (test-plan #E23)
 - [ ] 12.26 L3 hide automations pill in new `tests/e2e/card-block-toggles.spec.ts` (exemplar: `tests/e2e/kb-folder-slot.spec.ts`): folder with automation pill · global switch `pill-automation` off · pill gone, others present, still gone after reload (test-plan #F1)
 - [ ] 12.27 L3 Focus round-trip in new `tests/e2e/focus-mode.spec.ts` (exemplar: `tests/e2e/folder-collapse-persistence.spec.ts`): `/a` `git=visible`, global `flows=visible` · Focus on then off · on: `aria-pressed=true`, no GIT/FLOWS, minimal directory card; off: restored, prefs unchanged (test-plan #F2)
 - [ ] 12.28 L3 Focus sync across browsers in `tests/e2e/focus-mode.spec.ts` (exemplar: `tests/e2e/folder-collapse-persistence.spec.ts` multi-context): two contexts · A toggles on · B converges without reload (test-plan #F3)

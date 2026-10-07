@@ -22,7 +22,9 @@ No open clarifications.
 | E8 | card-visual-effects: folder write rejected | EP | L1 | automated | `set_card_section_visibility {path:"/a", section:"fx-status-animation", visible:false}` | handler | prefs unchanged, no broadcast; same message without path → accepted |
 | E9 | folder-focus: render-mode table | decision-table | L1 | automated | all 16 combos of focused × collapsed × pinned × hasAttention, plus peek off | `resolveGroupRenderMode` | matches spec table; peek off + attention + unfocused → `compactEmpty` |
 | E10 | session-filtering: attention predicate | EP | L1 | automated | sessions: `currentTool:"ask_user"`; `status:"streaming"`; `status:"active"`; `unread:true`; idle+read; ended+read | `demandsAttention` | true,true,true,true,false,false |
-| E11 | folder-focus: active folder | state-transition | L1 | automated | selected session cwd `/repo/.worktrees/feat` main `/repo`; header click `/bar` | `resolveActiveCwd` | `/repo`; deselect → `/bar`; `/bar` group removed → `null` |
+| E11 | folder-focus: active folder | state-transition | L1 | automated | selected session cwd `/repo/.worktrees/feat` main `/repo`, then header activation `/bar`, then select the `/repo` session again | `resolveActiveCwd` after each step | `/repo` → `/bar` (selection kept) → `/repo`; `/bar` group removed while activated → `null` |
+| E22 | focus-mode: first edit copies built-in | state-transition | L1 | automated | no stored profile, plugins `automation`,`goal` | set profile row `badge-goal` = Show | stored profile = built-in explicit values for every offered id with `badge-goal=true`, `folderListMode=accordion`; label Custom |
+| E23 | focus-mode: settings notice | decision-table | L1 | automated | Focus on / off × pages {card blocks, folder Session cards, Effects} | render page, click `Turn off Focus` | notice only when on on all 3 pages; click sets Focus off |
 | E12 | folder-focus: pin/collapse exclusion | state-transition | L1 | automated | `/foo` collapsed | `set_folder_expanded(/foo,true)` then `set_folder_collapsed(/foo,true)` | after 1st: in expanded, not collapsed; after 2nd: in collapsed, not expanded; prefs file round-trips both lists |
 | E13 | folder-focus: mode setting | EP | L1 | automated | config `folderListMode` values `classic`,`accordion`,`grid`,absent; `folderAttentionPeek` absent | config parse | `classic`,`accordion`,`classic`,`classic`; peek `true` |
 | E14 | visibility: OpenSpec phase once | decision-table | L1 | automated | session with phase, tags `[]` / `["x"]`, `openspec-badge` on/off, `tags` on | render desktop + mobile `SessionCard` | phase text appears exactly once when badge on, zero times when off; tags strip only when `["x"]` and never contains phase |
@@ -61,10 +63,10 @@ No open clarifications.
 
 ## Coverage summary
 
-- Requirements covered: 32/32 (every delta requirement mapped to ≥1 row; REMOVED requirements need no scenario)
-- Scenarios by class: edge 21 · perf 0 · frontend 10 · error 3
-- Scenarios by level: L1 25 · L2 0 · L3 7 · manual 2
-- Scenarios by disposition: automated 32 · manual-only 2
+- Requirements covered: 33/33 (every delta requirement mapped to ≥1 row; REMOVED requirements need no scenario)
+- Scenarios by class: edge 23 · perf 0 · frontend 10 · error 3
+- Scenarios by level: L1 27 · L2 0 · L3 7 · manual 2
+- Scenarios by disposition: automated 34 · manual-only 2
 
 ## New infra needed
 

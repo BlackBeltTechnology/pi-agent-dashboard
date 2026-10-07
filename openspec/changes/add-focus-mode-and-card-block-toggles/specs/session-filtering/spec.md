@@ -46,7 +46,7 @@ In accordion mode, a folder rendering `compact empty` SHALL show, below its cond
 - **THEN** the row SHALL read `18 sessions — click to view`
 
 #### Scenario: Activating focuses
-- **WHEN** the user activates the row of `/foo` with nothing selected
+- **WHEN** the user activates the row of `/foo`, even while a session in another folder is selected
 - **THEN** `/foo` SHALL become the focused folder
 - **AND** its collapsed and pinned-open state SHALL be unchanged
 

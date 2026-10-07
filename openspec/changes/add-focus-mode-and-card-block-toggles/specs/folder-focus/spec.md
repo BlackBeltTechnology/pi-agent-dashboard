@@ -25,16 +25,22 @@ In `classic` mode folder-list behavior (which folders expand, header and chevron
 
 ### Requirement: Active folder derivation
 
-In accordion mode at most one folder SHALL be focused. The focused folder SHALL be the group folder of the selected session when a session is selected; otherwise the folder whose header body the user most recently activated; otherwise none. The header-activated folder SHALL be held per browser tab and not persisted; it SHALL be cleared when that folder no longer renders.
+In accordion mode at most one folder SHALL be focused. The focused folder SHALL follow the user's latest intent: when the most recent of {selecting a session, activating a folder's header body or compact row} was a session selection, the focused folder SHALL be that session's group folder; when it was a folder activation, it SHALL be that folder; with neither, none. The activated folder SHALL be held per browser tab and not persisted; it SHALL be cleared when that folder no longer renders.
 
 #### Scenario: Selection sets the focused folder
 - **WHEN** a session in folder `/foo` is selected
 - **THEN** `/foo` SHALL be the focused folder
 
-#### Scenario: Selection beats header click
+#### Scenario: Latest intent wins over an earlier selection
 - **GIVEN** a session in `/foo` is selected
 - **WHEN** the user activates the header body of `/bar`
-- **THEN** `/foo` SHALL remain the focused folder
+- **THEN** `/bar` SHALL be the focused folder
+- **AND** the session in `/foo` SHALL stay selected
+
+#### Scenario: Selecting again refocuses
+- **GIVEN** `/bar` focused by a header activation and a session in `/foo` selected earlier
+- **WHEN** the user selects a session in `/foo`
+- **THEN** `/foo` SHALL be the focused folder
 
 #### Scenario: Header click when nothing selected
 - **GIVEN** no session is selected
