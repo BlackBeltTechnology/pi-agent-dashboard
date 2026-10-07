@@ -75,20 +75,19 @@ function ChatBody({ sessionId, agent }: { sessionId: string; agent: Agent }) {
       <div className="transcript" data-testid="transcript" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <ChatView sessionId={sessionId} state={chat.state} toolContext={toolContext} onAbort={chat.abort} />
       </div>
-      <div className="composer">
-        <CommandInput
-          commands={[]}
-          sessionId={sessionId}
-          sessionStatus={streaming ? "streaming" : "idle"}
-          disabled={chat.status !== "connected"}
-          onSend={(text) => chat.sendPrompt(text)}
-          onAbort={chat.abort}
-        />
-        <p className="composer-hint">
-          <Icon name="shield" className="ic sm" />
-          {t("cv.hint")}
-        </p>
-      </div>
+      {/* Direct pane child: CommandInput's own max-h-[40%] must resolve against the pane, not a wrapper. */}
+      <CommandInput
+        commands={[]}
+        sessionId={sessionId}
+        sessionStatus={streaming ? "streaming" : "idle"}
+        disabled={chat.status !== "connected"}
+        onSend={(text) => chat.sendPrompt(text)}
+        onAbort={chat.abort}
+      />
+      <p className="composer-hint">
+        <Icon name="shield" className="ic sm" />
+        {t("cv.hint")}
+      </p>
       <span className="sr-only">{agent.name}</span>
     </>
   );
