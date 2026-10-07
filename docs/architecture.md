@@ -6101,3 +6101,92 @@ sequenceDiagram
 - Props: `src/props/` vendored CC0 search + Poly Pizza + sha256-pinned fetch into `.deck3d/props/`.
 - CLI `deck3d`: `parse | validate | render | build | check | snapshot | fx | props`. Skill: `.pi/skills/deck3d/SKILL.md`.
 - See `packages/deck3d/README.md`; change: add-deck3d-presentation-package.
+
+## Role-aware model refs & projection
+
+Any model setting holds `provider/id[:level]` (direct) or `@role[:level]` (follows role). See change: add-role-aware-model-refs.
+
+### Value grammar + resolver
+- `parseModelRef`, `resolveModelRef(ref, cfg)` in `packages/shared/src/role-schema.ts`. Pure, browser-safe.
+- Level split only when canonical: `THINKING_LEVELS` = off, minimal, low, medium, high, xhigh, max.
+- `openrouter/vendor:free` stays direct (`free` not a level).
+- Reads `cfg.roles` only. Preset load already materializes preset into `roles`.
+- Ref level beats role-assignment level.
+- Unassigned role → `unresolved` + reason. Never empty model.
+- Node-only disk reader: `packages/shared/src/role-config-disk.ts` (`readRoleConfigFromDisk`). Missing/garbled → empty config.
+
+### Three consumer kinds
+
+```mermaid
+flowchart LR
+  P[(providers.json)] --> R[shared resolver]
+  R --> A["Kind A: resolve at use<br/>automation, grammar"]
+  P -->|fs.watch dir| E[roles.bindings engine]
+  E -->|projector.write| B["Kind B: projection<br/>blackhole config file"]
+  R -->|pick-time, one shot| C["Kind C: session pickers<br/>composer chip, openspec run dialog"]
+```
+
+- Kind A: value stored verbatim. Resolved per use. Works without roles plugin.
+  - automation: `packages/automation-plugin/src/server/model-resolver.ts`.
+  - grammar: `llm: {role:"@fast"}`. Resolved per check. Unassigned → code `model_role_unassigned`, HTTP 409.
+- Kind B: third-party file owns the value. Engine writes concrete model via owner's projector.
+- Kind C: resolve once at pick. Session never follows later preset changes.
+
+### `roles.bindings` service (roles-plugin server)
+- Files: `packages/roles-plugin/src/server/{role-bindings.ts,binding-store.ts,role-watcher.ts}`.
+- Provided sync at `registerPlugin`: `ctx.provide("roles.bindings", svc)`. Consumers `ctx.consume` inside Fastify `onReady`. Absent → feature off.
+- v1 API: `resolve`, `listRoles`, `registerProjector({owner, acceptsField, read, write})`, `replaceBindings(owner, [{field, ref, projected}])`, `getBindings`, `reattach`, `registerUsage(owner, fn)`, `getUsedBy`, `withOwnerLock`.
+- `replaceBindings` = record-only. Caller already wrote file. Replaces owner set. Forces `ok`. Rejects field failing `acceptsField`.
+- Engine never writes target files. Only `projector.write`.
+- Status per binding:
+  - `ok`: target = last projected.
+  - `dangling`: role unresolved. Target keeps last value. Never blanked.
+  - `detached`: target differs from last projected (provider+id+level). No overwrite until `reattach`.
+- `write` throwing `{code:"PROJECTION_CONFLICT"}` → `detached` (no retry loop).
+- Store: `~/.pi/dashboard/role-bindings.json` = `{version:1, owners:{owner:{field:{ref,projected,status,updatedAt}}}}`. tmp+rename. Corrupt/missing → no bindings + one log line.
+
+### Watcher + passes
+- `fs.watch` on `~/.pi/agent/` DIR. Atomic rename swaps inode; filename unreliable on macOS.
+- Any dir event arms 250 ms debounce. SHA-256 of effective role map skips no-op writes.
+- Boot pass scheduled via `setImmediate` (not awaited; Fastify awaits `onReady` hooks in sequence).
+- Every `registerProjector` triggers targeted pass for that owner. Load order irrelevant.
+- Per-owner `withOwnerLock` serializes save and pass. Save never self-detaches.
+- Per-binding failure isolated. Retried next pass.
+- Absent owner → `skipped`. Bindings kept.
+- Log: `[roles.bindings] pass trigger=… evaluated= written= unchanged= dangling= detached= failed= skipped=`.
+- Deadline: targets converge ≤ 5 s after `providers.json` write, 1000 bindings.
+
+### Blackhole projector
+- Files: `packages/blackhole-plugin/src/server/{role-projector.ts,role-save.ts,config-io.ts}`.
+- Fields: `model`, `observerModel`, `reflectorModel`, `dropperModel`, `<observer|reflector|dropper>FallbackModels[n]`.
+- PUT slot = `"@fast"` or `{role, cooldownHours?, contextWindow?}`.
+- Route flow inside `withOwnerLock("blackhole")`: validate shape → resolve → re-validate concrete body → single `writeAtomic` → `replaceBindings`.
+- Unassigned role or service absent → 400 naming role. File + bindings untouched.
+- File never contains `@`.
+- Reorder/remove: bindings recomputed per save; follow entries by final position.
+- Projector write merges into existing entry. Keeps `cooldownHours`, `contextWindow`, unmanaged keys.
+- Fingerprint change between read and write → `PROJECTION_CONFLICT`.
+- GET config adds `rolesAvailable`, `roleBindings`. `POST /api/plugins/blackhole/bindings/reattach {field}`.
+- Level `max` unsupported by blackhole → pass fails for that binding (logged).
+
+### Pickers (Kind C)
+- `ui:model-selector` prop `allowRoles` → Model | Role tabs. `packages/client/src/components/settings/ModelSelector.tsx`.
+- Tab renders only when `GET /api/roles` is 2xx. Else picker unchanged.
+- Hook `packages/client/src/lib/roles/useRolePick.ts`. Used by composer chip (`CommandInput`) + OpenSpec run dialog.
+- Pick → fresh `GET /api/roles` → `set_model`, then `set_thinking_level`.
+- Level unsupported by model's `supportedThinkingLevels` → skipped + notice.
+- Unassigned → no change + notice.
+- Trigger shows `via @role`. Cleared when session model leaves resolved value or user picks directly.
+
+### Used-by
+- `GET /api/roles/used-by` → `{usedBy:{role:[{kind:"binding"|"usage",owner,label,status?}]}}`.
+- Shown in Model roles settings page. Bindings from store; usages from `registerUsage` reporters (automation global+folder, grammar).
+
+### Without roles plugin
+- No Role tab, no service, no projection, no used-by.
+- Saved Kind A `@role` values still resolve. Extension owns role assignments.
+
+### Rollback
+- Revert change. Delete `~/.pi/dashboard/role-bindings.json` (optional).
+- Targets keep last concrete value.
+- Grammar `llm.role` configs fall back to "pick a model".

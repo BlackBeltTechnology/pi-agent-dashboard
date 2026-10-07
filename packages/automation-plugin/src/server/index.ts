@@ -39,6 +39,8 @@ import {
 import { FOLDER_SCOPE_CONTRIBUTION_PREFIX, collectFolderScopeBases } from "./folder-scope-contributions.js";
 import type { Engine } from "./engine.js";
 import { settingsDefaultBound } from "./resolve-children.js";
+import { automationRoleUsage } from "./role-usage.js";
+import { scanAutomations } from "./scanner.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
 
 const PLUGIN_ID = "automation";
@@ -356,6 +358,31 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
 
   engine.start();
   attachWatchers();
+
+  // "Used by" reporting for the roles plugin (Kind A). The roles plugin may be
+  // absent or load later, so look the service up in `onReady` (after every
+  // plugin registered); absent → no-op. See change: add-role-aware-model-refs.
+  ctx.fastify.addHook("onReady", async () => {
+    const roles = ctx.consume<{
+      registerUsage(owner: string, fn: () => Array<{ label: string; ref: string }>): () => void;
+    }>("roles.bindings");
+    if (!roles) return;
+    const dispose = roles.registerUsage("automation", () => {
+      const discovered = listScopes().flatMap((s) =>
+        scanAutomations(
+          {
+            ...(s.scope === "folder" ? { repoRoot: s.base, scanFolder: true, scanGlobal: false } : {}),
+            ...(s.scope === "global" ? { homeDir: s.base, scanGlobal: true, scanFolder: false } : {}),
+          },
+          engine.registry.kinds(),
+          engine.actionRegistry.ids(),
+          engine.workSources.ids(),
+        ),
+      );
+      return automationRoleUsage(discovered);
+    });
+    ctx.onShutdown(dispose);
+  });
 
   // Per-run transcript buffer (run sessionId → captured assistant text),
   // flushed to result.md on `agent_end`. `runPrompt` holds the injected

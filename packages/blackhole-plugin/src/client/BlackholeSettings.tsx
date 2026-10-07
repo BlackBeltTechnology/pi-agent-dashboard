@@ -30,7 +30,7 @@ import {
   KNOWN_KEYS,
   type ModelRef,
 } from "../shared/blackhole-config.js";
-import { normalizeModel, readChain, recommendedDefaults, writeChain } from "../shared/chain-model.js";
+import { readChain, recommendedDefaults, toWire, writeChain } from "../shared/chain-model.js";
 import {
   type ConfigOk,
   type ConfigResult,
@@ -38,6 +38,7 @@ import {
   getModels,
   isExtensionInstalled,
   putConfig,
+  reattachBinding,
 } from "./blackhole-api.js";
 import { ChainEditor, type RegistryState } from "./ChainEditor.js";
 import { FIELD_GROUPS, type FieldMeta, WORKER_META } from "./field-groups.js";
@@ -75,13 +76,23 @@ export function toDraft(cfg: ConfigOk): Draft {
     values[key] = view?.value;
     if (view && !view.isDefault) userSet.add(key);
   }
+  const bindings = new Map((cfg.roleBindings ?? []).map((b) => [b.field, b]));
+  const mark = (entry: ModelRef, field: string): ModelRef => {
+    const b = bindings.get(field);
+    return b ? { ...entry, role: b.ref, roleStatus: b.status } : entry;
+  };
   const chains: Chains = {};
-  for (const w of WORKER_META) chains[w.worker] = readChain(values, w.primaryKey, w.fallbackKey);
+  for (const w of WORKER_META) {
+    chains[w.worker] = readChain(values, w.primaryKey, w.fallbackKey).map((e, i) =>
+      mark(e, i === 0 ? w.primaryKey : `${w.fallbackKey}[${i - 1}]`),
+    );
+  }
   const base = values.model;
   return {
     values,
     chains,
-    baseModel: base && typeof base === "object" && !Array.isArray(base) ? (base as ModelRef) : null,
+    baseModel:
+      base && typeof base === "object" && !Array.isArray(base) ? mark(base as ModelRef, "model") : null,
     userSet,
     loaded: { ...values },
   };
@@ -137,14 +148,12 @@ function scalarPayload(draft: Draft): Record<string, unknown> {
 function modelPayload(draft: Draft): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (shouldEmit(draft, "model", draft.baseModel)) {
-    out.model = draft.baseModel
-      ? normalizeModel(draft.baseModel as unknown as Record<string, unknown>)
-      : null;
+    out.model = draft.baseModel ? toWire(draft.baseModel) : null;
   }
   for (const w of WORKER_META) {
     const { primary, fallbacks } = writeChain(draft.chains[w.worker] ?? []);
-    if (shouldEmit(draft, w.primaryKey, primary ?? null)) out[w.primaryKey] = primary ?? null;
-    if (shouldEmit(draft, w.fallbackKey, fallbacks ?? null)) out[w.fallbackKey] = fallbacks ?? null;
+    if (shouldEmit(draft, w.primaryKey, primary ?? null)) out[w.primaryKey] = primary ? toWire(primary) : null;
+    if (shouldEmit(draft, w.fallbackKey, fallbacks ?? null)) out[w.fallbackKey] = fallbacks ? fallbacks.map(toWire) : null;
   }
   return out;
 }
@@ -229,6 +238,19 @@ export function BlackholeSettings(): React.ReactElement {
   const setField = useCallback((key: string, value: unknown) => {
     setDraft((prev) => (prev ? { ...prev, values: { ...prev.values, [key]: value } } : prev));
   }, []);
+
+  const reattach = useCallback(
+    async (field: string) => {
+      try {
+        setSaveError(null);
+        await reattachBinding(field);
+        await load();
+      } catch (err) {
+        setSaveError(errMsg(err));
+      }
+    },
+    [load],
+  );
 
   const setChain = useCallback((worker: string, next: ModelRef[]) => {
     setDraft((prev) => (prev ? { ...prev, chains: { ...prev.chains, [worker]: next } } : prev));
@@ -476,6 +498,7 @@ export function BlackholeSettings(): React.ReactElement {
         }
         onDefaultsClick={handleDefaultsClick}
         onSetChain={setChain}
+        onReattach={reattach}
       />
     </div>
   );
@@ -494,6 +517,8 @@ interface ChainsSectionProps {
   onSetBaseModel: (base: ModelRef | null) => void;
   onDefaultsClick: () => void;
   onSetChain: (worker: string, next: ModelRef[]) => void;
+  /** Re-project the role into a detached slot (`field` is the binding key). */
+  onReattach: (field: string) => void;
 }
 
 function ChainsSection({
@@ -509,6 +534,7 @@ function ChainsSection({
   onSetBaseModel,
   onDefaultsClick,
   onSetChain,
+  onReattach,
 }: ChainsSectionProps): React.ReactElement {
   const t = useT();
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
@@ -618,13 +644,17 @@ function ChainsSection({
             {registryState === "ok" ? (
               <ModelSelectorPrimitive
                 current={
-                  draft.baseModel
-                    ? `${draft.baseModel.provider}/${draft.baseModel.id}`
-                    : undefined
+                  draft.baseModel?.role ??
+                  (draft.baseModel ? `${draft.baseModel.provider}/${draft.baseModel.id}` : undefined)
                 }
                 models={models}
+                allowRoles
                 placeholder={t("selectBaseModelPlaceholder", undefined, "Select base model…")}
                 onSelect={(label: string) => {
+                  if (label.startsWith("@")) {
+                    onSetBaseModel({ provider: draft.baseModel?.provider ?? "", id: draft.baseModel?.id ?? "", role: label });
+                    return;
+                  }
                   const picked = models.find((m) => `${m.provider}/${m.id}` === label);
                   let provider = "";
                   let id = "";
@@ -729,6 +759,9 @@ function ChainsSection({
             models={models}
             registry={registryState}
             onRetryRegistry={onRetryRegistry}
+            onReattach={(index) =>
+              onReattach(index === 0 ? w.primaryKey : `${w.fallbackKey}[${index - 1}]`)
+            }
           />
         ))}
       </div>

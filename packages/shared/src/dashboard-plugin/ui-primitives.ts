@@ -277,9 +277,11 @@ export interface UiStatusPillProps {
  * pending-state with 10 s timeout) to plugins without forcing them to depend
  * on the client package.
  *
- * Role/preset props that historically existed on `ModelSelector` are NOT part
- * of this contract — role management is a host concern (see
- * `BuiltInRolesSettings` in roles-plugin) layered on top.
+ * Role MANAGEMENT props (preset load/save, role assignment) are NOT part of
+ * this contract — that stays a host concern (see `BuiltInRolesSettings` in
+ * roles-plugin). The opt-in `allowRoles` prop only lets a caller PICK an
+ * `@role` ref (Role tab); absent, behavior is unchanged.
+ * See change: add-role-aware-model-refs.
  */
 export interface UiModelSelectorProps {
   /** Currently-selected model label in `"<provider>/<id>"` form, or undefined. */
@@ -290,6 +292,12 @@ export interface UiModelSelectorProps {
   onSelect: (modelLabel: string) => void;
   /** Trigger text when `current` is absent; the primitive's default is used when omitted. */
   placeholder?: string;
+  /**
+   * Opt-in Model | Role switch. When true AND the roles plugin is installed,
+   * a Role tab lists roles and `onSelect` receives `"@<role>"` instead of a
+   * `"<provider>/<id>"` label. Ignored when the roles plugin is absent.
+   */
+  allowRoles?: boolean;
 }
 
 /**

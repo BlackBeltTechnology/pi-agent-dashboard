@@ -602,3 +602,39 @@ describe("Base model and recommended defaults (4.1-4.10)", () => {
     expect(sources.get("plugin:blackhole")?.isDirty).toBe(false);
   });
 });
+
+
+describe("role-bound slots in the draft/payload (add-role-aware-model-refs)", () => {
+  const cfgWith = (extra: Record<string, unknown>, roleBindings: unknown[]) => ({
+    ...allDefaultConfig(extra),
+    rolesAvailable: true,
+    roleBindings,
+  });
+
+  it("marks bound slots from roleBindings and sends them as role slots, never concrete", () => {
+    const cfg = cfgWith(
+      {
+        observerModel: { provider: "anthropic", id: "claude-haiku-4-5", thinking: "low" },
+        observerFallbackModels: [{ provider: "x", id: "y" }, { provider: "a", id: "b", cooldownHours: 2 }],
+      },
+      [
+        { field: "observerModel", ref: "@fast", status: "ok" },
+        { field: "observerFallbackModels[1]", ref: "@fast", status: "dangling" },
+      ],
+    );
+    const draft = toDraft(cfg as never);
+    expect(draft.chains.observer![0]).toMatchObject({ role: "@fast", roleStatus: "ok" });
+    expect(draft.chains.observer![1]!.role).toBeUndefined();
+    expect(draft.chains.observer![2]).toMatchObject({ role: "@fast", roleStatus: "dangling" });
+    const payload = buildPayload(draft);
+    expect(payload.observerModel).toEqual({ role: "@fast" });
+    expect(payload.observerFallbackModels).toEqual([{ provider: "x", id: "y" }, { role: "@fast", cooldownHours: 2 }]);
+    // the wire shape is accepted by the server's role-aware validator
+    expect(validateBlackholeConfig(payload, { allowRoleSlots: true }).errors).toEqual([]);
+  });
+
+  it("a config without bindings still round-trips as concrete refs (no role keys)", () => {
+    const cfg = allDefaultConfig({ observerModel: { provider: "openrouter", id: "A" } });
+    expect(buildPayload(toDraft(cfg as never)).observerModel).toEqual({ provider: "openrouter", id: "A" });
+  });
+});

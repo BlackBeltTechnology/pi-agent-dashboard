@@ -46,9 +46,19 @@ const CATEGORIES: TriggerCategoryDescriptor[] = [
   { category: "git", label: "Git", status: "planned", events: [] },
 ];
 
-function MockModelSelector({ models, onSelect }: UiModelSelectorProps) {
+// Stand-in for the shell primitive: with `allowRoles` it exposes a Role tab's
+// worth of rows (built-in + the custom `nightly`) that emit bare `@role`.
+// See change: add-role-aware-model-refs.
+const MOCK_ROLES = ["fast", "coding", "nightly"];
+function MockModelSelector({ models, onSelect, current, allowRoles }: UiModelSelectorProps) {
   return (
-    <div>
+    <div data-testid="mock-model-selector" data-current={current ?? ""} data-allow-roles={String(!!allowRoles)}>
+      {allowRoles &&
+        MOCK_ROLES.map((r) => (
+          <button key={r} data-testid={`role-opt-${r}`} onClick={() => onSelect(`@${r}`)}>
+            @{r}
+          </button>
+        ))}
       {(models ?? []).map((m) => {
         const label = `${m.provider}/${m.id}`;
         return (
@@ -126,7 +136,7 @@ describe("CreateAutomationDialog (redesign)", () => {
   it("writes the chosen @role to config", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.change(getByTestId("create-name"), { target: { value: "weekly-brief" } });
-    fireEvent.change(getByTestId("create-model-role"), { target: { value: "@coding" } });
+    fireEvent.click(getByTestId("role-opt-coding"));
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(createAutomation).toHaveBeenCalled());
     expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("@coding");
@@ -135,7 +145,6 @@ describe("CreateAutomationDialog (redesign)", () => {
   it("writes a specific model id chosen via the ModelSelector", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
-    fireEvent.click(getByTestId("create-model-mode-model"));
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(createAutomation).toHaveBeenCalled());
@@ -336,7 +345,7 @@ describe("CreateAutomationDialog (redesign)", () => {
     );
     expect((getByTestId("create-name") as HTMLInputElement).value).toBe("existing");
     expect((getByTestId("create-name") as HTMLInputElement).disabled).toBe(true);
-    expect((getByTestId("create-model-role") as HTMLSelectElement).value).toBe("@coding");
+    expect(getByTestId("mock-model-selector").getAttribute("data-current")).toBe("@coding");
     expect((getByTestId("create-prompt") as HTMLTextAreaElement).value).toBe("do the thing");
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
@@ -357,7 +366,6 @@ describe("CreateAutomationDialog — thinking level", () => {
   it("writes the level as a suffix on the model field", async () => {
     const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
     fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
-    fireEvent.click(getByTestId("create-model-mode-model"));
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     fireEvent.click(getByTestId("level-opt-high"));
     fireEvent.click(getByTestId("create-submit"));
@@ -367,7 +375,6 @@ describe("CreateAutomationDialog — thinking level", () => {
 
   it("offers only the picked model's supported levels", () => {
     const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
-    fireEvent.click(getByTestId("create-model-mode-model"));
     fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
     expect(getByTestId("level-opt-high")).toBeTruthy();
     expect(queryByTestId("level-opt-low")).toBeNull();
@@ -379,7 +386,7 @@ describe("CreateAutomationDialog — thinking level", () => {
     expect(queryByTestId("mock-thinking-level")).toBeNull();
     expect(getByTestId("create-model-role-level-hint")).toBeTruthy();
     fireEvent.change(getByTestId("create-name"), { target: { value: "r" } });
-    fireEvent.change(getByTestId("create-model-role"), { target: { value: "@coding" } });
+    fireEvent.click(getByTestId("role-opt-coding"));
     fireEvent.click(getByTestId("create-submit"));
     await waitFor(() => expect(createAutomation).toHaveBeenCalled());
     expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("@coding");
@@ -402,5 +409,35 @@ describe("CreateAutomationDialog — thinking level", () => {
     expect(getByTestId("create-model-selector").textContent).toContain(
       "anthropic/claude-sonnet-4-5:high",
     );
+  });
+});
+
+// E25 — custom role selectable via the primitive's Role tab; no level control.
+describe("CreateAutomationDialog — role-aware model field", () => {
+  it("custom role `nightly` selectable → stores `@nightly`, no thinking-level control", async () => {
+    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    expect(getByTestId("mock-model-selector").getAttribute("data-allow-roles")).toBe("true");
+    expect(queryByTestId("create-model-role")).toBeNull();
+    fireEvent.change(getByTestId("create-name"), { target: { value: "n" } });
+    fireEvent.click(getByTestId("role-opt-nightly"));
+    expect(queryByTestId("mock-thinking-level")).toBeNull();
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("@nightly");
+  });
+
+  it("hand-written @role:level survives an edit round-trip verbatim", async () => {
+    const initial = {
+      name: "x",
+      on: { kind: "schedule", cron: "0 9 * * *" },
+      model: "@fast:high",
+      action: { kind: "prompt", prompt: "hi" },
+    } as unknown as AutomationConfig;
+    const { getByTestId } = render(
+      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
+    );
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(updateAutomation).toHaveBeenCalled());
+    expect(updateAutomation.mock.calls[0]![0]!.config.model).toBe("@fast:high");
   });
 });

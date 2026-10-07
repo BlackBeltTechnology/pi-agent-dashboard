@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
+import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
@@ -91,6 +92,16 @@ export function useOpenSpecRunConfigRow(
     [cfg.thinkingLevel],
   );
 
+  // One-shot `@role` pick: resolves once into the draft model/level, so the
+  // existing confirm-before-send gate applies it exactly like a direct pick.
+  // See change: add-role-aware-model-refs.
+  const rolePick = useRolePick({
+    currentModel: draftModel,
+    models: cfg.models,
+    selectModel: onSelectModel,
+    selectLevel: onSelectLevel,
+  });
+
   const submit = useCallback(
     (finalize: () => void) => {
       const mDirty = draftModel != null && draftModel !== cfg.model;
@@ -149,7 +160,9 @@ export function useOpenSpecRunConfigRow(
         models={cfg.models}
         level={draftLevel}
         favorites={cfg.favorites}
-        onSelectModel={onSelectModel}
+        onSelectModel={rolePick.onSelect}
+        viaRole={rolePick.viaRole}
+        roleNotice={rolePick.notice}
         onSelectLevel={onSelectLevel}
         onToggleFavorite={cfg.toggleFavorite}
         onRefresh={cfg.refreshModels}
@@ -165,7 +178,9 @@ export function useOpenSpecRunConfigRow(
       cfg.favorites,
       cfg.toggleFavorite,
       cfg.refreshModels,
-      onSelectModel,
+      rolePick.onSelect,
+      rolePick.viaRole,
+      rolePick.notice,
       onSelectLevel,
       dirty,
       sending,
@@ -182,6 +197,8 @@ interface RowViewProps {
   level?: string;
   favorites?: string[];
   onSelectModel: (label: string) => void;
+  viaRole?: string;
+  roleNotice?: import("../../lib/roles/useRolePick.js").RolePickNotice;
   onSelectLevel: (level: string) => void;
   onToggleFavorite: (label: string, makeFavorite: boolean) => void;
   onRefresh: () => void;
@@ -196,6 +213,8 @@ function OpenSpecRunConfigRowView({
   level,
   favorites,
   onSelectModel,
+  viaRole,
+  roleNotice,
   onSelectLevel,
   onToggleFavorite,
   onRefresh,
@@ -233,6 +252,8 @@ function OpenSpecRunConfigRowView({
             <ModelSelector
               current={model}
               models={models}
+              allowRoles
+              viaRole={viaRole}
               onSelect={onSelectModel}
               onRefresh={onRefresh}
               favorites={favorites}
@@ -244,6 +265,11 @@ function OpenSpecRunConfigRowView({
           </fieldset>
         </PopoverBoundaryProvider>
       </div>
+      {roleNotice && (
+        <p role="status" data-testid="run-config-role-notice" className="mt-1 text-[11px] text-[var(--severity-warning-fg)]">
+          {rolePickNoticeText(roleNotice, i18nT)}
+        </p>
+      )}
       {modelsUnavailable && (
         <p
           data-testid="run-config-model-loading"

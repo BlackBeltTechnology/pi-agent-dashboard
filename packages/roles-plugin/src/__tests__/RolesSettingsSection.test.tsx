@@ -1025,3 +1025,40 @@ describe("the naming role", () => {
     expect(getByTestId("roles-row-naming").textContent).not.toContain("gpt-namer");
   });
 });
+
+
+describe("BuiltInRolesSettings — used-by overview (add-role-aware-model-refs)", () => {
+  afterEach(() => {
+    cleanup();
+    (globalThis as { fetch?: unknown }).fetch = undefined;
+  });
+
+  it("lists, per role, every binding (with status) and resolve-at-use reference", async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => ({
+      ok: String(url).endsWith("/api/roles/used-by"),
+      json: async () => ({
+        usedBy: {
+          fast: [
+            { kind: "binding", owner: "blackhole", label: "observerModel", status: "detached" },
+            { kind: "usage", owner: "grammar", label: "grammar model" },
+          ],
+        },
+      }),
+    });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    seedConfig(sampleConfig);
+    await act(async () => {});
+    const row = r.getByTestId("roles-used-by-fast");
+    expect(row.textContent).toContain("blackhole · observerModel");
+    expect(row.textContent).toContain("detached");
+    expect(row.textContent).toContain("grammar · grammar model");
+  });
+
+  it("renders no overview when the endpoint is unavailable", async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => ({ ok: false, json: async () => ({}) });
+    const r = render(wrap(<BuiltInRolesSettings />));
+    seedConfig(sampleConfig);
+    await act(async () => {});
+    expect(r.queryByTestId("roles-used-by")).toBeNull();
+  });
+});

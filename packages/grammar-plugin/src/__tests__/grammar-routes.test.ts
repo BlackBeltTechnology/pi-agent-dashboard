@@ -96,3 +96,70 @@ describe("GET /api/grammar/health", () => {
     await app.close();
   });
 });
+
+// ── role-aware llm (add-role-aware-model-refs) ───────────────────────────
+import { checkGrammar } from "../server/grammar-service.js";
+import { resolveModelRef } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
+
+describe("role-aware grammar model", () => {
+  const streamSimple = (() => {
+    throw new Error("not reached");
+  }) as never;
+  function roleApp(roles: Record<string, string>, find: (p: string, id: string) => Promise<unknown>) {
+    const app = Fastify();
+    mountGrammarRoutes(app, {
+      getGrammarConfig: () => ({ ...DEFAULT_GRAMMAR, enabled: true, llm: { role: "@fast" } }),
+      getModelRegistry: async () => ({ find }) as never,
+      streamSimple,
+      check: (args) =>
+        checkGrammar({ ...args, resolveRole: (ref) => resolveModelRef(ref, { roles }) }),
+    });
+    return app;
+  }
+
+  it("E21: a preset change applies on the NEXT check (registry find sees A then B)", async () => {
+    const roles: Record<string, string> = { fast: "anthropic/model-a" };
+    const calls: string[] = [];
+    const app = roleApp(roles, async (p, id) => {
+      calls.push(`${p}/${id}`);
+      return undefined; // → backend_unconfigured after the lookup; we only assert the lookup
+    });
+    await app.ready();
+    await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hello there" } });
+    roles.fast = "openai/model-b";
+    await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hello there" } });
+    expect(calls).toEqual(["anthropic/model-a", "openai/model-b"]);
+    await app.close();
+  });
+
+  it("X13: unassigned role → model_role_unassigned naming the role; registry never called", async () => {
+    let called = false;
+    const app = roleApp({}, async () => {
+      called = true;
+      return undefined;
+    });
+    await app.ready();
+    const res = await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hello there" } });
+    const body = JSON.parse(res.payload);
+    expect(body.code).toBe("model_role_unassigned");
+    expect(body.error).toContain("@fast");
+    expect(res.statusCode).toBe(409);
+    expect(called).toBe(false);
+    await app.close();
+  });
+
+  it("E22: a direct llm calls the registry exactly as before", async () => {
+    const calls: string[] = [];
+    const app = Fastify();
+    mountGrammarRoutes(app, {
+      getGrammarConfig: () => ({ ...DEFAULT_GRAMMAR, enabled: true, llm: { provider: "anthropic", model: "claude-haiku-4-5" } }),
+      getModelRegistry: async () =>
+        ({ find: async (p: string, id: string) => (calls.push(`${p}/${id}`), undefined) }) as never,
+      streamSimple,
+    });
+    await app.ready();
+    await app.inject({ method: "POST", url: "/api/grammar/check", payload: { text: "hello there" } });
+    expect(calls).toEqual(["anthropic/claude-haiku-4-5"]);
+    await app.close();
+  });
+});

@@ -47,6 +47,7 @@ export const catalog = {
     modelHint: "A modell választása befolyásolja a minőséget, a késleltetést és a költséget.",
     modelHintLink: "Mely modellek jók?",
     modelRequired: "Válassz modellt – a nyelvtani ellenőrzés csak beállított modellel fut.",
+    "grammar.err.roleUnassigned": "A nyelvtani modell szerepkörhöz nincs modell rendelve – rendeld hozzá a Beállítások → Modell szerepkörök oldalon.",
     modelSelectorUnavailable: "A modellválasztó nem érhető el",
   },
 };

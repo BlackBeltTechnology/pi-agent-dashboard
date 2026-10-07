@@ -481,3 +481,106 @@ describe("ModelSelector — metadataSource 'endpoint' provenance (F3)", () => {
     expect(fallbackRow.textContent).toContain("?");
   });
 });
+
+// ── Role tab (add-role-aware-model-refs) ─────────────────────────────────
+describe("ModelSelector Role tab", () => {
+  const rolesBody = {
+    object: "list",
+    data: [
+      {
+        preset: null,
+        active: true,
+        roles: [
+          { role: "fast", assigned: true, model: "anthropic/claude-haiku-4-5", thinkingLevel: "low" },
+          { role: "nightly", assigned: true, model: "openai/gpt-5-mini" },
+          { role: "research", assigned: false },
+        ],
+      },
+    ],
+  };
+  const stubRoles = (status: number) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => rolesBody })),
+    );
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("E26: Role tab only when allowRoles AND /api/roles is 2xx", async () => {
+    for (const [allow, status, expected] of [
+      [undefined, 200, false],
+      [true, 200, true],
+      [true, 404, false],
+      [undefined, 404, false],
+    ] as const) {
+      stubRoles(status);
+      const { unmount } = render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles={allow} />);
+      await act(async () => {});
+      open();
+      await act(async () => {});
+      expect(screen.queryByTestId("model-tab-role") !== null).toBe(expected);
+      unmount();
+    }
+  });
+
+  it("E27: role pick emits @role once", async () => {
+    stubRoles(200);
+    const onSelect = vi.fn();
+    render(<ModelSelector models={models} onSelect={onSelect} favorites={[]} allowRoles />);
+    await act(async () => {});
+    open();
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    fireEvent.click(within(screen.getByTestId("role-list")).getByText("@fast"));
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("@fast");
+  });
+
+  it("custom role is listed with its resolution", async () => {
+    stubRoles(200);
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await act(async () => {});
+    open();
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    const rows = screen.getAllByTestId("role-row");
+    expect(rows.map((r) => r.getAttribute("data-role"))).toEqual(["fast", "nightly", "research"]);
+    expect(rows[0]!.textContent).toContain("anthropic/claude-haiku-4-5");
+    expect(rows[0]!.textContent).toContain("low");
+  });
+
+  it("E28: current=@fast opens Role tab; trigger shows role + resolution", async () => {
+    stubRoles(200);
+    render(<ModelSelector current="@fast" models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await act(async () => {});
+    const trigger = screen.getByTestId("model-selector-button");
+    expect(trigger.textContent).toContain("@fast");
+    expect(trigger.textContent).toContain("anthropic/claude-haiku-4-5");
+    open();
+    await act(async () => {});
+    expect(screen.getByTestId("model-tab-role").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("role-list")).toBeTruthy();
+  });
+
+  it("E29: unassigned role carries a marker", async () => {
+    stubRoles(200);
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await act(async () => {});
+    open();
+    await act(async () => {});
+    fireEvent.click(screen.getByTestId("model-tab-role"));
+    const research = screen.getAllByTestId("role-row").find((r) => r.getAttribute("data-role") === "research")!;
+    expect(within(research).getByTestId("role-unassigned")).toBeTruthy();
+  });
+
+  it("tablist: ArrowRight switches tab; aria-selected follows", async () => {
+    stubRoles(200);
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} allowRoles />);
+    await act(async () => {});
+    open();
+    await act(async () => {});
+    const tablist = screen.getByRole("tablist");
+    fireEvent.keyDown(tablist, { key: "ArrowRight" });
+    expect(screen.getByTestId("model-tab-role").getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("model-tab-model").getAttribute("aria-selected")).toBe("false");
+  });
+});

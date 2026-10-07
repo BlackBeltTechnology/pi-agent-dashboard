@@ -15,6 +15,7 @@ import {
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
+import { rolePickNoticeText, useRolePick } from "../../lib/roles/useRolePick.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
 
@@ -236,6 +237,14 @@ type StopState = "idle" | "aborting" | "killing";
 
 export function CommandInput({ commands: externalCommands, onSend, onListFiles, fileResults, disabled, sessionStatus, retrying, onAbort, onForceKill, onStopAfterTurn, pendingPrompt, onCancelPending, sessionId, draft, onDraftChange, history, images, onImagesChange, currentCwd, onViewLocal, onOpenInlineTerminal, sessionMessages, model, models, favorites, onToggleFavorite, thinkingLevel, onSelectModel, onSelectThinkingLevel, onRefreshModels, onOpenProviderSettings, modelRefreshErrors, contextUsage }: Props) {
   const { t } = useI18n();
+  // One-shot `@role` pick for the model chip (resolves once; never follows later
+  // role changes). See change: add-role-aware-model-refs.
+  const rolePick = useRolePick({
+    currentModel: model,
+    models,
+    selectModel: onSelectModel ?? (() => {}),
+    selectLevel: onSelectThinkingLevel,
+  });
   // Treat retry-sleep as "still working" for Stop/Force-Stop visibility.
   const isWorking = sessionStatus === "streaming" || retrying === true;
   // Merge server commands with built-in + dashboard-local commands, avoiding duplicates.
@@ -1166,13 +1175,26 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
             <ModelSelector
               current={model}
               models={models}
-              onSelect={onSelectModel}
+              allowRoles
+              viaRole={rolePick.viaRole}
+              onSelect={rolePick.onSelect}
               onRefresh={onRefreshModels}
               onOpenProviderSettings={onOpenProviderSettings}
               refreshErrors={modelRefreshErrors}
               favorites={favorites}
               onToggleFavorite={onToggleFavorite}
             />
+          )}
+
+          {rolePick.notice && (
+            <span
+              role="status"
+              data-testid="role-pick-notice"
+              data-kind={rolePick.notice.kind}
+              className="text-[11px] text-[var(--severity-warning-fg)]"
+            >
+              {rolePickNoticeText(rolePick.notice, t)}
+            </span>
           )}
 
           {/* Thinking + delivery + terminal — desktop inline; folded into ⋯ on mobile. */}

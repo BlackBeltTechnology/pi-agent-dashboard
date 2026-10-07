@@ -42,4 +42,20 @@ describe("resolveModel", () => {
     expect(r.model).toBe("");
     expect(r.error).toContain("no default model");
   });
+
+  it("E23: role level suffix preserved", () => {
+    const r = resolveModel("@fast", { readRoles: () => ({ fast: "anthropic/claude-haiku-4-5:low" }) });
+    expect(r.model).toBe("anthropic/claude-haiku-4-5:low");
+  });
+
+  it("ref level overrides the role's level (@fast:medium)", () => {
+    const r = resolveModel("@fast:medium", { readRoles: () => ({ fast: "anthropic/claude-haiku-4-5:low" }) });
+    expect(r.model).toBe("anthropic/claude-haiku-4-5:medium");
+  });
+
+  it("E24: unresolved role → default model + error naming the role", () => {
+    const r = resolveModel("@gone", { readRoles: roles, defaultModel: "D/m" });
+    expect(r).toMatchObject({ model: "D/m" });
+    expect(r.error).toContain("@gone");
+  });
 });

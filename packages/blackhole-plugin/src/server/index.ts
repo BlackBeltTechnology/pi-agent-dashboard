@@ -32,6 +32,8 @@ import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin
 import type { FastifyInstance } from "fastify";
 import { existsSync } from "node:fs";
 import { validateBlackholeConfig } from "../shared/blackhole-config.js";
+import { createBlackholeProjector, BLACKHOLE_OWNER, acceptsField, type Concrete, type RolesBindingsLike } from "./role-projector.js";
+import { nextBindingSet, resolveRoleSlots } from "./role-save.js";
 import { ConfigParseErrorOnWrite, readConfig, saveConfig } from "./config-io.js";
 import { resolveBlackholeConfigPath } from "./config-path.js";
 import {
@@ -49,6 +51,7 @@ export interface RouteLogger {
 
 const ROUTE = "/api/plugins/blackhole/config";
 const STATUS_ROUTE = "/api/plugins/blackhole/status";
+const REATTACH_ROUTE = "/api/plugins/blackhole/bindings/reattach";
 const SESSION_ROUTE = "/api/plugins/blackhole/session/:id";
 const EXTENSION_ID = "pi-blackhole";
 
@@ -86,9 +89,12 @@ export function registerBlackholeRoutes(
     logger: RouteLogger;
     env?: Record<string, string | undefined>;
     isPiExtensionInstalled?: (name: string) => Promise<boolean>;
+    /** Looks up the roles plugin's `roles.bindings` service per request (absent → role refs rejected). */
+    getRoles?: () => RolesBindingsLike | undefined;
   },
 ): void {
   const { logger, env } = deps;
+  const rolesService = () => deps.getRoles?.();
 
   fastify.get(STATUS_ROUTE, async (_req, reply) => {
     if (deps.isPiExtensionInstalled) {
@@ -157,23 +163,76 @@ export function registerBlackholeRoutes(
     logger.info(
       `blackhole config read path=${filePath} exists=${result.exists} unmanagedKeys=${result.unmanagedKeys.length}`,
     );
-    return result;
+    return { ...result, ...rolesView() };
+  });
+
+  /** `roleBindings` (status per bound slot) + `rolesAvailable` for the settings UI. */
+  function rolesView(): { rolesAvailable: boolean; roleBindings: Array<{ field: string; ref: string; status: string }> } {
+    const roles = rolesService();
+    return {
+      rolesAvailable: roles !== undefined,
+      roleBindings: (roles?.getBindings(BLACKHOLE_OWNER) ?? []).map((b) => ({ field: b.field, ref: b.ref, status: b.status })),
+    };
+  }
+
+  fastify.post<{ Body: { field?: unknown } }>(REATTACH_ROUTE, async (req, reply) => {
+    const roles = rolesService();
+    const field = req.body?.field;
+    if (!roles || typeof field !== "string" || !acceptsField(field)) {
+      reply.code(400);
+      return { error: "invalid reattach request" };
+    }
+    try {
+      await roles.reattach(BLACKHOLE_OWNER, field);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.warn(`blackhole reattach failed field=${field} reason=${message}`);
+      reply.code(500);
+      return { error: "reattach failed", message };
+    }
+    return { ok: true, ...rolesView() };
   });
 
   fastify.put<{ Body: unknown }>(ROUTE, async (req, reply) => {
+    const roles = rolesService();
+    // Serialize resolve → write → replaceBindings against projection passes
+    // (a pass for this owner waits), so a just-saved binding is never judged
+    // `detached`. Absent service → no lock, no binding bookkeeping.
+    return roles ? roles.withOwnerLock(BLACKHOLE_OWNER, () => handlePut(req.body, reply, roles)) : handlePut(req.body, reply, undefined);
+  });
+
+  async function handlePut(
+    body: unknown,
+    reply: { code(n: number): unknown },
+    roles: RolesBindingsLike | undefined,
+  ): Promise<unknown> {
     const filePath = resolveBlackholeConfigPath(env);
-    const body = req.body;
-    const validation = validateBlackholeConfig(body);
-    if (!validation.ok) {
-      const reason = validation.errors.map((e) => e.field || "body").join(", ");
+    const reject = (invalid: ReturnType<typeof validateBlackholeConfig>) => {
+      const reason = invalid.errors.map((e) => e.field || "body").join(", ");
       logger.warn(`blackhole config write rejected path=${filePath} invalidFields=${reason}`);
       reply.code(400);
-      return { error: "invalid config", errors: validation.errors };
+      return { error: "invalid config", errors: invalid.errors };
+    };
+
+    // 1. Shape check — role slots allowed (the client form may send `@role`).
+    const validation = validateBlackholeConfig(body, { allowRoleSlots: true });
+    if (!validation.ok) return reject(validation);
+
+    // 2. Resolve role slots to concrete ModelRefs (file never holds `@`).
+    const resolved = resolveRoleSlots(body as Record<string, unknown>, roles);
+    if (!resolved.ok) {
+      logger.warn(`blackhole config write rejected path=${filePath} reason=${resolved.error}`);
+      reply.code(400);
+      return { error: resolved.error };
     }
+
+    // 3. Re-validate the CONCRETE body (a resolved level may be invalid for blackhole).
+    const concreteValidation = validateBlackholeConfig(resolved.concrete);
+    if (!concreteValidation.ok) return reject(concreteValidation);
 
     let saved: ReturnType<typeof saveConfig>;
     try {
-      saved = saveConfig(filePath, body as Record<string, unknown>);
+      saved = saveConfig(filePath, resolved.concrete);
     } catch (e) {
       if (e instanceof ConfigParseErrorOnWrite) {
         logger.warn(`blackhole config write blocked (unparseable) path=${filePath}`);
@@ -186,9 +245,36 @@ export function registerBlackholeRoutes(
       return { error: "config write failed", message };
     }
 
+    // 4. Record bindings AFTER the single write succeeded (replace, not merge).
+    if (roles) {
+      const existing = roles.getBindings(BLACKHOLE_OWNER);
+      const projectedOf = (field: string): Concrete => {
+        const r = resolved.concrete;
+        const key = field.replace(/\[\d+\]$/, "");
+        const idx = /\[(\d+)\]$/.exec(field)?.[1];
+        const entry = (idx === undefined ? r[key] : (r[key] as unknown[])[Number(idx)]) as {
+          provider: string;
+          id: string;
+          thinking?: string;
+        };
+        return { provider: entry.provider, id: entry.id, ...(entry.thinking ? { level: entry.thinking } : {}) };
+      };
+      const next = nextBindingSet(existing, resolved.touchedKeys, resolved.slots, projectedOf);
+      const same =
+        next.length === existing.length &&
+        next.every((n) => existing.some((e) => e.field === n.field && e.ref === n.ref && e.status === "ok"));
+      if (!same || resolved.slots.length > 0) {
+        try {
+          roles.replaceBindings(BLACKHOLE_OWNER, next);
+        } catch (e) {
+          logger.error(`blackhole bindings record failed reason=${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+
     const keyCount = Object.keys(body as Record<string, unknown>).length;
     logger.info(
-      `blackhole config wrote path=${filePath} keys=${keyCount} preservedUnmanaged=${saved.preservedUnmanagedKeys.length} externalWriteDetected=${saved.externalWriteDetected}`,
+      `blackhole config wrote path=${filePath} keys=${keyCount} preservedUnmanaged=${saved.preservedUnmanagedKeys.length} externalWriteDetected=${saved.externalWriteDetected} roleSlots=${resolved.slots.length}`,
     );
     // The write succeeded. If the file has ALREADY been corrupted again by
     // another process, the echo read comes back as a parse-error — do not spread
@@ -197,17 +283,27 @@ export function registerBlackholeRoutes(
     const after = readConfig(filePath);
     if (after.status === "parse-error") {
       logger.warn(`blackhole config unparseable immediately after write path=${filePath}`);
-      return { status: "ok" as const, filePath, staleEcho: true, ...saved };
+      return { status: "ok" as const, filePath, staleEcho: true, ...saved, ...rolesView() };
     }
-    return { ...after, ...saved };
-  });
+    return { ...after, ...saved, ...rolesView() };
+  }
 }
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("blackhole-plugin server entry activated");
+  const getRoles = () => ctx.consume<RolesBindingsLike>("roles.bindings");
   registerBlackholeRoutes(ctx.fastify, {
     logger: ctx.logger,
     isPiExtensionInstalled: ctx.isPiExtensionInstalled,
+    getRoles,
+  });
+  // Register the projector once every plugin is registered (the roles plugin may
+  // load after us). Absent service → feature off. See change: add-role-aware-model-refs (D2).
+  ctx.fastify.addHook("onReady", async () => {
+    const roles = getRoles();
+    if (!roles) return;
+    const dispose = roles.registerProjector(createBlackholeProjector(() => resolveBlackholeConfigPath()));
+    ctx.onShutdown(dispose);
   });
 }
 

@@ -38,6 +38,7 @@ import type {
   TriggerCategoryDescriptor,
   Visibility,
 } from "../shared/automation-types.js";
+import { THINKING_LEVELS } from "@blackbelt-technology/pi-dashboard-shared/role-schema.js";
 import { nextFire } from "../shared/cron.js";
 import {
   createAutomation,
@@ -105,7 +106,6 @@ export interface CreateAutomationDialogProps {
 }
 
 type VisibilityChoice = "default" | Visibility;
-type ModelMode = "role" | "model";
 
 /** One additional (non-primary) fan-out action entry drafted in the editor. */
 interface AdditionalActionDraft {
@@ -115,14 +115,12 @@ interface AdditionalActionDraft {
   payload: Record<string, string>;
 }
 
-const DEFAULT_ROLE_KEYS = ["fast", "planning", "coding", "compact", "vision", "research"];
 
 /**
  * Canonical thinking levels, in pi's own order. `off` is the NO-OVERRIDE
  * option: it writes a bare model ref and lets pi's default stand.
  * See change: add-default-thinking-level.
  */
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /**
  * Split `"<provider>/<id>[:<level>]"`. Only a CANONICAL level tail is split off
@@ -132,7 +130,7 @@ function splitModelLevel(ref: string): { base: string; level?: string } {
   const idx = ref.lastIndexOf(":");
   if (idx <= 0) return { base: ref };
   const tail = ref.slice(idx + 1);
-  if (!THINKING_LEVELS.includes(tail)) return { base: ref };
+  if (!(THINKING_LEVELS as readonly string[]).includes(tail)) return { base: ref };
   return { base: ref.slice(0, idx), level: tail };
 }
 
@@ -206,12 +204,9 @@ export function CreateAutomationDialog({
     roles?: Record<string, string>;
     models?: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }>;
   };
-  const roleKeys = Object.keys(rolesCfg.roles ?? {});
-  const roleOptions = (roleKeys.length > 0 ? roleKeys : DEFAULT_ROLE_KEYS).map((k) => `@${k}`);
   const models = rolesCfg.models ?? [];
 
   const initialModel = initialConfig?.model ?? "@fast";
-  const initialModelMode: ModelMode = initialModel.startsWith("@") ? "role" : "model";
 
   // Fan-out: the first action entry is the "primary" (drives the existing
   // single-action editor); any further entries are additional. On submit we
@@ -269,13 +264,15 @@ export function CreateAutomationDialog({
   const [promptBody, setPromptBody] = useState(initialPromptBody ?? "");
   const [skill, setSkill] = useState(initialPrimary?.skill ?? "");
 
-  const [modelMode, setModelMode] = useState<ModelMode>(initialModelMode);
-  const [roleValue, setRoleValue] = useState(initialModelMode === "role" ? initialModel : "@fast");
+  // One value, one picker: a role ref (`@fast`, written verbatim — bare, or with
+  // a hand-written `:level`) OR a concrete model + separate level control.
+  // See change: add-role-aware-model-refs (D10).
   // The thinking level rides `model` as a `:<level>` suffix (pi parses it the
   // same way for `--model`), so an existing value is SPLIT for display and
   // rejoined on submit. See change: add-default-thinking-level (design D7).
-  const initialSplit = splitModelLevel(initialModelMode === "model" ? initialModel : "");
-  const [modelValue, setModelValue] = useState(initialSplit.base);
+  const initialIsRole = initialModel.startsWith("@");
+  const initialSplit = splitModelLevel(initialIsRole ? "" : initialModel);
+  const [modelValue, setModelValue] = useState(initialIsRole ? initialModel : initialSplit.base);
   const [modelLevel, setModelLevel] = useState<string | undefined>(initialSplit.level);
 
   const [mode, setMode] = useState<RunMode>(initialConfig?.mode ?? "local");
@@ -348,8 +345,8 @@ export function CreateAutomationDialog({
     return next ? relativeFuture(next) : null;
   }, [effectiveCron]);
 
-  const model =
-    modelMode === "role" ? roleValue.trim() : joinModelLevel(modelValue.trim(), modelLevel);
+  const isRole = modelValue.startsWith("@");
+  const model = isRole ? modelValue.trim() : joinModelLevel(modelValue.trim(), modelLevel);
 
   // Submission gating.
   const categoryPlanned = activeCategory?.status === "planned";
@@ -818,80 +815,37 @@ export function CreateAutomationDialog({
           </div>
 
           <Field label={t("fieldModel", undefined, "Model")}>
-            <div className="flex gap-1 mb-1">
-              <button
-                type="button"
-                data-testid="create-model-mode-role"
-                onClick={() => setModelMode("role")}
-                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
-                  modelMode === "role"
-                    ? "border-[var(--accent)] text-[var(--accent-text)]"
-                    : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
-                }`}
-              >
-                @role
-              </button>
-              <button
-                type="button"
-                data-testid="create-model-mode-model"
-                onClick={() => setModelMode("model")}
-                className={`focus-ring inline-flex items-center px-2.5 tap-target text-[12px] rounded-md border ${
-                  modelMode === "model"
-                    ? "border-[var(--accent)] text-[var(--accent-text)]"
-                    : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
-                }`}
-              >
-                {t("specificModel", undefined, "specific model")}
-              </button>
-            </div>
-            {modelMode === "role" ? (
-              <>
-                <select
-                  value={roleValue}
-                  onChange={(e) => setRoleValue(e.target.value)}
-                  data-testid="create-model-role"
-                  className="input font-mono"
-                >
-                  {roleOptions.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-                {/* No level control on this branch — the role's own ref owns it
-                    (one owner per value). Naming the owner keeps the absence
-                    from reading as a missing feature.
-                    See change: add-default-thinking-level (design D9). */}
-                <p
-                  data-testid="create-model-role-level-hint"
-                  className="text-[12px] text-[var(--text-secondary)] mt-1"
-                >
-                  {t("roleLevelHint", { role: roleValue }, `Thinking level comes from ${roleValue} — set it in Settings → Roles.`)}
-                </p>
-              </>
-            ) : (
-              /* Model + level are ONE decision: model left, level right, in one
-                 enclosure, with the ref that gets written echoed below.
-                 See openspec/changes/add-default-thinking-level/mockups/ui-plan.md. */
-              <div data-testid="create-model-selector">
-                <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
-                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
-                      {t("modelLabel", undefined, "Model")}
-                    </span>
-                    <ModelSelector
-                      current={modelValue || undefined}
-                      models={models}
-                      onSelect={(label: string) => {
-                        setModelValue(label);
-                        const picked = models.find((m) => `${m.provider}/${m.id}` === label);
-                        const supported = picked?.supportedThinkingLevels;
-                        if (modelLevel && supported?.length && !supported.includes(modelLevel)) {
-                          setModelLevel(undefined);
-                        }
-                      }}
-                    />
-                  </div>
+            {/* Model + level are ONE decision: model left, level right, in one
+                enclosure, with the ref that gets written echoed below. The
+                picker's Role tab selects `@role` (live role list from the roles
+                plugin); a role ref hides the level control — the role's own ref
+                owns it. See openspec/changes/add-default-thinking-level/mockups/ui-plan.md
+                and change: add-role-aware-model-refs. */}
+            <div data-testid="create-model-selector">
+              <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
+                <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                    {t("modelLabel", undefined, "Model")}
+                  </span>
+                  <ModelSelector
+                    current={modelValue || undefined}
+                    models={models}
+                    allowRoles
+                    onSelect={(label: string) => {
+                      setModelValue(label);
+                      if (label.startsWith("@")) {
+                        setModelLevel(undefined);
+                        return;
+                      }
+                      const picked = models.find((m) => `${m.provider}/${m.id}` === label);
+                      const supported = picked?.supportedThinkingLevels;
+                      if (modelLevel && supported?.length && !supported.includes(modelLevel)) {
+                        setModelLevel(undefined);
+                      }
+                    }}
+                  />
+                </div>
+                {!isRole && (
                   <div className="flex flex-col gap-0.5 shrink-0">
                     <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
                       {t("thinkingLabel", undefined, "Thinking")}
@@ -905,14 +859,23 @@ export function CreateAutomationDialog({
                       onSelect={(lvl: string) => setModelLevel(lvl === "off" ? undefined : lvl)}
                     />
                   </div>
-                </div>
-                {modelValue && (
+                )}
+              </div>
+              {isRole ? (
+                <p
+                  data-testid="create-model-role-level-hint"
+                  className="text-[12px] text-[var(--text-secondary)] mt-1"
+                >
+                  {t("roleLevelHint", { role: modelValue }, `Thinking level comes from ${modelValue} — set it in Settings → Roles.`)}
+                </p>
+              ) : (
+                modelValue && (
                   <p className="text-[11px] text-[var(--text-secondary)] font-mono mt-1">
                     {joinModelLevel(modelValue, modelLevel)}
                   </p>
-                )}
-              </div>
-            )}
+                )
+              )}
+            </div>
           </Field>
         </Group>
 

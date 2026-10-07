@@ -550,6 +550,11 @@ describe("lookupRole", () => {
     expect(lookupRole("@fast")).toEqual({ literal: "anthropic/haiku" });
   });
 
+  it("E7: keeps the assignment literal verbatim incl. its :level", () => {
+    writeFileSync(CONFIG(), JSON.stringify({ roles: { fast: "anthropic/claude-haiku-4-5:low" } }));
+    expect(lookupRole("@fast")).toEqual({ literal: "anthropic/claude-haiku-4-5:low" });
+  });
+
   it("returns a structured reason for an unset role", () => {
     expect(lookupRole("@ghost")).toEqual({ reason: "role 'ghost' not configured yet" });
   });
