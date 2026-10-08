@@ -439,3 +439,28 @@ describe("browser relay payloads never carry secrets (E29)", () => {
     expect(json).not.toContain("token");
   });
 });
+
+// change: add-browser-editor-pane-tab (task 5.4) — `BrowserRelayInputMessage` is
+// a union discriminated on `kind`; `resize` narrows to required numeric size.
+describe("BrowserRelayInputMessage union", () => {
+  const sizeOf = (m: BrowserRelayInputMessage): number | null => {
+    switch (m.kind) {
+      case "resize":
+        return m.width * m.height; // width/height are required numbers here
+      case "mouse":
+      case "scroll":
+        return m.x; // x is a required number here
+      default:
+        return null;
+    }
+  };
+  it("narrows by kind", () => {
+    expect(sizeOf({ type: "browser_relay_input", instanceId: "i", tabId: 1, kind: "resize", width: 4, height: 5 })).toBe(20);
+    expect(sizeOf({ type: "browser_relay_input", instanceId: "i", tabId: 1, kind: "key", key: "a" })).toBeNull();
+  });
+  it("rejects a resize without a size at compile time", () => {
+    // @ts-expect-error resize requires width and height
+    const bad: BrowserRelayInputMessage = { type: "browser_relay_input", instanceId: "i", tabId: 1, kind: "resize" };
+    expect(bad.kind).toBe("resize");
+  });
+});

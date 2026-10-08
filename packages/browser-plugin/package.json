@@ -24,6 +24,10 @@
     "./server": {
       "types": "./src/server/index.ts",
       "default": "./src/server/index.ts"
+    },
+    "./bridge": {
+      "types": "./src/bridge/index.ts",
+      "default": "./src/bridge/index.ts"
     }
   },
   "files": [
@@ -42,6 +46,7 @@
     "priority": 500,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
     "configSchema": "./configSchema.json",
     "defaultEnabled": false,
     "claims": [
@@ -54,16 +59,18 @@
         "component": "BrowserRelayBadge"
       },
       {
-        "slot": "content-view",
-        "component": "LiveViewTile",
-        "predicate": "isLiveViewActive"
+        "slot": "editor-pane-tab",
+        "component": "BrowserPaneTab",
+        "labelComponent": "BrowserTabLabel",
+        "pathPrefix": "browser"
       }
     ]
   },
   "peerDependencies": {
     "fastify": "^5.0.0",
     "react": ">=18.0.0",
-    "react-dom": ">=18.0.0"
+    "react-dom": ">=18.0.0",
+    "wouter": ">=3.0.0"
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.9.0",
@@ -78,6 +85,7 @@
     "@types/ws": "^8.18.1",
     "fastify": "^5.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "wouter": "^3.9.0"
   }
 }

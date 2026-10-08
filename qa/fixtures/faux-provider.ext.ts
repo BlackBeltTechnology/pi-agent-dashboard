@@ -62,7 +62,18 @@ const { fauxAssistantMessage, fauxProvider } =
   };
 
 /** Sentinel a prompt embeds to select its scenario, e.g. `[[faux:tool-read]]`. */
-const SENTINEL = /\[\[faux:([\w-]+)\]\]/;
+const SENTINEL = /\[\[faux:([\w-]+)\]\]/g;
+
+/**
+ * Last sentinel id in `text`, or undefined. LAST, not first: a subagent with
+ * inherited context receives one user message whose inherited parent context
+ * (holding the parent's sentinel) precedes its own task sentinel.
+ */
+function lastSentinel(text: string): string | undefined {
+  let id: string | undefined;
+  for (const m of text.matchAll(SENTINEL)) id = m[1];
+  return id;
+}
 
 /** Flatten a context message to its plain text (user prompt / assistant text). */
 function messageText(message: FauxContext["messages"][number]): string {
@@ -90,13 +101,13 @@ export function resolveActiveStep(context: FauxContext): {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
     if (message.role !== "user") continue;
-    const match = SENTINEL.exec(messageText(message));
-    if (match) {
+    const sentinelId = lastSentinel(messageText(message));
+    if (sentinelId) {
       let stepIndex = 0;
       for (let j = i + 1; j < messages.length; j++) {
         if (messages[j].role === "assistant") stepIndex++;
       }
-      return { id: match[1], stepIndex };
+      return { id: sentinelId, stepIndex };
     }
   }
   let stepIndex = 0;

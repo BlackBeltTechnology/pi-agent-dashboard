@@ -7,6 +7,15 @@
 // See change: fix-plugin-and-scoped-back-navigation.
 export { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 export * from "./dependency-graph.js";
+export {
+  EditorPaneTabLabelSlot,
+  EditorPaneTabSlot,
+  type EditorPaneTabSlotProps,
+  findEditorPaneTabClaim,
+  openPluginTabRoute,
+  pluginTabRouteHref,
+  useEditorPaneTabClaim,
+} from "./editor-pane-tab.js";
 export type {
   FolderMenuContribution,
   FolderMenuGroup,
@@ -51,6 +60,7 @@ export {
   useSessionState,
   useSessionSubagents,
   useShellConnectionStatus,
+  useSlotRegistryOrNull,
   useT,
 } from "./plugin-context.js";
 export * from "./prompt-component-registry.js";

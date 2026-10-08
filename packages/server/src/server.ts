@@ -3559,6 +3559,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               },
             },
             plugin.manifest.id,
+            // Own editor-pane-tab prefixes gate `ctx.openEditorTab`. See change: add-browser-editor-pane-tab (D5).
+            plugin.manifest.claims.flatMap((c) => (c.slot === "editor-pane-tab" && c.pathPrefix ? [c.pathPrefix] : [])),
           )),
         });
       } catch (err) {

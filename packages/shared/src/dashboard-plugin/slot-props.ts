@@ -85,6 +85,30 @@ export interface CustomEntryRendererProps {
   payloadLoading: boolean;
 }
 
+/**
+ * Props passed to an `editor-pane-tab` body component. `path` is the full
+ * virtual tab path (`<pathPrefix>:<rest>`). See change: add-browser-editor-pane-tab.
+ */
+export interface EditorPaneTabProps {
+  path: string;
+  session: DashboardSession;
+  /** True while this tab is the pane's active tab (the body mounts only then). */
+  isActive: boolean;
+  /** Close this tab. */
+  onClose: () => void;
+  pluginContext: AnyPluginContext;
+}
+
+/**
+ * Props passed to an `editor-pane-tab` claim's `labelComponent`. Mounted for
+ * every open tab of that prefix, active or not.
+ */
+export interface EditorPaneTabLabelProps {
+  path: string;
+  session: DashboardSession;
+  pluginContext: AnyPluginContext;
+}
+
 /** Map of slot id → props type for that slot's contributions. */
 export interface SlotPropsMap {
   "sidebar-folder-section": {
@@ -206,6 +230,7 @@ export interface SlotPropsMap {
     cwd?: string;
     pluginContext: AnyPluginContext;
   };
+  "editor-pane-tab": EditorPaneTabProps;
   // Descriptor-only slots don't have React props (consumed by extension-ui-system)
   "management-modal": Record<string, unknown>;
   "footer-segment": Record<string, unknown>;

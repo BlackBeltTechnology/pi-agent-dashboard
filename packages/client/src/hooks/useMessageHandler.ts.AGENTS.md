@@ -11,3 +11,5 @@ Both reset arms (`event_replay` full-sweep + `session_state_reset`) carry unansw
 Optional deps `markHistoryLoadFailed`, `clearHistoryLoadFailed`. `markHistoryLoadFailed` = `onTimeout` of the single `loadingHistory` re-arm (never the `replayInFlight` one); `dataUnavailable` captures `wasLoading` (timer present) BEFORE the clears, then marks failed. Non-empty / terminal `event_replay` clears failed. See change: show-session-history-load-state.
 
 `case "notify"` passes `msg.ts` to `addNotify`. `history_backfill_result` splice wraps the spliced list in `reseatTimedNotifies` so a backfilled row older than a ts-placed notify ends above it (D5). See change: collapse-and-order-notify-rows.
+
+See change: add-browser-editor-pane-tab — `editor_tab_open` → `editor-tab-open` DOM event; `prompt_request` copies `metadata.plugin` into interactive request `params._pluginMeta`.

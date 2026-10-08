@@ -69,4 +69,19 @@ describe("FocusSettingsSection", () => {
     expect((screen.getByTestId("focus-settings-switch") as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByTestId("focus-save-current") as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("list-mode row shows the effective mode: custom profile without a mode follows the configured one", () => {
+    renderSection({ focus: { profile: { sections: {} } } }, { folderListMode: "classic" });
+    expect(screen.getByTestId("focus-row-folderListMode-show").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("focus-row-folderListMode-hide").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("list-mode row: explicit profile mode wins; built-in shows accordion", () => {
+    cleanup();
+    renderSection({ focus: { profile: { sections: {}, folderListMode: "accordion" } } }, { folderListMode: "classic" });
+    expect(screen.getByTestId("focus-row-folderListMode-hide").getAttribute("aria-pressed")).toBe("true");
+    cleanup();
+    renderSection({}, { folderListMode: "classic" });
+    expect(screen.getByTestId("focus-row-folderListMode-hide").getAttribute("aria-pressed")).toBe("true");
+  });
 });

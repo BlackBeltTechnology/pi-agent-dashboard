@@ -15,6 +15,7 @@
  */
 import type { BrowserRelayFrameMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuditRing } from "../audit.js";
+import { isRelayConnectPage, redactExtensionUrl } from "../redact.js";
 import type { RelaySocket } from "./extension-socket.js";
 import type { RelayLogger, RelayTabView, RelayTimers } from "./relay-instance.js";
 
@@ -23,6 +24,7 @@ const TINY_JPEG_BASE64 =
   "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
 
 export const FAKE_FRAME_INTERVAL_MS = 100;
+const FAKE_TABS: RelayTabView[] = [{ tabId: 1, title: "Fake tab", url: "https://fake.test/", state: "live" }];
 const FAKE_DEVICE_WIDTH = 64;
 const FAKE_DEVICE_HEIGHT = 64;
 
@@ -54,7 +56,8 @@ export class FakeRelayInstance {
   }
 
   tabList(): RelayTabView[] {
-    return [{ tabId: 1, title: "Fake tab", url: "https://fake.test/", state: "live" }];
+    // Same egress rule as the real relay: no connect page, extension URLs stripped.
+    return FAKE_TABS.filter((t) => !isRelayConnectPage(t.url)).map((t) => ({ ...t, url: redactExtensionUrl(t.url) }));
   }
 
   statusState(): "connected" {
@@ -98,6 +101,7 @@ export class FakeRelayInstance {
     "key",
     "scroll",
     "bringToFront",
+    "resize",
   ]);
 
   async input(_viewer: RelaySocket, tabId: number, msg: unknown): Promise<void> {
@@ -113,6 +117,13 @@ export class FakeRelayInstance {
         detail: typeof kind === "string" ? kind : "unknown",
       });
       return;
+    }
+    if (kind === "resize") {
+      const { width, height } = msg as { width?: unknown; height?: unknown };
+      if (typeof width !== "number" || typeof height !== "number" || !Number.isFinite(width) || !Number.isFinite(height)) {
+        this.deps.audit.append({ profileDirectory: this.profileDirectory, instanceId: this.instanceId, kind: "denied", detail: "resize" });
+        return;
+      }
     }
     // Echoed into the audit ring so the e2e audit-refresh scenario has a
     // deterministic row to observe (spec F4).

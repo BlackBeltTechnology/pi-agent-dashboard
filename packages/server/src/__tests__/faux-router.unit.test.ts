@@ -53,6 +53,18 @@ describe("resolveActiveStep", () => {
     expect(id).toBe("tool-read");
   });
 
+  // A subagent with inherited context gets ONE user message: the parent's
+  // context (carrying the parent's sentinel) first, then its task (the inner
+  // sentinel) last. The task's sentinel must win, or the child replays the
+  // parent's script. See change: stream-subagent-reasoning-and-stable-card.
+  it("picks the last sentinel within one user message (inherited parent context)", () => {
+    const { id, stepIndex } = resolveActiveStep(
+      ctx([userMsg("<parent-context>[[faux:subagent-reasoning]] go</parent-context>\n\n[[faux:subagent-reasoning-inner]] run")]),
+    );
+    expect(id).toBe("subagent-reasoning-inner");
+    expect(stepIndex).toBe(0);
+  });
+
   it("falls back to FAUX_SCRIPT, anchored at conversation start, when no sentinel", () => {
     process.env.FAUX_SCRIPT = "plain-text";
     const first = resolveActiveStep(ctx([userMsg("hello")]));

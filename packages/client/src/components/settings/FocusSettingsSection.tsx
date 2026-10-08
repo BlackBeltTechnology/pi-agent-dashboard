@@ -24,7 +24,9 @@ export function FocusSettingsSection() {
     const v = focus.profile ? focus.profile.sections?.[id] : defaultFocusValue(id);
     return v === undefined ? "unset" : v ? "show" : "hide";
   };
-  const mode = (focus.profile ?? { folderListMode: "accordion" as const }).folderListMode;
+  // Effective mode, mirroring resolveFolderListMode: built-in → accordion; a custom
+  // profile without a mode falls through to the configured one.
+  const mode = focus.profile ? (focus.profile.folderListMode ?? focus.configuredListMode) : "accordion";
 
   return (
     <div className="mb-6" data-testid="focus-settings">

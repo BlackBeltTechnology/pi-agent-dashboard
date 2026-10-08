@@ -275,6 +275,11 @@ export function deterministicSerializePlugins(
           // Generic config escape hatch — included so any plugin using it
           // for slot-specific extras participates in staleness detection.
           config: c.config ?? null,
+          // editor-pane-tab prefix + label: a prefix- or label-only edit must
+          // change the hash. Spread only when present so every other plugin's
+          // serialization (and hash) is unchanged. See change: add-browser-editor-pane-tab.
+          ...(c.pathPrefix !== undefined ? { pathPrefix: c.pathPrefix } : {}),
+          ...(c.labelComponent !== undefined ? { labelComponent: c.labelComponent } : {}),
         }))
         .sort((a, b) =>
           [a.slot, a.component, a.predicate, a.command, a.path]

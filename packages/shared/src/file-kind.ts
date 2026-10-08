@@ -41,6 +41,10 @@ export type ViewerKind =
   // A terminal opens under a virtual `term:<terminalId>` tab hosting the
   // xterm `TerminalView`. See change: terminals-in-tabbed-panes.
   | "terminal"
+  // Opened explicitly (never returned by `fileKind()`), like `live-server`.
+  // A plugin-owned `<pathPrefix>:<rest>` tab rendered by the claiming
+  // `editor-pane-tab` plugin. See change: add-browser-editor-pane-tab.
+  | "plugin"
   | "binary-warn";
 
 /** Coarse semantic file class. */

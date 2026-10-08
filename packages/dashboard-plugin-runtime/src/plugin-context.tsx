@@ -33,7 +33,11 @@ import { type ClaimEntry, createSlotRegistry, type SlotRegistry } from "./slot-r
 export interface InteractiveUiRequestSnapshot {
   requestId: string;
   method: string;
-  params: Record<string, unknown>;
+  /**
+   * `_pluginMeta`: the namespaced `metadata.plugin` object a plugin attached to
+   * the dialog (`ctx.ui.*` `pluginMeta`), when any. See change: add-browser-editor-pane-tab.
+   */
+  params: Record<string, unknown> & { _pluginMeta?: Record<string, unknown> };
   status: "pending" | "resolved" | "cancelled" | "dismissed";
   result?: unknown;
 }

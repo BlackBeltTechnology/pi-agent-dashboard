@@ -52,6 +52,7 @@ import { SessionContentGate } from "./components/shell/SessionContentGate.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
+import { useEditorTabOpenListener } from "./lib/layout/editor-tab-open.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
@@ -469,12 +470,15 @@ export default function App() {
   // wouter pushState/replaceState does not fire popstate, so record here; the
   // tracker's own popstate listener realigns on browser back/forward.
   const navigate = useCallback(
-    (to: string, opts?: { replace?: boolean }) => {
+    (to: string, opts?: { replace?: boolean; state?: unknown }) => {
       recordNavigation(to, opts);
       rawNavigate(to, opts);
     },
     [rawNavigate],
   );
+  // Plugin-server-initiated tab opens (`editor_tab_open`), acted on only while
+  // on that session's chat/editor route. See change: add-browser-editor-pane-tab (D5).
+  useEditorTabOpenListener(overlayLocation, navigate);
   // Seed the stack with the cold-load location and attach the popstate listener.
   useEffect(() => {
     resetNavStack(window.location.pathname + window.location.search);
@@ -550,6 +554,10 @@ export default function App() {
   // `/view <url>` deep-link param (mutually exclusive with `file`; `file` wins).
   // See change: open-view-command-in-editor-pane (D1/D6).
   const editorUrl = editorMatch ? fileViewSearch.get("url") : null;
+  // Repeatable `?tab=<virtual-path>` plugin-tab deep link. Stable string key so
+  // a re-render does not churn SplitRouteSync. See change: add-browser-editor-pane-tab (D3).
+  const editorTabsKey = editorMatch ? fileViewSearch.getAll("tab").join("\u0001") : "";
+  const editorTabs = useMemo(() => (editorTabsKey ? editorTabsKey.split("\u0001") : undefined), [editorTabsKey]);
   const editorLineRaw = editorMatch ? fileViewSearch.get("line") : null;
   const editorLineParsed = editorLineRaw ? Number.parseInt(editorLineRaw, 10) : Number.NaN;
   const editorLine = Number.isInteger(editorLineParsed) && editorLineParsed > 0 ? editorLineParsed : null;
@@ -2927,7 +2935,7 @@ export default function App() {
               });
             }}
           >
-            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} />
+            <SplitRouteSync active={!!editorMatch} file={editorFile} line={editorLine} url={editorUrl} nonce={editorOpenNonce} tabs={editorTabs} />
             <CanvasDriver state={selectedId ? canvasMap.get(selectedId) ?? EMPTY_CANVAS_STATE : EMPTY_CANVAS_STATE} />
             <SessionDiffProvider sessionId={selectedId ?? ""} changeSignal={diffChangeSignal}>
               {children}

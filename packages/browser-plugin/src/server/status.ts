@@ -25,6 +25,7 @@ import type {
   BrowserRelayTabStatus,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { AuditRing } from "./audit.js";
+import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
 import type { RelaySocket } from "./relay/extension-socket.js";
 import type { RelayLike } from "./relay/relay-manager.js";
 
@@ -105,13 +106,14 @@ export class BrowserRelayStatus {
         instanceId: inst.instanceId,
         profileDirectory: inst.profileDirectory,
         state: inst.statusState(),
-        tabs: inst.tabList().map(
+        tabs: inst.tabList().filter((tab) => !isRelayConnectPage(tab.url)).map(
           (tab): BrowserRelayTabStatus => ({
             tabId: tab.tabId,
             title: tab.title,
-            url: tab.url,
+            url: redactExtensionUrl(tab.url),
             state: tab.state,
             ...(tab.reason ? { reason: tab.reason } : {}),
+            ...(tab.agentEmulation ? { agentEmulation: true } : {}),
           }),
         ),
       })),

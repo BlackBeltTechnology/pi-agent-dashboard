@@ -26,6 +26,13 @@ function protocolMessageLiterals(): string[] {
   const block = bp.slice(start, bp.indexOf(";", start));
   const members = [...block.matchAll(/\|\s*([A-Za-z0-9_]+)/g)].map((m) => m[1]);
   const literalOf = (name: string): string | null => {
+    // A union ALIAS of interfaces (e.g. `BrowserRelayInputMessage`, discriminated
+    // on `kind`): every member must carry the same `type` literal.
+    const alias = new RegExp(`export type ${name} =([^;]+);`).exec(src);
+    if (alias) {
+      const lits = new Set([...alias[1].matchAll(/\|\s*([A-Za-z0-9_]+)/g)].map((m) => literalOf(m[1])));
+      return lits.size === 1 ? ([...lits][0] ?? null) : null;
+    }
     const re = new RegExp(`interface ${name}\\b[^{]*\\{`);
     const mm = re.exec(src);
     if (!mm) return null;
@@ -35,7 +42,12 @@ function protocolMessageLiterals(): string[] {
       if (src[i] === "{") depth++;
       else if (src[i] === "}" && --depth === 0) break;
     }
-    return (src.slice(mm.index, i).match(/type:\s*"([^"]+)"/) ?? [])[1] ?? null;
+    const body = src.slice(mm.index, i);
+    const own = (body.match(/type:\s*"([^"]+)"/) ?? [])[1];
+    if (own) return own;
+    // `interface X extends Base` — the literal lives on the base (discriminated union members).
+    const base = /extends\s+([A-Za-z0-9_]+)/.exec(body.slice(0, body.indexOf("{")));
+    return base ? literalOf(base[1]) : null;
   };
   return members.map((m) => {
     const lit = literalOf(m);

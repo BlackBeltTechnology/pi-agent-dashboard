@@ -4,7 +4,7 @@ Files in this directory. One row per source file. See change: add-browser-relay.
 
 | File | Purpose |
 |------|---------|
-| `i18n.ts` | i18n catalog — UNPREFIXED leaf keys, `{ "zh-CN": {...}, hu: {...} }` with IDENTICAL key sets (parity test `src/client/__tests__/i18n.test.ts`). Covers settings (token/zeroDialog/allowedDomains/kill switch/capability), audit, live-view overlays, badge. Merged under `plugin.browser.*`; `useT()` auto-prefixes. Task 4.4. Keys `noSessionOverlay`, `reopenLiveView`. See change: fix-browser-live-view-subscribe-and-reopen. |
+| `i18n.ts` | i18n catalog — UNPREFIXED leaf keys, `{ "zh-CN": {...}, hu: {...} }` with IDENTICAL key sets (parity test `src/client/__tests__/i18n.test.ts`). Covers settings (token/zeroDialog/allowedDomains/kill switch/capability), audit, live-view overlays, badge. Merged under `plugin.browser.*`; `useT()` auto-prefixes. Task 4.4. Keys `noSessionOverlay`, `reopenLiveView`. See change: fix-browser-live-view-subscribe-and-reopen. Adds pane-tab / badge-menu keys (`paneTabGone`, `inputOn/Off`, `fit`, `oneToOne`, `done`, `textBridge`, `tabFallback`, `state*`, `badgeMenu`, `openInPane`, `openAllInPane`); drops `liveViewTitle`/`noTabs`/`reopenLiveView`. See change: add-browser-editor-pane-tab. |
 
 Files in `__tests__/`:
 
