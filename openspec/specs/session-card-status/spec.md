@@ -2,10 +2,12 @@
 
 ## Purpose
 Defines the visual state machine of a session card's body decoration. The card answers, at a glance, three independent questions: *is the agent working right now?*, *is the agent waiting on the user for input?*, and *did the agent do something attention-worthy while the user was looking elsewhere?* Each question maps to a CSS class with explicit precedence rules so the three signals never visually fight each other.
+
 ## Requirements
+
 ### Requirement: Reduced-motion users get a static visual indicator
 
-When the user's environment reports `prefers-reduced-motion: reduce`, the streaming/resuming card SHALL retain a clearly visible static amber-tinted background but SHALL NOT animate the sweep translation or any opacity pulsing.
+When the user's environment reports `prefers-reduced-motion: reduce`, or the `fx-status-animation` effect resolves off (see `card-visual-effects`), the streaming/resuming card SHALL retain a clearly visible static amber-tinted background but SHALL NOT animate the sweep translation or any opacity pulsing.
 
 #### Scenario: Reduced motion disables sweep but preserves the cue
 
@@ -14,14 +16,12 @@ When the user's environment reports `prefers-reduced-motion: reduce`, the stream
 - **THEN** no animations run on the element
 - **AND** a static amber-tinted background still renders so the streaming state remains visually distinct from idle
 
-### Requirement: ask_user (input-pending) cards remain pulse-only
-The existing `card-input-pulse` class used for sessions awaiting user input via `ask_user` SHALL continue to use only the breathing-pulse animation in purple, with NO diagonal stripes. This contrast SHALL be preserved so that "machine working" (stripes + pulse) is visually distinct from "machine waiting on you" (pulse only).
+#### Scenario: Effects off disables sweep but preserves the cue
 
-#### Scenario: ask_user card uses pulse only
-- **WHEN** a session is awaiting user input via `ask_user`
-- **THEN** the card has the `card-input-pulse` class
-- **AND** the rendered background does NOT include a repeating linear gradient
-- **AND** only an opacity / background-color pulse animation is applied
+- **GIVEN** `fx-status-animation` resolves off
+- **AND** a session card has the `card-working-pulse` class
+- **THEN** no animations run on the element
+- **AND** a static amber-tinted background still renders
 
 ### Requirement: DashboardSession tracks per-session unread state
 
@@ -150,11 +150,18 @@ When the server receives `session_view` for a session whose current `unread` is 
 
 ### Requirement: Reduced-motion users get a static unread indicator
 
-When the user's environment reports `prefers-reduced-motion: reduce`, the `card-unread-pulse` overlay SHALL retain a clearly visible static cyan-tinted background but SHALL NOT animate the sweep translation. This mirrors the rule for `card-working-pulse`.
+When the user's environment reports `prefers-reduced-motion: reduce`, or the `fx-status-animation` effect resolves off, the `card-unread-pulse` overlay SHALL retain a clearly visible static cyan-tinted background but SHALL NOT animate the sweep translation. This mirrors the rule for `card-working-pulse`.
 
 #### Scenario: Reduced motion disables sweep but preserves the cue
 
 - **GIVEN** the user has `prefers-reduced-motion: reduce` set
+- **AND** a session card has the `card-unread-pulse` class
+- **THEN** no animations SHALL run on the element
+- **AND** a static cyan-tinted background SHALL still render
+
+#### Scenario: Effects off keeps a static cyan cue
+
+- **GIVEN** `fx-status-animation` resolves off
 - **AND** a session card has the `card-unread-pulse` class
 - **THEN** no animations SHALL run on the element
 - **AND** a static cyan-tinted background SHALL still render
@@ -280,6 +287,8 @@ The state class name SHALL remain `card-working-pulse` (applied on `status === "
 
 **Precedence**: unchanged — `card-working-pulse` takes priority over `card-unread-pulse`.
 
+When the `fx-status-animation` effect resolves off (see `card-visual-effects`), the same state class SHALL apply but the overlay SHALL render as the static tint defined for reduced motion, with no sweep and no breathing animation.
+
 #### Scenario: Streaming session card sweeps amber
 
 - **WHEN** a `streaming` session card renders
@@ -303,6 +312,8 @@ A session card whose backing `DashboardSession.unread === true` SHALL display th
 - the same `translateX`-one-period seamless keyframe SHALL be reused.
 
 Cyan keeps its distinct corner of the palette (distant from amber streaming, purple ask_user, green alive-dot, red error) and reads as "calm attention".
+
+When the `fx-status-animation` effect resolves off (see `card-visual-effects`), the same state class SHALL apply but the overlay SHALL render as the static tint defined for reduced motion, with no sweep and no breathing animation.
 
 #### Scenario: Unread alive session sweeps cyan
 
@@ -392,4 +403,3 @@ a boolean.
 - **THEN** the retry label and its attempt number SHALL remain legible
 - **AND** no animation SHALL run on it
 - **AND** the attempt number SHALL be conveyed by text, not by color alone
-

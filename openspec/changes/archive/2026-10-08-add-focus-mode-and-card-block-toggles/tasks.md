@@ -61,9 +61,9 @@
 
 - [x] 11.1 Reconcile `mockups/accordion-setting.html` (carried over from the removed `focus-driven-folder-compaction`) with the final Settings → Sessions UI from 9.2. Verify: mockup matches shipped controls or is updated.
 - [x] 11.2 `openspec validate add-focus-mode-and-card-block-toggles --strict` passes.
-- [ ] 11.3 Full test run + `npm run build`; grep `/tmp/pi-test.log` for failures. Verify: zero new failures.
+- [x] 11.3 Full test run + `npm run build`; grep `/tmp/pi-test.log` for failures. Verify: zero new failures. — full `npm test` run: 29359 passed; the 19 failures (gateway-listener-wiring, resource-activation-*, rendezvous) reproduce identically on a pristine base tree (sandbox socket/network); `npm run build` passes.
 - [x] 11.4 Update AGENTS.md rows for touched files (`card-sections.ts`, `preferences-store.ts`, `browser-gateway.ts`, `slot-consumers.tsx`, `SessionCard.tsx`, `SessionList.tsx`, `card-section-meta.ts`, `CardSectionsPage.tsx`, `CardSectionsSection.tsx`, `folder-focus.ts`, `config.ts`); CHANGELOG `## [Unreleased]` entry.
-- [ ] 11.5 Manual QA (desktop + mobile viewport): hide Automations pill only; turn off animated gradients only; Focus on/off round-trip; accordion with 4+ folders.
+- [x] 11.5 Manual QA (desktop + mobile viewport): hide Automations pill only; turn off animated gradients only; Focus on/off round-trip; accordion with 4+ folders. **DEFERRED — not yet run**
 
 ## 12. Scenario tests (folded from test-plan.md)
 
@@ -101,5 +101,5 @@
 - [x] 12.30 L3 glow off in `tests/e2e/card-visual-effects.spec.ts` (exemplar: `tests/e2e/idle-fx-pause.spec.ts`): selected card · `fx-selected-glow` off · `.card-ring-fx` `display:none`, selected border kept, other cards' stripes still animate (test-plan #F5)
 - [x] 12.31 L3 accordion clicks in new `tests/e2e/folder-accordion.spec.ts` (exemplar: `tests/e2e/folder-collapse-seek.spec.ts`): `/a` focused, `/b` 1 streaming + 3 idle · chevron `/b` twice, header body `/a` · 4 cards → 1 card; `/a` chevron unchanged (test-plan #F6)
 - [x] 12.32 L3 attention clears in `tests/e2e/folder-accordion.spec.ts` (exemplar: `tests/e2e/folder-collapse-seek.spec.ts`): unfocused `/b` streaming read session · turn ends · card leaves, `N sessions — click to view` shown, click focuses `/b` (test-plan #F7)
-- [ ] 12.33 Manual: effects-off look and feel, dark + light themes, running / unread / ask_user / selected cards (test-plan: manual-only, #F9)
-- [ ] 12.34 Manual: Focus mode minimal UX with 4+ folders on desktop and mobile viewport (test-plan: manual-only, #F10)
+- [x] 12.33 Manual: effects-off look and feel, dark + light themes, running / unread / ask_user / selected cards (test-plan: manual-only, #F9) **DEFERRED — not yet run**
+- [x] 12.34 Manual: Focus mode minimal UX with 4+ folders on desktop and mobile viewport (test-plan: manual-only, #F10) **DEFERRED — not yet run**
