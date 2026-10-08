@@ -8,7 +8,7 @@ Fetch and display a folder's knowledge-base statistics, keeping the view live du
 
 ### Requirement: Folder KB stats retrieval
 
-The stats endpoint SHALL return the current knowledge-base statistics for a validated folder, and the client SHALL expose them for display.
+The stats endpoint SHALL return the current knowledge-base statistics for a validated folder without creating any file or directory, and the client SHALL expose them for display.
 
 #### Scenario: Stats shape for a folder
 
@@ -18,10 +18,12 @@ The stats endpoint SHALL return the current knowledge-base statistics for a vali
 - **AND** `staleCount` reports the number of drifted source files
 - **AND** `indexing` is true only while a reindex job is running for that folder
 - **AND** `jobStatus` is one of `idle`, `running`, or `error`
+- **AND** `folderMissing` is true only when the folder does not exist as a directory
+- **AND** `sourceCount` is the number of source specs in the folder's resolved KB config (project, global and default layers merged), and `0` when `folderMissing` is true
 
 #### Scenario: Folder not allowed
 
-- **WHEN** stats are requested for a folder that is missing or not a known folder
+- **WHEN** stats are requested with the `cwd` parameter absent, or for a folder that is not an admitted folder
 - **THEN** the request is rejected before any store is opened
 - **AND** no stats are returned
 
@@ -30,9 +32,15 @@ The stats endpoint SHALL return the current knowledge-base statistics for a vali
 - **WHEN** the client has no current folder
 - **THEN** no stats are fetched and the displayed stats are cleared
 
+#### Scenario: Reading stats has no filesystem side effects
+
+- **WHEN** stats are requested for an allowed folder that has no index database, whose index database is unreadable or uses an outdated schema, or that does not exist
+- **THEN** stats are returned with zero counts
+- **AND** no directory or database file is created
+
 ### Requirement: Live polling while indexing
 
-The client SHALL poll the stats endpoint at a fixed interval while a reindex job is running and SHALL stop polling once the job settles.
+The client SHALL poll the stats endpoint at a fixed interval while a reindex job is running and SHALL stop polling once the job settles, or as soon as a stats fetch is refused as a cwd-admission refusal (`403 { error: "cwd not allowed" }`), regardless of job state.
 
 #### Scenario: Polling starts and continues during a job
 
@@ -43,6 +51,12 @@ The client SHALL poll the stats endpoint at a fixed interval while a reindex job
 
 - **WHEN** a stats fetch reports `indexing` false
 - **THEN** the client stops polling and displays the settled stats
+
+#### Scenario: Polling stops on a cwd refusal mid-job
+
+- **WHEN** a stats poll during a running job responds `403 { error: "cwd not allowed" }`
+- **THEN** the client stops polling and surfaces the folder's denied state
+- **AND** the job's outcome becomes visible on the first successful stats fetch after the folder is admitted again
 
 ### Requirement: Optimistic reindex acknowledgement
 
@@ -66,12 +80,24 @@ The client SHALL synchronously acknowledge a reindex request with a pending stat
 
 #### Scenario: Reindex request rejected
 
-- **WHEN** the reindex request itself is rejected so no job started
+- **WHEN** the reindex request itself is rejected, for a reason other than a cwd-admission refusal or a `409` precondition refusal, so no job started
 - **THEN** the pending state is cleared and a reindex error is surfaced immediately
+
+#### Scenario: Reindex request refused by a precondition
+
+- **WHEN** the reindex request responds `409 { error: "folder missing" }` or `409 { error: "no sources configured" }`
+- **THEN** the pending state is cleared without surfacing a reindex error
+- **AND** fresh stats are fetched so the folder's missing or no-sources state is shown
+
+#### Scenario: Reindex request refused for cwd admission
+
+- **WHEN** the reindex request responds `403 { error: "cwd not allowed" }`
+- **THEN** the pending state is cleared and the folder's denied state is surfaced immediately, with no reindex error
+- **AND** any previously surfaced reindex error or stats error for that folder is cleared, so re-admission resolves to the state derived from fresh stats
 
 ### Requirement: Bounded poll-miss tolerance and error surfacing
 
-The client SHALL tolerate a bounded run of consecutive stats-poll failures without abandoning the live view, and SHALL surface a persistent stats error only after the tolerance is exceeded. The stats endpoint SHALL report a failed job's error.
+The client SHALL tolerate a bounded run of consecutive stats-poll failures without abandoning the live view, and SHALL surface a persistent stats error only after the tolerance is exceeded. A cwd-admission refusal (`403 { error: "cwd not allowed" }`) is definitive, not transient: it SHALL NOT count toward the failure run, SHALL stop polling immediately, and SHALL surface the folder's denied state instead of a stats error. The stats endpoint SHALL report a failed job's error.
 
 #### Scenario: Transient poll miss keeps polling
 
@@ -89,6 +115,13 @@ The client SHALL tolerate a bounded run of consecutive stats-poll failures witho
 - **WHEN** 3 consecutive stats polls fail
 - **THEN** the client stops polling and surfaces a stats error
 
+#### Scenario: Cwd refusal is definitive
+
+- **WHEN** a stats fetch for a folder responds `403 { error: "cwd not allowed" }`
+- **THEN** the client stops polling that folder after that single response, without retrying
+- **AND** no stats error is surfaced, and any earlier stats error or reindex error for that folder is cleared; the folder's denied state is surfaced instead
+- **AND** a `403` with any other body is treated as an ordinary poll failure under the bounded tolerance
+
 #### Scenario: Last job error reported in stats
 
 - **WHEN** no job is running and the last reindex job for the folder ended in error
@@ -96,7 +129,7 @@ The client SHALL tolerate a bounded run of consecutive stats-poll failures witho
 
 ### Requirement: Shared per-folder stats state across consumers
 
-All concurrently mounted consumers of a folder's KB stats SHALL observe one identical shared state per folder — stats snapshot, optimistic pending, reindex error, and poll-outage error — instead of each consumer holding an independent copy. A reindex triggered from any one consumer SHALL be reflected in every consumer of the same folder, live through the indexing window and after settle.
+All concurrently mounted consumers of a folder's KB stats SHALL observe one identical shared state per folder — stats snapshot, optimistic pending, reindex error, poll-outage error, cwd-admission refusal, and pin-wait — instead of each consumer holding an independent copy. A reindex triggered from any one consumer SHALL be reflected in every consumer of the same folder, live through the indexing window and after settle. A pin wait SHALL NOT be represented as optimistic reindex pending, so it never disables or suppresses reindex in any consumer.
 
 #### Scenario: Reindex in one surface updates another
 
@@ -131,6 +164,13 @@ All concurrently mounted consumers of a folder's KB stats SHALL observe one iden
 
 #### Scenario: Error channels are shared
 
-- **WHEN** a reindex trigger is rejected for a folder
+- **WHEN** a reindex trigger is rejected for a folder for a reason other than a cwd-admission refusal or a `409` precondition refusal (`folder missing` / `no sources configured`)
 - **THEN** every consumer of that folder observes the reindex error (the failure is real folder state, not private to the consumer that clicked)
 - **AND** a subsequent reindex from any consumer clears it
+
+#### Scenario: Refusal and pin-wait are shared
+
+- **WHEN** a folder's stats fetch or reindex trigger is refused with `403 { error: "cwd not allowed" }`, or a pin wait starts for that folder from any consumer
+- **THEN** every consumer of that folder observes the same denied state, refusal reason, and pin-wait flag
+- **AND** the optimistic reindex pending flag is not set by the pin wait
+- **AND** a successful stats fetch clears the denied state and pin-wait flag for every consumer

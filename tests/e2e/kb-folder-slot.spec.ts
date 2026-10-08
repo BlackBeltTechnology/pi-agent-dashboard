@@ -123,11 +123,13 @@ test.describe("KB folder slot", () => {
     if ((await page.getByTestId(`folder-actions-menu-${KB_PARENT}`).count()) === 0) await pinFixture(page, KB_PARENT);
     if ((await page.getByTestId(`folder-actions-menu-${KB_WORKTREE}`).count()) === 0) await pinFixture(page, KB_WORKTREE);
 
-    // The worktree ships no config → not-indexed (empty resolved sources).
+    // The worktree ships no config → zero resolved sources → `no-sources`
+    // (Configure sources, never a dead Index now). See change:
+    // kb-denied-folder-pin-state (design D11).
     const wtRow = kbRowFor(page, KB_WORKTREE);
     await expect(wtRow).toBeVisible({ timeout: 20_000 });
     await expect(wtRow).not.toHaveAttribute("data-state", "loading", { timeout: 15_000 });
-    await expect(wtRow).toHaveAttribute("data-state", "not-indexed");
+    await expect(wtRow).toHaveAttribute("data-state", "no-sources");
 
     // Settings is reachable even not-indexed (gap fix) → opens bootstrap panel.
     await wtRow.getByTestId("folder-kb-open-settings").click();
@@ -332,5 +334,97 @@ test.describe("KB stats shared across surfaces (F2)", () => {
       await expect(kbRow.getByTestId("folder-kb-count")).not.toHaveText(before, { timeout: 1_000 });
     }).toPass({ timeout: 90_000 });
     await expect(kbRow.getByTestId("folder-kb-count")).toContainText(/chunks/i);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// kb-denied-folder-pin-state — F10 (denied → Pin → admitted) and F13 (missing /
+// no-sources). `/api/kb/stats` is route-mocked: the harness cannot easily
+// produce an archived-only (unadmitted) folder or a removed one, and the row's
+// rendering + action routing is the subject, not the server guard (covered by
+// kb-routes L1). Pattern: tests/e2e/mcp-client-folder-mobile.spec.ts (403 route).
+// ─────────────────────────────────────────────────────────────────────────────
+test.describe("KB row: denied / missing / no-sources", () => {
+  const STATS_ROUTE = "**/api/kb/stats*";
+  const baseStats = { files: 0, chunks: 0, indexed: false, staleCount: 0, indexing: false, jobStatus: "idle" };
+
+  async function ensureFixturePinned(page: Page): Promise<void> {
+    await prepareShell(page);
+    if ((await page.getByTestId(`folder-actions-menu-${KB_FIXTURE}`).count()) === 0) await pinFixture(page, KB_FIXTURE);
+  }
+
+  /** Reload so the module-level stats store re-fetches through the route. */
+  async function reloadShell(page: Page): Promise<void> {
+    await page.reload();
+    const skip = page.getByRole("button", { name: /^skip$/i });
+    if (await skip.isVisible().catch(() => false)) await skip.click();
+  }
+
+  async function openKbMenuItem(page: Page) {
+    await page.getByTestId(`folder-actions-menu-${KB_FIXTURE}`).first().click();
+    const item = page.getByTestId("folder-menu-item-kb-reindex");
+    await expect(item).toBeVisible({ timeout: 15_000 });
+    return item;
+  }
+
+  test("F10: a cwd refusal shows 'not allowed'; Pin folder converges to the real KB state without reload", async ({ page }) => {
+    await ensureFixturePinned(page);
+    const sentFrames: string[] = [];
+    page.on("websocket", (ws) => ws.on("framesent", (f) => sentFrames.push(String(f.payload))));
+    await page.route(STATS_ROUTE, (route) =>
+      route.fulfill({
+        status: 403,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "cwd not allowed", reason: "cwd is not a known session or pinned directory.", hint: "Pin it." }),
+      }),
+    );
+    await reloadShell(page);
+
+    const row = kbRowFor(page, KB_FIXTURE);
+    await expect(row).toHaveAttribute("data-state", "denied", { timeout: 20_000 });
+    await expect(row.getByTestId("folder-kb-count")).toContainText("not allowed");
+    await expect(row.getByTestId("folder-kb-count")).not.toContainText("index failed");
+
+    // Admission now resolves for real: drop the mock BEFORE pinning so the
+    // post-pin refetch (broadcast or PIN_GUARD_MS elapse) reaches the server.
+    await page.unroute(STATS_ROUTE);
+    const item = await openKbMenuItem(page);
+    await expect(item).toContainText("Pin folder");
+    await item.click();
+
+    await expect.poll(() => sentFrames.some((f) => f.includes('"pin_directory"') && f.includes(KB_FIXTURE)), { timeout: 10_000 }).toBe(true);
+    await expect(row).not.toHaveAttribute("data-state", /^(denied|pinning)$/, { timeout: 15_000 });
+    await expect(row.getByTestId("folder-kb-count")).toContainText(/not indexed|chunks/i);
+  });
+
+  test("F13: 'folder missing' disables the action; 'no sources' routes Configure sources to settings", async ({ page }) => {
+    await ensureFixturePinned(page);
+    const reindexPosts: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/api/kb/reindex")) reindexPosts.push(r.url());
+    });
+    let body: Record<string, unknown> = { ...baseStats, folderMissing: true, sourceCount: 0 };
+    await page.route(STATS_ROUTE, (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }),
+    );
+    await reloadShell(page);
+
+    const row = kbRowFor(page, KB_FIXTURE);
+    await expect(row).toHaveAttribute("data-state", "missing", { timeout: 20_000 });
+    await expect(row.getByTestId("folder-kb-count")).toContainText("folder missing");
+    const missingItem = await openKbMenuItem(page);
+    await expect(missingItem).toContainText("Folder missing");
+    await expect(missingItem).toHaveAttribute("aria-disabled", "true");
+    await page.keyboard.press("Escape");
+
+    body = { ...baseStats, folderMissing: false, sourceCount: 0 };
+    await reloadShell(page);
+    await expect(row).toHaveAttribute("data-state", "no-sources", { timeout: 20_000 });
+    await expect(row.getByTestId("folder-kb-count")).toContainText("no sources");
+    const configure = await openKbMenuItem(page);
+    await expect(configure).toContainText("Configure sources");
+    await configure.click();
+    await expect(page).toHaveURL(/\/folder\/.+\/kb$/);
+    expect(reindexPosts).toEqual([]);
   });
 });

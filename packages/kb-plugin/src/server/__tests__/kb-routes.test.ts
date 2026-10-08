@@ -29,7 +29,7 @@ import {
   useGitPath,
 } from "@blackbelt-technology/pi-dashboard-shared/test-support/git-shim.js";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KbJobRegistry } from "../job-registry.js";
 import { isAllowedCwd, mountKbRoutes } from "../kb-routes.js";
 
@@ -692,7 +692,7 @@ import {
   SqliteFtsStore,
   sourceHash,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { reindexAll } from "../kb-routes.js";
+import { applyConfigPatchAndTrust, preflightWrite, reindexAll, writeProjectConfig } from "../kb-routes.js";
 
 const REMOTE = "https://github.com/example/never";
 const q = (cwd: string) => encodeURIComponent(cwd);
@@ -959,7 +959,7 @@ describe("GET /api/kb/sources (kb-plugin-index-jobs)", () => {
     const { app } = buildApp([cwd]);
     await reindexAndSettle(app, cwd);
     const { body } = await getJson(app, `/api/kb/stats?cwd=${q(cwd)}`);
-    const allowed = ["files", "chunks", "indexed", "staleCount", "indexing", "jobStatus", "lastError"];
+    const allowed = ["files", "chunks", "indexed", "staleCount", "indexing", "jobStatus", "lastError", "folderMissing", "sourceCount"];
     expect(Object.keys(body).filter((k) => !allowed.includes(k))).toEqual([]);
     for (const k of allowed.slice(0, 6)) expect(body).toHaveProperty(k);
     await app.close();
@@ -1162,4 +1162,210 @@ describe("reindexAll over all source kinds (kb-plugin-index-jobs)", () => {
       restore();
     }
   }, 30_000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// kb-denied-folder-pin-state — no materialization, folder-missing, zero sources
+// (design D8, D9, D10). HOME/USERPROFILE stubbed so the GLOBAL config layer is
+// environment-independent (zero-source cases).
+// ═══════════════════════════════════════════════════════════════════════════
+describe("KB read/write preconditions (kb-denied-folder-pin-state)", () => {
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "kb-home-"));
+    cleanup.push(home);
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("USERPROFILE", home);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const stats = (app: FastifyInstance, cwd: string) => getJson(app, `/api/kb/stats?cwd=${q(cwd)}`);
+  const kbDir = (cwd: string) => join(cwd, ".pi", "dashboard", "kb");
+
+  it("E14 stats never materialize a folder's KB dir", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    const { status, body } = await stats(app, cwd);
+    expect(status).toBe(200);
+    expect(body.chunks).toBe(0);
+    expect(body.indexed).toBe(false);
+    expect(existsSync(kbDir(cwd))).toBe(false);
+    await app.close();
+  });
+
+  it("E15 a removed folder reports folderMissing and is not recreated", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    rmSync(cwd, { recursive: true, force: true });
+    const { status, body } = await stats(app, cwd);
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ folderMissing: true, chunks: 0, sourceCount: 0, staleCount: 0 });
+    expect(existsSync(cwd)).toBe(false);
+    await app.close();
+  });
+
+  it("E16 sourceCount reflects project / none / global layers", async () => {
+    const a = makeFolder();
+    setSources(a, [{ kind: "filesystem", ref: "docs" }, { kind: "filesystem", ref: "other" }]);
+    const b = makeFolder({ withConfig: false });
+    const { app } = buildApp([a, b]);
+    expect((await stats(app, a)).body.sourceCount).toBe(2);
+    expect((await stats(app, b)).body.sourceCount).toBe(0);
+    const globalPath = join(home, ".pi", "dashboard", "knowledge_base.json");
+    mkdirSync(dirname(globalPath), { recursive: true });
+    writeFileSync(globalPath, JSON.stringify({ sources: [{ kind: "filesystem", ref: "docs" }] }));
+    expect((await stats(app, b)).body.sourceCount).toBe(1);
+    await app.close();
+  });
+
+  it("E17 stale-schema and non-SQLite index files read as empty and stay byte-identical", async () => {
+    const stale = makeFolder();
+    const staleDb = dbPathOf(stale);
+    mkdirSync(dirname(staleDb), { recursive: true });
+    const raw = new DatabaseSync(staleDb);
+    raw.exec("CREATE TABLE files (root TEXT, path TEXT, mtime_ms REAL, sha256 TEXT, PRIMARY KEY (root, path))");
+    raw.exec("CREATE VIRTUAL TABLE chunks USING fts5(root UNINDEXED, path UNINDEXED, chunk_id UNINDEXED, doc_type UNINDEXED, heading_path, body)");
+    raw.exec("INSERT INTO files VALUES ('docs','a.md',1,'x')");
+    raw.exec("INSERT INTO chunks VALUES ('docs','a.md','c1','doc','A','alpha body')");
+    raw.close();
+    const junk = makeFolder();
+    const junkDb = dbPathOf(junk);
+    mkdirSync(dirname(junkDb), { recursive: true });
+    writeFileSync(junkDb, Buffer.alloc(64, 0x5a));
+    const before = { stale: readFileSync(staleDb), junk: readFileSync(junkDb) };
+    const { app } = buildApp([stale, junk]);
+    for (const cwd of [stale, junk]) {
+      const { status, body } = await stats(app, cwd);
+      expect(status).toBe(200);
+      expect(body.chunks).toBe(0);
+      expect(body.indexed).toBe(false);
+    }
+    expect(readFileSync(staleDb).equals(before.stale)).toBe(true);
+    expect(readFileSync(junkDb).equals(before.junk)).toBe(true);
+    await app.close();
+  });
+
+  it("E18 reindex of a removed folder → 409 folder missing, no job, not recreated", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    rmSync(cwd, { recursive: true, force: true });
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "folder missing" });
+    expect((await stats(app, cwd)).body.jobStatus).toBe("idle");
+    expect(existsSync(cwd)).toBe(false);
+    await app.close();
+  });
+
+  it("E19 reindex with zero sources → 409 no sources configured; one source → 202", async () => {
+    const cwd = makeFolder({ withConfig: false });
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "no sources configured" });
+    expect(existsSync(dbPathOf(cwd))).toBe(false);
+    setSources(cwd, [{ kind: "filesystem", ref: "docs" }]);
+    const ok = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    expect(ok.statusCode).toBe(202);
+    await settle(app, cwd);
+    await app.close();
+  });
+
+  it("E20 preflight runs after coalescing: an in-flight job still answers 202", async () => {
+    const cwd = makeFolder();
+    const { app, registry } = buildApp([cwd]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    registry.start(cwd, async () => { await gate; return { changed: 0, chunks: 0 }; });
+    const jobId = registry.jobId(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    const res = await app.inject({ method: "POST", url: `/api/kb/reindex?cwd=${q(cwd)}` });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ status: "running", jobId });
+    release();
+    await app.close();
+  });
+
+  it("E21 config write for a removed folder → 409 folder missing, not recreated", async () => {
+    const cwd = makeFolder();
+    const { app } = buildApp([cwd]);
+    rmSync(cwd, { recursive: true, force: true });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/kb/config?cwd=${q(cwd)}`,
+      payload: { sources: [{ kind: "filesystem", ref: "docs" }] },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "folder missing" });
+    expect(existsSync(cwd)).toBe(false);
+    await app.close();
+  });
+
+  it("E22 save-and-reindex with zero sources saves, skips the job, reports reindexSkipped", async () => {
+    const cwd = makeFolder({ withConfig: false });
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/kb/config?cwd=${q(cwd)}`,
+      payload: { sources: [], reindex: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().reindexSkipped).toBe("no sources configured");
+    const { body } = await stats(app, cwd);
+    expect(body.jobStatus).toBe("idle");
+    expect(body.indexing).toBe(false);
+    await app.close();
+  });
+
+  it("X4 a folder removed after the job was accepted settles error 'folder missing'", async () => {
+    const cwd = makeFolder();
+    const { app, registry } = buildApp([cwd]);
+    rmSync(cwd, { recursive: true, force: true });
+    await registry.start(cwd, async () => reindexAll(cwd)).promise.catch(() => {});
+    const { body } = await stats(app, cwd);
+    expect(body.jobStatus).toBe("error");
+    expect(body.lastError).toBe("folder missing");
+    expect(existsSync(cwd)).toBe(false);
+    await app.close();
+  });
+
+  it("X5 a config write after the folder vanished → ok:false folder missing, not recreated", () => {
+    const cwd = makeFolder();
+    rmSync(cwd, { recursive: true, force: true });
+    const result = applyConfigPatchAndTrust(cwd, { sources: [{ kind: "filesystem", ref: "docs" }] });
+    expect(result).toMatchObject({ ok: false, error: "folder missing" });
+    expect(existsSync(cwd)).toBe(false);
+  });
+
+  // Review round 1 (B1): the existence re-check must sit IMMEDIATELY before the
+  // mkdir inside the writer, not earlier in the caller (read + validate lie between).
+  it("B1 writeProjectConfig refuses a vanished folder and never recreates it", () => {
+    const cwd = makeFolder();
+    rmSync(cwd, { recursive: true, force: true });
+    expect(() => writeProjectConfig(cwd, { sources: [] })).toThrow("folder missing");
+    expect(existsSync(cwd)).toBe(false);
+  });
+
+  it("round-1 non-blocking: a zero-source save+reindex reports reindexSkipped even while a job runs", async () => {
+    const cwd = makeFolder({ withConfig: false });
+    const { app, registry } = buildApp([cwd]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    registry.start(cwd, async () => { await gate; return { changed: 0, chunks: 0 }; });
+    const res = await app.inject({ method: "PUT", url: `/api/kb/config?cwd=${q(cwd)}`, payload: { sources: [], reindex: true } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().reindexSkipped).toBe("no sources configured");
+    release();
+    await app.close();
+  });
+
+  it("a path that is a FILE (not a directory) or does not exist is 'folder missing'; a directory is not", () => {
+    const dir = makeFolder();
+    expect(preflightWrite(dir, { needsSources: false })).toBeNull();
+    expect(preflightWrite(join(dir, "docs", "a.md"), { needsSources: false })).toBe("folder missing");
+    expect(preflightWrite(join(dir, "nope"), { needsSources: false })).toBe("folder missing");
+    expect(preflightWrite(`${dir}/`, { needsSources: false })).toBeNull(); // trailing separator
+  });
 });
