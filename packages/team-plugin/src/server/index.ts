@@ -5,7 +5,7 @@
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import type { PluginCwdPolicy, ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import type { HostPort, HostSession } from "./conversations.js";
 import { createTeam } from "./team.js";
 import type { TeamConfig } from "./types.js";
@@ -33,6 +33,8 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     // D11: operator's global skills for the admin picker; absent on older hosts → [].
     listOperatorSkills:
       ctx.consume<() => Promise<{ name: string; description: string; path: string; source: string }[]>>("host.listOperatorSkills") ?? undefined,
+    // D7 composition: host cwd capability floor; absent (service not published) → no narrowing possible.
+    resolveCwdPolicy: ctx.consume<(cwd: string) => PluginCwdPolicy | undefined>("host.resolveCwdPolicy") ?? undefined,
   });
   await team.start();
   ctx.onShutdown(() => team.stop());

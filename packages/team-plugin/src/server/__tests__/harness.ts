@@ -126,6 +126,8 @@ export interface HarnessOptions {
     before: import("../skills-service.js").SkillEntry | null,
     after: import("../skills-service.js").SkillEntry | null,
   ) => number | Promise<number>;
+  /** Host cwd capability floor resolver (D7 composition); absent → no narrowing possible. */
+  resolveCwdPolicy?: (cwd: string) => import("@blackbelt-technology/dashboard-plugin-runtime/server").PluginCwdPolicy | undefined;
 }
 
 export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
@@ -160,6 +162,7 @@ export async function makeHarness(o: HarnessOptions = {}): Promise<Harness> {
     sweepEveryMs: 0,
     listOperatorSkills: o.listOperatorSkills,
     onManagedWrite: o.onManagedWrite,
+    resolveCwdPolicy: o.resolveCwdPolicy,
   });
   await team.start();
   await app.ready();

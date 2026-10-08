@@ -131,10 +131,10 @@ export interface SkillsServiceDeps {
   listOperatorSkills?: () => Promise<OperatorSkill[]>;
   /**
    * D8 seam, called after a successful managed update/delete with the entry
-   * before and after; returns the number of sessions the change ended (slice C
-   * plugs `invalidateSkill` in). Absent → 0.
+   * before and after and the admin's uk (for the per-end audit line); returns
+   * the number of sessions the change ended. Absent → 0.
    */
-  onManagedWrite?: (name: string, before: SkillEntry | null, after: SkillEntry | null) => number | Promise<number>;
+  onManagedWrite?: (name: string, before: SkillEntry | null, after: SkillEntry | null, by: string) => number | Promise<number>;
   ops?: FsOps;
   now?: () => Date;
 }
@@ -575,7 +575,7 @@ export class SkillsService {
       const stamp = (this.d.now?.() ?? new Date()).toISOString();
       this.persist(state.records.map((r, j) => (j === i ? { ...r, ...merged, updatedAt: stamp, updatedBy: caller.uk } : r)));
       this.d.logger.info(`team.skill_write op=update name=${name} by=${caller.uk}`);
-      const ended = (await this.d.onManagedWrite?.(name, before, chk.entry)) ?? 0;
+      const ended = (await this.d.onManagedWrite?.(name, before, chk.entry, caller.uk)) ?? 0;
       this.d.logger.info(`team.skill_invalidated name=${name} sessions=${ended}`);
       return this.rowOf(chk, new Map());
     });
@@ -592,7 +592,7 @@ export class SkillsService {
       const before = this.normalise(name, state.records[i], "managed");
       this.persist(state.records.filter((_, j) => j !== i));
       this.d.logger.info(`team.skill_write op=delete name=${name} by=${caller.uk}`);
-      const ended = (await this.d.onManagedWrite?.(name, before, null)) ?? 0;
+      const ended = (await this.d.onManagedWrite?.(name, before, null, caller.uk)) ?? 0;
       this.d.logger.info(`team.skill_invalidated name=${name} sessions=${ended}`);
     });
   }

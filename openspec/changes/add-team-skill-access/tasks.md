@@ -17,7 +17,7 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 - [x] 3.2 `allowed()` predicate (exact principal match, single-user ignores users) and `firstBlockedSkill(personaSkills, caller, target)` (design D14).
 - [x] 3.3 `configSchema.json`: `skillCatalog` values `string | {path, users?, targets?}`; update `types.ts`.
 - [x] 3.4 Routes: `GET|POST /skills`, `PATCH|DELETE /skills/:name`, `POST /skills/:name/impact`, `GET /skills/available`; `GET /me.skills` caller-visible; `GET /agents` items gain `effectiveSkills` + `skillBlock`; description memo by `SKILL.md` `(realpath, mtimeMs, size)`; admin usage counts.
-- [ ] 3.5 Observability (`team.skills_narrowed` emits from the slice-C composition refusal, task 5.1; the other three lines land here): `team.skill_write`, `team.skill_not_allowed`, `team.skill_invalidated`, `team.skills_narrowed`; no paths or skill text.
+- [x] 3.5 Observability (`team.skills_narrowed` emits from the slice-C composition refusal, task 5.1; the other three lines land here): `team.skill_write`, `team.skill_not_allowed`, `team.skill_invalidated`, `team.skills_narrowed`; no paths or skill text.
 
 ## 4. Persona validation
 
@@ -25,9 +25,9 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ## 5. Spawn + invalidation (team-plugin server)
 
-- [ ] 5.1 `conversations.ts`: `firstBlockedSkill` on create, resume and reuse (reuse ends the live session); `409 skill_not_allowed {skill, reason}`; `scope.noSkills: true` + `scope.skills`; `extensionConfig.team.skills = JSON.stringify([{name, root}])` (always set, `"[]"` when empty); refuse when cwd-policy composition narrows the set.
-- [ ] 5.2 Catalog epoch: re-check after the session correlates; abort + `409` when blocked.
-- [ ] 5.3 `invalidateSkill(name)` server-authority pass modelled on `sweepIdle`: owner-binding check, `abortSpawnedRun({graceful:false})`, only for sessions whose grant changed (denied, removed, `realpath` changed), within 5 s of the write's 2xx, audit-logged; reachable only from a successful admin catalog write.
+- [x] 5.1 `conversations.ts`: `firstBlockedSkill` on create, resume and reuse (reuse ends the live session); `409 skill_not_allowed {skill, reason}`; `scope.noSkills: true` + `scope.skills`; `extensionConfig.team.skills = JSON.stringify([{name, root}])` (always set, `"[]"` when empty); refuse when cwd-policy composition narrows the set.
+- [x] 5.2 Catalog epoch: re-check after the session correlates; abort + `409` when blocked.
+- [x] 5.3 `invalidateSkill(name)` server-authority pass modelled on `sweepIdle`: owner-binding check, `abortSpawnedRun({graceful:false})`, only for sessions whose grant changed (denied, removed, `realpath` changed), within 5 s of the write's 2xx, audit-logged; reachable only from a successful admin catalog write.
 
 ## 6. Guard extension (team-plugin)
 
@@ -63,12 +63,12 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 - [x] 8.19 Test shared persona skills vs targets — input `projects:[billing,crm]`, review targets variants · trigger admin save · observable `400 skill_not_allowed` only when not allowed in crm (test-plan #E20).
 - [x] 8.20 Test private persona owner check — input review users `[bob]`, alice saves, mode multi/single · trigger save · observable multi `400`, single `200` (test-plan #E21).
 - [x] 8.21 Test fork filtering — input shared persona `[review, all-ok]`, review users `[bob]` · trigger alice fork · observable fork skills `["all-ok"]` (test-plan #E22).
-- [ ] 8.22 Test spawn argv + env — input persona skills `[]` and `[review]` · trigger ensure create · observable `--no-skills` (+ `--skill <realpath>`), `PI_EXT_TEAM_SKILLS` `"[]"` / JSON (test-plan #E23).
-- [ ] 8.23 Test start check on reuse/resume/create — input config-narrowed catalog with a live session · trigger each ensure path · observable reuse ends session + `409`, others `409`, nothing spawned, record unchanged (test-plan #E24).
-- [ ] 8.24 Test composition narrowing — input stub cwd-policy intersecting skills to `[]` · trigger ensure · observable `409 reason:"invalid"`, `team.skills_narrowed` (test-plan #E25).
+- [x] 8.22 Test spawn argv + env — input persona skills `[]` and `[review]` · trigger ensure create · observable `--no-skills` (+ `--skill <realpath>`), `PI_EXT_TEAM_SKILLS` `"[]"` / JSON (test-plan #E23).
+- [x] 8.23 Test start check on reuse/resume/create — input config-narrowed catalog with a live session · trigger each ensure path · observable reuse ends session + `409`, others `409`, nothing spawned, record unchanged (test-plan #E24).
+- [x] 8.24 Test composition narrowing — input stub cwd-policy intersecting skills to `[]` · trigger ensure · observable `409 reason:"invalid"`, `team.skills_narrowed` (test-plan #E25).
 - [x] 8.25 Test concurrent create — input two same-tick `POST {name:"review"}` · trigger await both · observable one `201`, one `409`, one entry (test-plan #X3).
-- [ ] 8.26 Test check-then-act epoch — input managed revocation between D6 check and correlation · trigger correlation · observable abort, `409`, no record (test-plan #X4).
-- [ ] 8.27 Test cross-user authority — input bob ensure/restart/PATCH against alice's conversation or skill · trigger requests · observable `404`/`403`, alice untouched; invalidation pass only after admin 2xx and skips owner-mismatched records (test-plan #X5).
+- [x] 8.26 Test check-then-act epoch — input managed revocation between D6 check and correlation · trigger correlation · observable abort, `409`, no record (test-plan #X4).
+- [x] 8.27 Test cross-user authority — input bob ensure/restart/PATCH against alice's conversation or skill · trigger requests · observable `404`/`403`, alice untouched; invalidation pass only after admin 2xx and skips owner-mismatched records (test-plan #X5).
 - [x] 8.28 Test observability lines — input a refused spawn, a catalog write, an invalidation of 2 sessions · trigger capture logger · observable the three lines, no path or skill text (test-plan #X6).
 
 ### L1 — host scanner (exemplar: `packages/server/src/__tests__/pi-resource-scanner.test.ts`)

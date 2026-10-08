@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { PluginCwdPolicy } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { getDashboardConfigDir, resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import type { FastifyInstance } from "fastify";
 import { type Access, createAccess, type IdentityLike } from "./access.js";
@@ -38,8 +39,10 @@ export interface TeamDeps {
   sweepEveryMs?: number;
   /** `host.listOperatorSkills` service (D11); absent on older hosts. */
   listOperatorSkills?: () => Promise<{ name: string; description: string; path: string; source: string }[]>;
-  /** D8 seam: called after a successful managed skill update/delete; returns sessions ended. */
-  onManagedWrite?: (name: string, before: SkillEntry | null, after: SkillEntry | null) => number | Promise<number>;
+  /** D8 seam override (tests): called instead of the built-in `invalidateSkill` pass. */
+  onManagedWrite?: (name: string, before: SkillEntry | null, after: SkillEntry | null, by: string) => number | Promise<number>;
+  /** Host cwd capability floor resolver (D7 composition); absent → no narrowing possible. */
+  resolveCwdPolicy?: (cwd: string) => PluginCwdPolicy | undefined;
 }
 
 export interface Team {
@@ -68,6 +71,8 @@ export function createTeam(d: TeamDeps): Team {
   const records = new RecordStore(paths, ops);
   const users = new UsersStore(paths, ops);
   const nowDate = d.now ? () => new Date(d.now?.() ?? Date.now()) : undefined;
+  // Late-bound: the built-in invalidation pass lives on the conversation service, which needs `skills`.
+  let conversations: ConversationService;
   const skills = new SkillsService({
     paths,
     projects,
@@ -81,11 +86,12 @@ export function createTeam(d: TeamDeps): Team {
     sessionsRoot: resolvePiSessionsDir(),
     dashboardHome: getDashboardConfigDir(),
     listOperatorSkills: d.listOperatorSkills,
-    onManagedWrite: d.onManagedWrite,
+    onManagedWrite: (name, before, after, by) =>
+      d.onManagedWrite ? d.onManagedWrite(name, before, after, by) : conversations.invalidateSkill(name, before, after, by),
     ops,
     now: nowDate,
   });
-  const conversations = new ConversationService({
+  const conversationService = new ConversationService({
     host: d.host,
     access,
     paths,
@@ -99,7 +105,9 @@ export function createTeam(d: TeamDeps): Team {
     renderPersona: d.renderPersona ?? ((persona, uk) => writePersonaFile(paths.runtimeDir(uk, persona.key), persona)),
     spawnTimeoutMs: d.spawnTimeoutMs,
     now: d.now,
+    resolveCwdPolicy: d.resolveCwdPolicy,
   });
+  conversations = conversationService;
   const personas = new PersonaService({ store, projects, access, skills, config: d.config, now: nowDate });
 
   return {
