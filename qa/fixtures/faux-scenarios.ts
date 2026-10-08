@@ -1349,15 +1349,15 @@ export const SCENARIOS: Record<string, Scenario> = {
   "subagent-reasoning-inner": {
     script: [
       fauxAssistantMessage(
-        [fauxThinking("weighing the first probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 2 && echo r-one" })],
+        [fauxThinking("weighing the first probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-one" })],
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage(
-        [fauxThinking("weighing the second probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 2 && echo r-two" })],
+        [fauxThinking("weighing the second probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-two" })],
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage(
-        [fauxThinking("weighing the third probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 2 && echo r-three" })],
+        [fauxThinking("weighing the third probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-three" })],
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("reasoning inner complete")]),

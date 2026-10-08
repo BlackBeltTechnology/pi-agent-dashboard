@@ -125,13 +125,20 @@ test.describe("subagents inspector (L3)", () => {
     const body = activityRow.locator("xpath=..");
 
     const heights: number[] = [];
-    const deadline = Date.now() + 5_000;
+    const started = Date.now();
+    const deadline = started + 5_000;
+    let finishedEarlyAt: number | undefined;
     while (Date.now() < deadline) {
-      if ((await page.getByTestId("agent-activity-row").count()) === 0) break; // finished
+      if ((await page.getByTestId("agent-activity-row").count()) === 0) {
+        finishedEarlyAt = Date.now() - started; // finished before the window closed
+        break;
+      }
       const box = await body.boundingBox();
       if (box) heights.push(Math.round(box.height));
       await page.waitForTimeout(250);
     }
+    // The whole 5 s window must be observed while running (PR #831 review).
+    expect(finishedEarlyAt, `subagent finished after ${finishedEarlyAt} ms, inside the 5 s window`).toBeUndefined();
     expect(heights.length).toBeGreaterThanOrEqual(10);
     expect(new Set(heights).size).toBe(1);
 

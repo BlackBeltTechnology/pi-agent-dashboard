@@ -256,7 +256,7 @@ function LiveEntry({ entry }: { entry: MinimalChatLiveEntry }) {
         </span>
         <span>
           {isThinking ? "Reasoning" : "Writing"}
-          <span className="ml-1 animate-pulse">…</span>
+          <span className="ml-1 motion-safe:animate-pulse">…</span>
           <span className="sr-only"> in progress</span>
         </span>
       </div>
@@ -269,7 +269,7 @@ function LiveEntry({ entry }: { entry: MinimalChatLiveEntry }) {
           <div className="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line break-words">
             {body}
             <span
-              className={`inline-block w-0.5 h-[0.95em] align-[-0.12em] ml-0.5 animate-pulse ${
+              className={`inline-block w-0.5 h-[0.95em] align-[-0.12em] ml-0.5 motion-safe:animate-pulse ${
                 isThinking ? "bg-purple-400/70" : "bg-[var(--text-tertiary)]"
               }`}
             />

@@ -11,7 +11,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
-import { __resetHeldTailsForTest, SubagentDetailView, type SessionStateLike } from "../SubagentDetailView.js";
+import { SubagentDetailView, type SessionStateLike } from "../SubagentDetailView.js";
 import type { SubagentState } from "../types.js";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 
@@ -33,7 +33,6 @@ function renderWithPrimitives(ui: React.ReactElement) {
 describe("SubagentDetailView", () => {
   afterEach(() => {
     cleanup();
-    __resetHeldTailsForTest();
   });
 
   it("renders 'not found' when agentId is missing from session", () => {
@@ -181,7 +180,6 @@ describe("SubagentDetailView", () => {
 describe("SubagentDetailView liveTail", () => {
   afterEach(() => {
     cleanup();
-    __resetHeldTailsForTest();
   });
   const base: SubagentState = { id: "a1", type: "Explore", description: "d", status: "running" };
   const three = [
@@ -225,7 +223,6 @@ describe("SubagentDetailView liveTail", () => {
 describe("SubagentDetailView thinking level", () => {
   afterEach(() => {
     cleanup();
-    __resetHeldTailsForTest();
   });
   it("shows the level next to the model in the header", () => {
     renderWithPrimitives(
@@ -243,7 +240,6 @@ describe("SubagentDetailView thinking level", () => {
 describe("SubagentDetailView tail hand-off", () => {
   afterEach(() => {
     cleanup();
-    __resetHeldTailsForTest();
   });
   const base: SubagentState = { id: "a1", type: "Explore", description: "d", status: "running" };
   const one = [{ kind: "text" as const, text: "one", ts: 1 }];
@@ -262,6 +258,27 @@ describe("SubagentDetailView tail hand-off", () => {
       ),
     );
     expect(live()).toBeNull();
+  });
+
+  // PR #831 review: the hold is per mounted view, never module-global, so a
+  // view closed mid-hold leaks nothing into later mounts.
+  it("a view closed mid-hold leaks no held tail into a fresh mount", () => {
+    const cleared = { ...base, entries: one, liveTail: { kind: "none" as const, text: "" } };
+    const first = renderWithPrimitives(view({ ...base, entries: one, liveTail: { kind: "thinking", text: "deep thought" } }));
+    first.rerender(withUiPrimitiveProvider({ "ui:markdown-content": MockMarkdown }, view(cleared)));
+    first.unmount();
+    const { container } = renderWithPrimitives(view(cleared));
+    expect(container.querySelector('[data-testid="minimal-live-entry"]')).toBeNull();
+  });
+
+  it("a reused view does not carry a held tail across agent ids", () => {
+    const a2: SubagentState = { ...base, id: "a2", entries: one, liveTail: { kind: "none", text: "" } };
+    const a1: SubagentState = { ...base, entries: one, liveTail: { kind: "thinking", text: "deep thought" } };
+    const session: SessionStateLike = { subagents: new Map([["a1", a1], ["a2", a2]]) };
+    const { container, rerender } = renderWithPrimitives(<SubagentDetailView session={session} agentId="a1" />);
+    expect(container.querySelector('[data-testid="minimal-live-entry"]')?.textContent).toContain("deep thought");
+    rerender(withUiPrimitiveProvider({ "ui:markdown-content": MockMarkdown }, <SubagentDetailView session={session} agentId="a2" />));
+    expect(container.querySelector('[data-testid="minimal-live-entry"]')).toBeNull();
   });
 
   it("opens the newest reasoning entry while running", () => {

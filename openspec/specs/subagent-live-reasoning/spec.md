@@ -45,7 +45,7 @@ The collapsed card of a running subagent SHALL always render one fixed-height ac
 
 #### Scenario: Resync tail wins over the tool-call tail
 - **WHEN** the session map holds a tail from a resync reply and the tool-call details hold an older one
-- **THEN** the card's preview row shows the session-map tail
+- **THEN** the card's activity row shows the session-map tail
 
 #### Scenario: Finished block stays up until replaced
 - **WHEN** a block ends and its tail clears before the finished entry has reached the client
@@ -101,4 +101,4 @@ A producer that never sends `liveTail` SHALL render as before, except that the s
 
 #### Scenario: Old producer
 - **WHEN** ticks from `pi-dashboard-subagents` 0.2.6 (no `liveTail`) arrive
-- **THEN** the card renders with an empty, fixed-height preview row and no errors
+- **THEN** the card renders its fixed-height activity row showing the activity, with no ticker and no errors

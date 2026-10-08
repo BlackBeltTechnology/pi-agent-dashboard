@@ -26,6 +26,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-client-utils/minimal-chat";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type React from "react";
+import { type MutableRefObject, useRef } from "react";
 import type { SubagentState, SubagentTimelineEntry } from "./types.js";
 
 /** Minimal session-state shape this component cares about. */
@@ -96,31 +97,32 @@ function mapSubagentEntries(entries?: SubagentTimelineEntry[]): MinimalChatEntry
 }
 
 interface HeldTail {
+  agentId: string;
   kind: "thinking" | "text";
   text: string;
   entryCount: number;
 }
-const heldTails = new Map<string, HeldTail>();
-/** Test-only: drop all held tails. */
-export function __resetHeldTailsForTest(): void {
-  heldTails.clear();
-}
 
-/** Live tail, or the last one held until its finished entry has arrived. */
+/**
+ * Live tail, or the last one held until its finished entry has arrived.
+ * The hold lives in the mounted view's ref, so it goes away with the view
+ * (PR #831 review: a module-global map outlived closed inspectors).
+ */
 function heldLiveEntry(
   sub: SubagentState,
   isComplete: boolean,
+  heldRef: MutableRefObject<HeldTail | undefined>,
 ): { kind: "thinking" | "text"; text: string } | undefined {
   const count = sub.entries?.length ?? 0;
   const tail = sub.liveTail;
   if (tail && tail.kind !== "none" && tail.text) {
-    heldTails.set(sub.id, { kind: tail.kind, text: tail.text, entryCount: count });
+    heldRef.current = { agentId: sub.id, kind: tail.kind, text: tail.text, entryCount: count };
     return { kind: tail.kind, text: tail.text };
   }
-  const held = heldTails.get(sub.id);
-  if (!held) return undefined;
+  const held = heldRef.current;
+  if (!held || held.agentId !== sub.id) return undefined;
   if (isComplete || count > held.entryCount) {
-    heldTails.delete(sub.id);
+    heldRef.current = undefined;
     return undefined;
   }
   return { kind: held.kind, text: held.text };
@@ -135,6 +137,7 @@ export function SubagentDetailView({
 }: SubagentDetailViewProps) {
   const t = useT();
   const MarkdownContent = useUiPrimitive(UI_PRIMITIVE_KEYS.markdownContent);
+  const heldTail = useRef<HeldTail | undefined>(undefined);
   const sub = session.subagents.get(agentId);
   if (!sub) {
     return (
@@ -166,9 +169,9 @@ export function SubagentDetailView({
   // text = nothing streaming. See change: stream-subagent-reasoning-and-stable-card.
   // The finished entry reaches the client only on the next resync, while the
   // tail clears at block end. Hold the last tail until the timeline grows so
-  // the block never blinks out. Hook-free: module Map keyed by agent id; entry is
+  // the block never blinks out. Held per mounted view (ref keyed by agent id);
   // dropped on completion or once the timeline grows.
-  const liveEntry = heldLiveEntry(sub, isComplete);
+  const liveEntry = heldLiveEntry(sub, isComplete, heldTail);
 
   // Tier resolution — pick entries / synthesized fallback / empty placeholder.
   let entries: MinimalChatEntry[];

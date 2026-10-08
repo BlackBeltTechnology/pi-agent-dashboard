@@ -266,4 +266,17 @@ describe("MinimalChatView liveEntry", () => {
       });
     }
   }
+
+  // PR #831 review: pulses honour prefers-reduced-motion.
+  it.each(["thinking", "text"] as const)("%s live entry animates only under motion-safe", (kind) => {
+    const { container } = renderView(
+      <MinimalChatView title="a" status="running" entries={[]} liveEntry={{ kind, text: "x" }} />,
+    );
+    const live = container.querySelector('[data-testid="minimal-live-entry"]')!;
+    const pulsing = [...live.querySelectorAll("[class*='animate-']")].map((el) => el.getAttribute("class") ?? "");
+    expect(pulsing.length).toBeGreaterThan(0);
+    for (const cls of pulsing) {
+      expect(cls.split(/\s+/).filter((c) => c.includes("animate-")).every((c) => c.startsWith("motion-safe:"))).toBe(true);
+    }
+  });
 });
