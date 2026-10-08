@@ -240,18 +240,19 @@ flows-plugin MAY retain a `client-utils` dep IF it imports hooks (e.g. `useMobil
 
 The contract:
 
-- `"ui:model-selector"`: `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string }>`
+- `"ui:model-selector"`: `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string; allowRoles?: boolean }>`
 
 Where:
 
-- `current` is a string in `"<provider>/<id>"` form, or `undefined` for "no current".
+- `current` is a string in `"<provider>/<id>"` form, a role ref `"@<role>"` (only meaningful when `allowRoles` is set), or `undefined` for "no current".
 - `models` is the list of available models as `ModelInfo[]` from `packages/shared/src/types.ts`, or `undefined` when models have not yet loaded (in which case the primitive renders the current label as non-interactive text).
-- `onSelect(modelLabel)` is called with the full `"<provider>/<id>"` string of the chosen model.
+- `onSelect(modelLabel)` is called with the full `"<provider>/<id>"` string of the chosen model, or with `"@<role>"` when a role is chosen on the Role tab.
 - `placeholder` is optional trigger text shown when `current` is absent; when omitted the primitive's default placeholder is used.
+- `allowRoles` is optional; when `true` and the roles plugin is installed the primitive offers a Role tab for *selecting* a role. When absent the primitive SHALL behave exactly as the four-prop contract.
 
-Favorites state and model-list refresh SHALL NOT appear in this contract; they are supplied by the shell at registration time (see "A primitive registration MAY be a shell-bound wrapper"), because they are session-scoped and shell-owned.
+Favorites state, model-list refresh, and the role list SHALL NOT appear in this contract; they are supplied by the shell (favorites/refresh at registration time — see "A primitive registration MAY be a shell-bound wrapper"; the role list fetched by the shell from the roles read surface), because they are shell-owned.
 
-The contract SHALL NOT expose role/preset props — role management is a separate concern owned by `BuiltInRolesSettings` (in builtins-plugin) and is layered on top of this primitive, not inside it.
+The contract SHALL NOT expose role *management* (assigning models to roles, presets) — that remains owned by the roles plugin's settings section. Role *selection* via `allowRoles` is the only role-related surface of the primitive.
 
 #### Scenario: Key is part of `UI_PRIMITIVE_KEYS`
 
@@ -262,7 +263,7 @@ The contract SHALL NOT expose role/preset props — role management is a separat
 #### Scenario: Contract is typed in `UiPrimitiveMap`
 
 - **WHEN** TypeScript resolves `UiPrimitiveMap["ui:model-selector"]`
-- **THEN** the resolved type SHALL be `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string }>`
+- **THEN** the resolved type SHALL be `ComponentType<{ current?: string; models?: ModelInfo[]; onSelect: (modelLabel: string) => void; placeholder?: string; allowRoles?: boolean }>`
 
 #### Scenario: Existing three-prop call sites still compile
 
