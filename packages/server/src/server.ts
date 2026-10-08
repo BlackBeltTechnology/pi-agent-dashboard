@@ -1366,6 +1366,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // folder's `.pi/mcp.json` is active. Resolved once; an unresolvable pi reads
   // every project as untrusted. See change: migrate-mcp-to-pi-builtin (D3).
   pluginServiceRegistry.set("host.isProjectTrusted", await loadHostProjectTrust());
+  // cwd-policy as the spawn funnel composes it, so the team plugin can refuse a
+  // start whose skill set the policy would narrow. See change: add-team-skill-access (D7).
+  pluginServiceRegistry.set("host.resolveCwdPolicy", (cwd: string) => cwdPolicyRegistry.resolve(cwd));
   // Operator-visible (global + global-package) skills for the team plugin's
   // admin skill picker. Never project-local. See change: add-team-skill-access (D11).
   pluginServiceRegistry.set("host.listOperatorSkills", async () =>
