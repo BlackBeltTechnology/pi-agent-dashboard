@@ -26,7 +26,7 @@ const PATH_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 /** Read-only tools may additionally reach into effective skill roots (D9). */
 const READONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 
-export interface SkillRoot {
+interface SkillRoot {
   /** The catalog name — pi's skill name (D1). */
   name: string;
   /** The granted skill root: the skill directory's realpath (D3). */

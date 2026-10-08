@@ -14,8 +14,8 @@ import type { ProjectRegistry } from "./projects.js";
 import type { LocatedRecord } from "./records.js";
 import { type Caller, type Mode, type Persona, type PersonaScope, type SkillCatalogEntry, type TeamConfig, TeamError } from "./types.js";
 
-export type SkillUsers = "*" | { iss: string; sub: string }[];
-export type SkillTargets = "*" | string[];
+type SkillUsers = "*" | { iss: string; sub: string }[];
+type SkillTargets = "*" | string[];
 
 /** Normalised catalog entry (legacy string + missing users/targets defaulted to `"*"`). */
 export interface SkillEntry {
@@ -28,12 +28,12 @@ export interface SkillEntry {
 
 export type SkillBlockReason = "missing" | "invalid" | "users" | "targets";
 
-export const SKILL_PATH_MAX_BYTES = 512;
+const SKILL_PATH_MAX_BYTES = 512;
 
 /** pi skill name: `[a-z0-9-]`, 1–64 chars, no leading/trailing/doubled hyphen. */
 const SKILL_NAME_RE = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,63}$/;
 
-export function isValidSkillName(name: unknown): name is string {
+function isValidSkillName(name: unknown): name is string {
   return typeof name === "string" && SKILL_NAME_RE.test(name);
 }
 
@@ -86,13 +86,13 @@ export interface OperatorSkill {
 }
 
 /** Read-side persona access for the usage/impact passes (all users' private personas). */
-export interface SkillPersonaSource {
+interface SkillPersonaSource {
   get(key: string, uk: string): Persona | null;
   listShared(): Persona[];
   allPrivate(): { uk: string; persona: Persona }[];
 }
 
-export interface SkillRecords {
+interface SkillRecords {
   scanAll(): LocatedRecord[];
 }
 

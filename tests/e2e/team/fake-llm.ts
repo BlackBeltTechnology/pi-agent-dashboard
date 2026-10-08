@@ -6,7 +6,7 @@
  */
 import http from "node:http";
 
-export interface LlmRequest {
+interface LlmRequest {
   system: string;
   userTexts: string[];
   toolNames: string[];
@@ -15,7 +15,7 @@ export interface LlmRequest {
 }
 
 /** `delayMs` holds the SSE response so the agent turn stays streaming (#F4 revocation window). */
-export type LlmReply = { text: string; delayMs?: number } | { toolCall: { name: string; args: Record<string, unknown> } };
+type LlmReply = { text: string; delayMs?: number } | { toolCall: { name: string; args: Record<string, unknown> } };
 
 export interface FakeLlm {
   baseUrl: string;
