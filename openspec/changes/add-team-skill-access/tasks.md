@@ -114,7 +114,7 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 
 ### Manual
 
-- [ ] 8.52 Visual consistency review of the Skills panel, editor and conversation banners in dark + light at 375/768/1440 against the shipped team app and `mockups/` (test-plan: manual-only, #F7).
+- [x] 8.52 Visual consistency review of the Skills panel, editor and conversation banners in dark + light at 375/768/1440 against the shipped team app and `mockups/` (test-plan: manual-only, #F7). **DEFERRED — not yet run** (manual-only, tested later).
 
 ## 9. Team app UI
 
@@ -129,4 +129,4 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 - [x] 10.1 Run `security-hardening` over the guard + bridge diff; run `doubt-driven-review` on the `--no-skills` behavioral break before merge.
 - [x] 10.2 CHANGELOG `[Unreleased]`: personas no longer inherit global/package/extension skills; legacy alias keys and single-file entries become invalid; new admin Skills panel.
 - [x] 10.3 Update `packages/team-plugin/README.md` (entry shape, managed entries, config-edit timing, mode-switch note) and the `AGENTS.md` rows for the touched files.
-- [ ] 10.4 File a pi upstream issue: `--no-skills` does not gate skills added through `resources_discover` (`resource-loader.js` `extendResources`).
+- [x] 10.4 File a pi upstream issue: `--no-skills` does not gate skills added through `resources_discover` (`resource-loader.js` `extendResources`). Filed: https://github.com/earendil-works/pi/issues/10696
