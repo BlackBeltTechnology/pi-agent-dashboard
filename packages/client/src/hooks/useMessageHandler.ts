@@ -1821,6 +1821,10 @@ export function useMessageHandler(
               questions: msg.prompt?.metadata?.questions,
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
+              // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to
+              // plugins via the interactive-request snapshot. Core keys never
+              // come from here. See change: add-browser-editor-pane-tab (D6).
+              _pluginMeta: msg.prompt?.metadata?.plugin,
             },
             toolCallId,
           );

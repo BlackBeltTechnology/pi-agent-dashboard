@@ -72,7 +72,7 @@
 
 ## 4. Prompt metadata seam (extension + client)
 
-- [ ] 4.1 In `packages/extension/src/bridge.ts` `buildMeta`, copy `opts.pluginMeta` into `metadata.plugin`: (test-plan: #E7, #E12, #X14)
+- [x] 4.1 In `packages/extension/src/bridge.ts` `buildMeta`, copy `opts.pluginMeta` into `metadata.plugin`: (test-plan: #E7, #E12, #X14)
   - accept only a plain object that `JSON.stringify` serializes without throwing, at ≤ 2048 UTF-8 bytes;
   - produce metadata even with no message and no `toolCallId`;
   - route `ctx.ui.multiselect` through `buildMeta` too;
@@ -80,7 +80,7 @@
   - drop invalid input with a warning.
 
   Verify with tests for pass-through, a metadata-only `select`, core-key spoofing, a class instance or `BigInt`, and oversize.
-- [ ] 4.2 Client: in the `useMessageHandler.ts` `prompt_request` case, copy `metadata.plugin` into the interactive request `params._pluginMeta`, and expose it in the `InteractiveUiRequestSnapshot` (`plugin-context.tsx`). Verify with a reducer/handler test that a `prompt_request` with `metadata.plugin` yields a snapshot carrying it.
+- [x] 4.2 Client: in the `useMessageHandler.ts` `prompt_request` case, copy `metadata.plugin` into the interactive request `params._pluginMeta`, and expose it in the `InteractiveUiRequestSnapshot` (`plugin-context.tsx`). Verify with a reducer/handler test that a `prompt_request` with `metadata.plugin` yields a snapshot carrying it.
 
 ## 5. Browser plugin bridge and open path
 
