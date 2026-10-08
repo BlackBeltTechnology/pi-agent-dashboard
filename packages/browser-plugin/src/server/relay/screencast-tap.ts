@@ -61,6 +61,8 @@ export interface ScreencastTapDeps {
   sendToTab(sessionId: string, method: string, params: unknown): Promise<unknown>;
   /** True when the CDP client already runs its own screencast on this tab. */
   clientScreencastActive(tabId: number): boolean;
+  /** True while the CDP client holds its own device-metrics override on this tab. */
+  agentEmulationActive?(tabId: number): boolean;
   /** Fired on any state/viewer change so the host can rebroadcast status. */
   onStatusChange(): void;
   timers?: TapTimers;
@@ -73,6 +75,8 @@ interface View {
   viewers: Set<RelaySocket>;
   geometry?: FrameGeometry;
   state: TapTabState;
+  /** The relay (not the agent) set a device-metrics override for a viewer `resize`. */
+  resized?: boolean;
   noFramesTimer?: unknown;
   /** Frames skipped per viewer while it was over the backpressure threshold. */
   skipped: Map<RelaySocket, number>;
@@ -254,6 +258,16 @@ export class ScreencastTap {
     const sessionId = this.deps.sessionIdForTab(tabId);
 
     const raw = (msg ?? {}) as { kind?: unknown };
+    if (raw.kind === "resize" && this.deps.agentEmulationActive?.(tabId)) {
+      // The agent owns this tab's emulation; never fight it.
+      this.deps.audit.append({
+        profileDirectory: this.deps.profileDirectory,
+        instanceId: this.deps.instanceId,
+        kind: "denied",
+        detail: "resize reason:agent-emulation-active",
+      });
+      return;
+    }
     const built = buildViewerInputCommands(raw as never, view.geometry);
     if (!built.ok || !sessionId) {
       const kind = typeof raw.kind === "string" ? raw.kind : "unknown";
@@ -275,6 +289,7 @@ export class ScreencastTap {
       kind: "viewer-input",
       detail: typeof raw.kind === "string" ? raw.kind : "unknown",
     });
+    if (raw.kind === "resize") view.resized = true;
     for (const command of built.commands) {
       try {
         await this.deps.sendToTab(sessionId, command.method, command.params);
@@ -282,6 +297,12 @@ export class ScreencastTap {
         this.deps.logger.warn(`[browser-relay] viewer input command failed method=${command.method}`, err);
       }
     }
+  }
+
+  /** The agent took over emulation: drop the relay's own override claim (no clear sent). */
+  releaseRelayOverride(tabId: number): void {
+    const view = this.views.get(tabId);
+    if (view) view.resized = false;
   }
 
   /** Mark a tab detached (DevTools) — refusal state until it is re-subscribed. */
@@ -306,6 +327,13 @@ export class ScreencastTap {
       void this.deps
         .sendToTab(sessionId, "Page.stopScreencast", {})
         .catch((err: unknown) => this.deps.logger.warn("[browser-relay] stopScreencast failed", err));
+      // Best effort: undo a viewer-requested viewport so the user's real tab
+      // is not left resized (last unsubscribe / instance finalize).
+      if (view.resized) {
+        void this.deps
+          .sendToTab(sessionId, "Emulation.clearDeviceMetricsOverride", {})
+          .catch((err: unknown) => this.deps.logger.warn("[browser-relay] clear emulation failed", err));
+      }
     }
     this.views.delete(view.tabId);
   }

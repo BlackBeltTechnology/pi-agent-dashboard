@@ -189,6 +189,11 @@ describe("browser skill — dashboard relay routing branches (X15)", () => {
     ["504 timeout", /`504`[\s\S]{0,120}60 s/i],
     ["deny-list is a loud -32000", /-32000/],
     ["loopback requirement", /loopback/i],
+    // change: add-browser-editor-pane-tab (#X17)
+    ["browser_show_in_pane tool", /browser_show_in_pane/],
+    ["browser_await_human tool", /browser_await_human/],
+    ["ack-and-drop setDownloadBehavior", /setDownloadBehavior[^.]*acknowledged and dropped|ack-and-drop/i],
+    ["vbscript is fenced", /vbscript:/],
     ["never fall back to the bundled browser", /Never fall back to the bundled browser/i],
   ])("dashboard-relay.md documents %s", (_label, pattern) => {
     expect(relay).toMatch(pattern);

@@ -27,6 +27,7 @@ export type SlotId =
   | "tool-renderer"
   | "custom-entry-renderer"
   | "automation-action-editor"
+  | "editor-pane-tab"
   // React-or-descriptor slots
   | "session-card-memory"
   | "session-card-flows"
@@ -160,6 +161,12 @@ export const SLOT_DEFINITIONS: Record<SlotId, SlotDefinition> = {
     description:
       "Custom React payload editor for a specific automation action id (keyed by config.actionId). Rendered by the create-automation dialog additively below the generic ActionPayloadForm; receives { payload, onChange, cwd }.",
   },
+  "editor-pane-tab": {
+    multiplicity: "many",
+    payloadTier: "react-only",
+    description:
+      "Editor-pane tab owned by a virtual-path prefix (claim.pathPrefix). Tabs at `<pathPrefix>:<rest>` render the claim's component; an optional labelComponent renders in the tab strip and stays mounted for background tabs. See change: add-browser-editor-pane-tab.",
+  },
   // Descriptor-only (extension-ui-system)
   "management-modal": {
     multiplicity: "many",
@@ -271,6 +278,13 @@ export type SlotPredicateInput<S extends SlotId> =
   S extends SessionScopedSlot ? DashboardSession | null | undefined
   : S extends FolderScopedSlot ? FolderDescriptor
   : never;
+
+// `editor-pane-tab` is intentionally unclassified → `never`: a pane tab is
+// addressed by its path prefix, never filtered by predicate.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertEditorPaneTabNever = [SlotPredicateInput<"editor-pane-tab">] extends [never] ? true : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _editorPaneTabNever: _AssertEditorPaneTabNever = true;
 
 // Type-level test: assert every SlotId is reachable through SlotPredicateInput,
 // either by mapping to a concrete input or explicitly to `never`. This forces a

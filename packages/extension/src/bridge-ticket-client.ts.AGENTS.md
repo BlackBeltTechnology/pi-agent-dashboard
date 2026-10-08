@@ -1,0 +1,3 @@
+# bridge-ticket-client.ts — index
+
+Mints the credential a REMOTE bridge needs to open a gateway connection (§6 made TCP bridge auth mandatory). `DEVICE_TOKEN_ENV` (`PI_DASHBOARD_TOKEN`), `readDeviceToken(env)`, `mintBridgeTicket({httpBase, token, fetchImpl})` → single-use bridge-scoped ticket, `withTicket(url, ticket)`. The durable paired-device bearer NEVER reaches the gateway — only the 15s ticket does. Every failure names a cause (`no-token`/`unreachable`/`refused`/`malformed`) and the bridge refuses to dial rather than attempt an unauthenticated upgrade. Wired via `ConnectionManager.prepareConnect`, which re-mints on EVERY attempt because a ticket is single-use. See change: add-pi-gateway-transport-identity.

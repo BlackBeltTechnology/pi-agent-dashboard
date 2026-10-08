@@ -1,3 +1,4 @@
+import { createSlotRegistry, PluginContextProvider } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { act, renderHook } from "@testing-library/react";
 import type React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -229,5 +230,55 @@ describe("SplitWorkspaceProvider — open-files watch + changed-on-disk", () => 
     expect(result.current.changedFiles?.has("src/foo.ts")).toBe(true);
     act(() => result.current.clearChanged("src/foo.ts"));
     expect(onClearChanged).toHaveBeenCalledWith("src/foo.ts");
+  });
+});
+
+// change: add-browser-editor-pane-tab (D3, #E8, watch exclusion)
+describe("SplitWorkspaceProvider — openPluginTab", () => {
+  beforeEach(() => localStorage.clear());
+
+  function pluginWrapper(onWatchFiles?: (...a: unknown[]) => void) {
+    const registry = createSlotRegistry();
+    registry.addClaim({ pluginId: "browser", priority: 1, slot: "editor-pane-tab", pathPrefix: "browser" });
+    return ({ children }: { children: React.ReactNode }) => (
+      <PluginContextProvider registry={registry}>
+        <SplitWorkspaceProvider sessionId="sP" cwd="/proj" orientation="h" onWatchFiles={onWatchFiles}>
+          {children}
+        </SplitWorkspaceProvider>
+      </PluginContextProvider>
+    );
+  }
+
+  it("opens a claimed tab (reveals the split), focuses instead of duplicating, never watches it", () => {
+    const onWatch = vi.fn();
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: pluginWrapper(onWatch) });
+    let ok = false;
+    act(() => {
+      ok = result.current.openPluginTab("browser:i:1");
+    });
+    expect(ok).toBe(true);
+    expect(result.current.split.mode).toBe("split");
+    act(() => result.current.openInSplit("src/foo.ts"));
+    act(() => {
+      result.current.openPluginTab("browser:i:1");
+    });
+    expect(result.current.paneState.openFiles.map((f) => f.path)).toEqual(["browser:i:1", "src/foo.ts"]);
+    expect(result.current.paneState.openFiles[result.current.paneState.activeIndex].path).toBe("browser:i:1");
+    expect(result.current.paneState.openFiles[0].viewer).toBe("plugin");
+    // virtual path never reaches the watcher
+    expect(onWatch).toHaveBeenLastCalledWith("sP", "/proj", ["src/foo.ts"]);
+  });
+
+  it("ignores unclaimed and built-in prefixes without changing state", () => {
+    const { result } = renderHook(() => useSplitWorkspace(), { wrapper: pluginWrapper() });
+    let a = true;
+    let b = true;
+    act(() => {
+      a = result.current.openPluginTab("unknown:x");
+      b = result.current.openPluginTab("term:1");
+    });
+    expect([a, b]).toEqual([false, false]);
+    expect(result.current.paneState.openFiles).toEqual([]);
+    expect(result.current.split.mode).toBe("closed");
   });
 });

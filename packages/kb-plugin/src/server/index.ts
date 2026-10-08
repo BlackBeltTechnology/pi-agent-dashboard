@@ -13,8 +13,9 @@
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { KbJobRegistry } from "./job-registry.js";
-import { applyConfigPatchAndTrust, isAllowedCwd, mountKbRoutes, reindexAll } from "./kb-routes.js";
+import { applyConfigPatchAndTrust, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const PLUGIN_ID = "kb";
@@ -36,6 +37,48 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   mountKbRoutes(ctx.fastify, { knownCwds, registry });
 
+  /** Start a background reindex unless one is running or a precondition refuses it
+   *  (design D9: same preconditions as REST — refuse, log, create nothing). */
+  const startReindex = (cwd: string, refusalPrefix: string): void => {
+    if (registry.isRunning(cwd)) return;
+    const refused = preflightWrite(cwd, { needsSources: true });
+    if (refused) {
+      ctx.logger.warn(`${refusalPrefix} cwd=${cwd}: ${refused}`);
+      return;
+    }
+    registry
+      .start(cwd, async () => reindexAll(cwd, ctx.logger))
+      .promise.catch((err) =>
+        ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
+      );
+  };
+
+  const handleConfigSet = (cwd: string, payload: Record<string, unknown>): void => {
+    // Require a plain-object patch (arrays pass a bare typeof check; a
+    // missing patch must NOT silently fall back to the control payload).
+    if (!payload.patch || typeof payload.patch !== "object" || Array.isArray(payload.patch)) {
+      ctx.logger.warn(`kb config.set rejected cwd=${cwd}: invalid patch (expected object)`);
+      return;
+    }
+    const missing = preflightWrite(cwd, { needsSources: false });
+    if (missing) {
+      ctx.logger.warn(`kb config.set rejected cwd=${cwd}: ${missing}`);
+      return;
+    }
+    const patch = payload.patch as Parameters<typeof applyConfigPatchAndTrust>[1];
+    const result = applyConfigPatchAndTrust(cwd, patch);
+    if (!result.ok) {
+      ctx.logger.warn(`kb config.set rejected cwd=${cwd}: ${result.error}`);
+      return;
+    }
+    if (result.untrustedRefs.length > 0) {
+      ctx.logger.warn(`kb config.set could not trust cwd=${cwd}: ${result.untrustedRefs.join(", ")}`);
+    }
+    if (payload.reindex) startReindex(cwd, "kb config.set reindex skipped");
+    const cfg = loadConfig(cwd);
+    ctx.logger.info(`kb config.set applied cwd=${cwd} origin=${cfg.origin}`);
+  };
+
   // plugin_action handler: reindex + config mutations reach the SAME cores the
   // REST routes call (no HTTP re-entry), guarded by the same cwd allow-list.
   // Fan-out routes this only for pluginId==="kb"; the guard is defense-in-depth.
@@ -50,40 +93,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       return;
     }
     switch (m.action) {
-      case "reindex": {
-        if (!registry.isRunning(cwd)) {
-          registry
-            .start(cwd, async () => reindexAll(cwd, ctx.logger))
-            .promise.catch((err) =>
-              ctx.logger.error(`kb reindex failed for ${cwd}: ${err instanceof Error ? err.message : String(err)}`),
-            );
-        }
-        ctx.logger.info(`kb reindex started cwd=${cwd} jobId=${registry.jobId(cwd) ?? "kb"}`);
+      case "reindex":
+        startReindex(cwd, "kb reindex refused");
+        ctx.logger.info(`kb reindex requested cwd=${cwd} jobId=${registry.jobId(cwd) ?? "none"}`);
         break;
-      }
-      case "config.set": {
-        // Require a plain-object patch (arrays pass a bare typeof check; a
-        // missing patch must NOT silently fall back to the control payload).
-        if (!payload.patch || typeof payload.patch !== "object" || Array.isArray(payload.patch)) {
-          ctx.logger.warn(`kb config.set rejected cwd=${cwd}: invalid patch (expected object)`);
-          return;
-        }
-        const patch = payload.patch as Parameters<typeof applyConfigPatchAndTrust>[1];
-        const result = applyConfigPatchAndTrust(cwd, patch);
-        if (!result.ok) {
-          ctx.logger.warn(`kb config.set rejected cwd=${cwd}: ${result.error}`);
-          return;
-        }
-        if (result.untrustedRefs.length > 0) {
-          ctx.logger.warn(`kb config.set could not trust cwd=${cwd}: ${result.untrustedRefs.join(", ")}`);
-        }
-        if (payload.reindex && !registry.isRunning(cwd)) {
-          registry.start(cwd, async () => reindexAll(cwd, ctx.logger)).promise.catch(() => {});
-        }
-        const cfg = loadConfig(cwd);
-        ctx.logger.info(`kb config.set applied cwd=${cwd} origin=${cfg.origin}`);
+      case "config.set":
+        handleConfigSet(cwd, payload);
         break;
-      }
       default:
         ctx.logger.warn(`unknown kb action: ${m.action}`);
     }

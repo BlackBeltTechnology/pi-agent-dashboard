@@ -16,6 +16,7 @@
  * See change: split-editor-workspace.
  */
 
+import { findEditorPaneTabClaim, useSlotClaimsVersion, useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { fileKind } from "@blackbelt-technology/pi-dashboard-shared/file-kind.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { FileEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -29,6 +30,7 @@ import {
 import { type SplitMode, type SplitOrientation, type SplitState, useSplitState } from "../../lib/layout/split-state.js";
 import { saveTreeVisible } from "../../lib/util/tree-visible.js";
 import { type TerminalPaneTabs, useTerminalPaneTabs } from "../../lib/layout/use-terminal-pane-tabs.js";
+import { isPseudoTabViewer } from "../editor-pane/viewer-kinds.js";
 
 export interface PendingScroll {
   path: string;
@@ -68,6 +70,12 @@ export interface SplitWorkspaceContextValue {
   openLiveTarget: (url: string, opts?: { background?: boolean }) => void;
   /** Open a generic URL/youtube target in the `url` split viewer (auto-canvas S35). */
   openUrlTarget: (url: string, opts?: { background?: boolean }) => void;
+  /**
+   * Open (or focus) a plugin-owned `<pathPrefix>:<rest>` tab. Returns `false`
+   * (and opens nothing) when no enabled `editor-pane-tab` claim owns the
+   * prefix, or the prefix is built-in. See change: add-browser-editor-pane-tab (D3).
+   */
+  openPluginTab: (path: string) => boolean;
   /** Open a file's diff as a `diff:<relPath>` viewer tab (coexists with its monaco tab). */
   openDiffTab: (relPath: string) => void;
   /** Open the split and reveal the Changes section in the pane rail. */
@@ -257,6 +265,21 @@ export function SplitWorkspaceProvider({
     [dispatch, ensureRevealed, split.mode],
   );
 
+  // Plugin tabs: claimed-prefix check, then the idempotent-by-path `openFile`
+  // (focuses an existing tab instead of duplicating it). Not via openInSplit —
+  // that derives the viewer from fileKind. See change: add-browser-editor-pane-tab (D3).
+  useSlotClaimsVersion();
+  const slotRegistry = useSlotRegistryOrNull();
+  const openPluginTab = useCallback(
+    (path: string) => {
+      if (!findEditorPaneTabClaim(slotRegistry, path)) return false;
+      dispatch({ type: "openFile", path, viewer: "plugin" });
+      ensureRevealed();
+      return true;
+    },
+    [slotRegistry, dispatch, ensureRevealed],
+  );
+
   // Diff tabs open under a virtual `diff:<relPath>` path (mirrors `live:<url>`)
   // so they never collide with the monaco tab of the same real file (the
   // reducer dedups by full path). See change: add-change-summary-table.
@@ -298,7 +321,12 @@ export function SplitWorkspaceProvider({
   // See change: split-editor-workspace.
   const watchRef = useRef(onWatchFiles);
   watchRef.current = onWatchFiles;
-  const openPathsKey = paneState.openFiles.map((f) => f.path).join("\u0000");
+  // Only real files are watched: pseudo-tab and plugin paths are virtual and
+  // never reach the server watcher. See change: add-browser-editor-pane-tab (D3).
+  const openPathsKey = paneState.openFiles
+    .filter((f) => !isPseudoTabViewer(f.viewer))
+    .map((f) => f.path)
+    .join("\u0000");
   // (a) Declare the current open set (server reconciles idempotently).
   useEffect(() => {
     if (!sessionId || !cwd) return;
@@ -324,6 +352,7 @@ export function SplitWorkspaceProvider({
       openInSplit,
       openLiveTarget,
       openUrlTarget,
+      openPluginTab,
       openDiffTab,
       openChanges,
       changesRevealSignal,
@@ -336,7 +365,7 @@ export function SplitWorkspaceProvider({
       terminal,
       terminalActivated,
     }),
-    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal, terminalActivated],
+    [sessionId, cwd, split, updateSplit, setMode, paneState, dispatch, ensureRevealed, openInSplit, openLiveTarget, openUrlTarget, openPluginTab, openDiffTab, openChanges, changesRevealSignal, pendingScroll, consumePendingScroll, fileResults, filenameSearch, changedFiles, clearChanged, terminal, terminalActivated],
   );
 
   return <SplitWorkspaceContext.Provider value={value}>{children}</SplitWorkspaceContext.Provider>;

@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ACK_AND_DROP_METHODS,
   ALWAYS_DENIED_METHODS,
   deniedMethod,
   denyError,
@@ -16,7 +17,6 @@ describe("always-denied verbs (E12)", () => {
       "Storage.getCookies",
       "Network.getAllCookies",
       "Network.getCookies",
-      "Browser.setDownloadBehavior",
     ]) {
       expect(deniedMethod(method, {}, [])).toBe(method);
       expect(denyError(method)).toEqual({
@@ -24,7 +24,13 @@ describe("always-denied verbs (E12)", () => {
         message: `Denied by dashboard relay policy: ${method}`,
       });
     }
-    expect(ALWAYS_DENIED_METHODS).toHaveLength(4);
+    expect(ALWAYS_DENIED_METHODS).toHaveLength(3);
+  });
+
+  // change: add-browser-editor-pane-tab — ack-and-drop, not a denial.
+  it("Browser.setDownloadBehavior is ack-and-drop, no longer denied", () => {
+    expect(ACK_AND_DROP_METHODS).toEqual(["Browser.setDownloadBehavior"]);
+    expect(deniedMethod("Browser.setDownloadBehavior", {}, [])).toBeNull();
   });
 
   it("refuses them even when allowedDomains would admit everything", () => {

@@ -5,8 +5,9 @@
  * dispatches on:
  *
  *  - `OPEN_PATH_VIEWERS` (14) — kinds `fileKind()` can return for a real file.
- *  - `PSEUDO_TAB_VIEWERS` (4)  — kinds reachable only by an explicit open under
- *    a virtual path (`diff:`, `term:`, `url:`, `live:`).
+ *  - `PSEUDO_TAB_VIEWERS` (5)  — kinds reachable only by an explicit open under
+ *    a virtual path (`diff:`, `term:`, `url:`, `live:`, or a plugin-claimed
+ *    `<pathPrefix>:` — change: add-browser-editor-pane-tab).
  *
  * This module MUST NOT import any viewer component. `CappedViewer` imports
  * `OpenPathViewer` from here and `DiffFilePreview` imports the guard, so
@@ -24,7 +25,7 @@ import type { ViewerKind } from "@blackbelt-technology/pi-dashboard-shared/file-
  * Their tab paths are virtual (`diff:<rel>`, `term:<id>`, `url:<url>`,
  * `live:<url>`), so a file-metadata probe against them is meaningless.
  */
-export const PSEUDO_TAB_VIEWERS = ["diff", "terminal", "url", "live-server"] as const;
+export const PSEUDO_TAB_VIEWERS = ["diff", "terminal", "url", "live-server", "plugin"] as const;
 
 /**
  * Viewers `fileKind()` can return for a real file. Kept as a runtime value
@@ -51,6 +52,11 @@ export const OPEN_PATH_VIEWERS = [
 ] as const;
 
 export type PseudoTabViewer = (typeof PSEUDO_TAB_VIEWERS)[number];
+/**
+ * Pseudo-tab kinds rendered from `pseudoTabRegistry`. `plugin` is excluded: it
+ * renders through `PluginTabHost` (claim resolved by prefix, richer props).
+ */
+export type RegistryPseudoTabViewer = Exclude<PseudoTabViewer, "plugin">;
 export type OpenPathViewer = Exclude<ViewerKind, PseudoTabViewer>;
 
 /**

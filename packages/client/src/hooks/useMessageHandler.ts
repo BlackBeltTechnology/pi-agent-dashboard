@@ -1821,6 +1821,10 @@ export function useMessageHandler(
               questions: msg.prompt?.metadata?.questions,
               _promptBusComponent: msg.component,
               _promptBusPlacement: msg.placement,
+              // Namespaced plugin data (`ctx.ui.*` `pluginMeta`), exposed to
+              // plugins via the interactive-request snapshot. Core keys never
+              // come from here. See change: add-browser-editor-pane-tab (D6).
+              _pluginMeta: msg.prompt?.metadata?.plugin,
             },
             toolCallId,
           );
@@ -1915,6 +1919,12 @@ export function useMessageHandler(
         // Global chat-display prefs were updated (by THIS or another tab).
         // See change: configurable-chat-display.
         setDisplayPrefs(msg.prefs);
+        break;
+
+      case "editor_tab_open":
+        // Plugin-server-initiated tab open. App (always mounted, route-aware)
+        // decides whether this client acts. See change: add-browser-editor-pane-tab (D5).
+        window.dispatchEvent(new CustomEvent("editor-tab-open", { detail: { sessionId: msg.sessionId, path: msg.path } }));
         break;
 
       case "plugin_config_update":

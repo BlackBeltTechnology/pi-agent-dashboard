@@ -43,3 +43,5 @@ Deliberate-open intent (design D8): reads the current history entry with wouter 
 Archive routes via `useArchiveRoute`, preview match guarded `changeName !== "archive"`, `renderedCwds` = `computeRenderedCwds`, `OpenSpecMapContext.Provider`. See change: resolve-archived-attached-proposal.
 
 Calls `useFileAccessToasts(sessions, selectedId, {showToast, dismissToastByKey}, handleSelect)`. See change: ask-agent-file-access-in-chat.
+
+See change: add-browser-editor-pane-tab — parses repeatable `?tab=` into `SplitRouteSync tabs`; `navigate` wrapper passes history `state` (openNonce); `useEditorTabOpenListener(overlayLocation, navigate)` acts on `editor_tab_open` only on that session's chat/editor route.

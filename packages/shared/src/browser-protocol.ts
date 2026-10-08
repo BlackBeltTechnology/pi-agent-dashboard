@@ -1075,6 +1075,18 @@ export interface RetrySessionErrorMessage {
   error: string;
 }
 
+/**
+ * Server → browser: a plugin server asked the viewers of `sessionId` to open
+ * (or focus) the plugin tab `path` (`<pathPrefix>:<rest>`, prefix owned by the
+ * calling plugin — enforced by the host). A client acts only while on that
+ * session's chat or editor route. See change: add-browser-editor-pane-tab (D5).
+ */
+export interface EditorTabOpenMessage {
+  type: "editor_tab_open";
+  sessionId: string;
+  path: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -1178,6 +1190,7 @@ export type ServerToBrowserMessage =
   | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage
   | SessionAddedMessage
@@ -2327,27 +2340,69 @@ export interface BrowserRelayUnsubscribeMessage {
  * are accepted — an unknown kind, or out-of-range coordinates, is dropped and
  * audited, and the viewer never reaches `Runtime.*`.
  */
-export interface BrowserRelayInputMessage {
+interface BrowserRelayInputBase {
   type: "browser_relay_input";
   instanceId: string;
   tabId: number;
-  kind: "mouse" | "key" | "scroll" | "bringToFront";
-  /** mouse/scroll only — normalized `[0,1]` of the frame. */
-  x?: number;
-  y?: number;
-  /** mouse only. */
+}
+
+/** mouse — `x`/`y` normalized `[0,1]` of the frame. */
+export interface BrowserRelayMouseInput extends BrowserRelayInputBase {
+  kind: "mouse";
+  x: number;
+  y: number;
   action?: "click" | "move" | "down" | "up";
   button?: "left" | "middle" | "right";
   clickCount?: number;
-  /** scroll only — raw wheel deltas, not normalized (they are not positions). */
-  deltaX?: number;
-  deltaY?: number;
-  /** key only — a DOM key event, mirrored to `Input.dispatchKeyEvent`. */
+}
+
+/** key — a DOM key event, mirrored to `Input.dispatchKeyEvent`. */
+export interface BrowserRelayKeyInput extends BrowserRelayInputBase {
+  kind: "key";
   keyType?: "keyDown" | "keyUp" | "char";
   key?: string;
   code?: string;
   text?: string;
 }
+
+/** scroll — `x`/`y` normalized; raw wheel deltas (not positions, not normalized). */
+export interface BrowserRelayScrollInput extends BrowserRelayInputBase {
+  kind: "scroll";
+  x: number;
+  y: number;
+  deltaX?: number;
+  deltaY?: number;
+}
+
+export interface BrowserRelayBringToFrontInput extends BrowserRelayInputBase {
+  kind: "bringToFront";
+}
+
+/**
+ * resize — remote viewport size in CSS pixels; the relay clamps it to
+ * 320–3840 × 240–2160 and refuses it while the CDP client holds its own
+ * device-metrics override. See change: add-browser-editor-pane-tab (D8).
+ */
+export interface BrowserRelayResizeInput extends BrowserRelayInputBase {
+  kind: "resize";
+  width: number;
+  height: number;
+}
+
+/**
+ * Browser → server: one viewer input event, a union discriminated on `kind`.
+ * Positions are NORMALIZED to `[0,1]` of the rendered frame (never CSS or
+ * device pixels) so tile scaling cannot mis-target; the relay multiplies by the
+ * last frame's `metadata.deviceWidth/deviceHeight`. Only the kinds below are
+ * accepted — an unknown kind, out-of-range coordinates or a non-numeric resize
+ * is dropped and audited, and the viewer never reaches `Runtime.*`.
+ */
+export type BrowserRelayInputMessage =
+  | BrowserRelayMouseInput
+  | BrowserRelayKeyInput
+  | BrowserRelayScrollInput
+  | BrowserRelayBringToFrontInput
+  | BrowserRelayResizeInput;
 
 /** One frame's device-pixel geometry + capture time. */
 export interface BrowserRelayFrameMetadata {
@@ -2392,6 +2447,12 @@ export interface BrowserRelayTabStatus {
   state: BrowserRelayTabState;
   /** Set when `state === "detached"`. */
   reason?: "devtools" | "no-session";
+  /**
+   * True while the CDP client (the agent) holds a device-metrics override on
+   * this tab — viewer `resize` is refused and the pane falls back to Fit.
+   * See change: add-browser-editor-pane-tab (D8).
+   */
+  agentEmulation?: boolean;
 }
 
 export interface BrowserRelayInstanceStatus {

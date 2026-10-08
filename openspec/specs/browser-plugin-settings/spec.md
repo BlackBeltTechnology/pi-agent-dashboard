@@ -38,68 +38,18 @@ The section SHALL include a per-profile audit list fed by `GET /api/browser/audi
 - **WHEN** the relay denies a CDP method for a profile
 - **THEN** the audit list for that profile SHALL show a `denied` row naming the method within 2 s
 
-### Requirement: Live-view tile
+### Requirement: Browser badge lists relay tabs to open in the pane
 
-The plugin SHALL claim a content-view slot with a tile per `{instanceId, tabId}` listed in `browser_relay_status` that subscribes with `browser_relay_subscribe {instanceId, tabId}`, renders `browser_relay_frame` JPEGs scaled to the tile, forwards pointer/keyboard/wheel events as `browser_relay_input` of kinds `mouse`/`key`/`scroll` only with coordinates normalized to `[0,1]` of the rendered frame, and shows the tab state from `browser_relay_status`.
+The `browser-relay-badge` on a session card SHALL be shown while at least one relay instance has at least one listed tab. It SHALL be an accessible button whose `aria-label` names the action. Activating it SHALL open a menu listing every live relay tab (title, state indicator) with an "Open in pane" action per tab, plus "Open all in pane". "Open in pane" SHALL open the tab in the editor pane of the session whose card was activated and SHALL select that session. "Open all in pane" SHALL open every listed tab in that same pane, in list order, without duplicating already-open ones, leaving the last one active. Activating the badge SHALL NOT replace the chat with any browser surface.
 
-#### Scenario: Tab list drives tiles
+#### Scenario: Open one tab from the badge
+- **WHEN** the user activates the badge on session `S`'s card and chooses "Open in pane" for tab 42 of `inst-1`
+- **THEN** session `S` SHALL become selected and its pane SHALL show `browser:inst-1:42` as the active tab, with the chat still visible in the split
 
-- **WHEN** `browser_relay_status` reports a new tab on a live instance
-- **THEN** a tile for it SHALL appear; when the tab disappears from the status the tile SHALL unmount and unsubscribe
+#### Scenario: Open all
+- **WHEN** two relay tabs are listed, one is already open in session `S`'s pane, and the user chooses "Open all in pane" on `S`'s card
+- **THEN** `S`'s pane SHALL contain exactly one tab per relay tab, with the second listed tab active
 
-#### Scenario: No frames
-
-- **WHEN** the tile receives a `"no-frames"` state for its tab
-- **THEN** it SHALL overlay "No repaints — tab may be idle or in the background" with a `Bring to front` action that sends `browser_relay_input {kind: "bringToFront"}`
-
-#### Scenario: DevTools conflict
-
-- **WHEN** the tile receives `browser_relay_status {state: "detached", reason: "devtools"}`
-- **THEN** it SHALL overlay "DevTools open on this tab — close it to resume" and stop forwarding input
-
-#### Scenario: Tile unmounts
-
-- **WHEN** the tile unmounts or the client disconnects
-- **THEN** it SHALL send `browser_relay_unsubscribe` (or the server SHALL treat the socket close as unsubscribe)
-
-#### Scenario: Remote viewer
-
-- **WHEN** the dashboard is opened through the tunnel
-- **THEN** the tile SHALL work over the existing `/ws` gateway and SHALL NOT attempt to reach `/ws/browser-ext/` or `/ws/browser-cdp/`
-
-### Requirement: Live-view tile handles non-viewable tabs
-
-The live-view tile SHALL render a tab reported `detached` with `reason: "no-session"` with an overlay reading "Tab not viewable yet — the agent has not attached to it (extension pages cannot be viewed)" instead of "Waiting for frames…", and SHALL NOT forward input for it. When the tab's reported state leaves `detached`, the tile SHALL send `browser_relay_subscribe {instanceId, tabId}` again without being remounted.
-
-#### Scenario: No-session overlay
-
-- **WHEN** `browser_relay_status` reports the tile's tab as `detached` with `reason: "no-session"`
-- **THEN** the tile SHALL show the no-session overlay and SHALL NOT show "Waiting for frames…"
-
-#### Scenario: Re-subscribe on attach
-
-- **WHEN** the tile's tab transitions from `detached/no-session` to `live` or `no-frames`
-- **THEN** the tile SHALL send exactly one new `browser_relay_subscribe` for that `{instanceId, tabId}`
-
-### Requirement: Live view can be dismissed and re-opened
-
-The tile's **Close** action SHALL hide the live view for the current page load until either a material instance/tab change occurs or the user re-opens it. The `browser-relay-badge` pill SHALL be an accessible button (`aria-label` naming the action) that re-opens a dismissed live view; activating it SHALL NOT prevent the enclosing session card from being selected.
-
-#### Scenario: Re-open from the badge
-
-- **WHEN** the user closed the live view and then activates the `browser-relay-badge` button
-- **THEN** the live view SHALL be shown again for the selected session on the desktop layout
-
-#### Scenario: Keyboard re-open
-
-- **WHEN** the badge button has focus and the user presses Enter or Space
-- **THEN** the live view SHALL be re-opened
-
-### Requirement: Content-view gate follows plugin predicate changes
-
-The shell's decision to render the `content-view` slot instead of the chat SHALL be re-evaluated whenever a plugin signals a slot-claims change, without requiring any session event.
-
-#### Scenario: Relay status arrives on an idle session
-
-- **WHEN** the selected session is idle and a `browser_relay_status` makes the live-view predicate true
-- **THEN** the live view SHALL replace the chat without any other state change
+#### Scenario: Keyboard use
+- **WHEN** the badge has focus and the user presses Enter, then the arrow keys and Enter
+- **THEN** the menu SHALL open, its items SHALL be traversable, and Enter SHALL perform the focused item's action

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EDITOR_PANE_KEY_PREFIX,
   type EditorPaneState,
+  type OpenFile,
   EMPTY_PANE_STATE,
   editorPaneReducer,
   loadEditorPaneState,
@@ -271,6 +272,64 @@ describe("persistence", () => {
     };
     saveEditorPaneState("diffsess", state);
     expect(loadEditorPaneState("diffsess")).toEqual(seeded(state));
+  });
+
+  it("#E13 drops only the unknown-viewer entry, keeps the rest and the active tab", () => {
+    const persisted = {
+      openFiles: [
+        { path: "a.ts", viewer: "monaco", addedAt: 1 },
+        { path: "x:1", viewer: "no-such-viewer", addedAt: 2 },
+        { path: "c.md", viewer: "markdown", addedAt: 3 },
+      ],
+      activeIndex: 2,
+      treeOpenRoots: [],
+    };
+    localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}mixed`, JSON.stringify(persisted));
+    const loaded = loadEditorPaneState("mixed");
+    expect(loaded.openFiles.map((f) => f.path)).toEqual(["a.ts", "c.md"]);
+    expect(loaded.activeIndex).toBe(1);
+    expect(loaded.openFiles[loaded.activeIndex].path).toBe("c.md");
+  });
+
+  it("#E13 clamps activeIndex when the active tab was the dropped one", () => {
+    const persisted = {
+      openFiles: [
+        { path: "a.ts", viewer: "monaco", addedAt: 1 },
+        { path: "x:1", viewer: "no-such-viewer", addedAt: 2 },
+      ],
+      activeIndex: 1,
+      treeOpenRoots: [],
+    };
+    localStorage.setItem(`${EDITOR_PANE_KEY_PREFIX}clamp`, JSON.stringify(persisted));
+    const loaded = loadEditorPaneState("clamp");
+    expect(loaded.openFiles.map((f) => f.path)).toEqual(["a.ts"]);
+    expect(loaded.activeIndex).toBe(0);
+    localStorage.setItem(
+      `${EDITOR_PANE_KEY_PREFIX}allgone`,
+      JSON.stringify({ openFiles: [{ path: "x", viewer: "nope", addedAt: 1 }], activeIndex: 0, treeOpenRoots: [] }),
+    );
+    expect(loadEditorPaneState("allgone")).toEqual({ openFiles: [], activeIndex: -1, treeOpenRoots: [] });
+  });
+
+  it("#E13 a persisted docx (and every other known kind) tab no longer resets the pane", () => {
+    const kinds = ["docx", "pptx", "spreadsheet", "asciidoc", "email", "diagram"];
+    const state: EditorPaneState = {
+      openFiles: kinds.map((k, i) => ({ path: `f${i}.${k}`, viewer: k as OpenFile["viewer"], addedAt: i })),
+      activeIndex: 0,
+      treeOpenRoots: [],
+    };
+    saveEditorPaneState("docxsess", state);
+    expect(loadEditorPaneState("docxsess")).toEqual(seeded(state));
+  });
+
+  it("#E14 structural faults still reset the whole state", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    localStorage.setItem(
+      `${EDITOR_PANE_KEY_PREFIX}noroots`,
+      JSON.stringify({ openFiles: [{ path: "a.ts", viewer: "monaco", addedAt: 1 }], activeIndex: 0 }),
+    );
+    expect(loadEditorPaneState("noroots")).toEqual(EMPTY_PANE_STATE);
+    spy.mockRestore();
   });
 
   it("E6 persisted blob without `unread` loads valid (back-compat)", () => {

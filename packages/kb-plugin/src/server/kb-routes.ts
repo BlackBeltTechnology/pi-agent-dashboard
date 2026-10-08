@@ -4,10 +4,11 @@
  * session), so a cold worktree with no live session is both indexable and
  * configurable (design §2).
  *
- *   GET  /api/kb/stats?cwd=<abs>    → { files, chunks, indexed, staleCount, indexing, jobStatus, lastError? }
+ *   GET  /api/kb/stats?cwd=<abs>    → { files, chunks, indexed, staleCount, indexing, jobStatus, lastError?, folderMissing, sourceCount }  (side-effect free)
  *   POST /api/kb/reindex?cwd=<abs>  → 202 { status:"running", jobId }  (non-blocking; poll /stats for completion + jobStatus:error). See change: fix-kb-index-feedback.
+ *                                     | 409 { error: "folder missing" | "no sources configured" }. See change: kb-denied-folder-pin-state.
  *   GET  /api/kb/config?cwd=<abs>   → { config, origin, projectPath }
- *   PUT  /api/kb/config?cwd=<abs>   → 200 { config, origin, projectPath } | 400 { error }
+ *   PUT  /api/kb/config?cwd=<abs>   → 200 { config, origin, projectPath, reindexSkipped? } | 400 { error } | 409 { error: "folder missing" }
  *
  * Every route validates `cwd` against the host-provided known-folder set
  * (session cwds ∪ pinned dirs) BEFORE opening a store or touching disk, so an
@@ -22,7 +23,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
   classifyRef,
@@ -92,7 +93,53 @@ function denyCwd(reply: FastifyReply, cwd: string | undefined): void {
   });
 }
 
-/** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store. */
+/** True when `cwd` is an existing directory. ANY stat failure (ENOENT, EACCES,
+ *  EPERM, …) counts as missing — a folder we cannot stat is not indexable.
+ *  See change: kb-denied-folder-pin-state (design D9). */
+function folderExists(cwd: string): boolean {
+  try {
+    return statSync(cwd).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Precondition refusal of a KB write (reindex / config write). */
+export type KbWritePrecondition = "folder missing" | "no sources configured";
+
+/**
+ * Shared write preflight for every entry point (REST + `plugin_action`), run
+ * AFTER the cwd guard (and, for reindex, after the in-flight coalescing
+ * short-circuit). Returns the refusal, or null when the write may proceed.
+ * Creates nothing. See change: kb-denied-folder-pin-state (design D9).
+ */
+export function preflightWrite(cwd: string, opts: { needsSources: boolean }): KbWritePrecondition | null {
+  if (!folderExists(cwd)) return "folder missing";
+  if (opts.needsSources && loadConfig(cwd).allSourceSpecs.length === 0) return "no sources configured";
+  return null;
+}
+
+/** Side-effect-free chunk/file counts: opens an EXISTING index only — no mkdir,
+ *  no WAL switch, no DDL/migration. Absent, unreadable, or stale-schema index →
+ *  zero counts (only a reindex creates or migrates the store). See change:
+ *  kb-denied-folder-pin-state (design D8). */
+function readCounts(dbAbsPath: string): { files: number; chunks: number } {
+  let store: SqliteFtsStore | null = null;
+  try {
+    store = SqliteFtsStore.openExisting(dbAbsPath);
+    if (!store) return { files: 0, chunks: 0 };
+    const sc = store.hasCurrentSchema();
+    if (!sc.table || !sc.current) return { files: 0, chunks: 0 };
+    return store.counts();
+  } catch {
+    return { files: 0, chunks: 0 };
+  } finally {
+    store?.close();
+  }
+}
+
+/** Open (and DDL-init) the folder's resolved KB store. Absent db → empty store.
+ *  CREATING open — write paths only (reindex), never a read route. */
 function openStore(cwd: string): { store: SqliteFtsStore; cfg: ReturnType<typeof loadConfig> } {
   const cfg = loadConfig(cwd);
   const store = new SqliteFtsStore(cfg.dbAbsPath);
@@ -141,6 +188,9 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
  * never grant trust during a walk.
  */
 export async function reindexAll(cwd: string, log?: { info(m: string): void; warn(m: string): void }): Promise<KbReindexResult> {
+  // TOCTOU re-check: the folder may vanish between preflight and the walk; the
+  // creating open below would resurrect it (design D9).
+  if (!folderExists(cwd)) throw new Error("folder missing");
   const { store, cfg } = openStore(cwd);
   try {
     let changed = 0;
@@ -183,8 +233,11 @@ export async function reindexAll(cwd: string, log?: { info(m: string): void; war
 }
 
 /** Atomic project-config write (tmp + rename), creating parent dirs. */
-function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
+export function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
   const path = projectConfigPath(cwd);
+  // The authoritative TOCTOU guard: IMMEDIATELY before the recursive mkdir, which
+  // would otherwise recreate a removed folder (design D9).
+  if (!folderExists(cwd)) throw new Error("folder missing");
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, "utf8");
@@ -193,6 +246,16 @@ function writeProjectConfig(cwd: string, obj: Partial<KbConfig>): string {
 }
 
 type PutResult = { ok: true; projectPath: string } | { ok: false; code: number; error: string };
+
+/** `writeProjectConfig` mapped to a `PutResult`: a vanished folder is the 409, anything else rethrows. */
+function persistProjectConfig(cwd: string, merged: Partial<KbConfig>): PutResult {
+  try {
+    return { ok: true, projectPath: writeProjectConfig(cwd, merged) };
+  } catch (e) {
+    if (e instanceof Error && e.message === "folder missing") return { ok: false, code: 409, error: "folder missing" };
+    throw e;
+  }
+}
 
 /**
  * Merge the edited path fields over the current on-disk project file (so
@@ -222,7 +285,7 @@ function applyConfigPatch(cwd: string, body: KbConfigPatch): PutResult {
   } catch (e) {
     return { ok: false, code: 400, error: e instanceof Error ? e.message : String(e) };
   }
-  return { ok: true, projectPath: writeProjectConfig(cwd, merged) };
+  return persistProjectConfig(cwd, merged);
 }
 
 type GrantResult =
@@ -297,20 +360,20 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
       denyCwd(reply, cwd);
       return;
     }
-    const { store } = openStore(cwd);
-    let counts: { files: number; chunks: number };
-    try {
-      counts = store.counts();
-    } finally {
-      store.close();
-    }
+    // Side-effect free (design D8/D10): a removed folder reports `folderMissing`
+    // and is never opened; an existing one is read through `openExisting` only.
+    const folderMissing = !folderExists(cwd);
+    const cfg = loadConfig(cwd);
+    const counts = folderMissing ? { files: 0, chunks: 0 } : readCounts(cfg.dbAbsPath);
     const job = registry.get(cwd);
     const running = registry.isRunning(cwd);
     const stats: KbStats = {
       files: counts.files,
       chunks: counts.chunks,
       indexed: counts.chunks > 0,
-      staleCount: countStale(cwd),
+      staleCount: folderMissing ? 0 : countStale(cwd),
+      folderMissing,
+      sourceCount: folderMissing ? 0 : cfg.allSourceSpecs.length,
       indexing: running,
       jobStatus: registry.statusFor(cwd),
       ...(!running && job?.status === "error" && job.error ? { lastError: job.error } : {}),
@@ -333,6 +396,12 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
       return;
     }
     if (!registry.isRunning(cwd)) {
+      // Preflight AFTER coalescing: an in-flight job still answers 202 (design D9).
+      const refused = preflightWrite(cwd, { needsSources: true });
+      if (refused) {
+        reply.code(409);
+        return { error: refused };
+      }
       const { promise } = registry.start(cwd, async () => reindexAll(cwd, fastify.log));
       // Attach the catch SYNCHRONOUSLY so the detached tail promise is never an
       // unhandled rejection. Use `fastify.log` (not `req.log`): the request is
@@ -501,15 +570,23 @@ export function mountKbRoutes(fastify: FastifyInstance, deps: KbRouteDeps): void
       reply.code(result.code);
       return { error: result.error };
     }
-    if (body.reindex && !registry.isRunning(cwd)) {
+    // Chained reindex honours the same preconditions, re-checked AFTER the patch
+    // is written; a refusal keeps the save and reports `reindexSkipped` (design D9).
+    let reindexSkipped: KbWritePrecondition | null = null;
+    if (body.reindex) {
+      // Evaluated even while a job runs so the response contract holds.
+      reindexSkipped = preflightWrite(cwd, { needsSources: true });
       // Fire-and-forget: the row polls `/stats` for completion.
-      registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
+      if (!reindexSkipped && !registry.isRunning(cwd)) {
+        registry.start(cwd, async () => reindexAll(cwd, fastify.log)).promise.catch(() => {});
+      }
     }
     const cfg = loadConfig(cwd);
     return {
       config: cfg as KbConfig,
       origin: cfg.origin,
       projectPath: result.projectPath,
+      ...(reindexSkipped ? { reindexSkipped } : {}),
       ...(result.untrustedRefs.length > 0 ? { untrustedRefs: result.untrustedRefs } : {}),
     };
   });

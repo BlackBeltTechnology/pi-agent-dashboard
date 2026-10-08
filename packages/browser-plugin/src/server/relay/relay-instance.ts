@@ -24,7 +24,8 @@
  * mapping, so a future upstream refresh fails loudly here instead of silently.
  */
 import type { AuditRing } from "../audit.js";
-import { deniedMethod, denyError } from "./deny-list.js";
+import { isRelayConnectPage, redactExtensionUrl } from "../redact.js";
+import { ACK_AND_DROP_METHODS, deniedMethod, denyError } from "./deny-list.js";
 import {
   ExtensionSocket,
   type RelaySocket,
@@ -66,6 +67,12 @@ export interface RelayInstanceDeps {
   onClosed(reason: string): void;
   /** Fired on any instance/tab/state change so status can be rebroadcast. */
   onStatusChange(): void;
+  /**
+   * Fired when a tab's title/URL overlay changed. Bound to the COALESCING status
+   * emit (≤1 broadcast / 500 ms) — a navigation storm must not become a
+   * broadcast storm. Falls back to `onStatusChange`.
+   */
+  onTabMetaChange?(): void;
   timers?: RelayTimers;
   cdpAttachTimeoutMs?: number;
 }
@@ -79,6 +86,8 @@ export interface RelayTabView {
   state: TapTabState | "detached";
   /** Set when `state === "detached"`. `no-session` = no debugger session on the tab yet. */
   reason?: "devtools" | "no-session";
+  /** True while the CDP client holds a device-metrics override on this tab. */
+  agentEmulation?: boolean;
 }
 
 // ── Vendored-internal access (see module doc) ────────────────────────────────
@@ -86,8 +95,11 @@ interface TabSessionLike {
   tabId: number;
   sessionId: string;
 }
+interface TabSessionFull extends TabSessionLike {
+  targetInfo?: { targetId?: string; url?: string; title?: string };
+}
 interface ModelInternals {
-  _tabSessions: Map<number, TabSessionLike>;
+  _tabSessions: Map<number, TabSessionFull>;
   _knownTabs: Map<number, { title?: string; url?: string }>;
 }
 function modelOf(handler: ExtensionProtocolV2): ModelInternals {
@@ -139,6 +151,22 @@ export class RelayInstance {
   /** Relay sessions where the CDP CLIENT runs its own screencast. */
   private readonly clientScreencasts = new Set<string>();
 
+  /**
+   * Tab title/URL overlay (design D7): the vendored model never refreshes its
+   * `_knownTabs` snapshot and never delivers `targetInfoChanged`, so the relay
+   * asks Chrome (`Target.getTargetInfo` THROUGH the extension) after navigation.
+   */
+  private readonly tabMeta = new Map<number, { title: string; url: string }>();
+  private readonly metaInFlight = new Set<number>();
+  private readonly metaRerun = new Set<number>();
+  /** `Target.setDiscoverTargets` state + the targetIds already announced. */
+  private discoveryOn = false;
+  private readonly announcedTargets = new Set<string>();
+  /** Relay sessions of the extension's connect page — never shown to a client. */
+  private readonly connectSessions = new Set<string>();
+  /** Relay sessions where the CDP client holds a device-metrics override. */
+  private readonly agentEmulationSessions = new Set<string>();
+
   private handshakeDone = false;
   private readonly ready = deferred<void>();
   private cdpAttachTimer?: unknown;
@@ -168,6 +196,7 @@ export class RelayInstance {
       sessionIdForTab: (tabId) => this.sessionIdForTab(tabId),
       sendToTab: (sessionId, method, params) => this.sendToTab(sessionId, method, params),
       clientScreencastActive: (tabId) => this.clientScreencastActive(tabId),
+      agentEmulationActive: (tabId) => this.agentEmulationActive(tabId),
       onStatusChange: () => this.deps.onStatusChange(),
       timers: this.timers,
     });
@@ -212,33 +241,54 @@ export class RelayInstance {
     return this.protocol.forwardToExtension(method, params, sessionId);
   }
 
+  /** Raw (unredacted) title/url for a tab: overlay first, then the model snapshot. */
+  private _metaOf(tabId: number): { title: string; url: string } {
+    const overlay = this.tabMeta.get(tabId);
+    const known = modelOf(this.protocol)._knownTabs.get(tabId);
+    return { title: overlay?.title ?? known?.title ?? "", url: overlay?.url ?? known?.url ?? "" };
+  }
+
+  /** True when `tabId` is the extension's connect page (never viewable or listed). */
+  isConnectTab(tabId: number): boolean {
+    return isRelayConnectPage(this._metaOf(tabId).url);
+  }
+
+  /**
+   * Viewer-facing tab list. The connect page is OMITTED and every
+   * `chrome-extension:` URL is redacted (token / guid live in its query).
+   * Id set still comes from the model's known tabs; only title/URL are overlaid.
+   */
   tabList(): RelayTabView[] {
     const known = modelOf(this.protocol)._knownTabs;
     const states = this.tap.tabStates();
     const ids = known.size > 0 ? [...known.keys()] : [...this.knownTabs];
-    return ids.map((tabId) => {
-      // Precedence: DevTools take-over; then no debugger session; then an
-      // active tap view (live / no-frames / client-screencast-active); then a
-      // client-run screencast; else `live`. `tap.tabStates()` only knows tabs
-      // with viewers, so the other branches must come from the instance.
-      const sessionId = this.sessionIdForTab(tabId);
-      const reason: RelayTabView["reason"] = this.devtoolsDetachedTabs.has(tabId)
-        ? "devtools"
-        : sessionId === undefined
-          ? "no-session"
-          : undefined;
-      const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
-      const state: RelayTabView["state"] = reason
-        ? "detached"
-        : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
-      return {
-        tabId,
-        title: known.get(tabId)?.title ?? "",
-        url: known.get(tabId)?.url ?? "",
-        state,
-        ...(reason ? { reason } : {}),
-      };
-    });
+    return ids
+      .filter((tabId) => !this.isConnectTab(tabId))
+      .map((tabId) => {
+        // Precedence: DevTools take-over; then no debugger session; then an
+        // active tap view (live / no-frames / client-screencast-active); then a
+        // client-run screencast; else `live`. `tap.tabStates()` only knows tabs
+        // with viewers, so the other branches must come from the instance.
+        const sessionId = this.sessionIdForTab(tabId);
+        const reason: RelayTabView["reason"] = this.devtoolsDetachedTabs.has(tabId)
+          ? "devtools"
+          : sessionId === undefined
+            ? "no-session"
+            : undefined;
+        const clientScreencast = sessionId !== undefined && this.clientScreencasts.has(sessionId);
+        const state: RelayTabView["state"] = reason
+          ? "detached"
+          : (states.get(tabId) ?? (clientScreencast ? "client-screencast-active" : "live"));
+        const meta = this._metaOf(tabId);
+        return {
+          tabId,
+          title: meta.title,
+          url: redactExtensionUrl(meta.url),
+          state,
+          ...(reason ? { reason } : {}),
+          ...(this.agentEmulationActive(tabId) ? { agentEmulation: true } : {}),
+        };
+      });
   }
 
   statusState(): "connected" | "no-cdp-client" {
@@ -324,6 +374,7 @@ export class RelayInstance {
     if (method === "chrome.debugger.onDetach") this._captureDetach(params);
     else if (method === "chrome.tabs.onCreated") this._captureTabCreated(params);
     else if (method === "chrome.tabs.onRemoved") this._captureTabRemoved(params);
+    else if (method === "chrome.debugger.onEvent") this._captureDebuggerEvent(params);
     this.protocol.handleExtensionEvent(method, params);
     this._checkViewability();
   }
@@ -380,9 +431,53 @@ export class RelayInstance {
     if (typeof tab?.id === "number") this.knownTabs.add(tab.id);
   }
 
+  /** Main-frame navigation/load → refresh that tab's title/URL overlay (D7). */
+  private _captureDebuggerEvent(params: unknown): void {
+    const [source, method, eventParams] = (params ?? []) as [{ tabId?: number; sessionId?: string }, string, { frame?: { parentId?: string } }?];
+    if (typeof source?.tabId !== "number" || source.sessionId) return; // child session events carry sessionId
+    if (method === "Page.loadEventFired" || (method === "Page.frameNavigated" && !eventParams?.frame?.parentId)) {
+      void this._refreshTabMeta(source.tabId);
+    }
+  }
+
+  /**
+   * Ask Chrome for the tab's current target info — sent through the extension
+   * (`chrome.debugger.sendCommand`), NOT the vendored command handler, which
+   * answers `Target.getTargetInfo` from its stale cache. One in-flight request
+   * per tab; a burst re-runs once. Changes go out via the coalescing emit.
+   */
+  private async _refreshTabMeta(tabId: number): Promise<void> {
+    if (this.closedReason || !this.extension) return;
+    const sessionId = this.sessionIdForTab(tabId);
+    if (!sessionId) return;
+    if (this.metaInFlight.has(tabId)) {
+      this.metaRerun.add(tabId);
+      return;
+    }
+    this.metaInFlight.add(tabId);
+    try {
+      const res = (await this.protocol.forwardToExtension("Target.getTargetInfo", {}, sessionId)) as
+        | { targetInfo?: { title?: unknown; url?: unknown } }
+        | undefined;
+      const info = res?.targetInfo;
+      if (this.closedReason || !info || typeof info.url !== "string") return;
+      if (!modelOf(this.protocol)._knownTabs.has(tabId) && !this.knownTabs.has(tabId)) return; // removed meanwhile
+      const next = { title: typeof info.title === "string" ? info.title : "", url: info.url };
+      const prev = this._metaOf(tabId);
+      this.tabMeta.set(tabId, next);
+      if (prev.title !== next.title || prev.url !== next.url) (this.deps.onTabMetaChange ?? this.deps.onStatusChange)();
+    } catch {
+      /* tab gone or detached mid-flight — the next navigation event retries */
+    } finally {
+      this.metaInFlight.delete(tabId);
+      if (this.metaRerun.delete(tabId)) void this._refreshTabMeta(tabId);
+    }
+  }
+
   private _captureTabRemoved(params: unknown): void {
     const [tabId] = (params ?? []) as [number];
     this.knownTabs.delete(tabId);
+    this.tabMeta.delete(tabId);
     // Spec X6: the last controlled tab closing ends the session.
     if (this.knownTabs.size === 0) {
       this.deps.logger.info(`[browser-relay] instance ${this.deps.profileDirectory} last tab closed`);
@@ -420,7 +515,45 @@ export class RelayInstance {
       this._sendToCdp({ id, sessionId, error: { code: -32000, message: "Target detached: devtools" } });
       return;
     }
+    // The extension's connect page is invisible to the CDP client too.
+    if (sessionId !== undefined && this.connectSessions.has(sessionId)) {
+      this._sendToCdp({ id, sessionId, error: { code: -32000, message: "Target not available" } });
+      return;
+    }
     if (this._refuseDenied(id, sessionId, method, params)) return;
+    if (this._ackAndDrop(id, sessionId, method)) return;
+    if (!sessionId && method === "Target.setDiscoverTargets") {
+      this._setDiscovery(params);
+      this._sendToCdp({ id, result: {} });
+      return;
+    }
+    if (!sessionId && method === "Target.getTargetInfo") {
+      // Session-less = the BROWSER target (CDP). The vendored handler would
+      // answer `undefined` (it only knows tab sessions), which Playwright
+      // treats as a broken page link.
+      this._sendToCdp({ id, result: { targetInfo: { targetId: "relay-browser", type: "browser", title: "", url: "", attached: true } } });
+      return;
+    }
+    if (!sessionId && method === "Target.getTargets") {
+      // Tab-independent: answered from the attached top-level tabs (never the
+      // connect page) so it works before any tab is attached.
+      this._sendToCdp({ id, result: { targetInfos: this._attachedTargetInfos() } });
+      return;
+    }
+    if (!sessionId && method === "Target.attachToTarget") {
+      // The tab is already attached by the model; hand back its relay session.
+      const targetId = (params as { targetId?: unknown } | undefined)?.targetId;
+      const session = [...modelOf(this.protocol)._tabSessions.values()].find(
+        (s) => s.targetInfo?.targetId === targetId && !this.connectSessions.has(s.sessionId),
+      );
+      this._sendToCdp(
+        session
+          ? { id, result: { sessionId: session.sessionId } }
+          : { id, error: { code: -32000, message: "No target with given id found" } },
+      );
+      return;
+    }
+    this._trackAgentEmulation(sessionId, method);
     if (this._trackClientScreencast(id, sessionId, method)) return;
 
     try {
@@ -438,10 +571,84 @@ export class RelayInstance {
         this._auditNavigation(method, params);
       }
       this._sendToCdp({ id, sessionId, result });
+      if (method === "Page.navigate") this._refreshTabMetaForSession(sessionId);
     } catch (err) {
-      this._sendToCdp({ id, sessionId, error: { message: (err as Error).message } });
+      // Unservable browser-level commands (no attached tab, …) get a real CDP
+      // error code rather than a bare message. See change: add-browser-editor-pane-tab.
+      this._sendToCdp({ id, sessionId, error: { code: -32000, message: (err as Error).message } });
     }
     this._checkViewability();
+  }
+
+  /** Acknowledge-and-drop verbs (`Browser.setDownloadBehavior`): `{}`, never forwarded, audited. */
+  private _ackAndDrop(id: number, sessionId: string | undefined, method: string): boolean {
+    if (!ACK_AND_DROP_METHODS.includes(method)) return false;
+    this.deps.audit.append({
+      profileDirectory: this.deps.profileDirectory,
+      instanceId: this.deps.instanceId,
+      kind: "dropped",
+      detail: method,
+    });
+    this._sendToCdp({ id, sessionId, result: {} });
+    return true;
+  }
+
+  /** `Target.setDiscoverTargets`: answered locally; announces attached top-level tabs once. */
+  private _setDiscovery(params: unknown): void {
+    const discover = (params as { discover?: unknown } | undefined)?.discover === true;
+    this.discoveryOn = discover;
+    if (!discover) {
+      this.announcedTargets.clear();
+      return;
+    }
+    for (const session of modelOf(this.protocol)._tabSessions.values()) {
+      if (session.targetInfo && !this.connectSessions.has(session.sessionId) && !isRelayConnectPage(session.targetInfo.url)) this._announce(session.targetInfo);
+    }
+  }
+
+  private _attachedTargetInfos(): unknown[] {
+    const out: unknown[] = [];
+    for (const session of modelOf(this.protocol)._tabSessions.values()) {
+      const info = session.targetInfo;
+      if (!info || this.connectSessions.has(session.sessionId) || isRelayConnectPage(info.url)) continue;
+      out.push({ ...info, attached: true });
+    }
+    return out;
+  }
+
+  private _announce(targetInfo: { targetId?: string; url?: string }): void {
+    const targetId = targetInfo.targetId;
+    if (!this.discoveryOn || !targetId || this.announcedTargets.has(targetId)) return;
+    this.announcedTargets.add(targetId);
+    this._sendToCdp({ method: "Target.targetCreated", params: { targetInfo: { ...targetInfo, attached: true } } } as CDPMessage);
+  }
+
+  /** Track whether the CDP client holds a device-metrics override on a tab session. */
+  private _trackAgentEmulation(sessionId: string | undefined, method: string): void {
+    if (!sessionId) return;
+    if (method === "Emulation.setDeviceMetricsOverride") {
+      this.agentEmulationSessions.add(sessionId);
+      const tabId = this._tabIdForSession(sessionId);
+      if (tabId !== undefined) this.tap.releaseRelayOverride(tabId);
+      this.deps.onStatusChange();
+    } else if (method === "Emulation.clearDeviceMetricsOverride" && this.agentEmulationSessions.delete(sessionId)) {
+      this.deps.onStatusChange();
+    }
+  }
+
+  private _tabIdForSession(sessionId: string): number | undefined {
+    for (const [tabId, s] of modelOf(this.protocol)._tabSessions) if (s.sessionId === sessionId) return tabId;
+    return undefined;
+  }
+
+  private _refreshTabMetaForSession(sessionId: string | undefined): void {
+    const tabId = sessionId ? this._tabIdForSession(sessionId) : undefined;
+    if (tabId !== undefined) void this._refreshTabMeta(tabId);
+  }
+
+  private agentEmulationActive(tabId: number): boolean {
+    const sessionId = this.sessionIdForTab(tabId);
+    return sessionId !== undefined && this.agentEmulationSessions.has(sessionId);
   }
 
   /** Answer a policy-denied verb with a CDP error. Returns true when refused. */
@@ -498,11 +705,42 @@ export class RelayInstance {
   }
 
   private _onModelOutput(message: CDPMessage): void {
+    if (this._filterTargetEvent(message)) return;
     // Frames for a tapped session belong to the viewers, never to the client.
     if (message.method === "Page.screencastFrame" && this.tap.onEvent(message.sessionId, message.method, message.params)) {
       return;
     }
     this._sendToCdp(message);
+  }
+
+  /**
+   * Top-level `Target.attachedToTarget` / `detachedFromTarget` from the model.
+   * The connect page is dropped (and its session remembered so commands to it
+   * fail); real tabs additionally mirror to `targetCreated` / `targetDestroyed`
+   * while discovery is on. Child sessions arrive with a `sessionId` and are
+   * never mirrored. Returns true when the message must NOT be forwarded.
+   */
+  private _filterTargetEvent(message: CDPMessage): boolean {
+    const m = message as { method?: string; sessionId?: string; params?: { sessionId?: string; targetId?: string; targetInfo?: { targetId?: string; url?: string } } };
+    if (m.sessionId !== undefined) return false;
+    if (m.method === "Target.attachedToTarget") {
+      const info = m.params?.targetInfo;
+      if (isRelayConnectPage(info?.url)) {
+        if (m.params?.sessionId) this.connectSessions.add(m.params.sessionId);
+        return true;
+      }
+      queueMicrotask(() => info && this._announce(info));
+      return false;
+    }
+    if (m.method === "Target.detachedFromTarget") {
+      const sid = m.params?.sessionId;
+      if (sid && this.connectSessions.delete(sid)) return true;
+      const targetId = m.params?.targetId;
+      if (this.discoveryOn && targetId && this.announcedTargets.delete(targetId)) {
+        queueMicrotask(() => this._sendToCdp({ method: "Target.targetDestroyed", params: { targetId } } as CDPMessage));
+      }
+    }
+    return false;
   }
 
   private _sendToCdp(message: CDPMessage): void {
@@ -539,7 +777,14 @@ export class RelayInstance {
   // ── Viewer plane (delegated to the tap) ────────────────────────────────────
 
   subscribe(viewer: RelaySocket, tabId: number): { ok: boolean; state?: TapTabState | "detached" } {
+    if (this.isConnectTab(tabId)) {
+      this._auditRefusedExtensionPage(tabId);
+      return { ok: false, state: "detached" };
+    }
     const result = this.tap.subscribe(viewer, tabId);
+    // Third refresh point (D7): a viewer may be looking at a tab whose
+    // navigation never produced a Page.* event (the agent never enabled Page).
+    if (result.ok) void this._refreshTabMeta(tabId);
     if (!result.ok) {
       this.deps.audit.append({
         profileDirectory: this.deps.profileDirectory,
@@ -559,7 +804,20 @@ export class RelayInstance {
     this.tap.unsubscribeAll(viewer);
   }
 
+  private _auditRefusedExtensionPage(tabId: number, via: "subscribe" | "input" = "subscribe"): void {
+    this.deps.audit.append({
+      profileDirectory: this.deps.profileDirectory,
+      instanceId: this.deps.instanceId,
+      kind: "viewer-subscribe-refused",
+      detail: `tab:${tabId} reason:extension-page${via === "input" ? " via:input" : ""}`,
+    });
+  }
+
   input(viewer: RelaySocket, tabId: number, msg: unknown, remoteAddress?: string): Promise<void> {
+    if (this.isConnectTab(tabId)) {
+      this._auditRefusedExtensionPage(tabId, "input");
+      return Promise.resolve();
+    }
     return this.tap.input(viewer, tabId, msg, remoteAddress);
   }
 
@@ -585,7 +843,9 @@ export class RelayInstance {
     this.closedReason = reason;
     this._clearCdpAttachTimer();
     this.ready.reject(new Error(reason));
-    this.tap.closeAll();
+    this.tap.closeAll(); // sends the best-effort emulation clear BEFORE the sockets close
+    this.tabMeta.clear();
+    this.agentEmulationSessions.clear();
     this._closeCdp(cdpReason);
     this._closeExtension(extensionReason);
     this.deps.logger.info(
