@@ -43,6 +43,24 @@ export function setSpawnEnvPluginEnabledCheck(fn: ((pluginId: string) => boolean
   isPluginEnabled = fn ?? (() => true);
 }
 
+/** Trust gate shared with the plugin `spawnSession` hook: manifest priority <= 100 (policy, not a sandbox). */
+export function isTrustedSpawnEnvPlugin(manifest: { priority?: number }): boolean {
+  return (manifest.priority ?? 1000) <= 100;
+}
+
+/**
+ * The host's `ServerPluginContext.registerSpawnEnvContributor` body: untrusted
+ * plugins get a no-op (nothing reaches the registry). Wired in server.ts.
+ */
+export function registerSpawnEnvContributorForPlugin(
+  manifest: { id: string; priority?: number },
+  fn: SpawnEnvContributorFn,
+  opts?: SpawnEnvContributorOptions,
+): () => void {
+  if (!isTrustedSpawnEnvPlugin(manifest)) return () => {};
+  return registerSpawnEnvContributor(manifest.id, fn, opts);
+}
+
 /** Register a contributor; returns its unregister function. */
 export function registerSpawnEnvContributor(
   pluginId: string,

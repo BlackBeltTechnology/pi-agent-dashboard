@@ -282,7 +282,7 @@ import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
-import { registerSpawnEnvContributor, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
+import { registerSpawnEnvContributorForPlugin, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
@@ -3203,10 +3203,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // Spawn-env contributor hook. Trusted-gated like `spawnSession`
               // (policy, not a sandbox); untrusted plugins get a no-op.
               // See change: add-context-mode-settings-plugin.
-              registerSpawnEnvContributor: (fn, opts) => {
-                if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
-                return registerSpawnEnvContributor(plugin.manifest.id, fn, opts);
-              },
+              registerSpawnEnvContributor: (fn, opts) =>
+                registerSpawnEnvContributorForPlugin(plugin.manifest, fn, opts),
               // Session-abort hook. Gated to first-party/trusted plugins
               // (priority <= 100), mirroring `spawnSession`. Untrusted plugins
               // get a hook that returns false without sending anything.

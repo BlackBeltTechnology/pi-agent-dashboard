@@ -7,6 +7,7 @@ import { buildSpawnEnv, buildTmuxCommand } from "../spawn-process/process-manage
 import {
   _resetSpawnEnvContributorsForTests,
   registerSpawnEnvContributor,
+  registerSpawnEnvContributorForPlugin,
   setSpawnEnvPluginEnabledCheck,
 } from "../spawn-process/spawn-env-contributors.js";
 
@@ -94,8 +95,7 @@ describe("contributors", () => {
   });
 
   it("E13: only enabled plugins with priority <= 100 contribute (server gate + enabled filter)", () => {
-    // Priority gating lives in server.ts (untrusted => no-op, never registered);
-    // model it here: untrusted plugins never reach the registry.
+    // Drives the exact function server.ts wires into the plugin context.
     const matrix: Array<[number | undefined, boolean, boolean]> = [
       [50, true, true],
       [100, true, true],
@@ -107,10 +107,17 @@ describe("contributors", () => {
     for (const [priority, enabled, expected] of matrix) {
       _resetSpawnEnvContributorsForTests();
       setSpawnEnvPluginEnabledCheck(() => enabled);
-      if ((priority ?? 1000) <= 100) registerSpawnEnvContributor("p", () => ({ X_FLAG: "1" }));
+      registerSpawnEnvContributorForPlugin({ id: "p", priority }, () => ({ X_FLAG: "1" }));
       const env = buildSpawnEnv({}, { mechanism: "headless" });
       expect(env.X_FLAG === "1").toBe(expected);
     }
+  });
+
+  it("untrusted plugin: the returned unregister is a callable no-op and nothing is registered", () => {
+    const off = registerSpawnEnvContributorForPlugin({ id: "u", priority: 101 }, () => ({ X_FLAG: "1" }));
+    expect(typeof off).toBe("function");
+    expect(() => off()).not.toThrow();
+    expect(buildSpawnEnv({}, { mechanism: "headless" }).X_FLAG).toBeUndefined();
   });
 
   it("applies per mechanism + reports applied entries via contributedOut", () => {
