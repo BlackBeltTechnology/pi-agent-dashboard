@@ -136,6 +136,17 @@ describe("AccessPromptsSection", () => {
     expect(yolo.textContent).toMatch(/no human answered/i);
   });
 
+  it("#F7 labels agent-path verdict and refusal rows", async () => {
+    view = {
+      ...makeView(),
+      verdicts: [{ answeredBy: "yolo", plane: "agent-path", subject: "/srv/out", outcome: "auto-allowed", at: 5 }],
+      refusals: [{ plane: "agent-path", subject: "/srv/denied", refusedAt: 1 }],
+    };
+    render(<AccessPromptsSection store={store()} />);
+    expect((await screen.findByTestId("access-verdict-row")).textContent).toMatch(/agent path gate/i);
+    expect((await screen.findByTestId("access-refusal-row")).textContent).toMatch(/agent path gate/i);
+  });
+
   describe("S4 banners + S5 toggle (8.3)", () => {
     // 10.62b (E54) — report mode: stated, denials still answerable, toggle inert not hidden.
     it("report mode: states held prompts are unavailable and renders the toggle inert", async () => {

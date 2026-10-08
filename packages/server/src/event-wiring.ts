@@ -13,6 +13,8 @@ import { extractTurnStats, type StatsData } from "@blackbelt-technology/pi-dashb
 import { usageToTotals } from "@blackbelt-technology/pi-dashboard-shared/usage-totals.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createAgentConfirmRegistry } from "./access/agent-confirm-registry.js";
+import { handlePathGateRefusal, handlePathYoloRequest } from "./access/agent-yolo.js";
+import { recordRefusal } from "./access/refusal-ledger.js";
 import { handlePathGrantRequest } from "./access/agent-grant.js";
 import { announceableGrantStoreId } from "./access/grant-store-id.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
@@ -100,6 +102,12 @@ const STRICT_SPAWN_CORRELATION =
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
+  /**
+   * Lazy YOLO verdict for an agent-path-gate would-prompt call. Absent (YOLO not
+   * constructed yet) → every `path_yolo_request` declines.
+   * See change: yolo-covers-agent-path-gate.
+   */
+  decideAgentPath?: (path: string) => "auto-allow" | "refused-by-prior-refusal" | null;
   /**
    * Retention for remote sessions' transcripts (D12). Optional: a wiring
    * without it simply does not retain, which is the correct degradation for
@@ -545,8 +553,14 @@ export function wireEvents(deps: EventWiringDeps): void {
     // cached) so the bridge's path gate can decide whether "Always allow" is
     // honest. See change: ask-agent-file-access-in-chat (D3).
     {
+      // Always sent: `features` advertises server capabilities (`path-yolo`);
+      // `grantStoreId` only when announceable. See change: yolo-covers-agent-path-gate.
       const grantStoreId = announceableGrantStoreId();
-      if (grantStoreId) piGateway.sendToSession(sessionId, { type: "dashboard_identity", grantStoreId });
+      piGateway.sendToSession(sessionId, {
+        type: "dashboard_identity",
+        ...(grantStoreId ? { grantStoreId } : {}),
+        features: ["path-yolo"],
+      });
     }
 
     // Restore the persisted auto-namer stop state to the bridge, so a session
@@ -980,6 +994,27 @@ export function wireEvents(deps: EventWiringDeps): void {
     // See change: ask-agent-file-access-in-chat (D3).
     if (msg.type === "path_grant_request") {
       piGateway.sendToSession(sessionId, handlePathGrantRequest(sessionId, msg, { registry: agentConfirmRegistry }));
+      return;
+    }
+
+    // Agent path gate × YOLO (change: yolo-covers-agent-path-gate): the bridge
+    // asks at its would-prompt point and reports operator denies.
+    if (msg.type === "path_yolo_request") {
+      piGateway.sendToSession(
+        sessionId,
+        handlePathYoloRequest(sessionId, msg, {
+          decideAgentPath: deps.decideAgentPath,
+          registry: agentConfirmRegistry,
+          recordRefusal,
+        }),
+      );
+      return;
+    }
+    if (msg.type === "path_gate_refusal") {
+      handlePathGateRefusal(sessionId, msg, {
+        registry: agentConfirmRegistry,
+        recordRefusal,
+      });
       return;
     }
 
@@ -2280,7 +2315,15 @@ export function wireEvents(deps: EventWiringDeps): void {
           typeof meta.subject === "string"
         ) {
           // First sight only: a replayed prompt neither re-registers nor extends the TTL.
-          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject });
+          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject }, "confirm");
+        } else if (
+          meta?.kind === "agent-path-gate" &&
+          promptId &&
+          typeof meta.path === "string" &&
+          typeof meta.subject === "string"
+        ) {
+          // The gate's select prompt: lets a later `path_gate_refusal` bind to it.
+          agentConfirmRegistry.observe(sessionId, promptId, { path: meta.path, subject: meta.subject }, "select");
         }
       }
       if (!replayingSessions.has(sessionId)) syncAwaitingFileAccess(sessionId);

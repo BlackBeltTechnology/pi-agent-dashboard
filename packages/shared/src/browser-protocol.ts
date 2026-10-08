@@ -2427,6 +2427,12 @@ export interface BrowserRelayStatusMessage {
 export type AccessPlaneId = "filesystem" | "cwd" | "network" | "cors";
 
 /**
+ * Surfaces YOLO answers: the closed plane ids plus the agent path gate (which is
+ * not a registered plane). See change: yolo-covers-agent-path-gate.
+ */
+export type YoloSurfaceId = AccessPlaneId | "agent-path";
+
+/**
  * The three answers an operator may give. `allow-once` releases only the request
  * that raised the prompt; `allow-always` additionally persists a grant in the
  * raising plane's store; `deny` persists nothing.

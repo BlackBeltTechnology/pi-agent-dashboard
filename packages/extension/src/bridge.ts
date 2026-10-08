@@ -2073,6 +2073,7 @@ function initBridge(pi: ExtensionAPI) {
         sessionId,
         sessionFile: lastSessionFile,
         originEndpoint: dashboardUrl,
+        onServerMessage: (m) => void pathGate.onServerMessage(m),
         connect: (url) => {
           let handler: (msg: unknown) => void = () => {};
           targetManager = new ConnectionManager({
@@ -3916,6 +3917,7 @@ function initBridge(pi: ExtensionAPI) {
           pathGateInRoot: pathGate.counters.inRoot,
           pathGateAsked: pathGate.counters.asked,
           pathGateBlocked: pathGate.counters.blocked,
+          pathGateYoloAllowed: pathGate.counters.yoloAllowed,
           // Poll-cost counters (summed across sessions on /api/health).
           // See change: optimize-polling-hot-paths.
           ...pollCost,
