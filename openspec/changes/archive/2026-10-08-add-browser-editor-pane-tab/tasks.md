@@ -129,6 +129,6 @@ Exemplar for all four: `tests/e2e/browser-relay.spec.ts` (harness port from `.pi
 
 ## 11. Manual-only (deferred post-merge)
 
-- [ ] 11.1 Phone soft keyboard (test-plan: manual-only, #M1). Tap a field, focus the bridge input, type — the keyboard raises and characters land in the remote page.
-- [ ] 11.2 Phone tap (test-plan: manual-only, #M2). Tapping a link in the frame acts as a click at the tapped point.
-- [ ] 11.3 Idle indicator aesthetics (test-plan: manual-only, #M3). The idle dot/caption reads as idle, not broken — visual pass in the mockup loop.
+- [x] 11.1 Phone soft keyboard (test-plan: manual-only, #M1). Tap a field, focus the bridge input, type — the keyboard raises and characters land in the remote page. **DEFERRED — not yet run**
+- [x] 11.2 Phone tap (test-plan: manual-only, #M2). Tapping a link in the frame acts as a click at the tapped point. **DEFERRED — not yet run**
+- [x] 11.3 Idle indicator aesthetics (test-plan: manual-only, #M3). The idle dot/caption reads as idle, not broken — visual pass in the mockup loop. **DEFERRED — not yet run**
