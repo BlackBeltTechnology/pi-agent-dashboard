@@ -27,8 +27,13 @@ describe("SessionActivityBar (redesign-process-list-activity-bar)", () => {
     expect(container.querySelectorAll('[data-testid="session-activity-row"]').length).toBe(1);
     expect(container.textContent).toContain("npm test");
     expect(container.textContent).toContain("12s");
-    expect(getByTestId("session-activity-stop")).toBeTruthy();
+    const stop = getByTestId("session-activity-stop");
+    expect(stop).toBeTruthy();
     expect(getByTitle(STOP_TOOLTIP)).toBeTruthy();
+    expect(stop.getAttribute("title")).toBe("Stop the agent (aborts the whole turn)");
+    expect(stop.getAttribute("aria-label")).toBe("Stop the agent (aborts the whole turn)");
+    expect(stop.getAttribute("title")).not.toContain("lets the agent continue");
+    expect(stop.getAttribute("aria-label")).not.toContain("lets the agent continue");
   });
 
   it("renders up to MAX_VISIBLE rows without overflow chip", () => {
@@ -42,11 +47,19 @@ describe("SessionActivityBar (redesign-process-list-activity-bar)", () => {
 
   it("renders MAX_VISIBLE rows + overflow chip at N+1", () => {
     const tools = Array.from({ length: MAX_VISIBLE + 1 }, (_, i) => mk(`tc-${i}`, `cmd-${i}`, NOW - i * 1000));
-    const { container, getByTestId } = render(
+    const { container, getByTestId, getAllByTitle } = render(
       <SessionActivityBar tools={tools} onAbort={onAbort} now={NOW} />,
     );
     expect(container.querySelectorAll('[data-testid="session-activity-row"]').length).toBe(MAX_VISIBLE);
-    expect(getByTestId("session-activity-overflow").textContent).toContain("+1 more");
+    const overflow = getByTestId("session-activity-overflow");
+    expect(overflow.textContent).toContain("+1 more");
+    expect(overflow.querySelector('[data-testid="session-activity-stop"]')).toBeNull();
+    const stops = getAllByTitle("Stop the agent (aborts the whole turn)");
+    expect(stops).toHaveLength(MAX_VISIBLE);
+    for (const stop of stops) {
+      expect(stop.getAttribute("title")).toBe("Stop the agent (aborts the whole turn)");
+      expect(stop.getAttribute("aria-label")).toBe("Stop the agent (aborts the whole turn)");
+    }
   });
 
   it("overflow chip count reflects all hidden rows", () => {
