@@ -142,8 +142,11 @@ export function applySpawnEnvContributors(
   env: NodeJS.ProcessEnv,
   mechanism: ContributorMechanism,
 ): Record<string, string> {
+  // Provenance-marked values are removed for EVERY registered contributor, also
+  // a disabled plugin's: a stale value a bridge projected into an ancestor must
+  // not keep reaching new sessions after the plugin is turned off.
+  for (const c of contributors) removeSuperseded(env, c);
   const active = activeEntries();
-  for (const c of active) removeSuperseded(env, c);
   const applied: Record<string, string> = {};
   for (const c of active) {
     for (const [name, value] of Object.entries(collect(c, mechanism))) {

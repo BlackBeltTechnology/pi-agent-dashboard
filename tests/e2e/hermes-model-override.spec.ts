@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures.js";
+import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
 
 /**
@@ -21,8 +21,27 @@ const MODELS = {
   ],
 };
 
+type Fields = Record<string, { value: unknown; isDefault: boolean }>;
+
+/** The on-disk subset of the config: every non-default field (a PUT is a full write). */
+function onDisk(fields: Fields): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(fields).filter(([, f]) => !f.isDefault).map(([k, f]) => [k, f.value]));
+}
+
 test.describe("hermes model override selector (L3)", () => {
   test("F3: pick a model, save, reload — the chosen provider/id persists", async ({ page }) => {
+    const original = onDisk(((await (await page.request.get(CONFIG_ROUTE)).json()) as { fields: Fields }).fields);
+    try {
+      await runF3(page);
+    } finally {
+      // Restore whatever the harness had, even when an assertion above failed.
+      const res = await page.request.put(CONFIG_ROUTE, { data: original });
+      expect(res.ok()).toBe(true);
+    }
+  });
+});
+
+async function runF3(page: Page) {
     await page.route("**/api/models*", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MODELS) }),
     );
@@ -56,8 +75,4 @@ test.describe("hermes model override selector (L3)", () => {
     await expect(page.getByTestId("hermes-input-llmModelOverride").getByTestId("model-selector-button")).toContainText(
       String(stored.value).split("/").slice(1).join("/"),
     );
-
-    // Leave the harness file clean for later specs.
-    await page.request.put(CONFIG_ROUTE, { data: {} });
-  });
-});
+}

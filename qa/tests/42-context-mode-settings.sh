@@ -11,13 +11,84 @@
 # Windows (no .ps1 twin: the scenarios are POSIX-process-env assertions).
 # X8's MCP-child half and X11 need a driven prompt (context-mode starts its
 # stores/child on the first before_agent_start) and are SKIPPED here.
-# Env: DASHBOARD_PORT (default 8000). Traps restore config + settings file.
+# Always self-isolates (throwaway HOME, port 18558, private tmux socket).
 set -euo pipefail
 
 if ! command -v pi >/dev/null 2>&1; then echo "SKIP: pi not on PATH"; exit 0; fi
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "SKIP: POSIX process-env assertions"; exit 0;; esac
 
 echo "=== Test: context-mode settings + env scrub ==="
+
+# This script restarts dashboard servers and (X9) kills a tmux server, so it
+# NEVER runs against the operator's real HOME / port 8000 / default tmux socket.
+# Unless already isolated it re-executes itself with a throwaway HOME, its own
+# dashboard port, a private TMUX_TMPDIR and a `pi-dashboard` shim.
+if [ "${PI_QA_CM_ISOLATED:-}" != "1" ]; then
+  _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _repo="$(cd "$_here/../.." && pwd)"
+  # Short /tmp path on purpose: a long $TMPDIR overflows the unix-socket path limit (gateway socket).
+  ISO=$(mktemp -d /tmp/qa-cm.XXXXXX)
+  mkdir -p "$ISO/home/.pi/dashboard" "$ISO/bin" "$ISO/tmux"
+  echo '{"port":18558,"piPort":19558}' > "$ISO/home/.pi/dashboard/config.json"
+  # Seed a minimal pi agent dir: the package tree is shared read-only by symlink and
+  # the settings file is a fresh one (a copy of the operator's would load every
+  # extension they use, with their credentials, into a throwaway HOME).
+  mkdir -p "$ISO/home/.pi/agent"
+  [ -d "$HOME/.pi/agent/npm" ] && ln -s "$HOME/.pi/agent/npm" "$ISO/home/.pi/agent/npm"
+  echo '{"packages":[]}' > "$ISO/home/.pi/agent/settings.json"
+  # The build under test: PI_QA_PI_DASHBOARD (e.g. `node <checkout>/packages/server/bin/pi-dashboard.mjs`)
+  # when set, else the installed `pi-dashboard`, else this checkout. NOTE a stale global install
+  # silently tests the OLD code (it then correctly FAILS X8) — pass the override when developing.
+  REAL_PD="${PI_QA_PI_DASHBOARD:-$(command -v pi-dashboard || true)}"
+  if [ -z "$REAL_PD" ]; then REAL_PD="node $_repo/packages/server/bin/pi-dashboard.mjs"; fi
+  printf '#!/usr/bin/env bash\nexec %s "$@"\n' "$REAL_PD" > "$ISO/bin/pi-dashboard"
+  chmod +x "$ISO/bin/pi-dashboard"
+  set +e
+  env HOME="$ISO/home" TMUX_TMPDIR="$ISO/tmux" DASHBOARD_PORT=18558 PI_QA_CM_ISOLATED=1 \
+    PATH="$ISO/bin:$PATH" bash "${BASH_SOURCE[0]}"
+  rc=$?
+  # Reap anything the isolated run left behind (keepers/pi run under the isolated HOME).
+  TMUX_TMPDIR="$ISO/tmux" tmux kill-server 2>/dev/null || true
+  # Headless sessions (rpc keeper + pi) and servers outlive `pi-dashboard stop`: kill every
+  # process whose ENVIRONMENT carries the throwaway HOME (never matches the operator's).
+  python3 - "$ISO/home" <<'PY' 2>/dev/null || true
+import ctypes, ctypes.util, os, signal, struct, sys
+needle = ("HOME=" + sys.argv[1]).encode()
+def env_blob(pid):
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            return f.read()
+    except OSError:
+        pass
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c"))
+        mib = (ctypes.c_int * 3)(1, 49, pid)
+        size = ctypes.c_size_t(0)
+        if libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0) != 0:
+            return b""
+        buf = ctypes.create_string_buffer(size.value)
+        libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0)
+        return buf.raw[: size.value]
+    except Exception:
+        return b""
+me = os.getpid()
+import subprocess
+for tok in subprocess.check_output(["ps", "-ax", "-o", "pid="]).split():
+    pid = int(tok)
+    if pid in (me, os.getppid()):
+        continue
+    blob = env_blob(pid)
+    # argv comes first in PROCARGS2; require the needle as a whole NUL-delimited entry (env, not argv text).
+    if needle in blob.split(b"\0") and b"python3" not in blob[:300]:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+PY
+  rm -rf "$ISO"
+  exit $rc
+fi
+
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
@@ -33,7 +104,18 @@ HAD_CONFIG=0; HAD_SETTINGS=0
 [ -f "$SETTINGS" ] && { cp "$SETTINGS" "$BK_SETTINGS"; HAD_SETTINGS=1; }
 HAS_TMUX=0; command -v tmux >/dev/null 2>&1 && HAS_TMUX=1
 
+SPAWNED=""
+reap_sessions() { # pi + its rpc keeper (stopping the server does not end headless sessions)
+  local p pp
+  for p in $SPAWNED; do
+    pp=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    if [ -n "$pp" ] && [ "$pp" -gt 1 ] && ps -o command= -p "$pp" 2>/dev/null | grep -q rpc-keeper; then kill -9 "$pp" 2>/dev/null || true; fi
+    kill -9 "$p" 2>/dev/null || true
+  done
+}
+
 cleanup() {
+  reap_sessions
   pi-dashboard stop 2>/dev/null || true
   if [ "$HAD_CONFIG" = "1" ]; then cp "$BK_CONFIG" "$CONFIG"; else rm -f "$CONFIG"; fi
   if [ "$HAD_SETTINGS" = "1" ]; then cp "$BK_SETTINGS" "$SETTINGS"; else rm -f "$SETTINGS"; fi
@@ -122,6 +204,7 @@ var_val() { read_env "$1"; echo "$ENVTXT" | grep "^$2=" | head -1 | cut -d= -f2-
 set_strategy headless
 start_server CONTEXT_MODE_BRIDGE_DEPTH=1 CONTEXT_MODE_BRIDGE_IDLE_MS=0
 PID=$(spawn_pid) || fail "X8: headless spawn never registered"
+SPAWNED="$SPAWNED $PID"
 has_var "$PID" CONTEXT_MODE_BRIDGE_DEPTH && fail "X8: pi inherited CONTEXT_MODE_BRIDGE_DEPTH"
 has_var "$PID" CONTEXT_MODE_BRIDGE_IDLE_MS && fail "X8: pi inherited CONTEXT_MODE_BRIDGE_IDLE_MS"
 echo "  ok X8: headless pi carries neither bridge-internal variable"
@@ -139,6 +222,7 @@ if [ "$HAS_TMUX" = "1" ]; then
   set_strategy tmux
   start_server
   PID=$(spawn_pid) || fail "X9: tmux spawn never registered"
+SPAWNED="$SPAWNED $PID"
   has_var "$PID" CONTEXT_MODE_BRIDGE_DEPTH && fail "X9: pane pi inherited CONTEXT_MODE_BRIDGE_DEPTH from the tmux server"
   echo "  ok X9: tmux pane pi lacks CONTEXT_MODE_BRIDGE_DEPTH"
   tmux kill-server 2>/dev/null || true
@@ -154,6 +238,7 @@ echo '{"fetch.strict": true}' > "$SETTINGS"
 start_server CTX_FETCH_STRICT=1 PI_CONTEXT_MODE_SETTINGS_PROJECTED=CTX_FETCH_STRICT
 echo '{"fetch.strict": false}' > "$SETTINGS"
 PID=$(spawn_pid) || fail "X10: spawn never registered"
+SPAWNED="$SPAWNED $PID"
 has_var "$PID" CTX_FETCH_STRICT && fail "X10: stale CTX_FETCH_STRICT survived the file change"
 has_var "$PID" PI_CONTEXT_MODE_SETTINGS_PROJECTED && fail "X10: provenance marker leaked into the spawned pi"
 echo "  ok X10: stale projected value and marker removed"
@@ -169,11 +254,13 @@ echo '{"locale.timeZone": "Europe/Budapest"}' > "$SETTINGS"
 set_strategy headless
 start_server CONTEXT_MODE_TZ=UTC
 PID=$(spawn_pid) || fail "X12: headless spawn never registered"
+SPAWNED="$SPAWNED $PID"
 [ "$(var_val "$PID" CONTEXT_MODE_TZ)" = "UTC" ] || fail "X12: headless pi lost the exported CONTEXT_MODE_TZ=UTC"
 if [ "$HAS_TMUX" = "1" ]; then
   set_strategy tmux
   start_server CONTEXT_MODE_TZ=UTC
   PID=$(spawn_pid) || fail "X12: tmux spawn never registered"
+SPAWNED="$SPAWNED $PID"
   [ "$(var_val "$PID" CONTEXT_MODE_TZ)" = "UTC" ] || fail "X12: tmux pi lost the exported CONTEXT_MODE_TZ=UTC"
 fi
 echo "  ok X12: operator export survives in headless${HAS_TMUX:+ and tmux} spawns"

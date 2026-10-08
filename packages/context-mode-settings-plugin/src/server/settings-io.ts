@@ -76,7 +76,15 @@ export function writeSettingsFile(filePath: string, obj: Record<string, unknown>
   const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.tmp`);
   try {
     fs.writeFileSync(tmp, `${JSON.stringify(obj, null, 2)}\n`, "utf-8");
-    fs.renameSync(tmp, filePath);
+    try {
+      fs.renameSync(tmp, filePath);
+    } catch (e) {
+      // Windows refuses to rename over an existing file (EPERM/EEXIST): replace once.
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EEXIST") throw e;
+      fs.rmSync(filePath, { force: true });
+      fs.renameSync(tmp, filePath);
+    }
   } catch (e) {
     try {
       fs.rmSync(tmp, { force: true });

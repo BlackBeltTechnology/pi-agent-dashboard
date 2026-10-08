@@ -28,10 +28,19 @@ async function getFields(page: Page) {
 }
 
 test.describe("context-mode settings (L3)", () => {
+  let original: Record<string, unknown> = {};
+
   test.beforeEach(async ({ page }) => {
     await gotoDashboard(page);
+    const fields = await getFields(page);
+    original = Object.fromEntries(Object.entries(fields).filter(([, f]) => !f.isDefault).map(([k, f]) => [k, f.value]));
     // Start every spec from "no file": an empty full-object PUT is the reset.
     const res = await page.request.put(CONFIG_ROUTE, { data: {} });
+    expect(res.ok()).toBe(true);
+  });
+
+  test.afterEach(async ({ page }) => {
+    const res = await page.request.put(CONFIG_ROUTE, { data: original });
     expect(res.ok()).toBe(true);
   });
 

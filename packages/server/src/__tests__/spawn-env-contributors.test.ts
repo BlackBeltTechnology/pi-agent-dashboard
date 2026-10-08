@@ -119,6 +119,20 @@ describe("contributors", () => {
     expect(buildSpawnEnv({}, { mechanism: "headless" }).X_FLAG).toBeUndefined();
   });
 
+  it("a disabled plugin's inherited projection is still removed (no stale leak), operator exports kept", () => {
+    setSpawnEnvPluginEnabledCheck(() => false);
+    registerSpawnEnvContributor("p", () => ({ CTX_FETCH_STRICT: "1" }), {
+      supersede: { marker: "PI_CONTEXT_MODE_SETTINGS_PROJECTED", names: RUNTIME_NAMES },
+    });
+    const env = buildSpawnEnv(
+      { CTX_FETCH_STRICT: "1", CONTEXT_MODE_TZ: "UTC", PI_CONTEXT_MODE_SETTINGS_PROJECTED: "CTX_FETCH_STRICT" },
+      { mechanism: "headless" },
+    );
+    expect(env.CTX_FETCH_STRICT).toBeUndefined();
+    expect(env.PI_CONTEXT_MODE_SETTINGS_PROJECTED).toBeUndefined();
+    expect(env.CONTEXT_MODE_TZ).toBe("UTC");
+  });
+
   it("applies per mechanism + reports applied entries via contributedOut", () => {
     registerSpawnEnvContributor("p", ({ mechanism }): Record<string, string> => (mechanism === "wsl-tmux" ? {} : { CTX_FETCH_STRICT: "1" }));
     for (const m of ["headless", "tmux", "wt"] as const) {
