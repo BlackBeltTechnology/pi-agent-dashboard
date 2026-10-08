@@ -23,9 +23,11 @@ vi.mock("../kb-routes.js", () => ({
   mountKbRoutes: vi.fn(),
   reindexAll,
   applyConfigPatchAndTrust,
-  isAllowedCwd,
   preflightWrite,
 }));
+// The handler imports the guard DIRECTLY from the shared module (the CodeQL
+// barrier model only recognizes that import path, not the kb-routes re-export).
+vi.mock("@blackbelt-technology/pi-dashboard-shared/cwd-guard.js", () => ({ isAllowedCwd }));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", () => ({
   loadConfig: () => ({ origin: "project" }),
 }));

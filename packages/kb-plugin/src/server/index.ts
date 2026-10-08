@@ -13,8 +13,9 @@
 
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { isAllowedCwd } from "@blackbelt-technology/pi-dashboard-shared/cwd-guard.js";
 import { KbJobRegistry } from "./job-registry.js";
-import { applyConfigPatchAndTrust, isAllowedCwd, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
+import { applyConfigPatchAndTrust, mountKbRoutes, preflightWrite, reindexAll } from "./kb-routes.js";
 
 const HOST_KNOWN_FOLDERS = "host.knownFolderCwds";
 const PLUGIN_ID = "kb";
