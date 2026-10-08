@@ -173,6 +173,18 @@ describe("stripSubagentEntries", () => {
     });
   });
 
+  // See change: stream-subagent-reasoning-and-stable-card (#E5).
+  it("keeps liveTail on a running frame while removing entries, input untouched", () => {
+    const input = frame("running");
+    const tail = { kind: "thinking", text: "x".repeat(280) };
+    (input.details as Record<string, unknown>).liveTail = tail;
+    const snapshot = structuredClone(input);
+    const out = stripSubagentEntries(input);
+    expect(entriesOf(out)).toBeUndefined();
+    expect((out.details as Record<string, unknown>).liveTail).toEqual(tail);
+    expect(input).toEqual(snapshot);
+  });
+
   it("exports the allowlist as the single source of truth", () => {
     expect([...NON_TERMINAL_STATUSES].sort()).toEqual(["queued", "running"]);
   });

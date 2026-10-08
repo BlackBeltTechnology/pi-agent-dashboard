@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subagent live tail: all variants</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  /* Tokens copied from packages/client/src/index.css */
+  :root, [data-theme="dark"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#919191; --text-muted:#585858;
+    --border-subtle:rgba(255,255,255,.06);
+  }
+  [data-theme="light"] {
+    --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#636363; --text-muted:#aaa;
+    --border-subtle:rgba(0,0,0,.06);
+  }
+  body { background:var(--bg-primary); color:var(--text-primary); font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", sans-serif; }
+  .fade-top { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 45%); mask-image: linear-gradient(to bottom, transparent 0, #000 45%); }
+  .fade-top-soft { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22%); mask-image: linear-gradient(to bottom, transparent 0, #000 22%); }
+  .fade-left { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 18%); mask-image: linear-gradient(to right, transparent 0, #000 18%); }
+  .caret { display:inline-block; width:2px; height:.95em; vertical-align:-.12em; margin-left:2px; border-radius:1px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0 } }
+  .dots span { animation: dot 1.2s infinite; opacity:.25 }
+  .dots span:nth-child(2){animation-delay:.2s} .dots span:nth-child(3){animation-delay:.4s}
+  @keyframes dot { 30% { opacity: 1 } }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+  @media (prefers-reduced-motion: reduce) { .caret, .dots span, .spin { animation: none; opacity: 1 } }
+  .card { background:var(--bg-tertiary); border:1px solid rgba(234,179,8,.35); }
+  .btn { font-size:11px; padding:2px 8px; border-radius:6px; border:1px solid var(--border-subtle); color:var(--text-tertiary); }
+  .k-think .kc { color:#c084fc } .k-text .kc { color:var(--text-tertiary) }
+  .k-think .rail { border-color:rgba(168,85,247,.4) } .k-text .rail { border-color:var(--text-muted) }
+  .k-think .tint { background:rgba(168,85,247,.05); border-color:rgba(168,85,247,.12) }
+  .k-text .tint { background:var(--bg-tertiary); border-color:var(--border-subtle) }
+  .k-think .cbg { background:rgba(192,132,252,.7) } .k-text .cbg { background:var(--text-tertiary) }
+</style>
+</head>
+<body class="p-6 max-w-6xl mx-auto">
+
+<header class="sticky top-0 z-10 -mx-6 px-6 py-3 mb-6 bg-[var(--bg-primary)] border-b border-[var(--border-subtle)] flex flex-wrap items-center gap-3">
+  <div class="mr-auto">
+    <h1 class="text-base font-semibold">Subagent live tail: every variant, collapsed + opened</h1>
+    <p class="text-[11px] text-[var(--text-tertiary)]">All panels stream at the same time. "Block ends" shows the hand-off from the live text to the finished timeline row.</p>
+  </div>
+  <button id="theme" class="btn bg-[var(--bg-surface)]">Light / dark</button>
+  <button id="kind" class="btn bg-[var(--bg-surface)]">Kind: thinking</button>
+  <button id="pause" class="btn bg-[var(--bg-surface)]">Pause</button>
+  <button id="finish" class="btn bg-[var(--bg-surface)]">Block ends ▸</button>
+</header>
+
+<main id="root" class="space-y-12 k-think"></main>
+
+<template id="variant">
+  <section class="space-y-3">
+    <div>
+      <h2 class="text-sm font-semibold" data-slot="title"></h2>
+      <p class="text-[11px] text-[var(--text-tertiary)] max-w-3xl" data-slot="desc"></p>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-4 items-start">
+      <!-- COLLAPSED CARD -->
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Collapsed card</div>
+        <div class="card rounded-xl px-4 py-3 shadow-md">
+          <div class="flex items-center gap-2">
+            <span class="spin inline-block w-3 h-3 rounded-full border-2 border-yellow-400 border-t-transparent"></span>
+            <span class="text-sm font-medium truncate">Fast read-only codebase &amp; docs exploration.</span>
+            <span class="ml-auto text-[11px] text-[var(--text-muted)]" data-slot="elapsed">0s</span>
+            <span class="btn">▾ Details</span><span class="btn">↗ Popout</span>
+          </div>
+          <div class="text-[11px] text-[var(--text-tertiary)] mt-0.5">glm/glm-5.3-flash · thinking low · ⟳1 · 1 tool use · 14.8k</div>
+          <div class="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"Explore repo overview seventh run"</div>
+          <div data-slot="preview"></div>
+          <div class="mt-2 text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Prompt</div>
+          <pre class="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap font-mono">Explore the repository at /Users/bmiller/Projects/Pi-Packages/pi-agent-dashboard (read-only). Produce a concise overview…</pre>
+        </div>
+      </div>
+      <!-- OPENED VIEW -->
+      <div>
+        <div class="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">Opened view (Details / Popout)</div>
+        <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-secondary)] overflow-hidden">
+          <div class="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+            <div class="min-w-0">
+              <div class="text-sm font-medium truncate">Fast read-only codebase &amp; docs exploration.</div>
+              <div class="text-[10px] font-mono text-[var(--text-tertiary)] truncate">.pi/agents/Explore.md</div>
+            </div>
+            <span class="ml-auto text-[11px] text-[var(--text-tertiary)] whitespace-nowrap">glm-5.3-flash · thinking low</span>
+          </div>
+          <div class="h-72 overflow-hidden flex flex-col justify-end px-3 py-2 space-y-1">
+            <div class="border-l-2 border-purple-500/30 pl-3 py-0.5 text-xs text-[var(--text-tertiary)] flex items-center gap-1.5"><span class="text-purple-400">💡</span>Reasoning <span class="ml-auto">›</span></div>
+            <div class="border-l-2 border-[var(--text-muted)] pl-3 py-0.5 text-xs text-[var(--text-tertiary)] flex items-center gap-1.5"><span class="text-green-500">✓</span>kb_search architecture overview <span class="ml-auto">›</span></div>
+            <div data-slot="finished"></div>
+            <div data-slot="inspector"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
+
+<script>
+const THINK = `The user wants a concise overview of the repo. Let me plan this in one shot.
+
+I need:
+1. Top-level layout (ls)
+2. packages/ listing
+3. AGENTS.md files
+4. docs/architecture.md
+5. Root package.json for commands
+
+Medium thoroughness: 5-10 tool calls. I'll use ctx_batch_execute with several commands and then read the architecture doc.`;
+const TEXT = `## Layout
+- \`packages/\`: 28 workspaces (server, client, extension, shared, plugins)
+- \`docs/\`: architecture, faq, plugin guides
+
+## Entry points
+- Bridge: packages/extension/src/index.ts
+- Server: packages/server/src/cli.ts`;
+
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+/** Preview-only: strip simple markdown markers so a partial block reads as prose. */
+const plain = s => s.replace(/^#{1,6}\s+/gm, "").replace(/^\s*[-*]\s+/gm, "• ").replace(/`/g, "").replace(/\*\*/g, "");
+const caret = () => `<span class="caret cbg"></span>`;
+const label = () => kind === "thinking" ? "Reasoning" : "Writing";
+const icon = () => kind === "thinking" ? "💡" : "✎";
+
+/* ── Collapsed-card previews ─────────────────────────────────────────── */
+const PREVIEW = {
+  A: (t, live) => `
+    <div class="h-4 mt-1 flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]">
+      <span class="kc">${icon()}</span><span>${label()}</span>${live ? `<span class="dots"><span>.</span><span>.</span><span>.</span></span>` : ""}
+      <span class="text-[var(--text-muted)]">·</span><span class="text-[var(--text-muted)] truncate">running ctx_batch_execute</span>
+    </div>
+    <div class="h-8 mt-0.5 pl-2 border-l-2 rail overflow-hidden">
+      <div class="h-8 flex flex-col justify-end fade-top text-[11px] leading-4 text-[var(--text-secondary)] whitespace-pre-line">${esc(lastLines(plain(t), 2))}${live ? caret() : ""}</div>
+    </div>`,
+  B: (t, live) => `
+    <div class="h-4 mt-1 text-[10px] text-[var(--text-tertiary)] truncate">▸ running ctx_batch_execute</div>
+    <div class="h-[3.75rem] mt-1 rounded-lg border tint px-2 py-1 overflow-hidden">
+      <div class="text-[10px] kc flex items-center gap-1"><span>${icon()}</span><span>${label()}</span>${live ? `<span class="dots text-[var(--text-muted)]"><span>.</span><span>.</span><span>.</span></span>` : ""}</div>
+      <div class="h-8 flex flex-col justify-end fade-top text-[11px] leading-4 text-[var(--text-secondary)] whitespace-pre-line">${esc(lastLines(plain(t), 2))}${live ? caret() : ""}</div>
+    </div>`,
+  C: (t, live) => {
+    const flat = plain(t).replace(/\s+/g, " ").trim();
+    const m = flat.match(/[^.!?:]*[.!?:]?\s*[^.!?:]*$/);
+    const s = (m && m[0].trim()) || flat;
+    return `
+    <div class="h-4 mt-1 flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] overflow-hidden">
+      <span class="kc shrink-0">${icon()}</span>
+      <div class="ticker flex-1 min-w-0 flex justify-end overflow-hidden"><span class="min-w-full whitespace-nowrap text-[11px] text-[var(--text-secondary)]">${esc(s)}${live ? caret() : ""}</span></div>
+    </div>`;
+  },
+};
+
+/* ── Opened-view live block (same for all; B uses its bubble look) ── */
+const INSPECTOR = (v, t, live) => {
+  const body = kind === "text" ? plain(t) : t;
+  const head = `<div class="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+      <span class="kc">${icon()}</span><span>${label()}</span>${live ? `<span class="dots"><span>.</span><span>.</span><span>.</span></span>` : ""}
+      <span class="text-[10px] text-[var(--text-muted)] ml-1">${elapsed()}s</span></div>`;
+  return `
+    <div class="border-l-2 rail pl-3 py-1">
+      ${head}
+      <div class="mt-1 ml-4 rounded-xl border tint shadow-md">
+        <div class="max-h-36 overflow-hidden flex flex-col justify-end fade-top-soft px-3 py-2">
+          <div class="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line">${esc(body)}${live ? caret() : ""}</div>
+        </div>
+      </div>
+    </div>`;
+};
+/* Finished row: same place, stays OPEN (no collapse) */
+const FINISHED = (t) => `
+  <div class="border-l-2 rail pl-3 py-1">
+    <div class="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]"><span class="kc">${icon()}</span><span>${label()}</span><span class="text-[10px] text-[var(--text-muted)] ml-1">${elapsed()}s</span><span class="ml-auto">⌄</span></div>
+    <div class="mt-1 ml-4 rounded-xl border tint shadow-md max-h-36 overflow-hidden flex flex-col justify-end fade-top-soft px-3 py-2">
+      <div class="text-[13px] leading-5 text-[var(--text-secondary)] whitespace-pre-line">${esc(kind === "text" ? plain(t) : t)}</div>
+    </div>
+  </div>`;
+
+const lastLines = (s, n) => s.split("\n").filter(l => l.trim()).slice(-n).join("\n");
+
+const VARIANTS = [
+  ["A", "A: side line + fade (my pick)", "The activity row becomes a small header (kind icon, label, live dots, current tool). Below it, the last two real lines next to a thin side line, with no fill. The older line fades out and line breaks are kept. Card height unchanged."],
+  ["B", "B: small bubble", "A mini version of the main chat's reasoning box with the label inside. Closest to the main chat; about 16px taller."],
+  ["C", "C: one-line ticker", "One line: kind icon plus the sentence being written. It only fades on the left when the line overflows. Smallest card."],
+];
+const root = document.getElementById("root");
+for (const [id, title, desc] of VARIANTS) {
+  const n = document.getElementById("variant").content.cloneNode(true);
+  n.querySelector('[data-slot="title"]').textContent = title;
+  n.querySelector('[data-slot="desc"]').textContent = desc;
+  n.querySelector("section").dataset.v = id;
+  root.appendChild(n);
+}
+
+let kind = "thinking", src = THINK, i = 0, t0 = Date.now(), paused = false, finished = false;
+const MAX = 280;
+const elapsed = () => Math.round((Date.now() - t0) / 1000);
+function render() {
+  const full = src.slice(0, i);
+  const tail = full.slice(-MAX);
+  for (const sec of root.querySelectorAll("section[data-v]")) {
+    const v = sec.dataset.v;
+    sec.querySelector('[data-slot="elapsed"]').textContent = elapsed() + "s";
+    // Card keeps showing the last tail after the block ends (held, no caret).
+    sec.querySelector('[data-slot="preview"]').innerHTML = PREVIEW[v](tail, !finished);
+    sec.querySelector('[data-slot="inspector"]').innerHTML = finished ? "" : INSPECTOR(v, full, true);
+    sec.querySelector('[data-slot="finished"]').innerHTML = finished ? FINISHED(full) : "";
+    const tk = sec.querySelector(".ticker");
+    if (tk) tk.classList.toggle("fade-left", tk.firstElementChild.scrollWidth > tk.clientWidth);
+  }
+}
+setInterval(() => {
+  if (paused || finished) return;
+  if (i >= src.length) { finished = true; render(); setTimeout(() => { finished = false; i = 0; t0 = Date.now(); }, 2500); return; }
+  i += 3; render();
+}, 60);
+
+document.getElementById("theme").onclick = () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === "dark" ? "light" : "dark"; };
+document.getElementById("pause").onclick = (e) => { paused = !paused; e.target.textContent = paused ? "Play" : "Pause"; };
+document.getElementById("finish").onclick = () => { i = src.length; finished = true; render(); setTimeout(() => { finished = false; i = 0; t0 = Date.now(); }, 2500); };
+document.getElementById("kind").onclick = (e) => {
+  kind = kind === "thinking" ? "text" : "thinking"; src = kind === "thinking" ? THINK : TEXT; i = 0; t0 = Date.now(); finished = false;
+  e.target.textContent = "Kind: " + kind;
+  root.classList.toggle("k-think", kind === "thinking"); root.classList.toggle("k-text", kind === "text");
+  render();
+};
+render();
+</script>
+</body>
+</html>
