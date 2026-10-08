@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPathGateHandler, type GatePrompter, type PathGateDeps } from "../handler.js";
 import type { ResolveEnv } from "../resolve.js";
 import { Suppression } from "../suppression.js";
+import { createYoloLink } from "../yolo-link.js";
 
 const env: ResolveEnv = {
   path: nodePath.posix,
@@ -335,5 +336,178 @@ describe("path-gate handler", () => {
     samples.sort((a, b) => a - b);
     expect(samples[Math.floor(samples.length * 0.95)]).toBeLessThan(1);
     expect(grant).not.toHaveBeenCalled();
+  });
+});
+
+describe("path-gate × YOLO (change: yolo-covers-agent-path-gate)", () => {
+  type V = "auto-allow" | "refused" | "decline";
+  function yolo(opts: Parameters<typeof harness>[0] = {}, verdict: V | "throw" = "auto-allow", supported = true) {
+    const h = harness(opts);
+    const asks: unknown[] = [];
+    const reports: unknown[] = [];
+    h.deps.yoloSupported = () => supported;
+    h.deps.yoloDecide = async (r) => {
+      asks.push(r);
+      if (verdict === "throw") throw new Error("boom");
+      return verdict;
+    };
+    h.deps.reportRefusal = (r) => void reports.push(r);
+    return { ...h, asks, reports };
+  }
+
+  it("#E30 asks only when UI, unsuppressed, grantable, non-sensitive, supported and same store", async () => {
+    const run = async (o: { hasUI?: boolean; sup?: boolean; store?: boolean; path?: string }) => {
+      const h = yolo({ hasUI: o.hasUI, storeMatch: o.store, answers: ["Deny"] }, "decline", o.sup ?? true);
+      await h.call("write", o.path ?? "/w/other/a.txt");
+      return h.asks.length;
+    };
+    expect(await run({})).toBe(1);
+    expect(await run({ hasUI: false })).toBe(0);
+    expect(await run({ sup: false })).toBe(0);
+    expect(await run({ store: false })).toBe(0);
+    expect(await run({ path: "/h/.ssh/id" })).toBe(0); // sensitive
+    expect(await run({ path: "/h/x.txt" })).toBe(0); // ungrantable subject
+    const h = yolo({ answers: ["Deny", "Deny"] }, "decline");
+    await h.call("read", "/w/other/a.txt"); // denied → suppressed
+    await h.call("read", "/w/other/b.txt");
+    expect(h.asks).toHaveLength(1);
+  });
+
+  it("#E31 auto-allow proceeds without a prompt, logs and counts", async () => {
+    const h = yolo();
+    expect(await h.call("write", "/o/f.txt")).toBeUndefined();
+    expect(h.selects).toHaveLength(0);
+    expect(h.logs).toContain("[path-gate] yolo-allowed tool=write access=w path=/o/f.txt session=S1 sensitive=false");
+    expect(h.counters).toMatchObject({ yoloAllowed: 1 });
+  });
+
+  it("#E32 refused blocks with yolo-refused", async () => {
+    const h = yolo({}, "refused");
+    const r = await h.call("read", "/w/other/a.txt");
+    expect(r).toMatchObject({ block: true });
+    expect(r!.reason.startsWith("path-gate: yolo-refused")).toBe(true);
+    expect(h.selects).toHaveLength(0);
+    expect(h.logs.some((l) => l.startsWith("[path-gate] yolo-refused"))).toBe(true);
+    expect(h.counters.blocked).toBe(1);
+  });
+
+  it("#E33 decline falls through to the ordinary prompt", async () => {
+    const h = yolo({ answers: ["Allow once"] }, "decline");
+    await h.call("read", "/w/other/a.txt");
+    expect(h.selects).toHaveLength(1);
+    expect(h.selects[0].title).toMatch(/^Agent wants to read outside its workspace: /);
+  });
+
+  it("#E34/#E35 a select Deny or dismiss is reported with the select id and subject; nothing else is", async () => {
+    const cases: Array<[string | undefined, boolean, boolean]> = [
+      ["Deny", true, true],
+      [undefined, true, true],
+      ["Allow once", true, false],
+      ["bogus", true, false],
+      ["Deny", false, false], // store mismatch
+    ];
+    for (const [answer, store, reported] of cases) {
+      const h = yolo({ answers: [answer], storeMatch: store }, "decline");
+      await h.call("read", "/w/other/a.txt");
+      expect(h.reports.length).toBe(reported ? 1 : 0);
+      if (reported) {
+        expect(h.reports[0]).toEqual({ promptId: h.selects[0].id, path: "/w/other/a.txt", subject: h.selects[0].metadata.subject });
+        expect(h.selects[0].metadata.subject).toBe("/w/other");
+      }
+    }
+  });
+
+  it("#E36 disabled gate and in-root calls never ask", async () => {
+    const off = yolo({ cfg: { enabled: false, timeoutSeconds: 120 } });
+    await off.call("read", "/w/other/a.txt");
+    const inRoot = yolo();
+    await inRoot.call("read", "src/a.ts");
+    expect(off.asks).toHaveLength(0);
+    expect(inRoot.asks).toHaveLength(0);
+  });
+
+  it("#F1 an in-scope call is not queued behind an open out-of-scope prompt", async () => {
+    const h = yolo({ answers: ["hang"] }, "decline");
+    const first = h.call("read", "/w/other/a.txt");
+    await tick();
+    expect(h.selects).toHaveLength(1);
+    h.deps.yoloDecide = async () => "auto-allow";
+    expect(await h.call("write", "/w/other2/out.txt")).toBeUndefined();
+    h.cancelled.length = 0;
+    h.advance(120_000);
+    await first;
+  });
+
+  it("#X3 a throwing yoloDecide falls through to the prompt, not the fail-closed catch", async () => {
+    const h = yolo({ answers: ["Allow once"] }, "throw");
+    expect(await h.call("read", "/w/other/a.txt")).toBeUndefined();
+    expect(h.selects).toHaveLength(1);
+  });
+
+  it("#X7 a throwing reportRefusal still blocks as denied", async () => {
+    const h = yolo({ answers: ["Deny"] }, "decline");
+    h.deps.reportRefusal = () => {
+      throw new Error("send failed");
+    };
+    const r = await h.call("read", "/w/other/a.txt");
+    expect(r!.reason).toContain("denied");
+  });
+
+  it("#X1/#X2/#X6/#P2 the real link: 1500 ms budget, immediate decline when unsent or unsupported", async () => {
+    vi.useFakeTimers();
+    try {
+      const mk = (send: (m: unknown) => boolean, features?: string[]) => {
+        const h = harness({ answers: ["Allow once"] });
+        const link = createYoloLink({ send, sessionId: () => "S1", newId: () => "r1" });
+        if (features) link.handleIdentity({ features });
+        h.deps.yoloSupported = () => link.supported();
+        h.deps.yoloDecide = (r) => link.ask(r);
+        return h;
+      };
+      // never answered: prompt appears at 1500 ms, not before
+      const frames: unknown[] = [];
+      const slow = mk((m) => (frames.push(m), true), ["path-yolo"]);
+      const p = slow.call("read", "/w/other/a.txt");
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(slow.selects).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(slow.selects).toHaveLength(1);
+      expect(frames).toHaveLength(1);
+      // send returns false: zero wait
+      const unsent = mk(() => false, ["path-yolo"]);
+      const p2 = unsent.call("read", "/w/other/a.txt");
+      await vi.advanceTimersByTimeAsync(0);
+      await p2;
+      expect(unsent.selects).toHaveLength(1);
+      // no features: no frames, zero wait
+      const sent: unknown[] = [];
+      const old = mk((m) => (sent.push(m), true));
+      const p3 = old.call("read", "/w/other/a.txt");
+      await vi.advanceTimersByTimeAsync(0);
+      await p3;
+      expect(old.selects).toHaveLength(1);
+      expect(sent).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#P1 in-root reads add no send and stay fast", async () => {
+    const sent: unknown[] = [];
+    const h = harness();
+    const link = createYoloLink({ send: (m) => (sent.push(m), true), sessionId: () => "S1" });
+    link.handleIdentity({ features: ["path-yolo"] });
+    h.deps.yoloSupported = () => link.supported();
+    h.deps.yoloDecide = (r) => link.ask(r);
+    const times: number[] = [];
+    for (let i = 0; i < 2000; i++) {
+      const t0 = performance.now();
+      await h.call("read", "src/a.ts");
+      times.push(performance.now() - t0);
+    }
+    times.sort((a, b) => a - b);
+    expect(times[Math.floor(times.length * 0.95)]).toBeLessThan(1);
+    expect(sent).toHaveLength(0);
   });
 });

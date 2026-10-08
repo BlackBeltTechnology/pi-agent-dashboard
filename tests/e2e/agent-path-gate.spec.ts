@@ -193,3 +193,84 @@ test.describe("agent path gate (L3)", () => {
     await expectReadSucceeded(page, "/etc/hostname");
   });
 });
+
+// ---------------------------------------------------------------------------
+// YOLO covers the agent path gate (change: yolo-covers-agent-path-gate).
+// test-plan: #F2–#F5 of that change. The server owns YOLO; the bridge asks at its
+// would-prompt point, so these run against the real server + bridge + faux model.
+// ---------------------------------------------------------------------------
+
+type Health = { data?: { accessGrants?: { yolo?: { autoAllowed?: number } } }; accessGrants?: { yolo?: { autoAllowed?: number } } };
+
+async function autoAllowed(page: Page): Promise<number> {
+  const h = (await (await page.request.get("/api/health")).json()) as Health;
+  return (h.accessGrants ?? h.data?.accessGrants)?.yolo?.autoAllowed ?? 0;
+}
+const startYolo = (page: Page) =>
+  page.request.post("/api/access/yolo", { data: { durationMinutes: 15, base: "/tmp", unscoped: true } });
+const endYolo = (page: Page) => page.request.delete("/api/access/yolo").catch(() => undefined);
+async function clearAgentRefusals(page: Page) {
+  const view = (await (await page.request.get("/api/access/prompts")).json()) as {
+    data: { refusals: Array<{ plane: string; subject: string }> };
+  };
+  for (const r of view.data.refusals.filter((x) => x.plane === "agent-path")) {
+    await page.request.delete(`/api/access/refusals?plane=agent-path&subject=${encodeURIComponent(r.subject)}`);
+  }
+}
+
+test.describe("agent path gate × YOLO (L3)", () => {
+  test.beforeEach(async ({ page }) => {
+    await revokeFixtureGrants(page);
+    await clearAgentRefusals(page);
+  });
+  test.afterEach(async ({ page }) => {
+    await endYolo(page);
+    await clearAgentRefusals(page).catch(() => undefined);
+    await revokeFixtureGrants(page).catch(() => undefined);
+  });
+
+  test("#F2/#F3 unscoped YOLO auto-allows a grantable out-of-root read; ending it restores the card", async ({ page }) => {
+    const before = await autoAllowed(page);
+    expect((await startYolo(page)).ok()).toBe(true);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:tool-read-outside-grantable]] go");
+    await expectReadSucceeded(page, "/srv/fixtures-outside/a.txt");
+    await expect(page.getByText(GATE_TITLE)).toHaveCount(0);
+    expect(await autoAllowed(page)).toBeGreaterThanOrEqual(before + 1);
+    await page.goto("/settings/access");
+    await expect(page.getByTestId("access-verdict-row").first()).toContainText(/agent path gate/i, { timeout: 15_000 });
+
+    await endYolo(page);
+    const again = await spawnFreshGitSession(page);
+    await again.click();
+    await sendPrompt(page, "[[faux:tool-read-outside-grantable]] go");
+    await expect(page.getByText(GATE_TITLE).first()).toBeVisible({ timeout: 30_000 });
+    await deny(page).click();
+  });
+
+  test("#F4 a system path is never auto-allowed, even unscoped", async ({ page }) => {
+    expect((await startYolo(page)).ok()).toBe(true);
+    const before = await autoAllowed(page);
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:tool-read-outside]] go");
+    await expect(page.getByText(GATE_TITLE).first()).toBeVisible({ timeout: 30_000 });
+    expect(await autoAllowed(page)).toBe(before);
+    await deny(page).click();
+  });
+
+  test("#F5 a gate Deny is remembered, listed on the Access page, and clearable", async ({ page }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await sendPrompt(page, "[[faux:tool-read-outside-grantable]] go");
+    await expect(page.getByText(GATE_TITLE).first()).toBeVisible({ timeout: 30_000 });
+    await deny(page).click();
+    await page.goto("/settings/access");
+    const row = page.getByTestId("access-refusal-row").filter({ hasText: "/srv/fixtures-outside" });
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row).toContainText(/agent path gate/i);
+    await row.getByTestId("access-refusal-clear").click();
+    await expect(row).toHaveCount(0, { timeout: 15_000 });
+  });
+});

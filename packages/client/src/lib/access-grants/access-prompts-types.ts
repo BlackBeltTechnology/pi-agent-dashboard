@@ -7,6 +7,7 @@
 import type {
   AccessPlaneId,
   GrantPromptCopy,
+  YoloSurfaceId,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 /** Why no dialog would be raised right now (S4 banners). */
@@ -46,7 +47,7 @@ interface OperatorVerdictView {
 /** A YOLO auto-answer: no human answered. */
 interface YoloVerdictView {
   answeredBy: "yolo";
-  plane: AccessPlaneId;
+  plane: YoloSurfaceId;
   subject: string;
   outcome: "auto-allowed" | "refused-by-prior-refusal";
   at: number;
@@ -55,7 +56,7 @@ interface YoloVerdictView {
 export type VerdictView = OperatorVerdictView | YoloVerdictView;
 
 export interface RefusalView {
-  plane: AccessPlaneId;
+  plane: YoloSurfaceId;
   subject: string;
   refusedAt: number;
 }

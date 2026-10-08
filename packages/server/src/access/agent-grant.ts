@@ -51,7 +51,7 @@ export function handlePathGrantRequest(
   }
   if (msg.sessionId !== connectionSessionId) return refuse("session mismatch");
 
-  const consumed = deps.registry.consume(connectionSessionId, msg.promptId, { path: msg.path, subject: msg.subject }, isSameSubject);
+  const consumed = deps.registry.consume(connectionSessionId, msg.promptId, { path: msg.path, subject: msg.subject }, isSameSubject, "confirm");
   if (!consumed.ok) return refuse(consumed.error);
 
   // Re-derive the subject from the confirmed PATH now, by the gate's rule (the path

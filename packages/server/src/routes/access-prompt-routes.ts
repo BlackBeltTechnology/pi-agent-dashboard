@@ -21,6 +21,7 @@
  */
 import type {
   AccessPlaneId,
+  YoloSurfaceId,
   GrantPromptCopy,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { FastifyInstance } from "fastify";
@@ -84,7 +85,7 @@ export interface AccessPromptRouteDeps {
   yolo: Pick<YoloController, "status" | "history" | "activate" | "end" | "offerRoots">;
   prompting(): { enabled: boolean; killSwitch: boolean; hostGateMode: HostGateMode };
   listRefusals(): Refusal[];
-  clearRefusal(plane: AccessPlaneId, subject: string): boolean;
+  clearRefusal(plane: YoloSurfaceId, subject: string): boolean;
   now?(): number;
 }
 
@@ -250,11 +251,12 @@ export function registerAccessPromptRoutes(fastify: FastifyInstance, deps: Acces
     { preHandler: networkGuard },
     async (request, reply) => {
       const { plane, subject } = request.query;
-      if (!plane || !subject || !planes.get(plane as AccessPlaneId)) {
+      // `agent-path` is a YOLO surface, not a registered plane (change: yolo-covers-agent-path-gate).
+      if (!plane || !subject || (plane !== "agent-path" && !planes.get(plane as AccessPlaneId))) {
         reply.code(400);
         return { success: false, error: "plane and subject required" };
       }
-      if (!deps.clearRefusal(plane as AccessPlaneId, subject)) {
+      if (!deps.clearRefusal(plane as YoloSurfaceId, subject)) {
         reply.code(404);
         return { success: false, error: "no such refusal" };
       }
