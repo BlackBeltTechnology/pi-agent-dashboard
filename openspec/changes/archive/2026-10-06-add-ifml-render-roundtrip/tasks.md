@@ -16,11 +16,11 @@
 ## 3. Verify
 
 - [x] 3.1 tests green, biome clean
-- [x] 3.2 Plantifier: XMI renders in ifml-js with 0 warnings; catalog view browser-checked; round-trip on the Plantifier export is clean
+- [x] 3.2 Pilot app: XMI renders in ifml-js with 0 warnings; catalog view browser-checked; round-trip on the pilot-app export is clean
 
 ## Notes
 
 - First render attempt failed in `ifml-js`: trace `Annotation`s without DI ("unknown di <null> for element <ifml:Annotation …>") and the id-referenced `activationExpression` (read as a string → "unknown di <null> for element <undefined>"). Fix: trace moved into dot-separated ids, guard nested, DI generated.
-- Real editor round-trip (Plantifier, ifml-js 0.3.0 modeler in the browser, edits via `modeling.updateLabel` + `removeElements`, `saveXML`): the editor writes `uml:name`, element-valued `body`/`language`/`isModal` and numeric character references; before the dialect fix every name read as empty. After: diff = exactly the rename + the removed event + its flow; `--apply` on a package copy keeps 8 effects and cites, deletion only reported.
+- Real editor round-trip (Pilot app, ifml-js 0.3.0 modeler in the browser, edits via `modeling.updateLabel` + `removeElements`, `saveXML`): the editor writes `uml:name`, element-valued `body`/`language`/`isModal` and numeric character references; before the dialect fix every name read as empty. After: diff = exactly the rename + the removed event + its flow; `--apply` on a package copy keeps 8 effects and cites, deletion only reported.
 - Bugs found by the round-trip, each red-tested first: XML entities not decoded in attribute values (labels with quotes); a dialog without an opening action re-imported as a duplicate screen.
-- Plantifier: `ui/ifml.xmi` 64 KB with DI; `run-pilot.sh` step 9 export → `ifml-diff` = no differences; catalog IFML view rendered by ifml-js (UC-01+UC-09: 140 shapes, 32 connections, 12 highlighted; `DLG-task-set-done` scope: 114 dimmed; click on the OK action opens its screen with the action expanded).
+- Pilot app: `ui/ifml.xmi` 64 KB with DI; `run-pilot.sh` step 9 export → `ifml-diff` = no differences; catalog IFML view rendered by ifml-js (UC-01+UC-09: 140 shapes, 32 connections, 12 highlighted; `DLG-task-set-done` scope: 114 dimmed; click on the OK action opens its screen with the action expanded).

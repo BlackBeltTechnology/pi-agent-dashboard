@@ -16,7 +16,7 @@
 - [x] 4.1 prompts, references, SKILL.md (adapter profile + dialect contract), tests' fixture names; AGENTS rows
 
 ## 5. Pilot — gate steps
-- [x] 5.1 Plantifier profile in the pilot project (`parent: "angularjs"`), its own `node --test` (statics, never executes app code)
+- [x] 5.1 Pilot app profile in the pilot project (`parent: "angularjs"`), its own `node --test` (statics, never executes app code)
 - [x] 5.2 **gate** `generic-skills.test.ts` green; full suite + biome clean
 - [x] 5.3 **gate** pilot `PILOT OK` and the 177 baseline files byte-identical
 

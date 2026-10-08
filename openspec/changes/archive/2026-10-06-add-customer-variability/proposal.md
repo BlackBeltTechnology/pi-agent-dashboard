@@ -1,9 +1,9 @@
 ## Why
 
-Plantifier ships one code base to 7 customers (ac, audi, ctc, granit, ivanka, plb, protokon) through
+Pilot app ships one code base to 7 customers (A–G) through
 25 config variants layered by `parameters.js` `defaultsDeep`. A rebuild must decide which behaviour
 is core, which is a customer feature and which is dead everywhere (e.g. `normalization` absent in all
-variants, `calendar` off for PLB, `orders.add.unique` only for protokon/ivanka/audi). `_effective/`
+variants, `calendar` off for customer F, `orders.add.unique` only for customers G/E/B). `_effective/`
 already holds every variant's merged config, but 2,161 of 2,318 leaf paths differ — mostly data
 (db tables, shifts, strings), not features. Deterministic diff finds the paths; an LLM names
 features; a gate checks every feature against code and configs; evaluation per variant is deterministic.
@@ -22,7 +22,7 @@ features; a gate checks every feature against code and configs; evaluation per v
   `features: [{id: "F-…", name, kind: toggle|option|parameter, condition: {path, op: exists|eq|ne|truthy|in, value?},
   cites: ["file:line"], affects: {screens, actions, refs}}]`, `data: [{path, reason}]` (config that is
   data, not behaviour), written by `rsfr-variability-classifier` (`prompts/variability-classifier.md`).
-- Record `diagrams/variability/features.json` (one classifier run; Plantifier reads only 62 paths).
+- Record `diagrams/variability/features.json` (one classifier run; the pilot app reads only 62 paths).
 - **Gate `check-variability <pkg> <app> [--complete]`**:
   - condition path is a read path (or below one), every cite line contains the path's last segment;
   - `deadEverywhere` ⇔ the condition is false in every variant;
@@ -52,8 +52,8 @@ SKILL.md files, `agents/rsfr-variability-classifier.md`, tests. No dependency. D
 
 ## Open questions
 
-- Customer grouping and env classification come from the profile's `variants` hook (Plantifier
-  profile: file prefix `plb--…` = customer; `prez` = demo, `local`/`test` = env). Env variants are
+- Customer grouping and env classification come from the profile's `variants` hook (Pilot app
+  profile: file prefix `f--…` = customer; `prez` = demo, `local`/`test` = env). Env variants are
   shown but not counted as a customer's production behaviour. Confirm.
 
 ## Discipline Skills

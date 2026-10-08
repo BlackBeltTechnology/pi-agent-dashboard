@@ -714,7 +714,7 @@ describe("use-case catalog and site", () => {
   const archModel = (over: { elements?: unknown[]; relations?: unknown[] } = {}) => ({
     elements: [
       { id: "planner", kind: "person", name: "Planner", refs: ["UC-01"] },
-      { id: "app", kind: "system", name: "Plantifier" },
+      { id: "app", kind: "system", name: "Pilot app" },
       { id: "erp", kind: "system", name: "ERP", external: true },
       { id: "ui", kind: "container", name: "Desktop app", parent: "app", tech: "HTA + AngularJS", cites: ["js/order.js:1-9"] },
       { id: "db", kind: "container", name: "Database", parent: "app", tech: "MS SQL" },

@@ -1,7 +1,7 @@
 ## Why
 
 Use cases without UI links leave the CRUD matrix, IFML scoping, flow views and (next) usage and
-variability columns empty. Plantifier: only UC-01..04 and UC-09 name `screens`; UC-05..16 have
+variability columns empty. Pilot app: only UC-01..04 and UC-09 name `screens`; UC-05..16 have
 no screen or UI action, although the UI model (39 records, 287 actions) holds them. Linking by
 hand drifts; linking by text match over-matches. The UI actions and the use cases already share
 requirement refs (BR/QUIRK/GAP), which gives deterministic candidates; an LLM decides, a gate checks.

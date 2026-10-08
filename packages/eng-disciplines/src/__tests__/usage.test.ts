@@ -18,10 +18,10 @@ const catalogData = (html: string) => JSON.parse(html.match(/<script type="appli
 const T = (iso: string) => Date.parse(iso);
 
 const A_LOG = [
-  { user: "józsi.kovács", time: T("2024-01-03T08:00:00Z"), type: "save", object: { name: "Gyártás 17" } },
-  { user: "józsi.kovács", time: T("2024-01-03T09:00:00Z"), type: "moveProc", object: { name: "Gyártás 17" } },
-  { user: "anna.nagy", time: T("2024-02-10T10:00:00Z"), type: "save", object: { name: "Rendelés X" } },
-  { user: "anna.nagy", time: T("2024-02-10T10:05:00Z"), type: "error,fix,align", object: { name: "Rendelés X" } },
+  { user: "ödön.példa", time: T("2024-01-03T08:00:00Z"), type: "save", object: { name: "Gyártás 17" } },
+  { user: "ödön.példa", time: T("2024-01-03T09:00:00Z"), type: "moveProc", object: { name: "Gyártás 17" } },
+  { user: "éva.minta", time: T("2024-02-10T10:00:00Z"), type: "save", object: { name: "Rendelés X" } },
+  { user: "éva.minta", time: T("2024-02-10T10:05:00Z"), type: "error,fix,align", object: { name: "Rendelés X" } },
 ];
 const B_LOG = [{ user: "bob", time: T("2023-05-01T08:00:00Z"), type: "save", object: { name: "Secret order" } }];
 const SCREENS = [
@@ -84,7 +84,7 @@ describe("usage evidence", () => {
     expect(JSON.stringify(d)).not.toMatch(/a_db\.json|"A"|"B"/);
     expect(by.save.candidates).toContain("js/a.js:1");
     expect(by["error,fix,align"].candidates).toContain("js/a.js:3");
-    expect(JSON.stringify(d)).not.toContain("józsi");
+    expect(JSON.stringify(d)).not.toContain("ödön");
   });
 
   it("check-usage refuses ungrounded mappings; --complete needs every seen type", () => {
@@ -125,7 +125,7 @@ describe("usage evidence", () => {
     expect(md).toMatch(/## Logged but never seen[\s\S]*B: SCR-a#ACT-move/);
     expect(md).toMatch(/user~1/);
     const all = readdirSync(out).map((f) => readFileSync(join(out, f), "utf8")).join("\n");
-    for (const secret of ["józsi", "anna.nagy", "bob", "Gyártás", "Secret order"]) expect(all).not.toContain(secret);
+    for (const secret of ["ödön", "éva.minta", "bob", "Gyártás", "Secret order"]) expect(all).not.toContain(secret);
   });
 
   it("check-usage-output fails on a leaked source value without printing it", () => {
@@ -142,14 +142,14 @@ describe("usage evidence", () => {
   it("privacy gate ignores event types, short numbers, sub-word hits and reviewed public values", async () => {
     const { leakErrors, sourceSecrets } = await import(join(PKG, ".pi", "skills", "rebuild-package-diagrams", "scripts", "usage.mjs"));
     const ev = [
-      { type: "save", user: "józsi", object: { phase: "pack", qty: "100", id: "611478", kind: "save", step: "process" } },
+      { type: "save", user: "ödön", object: { phase: "pack", qty: "100", id: "611478", kind: "save", step: "process" } },
     ];
     const sec = sourceSecrets(ev, { publicValues: ["process"] });
-    expect([...sec].sort()).toEqual(["611478", "józsi", "pack"]);
+    expect([...sec].sort()).toEqual(["611478", "ödön", "pack"].sort());
     const d = mkdtempSync(join(tmpdir(), "leak-"));
     writeFileSync(join(d, "ok.md"), "save 100 times; package; process:insert\n");
     expect(leakErrors(d, sec)).toEqual([]);
-    writeFileSync(join(d, "bad.md"), "order 611478 by józsi in pack\n");
+    writeFileSync(join(d, "bad.md"), "order 611478 by ödön in pack\n");
     expect(leakErrors(d, sec)).toEqual(["bad.md: contains a source value (3 distinct)"]);
     rmSync(d, { recursive: true, force: true });
   });
@@ -199,11 +199,11 @@ describe("usage evidence", () => {
     const draft = run("usage-draft", pkg, app, leakJob, join(dir, "leak-draft.json"));
     expect(draft.code).toBe(1);
     expect(draft.stderr).toMatch(/2 event types contain a user\/object value/);
-    expect(draft.stderr).not.toMatch(/józsi|anna/);
+    expect(draft.stderr).not.toMatch(/ödön|éva/);
     mapping(MAPPING());
     const chk = run("check-usage", pkg, app, leakJob, "--complete");
     expect(chk.code).toBe(1);
-    expect(chk.stderr).not.toMatch(/józsi|anna/);
+    expect(chk.stderr).not.toMatch(/ödön|éva/);
     // too many distinct types for a vocabulary
     put(dir, "src/many-job.json", { maxTypes: 2, sources: [{ customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "log", columns: { type: "type" }, kind: "event" }] });
     const many = run("usage-draft", pkg, app, join(dir, "src", "many-job.json"), join(dir, "many.json"));
@@ -212,11 +212,11 @@ describe("usage evidence", () => {
   });
 
   it("check-usage refuses a shared mapping that names a source value, without printing it", () => {
-    mapping({ ...MAPPING(), unmapped: [...MAPPING().unmapped, { type: "józsi.kovács", reason: "x" }] });
+    mapping({ ...MAPPING(), unmapped: [...MAPPING().unmapped, { type: "ödön.példa", reason: "x" }] });
     const r = run("check-usage", pkg, app, job);
     expect(r.code).toBe(1);
     expect(r.stderr).toMatch(/mapping: 1 type contains a source value/);
-    expect(r.stderr).not.toContain("józsi");
+    expect(r.stderr).not.toContain("ödön");
     mapping(MAPPING());
   });
 

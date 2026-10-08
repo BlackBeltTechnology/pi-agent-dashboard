@@ -2,6 +2,7 @@
  * Generality gate: the rebuild skills carry no knowledge of a particular analysed application.
  * App knowledge lives in a project-owned adapter profile (`parent: "<built-in>"`), never here.
  */
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,10 +22,28 @@ const files = SKILLS.flatMap(walk).concat(walk(join(PKG, "agents")));
 const rel = (p: string) => relative(PKG, p);
 const isAdapter = (p: string) => /[\\/]adapters[\\/]/.test(p);
 
-/** Pilot application / customer names and application conventions that must stay in a profile. */
-const APP_NAMES = /\b(plantifier|deltadot|delta-dot|kaizen ?pro|plb|protokon|ivanka|granit)\b|windows-1250|\bcp1250\b/i;
+/**
+ * Pilot application / customer names, kept as truncated SHA-256 of the lower-cased word with
+ * non-alphanumerics removed (this repo is public; the names are not). A line matches when any word,
+ * or any two adjacent words joined, hashes into the set (so "foo-bar" and "foo bar" match "foobar").
+ */
+const NAME_HASHES = new Set([
+  "d4e9888d1d0b48f1",
+  "71941f8062e16e7f",
+  "b056df5af91bf32d",
+  "67aec554788a90f0",
+  "50e4e766822b4c51",
+  "1320eae11fd9a982",
+  "b114cb8d493431b0",
+]);
+const sha = (w: string) => createHash("sha256").update(w).digest("hex").slice(0, 16);
+export function namesIn(line: string, hashes: Set<string> = NAME_HASHES): boolean {
+  const words = line.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.some((w, i) => hashes.has(sha(w)) || (i > 0 && hashes.has(sha(words[i - 1] + w))));
+}
+const APP_ENCODINGS = /windows-1250|\bcp1250\b/i;
 const APP_CONVENTIONS = /\bCONF\.|\bOpBar\b|\bopbar\b|_STR_|\bangModal\b|\bmodalw\b/;
-const APP_TOKENS = { test: (l: string) => APP_NAMES.test(l) || APP_CONVENTIONS.test(l) } as RegExp;
+const APP_TOKENS = { test: (l: string) => namesIn(l) || APP_ENCODINGS.test(l) || APP_CONVENTIONS.test(l) } as RegExp;
 
 function hits(re: RegExp, pick: (p: string) => boolean): string[] {
   return files.filter(pick).flatMap((p) =>
@@ -35,6 +54,14 @@ function hits(re: RegExp, pick: (p: string) => boolean): string[] {
 }
 
 describe("rebuild skills are application-neutral", () => {
+  it("hashed name check matches single and joined words, case- and punctuation-insensitively", () => {
+    const h = new Set([sha("acmecorp"), sha("foobar")]);
+    expect(namesIn("built for AcmeCorp today", h)).toBe(true);
+    expect(namesIn("the Foo-Bar project", h)).toBe(true);
+    expect(namesIn("foo bar", h)).toBe(true);
+    expect(namesIn("acme corporation", h)).toBe(false);
+  });
+
   it("no pilot app / customer names or app conventions outside adapters", () => {
     expect(hits(APP_TOKENS, (p) => !isAdapter(p))).toEqual([]);
   });

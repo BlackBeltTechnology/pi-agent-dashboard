@@ -16,12 +16,12 @@
 - [x] 3.1 `prompts/usage-mapper.md` (+ agent def, routing row, wiring test)
 - [x] 3.2 SKILL.md (both), `references/usage.md`, AGENTS.md rows
 
-## 4. Pilot (Plantifier) — gate steps
-- [x] 4.1 job `ui-extract/jobs/plantifier-usage.json` (Delta-Dot): 7 customers → `*_db.json` (2.10.6), `log` {type,user,time,object} typeSplit ",", `lllogs` {table+modType as type, time}, `encoding: windows-1250`
+## 4. Pilot (pilot app) — gate steps
+- [x] 4.1 job `ui-extract/jobs/pilot-usage.json` (pilot project): 7 customers → `*_db.json` (2.10.6), `log` {type,user,time,object} typeSplit ",", `lllogs` {table+modType as type, time}, `encoding: windows-1250`
 - [x] 4.2 mapper subagent over the ~40 distinct types; **gate** `check-usage --complete --app` exit 0
 - [x] 4.3 **gate** `check-usage-output` clean; **gate** shared `catalog.html` contains no count/user (grep); **gate** `generic-skills.test.ts` green
 - [x] 4.4 **gate** `run-pilot.sh` → `PILOT OK`; `_local/` still git-excluded
-- [x] 4.5 Browser (local catalog): Usage view, PLB heat matrix; no page errors
+- [x] 4.5 Browser (local catalog): Usage view, customer F heat matrix; no page errors
 
 ## Notes
 
@@ -29,4 +29,4 @@
 - Type token = last word of a type (`error,fix,align` → `align`): what the cite line must spell; a type built from several columns is joined with `:`.
 - Privacy gate refined during the pilot (test first): event types, numbers under 4 digits and the job's reviewed `publicValues` are not secrets; matching is on whole tokens. The first pilot run was stopped by the gate on schema vocabulary (`process`, `changeover`, phase names) — the gate never prints the value.
 - A type mapped to several actions credits each (e.g. `save` → 4 save triggers); use-case counts are not double-counted per type.
-- Plantifier: job `ui-extract/jobs/plantifier-usage.json` (7 customers × `log` + `lllogs`, 2.10.6 snapshots); 54 types, 33 mapped (user 14, auto 15, repair 4), 21 unmapped (20 generic table-change types + `Settings_set`, no active writer in 2.11.1). `check-usage --complete` PASS, `check-usage-output` clean, `PILOT OK`; shared catalog holds mapping only; local catalog Usage view checked in the browser, no page errors.
+- Pilot app: job `ui-extract/jobs/pilot-usage.json` (7 customers × `log` + `lllogs`, 2.10.6 snapshots); 54 types, 33 mapped (user 14, auto 15, repair 4), 21 unmapped (20 generic table-change types + `Settings_set`, no active writer in 2.11.1). `check-usage --complete` PASS, `check-usage-output` clean, `PILOT OK`; shared catalog holds mapping only; local catalog Usage view checked in the browser, no page errors.

@@ -14,9 +14,9 @@
 ## 3. Verify
 
 - [x] 3.1 eng-disciplines tests green; biome --error-on-warnings clean
-- [x] 3.2 Plantifier catalog rebuilt with UI model; browser check of links
+- [x] 3.2 Pilot app catalog rebuilt with UI model; browser check of links
 
 ## Notes
 
-- 2026-10-05 Plantifier v2.11.1: `ui/screens/SCR-order.json`, `DLG-task-set-done.json`, `ui/forms/FRM-order-line--plb.json` (from the Delta-Dot `ui-extract` pilot); `use-cases.json` UC-01..04 → `SCR-order`, UC-09 → `DLG-task-set-done`, UC-01/UC-09 `altFlows` "from code". Catalog 5.8 MB; browser-checked: merged UC-01+UC-09 (Screens and forms section, 4 flow tabs incl. "from code", 30 shapes rendered), screen page (4 use cases, actions, 12 dialogs), form page (11 fields, flagged condition), BR-244 → UI actions (guard / ref / effect), requirement → UI action.
+- 2026-10-05 the pilot app: `ui/screens/SCR-order.json`, `DLG-task-set-done.json`, `ui/forms/FRM-order-line--f.json` (from the pilot project's `ui-extract` pilot); `use-cases.json` UC-01..04 → `SCR-order`, UC-09 → `DLG-task-set-done`, UC-01/UC-09 `altFlows` "from code". Catalog 5.8 MB; browser-checked: merged UC-01+UC-09 (Screens and forms section, 4 flow tabs incl. "from code", 30 shapes rendered), screen page (4 use cases, actions, 12 dialogs), form page (11 fields, flagged condition), BR-244 → UI actions (guard / ref / effect), requirement → UI action.
 - `build-site` now also runs `checkUseCases`, so a package failing `check-use-cases` no longer builds (the documented procedure already required it).

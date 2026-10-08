@@ -4,7 +4,7 @@ A rebuild team needs to see, per entity, who creates, reads, updates and deletes
 point at dead data or data written outside the UI (ERP import), a create without a delete or a
 write without a read point at gaps; the matrix also scopes migration and test data. The UI model
 holds the evidence (`write`/`read`/`export`/`call` effects with cites) but only as prose targets, which a
-text matcher maps ambiguously (Plantifier: 49 of 54 writes match, 20 of them more than two entities).
+text matcher maps ambiguously (Pilot app: 49 of 54 writes match, 20 of them more than two entities).
 
 ## What Changes
 

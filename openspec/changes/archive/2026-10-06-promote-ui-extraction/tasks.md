@@ -9,10 +9,10 @@
 - [x] 2.4 SKILL.md phases (both skills), references/ui-extraction.md, AGENTS.md rows
 
 ## 3. Pilot
-- [x] 3.1 Delta-Dot run-pilot.sh uses the skill copies + render.sh; local copies deleted; outputs byte-identical
+- [x] 3.1 Pilot project run-pilot.sh uses the skill copies + render.sh; local copies deleted; outputs byte-identical
 
 ## Notes
 
-- Pilot proof: Delta-Dot `run-pilot.sh` switched to the skill copies + `render.sh`, local programs deleted; all 49 outputs byte-identical to before the move except bpmn-package-explorer `diagnostics.json` `generatedAt` and the catalog `meta.built` date (UTC day rolled over; with the date normalized the catalog hash matches).
-- Genericized while moving: adapter by name or path (`loadAdapter`), toolbar convention as adapter hook `toolbar {ref, assign}` (was hard-coded `OpBar`), optional `strings`/`planAssets`, no Plantifier default effective-config file.
+- Pilot proof: pilot project `run-pilot.sh` switched to the skill copies + `render.sh`, local programs deleted; all 49 outputs byte-identical to before the move except bpmn-package-explorer `diagnostics.json` `generatedAt` and the catalog `meta.built` date (UTC day rolled over; with the date normalized the catalog hash matches).
+- Genericized while moving: adapter by name or path (`loadAdapter`), toolbar convention as adapter hook `toolbar {ref, assign}` (was hard-coded `OpBar`), optional `strings`/`planAssets`, no the pilot app default effective-config file.
 - Biome `--error-on-warnings` clean: 8 over-complex pilot functions split into helpers (behaviour unchanged, proven by the byte-identical outputs).

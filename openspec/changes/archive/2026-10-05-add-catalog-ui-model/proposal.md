@@ -1,6 +1,6 @@
 ## Why
 
-A rebuild package now can carry a UI model (`ui/screens/*.json` screen/dialog records with actions, effects, guards, dialogs, navigation; `ui/forms/*.json` form records with fields, labels, validations, per-layer cites), produced by the frontend-extraction pilot on Plantifier. The browsable catalog does not show it, so reviewers cannot see which screens, forms and buttons a use case goes through, which UI actions a rule guards or validates, or compare a prose-authored flow with the flow derived from code.
+A rebuild package now can carry a UI model (`ui/screens/*.json` screen/dialog records with actions, effects, guards, dialogs, navigation; `ui/forms/*.json` form records with fields, labels, validations, per-layer cites), produced by the frontend-extraction pilot on the pilot app. The browsable catalog does not show it, so reviewers cannot see which screens, forms and buttons a use case goes through, which UI actions a rule guards or validates, or compare a prose-authored flow with the flow derived from code.
 
 ## What Changes
 

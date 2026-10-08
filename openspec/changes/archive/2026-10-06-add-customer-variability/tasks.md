@@ -17,18 +17,18 @@
 - [x] 3.1 `prompts/variability-classifier.md` (+ agent def, routing row, wiring test): per top-level key batch, name features from code reads, mark data paths, loop on gate
 - [x] 3.2 SKILL.md (both), `references/variability.md`, AGENTS.md rows
 
-## 4. Pilot (Plantifier) — gate steps
-- [x] 4.0 Plantifier profile (Delta-Dot): `configReads` `\bCONF((?:\.\w+)+)`, `variantInfo` (dir = customer; prez = demo, local/test/mobile… = env) + profile test
+## 4. Pilot (pilot app) — gate steps
+- [x] 4.0 Pilot app profile (pilot project): `configReads` `\bCONF((?:\.\w+)+)`, `variantInfo` (dir = customer; prez = demo, local/test/mobile… = env) + profile test
 - [x] 4.1 draft; batches by top-level key (planner, orders, views, phases, layout, calendar, …; db/shifts/strings mostly data)
-- [x] 4.2 **gate** `check-variability <pkg> plantifier-v2.11.1 --complete` exit 0; **gate** `generic-skills.test.ts` still green (no app names in the skill)
-- [x] 4.3 **gate** known facts reproduce: `normalization` dead everywhere; calendar off for plb; `orders.add.unique` only protokon/ivanka/audi (from the UI-model findings)
+- [x] 4.2 **gate** `check-variability <pkg> <pilot-app> --complete` exit 0; **gate** `generic-skills.test.ts` still green (no app names in the skill)
+- [x] 4.3 **gate** known facts reproduce: `normalization` dead everywhere; calendar off for customer F; `orders.add.unique` only customers G/E/B (from the UI-model findings)
 - [x] 4.4 **gate** `run-pilot.sh` → `PILOT OK`, two runs byte-identical for `variability-matrix/`
-- [x] 4.5 Browser: Variability view, customer selector greys DLG-uorder for plb; no page errors
+- [x] 4.5 Browser: Variability view, customer selector greys DLG-uorder for customer F; no page errors
 
 ## Notes
 
 - Extraction split from assembly: `config-reads.mjs` (reverse-spec, needs the adapter) writes `ui/_config-reads.json`; diagrams side needs no adapter. `variants` hook became `variantInfo(variantPath)`.
 - Gate cite lines read UTF-16 (BOM) sources (found in the pilot: a read site in a UTF-16 file; test first).
 - Customer selector greying screens/IFML/CRUD reduced to: customer pages listing unreachable UI and a per-screen feature table with "unreachable for" — same information, less UI state.
-- Plantifier: profile `configReads` covers `CONF.a.b` and `_.get(CONF, "a.b")` (the second form found mid-pilot: ERP button config) → 169 read paths, 25 variants (7 customers; audi/ivanka/protokon demo-only). 46 features (3 dead everywhere, 11 single-customer, 10 constant), 45 data paths; `check-variability --complete` PASS; `PILOT OK`; browser: Variability view (customer/variant), plb page (17 unreachable UI), DLG-uorder section; no page errors.
-- Corrections found: `planner.normalization` is true in the ctc demo config (BR-311 says the only declaration is false); PLB has `cal_resources` only in non-production variants (calendar off in PLB production still holds); ERP export/import buttons are Granit-only.
+- Pilot app: profile `configReads` covers `CONF.a.b` and `_.get(CONF, "a.b")` (the second form found mid-pilot: ERP button config) → 169 read paths, 25 variants (7 customers; customers B/E/G demo-only). 46 features (3 dead everywhere, 11 single-customer, 10 constant), 45 data paths; `check-variability --complete` PASS; `PILOT OK`; browser: Variability view (customer/variant), customer F page (17 unreachable UI), DLG-uorder section; no page errors.
+- Corrections found: `planner.normalization` is true in the customer C demo config (BR-311 says the only declaration is false); customer F has `cal_resources` only in non-production variants (calendar off in customer F production still holds); ERP export/import buttons are customer-D-only.

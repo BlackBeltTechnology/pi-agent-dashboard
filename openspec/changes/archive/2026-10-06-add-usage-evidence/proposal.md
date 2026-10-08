@@ -1,11 +1,11 @@
 ## Why
 
 Specs say what the code can do, not what customers do. Many legacy apps keep their own audit or
-change logs; a snapshot of them shows real use. Pilot evidence (Plantifier demo snapshots, audit
+change logs; a snapshot of them shows real use. Pilot evidence (Pilot app demo snapshots, audit
 logs `log` and `lllogs`): `log` (user, time, type, object, before/after) and `lllogs` (table-level change log).
-PLB: 13,687 log rows over 2017-10..2018-12 by 4 users (moveProcToTime 6,055, error/fix/align 1,778,
-moveProcAfter 1,377, save 1,229, report 615, addOrderLine 351, …) and 254 lllogs rows; granit 351,
-audi 92, protokon 91, ac 50 (+637 lllogs), ivanka 17, ctc 53 lllogs. Usage ranks use cases for the
+Customer F: 13,687 log rows over 2017-10..2018-12 by 4 users (moveProcToTime 6,055, error/fix/align 1,778,
+moveProcAfter 1,377, save 1,229, report 615, addOrderLine 351, …) and 254 lllogs rows; customer D 351,
+Customer B 92, customer G 91, customer A 50 (+637 lllogs), customer E 17, customer C 53 lllogs. Usage ranks use cases for the
 rebuild scope (what is used daily vs never) and exposes hidden automation (the error/fix family
 is the app repairing its own plan). Snapshots are cp1250 or UTF-16 LE JSON.
 
@@ -48,9 +48,9 @@ SKILL.md files, `agents/rsfr-usage-mapper.md`, tests. No dependency. Snapshots a
 
 ## Open questions
 
-- Are the shipped `*_db.json` snapshots real customer data or demo seeds? PLB (14 months, real
+- Are the shipped `*_db.json` snapshots real customer data or demo seeds? Customer F (14 months, real
   usernames) looks real; the others span days and may be test data — the report flags span and size
-  per customer, and DeltaDot should confirm.
+  per customer, and the client should confirm.
 - Shared catalog could carry ranked aggregates (no names, no counts) — default: no, until approved.
 
 ## Discipline Skills

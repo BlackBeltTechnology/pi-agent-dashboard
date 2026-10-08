@@ -1,6 +1,6 @@
 ## Why
 
-The browsable catalog of `rebuild-package-diagrams` shows rules, quirks and gaps, but not the open questions a rebuild raises toward the client (on Plantifier: 140 claim-level questions from the doc↔package comparison plus 17 key questions). Reviewers have to cross-read a separate Markdown file and cannot see which use case, requirement or rule a question affects. Several catalog parts are also only linked one way (a rule does not show its capabilities' pages or the flow steps that use it).
+The browsable catalog of `rebuild-package-diagrams` shows rules, quirks and gaps, but not the open questions a rebuild raises toward the client (on the pilot app: 140 claim-level questions from the doc↔package comparison plus 17 key questions). Reviewers have to cross-read a separate Markdown file and cannot see which use case, requirement or rule a question affects. Several catalog parts are also only linked one way (a rule does not show its capabilities' pages or the flow steps that use it).
 
 ## What Changes
 

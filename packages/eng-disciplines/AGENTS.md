@@ -99,7 +99,7 @@ Cross-cutting engineering-discipline skills for pi sessions. NL-triggered, ortho
 | `agents/rsfr-completeness.md` | Curated subagent def: `model: "@fast"` for reverse-spec completeness. |
 | `agents/rsfr-crud-classifier.md` | Curated subagent def: `model: "@fast"` for the reverse-spec CRUD classifier. See change: add-crud-matrix. |
 | `agents/rsfr-discovery.md` | Curated subagent def: `model: "@compact"` for reverse-spec discovery. |
-| `agents/rsfr-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec generator. Added after BASA run inherited parent Opus when `model` omitted. |
+| `agents/rsfr-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec generator. Added after an earlier pilot run inherited parent Opus when `model` omitted. |
 | `agents/rsfr-sequence-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec optional sequence generator. |
 | `agents/rsfr-state-machine-generator.md` | Curated subagent def: `model: "@fast"` for reverse-spec optional state-machine generator. |
 | `agents/rsfr-uc-linker.md` | Curated subagent def: `model: "@fast"` for the reverse-spec use-case linker. See change: add-use-case-ui-links. |

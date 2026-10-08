@@ -1,13 +1,13 @@
 ## Why
 
 `reverse-spec-for-rebuild` and `rebuild-package-diagrams` must work on any legacy app, but the
-UI-extraction layer grew out of the Plantifier pilot and still carries it: the built-in adapter
-`angularjs-hta` is a Plantifier profile (`html/ang.htm` views array, `conf/<cust>` layering,
+UI-extraction layer grew out of the pilot and still carries it: the built-in adapter
+`angularjs-hta` is a pilot-app profile (`html/ang.htm` views array, `conf/<cust>` layering,
 `js/admin.js` DEFAULT, `orders.add` form views, `OpBar` toolbar, `_STR_` strings, font-awesome 4.5),
 `screen-plan.mjs` hard-codes AngularJS (`ng-*`, `{{ }}`, `str()`, lodash case wrappers, `label.hu`,
 `modalw` dialog classes, `lang="hu"`), `lib.mjs` defaults to windows-1250, `objects-from-db` tries
 only UTF-8/windows-1250, `crud.mjs` aliases `CONF.db.tables.<key>`, and prompts/references/tests use
-Plantifier examples. App knowledge belongs in a project-owned profile, not in the skill.
+Pilot app examples. App knowledge belongs in a project-owned profile, not in the skill.
 
 ## What Changes
 
@@ -25,8 +25,8 @@ Plantifier examples. App knowledge belongs in a project-owned profile, not in th
   `shell` optional, `shell.toolbarId` replaces the fixed `#header`.
 - **Built-in `angularjs` adapter** (generic AngularJS 1.x): `$routeProvider.when` / ui-router
   `.state` routes, ng-* inventory patterns, `templateUrl` loads, native dialogs, AngularJS dialect,
-  `{{ 'k' | translate }}` labels via `strings` when provided. `angularjs-hta` is removed; Plantifier
-  becomes a project profile (in the Delta-Dot project, `parent: "angularjs"`).
+  `{{ 'k' | translate }}` labels via `strings` when provided. `angularjs-hta` is removed; the pilot app
+  becomes a project profile (in the pilot project, `parent: "angularjs"`).
 - **Encoding is a parameter**: `adapter.encoding` (legacy code page, default `windows-1252`
   fallback only after UTF-16 BOM / valid UTF-8); `objects-from-db` job `encoding` (+ BOM detection).
 - **CRUD aliases**: generic — `table X`, `collection X`, and the last segment of dotted identifiers
@@ -42,7 +42,7 @@ Plantifier examples. App knowledge belongs in a project-owned profile, not in th
 
 ## Impact
 
-Breaking for callers of adapter name `angularjs-hta` (only the Plantifier pilot): pass the profile
+Breaking for callers of adapter name `angularjs-hta` (only the pilot): pass the profile
 path instead. Pilot output must stay byte-identical (177 files under `ui/`, `diagrams/crud-matrix`,
 `behaviour`, `objects`). Rollback: revert the commit; the pilot keeps the copied profile.
 

@@ -1,6 +1,6 @@
 ## Why
 
-The frontend half of reverse engineering (UI inventory, effective config, form records, gated screen records, flows from code, style kit, screen plans) was proven on the Plantifier pilot, but its programs live only in that project's folder. The rebuild-package render (catalog with every viewer, IFML, architecture) is run there by a project script too. Other rebuilds cannot reuse either.
+The frontend half of reverse engineering (UI inventory, effective config, form records, gated screen records, flows from code, style kit, screen plans) was proven on the pilot, but its programs live only in that project's folder. The rebuild-package render (catalog with every viewer, IFML, architecture) is run there by a project script too. Other rebuilds cannot reuse either.
 
 ## What Changes
 
@@ -21,7 +21,7 @@ The frontend half of reverse engineering (UI inventory, effective config, form r
 ## Impact
 
 - New files under both skills; `NOTICE` gains ifml-js; `src/__tests__/ui-extract.test.ts`, `diagrams.test.ts`.
-- The Delta-Dot pilot switches to the skill copies and deletes its own (outputs byte-identical). No dependency added. Rollback = revert.
+- The pilot project pilot switches to the skill copies and deletes its own (outputs byte-identical). No dependency added. Rollback = revert.
 
 ## Discipline Skills
 

@@ -1,6 +1,6 @@
 ## Why
 
-Generated diagrams of a real legacy package outgrow what a reader can follow: the Plantifier IFML
+Generated diagrams of a real legacy package outgrow what a reader can follow: the pilot-app IFML
 of all 39 screens has ~760 elements, one plan-grid screen 47 actions, the `Process.locked` state
 machine 79 transitions between 3 states, a set-done sequence 45 messages. Drawn whole they are
 unreadable; the reader needs an overview and parts small enough to understand.

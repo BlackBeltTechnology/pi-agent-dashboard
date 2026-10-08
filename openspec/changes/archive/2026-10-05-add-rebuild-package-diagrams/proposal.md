@@ -1,7 +1,7 @@
 ## Why
 
 `reverse-spec-for-rebuild` produces a text-only rebuild package (`model.md`, `rules.md`,
-`capabilities/*/spec.md`). On a real run (Plantifier v2.11.1: 109 entities, 18 capabilities,
+`capabilities/*/spec.md`). On a real run (the pilot app: 109 entities, 18 capabilities,
 837 rules) the reader has no visual entry point: relationships hide in free-text
 `Relationships:` lines and use cases hide in WHEN/THEN scenarios. Stakeholders asked for an
 ER diagram of the entities and for the use cases drawn as business (BPMN) processes.
