@@ -405,6 +405,21 @@ export function resolvePackages(
   return packages;
 }
 
+// ── Operator skill listing ──────────────────────────────────────────
+
+/**
+ * Global skills only: `<globalDir>/skills` plus skills of packages listed in
+ * the global `settings.json`. Never project-local. Feeds `host.listOperatorSkills`
+ * (admin picker for the team skill catalog). See change: add-team-skill-access.
+ */
+export function listGlobalSkills(globalDir: string): PiResource[] {
+  const skills = [...scanGlobalResources(globalDir).skills];
+  const settingsPath = path.join(globalDir, "settings.json");
+  const pkgs = resolvePackages(readSettingsPackages(settingsPath), path.dirname(settingsPath), "global");
+  for (const pkg of pkgs) skills.push(...pkg.resources.skills);
+  return skills;
+}
+
 // ── Main Entry Point ────────────────────────────────────────────────
 
 export interface ScanOptions {

@@ -113,3 +113,17 @@ export function condenseForFirstMessage(text: string, maxLen: number): string {
   if (block) return block.condensed.slice(0, maxLen);
   return text.slice(0, maxLen);
 }
+
+/**
+ * Parse a `/skill:<name> [args]` command. One parser for the composer, the
+ * bridge and the team guard so an input cannot pass one layer and fail another.
+ * Case-sensitive, no leading whitespace; name ends at the first whitespace
+ * (space, tab or newline). Empty name → null. See change: add-team-skill-access.
+ */
+export function parseSkillCommand(text: string): { name: string; args: string } | null {
+  if (!text.startsWith("/skill:")) return null;
+  const rest = text.slice("/skill:".length);
+  const m = /^(\S*)([\s\S]*)$/.exec(rest);
+  if (!m || !m[1]) return null;
+  return { name: m[1], args: m[2].trim() };
+}

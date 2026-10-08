@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSkillBlock, buildSkillBlock } from "../skill-block-parser.js";
+import { parseSkillBlock, buildSkillBlock, parseSkillCommand } from "../skill-block-parser.js";
 
 describe("parseSkillBlock", () => {
   it("matches a well-formed wrapper with args", () => {
@@ -149,5 +149,20 @@ describe("buildSkillBlock + parseSkillBlock round-trip", () => {
     const parsed = parseSkillBlock(built);
     expect(parsed!.args).toBeUndefined();
     expect(parsed!.condensed).toBe("/skill:noargs");
+  });
+});
+
+describe("parseSkillCommand", () => {
+  it.each([
+    ["/skill:a", { name: "a", args: "" }],
+    ["/skill:a b", { name: "a", args: "b" }],
+    ["/skill:a\nb", { name: "a", args: "b" }],
+    ["/skill:a\tb", { name: "a", args: "b" }],
+    ["/skill:", null],
+    ["/skill: a", null],
+    [" /skill:a", null],
+    ["/Skill:a", null],
+  ])("parses %j", (text, expected) => {
+    expect(parseSkillCommand(text)).toEqual(expected);
   });
 });
