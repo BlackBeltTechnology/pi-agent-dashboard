@@ -1358,6 +1358,51 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "sustained subagent complete" },
   },
 
+  // Inner scenario for `subagent-reasoning`: thinking blocks interleaved with
+  // sleeping tool calls so the running card alternates thinking → tool → idle
+  // for ~6 s. Drives the stable-card-height L3 row (test-plan #F2).
+  // See change: stream-subagent-reasoning-and-stable-card.
+  "subagent-reasoning-inner": {
+    script: [
+      fauxAssistantMessage(
+        [fauxThinking("weighing the first probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-one" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the second probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-two" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [fauxThinking("weighing the third probe ".repeat(20)), fauxToolCall("bash", { command: "sleep 3 && echo r-three" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning inner complete")]),
+    ],
+    expect: { text: "reasoning inner complete" },
+  },
+
+  "subagent-reasoning": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux reasoning subagent",
+            // Literal faux model: Explore.md's `@fast` does not resolve to faux in
+            // the harness, so the child would fall back to a credential-less
+            // anthropic default and die in ~300 ms before any scripted step
+            // (reduce-bridge-tick-bandwidth measurement.md). args.model wins.
+            model: "faux/faux-1",
+            prompt: "[[faux:subagent-reasoning-inner]] run the reasoning subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("reasoning subagent complete")]),
+    ],
+    expect: { text: "reasoning subagent complete" },
+  },
+
   // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures
   // (task 1.1) were REMOVED. A nested faux subagent cannot sustain a >= 10 s
   // tick stream in the harness (its inner `createAgentSession` resolves an empty

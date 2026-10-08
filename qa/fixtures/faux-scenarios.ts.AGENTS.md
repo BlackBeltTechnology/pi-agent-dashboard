@@ -13,3 +13,4 @@ Adds `mcp-env-probe` (X1: reads the pi session env and reports `PI_DASHBOARD_MCP
 Catalog `tool-read-outside` (reads `/etc/hostname`) and `tool-read-outside-grantable` (reads `/srv/fixtures-outside/a.txt` then `b.txt`, then text `outside reads done`) for the agent path gate e2e. See change: ask-agent-file-access-in-chat.
 
 See change: add-browser-editor-pane-tab — scenario `browser-show-in-pane` (`[[faux:browser-show-in-pane]] <instanceId>`): calls the real `browser_show_in_pane` tool, echoes its result.
+- Adds `subagent-reasoning` (parent) + `subagent-reasoning-inner` (thinking + `sleep 3` bash ×3, ~9 s); parent Agent call pins literal `model: "faux/faux-1"` (Explore `@fast` falls back to credential-less anthropic in harness → child dies ~300 ms) for stable-card-height L3. See change: stream-subagent-reasoning-and-stable-card.

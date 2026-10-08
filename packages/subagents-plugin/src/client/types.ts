@@ -17,6 +17,12 @@ export type SubagentTimelineEntry =
   | { kind: "thinking"; text: string; ts: number }
   | { kind: "error"; text: string; ts: number };
 
+/**
+ * Bounded tail of a subagent's currently streaming block. `kind: "none"` means
+ * nothing is streaming. See change: stream-subagent-reasoning-and-stable-card.
+ */
+export type SubagentLiveTail = { kind: "thinking" | "text" | "none"; text: string };
+
 /** Per-subagent state held in SessionState.subagents. */
 export interface SubagentState {
   id: string;
@@ -39,10 +45,14 @@ export interface SubagentState {
   entries?: SubagentTimelineEntry[];
   /** Live current-activity string (e.g. "reading src/foo.ts"). */
   activity?: string;
+  /** Live tail of the streaming thinking/text block (producer ≥ 0.2.7). */
+  liveTail?: SubagentLiveTail;
   /** Display name for the agent (e.g. "code-reviewer"). Falls back to `type`. */
   displayName?: string;
   /** Short model name if different from parent. */
   modelName?: string;
+  /** Effective thinking level of the child (producer ≥ 0.2.7), e.g. "high". */
+  thinkingLevel?: string;
   /** Subagent type (e.g. "general-purpose"). May duplicate `type`. */
   subagentType?: string;
   /** Started-at epoch ms (set on subagent_started). */
