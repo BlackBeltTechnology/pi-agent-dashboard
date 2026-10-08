@@ -116,7 +116,7 @@
 
 ## 9. Final gates
 
-- [ ] 9.1 Run `review-code` on the full diff, then `npm test` with the pipefail log pattern from AGENTS.md. Verify zero failures.
+- [x] 9.1 Run `review-code` on the full diff, then `npm test` with the pipefail log pattern from AGENTS.md. Verify zero failures.
 
 ## 10. E2E fold (Playwright, docker harness + `PI_BROWSER_RELAY_FAKE=1`)
 
