@@ -23,6 +23,7 @@
  *
  * See change: add-browser-relay.
  */
+import { OpenHandler } from "./open-handler.js";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { AuditRing } from "./audit.js";
 import { canOpenChrome } from "./capability.js";
@@ -47,6 +48,7 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // event can fire (events only start once routes are registered and a connect
   // happens, all after this block).
   let status!: BrowserRelayStatus;
+  let openHandler!: OpenHandler;
 
   const manager = new RelayManager({
     audit,
@@ -57,7 +59,12 @@ async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     listProfiles: () => listChromeProfiles(),
     onStatusChange: () => status.broadcastNow(),
     onTabMetaChange: () => status.schedule(),
+    onInstanceClosed: (instanceId) => openHandler.onInstanceClosed(instanceId),
   });
+  // `browser/open` — bridge tools `browser_show_in_pane` / `browser_await_human`.
+  // The caller's session id comes from the request lane, never the payload.
+  openHandler = new OpenHandler({ manager, audit, openEditorTab: (sid, path) => ctx.openEditorTab(sid, path) });
+  ctx.registerPiRequestHandler?.("browser/open", openHandler.handle);
 
   status = new BrowserRelayStatus({
     manager,

@@ -88,6 +88,8 @@ export interface RelayManagerDeps {
   onStatusChange(): void;
   /** Coalescing status emit for tab title/URL changes. See change: add-browser-editor-pane-tab. */
   onTabMetaChange?(): void;
+  /** Fired when an instance is removed (close / expiry). See change: add-browser-editor-pane-tab. */
+  onInstanceClosed?(instanceId: string): void;
   timers?: RelayTimers;
   connectTimeoutMs?: number;
   guidExpiryMs?: number;
@@ -358,6 +360,7 @@ export class RelayManager {
     this._clearExpiry(entry);
     this.byGuid.delete(entry.guid);
     this.byInstanceId.delete(entry.instance.instanceId);
+    this.deps.onInstanceClosed?.(entry.instance.instanceId);
     this.deps.onStatusChange();
   }
 

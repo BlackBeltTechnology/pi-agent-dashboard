@@ -24,6 +24,10 @@
     "./server": {
       "types": "./src/server/index.ts",
       "default": "./src/server/index.ts"
+    },
+    "./bridge": {
+      "types": "./src/bridge/index.ts",
+      "default": "./src/bridge/index.ts"
     }
   },
   "files": [
@@ -42,6 +46,7 @@
     "priority": 500,
     "client": "./src/client/index.tsx",
     "server": "./src/server/index.ts",
+    "bridge": "./src/bridge/index.ts",
     "configSchema": "./configSchema.json",
     "defaultEnabled": false,
     "claims": [
