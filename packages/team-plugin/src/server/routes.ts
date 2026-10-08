@@ -240,6 +240,14 @@ export async function mountTeamRoutes(fastify: FastifyInstance, d: RouteDeps): P
         return d.conversations.ensureConversation(c, p.key, t, p.c);
       }),
     );
+    scope.get(
+      P("/agents/:key/conversations/:c/history"),
+      wrap(async (req, _reply, c) => {
+        const t = target(req, c);
+        const p = req.params as { key: string; c: string };
+        return d.conversations.historyHandle(c, p.key, t, p.c);
+      }),
+    );
     scope.patch(
       P("/agents/:key/conversations/:c"),
       wrap(async (req, _reply, c) => {

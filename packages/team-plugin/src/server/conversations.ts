@@ -672,6 +672,19 @@ export class ConversationService {
     }
   }
 
+  /**
+   * Read-only handle on a conversation's transcript: the host session id, so the client can replay history
+   * when a start is blocked (`409 skill_not_allowed`) and no session will be spawned. Never spawns, ends or
+   * writes. Owner-fail-closed like resume: in multi-user mode only a host session this caller owns is returned.
+   * See change: add-team-skill-access.
+   */
+  historyHandle(caller: Caller, personaKey: string, t: string, c: string): { sessionId: string } {
+    const { rec } = this.requireRecord(caller, personaKey, t, c);
+    const known = this.d.host.getSession(rec.sessionId);
+    if (!known || !this.ownerMatches(known, caller)) throw new TeamError(404, "history_unavailable");
+    return { sessionId: rec.sessionId };
+  }
+
   async ensureConversation(caller: Caller, personaKey: string, t: string, c: string): Promise<{ sessionId: string }> {
     const { rec } = this.requireRecord(caller, personaKey, t, c);
     if (rec.archived) throw new TeamError(409, "conversation_archived");

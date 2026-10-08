@@ -89,6 +89,8 @@ export function createApi(host: Pick<AppHost, "api">) {
       (await call<{ conversations: Conversation[] }>("GET", `${conv(key)}${q(t, archived ? "&archived=true" : "")}`)).conversations,
     createConversation: (key: string, t: Target) => call<{ id: string; sessionId: string }>("POST", `${conv(key)}${q(t)}`),
     ensure: (key: string, t: Target, c: string) => call<{ sessionId: string }>("POST", `${conv(key)}/${k(c)}/session${q(t)}`),
+    /** Read-only handle on a conversation's transcript (no spawn). 404 `history_unavailable` when none. */
+    history: (key: string, t: Target, c: string) => call<{ sessionId: string }>("GET", `${conv(key)}/${k(c)}/history${q(t)}`),
     patchConversation: (key: string, t: Target, c: string, body: { title?: string; archived?: boolean }) =>
       call<Conversation>("PATCH", `${conv(key)}/${k(c)}${q(t)}`, body),
     restart: (key: string, t: Target, c: string) => call<{ ok: true }>("POST", `${conv(key)}/${k(c)}/restart${q(t)}`),

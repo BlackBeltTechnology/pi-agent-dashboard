@@ -181,6 +181,20 @@ describe("managed CRUD (E5–E9, E12, E13, X3)", () => {
     expect((await post(agentSkill)).status, "inside agent dir stays valid").toBe(201);
   });
 
+  it("review B1: a partial PATCH keeps the omitted users/targets (never widens to \"*\")", async () => {
+    h = await makeHarness({ config: { admins: [ADMIN] } });
+    const dir = skillDir("review");
+    const bob = { iss: "https://iss", sub: "bob" };
+    expect((await admin("POST", `${API}/skills`, { name: "review", path: dir, users: [bob], targets: ["billing"] })).status).toBe(201);
+    const t = await admin("PATCH", `${API}/skills/review`, { targets: ["crm"] });
+    expect(t.status, JSON.stringify(t.json)).toBe(200);
+    const u = await admin("PATCH", `${API}/skills/review`, { users: [bob, { iss: "https://iss", sub: "carol" }] });
+    expect(u.status).toBe(200);
+    const stored = JSON.parse(fs.readFileSync(managedFile(), "utf8")).skills.find((e: { name: string }) => e.name === "review");
+    expect(stored.users).toEqual([bob, { iss: "https://iss", sub: "carol" }]);
+    expect(stored.targets).toEqual(["crm"]); // the second PATCH did not reset targets either
+  });
+
   it("E12: config vs managed decision table", async () => {
     // config only: read-only
     const config: TeamConfig = { admins: [ADMIN] };

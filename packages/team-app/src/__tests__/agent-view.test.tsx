@@ -188,3 +188,29 @@ describe("E36: composer refuses an unavailable skill before sending", () => {
     expect(chips.map((c) => c.textContent)).toEqual(["review"]);
   });
 });
+
+describe("B2: a blocked conversation keeps its history readable without a session", () => {
+  const HISTORY = "GET /api/plugins/team/agents/:k/conversations/:c/history";
+
+  it("409 skill_not_allowed on open: banner + read-only transcript replayed from the history handle, composer disabled", async () => {
+    const host = setup();
+    host.routes.set(ENSURE, () => json({ error: "skill_not_allowed", skill: "review", reason: "targets" }, 409));
+    host.routes.set(HISTORY, () => ({ sessionId: "sess-old" }));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await screen.findByTestId("chatview");
+    expect(host.calls.some((c) => c.path.endsWith("/history?project=_ws"))).toBe(true);
+    expect(screen.queryByTestId("composer")).toBeNull();
+    expect(document.querySelector(".composer-card[aria-disabled='true'] textarea")?.hasAttribute("disabled")).toBe(true);
+    expect(document.querySelector(".convo-banners")?.textContent).toContain("review");
+  });
+
+  it("no history handle (404): the banner stays and the transcript is simply empty", async () => {
+    const host = setup();
+    host.routes.set(ENSURE, () => json({ error: "skill_not_allowed", skill: "review", reason: "targets" }, 409));
+    host.routes.set(HISTORY, () => json({ error: "history_unavailable" }, 404));
+    renderApp(<AgentView agentKey="shared:a" convId="c1" />, host, "/agent/shared%3Aa/c/c1");
+    await waitFor(() => expect(host.calls.some((c) => c.path.endsWith("/history?project=_ws"))).toBe(true));
+    expect(screen.queryByTestId("chatview")).toBeNull();
+    expect(screen.getByTestId("transcript")).toBeTruthy();
+  });
+});

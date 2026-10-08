@@ -253,6 +253,28 @@ export function ChatPane({ agent, conv, target, readOnlyReason, skillBlock, onCh
       ? { skill: ensure.skill ?? agent.key, reason: ensure.reason ?? "invalid" }
       : null);
 
+  // A blocked start spawns nothing, so there is no live session to replay. The history handle (read-only,
+  // owner-bound) lets the transcript stay readable. Absent (404) → the transcript is simply empty.
+  const needHistory = !!skillBlockedState && ensure.kind !== "ready";
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!needHistory) return;
+    let cancelled = false;
+    api
+      .history(agent.key, target, conv.id)
+      .then((r) => !cancelled && setHistoryId(r.sessionId))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [needHistory, api, agent.key, target, conv.id]);
+  const readOnlyBody = (sessionId: string) =>
+    host.mode === "standalone" ? (
+      <ChatProviders apiBase=""><ChatBody sessionId={sessionId} agent={agent} readOnly /></ChatProviders>
+    ) : (
+      <ChatBody sessionId={sessionId} agent={agent} readOnly />
+    );
+
   const banners: ReactNode[] = [];
   if (readOnlyReason)
     banners.push(
@@ -325,7 +347,7 @@ export function ChatPane({ agent, conv, target, readOnlyReason, skillBlock, onCh
       {/* Skill-blocked: the transcript stays mounted read-only when a session existed (the history
           must remain readable); without one there is nothing to show. */}
       {skillBlockedState && ensure.kind !== "ready" ? (
-        <div className="transcript" data-testid="transcript" />
+        historyId ? readOnlyBody(historyId) : <div className="transcript" data-testid="transcript" />
       ) : blocked && !(ensure.kind === "ready" && skillBlockedState) ? (
         <div className="transcript" data-testid="transcript"><p className="hint chat-empty">{t("cv.startHint", { name: agent.name })}</p></div>
       ) : ensure.kind === "ensuring" ? (

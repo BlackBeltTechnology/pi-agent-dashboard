@@ -205,6 +205,13 @@ test("F4: narrowing the targets ends the streaming session within 5 s; reopen is
   await expect(anna.page.getByText(/nem indítható|cannot start/i).first()).toBeVisible({ timeout: 15_000 });
   await expect(anna.page.getByText(/már nem engedélyezett|no longer allowed/i).first()).toBeVisible();
   await expect(anna.page.getByText("PROMPT-REVOKED").first()).toBeVisible();
+
+  // Fresh page load (no mounted session, nothing spawned): the read-only history handle replays the transcript.
+  const spawnedBefore = (await billingSessions()).length;
+  await anna.page.goto(`${h.base}/apps/team/agent/${enc("shared:chat")}/c/${f4ConvId}?project=billing`);
+  await expect(anna.page.getByText(/nem indítható|cannot start/i).first()).toBeVisible({ timeout: 30_000 });
+  await expect(anna.page.getByText("PROMPT-REVOKED").first()).toBeVisible({ timeout: 15_000 });
+  expect((await billingSessions()).length).toBe(spawnedBefore);
 });
 
 test("F6: an invalid skill path blocks the card before open; Fix skill opens the Skills-panel entry", async () => {

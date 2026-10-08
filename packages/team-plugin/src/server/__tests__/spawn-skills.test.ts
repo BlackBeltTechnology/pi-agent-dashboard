@@ -217,3 +217,54 @@ describe("guard never ready (X2 server half, task 5.1)", () => {
     expect(rec.sessionId).toBe(c.sessionId); // record still names the first session
   });
 });
+
+describe("read-only history handle for a blocked conversation (review B2, team-app 'Skill availability feedback')", () => {
+  const history = (user: string, key: string, c: string, t = "_ws") =>
+    h.call("GET", `${API}/agents/${enc(key)}/conversations/${c}/history?project=${t}`, { user });
+
+  it("returns the conversation's session id without spawning, ending or writing anything", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    config.skillCatalog = { review: skillDir("review") };
+    const key = await mkPersona("alice", "w", { skills: ["review"] });
+    const c = (await create("alice", key)).json;
+    const uk = await ukOf("alice");
+    const file = recordFile(uk, key, "_ws", c.id);
+    const before = fs.readFileSync(file, "utf8");
+    // the catalog narrows: a normal open is now blocked, but history stays reachable
+    config.skillCatalog = { review: path.join(h.tmp, "skills", "gone") };
+    const sess = h.host.sessions.get(c.sessionId);
+    if (sess) sess.status = "ended";
+
+    expect((await ensure("alice", key, c.id)).status).toBe(409);
+    const aborts = h.host.aborts.length;
+    const spawnsAfter = h.host.spawns.length;
+    const r = await history("alice", key, c.id);
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect(r.json).toEqual({ sessionId: c.sessionId });
+    expect(h.host.spawns.length).toBe(spawnsAfter);
+    expect(h.host.aborts.length).toBe(aborts); // history never ends a session
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+  });
+
+  it("is owner-bound: another user gets 404 and no session id", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const key = await mkPersona("alice", "w");
+    const c = (await create("alice", key)).json;
+    const r = await history("bob", key, c.id);
+    expect(r.status).toBe(404);
+    expect(JSON.stringify(r.json)).not.toContain(c.sessionId);
+  });
+
+  it("404s when the host no longer knows the session", async () => {
+    const config: TeamConfig = { admins: [ADMIN] };
+    h = await makeHarness({ config });
+    const key = await mkPersona("alice", "w");
+    const c = (await create("alice", key)).json;
+    h.host.sessions.delete(c.sessionId);
+    const r = await history("alice", key, c.id);
+    expect(r.status).toBe(404);
+    expect(r.json).toMatchObject({ error: "history_unavailable" });
+  });
+});

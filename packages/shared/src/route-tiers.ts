@@ -148,6 +148,7 @@ export const ROUTE_TIERS: readonly RouteTierEntry[] = [
   // Runtime overlay (see change: electron-runtime-overlay-updates).
   { method: "GET", path: "/api/plugins/team/agents", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/agents/:key/conversations", tier: "operate" },
+  { method: "GET", path: "/api/plugins/team/agents/:key/conversations/:c/history", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/me", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/personas", tier: "operate" },
   { method: "GET", path: "/api/plugins/team/projects", tier: "operate" },
