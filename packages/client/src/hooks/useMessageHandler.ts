@@ -1917,6 +1917,12 @@ export function useMessageHandler(
         setDisplayPrefs(msg.prefs);
         break;
 
+      case "editor_tab_open":
+        // Plugin-server-initiated tab open. App (always mounted, route-aware)
+        // decides whether this client acts. See change: add-browser-editor-pane-tab (D5).
+        window.dispatchEvent(new CustomEvent("editor-tab-open", { detail: { sessionId: msg.sessionId, path: msg.path } }));
+        break;
+
       case "plugin_config_update":
         // Update the plugin config store and re-render any usePluginConfig consumers.
         applyPluginConfigUpdate(msg);

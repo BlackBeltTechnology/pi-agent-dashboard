@@ -13,19 +13,21 @@ const openInSplit = vi.fn();
 const openUrlTarget = vi.fn();
 const openLiveTarget = vi.fn();
 const ensureRevealed = vi.fn();
+const openPluginTab = vi.fn();
 
 // `ctx.fresh()` hands out NEW opener identities (what a split `mode` change —
 // e.g. closing the editor — does to the real provider) that still count into
 // the same spies.
 const ctx = {
   sessionId: "S1",
-  openers: { openInSplit, openUrlTarget, openLiveTarget, ensureRevealed } as Record<string, (...a: unknown[]) => unknown>,
+  openers: { openInSplit, openUrlTarget, openLiveTarget, ensureRevealed, openPluginTab } as Record<string, (...a: unknown[]) => unknown>,
   fresh() {
     this.openers = {
       openInSplit: (...a: unknown[]) => openInSplit(...a),
       openUrlTarget: (...a: unknown[]) => openUrlTarget(...a),
       openLiveTarget: (...a: unknown[]) => openLiveTarget(...a),
       ensureRevealed: (...a: unknown[]) => ensureRevealed(...a),
+      openPluginTab: (...a: unknown[]) => openPluginTab(...a),
     };
   },
 };
@@ -40,7 +42,30 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   ctx.sessionId = "S1";
-  ctx.openers = { openInSplit, openUrlTarget, openLiveTarget, ensureRevealed };
+  ctx.openers = { openInSplit, openUrlTarget, openLiveTarget, ensureRevealed, openPluginTab };
+});
+
+// change: add-browser-editor-pane-tab (D3, #E8)
+describe("SplitRouteSync — ?tab= plugin tabs", () => {
+  it("opens every tab value in order (last applied = active)", () => {
+    render(<SplitRouteSync active tabs={["browser:i:1", "browser:i:2"]} />);
+    expect(openPluginTab.mock.calls.map((c) => c[0])).toEqual(["browser:i:1", "browser:i:2"]);
+    expect(ensureRevealed).not.toHaveBeenCalled();
+  });
+  it("fresh nonce re-applies the same tabs (re-open after close)", () => {
+    const { rerender } = render(<SplitRouteSync active tabs={["browser:i:1"]} nonce="a" />);
+    rerender(<SplitRouteSync active tabs={["browser:i:1"]} nonce="a" />);
+    expect(openPluginTab).toHaveBeenCalledTimes(1);
+    rerender(<SplitRouteSync active tabs={["browser:i:1"]} nonce="b" />);
+    expect(openPluginTab).toHaveBeenCalledTimes(2);
+  });
+  it("file wins over tab; inactive route does nothing", () => {
+    render(<SplitRouteSync active file="a.ts" tabs={["browser:i:1"]} />);
+    expect(openPluginTab).not.toHaveBeenCalled();
+    cleanup();
+    render(<SplitRouteSync active={false} tabs={["browser:i:1"]} />);
+    expect(openPluginTab).not.toHaveBeenCalled();
+  });
 });
 
 describe("SplitRouteSync — /view route bridge", () => {

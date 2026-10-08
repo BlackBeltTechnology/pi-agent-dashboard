@@ -1075,6 +1075,18 @@ export interface RetrySessionErrorMessage {
   error: string;
 }
 
+/**
+ * Server → browser: a plugin server asked the viewers of `sessionId` to open
+ * (or focus) the plugin tab `path` (`<pathPrefix>:<rest>`, prefix owned by the
+ * calling plugin — enforced by the host). A client acts only while on that
+ * session's chat or editor route. See change: add-browser-editor-pane-tab (D5).
+ */
+export interface EditorTabOpenMessage {
+  type: "editor_tab_open";
+  sessionId: string;
+  path: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -1178,6 +1190,7 @@ export type ServerToBrowserMessage =
   | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
+  | EditorTabOpenMessage
   | PluginActionErrorMessage
   | RetrySessionErrorMessage
   | SessionAddedMessage

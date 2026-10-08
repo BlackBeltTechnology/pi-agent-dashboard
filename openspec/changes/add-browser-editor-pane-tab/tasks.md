@@ -1,6 +1,6 @@
 ## 1. Per-entry pane hydration (separate first commit)
 
-- [ ] 1.1 In `packages/client/src/lib/layout/editor-pane-state.ts`: (test-plan: #E13, #E14)
+- [x] 1.1 In `packages/client/src/lib/layout/editor-pane-state.ts`: (test-plan: #E13, #E14)
   - derive `VALID_VIEWERS` from `OPEN_PATH_VIEWERS ∪ PSEUDO_TAB_VIEWERS`;
   - change hydration from all-or-nothing to dropping only entries with an unknown `viewer`, keeping every other structural check all-or-nothing;
   - re-derive `activeIndex` (keep the surviving active tab, else clamp).
@@ -9,14 +9,14 @@
 
 ## 2. Core seam: `editor-pane-tab` slot
 
-- [ ] 2.1 Shared types:
+- [x] 2.1 Shared types:
   - `"editor-pane-tab"` in `SlotId` plus a `SLOT_DEFINITIONS` entry (`many`, react-only), classified `never` in `SlotPredicateInput`;
   - `SlotPropsMap["editor-pane-tab"]`;
   - `PluginClaim.pathPrefix` and the label-component field;
   - `"plugin"` added to `ViewerKind` (`file-kind.ts`).
 
   Verify with `tsc --noEmit` on `packages/shared`, including the exhaustiveness assertions.
-- [ ] 2.2 `dashboard-plugin-runtime`: (test-plan: #E1, #E2, #E3, #E4)
+- [x] 2.2 `dashboard-plugin-runtime`: (test-plan: #E1, #E2, #E3, #E4)
   - validator: normalize and keep `pathPrefix` and the label component; regex; reserved `diff|term|url|live`; required body component;
   - Vite emitter: import the label component and validate its export (extending the `component`/`predicate`/`shouldRender` list); emit `pathPrefix` and `LabelComponent`; add a cross-plugin prefix collision check following the `customType` precedent;
   - `ClaimEntry`: carry both fields;
@@ -26,21 +26,21 @@
   - validator and emitter tests for each rejection, the missing label export and the accept case;
   - a generated-registry assertion that both fields survive;
   - a hash test showing that a `pathPrefix`-only edit changes the hash.
-- [ ] 2.3 `viewer-kinds.ts`: add `"plugin"` to `PSEUDO_TAB_VIEWERS`, and narrow the `pseudoTabRegistry` type to exclude `plugin`. In `EditorPane.tsx`, add a `viewer === "plugin"` branch rendering the new `PluginTabHost` (resolves the claim by prefix; renders the body with `{path, session, isActive, onClose, pluginContext}` or the "Tab unavailable" placeholder plus Close). Update `editor-pane/__tests__/viewer-registry.test.tsx` (registry keys exclude `plugin`, union total 20, and `plugin` is rendered by `PluginTabHost`, not the registry). Verify that the partition proofs compile, and that RTL tests show a claimed prefix renders, an unclaimed prefix shows the placeholder, Close removes the tab, and no `/api/file` request is made. (test-plan: #E16)
-- [ ] 2.4 `EditorTabs.tsx`: render the claim's label component (always mounted) for plugin tabs, else the prefix. Verify with an RTL test that a background tab's label updates.
-- [ ] 2.5 Wire the opener and deep link: (test-plan: #E8)
+- [x] 2.3 `viewer-kinds.ts`: add `"plugin"` to `PSEUDO_TAB_VIEWERS`, and narrow the `pseudoTabRegistry` type to exclude `plugin`. In `EditorPane.tsx`, add a `viewer === "plugin"` branch rendering the new `PluginTabHost` (resolves the claim by prefix; renders the body with `{path, session, isActive, onClose, pluginContext}` or the "Tab unavailable" placeholder plus Close). Update `editor-pane/__tests__/viewer-registry.test.tsx` (registry keys exclude `plugin`, union total 20, and `plugin` is rendered by `PluginTabHost`, not the registry). Verify that the partition proofs compile, and that RTL tests show a claimed prefix renders, an unclaimed prefix shows the placeholder, Close removes the tab, and no `/api/file` request is made. (test-plan: #E16)
+- [x] 2.4 `EditorTabs.tsx`: render the claim's label component (always mounted) for plugin tabs, else the prefix. Verify with an RTL test that a background tab's label updates.
+- [x] 2.5 Wire the opener and deep link: (test-plan: #E8)
   - `SplitWorkspaceContext.tsx`: add `openPluginTab(path)` (claimed-prefix check, then `openFile {viewer: "plugin"}`, which focuses or adds); exclude pseudo and plugin paths from the file-watch `openPathsKey`.
   - `App.tsx`: parse every `tab` value and add them to the `SplitRouteSync` apply key alongside `openNonce`. `SplitRouteSync`: call `openPluginTab` per value in order, ignoring unclaimed or built-in prefixes.
   - Add a shared helper `openPluginTabRoute(navigate, sessionId, paths[])` that does one navigation with a fresh `openNonce`.
 
   Verify with tests for open, multi-`tab`, focus-without-duplicate, re-open after close (fresh nonce), the session switch, the ignored case, and no virtual path in the watch set.
-- [ ] 2.6 Add the core server-initiated open: (test-plan: #X16)
+- [x] 2.6 Add the core server-initiated open: (test-plan: #X16)
   - plugin-server host API `ctx.openEditorTab(sessionId, path)`, own-prefix only, broadcasting `editor_tab_open {sessionId, path}`;
   - the `EditorTabOpenMessage` type in `shared/src/protocol.ts`;
   - an `App.tsx` handler that acts only on `/session/<sessionId>` or `/session/<sessionId>/editor` and calls `openPluginTabRoute`.
 
   Verify with tests for a foreign prefix rejected, a viewer of the session opening, and no navigation on another session, the settings overlay or landing.
-- [ ] 2.7 Run `doubt-driven-review` on the shipped public API (`SlotId`, `pathPrefix`/label, `ctx.openEditorTab`, `pluginMeta`) before merging group 2. Record the outcome in `design.md` D1.
+- [x] 2.7 Run `doubt-driven-review` on the shipped public API (`SlotId`, `pathPrefix`/label, `ctx.openEditorTab`, `pluginMeta`) before merging group 2. Record the outcome in `design.md` D1.
 
 ## 3. Relay fixes (`packages/browser-plugin/src/server/`)
 
