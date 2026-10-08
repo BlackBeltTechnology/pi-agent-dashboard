@@ -16,7 +16,7 @@ import { FolderTeamSection, catalog as team_catalog } from "@blackbelt-technolog
 import { BlackholeSettings, MemorySubcard, shouldRenderMemorySubcard, PipelineDetailView, isPipelineDetailActive, OmEntryCard, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
 import { SystemOneSettings, catalog as system_one_catalog } from "@blackbelt-technology/pi-dashboard-system-one-plugin";
 import { GmailSettings, catalog as gmail_catalog } from "@blackbelt-technology/pi-dashboard-gmail-plugin";
-import { BrowserSettings, BrowserRelayBadge, LiveViewTile, isLiveViewActive, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
+import { BrowserSettings, BrowserRelayBadge, BrowserPaneTab, BrowserTabLabel, catalog as browser_catalog } from "@blackbelt-technology/pi-dashboard-browser-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
 import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
@@ -602,13 +602,15 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "component": "BrowserRelayBadge"
             },
             {
-                "slot": "content-view",
-                "component": "LiveViewTile",
-                "predicate": "isLiveViewActive"
+                "slot": "editor-pane-tab",
+                "component": "BrowserPaneTab",
+                "pathPrefix": "browser",
+                "labelComponent": "BrowserTabLabel"
             }
         ],
         "client": "./src/client/index.tsx",
         "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
         "configSchema": "./configSchema.json",
         "defaultEnabled": false,
         "i18nCatalog": "catalog"
@@ -616,7 +618,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "browser", priority: 500, slot: "settings-section", Component: BrowserSettings },
       { pluginId: "browser", priority: 500, slot: "session-card-badge", Component: BrowserRelayBadge },
-      { pluginId: "browser", priority: 500, slot: "content-view", Component: LiveViewTile, predicate: isLiveViewActive },
+      { pluginId: "browser", priority: 500, slot: "editor-pane-tab", pathPrefix: "browser", Component: BrowserPaneTab, labelComponentName: "BrowserTabLabel", LabelComponent: BrowserTabLabel },
     ],
     catalog: browser_catalog,
   },
@@ -672,4 +674,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6c39baf2339f7a190e4aa29d4261b141aad7136261947783bb3df81d31c27ae9";
+export const PLUGIN_REGISTRY_HASH = "ef41ff0de31d82df92164c702915db4b824b749762797e7b864427b2fc48fcff";

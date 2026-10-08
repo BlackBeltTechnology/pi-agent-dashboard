@@ -12,6 +12,7 @@ import {
 	CurrentPluginLayer,
 	PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
+import type { InteractiveUiRequestSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type RenderResult, render } from "@testing-library/react";
 import type React from "react";
@@ -45,6 +46,8 @@ interface RenderOptions {
 	ws?: FakeWs;
 	send?: (message: unknown) => void | Promise<void>;
 	pluginId?: string;
+	/** Interactive requests per session (the takeover Done tests). */
+	interactiveRequests?: (sessionId: string) => readonly InteractiveUiRequestSnapshot[];
 }
 
 interface RenderResultWithHarness extends RenderResult {
@@ -62,6 +65,7 @@ export function renderWithPlugin(
 		<PluginContextProvider
 			ws={ws as unknown as WebSocket}
 			send={send as unknown as (message: unknown) => void}
+			useSessionInteractiveRequests={options.interactiveRequests}
 		>
 			<CurrentPluginLayer pluginId={options.pluginId ?? "browser"}>{ui}</CurrentPluginLayer>
 		</PluginContextProvider>,

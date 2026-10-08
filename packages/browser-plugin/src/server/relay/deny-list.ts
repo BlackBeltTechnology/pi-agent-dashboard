@@ -28,8 +28,16 @@ export const ALWAYS_DENIED_METHODS: readonly string[] = [
   "Storage.getCookies",
   "Network.getAllCookies",
   "Network.getCookies",
-  "Browser.setDownloadBehavior",
 ];
+
+/**
+ * Acknowledged with `{}` and never forwarded. Real CDP clients (Playwright
+ * `connectOverCDP`) send `Browser.setDownloadBehavior` during the handshake and
+ * abort on an error reply; dropping it keeps the security property (the client
+ * cannot redirect downloads in the user's real profile) without breaking attach.
+ * Audited as `dropped`. See change: add-browser-editor-pane-tab (D7).
+ */
+export const ACK_AND_DROP_METHODS: readonly string[] = ["Browser.setDownloadBehavior"];
 
 /** Methods whose `url` parameter is subject to the navigation policy. */
 const URL_POLICY_METHODS: readonly string[] = ["Page.navigate", "Target.createTarget"];

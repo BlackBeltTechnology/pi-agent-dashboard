@@ -1037,6 +1037,22 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: MCP_DASHBOARD_CALL_PREFIX },
   },
 
+  // `[[faux:browser-show-in-pane]] <instanceId>` — the agent calls the browser
+  // plugin's REAL bridge tool `browser_show_in_pane` for the instance named in
+  // the prompt, then echoes the tool result. See change: add-browser-editor-pane-tab (F17).
+  "browser-show-in-pane": {
+    script: [
+      (context: FauxContext) => {
+        const last = [...context.messages].reverse().find((m) => m.role === "user");
+        const text = (last?.content ?? []).map((c) => c.text ?? "").join(" ");
+        const instanceId = /\[\[faux:browser-show-in-pane\]\]\s+(\S+)/.exec(text)?.[1] ?? "";
+        return fauxAssistantMessage([fauxToolCall("browser_show_in_pane", { instanceId })], { stopReason: "toolUse" });
+      },
+      (context: FauxContext) => fauxAssistantMessage([fauxText(`browser-show-in-pane: ${lastToolResultText(context).slice(0, 120)}`)]),
+    ],
+    expect: { text: "browser-show-in-pane:" },
+  },
+
   "tool-list-models": {
     script: [
       fauxAssistantMessage([fauxToolCall("list_models", {})], { stopReason: "toolUse" }),

@@ -35,6 +35,20 @@ export interface PluginClaim {
    */
   customType?: string;
   /**
+   * For `editor-pane-tab` slot: the virtual-path prefix this claim owns.
+   * Tabs whose path is `<pathPrefix>:<rest>` render the claim's `component`.
+   * Must match `^[a-z][a-z0-9-]{1,31}$`; the built-in `diff`/`term`/`url`/
+   * `live` are reserved; two plugins claiming one prefix fail registry
+   * generation. See change: add-browser-editor-pane-tab.
+   */
+  pathPrefix?: string;
+  /**
+   * For `editor-pane-tab` slot: optional exported component name rendered as
+   * the tab-strip label (props: `{ path, session, pluginContext }`). Stays
+   * mounted while the tab is in the background. See change: add-browser-editor-pane-tab.
+   */
+  labelComponent?: string;
+  /**
    * For "settings-section" slot: which SettingsPanel tab to render in.
    * Defaults to "general" if omitted.
    */

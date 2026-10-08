@@ -7,9 +7,9 @@
  * See change: improve-content-editor (per-kind tab icon #2).
  */
 
-import { mdiClose, mdiConsoleLine } from "@mdi/js";
+import { mdiClose, mdiConsoleLine, mdiPuzzleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type { OpenFile } from "../../lib/layout/editor-pane-state.js";
 import { fileIcon } from "../../lib/preview/file-icon.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
@@ -23,7 +23,19 @@ interface EditorTabsProps {
   onReorder: (from: number, to: number) => void;
   /** Resolve a terminal id to its display title (for `term:<id>` tabs). */
   terminalTitle?: (id: string) => string | undefined;
+  /**
+   * Render the label of a plugin (`viewer: "plugin"`) tab — the claim's label
+   * component, mounted for every such tab (active or not) so a background
+   * tab's label stays live. Defaults to the path prefix.
+   * See change: add-browser-editor-pane-tab (D1).
+   */
+  pluginLabel?: (path: string) => ReactNode;
 }
+
+const prefixOf = (p: string): string => {
+  const i = p.indexOf(":");
+  return i > 0 ? p.slice(0, i) : p;
+};
 
 function basename(p: string): string {
   const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
@@ -81,7 +93,7 @@ function UnreadDot({ file }: { file: OpenFile }) {
   );
 }
 
-export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle }: EditorTabsProps) {
+export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReorder, terminalTitle, pluginLabel }: EditorTabsProps) {
   const { t } = useI18n();
   const dragFrom = useRef<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
@@ -168,13 +180,17 @@ export function EditorTabs({ openFiles, activeIndex, onActivate, onClose, onReor
         >
           {file.viewer === "terminal" ? (
             <Icon path={mdiConsoleLine} size={0.5} className="text-cyan-500" />
+          ) : file.viewer === "plugin" ? (
+            <Icon path={mdiPuzzleOutline} size={0.5} className="text-[var(--text-tertiary)]" />
           ) : (
             <Icon path={fileIcon(file.path).iconPath} size={0.5} className={fileIcon(file.path).colorClass} />
           )}
           <span className="truncate">
             {file.viewer === "terminal"
               ? (terminalTitle?.(stripTermId(file.path) ?? "") ?? t("terminal.terminal", undefined, "terminal"))
-              : basename(file.path)}
+              : file.viewer === "plugin"
+                ? (pluginLabel?.(file.path) ?? prefixOf(file.path))
+                : basename(file.path)}
           </span>
           {file.unread && i !== activeIndex && <UnreadDot file={file} />}
           {file.viewer === "diff" && (

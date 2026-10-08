@@ -10,6 +10,10 @@ import type {
   SettingsNavHint,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import {
+  PANE_TAB_PREFIX_RE,
+  RESERVED_PANE_TAB_PREFIXES,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
+import {
   type SettingsTab,
   SLOT_DEFINITIONS,
   type SlotId,
@@ -216,6 +220,43 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     }
   }
 
+  // editor-pane-tab: require a non-empty `component` and a well-formed,
+  // non-reserved `pathPrefix`; `labelComponent` optional string. Cross-plugin
+  // prefix collisions are checked at registry generation (vite plugin), the
+  // `customType` precedent. See change: add-browser-editor-pane-tab (D1).
+  if (slotId === "editor-pane-tab") {
+    if (typeof c.component !== "string" || !c.component.trim()) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "editor-pane-tab" requires a non-empty "component"`,
+      );
+    }
+    if (typeof c.pathPrefix !== "string" || !c.pathPrefix) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "editor-pane-tab" requires a "pathPrefix"`,
+      );
+    }
+    if (!PANE_TAB_PREFIX_RE.test(c.pathPrefix)) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "editor-pane-tab" pathPrefix "${c.pathPrefix}" must match ${PANE_TAB_PREFIX_RE}`,
+      );
+    }
+    if (RESERVED_PANE_TAB_PREFIXES.has(c.pathPrefix)) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "editor-pane-tab" pathPrefix "${c.pathPrefix}" is reserved for a built-in tab`,
+      );
+    }
+    if (c.labelComponent !== undefined && (typeof c.labelComponent !== "string" || !c.labelComponent.trim())) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "editor-pane-tab" labelComponent must be a non-empty string if provided`,
+      );
+    }
+  }
+
   // settings-section: `tab` is accepted but inert. Every `settings-section`
   // claim renders on its owning plugin's page (`/settings/plugins/<id>`), so
   // rejecting an unknown VALUE would fail a manifest over a field nothing
@@ -262,6 +303,10 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.trigger === "string" ? { trigger: c.trigger } : {}),
     ...(typeof c.toolName === "string" ? { toolName: c.toolName } : {}),
     ...(typeof c.customType === "string" ? { customType: c.customType } : {}),
+    ...(slotId === "editor-pane-tab" && typeof c.pathPrefix === "string" ? { pathPrefix: c.pathPrefix } : {}),
+    ...(slotId === "editor-pane-tab" && typeof c.labelComponent === "string"
+      ? { labelComponent: c.labelComponent }
+      : {}),
     ...(typeof c.path === "string" ? { path: c.path } : {}),
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
@@ -411,7 +456,17 @@ export function validateManifest(raw: unknown, fallbackId = "unknown"): PluginMa
   const toolRendererNames = new Set<string>();
   const commandRoutes = new Set<string>();
   const customEntryTypes = new Set<string>();
+  const paneTabPrefixes = new Set<string>();
   for (const claim of claims) {
+    if (claim.slot === "editor-pane-tab" && claim.pathPrefix) {
+      if (paneTabPrefixes.has(claim.pathPrefix)) {
+        throw new ManifestValidationError(
+          pluginId,
+          `duplicate editor-pane-tab claim for pathPrefix "${claim.pathPrefix}"`,
+        );
+      }
+      paneTabPrefixes.add(claim.pathPrefix);
+    }
     if (claim.slot === "custom-entry-renderer" && claim.customType) {
       if (customEntryTypes.has(claim.customType)) {
         throw new ManifestValidationError(

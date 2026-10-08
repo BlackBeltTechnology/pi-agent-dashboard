@@ -23,6 +23,7 @@
 import type { BrowserRelayTabState } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { FastifyInstance } from "fastify";
 import type { AuditEntry, AuditRing } from "./audit.js";
+import { isRelayConnectPage, redactExtensionUrl } from "./redact.js";
 import type { ProfileListResult, ProfileSource } from "./profiles.js";
 import type { BrowserProfileConfig, ConnectResult, RelayConfig, RelayLike } from "./relay/relay-manager.js";
 
@@ -32,6 +33,7 @@ interface BrowserRouteTab {
   url: string;
   state: BrowserRelayTabState;
   reason?: "devtools" | "no-session";
+  agentEmulation?: boolean;
 }
 
 interface BrowserRouteInstance {
@@ -98,12 +100,15 @@ function instanceRow(inst: RelayLike): BrowserRouteInstance {
   return {
     instanceId: inst.instanceId,
     state: inst.statusState(),
-    tabs: inst.tabList().map((tab) => ({
+    // Defense in depth: the instance already redacts, but this is the viewer
+    // egress, so the connect page / token-bearing URLs are re-checked here.
+    tabs: inst.tabList().filter((tab) => !isRelayConnectPage(tab.url)).map((tab) => ({
       tabId: tab.tabId,
       title: tab.title,
-      url: tab.url,
+      url: redactExtensionUrl(tab.url),
       state: tab.state,
       ...(tab.reason ? { reason: tab.reason } : {}),
+      ...(tab.agentEmulation ? { agentEmulation: true } : {}),
     })),
   };
 }

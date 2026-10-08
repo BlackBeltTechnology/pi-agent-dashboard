@@ -1422,6 +1422,7 @@ const zhCN: Record<string, string> = {
   "editor.loopbackOnlyHint": "仅限回环地址（localhost / 127.0.0.1）。在沙箱中运行——应用无法访问仪表板。",
   "editor.navigate": "导航",
   "editor.noFilesOpen": "没有打开的文件——请从文件树中选择一个。",
+  "editor.pluginTabUnavailable": "标签页不可用（{prefix}）",
   "editor.open": "打开",
   "editor.openExternal": "打开",
   "editor.openFileTitle": "打开 {path}",

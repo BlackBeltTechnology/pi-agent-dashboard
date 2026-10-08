@@ -40,6 +40,8 @@ const TerminalPaneLayer = lazy(() => import("./TerminalPaneLayer.js").then((m) =
 import { useServerCapabilities } from "../../hooks/useServerCapabilities.js";
 import { PreviewProvenance } from "../../lib/access-grants/preview-provenance.js";
 import { CappedViewer } from "./CappedViewer.js";
+import { EditorPaneTabLabelSlot, useShellSessionOrNull } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { PluginTabHost, pluginTabPrefix } from "./PluginTabHost.js";
 import { pseudoTabRegistry } from "./pseudo-tab-registry.js";
 import { isPseudoTabViewer, type OpenPathViewer } from "./viewer-kinds.js";
 import { TabActions, type TabActionTarget } from "./TabActions.js";
@@ -72,6 +74,13 @@ export function EditorPane() {
       return s?.title || s?.shell?.split("/").pop() || undefined;
     },
     [terminal.terminals],
+  );
+  // Plugin tab labels: the claim's label component (always mounted, so a
+  // background tab stays live), else the prefix. See change: add-browser-editor-pane-tab.
+  const shellSession = useShellSessionOrNull(sessionId);
+  const pluginLabel = useCallback(
+    (path: string) => <EditorPaneTabLabelSlot path={path} session={shellSession} fallback={pluginTabPrefix(path)} />,
+    [shellSession],
   );
   const [treeVisible, setTreeVisible] = useTreeVisible(sessionId);
   // Rail-local `this session only` (D3 — NOT lifted to context; that would
@@ -182,11 +191,24 @@ export function EditorPane() {
       line: lineForTab,
       restrictCsp: activeTab.restrictCsp,
     };
-    const PseudoTabViewerComponent = isPseudoTabViewer(viewer) ? pseudoTabRegistry[viewer] : null;
+    // Plugin tabs render through PluginTabHost (claim by prefix, richer
+    // props); never the registry, never CappedViewer (no `/api/file`).
+    // See change: add-browser-editor-pane-tab (D1).
+    const activeIdx = state.activeIndex;
+    const PseudoTabViewerComponent =
+      isPseudoTabViewer(viewer) && viewer !== "plugin" ? pseudoTabRegistry[viewer] : null;
     body = (
       <PreviewProvenance autoOpened={autoOpened}>
         <Suspense fallback={<div className="p-4 text-sm text-[var(--text-tertiary)]">{t("editor.loadingViewer", undefined, "Loading viewer…")}</div>}>
-          {PseudoTabViewerComponent ? (
+          {viewer === "plugin" ? (
+            <PluginTabHost
+              key={activeTab.path}
+              path={activeTab.path}
+              sessionId={sessionId}
+              isActive
+              onClose={() => dispatch({ type: "closeTab", index: activeIdx })}
+            />
+          ) : PseudoTabViewerComponent ? (
             <PseudoTabViewerComponent key={viewerKey} {...viewerProps} />
           ) : isPseudoTabViewer(viewer) ? null : (
             <CappedViewer key={viewerKey} viewer={viewer} {...viewerProps} />
@@ -276,6 +298,7 @@ export function EditorPane() {
           openFiles={state.openFiles}
           activeIndex={state.activeIndex}
           terminalTitle={terminalTitle}
+          pluginLabel={pluginLabel}
           onActivate={(i) => dispatch({ type: "setActive", index: i })}
           onClose={(i) => {
             const f = state.openFiles[i];

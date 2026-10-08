@@ -152,6 +152,8 @@ export class FakeExtension {
             url: tab?.url ?? "",
             attached: true,
             type: "page",
+            // Real Chrome always supplies this; Playwright asserts on it.
+            browserContextId: "ctx-default",
           },
         });
         return;

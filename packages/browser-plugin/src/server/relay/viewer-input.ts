@@ -35,7 +35,11 @@ export type ViewerInputResult =
   | { ok: false; reason: string };
 
 /** Input kinds the viewer may send. Anything else is refused. */
-const ALLOWED_KINDS = ["mouse", "key", "scroll", "bringToFront"] as const;
+const ALLOWED_KINDS = ["mouse", "key", "scroll", "bringToFront", "resize"] as const;
+
+/** Viewer `resize` clamp range (CSS px). See change: add-browser-editor-pane-tab (D8). */
+const RESIZE_MIN = { width: 320, height: 240 } as const;
+const RESIZE_MAX = { width: 3840, height: 2160 } as const;
 
 function isNormalized(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -68,6 +72,8 @@ export interface ViewerInputMessage {
   key?: unknown;
   code?: unknown;
   text?: unknown;
+  width?: unknown;
+  height?: unknown;
 }
 
 export function buildViewerInputCommands(
@@ -85,6 +91,9 @@ export function buildViewerInputCommands(
     return { ok: true, commands: [{ method: "Page.bringToFront", params: {} }] };
   }
 
+  // `resize` carries no position and needs no frame (it creates the first one).
+  if (kind === "resize") return resizeCommands(msg);
+
   // `key` carries no position, so it is handled BEFORE the geometry gate — a
   // keyboard event must not be refused just because no frame has arrived.
   if (kind === "key") return keyCommands(msg);
@@ -96,6 +105,30 @@ export function buildViewerInputCommands(
 
   if (kind === "mouse") return mouseCommands(msg, geometry);
   return scrollCommands(msg, geometry);
+}
+
+const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+/** CSS-px viewport → `Emulation.setDeviceMetricsOverride`, clamped; non-numeric refused. */
+function resizeCommands(msg: ViewerInputMessage): ViewerInputResult {
+  const { width, height } = msg;
+  if (typeof width !== "number" || typeof height !== "number" || !Number.isFinite(width) || !Number.isFinite(height)) {
+    return { ok: false, reason: "resize:size" };
+  }
+  return {
+    ok: true,
+    commands: [
+      {
+        method: "Emulation.setDeviceMetricsOverride",
+        params: {
+          width: Math.round(clamp(width, RESIZE_MIN.width, RESIZE_MAX.width)),
+          height: Math.round(clamp(height, RESIZE_MIN.height, RESIZE_MAX.height)),
+          deviceScaleFactor: 0,
+          mobile: false,
+        },
+      },
+    ],
+  };
 }
 
 function keyCommands(msg: ViewerInputMessage): ViewerInputResult {

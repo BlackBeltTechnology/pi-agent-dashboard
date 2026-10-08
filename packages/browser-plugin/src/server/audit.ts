@@ -16,6 +16,8 @@
  *     silently stop the audit viewer updating.
  */
 
+import { redactExtensionUrl } from "./redact.js";
+
 /** Kinds the spec enumerates. A caller may not invent its own. */
 type AuditKind =
   | "attach"
@@ -25,7 +27,12 @@ type AuditKind =
   | "denied"
   | "viewer-subscribe"
   | "viewer-subscribe-refused"
-  | "viewer-input";
+  | "viewer-input"
+  // `open`: an agent-initiated pane open (accepted or refused). `dropped`: a
+  // CDP verb acknowledged and discarded (Browser.setDownloadBehavior).
+  // See change: add-browser-editor-pane-tab.
+  | "open"
+  | "dropped";
 
 export interface AuditEntry {
   /** Epoch ms. */
@@ -88,7 +95,9 @@ export class AuditRing {
       kind: input.kind,
       // Coerce: a caller passing a non-string (a payload object, most likely)
       // must never leak it into the audit — a URL/method is all that is allowed.
-      detail: typeof input.detail === "string" ? input.detail : String(input.detail),
+      // Redact on the way in: a `chrome-extension:` URL (the connect page) must
+      // never keep its token/guid query in a viewer-served ring.
+      detail: redactExtensionUrl(typeof input.detail === "string" ? input.detail : String(input.detail)),
     };
     this.entries.push(entry);
     this.seq += 1;

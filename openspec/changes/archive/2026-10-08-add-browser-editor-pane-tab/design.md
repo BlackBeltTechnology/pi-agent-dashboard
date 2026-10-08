@@ -75,6 +75,13 @@ The label component is a manifest **name**, like `component`. The emitter import
 
 `EditorTabs` renders the claim's `LabelComponent` (`{path, session, pluginContext}`) for plugin tabs when one is given, else the prefix. The label component stays mounted while the body is not, so a background tab's label stays current.
 
+**Doubt review (task 2.7, group 2).** Public surface shipped: `SlotId "editor-pane-tab"`, `PluginClaim.pathPrefix`/`labelComponent`, `ClaimEntry.pathPrefix`/`labelComponentName`/`LabelComponent`, `EditorPaneTabProps`/`EditorPaneTabLabelProps`, `ctx.openEditorTab`, runtime `openPluginTabRoute`. Challenges and outcomes:
+- *Body props carry `pluginContext`?* No: the type lists it for parity with the other slots, but consumers (`renderClaim`) never pass it; plugins read context through hooks under `CurrentPluginLayer`. Kept additive; passing it later is non-breaking.
+- *Prefix ownership by the host, not self-declared.* `ctx.openEditorTab` checks against prefixes derived from the manifest claims by the server loader (3rd arg of `createServerPluginContext`), never from the call.
+- *Registry hash churn.* `pathPrefix`/`labelComponent` are spread into the serialization only when present, so no other plugin's hash changes.
+- *Enabled-set race.* Before the first `setEnabledSet`, `getClaims` returns every claim, so a disabled plugin's tab may briefly render its body instead of the placeholder. Accepted (same as every slot).
+- *Irreversibility.* All additions are optional/additive; a revert leaves only per-entry hydration (D2) in place.
+
 ### D2. Per-entry hydration, as its own first commit
 Hydration changes from all-or-nothing to per-entry:
 - Drop only tabs whose `viewer` is not a known `ViewerKind`. Every other structural check in `isValidState` (`treeOpenRoots`, the `unread`/`autoOpened` types, the shape) stays all-or-nothing.

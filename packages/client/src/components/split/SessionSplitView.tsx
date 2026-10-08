@@ -57,14 +57,21 @@ interface SplitRouteSyncProps {
    * See change: consolidate-flow-agent-cards (D8).
    */
   nonce?: string;
+  /**
+   * `?tab=<virtual-path>` values (repeatable), applied in order through
+   * `openPluginTab`; unclaimed or built-in prefixes are ignored. The last
+   * applied tab ends up active. See change: add-browser-editor-pane-tab (D3).
+   */
+  tabs?: readonly string[];
 }
 
 /**
  * Opens the split from the deep-link route. Rendered under the provider so it
  * can reach the openers. No-op when the route is inactive or carries no target.
  */
-export function SplitRouteSync({ active, file, line, url, nonce }: SplitRouteSyncProps) {
-  const { sessionId, openInSplit, ensureRevealed, openUrlTarget, openLiveTarget } = useSplitWorkspace();
+export function SplitRouteSync({ active, file, line, url, nonce, tabs }: SplitRouteSyncProps) {
+  const { sessionId, openInSplit, ensureRevealed, openUrlTarget, openLiveTarget, openPluginTab } = useSplitWorkspace();
+  const tabsKey = tabs?.join("\u0001") ?? "";
   // Apply each route target ONCE per open INTENT. The nonce makes a deliberate
   // re-open of an unchanged URL a new intent (D8); without it, the openers'
   // identity change caused by closing the editor would re-open the split the
@@ -73,7 +80,7 @@ export function SplitRouteSync({ active, file, line, url, nonce }: SplitRouteSyn
   // so back/forward re-applies. See change: attach-flow-before-run,
   // consolidate-flow-agent-cards (D8).
   const key = active
-    ? `${sessionId}\u0000${file ?? ""}\u0000${line ?? ""}\u0000${url ?? ""}\u0000${nonce ?? ""}`
+    ? `${sessionId}\u0000${file ?? ""}\u0000${line ?? ""}\u0000${url ?? ""}\u0000${nonce ?? ""}\u0000${tabsKey}`
     : null;
   const lastKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -94,9 +101,15 @@ export function SplitRouteSync({ active, file, line, url, nonce }: SplitRouteSyn
       // in UrlViewer — the same split CanvasDriver applies.
       if (isLoopbackUrl(url)) openLiveTarget(url);
       else openUrlTarget(url);
+    } else if (tabsKey) {
+      // Plugin tabs: each claimed value in order (focus-or-add). Nothing
+      // claimed → no reveal, no state change (spec: ignored without error).
+      for (const p of tabsKey.split("\u0001")) openPluginTab(p);
     } else {
       ensureRevealed();
     }
-  }, [key, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed]);
+    // `tabsKey` (not `tabs`) — the array identity changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed, openPluginTab]);
   return null;
 }

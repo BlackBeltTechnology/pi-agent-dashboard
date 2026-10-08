@@ -4,6 +4,7 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import { paneTabPrefixOf } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/editor-pane-tab.js";
 import { isAbsolute } from "node:path";
 import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { BrowserLoginConfig, HostAccessPolicyFn, HostResource, Principal, PrincipalResolverFn } from "@blackbelt-technology/pi-dashboard-shared/identity.js";
@@ -847,6 +848,16 @@ export type ListWorkspacesFn = () => PluginWorkspace[];
  */
 export type OnWorkspacesChangedFn = (handler: () => void) => () => void;
 
+/**
+ * Ask every dashboard client viewing `sessionId` to open (or focus) a plugin
+ * tab. Accepted only when `path`'s prefix is one of the CALLING plugin's own
+ * `editor-pane-tab` claims; otherwise throws `Error` and nothing is broadcast.
+ * On acceptance broadcasts `editor_tab_open {sessionId, path}`; clients act
+ * only while on that session's chat/editor route.
+ * See change: add-browser-editor-pane-tab (D5).
+ */
+export type OpenEditorTabFn = (sessionId: string, path: string) => void;
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -970,6 +981,8 @@ export interface ServerPluginContext {
    * Optional. See change: expose-plugin-credential-and-oauth-seams (D7).
    */
   registerPiRequestHandler?: RegisterPiRequestHandlerFn;
+  /** Open a plugin tab for a session's viewers (own prefix only). See `OpenEditorTabFn`. */
+  openEditorTab: OpenEditorTabFn;
   /**
    * Mint a fresh spawn-correlation token (trusted-gated). See change:
    * relocate-goal-product-to-plugin (D1-#1).
@@ -1170,8 +1183,18 @@ export interface ServerContextDeps {
 export function createServerPluginContext(
   deps: ServerContextDeps,
   pluginId: string,
+  /** Prefixes of this plugin's own `editor-pane-tab` claims (from its manifest). */
+  ownedPaneTabPrefixes: readonly string[] = [],
 ): ServerPluginContext {
   const logger = createServerLogger(pluginId);
+  const ownedPrefixes = new Set(ownedPaneTabPrefixes);
+  const openEditorTab: OpenEditorTabFn = (sessionId, path) => {
+    const prefix = paneTabPrefixOf(path);
+    if (typeof sessionId !== "string" || !sessionId || !prefix || !ownedPrefixes.has(prefix)) {
+      throw new Error(`[plugin:${pluginId}] openEditorTab refused: "${String(path)}" is not under an own editor-pane-tab prefix`);
+    }
+    deps.broadcastToSubscribers({ type: "editor_tab_open", sessionId, path });
+  };
 
   return {
     fastify: deps.fastify,
@@ -1221,6 +1244,7 @@ export function createServerPluginContext(
       ? (type, handler) => deps.registerPiRequestHandler!(pluginId, type, handler)
       : undefined,
     isPiExtensionInstalled: deps.isPiExtensionInstalled,
+    openEditorTab,
     mintSpawnToken: deps.mintSpawnToken,
     renameSession: deps.renameSession,
     assignSessionRef: deps.assignSessionRef,
