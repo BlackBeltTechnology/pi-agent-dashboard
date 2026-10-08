@@ -782,6 +782,9 @@ export class RelayInstance {
       return { ok: false, state: "detached" };
     }
     const result = this.tap.subscribe(viewer, tabId);
+    // Third refresh point (D7): a viewer may be looking at a tab whose
+    // navigation never produced a Page.* event (the agent never enabled Page).
+    if (result.ok) void this._refreshTabMeta(tabId);
     if (!result.ok) {
       this.deps.audit.append({
         profileDirectory: this.deps.profileDirectory,
@@ -801,18 +804,18 @@ export class RelayInstance {
     this.tap.unsubscribeAll(viewer);
   }
 
-  private _auditRefusedExtensionPage(tabId: number): void {
+  private _auditRefusedExtensionPage(tabId: number, via: "subscribe" | "input" = "subscribe"): void {
     this.deps.audit.append({
       profileDirectory: this.deps.profileDirectory,
       instanceId: this.deps.instanceId,
       kind: "viewer-subscribe-refused",
-      detail: `tab:${tabId} reason:extension-page`,
+      detail: `tab:${tabId} reason:extension-page${via === "input" ? " via:input" : ""}`,
     });
   }
 
   input(viewer: RelaySocket, tabId: number, msg: unknown, remoteAddress?: string): Promise<void> {
     if (this.isConnectTab(tabId)) {
-      this._auditRefusedExtensionPage(tabId);
+      this._auditRefusedExtensionPage(tabId, "input");
       return Promise.resolve();
     }
     return this.tap.input(viewer, tabId, msg, remoteAddress);

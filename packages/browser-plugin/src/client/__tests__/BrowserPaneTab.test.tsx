@@ -382,6 +382,31 @@ describe("viewport follows the pane (#F10 #P2)", () => {
 	});
 });
 
+describe("fit fallback (B2)", () => {
+	const fitted = (r: ReturnType<typeof mount>) => r.getByTestId("browser-pane-frame").className.includes("object-contain");
+	async function oneToOne(tab: TabSpec) {
+		const r = mount();
+		emitStatus(r, status([{ tabId: 1 }]));
+		act(() => r.ws.emit(frame(1)));
+		await waitFor(() => expect(r.getByTestId("browser-pane-frame")).toBeTruthy());
+		fireEvent.click(r.getByTestId("browser-pane-fit-toggle")); // user picks 1:1
+		expect(fitted(r)).toBe(false);
+		emitStatus(r, status([tab]));
+		return r;
+	}
+	it("while the agent owns emulation the frame is fitted even if the user chose 1:1; it returns to 1:1 after", async () => {
+		const r = await oneToOne({ tabId: 1, agentEmulation: true });
+		await waitFor(() => expect(fitted(r)).toBe(true));
+		emitStatus(r, status([{ tabId: 1 }]));
+		await waitFor(() => expect(fitted(r)).toBe(false));
+	});
+	it("with Input off the frame is scaled (fitted) instead", async () => {
+		const r = await oneToOne({ tabId: 1 });
+		fireEvent.click(r.getByTestId("browser-pane-input-toggle"));
+		await waitFor(() => expect(fitted(r)).toBe(true));
+	});
+});
+
 describe("takeover Done (#F11)", () => {
 	const req = (over: Partial<InteractiveUiRequestSnapshot> = {}, meta: Record<string, unknown> = {}): InteractiveUiRequestSnapshot => ({
 		requestId: "p1",

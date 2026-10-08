@@ -161,7 +161,7 @@ describe("#X4 / #X6 connect page", () => {
     expect(h.ext.cdpCommands.slice(before).map((c) => c.method)).not.toContain("Page.startScreencast");
     const refused = h.audit.list().filter((e) => e.kind === "viewer-subscribe-refused");
     expect(refused.length).toBe(2);
-    expect(refused[0].detail).toBe("tab:8 reason:extension-page");
+    expect(refused.map((e) => e.detail).sort()).toEqual(["tab:8 reason:extension-page", "tab:8 reason:extension-page via:input"]);
     expect(JSON.stringify(h.audit.list())).not.toMatch(/SECRET/);
   });
 
@@ -284,6 +284,24 @@ describe("#X11 / #P1 tab metadata", () => {
     h.ext.emitChromeEvent(7, "Page.frameNavigated", { frame: { id: "f", url: "https://c.test/" } });
     await flush(8);
     expect(h.instance.tabList()[0]).toMatchObject({ url: "https://c.test/", title: "C" });
+  });
+
+  it("B1: a viewer subscribe refreshes title/url even when no navigation event ever arrived", async () => {
+    const h = await boot();
+    nav(h, "https://stale-fixed.test/", "Fresh"); // changed with NO Page.* events and NO CDP command
+    expect(h.instance.tabList()[0].url).toBe("https://a.test/");
+    expect(h.instance.subscribe(viewerSocket(), 7).ok).toBe(true);
+    await flush(8);
+    expect(h.instance.tabList()[0]).toMatchObject({ url: "https://stale-fixed.test/", title: "Fresh" });
+    expect(h.onTabMetaChange).toHaveBeenCalled();
+  });
+
+  it("a refused (connect-page) subscribe does not refresh anything", async () => {
+    const h = await boot([{ id: 8, title: "Connect", url: CONNECT_URL }]);
+    const before = h.ext.cdpCommands.filter((c) => c.method === "Target.getTargetInfo").length;
+    h.instance.subscribe(viewerSocket(), 8);
+    await flush(4);
+    expect(h.ext.cdpCommands.filter((c) => c.method === "Target.getTargetInfo").length).toBe(before);
   });
 
   it("sub-frame navigations do not trigger a refresh", async () => {

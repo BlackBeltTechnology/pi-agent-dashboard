@@ -97,6 +97,9 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
 
   // ── viewport follows the pane ────────────────────────────────────────────
   const resizeEnabled = canInput && !agentEmulation;
+  // The viewport only follows the pane while resize is in effect; otherwise the
+  // frame is scaled to the pane (Fit), whatever the 1:1 toggle says.
+  const effectiveFit = fit || !resizeEnabled;
   const lastSent = useRef<{ w: number; h: number } | null>(null);
   const latest = useRef<{ w: number; h: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -219,8 +222,8 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
         <button type="button" data-testid="browser-pane-input-toggle" aria-pressed={inputOn} className={BTN} onClick={() => setInputOn((v) => !v)}>
           {inputOn ? t("inputOn", undefined, "Input: on") : t("inputOff", undefined, "Input: off")}
         </button>
-        <button type="button" data-testid="browser-pane-fit-toggle" aria-pressed={fit} className={BTN} onClick={() => setFit((v) => !v)}>
-          {fit ? t("fit", undefined, "Fit") : t("oneToOne", undefined, "1:1")}
+        <button type="button" data-testid="browser-pane-fit-toggle" aria-pressed={effectiveFit} className={BTN} onClick={() => setFit((v) => !v)}>
+          {effectiveFit ? t("fit", undefined, "Fit") : t("oneToOne", undefined, "1:1")}
         </button>
         <button type="button" data-testid="browser-pane-bring-to-front" className={BTN} disabled={!tab || detached} onClick={bringToFront}>
           {t("bringToFront", undefined, "Bring to front")}
@@ -247,12 +250,12 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
         </div>
       )}
 
-      <div ref={areaRef} data-testid="browser-pane-frame-area" className={`relative min-h-0 flex-1 bg-black/5 ${fit ? "overflow-hidden" : "overflow-auto"}`}>
+      <div ref={areaRef} data-testid="browser-pane-frame-area" className={`relative min-h-0 flex-1 bg-black/5 ${effectiveFit ? "overflow-hidden" : "overflow-auto"}`}>
         <div
           ref={boxRef}
           tabIndex={0}
           data-testid="browser-pane-frame-box"
-          className={`select-none outline-none ${fit ? "flex h-full w-full items-center justify-center" : "inline-block"}`}
+          className={`select-none outline-none ${effectiveFit ? "flex h-full w-full items-center justify-center" : "inline-block"}`}
           style={{ userSelect: "none", touchAction: "none" }}
           onPointerDown={(e) => {
             if (canInput) boxRef.current?.focus();
@@ -271,7 +274,7 @@ export function BrowserPaneTab({ path, session, isActive, onClose }: BrowserPane
               data-testid="browser-pane-frame"
               alt={t("frameAlt", undefined, "Live browser frame")}
               src={`data:image/jpeg;base64,${jpeg}`}
-              className={`block select-none ${fit ? "max-h-full max-w-full object-contain" : ""}`}
+              className={`block select-none ${effectiveFit ? "max-h-full max-w-full object-contain" : ""}`}
               draggable={false}
             />
           )}

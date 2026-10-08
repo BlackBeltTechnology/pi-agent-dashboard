@@ -110,6 +110,6 @@ export function SplitRouteSync({ active, file, line, url, nonce, tabs }: SplitRo
     }
     // `tabsKey` (not `tabs`) — the array identity changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed]);
+  }, [key, file, line, url, openInSplit, openUrlTarget, openLiveTarget, ensureRevealed, openPluginTab]);
   return null;
 }
