@@ -12,6 +12,11 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Team skill access.** Admins manage a skill catalog in a new Skills panel of the
+  team app (config entries plus managed entries stored in `skills.json`), with per-skill
+  users and targets. Personas get skills from that catalog only; the editor disables
+  skills not allowed for the ticked projects. Revoking a skill ends the affected live
+  sessions within 5 s.
 - **Per-block session-card and directory-card toggles.** Every card block is now
   switchable on its own: the OpenSpec badge is separate from the OpenSpec subcard,
   and a folder group's git row, action banner, OpenSpec section, Create row and
@@ -32,6 +37,11 @@ see [`docs/release-process.md`](docs/release-process.md).
   an active search or filter always forces the full list.
 
 ### Changed
+
+- **Team personas no longer inherit global, package or extension skills (breaking).**
+  Every team session starts with `--no-skills` and only its catalog skills; legacy alias
+  keys and single-file (`.md`) `skillCatalog` entries become invalid. `/skill:<name>`
+  works in the team chat for granted skills only.
 
 ### Fixed
 

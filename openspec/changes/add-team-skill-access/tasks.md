@@ -127,6 +127,6 @@ Spike results are recorded in design.md D10, D11 and D12; scripts are in `spikes
 ## 10. Review, docs, release notes
 
 - [ ] 10.1 Run `security-hardening` over the guard + bridge diff; run `doubt-driven-review` on the `--no-skills` behavioral break before merge.
-- [ ] 10.2 CHANGELOG `[Unreleased]`: personas no longer inherit global/package/extension skills; legacy alias keys and single-file entries become invalid; new admin Skills panel.
-- [ ] 10.3 Update `packages/team-plugin/README.md` (entry shape, managed entries, config-edit timing, mode-switch note) and the `AGENTS.md` rows for the touched files.
+- [x] 10.2 CHANGELOG `[Unreleased]`: personas no longer inherit global/package/extension skills; legacy alias keys and single-file entries become invalid; new admin Skills panel.
+- [x] 10.3 Update `packages/team-plugin/README.md` (entry shape, managed entries, config-edit timing, mode-switch note) and the `AGENTS.md` rows for the touched files.
 - [ ] 10.4 File a pi upstream issue: `--no-skills` does not gate skills added through `resources_discover` (`resource-loader.js` `extendResources`).

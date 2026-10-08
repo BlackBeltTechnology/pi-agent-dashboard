@@ -28,7 +28,10 @@ extra server and no extra Keycloak client are needed for the default same-origin
   "idleMinutes": 30,
   "maxConversations": 50,
   "maxLiveSessions": 10,
-  "skillCatalog": { "review": "/abs/path/to/skill" },
+  "skillCatalog": {
+    "review": "/abs/path/to/skill-dir",            // directory containing SKILL.md (shorthand)
+    "triage": { "path": "/abs/triage", "users": "*", "targets": ["billing"] }
+  },
   "projects": {
     "billing": {
       "name": "billing-api",
@@ -39,6 +42,20 @@ extra server and no extra Keycloak client are needed for the default same-origin
   }
 }
 ```
+
+## Skills
+
+A persona can use only skills from the catalog. Entries come from `skillCatalog` (config,
+read-only in the app) or are added by an admin in the app (managed, stored in
+`<team home>/skills.json`; config wins on a name clash). An entry is `{ path, users, targets }`:
+`path` is an absolute directory with a `SKILL.md` whose `name` matches the catalog name;
+`users` and `targets` default to `"*"`.
+
+- Team sessions start with `--no-skills` plus the persona's skills; global, package and
+  extension skills are not available. `/skill:<name>` works for granted skills only.
+- Revoking or narrowing a **managed** entry ends affected live sessions within 5 s.
+  A **config** edit has no change notification: it applies at the next open of the conversation.
+- Switching to single-user mode widens user-scoped entries to the operator.
 
 ## Modes
 
