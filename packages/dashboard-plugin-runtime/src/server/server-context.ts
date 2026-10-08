@@ -571,6 +571,20 @@ export interface PluginSpawnResult {
 export type SpawnSessionFn = (opts: PluginSpawnOptions) => Promise<PluginSpawnResult>;
 
 /**
+ * Register a spawn-env contributor (EXPERIMENTAL). A synchronous function
+ * returning env vars the dashboard adds to every pi session it spawns. Trusted
+ * plugins only (same test as `spawnSession`); untrusted get a no-op. The host
+ * validates names/values, never overrides an inherited variable, skips the
+ * contributor while the plugin is disabled, and skips throwing contributors.
+ * `opts.supersede` names a provenance marker env var plus the names the host
+ * may delete when the marker lists them. See change: add-context-mode-settings-plugin.
+ */
+export type RegisterSpawnEnvContributorFn = (
+  fn: (ctx: { mechanism: "headless" | "tmux" | "wt" | "wsl-tmux" }) => Record<string, string>,
+  opts?: { supersede?: { marker: string; names: readonly string[] } },
+) => () => void;
+
+/**
  * Abort a running pi session by id. Gated to first-party / trusted plugins by
  * the host (same trust gate as `spawnSession`): untrusted plugins receive a
  * hook that returns `false` without sending anything. Returns `true` when the
@@ -895,6 +909,12 @@ export interface ServerPluginContext {
    */
   spawnSession: SpawnSessionFn;
   /**
+   * Contribute env vars to dashboard-spawned sessions. Trusted-gated and
+   * OPTIONAL (absent on hosts that do not wire it). Experimental.
+   * See change: add-context-mode-settings-plugin.
+   */
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
+  /**
    * Abort a running session. Gated to first-party/trusted plugins; untrusted
    * plugins get a hook that returns `false`. See change:
    * automation-ui-mockup-parity.
@@ -1103,6 +1123,7 @@ export interface ServerContextDeps {
   emitEventToSession: EmitEventToSessionFn;
   sendExtensionMessage: SendExtensionMessageFn;
   spawnSession: SpawnSessionFn;
+  registerSpawnEnvContributor?: RegisterSpawnEnvContributorFn;
   abortSession: AbortSessionFn;
   /** Optional: hosts without it give plugins a refusing no-op. */
   shutdownSession?: ShutdownSessionFn;
@@ -1190,6 +1211,7 @@ export function createServerPluginContext(
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
     shutdownSession: deps.shutdownSession ?? (async () => false),
+    registerSpawnEnvContributor: deps.registerSpawnEnvContributor,
     abortSpawnedRun: deps.abortSpawnedRun,
     registerCwdPolicy: deps.registerCwdPolicy,
     unregisterCwdPolicy: deps.unregisterCwdPolicy,

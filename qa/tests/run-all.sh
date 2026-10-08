@@ -35,6 +35,7 @@ TESTS=(
   "36-access-grant-dialog.sh"   # kill switch, env YOLO without a browser, ~/.SSH folding, case-sensitive volume (#X12, #X11, #E18, #E19). Hermetic: own temp $HOME + port. See change: add-access-grant-dialog.
   "39-cli-open.sh"              # `pi-dashboard open --print` mints the one-time local-proof URL; server down -> exit 1 (#X15). See change: harden-trust-and-credential-boundaries.
   "41-bridge-opt-out.sh"        # PI_DASHBOARD_BRIDGE / bridge.enabled opt-out inert; dashboard spawns still attach (#X2-X5). Skips when pi absent; X5 when tmux absent. See change: add-bridge-env-opt-out.
+  "42-context-mode-settings.sh" # context-mode bridge-internal env scrubbed (headless + tmux), stale projected value dropped, operator export wins (#X8-X12). Skips when pi absent / Windows; MCP-child + store checks need context-mode. See change: add-context-mode-settings-plugin.
   # 25-gateway-remote-join-perf.sh, 26-gateway-promotion-soak.sh and 38-poll-cost.sh are OPT-IN:
   # one moves ~1 GB through a socket, the others soak for minutes (38: PI_QA_POLL_COST=1).
 )

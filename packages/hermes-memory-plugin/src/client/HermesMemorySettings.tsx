@@ -12,7 +12,9 @@
  *
  * See change: add-hermes-memory-settings-plugin.
  */
-import { useSettingsDraftSource, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULTS, FIELD_DESCRIPTORS, KNOWN_KEYS, type MemoryConfig } from "../shared/hermes-config.js";
@@ -318,7 +320,7 @@ function FieldRow({
       </div>
       <p className="text-[11.5px] text-[var(--text-tertiary)] mt-1.5 mb-0">{meta.help}</p>
       <div className="mt-2 flex items-center gap-2 flex-wrap">
-        <FieldControl meta={meta} value={value} onChange={onChange} />
+        <FieldControl meta={meta} value={value} onChange={onChange} onReset={onReset} t={t} />
         {meta.unit && <span className="text-[11px] text-[var(--text-tertiary)]">{meta.unit}</span>}
       </div>
       {error && <p className="text-[11px] text-[var(--accent-red)] mt-1 mb-0">{error}</p>}
@@ -334,10 +336,14 @@ function FieldControl({
   meta,
   value,
   onChange,
+  onReset,
+  t,
 }: {
   meta: FieldMeta;
   value: unknown;
   onChange: (v: unknown) => void;
+  onReset: () => void;
+  t: ReturnType<typeof useT>;
 }): React.ReactElement {
   const desc = FIELD_DESCRIPTORS[meta.key];
   const key = meta.key as keyof MemoryConfig;
@@ -365,6 +371,8 @@ function FieldControl({
           data-testid={`hermes-input-${key}`}
         />
       );
+    case "model":
+      return <ModelField fieldKey={key} value={value} onChange={onChange} onReset={onReset} t={t} />;
     case "string":
       return (
         <input
@@ -419,4 +427,79 @@ function FieldControl({
         />
       );
   }
+}
+
+// ── Model override: shared model selector fed from /api/models ────────────────
+// See change: add-context-mode-settings-plugin (D7).
+
+interface ModelRow {
+  id: string;
+  provider: string;
+}
+
+/** `/api/models` rows (`id` is `provider/id`) → the selector's bare-id `ModelInfo[]`. */
+function toModelInfo(rows: ModelRow[]): ModelInfo[] {
+  return rows.map((r) => {
+    const prefix = `${r.provider}/`;
+    return { provider: r.provider, id: r.id.startsWith(prefix) ? r.id.slice(prefix.length) : r.id };
+  });
+}
+
+function ModelField({
+  fieldKey,
+  value,
+  onChange,
+  onReset,
+  t,
+}: {
+  fieldKey: string;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  onReset: () => void;
+  t: ReturnType<typeof useT>;
+}): React.ReactElement {
+  const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+  const [models, setModels] = useState<ModelInfo[]>([]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch("/api/models", { signal: ac.signal });
+        if (!res.ok) return;
+        const json = (await res.json()) as { data?: ModelRow[] };
+        setModels(toModelInfo(Array.isArray(json.data) ? json.data : []));
+      } catch {
+        // list stays empty; the stored value is still shown via `current`
+      }
+    })();
+    return () => ac.abort();
+  }, []);
+
+  // A stored value missing from the list is still passed as `current` so it
+  // stays visible and round-trips unchanged.
+  const current = typeof value === "string" && value !== "" ? value : undefined;
+  return (
+    <div className="flex items-center gap-2 flex-wrap" data-testid={`hermes-input-${fieldKey}`}>
+      {ModelSelector ? (
+        <ModelSelector
+          current={current}
+          models={models}
+          onSelect={(label: string) => onChange(label)}
+        />
+      ) : (
+        <span className="text-[12px] text-[var(--text-tertiary)]">
+          {t("modelSelectorUnavailable", undefined, "Model selector unavailable")}
+        </span>
+      )}
+      <button
+        type="button"
+        className="text-[11px] text-[var(--accent-blue)]"
+        onClick={onReset}
+        data-testid={`hermes-inherit-${fieldKey}`}
+      >
+        {t("inheritSessionModel", undefined, "Inherit session model")}
+      </button>
+    </div>
+  );
 }

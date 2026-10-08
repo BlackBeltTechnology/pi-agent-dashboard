@@ -7,6 +7,8 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `agent-path-gate.spec.ts` | L3 path gate. → see `agent-path-gate.spec.ts.AGENTS.md` |
 | `archived-attachment.spec.ts` | L3 F8/F11 archived attachment. → see `archived-attachment.spec.ts.AGENTS.md` |
 | `composer-session-strip.spec.ts` | L3 redesign-composer-session-strip (F8–F12). → see `composer-session-strip.spec.ts.AGENTS.md` |
+| `context-mode-settings.spec.ts` | L3 F1/F2 → see `context-mode-settings.spec.ts.AGENTS.md` |
+| `hermes-model-override.spec.ts` | L3 F3 → see `hermes-model-override.spec.ts.AGENTS.md` |
 | `kb-settings-sources-search.spec.ts` | L3 KB settings sources + search. → see `kb-settings-sources-search.spec.ts.AGENTS.md` |
 | `model-roles-promotion.spec.ts` | L3 spec. → see `model-roles-promotion.spec.ts.AGENTS.md` |
 | `gmail-plugin.spec.ts` | L3 gmail-plugin vs in-container fake Google: F1–… → see `gmail-plugin.spec.ts.AGENTS.md` |
@@ -114,7 +116,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `openspec-board-drop-contrast.spec.ts` | L3 fix-openspec-board-drop-targeting: contrast. → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 fix-openspec-board-drop-targeting: indicator. → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop… → see `openspec-board-drop.spec.ts.AGENTS.md` |
-| `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on the OpenSpec board (test-plan… → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
+| `openspec-board-worktree-availability.spec.ts` | L3 worktree availability on OpenSpec board → see `openspec-board-worktree-availability.spec.ts.AGENTS.md` |
 | `openspec-connect-coverage.spec.ts` | L3 connect coverage, fix-connect-snapshot-frame-loss… → see `openspec-connect-coverage.spec.ts.AGENTS.md` |
 | `openspec-init-affordances-folder.spec.ts` | L3 folder-section slice (add-openspec-init-affordances). → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-lifecycle-bar.spec.ts` | L3 compact-openspec-lifecycle-bar: board segment… → see `openspec-lifecycle-bar.spec.ts.AGENTS.md` |
@@ -130,7 +132,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `runtime-updates-remote-local.spec.ts` | X14 → see `runtime-updates-remote-local.spec.ts.AGENTS.md` |
 | `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link… → see `security-pair-link.spec.ts.AGENTS.md` |
 | `paging-empty-reply-exhausted.spec.ts` | L3 #F8: empty page reply hides "more"; no same-offset retry. → see `paging-empty-reply-exhausted.spec.ts.AGENTS.md` |
-| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect snapshot re-arms a stale exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
+| `paging-exhausted-reconnect-rearm.spec.ts` | L3 #X4: reconnect re-arms exhausted mark. → see `paging-exhausted-reconnect-rearm.spec.ts.AGENTS.md` |
 | `pi-runtime.spec.ts` | L3 spec: version-neutral pi runtime verification vault… → see `pi-runtime.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker… → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-hash-parity.spec.ts` | L3 F3: clientBuild matched; banner hidden. → see `plugin-hash-parity.spec.ts.AGENTS.md` |
@@ -148,7 +150,7 @@ One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md
 | `redesign-provider-add-flow.spec.ts` | L3: Add-provider dialog + section-owned flows. → see `redesign-provider-add-flow.spec.ts.AGENTS.md` |
 | `redesign-providers-list.spec.ts` | L3: the connected list. → see `redesign-providers-list.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | L3 reducer-poisoned cache heal. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
-| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst reconciles the sidebar on drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
+| `registry-shed-sidebar-convergence.spec.ts` | L3 #F7: shed registry burst, sidebar drain. → see `registry-shed-sidebar-convergence.spec.ts.AGENTS.md` |
 | `remote-transcript-read.spec.ts` | L3 D12 READ half of add-pi-gateway-transport-identity. → see `remote-transcript-read.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session… → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |

@@ -118,6 +118,7 @@ export default defineConfig({
       "packages/apple-tools",
       "packages/dashboard-plugin-skill",
       "packages/hermes-memory-plugin",
+      "packages/context-mode-settings-plugin",
       "packages/quota-plugin",
       "scripts",
       // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the

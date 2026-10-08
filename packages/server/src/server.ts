@@ -282,6 +282,7 @@ import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
+import { registerSpawnEnvContributor, setSpawnEnvPluginEnabledCheck } from "./spawn-process/spawn-env-contributors.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway } from "./terminal/terminal-gateway.js";
@@ -2985,6 +2986,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // registering during its activation is immediately routable.
       const wsRouteRegistry = getWsRouteRegistry();
       setPluginScopeResolver((path) => wsRouteRegistry.resolveScope(path));
+      // Spawn-env contributors of a plugin disabled in config are skipped at
+      // each spawn (the loader has no teardown hook). Same predicate as the
+      // loader's `isEnabled` below. See change: add-context-mode-settings-plugin.
+      setSpawnEnvPluginEnabledCheck((pluginId) => {
+        const pluginCfg = getPluginConfigFromFile(loadConfig(), pluginId) as Record<string, unknown>;
+        const manifest = discoverPlugins().find((p) => p.manifest.id === pluginId)?.manifest;
+        return resolvePluginEnabled(pluginCfg, manifest?.defaultEnabled);
+      });
       try {
         await loadServerEntries({
           isEnabled: (pluginId) => {
@@ -3190,6 +3199,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   if (initialPrompt) pendingInitialPromptRegistry.consume(opts.cwd);
                   return { success: false, message: err instanceof Error ? err.message : String(err) };
                 }
+              },
+              // Spawn-env contributor hook. Trusted-gated like `spawnSession`
+              // (policy, not a sandbox); untrusted plugins get a no-op.
+              // See change: add-context-mode-settings-plugin.
+              registerSpawnEnvContributor: (fn, opts) => {
+                if ((plugin.manifest.priority ?? 1000) > 100) return () => {};
+                return registerSpawnEnvContributor(plugin.manifest.id, fn, opts);
               },
               // Session-abort hook. Gated to first-party/trusted plugins
               // (priority <= 100), mirroring `spawnSession`. Untrusted plugins

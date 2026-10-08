@@ -330,6 +330,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-client-utils':
         specifier: ^0.9.0
         version: link:../client-utils
+      '@blackbelt-technology/pi-dashboard-context-mode-settings-plugin':
+        specifier: ^0.9.0
+        version: link:../context-mode-settings-plugin
       '@blackbelt-technology/pi-dashboard-cost-estimator':
         specifier: ^0.9.0
         version: link:../cost-estimator
@@ -565,6 +568,37 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 1.0.0
         version: 1.0.0(@aws-sdk/credential-provider-node@3.972.83)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.6.5))(@smithy/signature-v4@5.7.3)(supports-color@8.1.1)(ws@8.21.3)(zod@4.6.5)
+
+  packages/context-mode-settings-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.9.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.9.0
+        version: link:../shared
+      '@fastify/rate-limit':
+        specifier: ^11.2.0
+        version: 11.2.0
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.5(@types/react@19.2.18)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.8(react@19.2.8)
+      wouter:
+        specifier: ^3.9.0
+        version: 3.10.0(react@19.2.8)
 
   packages/cost-estimator:
     dependencies:

@@ -3,6 +3,7 @@
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { ChatGatewaySettings } from "@blackbelt-technology/pi-dashboard-chat-gateway-plugin";
+import { ContextModeSettings, catalog as context_mode_settings_catalog } from "@blackbelt-technology/pi-dashboard-context-mode-settings-plugin";
 import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
@@ -130,6 +131,34 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "chat-gateway", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: ChatGatewaySettings },
     ],
+  },
+  {
+    manifest: {
+        "id": "context-mode-settings",
+        "displayName": "context-mode Settings",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "ContextModeSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "bridge": "./src/bridge/index.ts",
+        "configSchema": "./src/configSchema.json",
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "context-mode"
+            ]
+        }
+    },
+    claims: [
+      { pluginId: "context-mode-settings", priority: 100, slot: "settings-section", tab: "general", Component: ContextModeSettings },
+    ],
+    catalog: context_mode_settings_catalog,
   },
   {
     manifest: {
@@ -672,4 +701,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "6c39baf2339f7a190e4aa29d4261b141aad7136261947783bb3df81d31c27ae9";
+export const PLUGIN_REGISTRY_HASH = "dcfc293d1d72492f31c9a3a7c91c8598b8d5eb327e60036844648f658bd09846";
