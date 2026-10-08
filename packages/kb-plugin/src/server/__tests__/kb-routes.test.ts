@@ -692,7 +692,7 @@ import {
   SqliteFtsStore,
   sourceHash,
 } from "@blackbelt-technology/pi-dashboard-kb";
-import { applyConfigPatchAndTrust, reindexAll, writeProjectConfig } from "../kb-routes.js";
+import { applyConfigPatchAndTrust, preflightWrite, reindexAll, writeProjectConfig } from "../kb-routes.js";
 
 const REMOTE = "https://github.com/example/never";
 const q = (cwd: string) => encodeURIComponent(cwd);
@@ -1359,5 +1359,13 @@ describe("KB read/write preconditions (kb-denied-folder-pin-state)", () => {
     expect(res.json().reindexSkipped).toBe("no sources configured");
     release();
     await app.close();
+  });
+
+  it("a path that is a FILE (not a directory) or does not exist is 'folder missing'; a directory is not", () => {
+    const dir = makeFolder();
+    expect(preflightWrite(dir, { needsSources: false })).toBeNull();
+    expect(preflightWrite(join(dir, "docs", "a.md"), { needsSources: false })).toBe("folder missing");
+    expect(preflightWrite(join(dir, "nope"), { needsSources: false })).toBe("folder missing");
+    expect(preflightWrite(`${dir}/`, { needsSources: false })).toBeNull(); // trailing separator
   });
 });

@@ -23,8 +23,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import {
   classifyRef,
   indexSource,
@@ -97,11 +97,10 @@ function denyCwd(reply: FastifyReply, cwd: string | undefined): void {
  *  EPERM, …) counts as missing — a folder we cannot stat is not indexable.
  *  See change: kb-denied-folder-pin-state (design D9). */
 function folderExists(cwd: string): boolean {
-  try {
-    return statSync(cwd).isDirectory();
-  } catch {
-    return false;
-  }
+  // `<path>/.` resolves only for an existing DIRECTORY (a file yields ENOTDIR) and
+  // `existsSync` swallows every stat failure — exactly the "any failure = missing"
+  // contract, without a separate `statSync` on the request-derived path.
+  return existsSync(`${cwd}${sep}.`);
 }
 
 /** Precondition refusal of a KB write (reindex / config write). */
