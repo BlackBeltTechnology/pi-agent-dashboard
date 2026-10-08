@@ -28,7 +28,7 @@
  * no new token is introduced.
  */
 
-import { mdiTextBoxCheckOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiTextBoxCheckOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
@@ -107,7 +107,21 @@ interface Props {
   onStatusChange?: () => void;
   /** The folder's sessions — used to re-probe when a spawned setup ends. */
   sessions?: BannerSession[];
+  /**
+   * `folder-banner` hidden: render a compact warning chip naming the state
+   * instead of the full banner; activating it reveals the banner until the
+   * folder leaves that state. See change: add-focus-mode-and-card-block-toggles.
+   */
+  compact?: boolean;
 }
+
+const CHIP_LABEL: Record<BannerRung, () => string> = {
+  failed: () => i18nT("folders.chipInitFailed", undefined, "Init failed"),
+  running: () => i18nT("folders.chipInitRunning", undefined, "Initializing…"),
+  retrust: () => i18nT("folders.chipRetrust", undefined, "Re-trust needed"),
+  "init-needed": () => i18nT("folders.chipInitNeeded", undefined, "Init needed"),
+  setup: () => i18nT("folders.chipSetup", undefined, "Setup needed"),
+};
 
 export function FolderActionBanner({
   cwd,
@@ -116,9 +130,17 @@ export function FolderActionBanner({
   onInitializeProject,
   onStatusChange,
   sessions,
+  compact = false,
 }: Props) {
   const run = useInitRun(cwd);
   const rung = computeBannerRung(status, run, isProjectRoot);
+  // Per-tab reveal for the compact chip; resets once the folder leaves the state.
+  const [revealed, setRevealed] = useState(false);
+  // Any change of state (incl. failed → retrust) re-collapses to the chip.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rung` is the trigger, not a read value
+  useEffect(() => {
+    setRevealed(false);
+  }, [rung]);
 
   // Re-probe init-status when a spawned project-init session reaches `ended`.
   const [pendingSpawn, setPendingSpawn] = useState(false);
@@ -150,6 +172,20 @@ export function FolderActionBanner({
   }, [sessions, pendingSpawn, cwd, onStatusChange]);
 
   if (!rung) return null;
+
+  if (compact && !revealed) {
+    return (
+      <button
+        type="button"
+        data-testid={`folder-banner-chip-${cwd}`}
+        onClick={(e) => { e.stopPropagation(); setRevealed(true); }}
+        className={`focus-ring mt-1 inline-flex min-h-[44px] md:min-h-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${SEVERITY_CLASS[RUNG_SEVERITY[rung]]}`}
+      >
+        <Icon path={mdiAlertOutline} size={0.5} className="shrink-0" />
+        {CHIP_LABEL[rung]()}
+      </button>
+    );
+  }
 
   const severity = RUNG_SEVERITY[rung];
   const label = i18nT("folders.folderActionBanner", undefined, "Folder action");

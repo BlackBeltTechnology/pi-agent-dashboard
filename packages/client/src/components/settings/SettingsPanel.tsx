@@ -1,4 +1,5 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
@@ -28,14 +29,15 @@ import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPackageVariantClosed, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiShieldCheck, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
+import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
+import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
@@ -70,9 +72,7 @@ import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDi
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
-import { useLaunchSource } from "../../hooks/useLaunchSource.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
-import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
 import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
@@ -80,11 +80,11 @@ import { AccessPromptsSection } from "./AccessPromptsSection.js";
 import { AccessSection } from "./AccessSection.js";
 import { AgentPathGateSection } from "./AgentPathGateSection.js";
 import { AllowedHostsSection } from "./AllowedHostsSection.js";
-import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
-import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { CardSectionsSection } from "./CardSectionsSection.js";
+import { DefaultGroupingField } from "./DefaultGroupingField.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
+import { FocusSettingsSection } from "./FocusSettingsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
 import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
@@ -94,6 +94,7 @@ import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
+import { PushNotificationsSection } from "./PushNotificationsSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
@@ -190,6 +191,10 @@ interface Config {
   completedFirst?: boolean;
   /** Move ask_user sessions to front of active tier. See change: simplify-session-card-ordering. */
   questionFirst?: boolean;
+  /** Sidebar folder list behavior; absent = classic. See change: add-focus-mode-and-card-block-toggles. */
+  folderListMode?: "classic" | "accordion";
+  /** Accordion: unfocused folders with attention-demanding sessions peek open. Default true. */
+  folderAttentionPeek?: boolean;
   /** Timeout for ask_user prompts in seconds; -1 (or <=0) disables timeout. */
   askUserPromptTimeoutSeconds?: number;
   /** How long (ms) to wait for spawned pi to connect before a warning. Default 30000. See change: spawn-failure-diagnostics. */
@@ -297,6 +302,7 @@ export const CONFIG_FIELD_PAGE: Record<string, string> = {
   // page. See change: bound-session-heap-and-gc-telemetry (D7).
   serverHeap: "server", sessionHeap: "sessions", maxConcurrentSubagents: "sessions",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
+  folderListMode: "sessions", folderAttentionPeek: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions", sessionList: "sessions",
   gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
@@ -334,6 +340,12 @@ export function computeConfigPartial(config: Config, original: Config): Record<s
   }
   if ((config.questionFirst ?? false) !== (original.questionFirst ?? false)) {
     partial.questionFirst = config.questionFirst ?? false;
+  }
+  if ((config.folderListMode ?? "classic") !== (original.folderListMode ?? "classic")) {
+    partial.folderListMode = config.folderListMode ?? "classic";
+  }
+  if ((config.folderAttentionPeek ?? true) !== (original.folderAttentionPeek ?? true)) {
+    partial.folderAttentionPeek = config.folderAttentionPeek ?? true;
   }
   if (config.askUserPromptTimeoutSeconds !== original.askUserPromptTimeoutSeconds) {
     partial.askUserPromptTimeoutSeconds = config.askUserPromptTimeoutSeconds ?? 300;
@@ -1918,6 +1930,24 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                     onChange={(v) => update((c) => { c.completedFirst = v; })}
                     hint={i18nT("session.whenASessionFinishesATurn", undefined, "When a session finishes a turn or ends, move its card to the top of its tier (active, resp. ended). Off keeps the card in place.")}
                   />
+                  <SelectField
+                    label={i18nT("settings.folderListMode", undefined, "Folder list")}
+                    value={config.folderListMode ?? "classic"}
+                    options={[
+                      { value: "classic", label: i18nT("settings.folderListModeClassic", undefined, "Classic — all folders expanded as you left them") },
+                      { value: "accordion", label: i18nT("settings.folderListModeAccordion", undefined, "Accordion — focused folder open, others compact") },
+                    ]}
+                    onChange={(v) => update((c) => { c.folderListMode = v === "accordion" ? "accordion" : "classic"; })}
+                    hint={i18nT("settings.folderListModeHint", undefined, "Accordion keeps the folder you are working in fully open and condenses the rest. Focus mode can switch this on temporarily.")}
+                  />
+                  {(config.folderListMode ?? "classic") === "accordion" && (
+                    <ToggleField
+                      label={i18nT("settings.folderAttentionPeek", undefined, "Peek folders that need you")}
+                      value={config.folderAttentionPeek ?? true}
+                      onChange={(v) => update((c) => { c.folderAttentionPeek = v; })}
+                      hint={i18nT("settings.folderAttentionPeekHint", undefined, "In accordion mode, a compact folder shows the sessions that are streaming, asking a question or unread.")}
+                    />
+                  )}
                   <ToggleField
                     label={i18nT("session.putQuestionSessionFirst", undefined, "Put question session first")}
                     value={config.questionFirst ?? false}
@@ -2190,6 +2220,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd,
                 <Section title={t("settings.push.title", undefined, "Push notifications")}>
                   <PushNotificationsSection />
                 </Section>
+                <FocusSettingsSection />
               </>
             )}
 

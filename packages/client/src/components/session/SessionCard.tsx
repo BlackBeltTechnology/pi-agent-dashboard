@@ -32,7 +32,8 @@ export { getCardPulseClass, getCardStripeFxClass } from "../../lib/session/sessi
 export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
-import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, useSlotHasVisibleClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { folderKeyForSession } from "@blackbelt-technology/pi-dashboard-shared/card-sections.js";
 import type { ClosedReason, CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -49,7 +50,7 @@ import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
-import { useCardSectionActions, useCardSectionVisible } from "../../lib/state/CardSectionsContext.js";
+import { useCardSectionActions, useCardSectionVisible, usePluginSectionFilter } from "../../lib/state/CardSectionsContext.js";
 import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
@@ -900,6 +901,10 @@ export function SessionCard({
   const showTags = useCardSectionVisible(session, "tags");
   const showSpawn = useCardSectionVisible(session, "spawn");
   const showOpenspec = useCardSectionVisible(session, "openspec");
+  const showOpenspecBadge = useCardSectionVisible(session, "openspec-badge");
+  const folderKey = folderKeyForSession(session);
+  const badgePluginVisible = usePluginSectionFilter("badge", folderKey);
+  const actionbarPluginVisible = usePluginSectionFilter("actionbar", folderKey);
   const showKb = useCardSectionVisible(session, "kb");
   const showGit = useCardSectionVisible(session, "git");
   const showStatus = useCardSectionVisible(session, "status");
@@ -1057,7 +1062,7 @@ export function SessionCard({
         {/* fix-mobile-attach-proposal-display. Coexists with OpenSpecActivityBadge */}
         {/* below (which reads openspecPhase/openspecChange, not attachedProposal). */}
         {/* Mirror in SessionHeader.tsx → MobileHeader (mobile-header-attached-chip). */}
-        {showOpenspec && session.attachedProposal && (
+        {showOpenspecBadge && session.attachedProposal && (
           <div
             className="mt-1 flex items-center gap-1 text-[11px] text-[var(--link)]"
             data-testid="mobile-card-attached-chip"
@@ -1069,7 +1074,7 @@ export function SessionCard({
           </div>
         )}
         {/* OpenSpec activity badge */}
-        {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
+        {showOpenspecBadge && (session.openspecPhase || session.openspecChange) ? (
           <OpenSpecActivityBadge
             phase={session.openspecPhase ?? undefined}
             changeName={session.openspecChange ?? undefined}
@@ -1086,10 +1091,11 @@ export function SessionCard({
           />
         ) : null}
         {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
-            phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-        {showTags && ((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+            user tags only — the OpenSpec phase is shown once, by the badge line
+            (add-focus-mode-and-card-block-toggles). See change: add-session-tags. */}
+        {showTags && (session.tags?.length ?? 0) > 0 ? (
           <div className="mt-1">
-            <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+            <TagStrip tags={session.tags ?? []} />
           </div>
         ) : null}
         {/* Running pi below the lockstep floor. See change: update-pi-core-1-0-adopt-apis. */}
@@ -1369,7 +1375,7 @@ export function SessionCard({
       </div>
 
       {/* OpenSpec activity badge */}
-      {showOpenspec && (session.openspecPhase || session.openspecChange) ? (
+      {showOpenspecBadge && (session.openspecPhase || session.openspecChange) ? (
         <OpenSpecActivityBadge
           phase={session.openspecPhase ?? undefined}
           changeName={session.openspecChange ?? undefined}
@@ -1387,10 +1393,11 @@ export function SessionCard({
       ) : null}
 
       {/* Compact read-only tag strip: user chips + `+N` overflow + read-only
-          phase pseudo-tag (openspecPhase only). See change: add-session-tags. */}
-      {showTags && ((session.tags?.length ?? 0) > 0 || session.openspecPhase) ? (
+          user tags only — the OpenSpec phase is shown once, by the badge line
+            (add-focus-mode-and-card-block-toggles). See change: add-session-tags. */}
+      {showTags && (session.tags?.length ?? 0) > 0 ? (
         <div className="mt-1 px-1">
-          <TagStrip tags={session.tags ?? []} phase={session.openspecPhase} />
+          <TagStrip tags={session.tags ?? []} />
         </div>
       ) : null}
 
@@ -1495,7 +1502,7 @@ export function SessionCard({
           mergeIsPrimary={mergeIsPrimary}
         />
       )}
-      {showStatus && <BadgeSubcard session={session} menu={menuFor("status")} />}
+      {showStatus && <BadgeSubcard session={session} menu={menuFor("status")} isPluginVisible={badgePluginVisible} />}
 
       {/* PROCESS subcard — activity bar (in-flight bash toolCalls) +
           background processes drawer. Subcard hides only when BOTH the
@@ -1528,7 +1535,7 @@ export function SessionCard({
 
       {/* Plugin slot: session-card-action-bar — generic card footer.
           Kept rendered for future generic plugins. */}
-      <SessionCardActionBarSlot session={session} />
+      <SessionCardActionBarSlot session={session} isPluginVisible={actionbarPluginVisible} />
       </div>{/* end card content */}
       </div>{/* end flex row */}
       {/* Idle-alive archive confirmation (ended archives without a dialog).
@@ -1908,12 +1915,20 @@ function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession, menu
  * Strictly plugin-scoped: never considers git state.
  * See change: redesign-session-card-and-composer (5.1).
  */
-function BadgeSubcard({ session, menu }: { session: DashboardSession; menu?: SubcardMenuTarget }) {
-  const hasBadge = useSlotHasClaimsForSession("session-card-badge", session);
+function BadgeSubcard({
+  session,
+  menu,
+  isPluginVisible,
+}: {
+  session: DashboardSession;
+  menu?: SubcardMenuTarget;
+  isPluginVisible?: (pluginId: string) => boolean;
+}) {
+  const hasBadge = useSlotHasVisibleClaimsForSession("session-card-badge", session, isPluginVisible);
   if (!hasBadge) return null;
   return (
     <SessionSubcard title={i18nT("session.subcardStatus", undefined, "STATUS")} menu={menu}>
-      <SessionCardBadgeSlot session={session} />
+      <SessionCardBadgeSlot session={session} isPluginVisible={isPluginVisible} />
     </SessionSubcard>
   );
 }

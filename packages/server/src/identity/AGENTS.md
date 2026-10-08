@@ -27,5 +27,5 @@ Files in this directory. One row per source file. Multi-user identity plane (See
 | `route-owner-registry.ts` | Route → registering plugin attribution (load-bracket) for `plugin:<id>:<verb>` classification. |
 | `session-access.ts` | `canAccessSession` owner equality; `LOCAL_OPERATOR` (matched by REFERENCE via `isLocalOperator`); `filterSnapshotForPrincipal` (+ visible terminal ids). |
 | `socket-lifetime.ts` | Identity-expiry close (4001) + heartbeat per identity-bound socket. |
-| `ws-message-scope.ts` | Browser→Server message classification (session-owned / session-list / non-session / …). |
-| `ws-road-classification.ts` | WS non-session command → `{action,resource}`; plugin frames `plugin:<id>:write`. |
+| `ws-message-scope.ts` | Browser→Server message classification (session-owned / session-list / non-session / …). Registers `set_focus_mode`, `set_focus_profile`, `set_folder_expanded`. See change: add-focus-mode-and-card-block-toggles. |
+| `ws-road-classification.ts` | WS non-session command → `{action,resource}`; plugin frames `plugin:<id>:write`. Registers `set_focus_mode`, `set_focus_profile`, `set_folder_expanded`. See change: add-focus-mode-and-card-block-toggles. |

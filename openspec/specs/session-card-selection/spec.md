@@ -28,7 +28,7 @@ The token values SHALL be:
 | `--neon-glow-blur` | `8px` | `11px` |
 | `--neon-glow-opacity` | `0.42` | `0.65` |
 
-The blue border + ring SHALL be preserved as a static layer underneath the animated rim. When `prefers-reduced-motion: reduce` is active, the rim and glow SHALL render without animation; both SHALL remain visible. When the browser fails `@supports (background: conic-gradient(from 0deg, red, blue))`, the rim SHALL render as a flat `rgba(96,165,250,.5)` ring and the glow wrappers SHALL be hidden.
+The blue border + ring SHALL be preserved as a static layer underneath the animated rim. When `prefers-reduced-motion: reduce` is active, the rim and glow SHALL render without animation; both SHALL remain visible. When the `fx-selected-glow` effect resolves off (see `card-visual-effects`), the iridescent rim and glow layers SHALL NOT be displayed or animated and the selected card SHALL show only the static blue border + outer ring. When the browser fails `@supports (background: conic-gradient(from 0deg, red, blue))`, the rim SHALL render as a flat `rgba(96,165,250,.5)` ring and the glow wrappers SHALL be hidden.
 
 The card content SHALL stack above all iridescent layers; the rim, glow wrappers and drag bead SHALL remain `position: absolute` despite the `.card-selected-ring > *` rule. The card root SHALL declare `isolation: isolate`.
 
@@ -80,6 +80,12 @@ No ancestor of a selected desktop card in the session list SHALL clip the outsid
 #### Scenario: Selected card remains visible while scrolling
 - **WHEN** the user scrolls the session list
 - **THEN** the selected card's highlight SHALL be immediately recognizable without careful inspection
+
+#### Scenario: Glow effect off
+- **GIVEN** `fx-selected-glow` resolves off
+- **WHEN** a desktop session card is selected
+- **THEN** the card SHALL render the static blue border + outer ring
+- **AND** no `.card-ring-fx` or `.card-glow-fx` layer SHALL be displayed or animated
 
 ### Requirement: Selected session card auto-scrolls into view on background re-sort
 The session list SHALL automatically scroll the currently selected session card into view ONLY when the card moves under the user due to a background state change of an unchanged selection. The scroll SHALL be a no-op when the card is already within the visible viewport.
