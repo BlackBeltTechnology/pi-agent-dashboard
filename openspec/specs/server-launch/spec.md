@@ -314,6 +314,7 @@ The bridge extension's server auto-spawn SHALL pass `launchDashboardServer` an `
 - `DASHBOARD_STARTER` = `Bridge`
 - `NODE_OPTIONS` and its heap provenance marker, computed from the inherited values with the configured ceiling stamped in (an operator-pinned ceiling is still respected)
 - JS `undefined` for `PI_DASHBOARD_ELECTRON` and `PI_DASHBOARD_RESOURCES_PATH`, so the overlay deletes them
+- JS `undefined` for `CONTEXT_MODE_BRIDGE_DEPTH` and `CONTEXT_MODE_BRIDGE_IDLE_MS`, so a server auto-spawned from inside a context-mode sandbox does not inherit context-mode's bridge-internal recursion guard
 
 #### Scenario: Bridge env overrides are narrow
 - **WHEN** the bridge auto-spawns the server
@@ -331,6 +332,10 @@ The bridge extension's server auto-spawn SHALL pass `launchDashboardServer` an `
 #### Scenario: Operator heap pin is respected
 - **WHEN** the inherited `NODE_OPTIONS` already carries an operator-set `--max-old-space-size` that the dashboard did not stamp
 - **THEN** the override `NODE_OPTIONS` SHALL keep the operator's value and SHALL NOT append the dashboard ceiling
+
+#### Scenario: context-mode bridge-internal variables are stripped
+- **WHEN** the bridge's process env carries `CONTEXT_MODE_BRIDGE_DEPTH=1` and `CONTEXT_MODE_BRIDGE_IDLE_MS=0`
+- **THEN** the spawned server's env SHALL contain neither key
 
 ### Requirement: The Electron launch path SHALL carry the configured ceiling
 

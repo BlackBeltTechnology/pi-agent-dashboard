@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "context-mode settings plugin configuration",
+  "description": "Per-plugin (global) configuration. The context-mode tuning keys live in ~/.pi/context-mode/settings.json (edited via the settings form), NOT in this dashboard config. See change: add-context-mode-settings-plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, the plugin is inactive (no settings section, no routes, no session env contribution)."
+    }
+  }
+}

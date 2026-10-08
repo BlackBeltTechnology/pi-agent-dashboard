@@ -75,6 +75,14 @@ describe("server-launcher", () => {
       expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
     });
 
+    it("E17: strips context-mode bridge-internal vars (keys present, value undefined)", () => {
+      const env = buildBridgeEnvOverrides({ CONTEXT_MODE_BRIDGE_DEPTH: "1", CONTEXT_MODE_BRIDGE_IDLE_MS: "0" });
+      expect("CONTEXT_MODE_BRIDGE_DEPTH" in env).toBe(true);
+      expect(env["CONTEXT_MODE_BRIDGE_DEPTH"]).toBeUndefined();
+      expect("CONTEXT_MODE_BRIDGE_IDLE_MS" in env).toBe(true);
+      expect(env["CONTEXT_MODE_BRIDGE_IDLE_MS"]).toBeUndefined();
+    });
+
     it("overrides any existing DASHBOARD_STARTER in baseEnv", () => {
       const env = buildBridgeEnvOverrides({ DASHBOARD_STARTER: "Standalone" });
       expect(env["DASHBOARD_STARTER"]).toBe("Bridge");
@@ -88,7 +96,15 @@ describe("server-launcher", () => {
       // Exact key set: undefined-valued markers are PRESENT so the shared
       // launcher's overlay deletes them; PATH/HOME are absent.
       expect(Object.keys(env).sort()).toEqual(
-        ["DASHBOARD_STARTER", "NODE_OPTIONS", HEAP_FLAG_MARKER_ENV, "PI_DASHBOARD_ELECTRON", "PI_DASHBOARD_RESOURCES_PATH"].sort(),
+        [
+          "DASHBOARD_STARTER",
+          "NODE_OPTIONS",
+          HEAP_FLAG_MARKER_ENV,
+          "PI_DASHBOARD_ELECTRON",
+          "PI_DASHBOARD_RESOURCES_PATH",
+          "CONTEXT_MODE_BRIDGE_DEPTH",
+          "CONTEXT_MODE_BRIDGE_IDLE_MS",
+        ].sort(),
       );
       expect(env).toEqual({
         DASHBOARD_STARTER: "Bridge",
@@ -96,6 +112,8 @@ describe("server-launcher", () => {
         [HEAP_FLAG_MARKER_ENV]: "--max-old-space-size=2048",
         PI_DASHBOARD_ELECTRON: undefined,
         PI_DASHBOARD_RESOURCES_PATH: undefined,
+        CONTEXT_MODE_BRIDGE_DEPTH: undefined,
+        CONTEXT_MODE_BRIDGE_IDLE_MS: undefined,
       });
       expect("PATH" in env).toBe(false);
       expect("HOME" in env).toBe(false);

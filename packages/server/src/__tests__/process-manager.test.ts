@@ -35,6 +35,9 @@ const mockExecSync = vi.mocked(execSync);
 // consolidate-windows-spawn-and-platform-handlers — its job is now
 // owned by platform/spawn-mechanism.ts `selectMechanism`.
 
+// context-mode bridge-internal vars are true-unset in the pane (add-context-mode-settings-plugin D6).
+const UNSET_PREFIX = "env -u CONTEXT_MODE_BRIDGE_DEPTH -u CONTEXT_MODE_BRIDGE_IDLE_MS ";
+
 describe("Process Manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -149,7 +152,7 @@ describe("Process Manager", () => {
       );
       // A host-resolved node path would name a binary that does not exist
       // inside WSL, which is why the ceiling rides `-e` and not argv here.
-      expect(cmd[cmd.length - 1]).toBe("pi");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi");
     });
 
     it("carries cwd with spaces as a literal -c element, no quoting", () => {
@@ -176,7 +179,7 @@ describe("Process Manager", () => {
         sessionFile: "/path/to/my session; cat /etc/passwd",
         mode: "continue",
       });
-      expect(cmd[cmd.length - 1]).toBe("pi --session '/path/to/my session; cat /etc/passwd'");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session '/path/to/my session; cat /etc/passwd'");
     });
 
     it("should not double-quote safe paths (cwd is a raw argv element)", () => {
@@ -192,7 +195,7 @@ describe("Process Manager", () => {
         sessionFile: "/path/to/session.jsonl",
         mode: "continue",
       });
-      expect(cmd[cmd.length - 1]).toBe("pi --session /path/to/session.jsonl");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session /path/to/session.jsonl");
     });
 
     it("should include --fork flag for fork mode", () => {
@@ -200,12 +203,12 @@ describe("Process Manager", () => {
         sessionFile: "/path/to/session.jsonl",
         mode: "fork",
       });
-      expect(cmd[cmd.length - 1]).toBe("pi --fork /path/to/session.jsonl");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --fork /path/to/session.jsonl");
     });
 
     it("should not include session flags when no options provided", () => {
       const cmd = buildTmuxCommand("/home/user/project", false);
-      expect(cmd[cmd.length - 1]).toBe("pi");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi");
     });
 
     it("should create new session for continue mode when no tmux session exists", () => {
@@ -214,7 +217,7 @@ describe("Process Manager", () => {
         mode: "continue",
       });
       expect(cmd).toContain("new-session");
-      expect(cmd[cmd.length - 1]).toBe("pi --session /path/to/session.jsonl");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session /path/to/session.jsonl");
     });
   });
 
@@ -325,12 +328,12 @@ describe("Process Manager", () => {
 
     it("buildTmuxCommand includes --fork in the pi command", () => {
       const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "fork" });
-      expect(cmd[cmd.length - 1]).toBe("pi --fork /s/abc.jsonl");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --fork /s/abc.jsonl");
     });
 
     it("buildTmuxCommand includes --session in the pi command", () => {
       const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "continue" });
-      expect(cmd[cmd.length - 1]).toBe("pi --session /s/abc.jsonl");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session /s/abc.jsonl");
     });
 
     it("buildTmuxCommand with special-character sessionFile still shell-escapes", () => {
@@ -338,7 +341,7 @@ describe("Process Manager", () => {
         sessionFile: "/s/with space.jsonl",
         mode: "fork",
       });
-      expect(cmd[cmd.length - 1]).toBe("pi --fork '/s/with space.jsonl'");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --fork '/s/with space.jsonl'");
     });
   });
 
@@ -363,7 +366,7 @@ describe("Process Manager", () => {
     it("E3: pane command carries no cd, no &&, and no cwd", () => {
       const cwd = "/tmp/$(id) x";
       const cmd = buildTmuxCommand(cwd, false);
-      expect(cmd[cmd.length - 1]).toBe("pi");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi");
       expect(cmd).not.toContain("cd");
       expect(cmd.filter(e => e.includes("&&")).length).toBe(0);
       expect(cmd.filter(e => e.includes("/tmp/$(id) x") && e !== cwd).length).toBe(0);
@@ -374,7 +377,7 @@ describe("Process Manager", () => {
         sessionFile: "/s/a$(id);x .jsonl",
         mode: "continue",
       });
-      expect(cmd[cmd.length - 1]).toBe("pi --session '/s/a$(id);x .jsonl'");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "pi --session '/s/a$(id);x .jsonl'");
       // The pane command is a single argv element, not split by the flag's spaces.
       expect(cmd[cmd.length - 1].split(" ").length).toBeGreaterThan(1);
     });
@@ -419,8 +422,8 @@ describe("Process Manager", () => {
     it("E6: piInvocation parameter is escaped into the pane; default is pi", () => {
       const piInvocation = ["/usr/local/bin/node", "/opt/pi/cli.js"];
       const cmd = buildTmuxCommand("/p", false, undefined, piInvocation);
-      expect(cmd[cmd.length - 1]).toBe("/usr/local/bin/node /opt/pi/cli.js");
-      expect(buildTmuxCommand("/p", false)[buildTmuxCommand("/p", false).length - 1]).toBe("pi");
+      expect(cmd[cmd.length - 1]).toBe(UNSET_PREFIX + "/usr/local/bin/node /opt/pi/cli.js");
+      expect(buildTmuxCommand("/p", false)[buildTmuxCommand("/p", false).length - 1]).toBe(UNSET_PREFIX + "pi");
     });
 
     it("E7: degenerate paths are each one strictly-equal element, no throw", () => {

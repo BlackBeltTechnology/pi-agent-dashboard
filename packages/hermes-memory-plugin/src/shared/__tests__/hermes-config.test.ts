@@ -153,3 +153,13 @@ describe("validateHermesConfig", () => {
     expect(r.errors[0].field).toBe("sessionSearch");
   });
 });
+
+describe("llmModelOverride model kind (add-context-mode-settings-plugin)", () => {
+  it("is a `model` descriptor validated like a string", async () => {
+    const { FIELD_DESCRIPTORS, validateHermesConfig } = await import("../hermes-config.js");
+    expect(FIELD_DESCRIPTORS.llmModelOverride).toEqual({ kind: "model" });
+    expect(validateHermesConfig({ llmModelOverride: "anthropic/claude-sonnet-4" }).ok).toBe(true);
+    expect(validateHermesConfig({ llmModelOverride: 5 }).ok).toBe(false);
+  });
+});
+
