@@ -88,11 +88,11 @@ const fieldKey = (f: string): string => f.replace(/\[\d+\]$/, "");
  * slots (so reorder/remove make bindings follow entries by final position).
  */
 export function nextBindingSet(
-  existing: Array<{ field: string; ref: string; projected: Concrete }>,
+  existing: Array<{ field: string; ref: string; projected: Concrete; status?: string }>,
   touchedKeys: readonly string[],
   slots: readonly RoleSlotUse[],
   projectedOf: (field: string) => Concrete,
-): Array<{ field: string; ref: string; projected: Concrete }> {
+): Array<{ field: string; ref: string; projected: Concrete; status?: string }> {
   const touched = new Set(touchedKeys);
   const kept = existing.filter((b) => !touched.has(fieldKey(b.field)));
   return [...kept, ...slots.map((s) => ({ field: s.field, ref: s.ref, projected: projectedOf(s.field) }))];

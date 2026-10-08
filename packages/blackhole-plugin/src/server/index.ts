@@ -263,7 +263,7 @@ export function registerBlackholeRoutes(
       const next = nextBindingSet(existing, resolved.touchedKeys, resolved.slots, projectedOf);
       const same =
         next.length === existing.length &&
-        next.every((n) => existing.some((e) => e.field === n.field && e.ref === n.ref && e.status === "ok"));
+        next.every((n) => existing.some((e) => e.field === n.field && e.ref === n.ref && e.status === (n.status ?? "ok")));
       if (!same || resolved.slots.length > 0) {
         try {
           roles.replaceBindings(BLACKHOLE_OWNER, next);

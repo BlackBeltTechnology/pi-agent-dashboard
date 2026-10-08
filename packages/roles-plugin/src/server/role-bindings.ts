@@ -214,15 +214,22 @@ export function createRoleBindings(deps: RoleBindingsDeps) {
       };
     },
 
-    /** Record-only: caller already wrote the file. Replaces the owner's set; forces `ok`. */
-    replaceBindings(owner: string, entries: Array<{ field: string; ref: string; projected: Concrete }>): void {
+    /**
+     * Record-only: caller already wrote the file. Replaces the owner's set. Entries are `ok`
+     * (just written) unless the caller KEEPS an untouched binding and passes its current
+     * `detached`/`dangling` status through — a save must not reset what it did not write.
+     */
+    replaceBindings(
+      owner: string,
+      entries: Array<{ field: string; ref: string; projected: Concrete; status?: BindingStatus }>,
+    ): void {
       const projector = projectors.get(owner);
       if (!projector) throw new Error(`no projector registered for owner "${owner}"`);
       const next: Record<string, StoredBindingLike> = {};
       for (const e of entries) {
         if (!projector.acceptsField(e.field)) throw new Error(`field "${e.field}" rejected by owner "${owner}"`);
         if (parseModelRef(e.ref).kind !== "role") throw new Error(`binding ref "${e.ref}" is not a role ref`);
-        next[e.field] = { ref: e.ref, projected: e.projected, status: "ok", updatedAt: now().toISOString() };
+        next[e.field] = { ref: e.ref, projected: e.projected, status: carriedStatus(e.status), updatedAt: now().toISOString() };
       }
       if (Object.keys(next).length) store.owners[owner] = next;
       else delete store.owners[owner];
@@ -299,6 +306,11 @@ export function createRoleBindings(deps: RoleBindingsDeps) {
       while (inflight.size) await Promise.allSettled([...inflight]);
     },
   };
+}
+
+/** A caller-carried status survives only when it is a known non-ok state; anything else is a fresh write → `ok`. */
+function carriedStatus(s: string | undefined): BindingStatus {
+  return s === "detached" || s === "dangling" ? s : "ok";
 }
 
 type StoredBindingLike = StoreData["owners"][string][string];

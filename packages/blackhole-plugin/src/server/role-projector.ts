@@ -34,7 +34,10 @@ export interface Concrete {
 export interface RolesBindingsLike {
   version: number;
   resolve(ref: string): { unresolved?: string; provider?: string; id?: string; level?: string; model?: string };
-  replaceBindings(owner: string, entries: Array<{ field: string; ref: string; projected: Concrete }>): void;
+  replaceBindings(
+    owner: string,
+    entries: Array<{ field: string; ref: string; projected: Concrete; status?: string }>,
+  ): void;
   getBindings(owner: string): Array<{ field: string; ref: string; status: string; projected: Concrete }>;
   reattach(owner: string, field: string): Promise<unknown>;
   withOwnerLock<T>(owner: string, fn: () => Promise<T> | T): Promise<T>;

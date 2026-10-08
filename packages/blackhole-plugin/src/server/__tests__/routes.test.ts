@@ -319,4 +319,48 @@ describe("PUT config — role slots", () => {
     expect(readJson(bhFile).observerModel).toEqual({ provider: "openai", id: "gpt-5-mini" });
     expect(ok.json().roleBindings[0].status).toBe("ok");
   });
+
+  describe("review B1 (round 2): a save never resets a non-ok binding status", () => {
+    it("detached survives an unrelated save; the externally edited value is untouched", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      fs.writeFileSync(bhFile, JSON.stringify({ observerModel: { provider: "edited", id: "z" } }));
+      roles.fast = "openai/gpt-5-mini";
+      await engine.runPass("change");
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("detached");
+
+      const res = await putRoles({ memory: true });
+      expect(res.statusCode).toBe(200);
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "edited", id: "z" });
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("detached");
+      expect(res.json().roleBindings).toEqual([{ field: "observerModel", ref: "@fast", status: "detached" }]);
+    });
+
+    it("dangling survives an unrelated save and the save itself succeeds", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      delete roles.fast;
+      await engine.runPass("change");
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("dangling");
+
+      const res = await putRoles({ memory: true });
+      expect(res.statusCode).toBe(200);
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "anthropic", id: "claude-haiku-4-5", thinking: "low" });
+      expect(svc.getBindings("blackhole")[0]!.status).toBe("dangling");
+    });
+
+    it("a kept detached binding stays detached when the save touches another bound key", async () => {
+      const { bhFile, svc } = await boot();
+      await putRoles({ observerModel: "@fast" });
+      fs.writeFileSync(bhFile, JSON.stringify({ observerModel: { provider: "edited", id: "z" } }));
+      roles.fast = "openai/gpt-5-mini";
+      await engine.runPass("change");
+
+      const res = await putRoles({ reflectorModel: "@fast" });
+      expect(res.statusCode).toBe(200);
+      const byField = Object.fromEntries(svc.getBindings("blackhole").map((b) => [b.field, b.status]));
+      expect(byField).toEqual({ observerModel: "detached", reflectorModel: "ok" });
+      expect(readJson(bhFile).observerModel).toEqual({ provider: "edited", id: "z" });
+    });
+  });
 });
