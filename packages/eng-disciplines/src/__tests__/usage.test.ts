@@ -56,7 +56,7 @@ beforeAll(() => {
   put(pkg, "diagrams/use-cases.json", [{ id: "UC-01", name: "Save", actor: "P", trigger: "t", requirements: [], refs: [], entities: ["Order"] }]);
   put(app, "js/a.js", 'log("save", plan);\nlog("moveProc", p);\nfix("align", q);\n');
   // A: legacy code page JSON; B: UTF-16 LE BOM JSON; A changes: CSV
-  put(dir, "src/a_db.json", Buffer.from(JSON.stringify({ log: A_LOG }).replace(/ó/g, "\u00f3"), "latin1"));
+  put(dir, "src/a_db.json", Buffer.from(JSON.stringify({ log: A_LOG }), "latin1"));
   put(dir, "src/b_db.json", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(JSON.stringify({ log: B_LOG }), "utf16le")]));
   put(dir, "src/a_changes.csv", "table,modType,time\norders,update,2024-01-05T10:00:00Z\norders,update,2024-01-06T10:00:00Z\n");
   job = join(dir, "src", "job.json");
