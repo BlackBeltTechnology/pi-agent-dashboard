@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="hu" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Csapat: képességek (add-team-skill-access)</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="mockup.css">
+<link rel="stylesheet" href="skills.css">
+</head>
+<body>
+<!-- Mockup-only controls: not part of the app. English on purpose (reviewer-facing). -->
+<div class="mock-bar" role="region" aria-label="Mockup controls">
+  <strong>Mockup controls</strong>
+  <label>Screen
+    <select id="mScreen">
+      <option value="#/">Team grid (billing-api)</option>
+      <option value="#/skills">Skills panel</option>
+      <option value="#/skills/new">Skills panel: add</option>
+      <option value="#/skills/review">Skills panel: edit managed (review)</option>
+      <option value="#/skills/openspec-propose">Skills panel: config entry (read-only)</option>
+      <option value="#/personas/shared:backend">Persona editor: skills by target</option>
+      <option value="#/personas/new">Persona editor: new</option>
+      <option value="#/agent/shared:backend">Conversation: /skill: refused</option>
+      <option value="#/agent/shared:elemzo">Conversation: skill_not_allowed</option>
+    </select>
+  </label>
+  <label>Role
+    <select id="mRole"><option value="admin">admin</option><option value="member">member</option></select>
+  </label>
+  <label>Mode
+    <select id="mMode"><option value="multi">multi-user (OIDC)</option><option value="single">single-user (local operator)</option></select>
+  </label>
+  <label>Catalog
+    <select id="mCatalog"><option value="some">populated</option><option value="empty">empty</option></select>
+  </label>
+</div>
+
+<div id="app" style="display:flex;flex-direction:column;flex:1;min-height:0"></div>
+
+<dialog id="confirmDialog" aria-labelledby="dlgTitle" aria-describedby="dlgBody">
+  <h2 id="dlgTitle"></h2>
+  <div id="dlgBody"></div>
+  <div class="dialog-actions">
+    <button type="button" class="btn btn-secondary" id="dlgCancel"></button>
+    <button type="button" class="btn btn-danger" id="dlgOk"></button>
+  </div>
+</dialog>
+
+<div class="sr-only" role="status" aria-live="polite" id="announce"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="mockup.js"></script>
+</body>
+</html>
