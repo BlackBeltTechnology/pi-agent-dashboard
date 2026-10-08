@@ -9,8 +9,8 @@
 #
 # Needs `ps eww` (procps / BSD ps) to read a process environment, so it skips on
 # Windows (no .ps1 twin: the scenarios are POSIX-process-env assertions).
-# X8's MCP-child half, X10's bridge arm and X11 only run when the `context-mode`
-# pi extension is installed; otherwise they SKIP with a note.
+# X8's MCP-child half and X11 need a driven prompt (context-mode starts its
+# stores/child on the first before_agent_start) and are SKIPPED here.
 # Env: DASHBOARD_PORT (default 8000). Traps restore config + settings file.
 set -euo pipefail
 
@@ -32,8 +32,6 @@ HAD_CONFIG=0; HAD_SETTINGS=0
 [ -f "$CONFIG" ] && { cp "$CONFIG" "$BK_CONFIG"; HAD_CONFIG=1; }
 [ -f "$SETTINGS" ] && { cp "$SETTINGS" "$BK_SETTINGS"; HAD_SETTINGS=1; }
 HAS_TMUX=0; command -v tmux >/dev/null 2>&1 && HAS_TMUX=1
-HAS_CM=0; [ -d "$HOME/.pi/agent/npm/node_modules/context-mode" ] && HAS_CM=1
-HAS_LSOF=0; command -v lsof >/dev/null 2>&1 && HAS_LSOF=1
 
 cleanup() {
   pi-dashboard stop 2>/dev/null || true
@@ -86,9 +84,39 @@ spawn_pid() {
       await fetch(`http://localhost:${process.env.PORT}/api/session/spawn`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({cwd})})},500));'
 }
 
-proc_env() { ps eww -p "$1" 2>/dev/null | tr ' ' '\n'; }
-has_var() { proc_env "$1" | grep -q "^$2="; }
-var_val() { proc_env "$1" | grep "^$2=" | head -1 | cut -d= -f2-; }
+# Process environment, one NAME=value per line. `ps eww` is NOT reliable: pi
+# rewrites its process title, which blanks the env block on macOS and would make
+# every "variable absent" assertion pass vacuously. Linux: /proc; macOS: sysctl
+# KERN_PROCARGS2. A process whose env cannot be read at all FAILS the test.
+proc_env() {
+  local pid="$1" out
+  if [ -r "/proc/$pid/environ" ]; then
+    out=$(tr '\0' '\n' < "/proc/$pid/environ")
+  else
+    out=$(python3 - "$pid" <<'PY' 2>/dev/null
+import ctypes, ctypes.util, struct, sys
+libc = ctypes.CDLL(ctypes.util.find_library("c"))
+pid = int(sys.argv[1])
+mib = (ctypes.c_int * 3)(1, 49, pid)
+size = ctypes.c_size_t(0)
+libc.sysctl(mib, 3, None, ctypes.byref(size), None, 0)
+buf = ctypes.create_string_buffer(size.value)
+libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0)
+for part in buf.raw[: size.value].split(b"\0"):
+    s = part.decode(errors="ignore")
+    if "=" in s and not s.startswith("/"):
+        print(s)
+PY
+)
+  fi
+  # A readable env always has PATH or HOME; an empty read is a harness failure, not a pass.
+  echo "$out" | grep -qE '^(PATH|HOME)=' || return 1
+  echo "$out"
+}
+# An unreadable env FAILS the run (never a vacuous "absent").
+read_env() { ENVTXT=$(proc_env "$1") || { echo "FAIL: cannot read the environment of pid $1"; exit 1; }; }
+has_var() { read_env "$1"; echo "$ENVTXT" | grep -q "^$2="; }
+var_val() { read_env "$1"; echo "$ENVTXT" | grep "^$2=" | head -1 | cut -d= -f2-; }
 
 # X8 — contaminated server, headless
 set_strategy headless
@@ -97,14 +125,11 @@ PID=$(spawn_pid) || fail "X8: headless spawn never registered"
 has_var "$PID" CONTEXT_MODE_BRIDGE_DEPTH && fail "X8: pi inherited CONTEXT_MODE_BRIDGE_DEPTH"
 has_var "$PID" CONTEXT_MODE_BRIDGE_IDLE_MS && fail "X8: pi inherited CONTEXT_MODE_BRIDGE_IDLE_MS"
 echo "  ok X8: headless pi carries neither bridge-internal variable"
-if [ "$HAS_CM" = "1" ]; then
-  sleep 5
-  pgrep -P "$PID" -f server.bundle.mjs >/dev/null 2>&1 || pgrep -f server.bundle.mjs >/dev/null 2>&1 \
-    || fail "X8: context-mode MCP child (server.bundle.mjs) is not running"
-  echo "  ok X8: context-mode MCP child running"
-else
-  echo "  skip X8 child check: context-mode not installed"
-fi
+# The MCP child (server.bundle.mjs) is started lazily from context-mode's
+# before_agent_start, i.e. only once a prompt is driven; an idle spawned session
+# has no child to assert on. That half of X8 needs a driven prompt (see
+# 10-faux-model.sh) and is SKIPPED here.
+echo "  skip X8 MCP-child half: context-mode starts it on the first prompt (needs a driven prompt)"
 
 # X9 — contaminated tmux server global env
 if [ "$HAS_TMUX" = "1" ]; then
@@ -133,20 +158,11 @@ has_var "$PID" CTX_FETCH_STRICT && fail "X10: stale CTX_FETCH_STRICT survived th
 has_var "$PID" PI_CONTEXT_MODE_SETTINGS_PROJECTED && fail "X10: provenance marker leaked into the spawned pi"
 echo "  ok X10: stale projected value and marker removed"
 
-# X11 — no split SessionDB under storage.dataDir
-if [ "$HAS_CM" = "1" ] && [ "$HAS_LSOF" = "1" ]; then
-  DATA=$(mktemp -d /tmp/cm-x.XXXX)
-  echo "{\"storage.dataDir\": \"$DATA\"}" > "$SETTINGS"
-  start_server
-  PID=$(spawn_pid) || fail "X11: spawn never registered"
-  sleep 8
-  PIDS="$PID $(pgrep -P "$PID" | tr '\n' ' ')"
-  lsof -p "$(echo $PIDS | tr ' ' ',')" 2>/dev/null | grep -q "$DATA" \
-    || fail "X11: neither pi nor its MCP child opened a store under $DATA"
-  echo "  ok X11: stores opened under the configured data directory"
-else
-  echo "  skip X11: needs the context-mode extension and lsof"
-fi
+# X11 — no split SessionDB under storage.dataDir. Both stores open on the first
+# prompt (before_agent_start), so this needs a driven prompt + the context-mode
+# extension; SKIPPED here (covered by unit tests on the projection + spawn env,
+# and by the live env assertions above).
+echo "  skip X11: needs a driven ctx_* prompt (see 10-faux-model.sh)"
 
 # X12 — operator export wins over the file (headless + tmux)
 echo '{"locale.timeZone": "Europe/Budapest"}' > "$SETTINGS"
