@@ -22,7 +22,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CONFIG = join(REPO_ROOT, ".github", "verdaccio", "config.yml");
+// VERDACCIO_CONFIG: alternate config (the runtime E2E fixture points storage
+// at a temp dir). See change: electron-runtime-release-pipeline.
+const CONFIG = process.env.VERDACCIO_CONFIG || join(REPO_ROOT, ".github", "verdaccio", "config.yml");
 const REGISTRY = process.env.REGISTRY || "http://localhost:4873";
 const PING = new URL("/-/ping", REGISTRY);
 const TIMEOUT_MS = 90_000;
