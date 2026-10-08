@@ -22,6 +22,9 @@ on:
       - "tests/e2e-electron/**"
       - "playwright.electron.config.ts"
       - ".github/workflows/ci-e2e-electron.yml"
+      - "packages/server/src/runtime-overlay/**"
+      - "scripts/runtime-e2e-registry.mjs"
+      - "scripts/generate-runtime-lock.mjs"
 
 concurrency:
   group: ci-e2e-electron-${{ github.ref }}
@@ -94,6 +97,87 @@ jobs:
   # Job Object kill-on-close (task 7.4a) — spawn-mode (NOT the fake-server
   # attach specs): the app must boot a real server so the taskkill /F cascade
   # can be observed. Separate job so it never shares :8000 with the E2E specs.
+  # ── Runtime overlay update cycle vs a local registry (test-plan X10–X12) ──
+  # Loopback Verdaccio serves the runtime closure at base (= app version, so
+  # bundle-server installs from it), good (`latest`, with runtime-lock.json)
+  # and broken (server exits at boot). The app is packaged WITH a bundled
+  # server (the electron-e2e job above packages without one, so these specs
+  # skip there). ADVISORY like the rest of this workflow.
+  # See change: electron-runtime-release-pipeline (tasks 3.1–3.4).
+  runtime-overlay-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      REGISTRY: http://localhost:4873
+      PW_RUNTIME_REGISTRY: http://localhost:4873
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download bundled Node.js binary
+        run: |
+          cd packages/electron
+          source scripts/_node-version.sh
+          bash scripts/download-node.sh "$BUNDLED_NODE_VERSION" linux x64
+
+      - name: Build client
+        run: pnpm run build
+
+      - name: Start Verdaccio (throwaway storage)
+        run: |
+          npm install -g verdaccio
+          echo "VERDACCIO_CONFIG=$(node scripts/runtime-e2e-registry.mjs config --dir "$RUNNER_TEMP/verdaccio")" >> "$GITHUB_ENV"
+
+      - name: Serve Verdaccio
+        run: node scripts/nightly-verdaccio-serve.mjs
+
+      - name: Publish base runtime (the app's own version)
+        run: node scripts/runtime-e2e-registry.mjs publish --release base
+
+      - name: Bundle dashboard server (installs from Verdaccio)
+        env:
+          npm_config_registry: http://localhost:4873
+          GIT_TARGET_ARCH: x64
+        run: |
+          node packages/electron/scripts/bundle-server.mjs
+          node packages/electron/scripts/assert-runnable-bundle.mjs
+
+      - name: Package Electron app
+        run: pnpm --filter @blackbelt-technology/pi-dashboard-electron run package
+
+      - name: Publish good + broken runtime releases
+        run: |
+          node scripts/runtime-e2e-registry.mjs publish --release good
+          node scripts/runtime-e2e-registry.mjs publish --release broken
+
+      - name: Install Electron system libraries
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Run runtime overlay E2E under xvfb
+        run: xvfb-run -a pnpm exec playwright test --config playwright.electron.config.ts runtime-overlay-update
+        env:
+          CI: "1"
+          PW_ELECTRON_GLOBAL_TIMEOUT_MS: "3600000"
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-electron-runtime-overlay
+          path: playwright-report-electron
+          retention-days: 14
+
   job-object-windows:
     runs-on: windows-latest
     # Advisory: exercising the Job Object cascade needs the packaged app's FULL

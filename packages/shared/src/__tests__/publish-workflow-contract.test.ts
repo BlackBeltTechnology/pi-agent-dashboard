@@ -402,33 +402,36 @@ describe("publish.yml — prerelease safety contract", () => {
     expect(block).toMatch(/is_prerelease:/);
   });
 
-  it("publish job uses `--tag next` conditionally on is_prerelease", () => {
+  it("publish job uses `--tag beta` conditionally on is_prerelease", () => {
     // Two requirements:
-    //   1. The literal string `--tag next` appears in the publish loop body.
+    //   1. The literal string `--tag beta` appears in the publish loop body.
     //   2. There's a guard checking `is_prerelease == "true"` (or the bash
     //      equivalent `[ "$PRERELEASE" = "true" ]`).
-    if (!/--tag next/.test(publishBlock)) {
+    // `beta` (was `next`) is the channel the Electron runtime overlay checker
+    // reads. See change: electron-runtime-release-pipeline (design R4).
+    if (!/--tag beta/.test(publishBlock)) {
       throw new Error(
-        "publish job is missing the `--tag next` literal. Prereleases must\n" +
-          "publish under the `next` dist-tag so consumers running plain\n" +
-          "`npm install <pkg>` keep getting the last stable release. See\n" +
-          "change: eliminate-bash-on-windows-runners (D6).",
+        "publish job is missing the `--tag beta` literal. Prereleases must\n" +
+          "publish under the `beta` dist-tag so consumers running plain\n" +
+          "`npm install <pkg>` keep getting the last stable release and the\n" +
+          "runtime overlay beta channel finds them. See change:\n" +
+          "electron-runtime-release-pipeline (design R4).",
       );
     }
+    expect(publishBlock).not.toContain("--tag next");
     const hasGuard =
       /is_prerelease\s*==\s*['"]true['"]/.test(publishBlock) ||
       /\[\s*"\$PRERELEASE"\s*=\s*"true"\s*\]/.test(publishBlock) ||
       /PRERELEASE.*=.*"true"/.test(publishBlock);
     if (!hasGuard) {
       throw new Error(
-        "publish job uses `--tag next` but lacks the prerelease guard. The\n" +
-          "`--tag next` argument MUST be conditional on the `is_prerelease`\n" +
+        "publish job uses `--tag beta` but lacks the prerelease guard. The\n" +
+          "`--tag beta` argument MUST be conditional on the `is_prerelease`\n" +
           "output (e.g. `if [ \"$PRERELEASE\" = \"true\" ]; then ...`).\n" +
-          "Otherwise stable releases would also publish to `next`. See\n" +
-          "change: eliminate-bash-on-windows-runners (D6).",
+          "Otherwise stable releases would also publish to `beta`.",
       );
     }
-    expect(publishBlock).toContain("--tag next");
+    expect(publishBlock).toContain("--tag beta");
   });
 
   it("github-release job sets prerelease from is_prerelease", () => {
@@ -696,5 +699,57 @@ describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-
           "CodeRabbit round 1, publish.yml lookup binding).",
       );
     }
+  });
+});
+
+// ── Runtime release contract (change: electron-runtime-release-pipeline) ────
+// design R2: every package except server + meta publishes first; the
+// bundled-plugin registry gate and runtime-lock.json generation run BEFORE
+// server@X is published (the lock rides in its tarball); meta stays last.
+// design R3: per-platform runtime assets are built after publish and attached
+// by github-release; test-plan #X16 asserts the published shape.
+describe("publish.yml — runtime release contract (electron-runtime-release-pipeline)", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const job = (name: string) => extractJobBlock(yaml, name);
+  const SERVER = "@blackbelt-technology/pi-dashboard-server";
+  const META = "@blackbelt-technology/pi-agent-dashboard";
+
+  it("server is published second-to-last, immediately before the meta package", () => {
+    const m = job("publish").match(/PACKAGES=\(\s*\n([\s\S]*?)\n\s*\)/);
+    expect(m).toBeTruthy();
+    const list = [...(m as RegExpMatchArray)[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+    expect(list.at(-1)).toBe(META);
+    expect(list.at(-2)).toBe(SERVER);
+  });
+
+  it("gate + lock generation run inside the server branch, before its npm publish", () => {
+    const gate = job("publish").indexOf("scripts/assert-bundled-plugins-published.mjs");
+    const lock = job("publish").indexOf("scripts/generate-runtime-lock.mjs");
+    const serverBranch = job("publish").indexOf(`if [ "$pkg" = "${SERVER}" ]`);
+    const publishCall = job("publish").indexOf("npm publish --workspace=");
+    expect(serverBranch).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(serverBranch);
+    expect(lock).toBeGreaterThan(gate);
+    expect(publishCall).toBeGreaterThan(lock);
+    // A gate / lock failure must stop the loop (no server, no meta).
+    expect(job("publish")).toMatch(/generate-runtime-lock\.mjs[^\n]*\|\|[^\n]*break/);
+    expect(job("publish")).toMatch(/assert-bundled-plugins-published\.mjs[^\n]*\|\|[^\n]*break/);
+  });
+
+  it("runtime-asset builds per platform after publish and uploads as electron-*", () => {
+    expect(job("runtime-asset")).not.toBe("");
+    expect(parseNeeds(job("runtime-asset"))).toContain("publish");
+    expect(job("runtime-asset")).toContain("scripts/build-runtime-asset.mjs");
+    expect(job("runtime-asset")).toMatch(/name:\s*electron-runtime-/);
+  });
+
+  it("github-release waits for runtime-asset", () => {
+    expect(parseNeeds(job("github-release"))).toContain("runtime-asset");
+    expect(job("github-release")).toContain("needs.runtime-asset.result == 'success'");
+  });
+
+  it("runtime-release-assert runs assert-runtime-release after github-release (test-plan #X16)", () => {
+    expect(parseNeeds(job("runtime-release-assert"))).toContain("github-release");
+    expect(job("runtime-release-assert")).toContain("scripts/assert-runtime-release.mjs");
   });
 });
