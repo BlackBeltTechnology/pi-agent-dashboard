@@ -202,4 +202,28 @@ describe("crud assembly", () => {
     put("diagrams/crud/SCR-a.json", recA());
     put("diagrams/crud/SCR-b.json", recB());
   });
+
+  it("refuses two records for the same screen", () => {
+    put("diagrams/crud/SCR-a.json", recA());
+    put("diagrams/crud/copy-SCR-a.json", recA());
+    const r = run(dir, "check-crud", pkg);
+    rmSync(join(pkg, "diagrams/crud/copy-SCR-a.json"));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("SCR-a: duplicate record (SCR-a.json, copy-SCR-a.json)");
+  });
+
+  it("CSV exports quote cells and neutralize spreadsheet formulas (shared csvCell)", async () => {
+    const lib = await import(join(DSK, "scripts", "lib.mjs"));
+    expect(lib.csvCell("=HYPERLINK(\"x\")")).toBe('"\'=HYPERLINK(""x"")"');
+    expect(lib.csvCell("+1")).toBe("'+1");
+    expect(lib.csvCell("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(lib.csvCell("a,b")).toBe('"a,b"');
+    expect(lib.csvCell(-3)).toBe("-3");
+    expect(lib.csvCell("CR")).toBe("CR");
+    const { crudCsv } = await import(join(DSK, "scripts", "crud.mjs"));
+    expect(crudCsv({ "=UC": { Order: "C" } }, ["=UC"])).toBe("entity,'=UC\nOrder,C\n");
+    const { variantsCsv } = await import(join(DSK, "scripts", "variability.mjs"));
+    const v = { variants: [{ id: "V", customer: "-x", env: "prod" }], features: [{ id: "a,b", byVariant: { V: "on" } }] };
+    expect(variantsCsv(v).split("\n")[1]).toBe('"a,b",on');
+  });
 });

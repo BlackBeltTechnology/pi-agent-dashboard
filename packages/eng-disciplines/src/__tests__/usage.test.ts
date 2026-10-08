@@ -3,7 +3,7 @@
  * aggregation per customer, privacy gate, catalog (mapping shared, counts local).
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -77,8 +77,11 @@ describe("usage evidence", () => {
     expect(r.stderr).toBe("");
     const d = JSON.parse(readFileSync(out, "utf8"));
     const by = Object.fromEntries(d.types.map((t: { type: string }) => [t.type, t]));
-    expect(by.save.counts).toEqual({ A: 2, B: 1 });
-    expect(by["orders:update"].counts).toEqual({ A: 2 });
+    // no per-customer counts or source file names reach the mapper (LLM context): total only
+    expect(by.save.seen).toBe(3);
+    expect(by["orders:update"].seen).toBe(2);
+    expect(by.save.counts).toBeUndefined();
+    expect(JSON.stringify(d)).not.toMatch(/a_db\.json|"A"|"B"/);
     expect(by.save.candidates).toContain("js/a.js:1");
     expect(by["error,fix,align"].candidates).toContain("js/a.js:3");
     expect(JSON.stringify(d)).not.toContain("józsi");
@@ -162,5 +165,93 @@ describe("usage evidence", () => {
     const local = join(dir, "l.html");
     expect(run("build-site", pkg, local, "--local").code).toBe(0);
     expect(catalogData(readFileSync(local, "utf8")).usage.customers.A.events).toBe(6);
+  });
+
+  it("usage writes _local/.gitignore so local aggregates are never committed", () => {
+    mapping(MAPPING());
+    rmSync(join(pkg, "_local"), { recursive: true, force: true });
+    expect(run("usage", pkg, job, join(pkg, "_local", "usage")).code).toBe(0);
+    expect(readFileSync(join(pkg, "_local", ".gitignore"), "utf8")).toBe("*\n");
+    // the draft may be the first thing written under a fresh _local/
+    rmSync(join(pkg, "_local"), { recursive: true, force: true });
+    const d = run("usage-draft", pkg, app, job, join(pkg, "_local", "usage-draft.json"));
+    expect(d.stderr).toBe("");
+    expect(readFileSync(join(pkg, "_local", ".gitignore"), "utf8")).toBe("*\n");
+  });
+
+  it("CSV sources: quoted cells may hold newlines; a row with the wrong cell count is an error", () => {
+    put(dir, "src/q.csv", 'kind,msg\nsave,"line one\nline two"\nsave,ok\n');
+    put(dir, "src/q-job.json", { sources: [{ customer: "Q", file: "q.csv", format: "csv", columns: { type: "kind", object: "msg" }, kind: "event" }] });
+    const out = join(dir, "q-draft.json");
+    const r = run("usage-draft", pkg, app, join(dir, "src", "q-job.json"), out);
+    expect(r.stderr).toBe("");
+    expect(JSON.parse(readFileSync(out, "utf8")).types.map((t: { type: string }) => t.type)).toEqual(["save"]);
+    put(dir, "src/q.csv", "kind,msg\nsave,a,b\n");
+    const bad = run("usage-draft", pkg, app, join(dir, "src", "q-job.json"), out);
+    expect(bad.code).toBe(1);
+    expect(bad.stderr).toMatch(/q\.csv row 2: 3 cells, header has 2/);
+  });
+
+  it("refuses type columns that carry user/object values or free text, never printing them", () => {
+    // type column = the user column: every type is a user name
+    put(dir, "src/leak-job.json", { sources: [{ customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "log", columns: { type: "user", user: "user", object: "object" }, kind: "event" }] });
+    const leakJob = join(dir, "src", "leak-job.json");
+    const draft = run("usage-draft", pkg, app, leakJob, join(dir, "leak-draft.json"));
+    expect(draft.code).toBe(1);
+    expect(draft.stderr).toMatch(/2 event types contain a user\/object value/);
+    expect(draft.stderr).not.toMatch(/józsi|anna/);
+    mapping(MAPPING());
+    const chk = run("check-usage", pkg, app, leakJob, "--complete");
+    expect(chk.code).toBe(1);
+    expect(chk.stderr).not.toMatch(/józsi|anna/);
+    // too many distinct types for a vocabulary
+    put(dir, "src/many-job.json", { maxTypes: 2, sources: [{ customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "log", columns: { type: "type" }, kind: "event" }] });
+    const many = run("usage-draft", pkg, app, join(dir, "src", "many-job.json"), join(dir, "many.json"));
+    expect(many.code).toBe(1);
+    expect(many.stderr).toMatch(/3 distinct event types \(max 2\)/);
+  });
+
+  it("check-usage refuses a shared mapping that names a source value, without printing it", () => {
+    mapping({ ...MAPPING(), unmapped: [...MAPPING().unmapped, { type: "józsi.kovács", reason: "x" }] });
+    const r = run("check-usage", pkg, app, job);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/mapping: 1 type contains a source value/);
+    expect(r.stderr).not.toContain("józsi");
+    mapping(MAPPING());
+  });
+
+  it("aggregation counts types named like Object members correctly", async () => {
+    const { aggregateUsage } = await import(join(PKG, ".pi", "skills", "rebuild-package-diagrams", "scripts", "usage.mjs"));
+    const ev = ["constructor", "toString", "__proto__", "toString"].map((type) => ({ customer: "toString", type, user: "u", time: null }));
+    const u = aggregateUsage(ev, { types: [] }, { screens: [] }, []);
+    expect({ ...u.customers.toString.byType }).toEqual(Object.fromEntries([["constructor", 1], ["toString", 2], ["__proto__", 1]]));
+    expect(u.customers.toString.events).toBe(4);
+  });
+
+  it("a source with a missing table or no rows is an error; broken symlinks in the app are skipped", () => {
+    put(dir, "src/t-job.json", { sources: [{ customer: "A", file: "a_db.json", encoding: "windows-1250", format: "json", table: "nolog", columns: { type: "type" }, kind: "event" }] });
+    const t = run("usage-draft", pkg, app, join(dir, "src", "t-job.json"), join(dir, "t.json"));
+    expect(t.code).toBe(1);
+    expect(t.stderr).toMatch(/a_db\.json: no table nolog/);
+    put(dir, "src/e.csv", "kind,msg\n");
+    put(dir, "src/e-job.json", { sources: [{ customer: "A", file: "e.csv", format: "csv", columns: { type: "kind" }, kind: "event" }] });
+    const e = run("usage-draft", pkg, app, join(dir, "src", "e-job.json"), join(dir, "e.json"));
+    expect(e.code).toBe(1);
+    expect(e.stderr).toMatch(/e\.csv: no rows/);
+    symlinkSync(join(app, "gone.js"), join(app, "js", "dead.js"));
+    const r = run("usage-draft", pkg, app, job, join(dir, "s.json"));
+    rmSync(join(app, "js", "dead.js"));
+    expect(r.stderr).toBe("");
+    expect(r.code).toBe(0);
+  });
+
+  it("a mapping cite outside the app is never read", () => {
+    writeFileSync(join(dir, "outside.js"), 'log("save")\n');
+    const [save, ...rest] = MAPPING().types;
+    mapping({ ...MAPPING(), types: [{ ...save, cite: "../outside.js:1" }, ...rest] });
+    const r = run("check-usage", pkg, app, job);
+    mapping(MAPPING());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/save: cite \.\.\/outside\.js:1 does not contain 'save'/);
   });
 });

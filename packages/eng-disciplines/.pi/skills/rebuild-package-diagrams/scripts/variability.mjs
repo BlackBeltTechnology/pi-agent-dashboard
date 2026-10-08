@@ -5,7 +5,7 @@
 // value?}, cites, affects: {screens, actions, refs}, deadEverywhere?}], data: [{path, reason}]}.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { packageResolver } from "./lib.mjs";
+import { appFile, csvRows as csv, packageResolver } from "./lib.mjs";
 
 const OPS = new Set(["exists", "truthy", "eq", "ne", "in"]);
 const KINDS = new Set(["toggle", "option", "parameter"]);
@@ -17,8 +17,9 @@ export function readConfigInputs(pkgDir) {
   if (!existsSync(f)) return null;
   const { reads, variants } = readJson(f);
   const effDir = join(pkgDir, "ui", "_effective");
-  const conf = Object.fromEntries(variants.map((v) => [v.id, readJson(join(effDir, `${v.id}.json`)).conf]));
-  return { reads, variants, conf };
+  const missing = variants.filter((v) => !existsSync(join(effDir, `${v.id}.json`))).map((v) => v.id);
+  const conf = Object.fromEntries(variants.map((v) => [v.id, missing.includes(v.id) ? {} : readJson(join(effDir, `${v.id}.json`)).conf]));
+  return { reads, variants, conf, missing };
 }
 
 /** Value at a dotted path, or undefined. Own keys only. */
@@ -79,8 +80,8 @@ function citeErrors(f, appDir) {
   const seg = f.condition.path.split(".").at(-1);
   return (f.cites ?? []).flatMap((cite) => {
     const m = /^(.+):(\d+)$/.exec(cite);
-    const file = m && join(appDir, m[1]);
-    const line = file && existsSync(file) ? sourceText(readFileSync(file)).split("\n")[+m[2] - 1] : undefined;
+    const file = m && appFile(appDir, m[1]);
+    const line = file ? sourceText(readFileSync(file)).split("\n")[+m[2] - 1] : undefined;
     return line?.includes(seg) ? [] : [`${f.id}: cite ${cite} does not read '${seg}'`];
   });
 }
@@ -114,6 +115,7 @@ function featureErrors(f, inputs, ctx) {
 /** Gate. `appDir`: also check that every cite line reads the path; `complete`: cover every varying path. */
 export function checkVariability(pkgDir, ui, inputs, rec, { appDir = null, complete = false } = {}) {
   if (!inputs) return ["variability: ui/_config-reads.json missing (run config-reads.mjs)"];
+  if (inputs.missing?.length) return inputs.missing.map((id) => `variability: ui/_effective/${id}.json missing (run config.mjs for variant ${id})`);
   const ctx = { ui, appDir, resolve: packageResolver(pkgDir) };
   const errors = [];
   const seen = new Set();
@@ -174,7 +176,6 @@ export function variabilityData(inputs, rec) {
 }
 
 const variantLabel = (v) => (v.env === "prod" ? v.id : `${v.id} (${v.env})`);
-const csv = (rows) => `${rows.map((r) => r.join(",")).join("\n")}\n`;
 export const variantsCsv = (d) => csv([["feature", ...d.variants.map(variantLabel)], ...d.features.map((f) => [f.id, ...d.variants.map((v) => f.byVariant[v.id])])]);
 export const customersCsv = (d) => csv([["feature", ...d.customers], ...d.features.map((f) => [f.id, ...d.customers.map((c) => d.byCustomer[f.id][c])])]);
 

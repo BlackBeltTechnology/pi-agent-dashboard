@@ -3,6 +3,7 @@
 // {useCase, links: [{action: "<SCR>#<ACT>", step, evidence: {refs} | {cite}}], noUi: reason|null}.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { duplicateRecords } from "./lib.mjs";
 
 const ITEM_RE = /\b(?:BR|QUIRK|GAP)-\d+\b/g;
 const STEP_KIND = /(?:Task|task|Event|subProcess|callActivity)$/;
@@ -105,7 +106,7 @@ function recordErrors(rec, uc, idx) {
 export function checkLinks(ui, useCases, records, { complete = false } = {}) {
   const idx = actionIndex(ui);
   const byId = new Map(useCases.map((u) => [u.id, u]));
-  const errors = [];
+  const errors = duplicateRecords(records, "useCase");
   for (const rec of records) {
     const uc = byId.get(rec.useCase);
     if (!uc) errors.push(`${rec.file}: unknown use case ${rec.useCase}`);

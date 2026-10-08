@@ -470,10 +470,11 @@
     const custs = Object.keys(U.customers);
     const ucIds = uniq(custs.flatMap((c) => Object.keys(U.customers[c].byUseCase))).sort();
     const max = Math.max(1, ...custs.flatMap((c) => Object.values(U.customers[c].byUseCase)));
-    const heat = (n) => (n ? `<td class="heat" style="--h:${(n / max).toFixed(2)}">${n}</td>` : "<td></td>");
+    const num = (n) => (Number.isFinite(Number(n)) ? String(Number(n)) : "?"); // counts only, never markup
+    const heat = (n) => (Number(n) ? `<td class="heat" style="--h:${(Number(n) / max).toFixed(2)}">${num(n)}</td>` : "<td></td>");
     const ucRows = ucIds.map((id) => [ucChip(id), ...custs.map((c) => U.customers[c].byUseCase[id] || 0)]);
-    const src = custs.map((c) => { const x = U.customers[c]; return [esc(c), x.events, x.users, x.span ? `${esc(x.span.first)} … ${esc(x.span.last)} (${x.span.activeDays} days)` : "—", Object.entries(x.byKind).map(([k, n]) => `${esc(k)} ${n}`).join(", ")]; });
-    const acts = custs.map((c) => [esc(c), Object.entries(U.customers[c].byAction).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, n]) => `${actLink(k)} ${n}`).join("<br>")]);
+    const src = custs.map((c) => { const x = U.customers[c]; return [esc(c), num(x.events), num(x.users), x.span ? `${esc(x.span.first)} … ${esc(x.span.last)} (${num(x.span.activeDays)} days)` : "—", Object.entries(x.byKind).map(([k, n]) => `${esc(k)} ${num(n)}`).join(", ")]; });
+    const acts = custs.map((c) => [esc(c), Object.entries(U.customers[c].byAction).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, n]) => `${actLink(k)} ${num(n)}`).join("<br>")]);
     return `<h3>Sources</h3>${rowsTable(["Customer", "Events", "Users", "Span", "Kinds"], src)}
       <h3>Use cases by customer</h3><table class="crudm"><tr><th>Use case</th>${custs.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${ucRows.map(([u, ...ns]) => `<tr><th>${u}</th>${ns.map(heat).join("")}</tr>`).join("")}</table>
       <h3>Most used actions</h3>${rowsTable(["Customer", "Actions"], acts)}

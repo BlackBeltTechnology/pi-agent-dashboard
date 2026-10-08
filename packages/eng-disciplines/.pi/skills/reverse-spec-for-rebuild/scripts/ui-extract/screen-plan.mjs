@@ -277,7 +277,7 @@ function dialogsHtml(ctx, st) {
       });
       const msg = String(d.message ?? "");
       const key = msg.split(/\s/)[0];
-      const text = ctx.strings[key] ? `${ctx.strings[key]}${msg.length > key.length ? ` <span class="pl-ph">${escHtml(msg.slice(key.length).trim())}</span>` : ""}` : escHtml(msg);
+      const text = ctx.strings[key] ? `${escHtml(ctx.strings[key])}${msg.length > key.length ? ` <span class="pl-ph">${escHtml(msg.slice(key.length).trim())}</span>` : ""}` : escHtml(msg);
       return `<div class="${cls(K.dialog, "pl-dialog")}" id="pl-${escAttr(d.id)}"><div class="${escAttr(K.dialogHeader)}">${escHtml(d.id)} <span class="pl-kind">${escHtml(d.kind || "")}</span></div><div class="${escAttr(K.dialogBody)}">${text}</div><div class="${escAttr(K.dialogFooter)}">${buttons.join(" ")}</div></div>`;
     })
     .join("");

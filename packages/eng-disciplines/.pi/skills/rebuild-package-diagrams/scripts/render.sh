@@ -87,8 +87,8 @@ else
 fi
 
 if [ -d "$D/crud" ]; then
-  echo "3b' CRUD matrix"
-  "${DG[@]}" check-crud "$PKG"
+  echo "3b' CRUD matrix (gate, every screen with data effects)"
+  "${DG[@]}" check-crud "$PKG" --complete
   "${DG[@]}" crud "$PKG" "$D/crud-matrix"
 else
   echo "3b' skip CRUD (no diagrams/crud)"
@@ -114,6 +114,9 @@ if [ -n "$M" ] && [ -f "$M" ]; then VIEW+=(--mermaid "$M"); else echo "  no merm
 I=${IFML_JS_DIR:-$SKILL/assets/ifml-js}
 VIEW+=(--ifml-js "$I/ifml-navigated-viewer.production.min.js" --ifml-css "$I/diagram-js.css" --ifml-css "$I/ifml-font-embedded.css")
 OUT=$PKG/diagrams/catalog.html
-if [ -n "${LOCAL:-}" ]; then VIEW+=(--local); OUT=$PKG/_local/catalog.local.html; mkdir -p "$PKG/_local"; fi
+if [ -n "${LOCAL:-}" ]; then
+  VIEW+=(--local); OUT=$PKG/_local/catalog.local.html; mkdir -p "$PKG/_local"
+  [ -f "$PKG/_local/.gitignore" ] || printf '*\n' > "$PKG/_local/.gitignore" # local data is never committed
+fi
 "${DG[@]}" build-site "$PKG" "$OUT" "${VIEW[@]}" "${BUDGET[@]}"
 echo "RENDER OK"

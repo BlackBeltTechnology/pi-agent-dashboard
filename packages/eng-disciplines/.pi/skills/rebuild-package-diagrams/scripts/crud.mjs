@@ -2,6 +2,7 @@
 // See change: add-crud-matrix.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { csvCell, duplicateRecords } from "./lib.mjs";
 
 // call: data-layer functions (data.createInactivity, …) write too
 const DATA_KINDS = new Set(["write", "read", "export", "call"]);
@@ -99,7 +100,7 @@ function coverageErrors(s, r) {
 export function checkCrud(ui, model, records, { complete = false } = {}) {
   const entities = new Set(model.entities.map((e) => e.name));
   const byId = new Map(ui.screens.map((s) => [s.id, s]));
-  const errors = [];
+  const errors = duplicateRecords(records || [], "screen");
   for (const r of records || []) {
     const s = byId.get(r.screen);
     if (!s) {
@@ -169,7 +170,6 @@ export function crudData(ui, useCases, model, records) {
   };
 }
 
-const csvCell = (v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
 /** Entity x column CSV over a {column: {entity: ops}} map; rows = entities with any cell. */
 export function crudCsv(map, columns) {
   const ents = [...new Set(columns.flatMap((c) => Object.keys(map[c] || {})))].sort();

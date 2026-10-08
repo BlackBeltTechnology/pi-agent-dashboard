@@ -14,7 +14,7 @@ output cites `file:line` relative to the application root (`APP`).
 | # | Command | Output | Kind |
 |---|---|---|---|
 | 1 Inventory | `UX/inventory.mjs APP <adapter> PKG/ui/_inventory.json` | every behavioural site (click, model binding, key handler, menu item, toolbar action, modal, native dialog, template/controller) with `file:line` | deterministic |
-| 2 Effective config | `UX/config.mjs APP <adapter> <variant> PKG/ui/_effective/<v>.json` (once per customer variant) | configuration the app really runs with, merged by the app's own code | deterministic (adapter `effectiveConfig`) |
+| 2 Effective config | `UX/config.mjs APP <adapter> <variant> PKG/ui/_effective/<v>.json` (once per customer variant) | configuration the app really runs with, merged as the app does (the adapter reproduces the merge from statically read config; app code never runs) | deterministic (adapter `effectiveConfig`) |
 | 3 Forms | `UX/forms.mjs PKG/ui/_effective/<v>.json <adapter> <formKey> <FRM-id> PKG/ui/forms`; `UX/screen-form.mjs PKG <DLG-id>` | config-driven form records (`FRM-*.json`) + OpenForms `*.form`; template-defined dialog forms | deterministic |
 | 4 Screen records | `UX/fill.mjs prompts/ui-screen-generator.md <job.json> <ID>` → one subagent per screen/dialog | `PKG/ui/screens/<ID>.json` (format: `references/ui-model.md`) | LLM, gated |
 | 5 Gate | `UX/gate.mjs APP PKG` | exit 0 = PASS; 1 lists `<ID>.json: problem` | deterministic |
@@ -62,8 +62,9 @@ inside a field repeat), `classes` (`view`, `dialog`, `dialogHeader`, `dialogBody
 `dialogFooter`, `button`), `language` (field-label language, page `lang`).
 
 **Profiles.** An adapter file with `parent: "<built-in name or path>"` is merged over its parent
-(`dialect` key-wise). Hooks receive helpers (`join`, `readText`, `lineAt`, `parseLiteralAt`), so a
-profile needs no import from the skill. Built-in `angularjs`: AngularJS 1.x — ng-* inventory
+(`dialect` key-wise). Hooks receive helpers (`join`, `readText`, `lineAt`, `parseLiteralAt`, `defaultsDeep` —
+lodash-equivalent, `__proto__`-guarded), so a profile needs no import from the skill and never
+executes app code. Built-in `angularjs`: AngularJS 1.x — ng-* inventory
 patterns, `$routeProvider.when` / ui-router `.state` routes, `templateUrl` loads, `$uibModal`,
 native dialogs, ng-* dialect with `{{ }}` and `'key' | translate`. App code is read statically
 (`js-literal.mjs`), never executed. A new stack (React, Vue, Delphi DFM, Oracle Forms, APEX,

@@ -125,4 +125,13 @@ describe("use-case UI links", () => {
     const d3 = catalogData(readFileSync(join(dir, "site3.html"), "utf8"));
     expect(d3.useCases.find((u: { id: string }) => u.id === "UC-01").uiLinks).toEqual([]);
   });
+
+  it("refuses two records for the same use case", () => {
+    put("diagrams/uc-links/UC-01.json", good());
+    put("diagrams/uc-links/zz-UC-01.json", good());
+    const r = run("check-uc-links", pkg);
+    rmSync(join(pkg, "diagrams/uc-links/zz-UC-01.json"));
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("UC-01: duplicate record (UC-01.json, zz-UC-01.json)");
+  });
 });

@@ -187,6 +187,16 @@ describe("ui-extract units", () => {
     assert.equal((planScreen(c).html.match(/sk-tb/g) || []).length, 1, "kit class added once");
   });
 
+  it("dialog messages from the app string table are escaped in the plan", () => {
+    const c = ctx();
+    c.strings.boom = '<img src=x onerror="alert(1)">';
+    c.screen.dialogs = [{ id: "DLG-x", kind: "alert", message: "boom extra", from: null }];
+    const p = planScreen(c);
+    expect(p.dialogs).toContain("DLG-x");
+    expect(p.dialogs).not.toContain("<img src=x");
+    expect(p.dialogs).toContain("&lt;img src=x");
+  });
+
   it("without a toolbar hook no toolbar control is filtered", () => {
     const c = ctx();
     delete (c as any).toolbar;
@@ -249,6 +259,23 @@ describe("ui-extract CLI", () => {
     const html = readFileSync(join(pkg, "ui", "plans", "SCR-a.html"), "utf8");
     expect(html).toContain("Felvétel");
     expect(html).toContain("ACT-save");
+  });
+
+  it("config.mjs hands profiles a guarded defaultsDeep and no vm", () => {
+    put(dir, "cfg-profile.mjs", `export const id = "cfg";
+export async function effectiveConfig(appDir, variant, h) {
+  const merged = h.defaultsDeep({ a: [1], n: null }, { a: [2, 3], b: { c: 1 }, n: { x: 1 } }, JSON.parse('{"__proto__": {"polluted": 1}, "constructor": {"prototype": {"p2": 1}}}'));
+  return { forms: {}, helpers: Object.keys(h).sort(), merged, polluted: ({}).polluted ?? null, p2: ({}).p2 ?? null };
+}
+`);
+    const out = join(dir, "cfg-out.json");
+    const r = run(join(UX, "config.mjs"), app, join(dir, "cfg-profile.mjs"), "conf/v.json", out);
+    expect(r.stderr).toBe("");
+    const res = JSON.parse(readFileSync(out, "utf8"));
+    expect(res.helpers).toEqual(["defaultsDeep", "join", "lineAt", "parseLiteralAt", "readText"]);
+    expect(res.merged).toEqual({ a: [1, 3], n: null, b: { c: 1 } });
+    expect(res.polluted).toBeNull();
+    expect(res.p2).toBeNull();
   });
 
   it("a project adapter by path needs no optional hooks; an unlinked control exits 1 naming it", () => {

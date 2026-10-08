@@ -155,4 +155,27 @@ describe("customer variability", () => {
     expect(run("build-site", pkg, join(dir, "c3.html")).code).toBe(0);
     expect(catalogData(readFileSync(join(dir, "c3.html"), "utf8")).variability).toBeNull();
   });
+
+  it("a variant without ui/_effective/<id>.json is a gate error, not a crash; cites stay inside the app", () => {
+    feats(good());
+    const [first] = Object.keys(EFF);
+    rmSync(join(pkg, "ui", "_effective", `${first}.json`));
+    const r = run("check-variability", pkg, app);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain(`ui/_effective/${first}.json missing`);
+    expect(r.stderr).not.toMatch(/node:fs|ENOENT/);
+    const site = run("build-site", pkg, join(dir, "missing.html"));
+    expect(site.code).toBe(1);
+    expect(site.stderr).not.toMatch(/node:fs|ENOENT/);
+    put(pkg, `ui/_effective/${first}.json`, { variant: first, conf: EFF[first] });
+    // a cite outside the app (or naming a directory) never reads it
+    writeFileSync(join(dir, "outside.js"), "cfg.lang\n");
+    feats({ features: [F.unique, F.normalize, F.calendar, { ...F.lang, cites: ["../outside.js:1"] }], data: [] });
+    expect(run("check-variability", pkg, app).stderr).toMatch(/F-lang: cite \.\.\/outside\.js:1 does not read 'lang'/);
+    feats({ features: [F.unique, F.normalize, F.calendar, { ...F.lang, cites: ["js:1"] }], data: [] });
+    const d = run("check-variability", pkg, app);
+    expect(d.stderr).toMatch(/F-lang: cite js:1 does not read 'lang'/);
+    expect(d.stderr).not.toMatch(/EISDIR/);
+    feats(good());
+  });
 });

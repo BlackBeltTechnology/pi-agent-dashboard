@@ -198,8 +198,8 @@ unreachable UI), feature table on affected screens. Rules: `references/variabili
 
 What customers actually do, from the application's own logs. A project job lists the log sources
 per customer (`{sources: [{customer, file, encoding?, format: json|csv, table?, columns: {type,
-user?, time?, object?}, kind}]}`). `usage-draft PKG APP JOB out.json` → types with counts and code
-candidates; `reverse-spec-for-rebuild`'s mapper writes `diagrams/usage/mapping.json` (shared, no
+user?, time?, object?}, kind}]}`). `usage-draft PKG APP JOB PKG/_local/usage-draft.json` → types with
+total counts and code candidates (no customer data; refuses identifying type columns); `reverse-spec-for-rebuild`'s mapper writes `diagrams/usage/mapping.json` (shared, no
 customer data); gate `check-usage PKG APP JOB --complete`. `usage PKG JOB PKG/_local/usage` →
 `usage.json`, `usage-findings.md`, `usage-by-usecase.csv` (users pseudonymized), then the privacy
 gate `check-usage-output PKG/_local/usage JOB`. `render.sh` does both with `USAGE_JOB` (+`LOCAL=1`

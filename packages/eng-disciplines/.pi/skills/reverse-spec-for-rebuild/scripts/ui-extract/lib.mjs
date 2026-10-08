@@ -144,3 +144,22 @@ export function parseCite(cite) {
   const m = /^(.+?):(\d+)(?:-(\d+))?$/.exec(cite.trim());
   return m ? { file: m[1], from: +m[2], to: +(m[3] ?? m[2]) } : null;
 }
+
+// ---------- config merge (profiles reproduce the app merge without running app code) ----------
+
+/** Own-key guard as lodash's safeGet: never walk into a prototype. */
+const UNSAFE = (obj, key) => key === "__proto__" || (key === "constructor" && typeof obj[key] === "function");
+const isObj = (v) => v !== null && typeof v === "object";
+
+/** lodash `_.defaultsDeep` semantics on JSON-like data: fill undefined keys only, recurse into objects/arrays index-wise. */
+export function defaultsDeep(target, ...sources) {
+  const fill = (t, src) => {
+    for (const k of Object.keys(src)) {
+      if (UNSAFE(t, k) || UNSAFE(src, k)) continue;
+      if (t[k] === undefined) Object.defineProperty(t, k, { value: structuredClone(src[k]), enumerable: true, writable: true, configurable: true });
+      else if (isObj(t[k]) && isObj(src[k])) fill(t[k], src[k]);
+    }
+  };
+  for (const src of sources) if (isObj(src)) fill(target, src);
+  return target;
+}

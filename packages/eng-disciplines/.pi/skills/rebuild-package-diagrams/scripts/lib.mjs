@@ -1,6 +1,42 @@
 // Pure parsers and gates for rebuild-package-diagrams. See change: add-rebuild-package-diagrams.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+
+/** Absolute path of a cited app file, or null when it leaves `appDir` or is not a regular file. */
+export function appFile(appDir, rel) {
+  const root = resolve(appDir);
+  const p = resolve(root, rel);
+  if (p !== root && !p.startsWith(root + sep)) return null;
+  try {
+    return statSync(p).isFile() ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `<subject>: duplicate record (<file>, <file>)` for records naming the same subject. */
+export function duplicateRecords(records, key) {
+  const first = new Map();
+  const errors = [];
+  for (const r of records) {
+    if (first.has(r[key])) errors.push(`${r[key]}: duplicate record (${first.get(r[key])}, ${r.file})`);
+    else first.set(r[key], r.file);
+  }
+  return errors;
+}
+
+/**
+ * One CSV cell: finite numbers verbatim; text starting with = + - @ tab or CR gets a leading `'`
+ * (spreadsheet formula injection); quoted when it holds a comma, quote or line break.
+ */
+export function csvCell(v) {
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  let s = String(v ?? "");
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+/** Rows of cells -> CSV text (trailing newline). */
+export const csvRows = (rows) => `${rows.map((r) => r.map(csvCell).join(",")).join("\n")}\n`;
 
 // ---------- extract-model ----------
 

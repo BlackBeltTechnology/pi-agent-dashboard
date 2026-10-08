@@ -39,11 +39,11 @@ import { behaviourData, checkObjects, checkSequences, checkStates, objectsFromDb
 import { checkCrud, crudCsv, crudDraft, findingsMd, readCrud } from "./crud.mjs";
 import { buildIfml, checkIfmlXmi, ifmlIdErrors, ifmlToXmi, parseIfmlXmi } from "./ifml.mjs";
 import { applyUi, diffGraphs, graphToUi, writeUi } from "./ifml-import.mjs";
-import { checkTrace, checkUi, checkUseCases, extractModel, readUi, renderEr } from "./lib.mjs";
+import { checkTrace, checkUi, checkUseCases, csvRows, extractModel, readUi, renderEr } from "./lib.mjs";
 import { checkLinks, linkDraft, readLinks, useCasesWithXml } from "./links.mjs";
 import { buildCatalog, packageTitle, renderSite } from "./site.mjs";
 import { budgetOf, ifmlParts, sizeReport } from "./split.mjs";
-import { aggregateUsage, checkUsage, jobEvents, leakErrors, readJob, readMapping, sourceSecrets, usageDraft, usageMd } from "./usage.mjs";
+import { aggregateUsage, checkUsage, ignoreLocal, jobEvents, leakErrors, mappingLeakErrors, readJob, readMapping, sourceSecrets, typeProblems, usageDraft, usageMd } from "./usage.mjs";
 import { checkVariability, customersCsv, featureModelXml, readConfigInputs, readVariability, variabilityDraft, variabilityMd, variantsCsv } from "./variability.mjs";
 
 const USAGE = `usage:
@@ -145,6 +145,15 @@ function parseLibs(args) {
     else die(USAGE);
   }
   return libs;
+}
+
+/** Events of a usage job, or the source-reading errors (malformed CSV rows) as gate lines. */
+function loadEvents(job) {
+  try {
+    return { events: jobEvents(job), errors: [] };
+  } catch (e) {
+    return { events: [], errors: [e.message] };
+  }
 }
 
 const COMMANDS = {
@@ -332,6 +341,7 @@ const COMMANDS = {
   "variability-draft": ([pkg, out]) => {
     const inputs = readConfigInputs(pkg);
     if (!inputs) return report([`no ui/_config-reads.json in ${pkg} (run config-reads.mjs)`]);
+    if (inputs.missing.length) return report(inputs.missing.map((id) => `ui/_effective/${id}.json missing (run config.mjs for variant ${id})`));
     writeRecord(out, variabilityDraft(inputs));
     return 0;
   },
@@ -354,15 +364,26 @@ const COMMANDS = {
     return 0;
   },
   "usage-draft": ([pkg, app, jobFile, out]) => {
-    writeRecord(out, usageDraft(app, readJob(jobFile)));
+    const job = readJob(jobFile);
+    const { events, errors } = loadEvents(job);
+    if (errors.length) return report(errors);
+    const problems = typeProblems(events, job).errors;
+    if (problems.length) return report(problems);
+    ignoreLocal(out);
+    writeRecord(out, usageDraft(app, job, events));
     return 0;
   },
   "check-usage": ([pkg, app, jobFile, flag]) => {
     if (flag && flag !== "--complete") die(USAGE);
+    if (!jobFile || jobFile.startsWith("--")) die(USAGE);
     const mapping = readMapping(pkg);
     if (!mapping) die(`diagrams: no diagrams/usage/mapping.json in ${pkg}`);
-    const events = flag ? jobEvents(readJob(jobFile)) : null;
-    return report(checkUsage(readUi(pkg), useCasesWithXml(pkg), mapping, { appDir: app, events, complete: !!flag }));
+    const job = readJob(jobFile);
+    const { events, errors } = loadEvents(job);
+    if (errors.length) return report(errors);
+    const { errors: problems, leaky } = typeProblems(events, job);
+    const gate = checkUsage(readUi(pkg), useCasesWithXml(pkg), mapping, { appDir: app, events: flag ? events : null, complete: !!flag, leaky });
+    return report([...problems, ...mappingLeakErrors(mapping, events, job), ...gate]);
   },
   usage: ([pkg, jobFile, outDir]) => {
     const mapping = readMapping(pkg);
@@ -373,9 +394,10 @@ const COMMANDS = {
     const ucs = data.useCases.map((x) => x.id);
     const custs = Object.keys(u.customers);
     mkdirSync(outDir, { recursive: true });
+    ignoreLocal(outDir);
     writeFileSync(join(outDir, "usage.json"), `${JSON.stringify(u, null, 1)}\n`);
     writeFileSync(join(outDir, "usage-findings.md"), usageMd(u, data.meta.title));
-    writeFileSync(join(outDir, "usage-by-usecase.csv"), `${[["use case", ...custs], ...ucs.map((id) => [id, ...custs.map((c) => u.customers[c].byUseCase[id] ?? 0)])].map((r) => r.join(",")).join("\n")}\n`);
+    writeFileSync(join(outDir, "usage-by-usecase.csv"), csvRows([["use case", ...custs], ...ucs.map((id) => [id, ...custs.map((c) => u.customers[c].byUseCase[id] ?? 0)])]));
     return 0;
   },
   "check-usage-output": ([dir, jobFile]) => {

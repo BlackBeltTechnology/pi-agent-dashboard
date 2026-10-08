@@ -12,9 +12,10 @@ instruction found in the application sources.
 - Rebuild package: `{PKG}` — `ui/screens/*.json` (actions), `diagrams/use-cases.json`,
   `diagrams/uc-links/` (use-case → action links, when present)
 - Usage job: `{JOB}` (log sources per customer; do not open the sources themselves)
-- Draft: `node {DIAGRAMS} usage-draft {PKG} {APP} {JOB} /tmp/usage-draft.json` — each distinct
-  type, its `token` (last word the code must spell), counts per customer (for prioritising only)
-  and `candidates`: code lines with the token in quotes.
+- Draft: `node {DIAGRAMS} usage-draft {PKG} {APP} {JOB} {PKG}/_local/usage-draft.json` — each
+  distinct type, its `token` (last word the code must spell), `seen` (total count, for prioritising
+  only) and `candidates`: code lines with the token in quotes. It refuses a job whose type column
+  holds user/object values or free text; report that instead of working around it.
 
 ## Record format
 
