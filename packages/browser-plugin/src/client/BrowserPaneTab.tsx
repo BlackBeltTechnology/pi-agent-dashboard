@@ -38,8 +38,8 @@ export interface BrowserPaneTabProps {
 }
 
 /** Resize requests: at most one per window, only past the dead-band. */
-export const RESIZE_THROTTLE_MS = 500;
-export const RESIZE_DEAD_BAND_PX = 16;
+const RESIZE_THROTTLE_MS = 500;
+const RESIZE_DEAD_BAND_PX = 16;
 
 /** A position normalized to `[0,1]` of the rendered box; `null` for a degenerate box. */
 function normalize(rect: { left: number; top: number; width: number; height: number }, x: number, y: number) {

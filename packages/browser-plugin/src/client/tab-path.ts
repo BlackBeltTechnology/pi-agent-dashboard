@@ -3,7 +3,7 @@
  * Shared by the badge menu (opener), the tab body and the tab label.
  * See change: add-browser-editor-pane-tab.
  */
-export const BROWSER_TAB_PREFIX = "browser";
+const BROWSER_TAB_PREFIX = "browser";
 
 export function browserTabPath(instanceId: string, tabId: number): string {
   return `${BROWSER_TAB_PREFIX}:${instanceId}:${tabId}`;

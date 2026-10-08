@@ -15,7 +15,7 @@ import type { RelayLike } from "./relay/relay-manager.js";
 /** One accepted `show` per (session, instance) per window. */
 export const OPEN_RATE_LIMIT_MS = 5000;
 
-export type OpenKind = "show" | "takeover";
+type OpenKind = "show" | "takeover";
 
 export interface OpenHandlerDeps {
   manager: { readonly enabled: boolean; find(instanceId: string): RelayLike | undefined };

@@ -20,7 +20,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Validate `pluginMeta`; returns the object, or `undefined` after warning. */
-export function sanitizePluginMeta(
+function sanitizePluginMeta(
   value: unknown,
   warn: (msg: string) => void = (m) => console.warn(m),
 ): Record<string, unknown> | undefined {

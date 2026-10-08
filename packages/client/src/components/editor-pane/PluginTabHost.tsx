@@ -22,7 +22,7 @@ export const pluginTabPrefix = (path: string): string => {
   return i > 0 ? path.slice(0, i) : path;
 };
 
-export function PluginTabUnavailable({ path, onClose }: { path: string; onClose: () => void }) {
+function PluginTabUnavailable({ path, onClose }: { path: string; onClose: () => void }) {
   const { t } = useI18n();
   const prefix = pluginTabPrefix(path);
   return (

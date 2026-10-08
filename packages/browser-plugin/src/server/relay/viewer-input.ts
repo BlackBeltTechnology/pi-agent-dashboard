@@ -38,8 +38,8 @@ export type ViewerInputResult =
 const ALLOWED_KINDS = ["mouse", "key", "scroll", "bringToFront", "resize"] as const;
 
 /** Viewer `resize` clamp range (CSS px). See change: add-browser-editor-pane-tab (D8). */
-export const RESIZE_MIN = { width: 320, height: 240 } as const;
-export const RESIZE_MAX = { width: 3840, height: 2160 } as const;
+const RESIZE_MIN = { width: 320, height: 240 } as const;
+const RESIZE_MAX = { width: 3840, height: 2160 } as const;
 
 function isNormalized(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;

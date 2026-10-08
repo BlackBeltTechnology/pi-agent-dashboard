@@ -7,6 +7,7 @@
  * See change: add-browser-editor-pane-tab (task 3.6, D7).
  */
 import { execFile, spawnSync } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { promisify } from "node:util";
@@ -142,8 +143,11 @@ describe("real CDP clients attach through the relay", () => {
   }, 30_000);
 
   it.skipIf(!hasAgentBrowser)("#X1 agent-browser connect attaches and opens a URL", async () => {
-    const session = `relay-it-${process.pid}`;
-    const run = (...args: string[]) => exec("agent-browser", ["--session", session, ...args], { timeout: 25_000 });
+    // short: agent-browser's socket path (session name + dir) caps at 103 bytes
+    const session = `ri${process.pid % 100000}`;
+    const sockDir = fs.mkdtempSync("/tmp/ab-");
+    const run = (...args: string[]) =>
+      exec("agent-browser", ["--session", session, ...args], { timeout: 25_000, env: { ...process.env, AGENT_BROWSER_SOCKET_DIR: sockDir } });
     try {
       const out = await run("connect", r.url);
       expect(`${out.stdout}${out.stderr}`).not.toMatch(/No attached tab|setDownloadBehavior|error/i);
@@ -151,6 +155,7 @@ describe("real CDP clients attach through the relay", () => {
       expect(r.audit.list().some((e) => e.kind === "navigate" && e.detail === "https://example.com/")).toBe(true);
     } finally {
       await run("close").catch(() => {});
+      fs.rmSync(sockDir, { recursive: true, force: true });
     }
   }, 60_000);
 });
