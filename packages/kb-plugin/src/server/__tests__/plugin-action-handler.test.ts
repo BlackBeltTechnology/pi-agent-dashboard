@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is hoisted above module-level const initializers, so the mock fns must
 // live in vi.hoisted to avoid a TDZ hit inside the factory.
-const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd } = vi.hoisted(() => ({
+const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd, preflightWrite } = vi.hoisted(() => ({
   reindexAll: vi.fn(async () => ({ changed: 1, chunks: 2 })),
   applyConfigPatchAndTrust: vi.fn((): { ok: true; projectPath: string; untrustedRefs: string[] } => ({
     ok: true,
@@ -16,6 +16,7 @@ const { reindexAll, applyConfigPatchAndTrust, isAllowedCwd } = vi.hoisted(() => 
     untrustedRefs: [],
   })),
   isAllowedCwd: vi.fn(() => true),
+  preflightWrite: vi.fn((_cwd: string, _opts: { needsSources: boolean }): string | null => null),
 }));
 
 vi.mock("../kb-routes.js", () => ({
@@ -23,6 +24,7 @@ vi.mock("../kb-routes.js", () => ({
   reindexAll,
   applyConfigPatchAndTrust,
   isAllowedCwd,
+  preflightWrite,
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-kb", () => ({
   loadConfig: () => ({ origin: "project" }),
@@ -54,6 +56,8 @@ describe("kb plugin_action handler", () => {
     reindexAll.mockClear();
     applyConfigPatchAndTrust.mockClear();
     isAllowedCwd.mockReturnValue(true);
+    preflightWrite.mockReset();
+    preflightWrite.mockReturnValue(null);
   });
 
   it("reindex reaches the reindexAll core for an allowed cwd", async () => {
@@ -106,5 +110,43 @@ describe("kb plugin_action handler", () => {
     handler({ pluginId: "goal", action: "reindex", payload: { cwd: "/w/repo" } });
     await tick();
     expect(reindexAll).not.toHaveBeenCalled();
+  });
+
+  // E23 (kb-denied-folder-pin-state, design D9): the action path honours the same
+  // preconditions as REST — no job, a warn naming the reason, nothing written.
+  describe("E23 preconditions on the action path", () => {
+    const warns = (ctx: { logger: { warn: unknown } }) =>
+      (ctx.logger.warn as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
+
+    for (const reason of ["folder missing", "no sources configured"]) {
+      it(`reindex refused: ${reason}`, async () => {
+        preflightWrite.mockReturnValue(reason);
+        const { handler, ctx } = await setup();
+        handler({ pluginId: "kb", action: "reindex", payload: { cwd: "/w/repo" } });
+        await tick();
+        expect(reindexAll).not.toHaveBeenCalled();
+        expect(warns(ctx).some((w) => w.includes(reason))).toBe(true);
+      });
+    }
+
+    it("config.set{reindex} on a removed folder writes nothing and starts no job", async () => {
+      preflightWrite.mockImplementation((_cwd, opts) => (opts.needsSources ? "no sources configured" : "folder missing"));
+      const { handler, ctx } = await setup();
+      handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { include: ["docs"] }, reindex: true } });
+      await tick();
+      expect(applyConfigPatchAndTrust).not.toHaveBeenCalled();
+      expect(reindexAll).not.toHaveBeenCalled();
+      expect(warns(ctx).some((w) => w.includes("folder missing"))).toBe(true);
+    });
+
+    it("config.set{reindex} with zero sources saves but starts no job", async () => {
+      preflightWrite.mockImplementation((_cwd, opts) => (opts.needsSources ? "no sources configured" : null));
+      const { handler, ctx } = await setup();
+      handler({ pluginId: "kb", action: "config.set", payload: { cwd: "/w/repo", patch: { sources: [] }, reindex: true } });
+      await tick();
+      expect(applyConfigPatchAndTrust).toHaveBeenCalled();
+      expect(reindexAll).not.toHaveBeenCalled();
+      expect(warns(ctx).some((w) => w.includes("no sources configured"))).toBe(true);
+    });
   });
 });

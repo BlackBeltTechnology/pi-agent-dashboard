@@ -7,7 +7,7 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KbStats } from "../../shared/kb-plugin-types.js";
-import { getKbStatsStore } from "../kb-stats-store.js";
+import { getKbStatsStore, PIN_GUARD_MS, POLL_MS } from "../kb-stats-store.js";
 import { REINDEX_GUARD_MS, resetKbStatsStores, type UseKbStatsResult, useKbStats } from "../useKbStats.js";
 
 // The per-cwd stats store is a module singleton — reset it so no snapshot,
@@ -130,14 +130,16 @@ describe("useKbStats", () => {
   });
 
   it("clears pending and sets reindexError when the trigger POST is rejected (task 1.3)", async () => {
+    // A cwd-refusal 403 now drives `denied` (kb-denied-folder-pin-state E5); an
+    // ordinary rejection (500) keeps the reindexError channel.
     (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === "POST" ? jsonResp({ error: "cwd not allowed" }, false, 403) : json(base()),
+      init?.method === "POST" ? jsonResp({ error: "boom" }, false, 500) : json(base()),
     );
     const { getByTestId } = render(<ReindexProbe cwd="/repo" />);
     await waitFor(() => expect(getByTestId("probe").getAttribute("data-pending")).toBe("false"));
     fireEvent.click(getByTestId("go"));
     expect(getByTestId("probe").getAttribute("data-pending")).toBe("true");
-    await waitFor(() => expect(getByTestId("probe").getAttribute("data-reindex-error")).toMatch(/cwd not allowed/));
+    await waitFor(() => expect(getByTestId("probe").getAttribute("data-reindex-error")).toMatch(/boom/));
     expect(getByTestId("probe").getAttribute("data-pending")).toBe("false");
   });
 
@@ -626,4 +628,215 @@ describe("useKbStats — consumers share one folder state", () => {
     expect(getByTestId("panel").getAttribute("data-reindex-error")).toBe("");
     await waitFor(() => expect(getByTestId("section").getAttribute("data-pending")).toBe("false"), { timeout: 6000 });
   }, 12_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cwd refusal (`denied`) + pin wait. See change: kb-denied-folder-pin-state
+// (design D2, D5, D11).
+// ─────────────────────────────────────────────────────────────────────────────
+const DENIED = { error: "cwd not allowed", reason: "r", hint: "h" };
+const denied403 = () => jsonResp(DENIED, false, 403);
+
+describe("kb stats store — cwd refusal and pin wait", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** fetch mock: GET answers from `gets` (last one repeats), POST from `post`. */
+  function mockFetch(gets: Array<() => Response>, post: () => Response = json202) {
+    let i = 0;
+    const m = vi.fn(async (_url: string, init?: RequestInit) =>
+      init?.method === "POST" ? post() : gets[Math.min(i++, gets.length - 1)](),
+    );
+    (globalThis as { fetch?: unknown }).fetch = m;
+    return m;
+  }
+
+  it("E3: a stats 403 cwd refusal is definitive — one call, denied, no error", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([denied403]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    await settle(5 * POLL_MS);
+    expect(getsFor(m, "/x")).toBe(1);
+    expect(store.getSnapshot()).toMatchObject({ denied: true, deniedReason: "r", error: null, loading: false });
+    un();
+  });
+
+  it("E4: other 403s keep the bounded miss tolerance and never set denied", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([() => jsonResp({ error: "network_not_allowed" }, false, 403)]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    await settle(3 * POLL_MS);
+    expect(getsFor(m, "/x")).toBe(3);
+    expect(store.getSnapshot().error).toBe("network_not_allowed");
+    expect(store.getSnapshot().denied).toBe(false);
+    un();
+  });
+
+  it("E5: a reindex POST 403 cwd refusal → denied, clearing prior reindexError/error", async () => {
+    vi.useFakeTimers();
+    let posts = 0;
+    mockFetch([() => json(base({ indexed: true, chunks: 3 }))], () => (++posts === 1 ? jsonResp({ error: "boom" }, false, 500) : denied403()));
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    store.reindex();
+    await settle();
+    expect(store.getSnapshot().reindexError).toBe("boom");
+    store.reindex();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ pending: false, denied: true, reindexError: null, error: null });
+    un();
+  });
+
+  it("E6: an ordinary reindex rejection keeps reindexError and does not deny", async () => {
+    vi.useFakeTimers();
+    mockFetch([() => json(base())], () => jsonResp({ error: "boom" }, false, 500));
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    store.reindex();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ reindexError: "boom", denied: false, pending: false });
+    un();
+  });
+
+  it("F8: a cwd refusal mid-job stops polling; re-admission shows the job outcome", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([
+      () => json(base({ indexing: true, jobStatus: "running" })),
+      denied403,
+      () => json(base({ jobStatus: "error", lastError: "x" })),
+    ]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    await settle(POLL_MS); // poll → 403
+    expect(store.getSnapshot().denied).toBe(true);
+    const calls = getsFor(m, "/x");
+    await settle(3 * POLL_MS);
+    expect(getsFor(m, "/x")).toBe(calls); // polling stopped
+    store.refetch();
+    await settle();
+    expect(store.getSnapshot().denied).toBe(false);
+    expect(store.getSnapshot().stats?.jobStatus).toBe("error");
+    un();
+  });
+
+  it("F9: a refusal never wedges revalidation for a later subscriber", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([denied403]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    un();
+    const before = getsFor(m, "/x");
+    const un2 = store.subscribe(() => {});
+    await settle();
+    expect(getsFor(m, "/x")).toBe(before + 1);
+    un2();
+  });
+
+  it("X3: a mid-session refusal clears stale errors; re-admission shows populated stats", async () => {
+    vi.useFakeTimers();
+    mockFetch(
+      [() => json(base({ indexed: true, chunks: 4 })), denied403, () => json(base({ indexed: true, chunks: 4 }))],
+      () => jsonResp({ error: "boom" }, false, 500),
+    );
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    store.reindex();
+    await settle();
+    expect(store.getSnapshot().reindexError).toBe("boom");
+    store.refetch();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ denied: true, reindexError: null, error: null });
+    store.refetch();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ denied: false, reindexError: null, error: null });
+    expect(store.getSnapshot().stats?.chunks).toBe(4);
+    un();
+  });
+
+  it("F1: pin wait → successful refetch clears denied and pinPending; pending never set", async () => {
+    vi.useFakeTimers();
+    mockFetch([denied403, () => json(base({ indexed: false }))]);
+    const store = getKbStatsStore("/x");
+    const pendings: boolean[] = [];
+    const un = store.subscribe(() => pendings.push(store.getSnapshot().pending));
+    await settle();
+    store.beginPinWait();
+    expect(store.getSnapshot().pinPending).toBe(true);
+    store.refetch();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ denied: false, pinPending: false });
+    expect(pendings.every((p) => p === false)).toBe(true);
+    un();
+  });
+
+  it("F2: an ungranted pin elapses back to denied with exactly one extra fetch", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([denied403]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    const before = getsFor(m, "/x");
+    store.beginPinWait();
+    await settle(PIN_GUARD_MS);
+    expect(store.getSnapshot()).toMatchObject({ pinPending: false, denied: true, error: null });
+    expect(getsFor(m, "/x")).toBe(before + 1);
+    un();
+  });
+
+  it("F3: the pin guard never fetches at zero subscribers", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch([denied403]);
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    store.beginPinWait();
+    un();
+    const before = getsFor(m, "/x");
+    await settle(PIN_GUARD_MS);
+    expect(store.getSnapshot().pinPending).toBe(false);
+    expect(getsFor(m, "/x")).toBe(before);
+  });
+
+  it("F4: refusal and pin wait are shared by every consumer", async () => {
+    mockFetch([denied403]);
+    render(
+      <>
+        <Consumer id="a" cwd="/x" />
+        <Consumer id="b" cwd="/x" />
+      </>,
+    );
+    await waitFor(() => expect(last("a").denied).toBe(true));
+    expect(last("b").denied).toBe(true);
+    last("a").beginPinWait();
+    await waitFor(() => expect(last("b").pinPending).toBe(true));
+    expect(last("a").pinPending).toBe(true);
+    expect(last("a").pending).toBe(false);
+    expect(last("b").pending).toBe(false);
+  });
+
+  it("F12: a 409 precondition refusal clears pending without reindexError and refetches", async () => {
+    vi.useFakeTimers();
+    const m = mockFetch(
+      [() => json(base({ sourceCount: 1 })), () => json(base({ sourceCount: 0 }))],
+      () => jsonResp({ error: "no sources configured" }, false, 409),
+    );
+    const store = getKbStatsStore("/x");
+    const un = store.subscribe(() => {});
+    await settle();
+    const before = getsFor(m, "/x");
+    store.reindex();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ pending: false, reindexError: null });
+    expect(getsFor(m, "/x")).toBe(before + 1);
+    expect(store.getSnapshot().stats?.sourceCount).toBe(0);
+    un();
+  });
 });

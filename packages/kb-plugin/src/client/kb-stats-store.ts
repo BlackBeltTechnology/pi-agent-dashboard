@@ -27,6 +27,14 @@
  * The two error channels keep their existing semantics (see change:
  * fix-kb-index-feedback) but are now folder state shared by every consumer.
  * See change: fix-kb-card-refresh-and-shared-stats.
+ *
+ * Cwd refusal (`403 { error: "cwd not allowed" }`, typed `code:"cwd_not_allowed"`)
+ * is DEFINITIVE, not a miss: it sets `denied`, stops polling, and clears both
+ * error channels + `pending`. `beginPinWait()` arms a bounded `pinPending`
+ * window (never `pending`, so reindex is not disabled in other consumers). A
+ * 409 precondition refusal (`folder_missing` / `no_sources`) clears `pending`
+ * and refetches instead of setting `reindexError`.
+ * See change: kb-denied-folder-pin-state (design D2, D5, D11).
  */
 import type { KbStats } from "../shared/kb-plugin-types.js";
 import { fetchKbStats, reindexKb } from "./kb-api.js";
@@ -40,6 +48,8 @@ export const MAX_POLL_MISSES = 3;
  * can never wedge a row on a permanent spinner.
  */
 export const REINDEX_GUARD_MS = 4000;
+/** Bounded wait after a Pin click for the `pinned_dirs_updated` refetch to admit the folder. */
+export const PIN_GUARD_MS = 3000;
 
 export interface KbStatsSnapshot {
   stats: KbStats | null;
@@ -50,6 +60,12 @@ export interface KbStatsSnapshot {
   reindexError: string | null;
   /** Optimistic click acknowledgement — see {@link REINDEX_GUARD_MS}. */
   pending: boolean;
+  /** The folder's KB requests were refused by the cwd guard (not an error; pin is the remedy). */
+  denied: boolean;
+  /** Server `reason` of the refusal — diagnostics only, never rendered. */
+  deniedReason: string | null;
+  /** A Pin was sent; waiting for admission — see {@link PIN_GUARD_MS}. */
+  pinPending: boolean;
 }
 
 export const EMPTY_SNAPSHOT: KbStatsSnapshot = {
@@ -58,11 +74,18 @@ export const EMPTY_SNAPSHOT: KbStatsSnapshot = {
   error: null,
   reindexError: null,
   pending: false,
+  denied: false,
+  deniedReason: null,
+  pinPending: false,
 };
 
 type FetchKind = "initial" | "revalidate" | "refetch" | "poll";
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** Typed-refusal discriminator (`kb-api.ts`): `code`, not `instanceof`. */
+const codeOf = (e: unknown): string | undefined =>
+  e && typeof e === "object" && typeof (e as { code?: unknown }).code === "string" ? (e as { code: string }).code : undefined;
+const isPreconditionCode = (c: string | undefined): boolean => c === "folder_missing" || c === "no_sources";
 
 export class KbStatsStore {
   private snapshot: KbStatsSnapshot = EMPTY_SNAPSHOT;
@@ -73,6 +96,7 @@ export class KbStatsStore {
   private inFlight = false;
   private poll: ReturnType<typeof setInterval> | null = null;
   private guard: ReturnType<typeof setTimeout> | null = null;
+  private pinGuard: ReturnType<typeof setTimeout> | null = null;
   private misses = 0;
   private initialized = false;
   private disposed = false;
@@ -122,8 +146,32 @@ export class KbStatsStore {
       .catch((e) => {
         if (this.disposed) return;
         this.clearGuard();
+        const code = codeOf(e);
+        if (code === "cwd_not_allowed") return this.applyDenied(e);
+        if (isPreconditionCode(code)) {
+          // Folder missing / no sources: not a reindex failure (a Retry would
+          // always 409) — fresh stats render the honest state instead.
+          this.update({ pending: false });
+          this.refetchIfObserved();
+          return;
+        }
         this.update({ pending: false, reindexError: message(e) });
       });
+  };
+
+  /**
+   * A Pin was sent for this denied folder: show `pinPending` for at most
+   * PIN_GUARD_MS. A `pinned_dirs_updated` refetch that succeeds clears it
+   * earlier; on elapse it clears and (when observed) refetches once.
+   */
+  beginPinWait = (): void => {
+    if (this.disposed || this.snapshot.pinPending || !this.snapshot.denied) return;
+    this.update({ pinPending: true });
+    this.pinGuard = setTimeout(() => {
+      this.pinGuard = null;
+      this.update({ pinPending: false });
+      this.refetchIfObserved();
+    }, PIN_GUARD_MS);
   };
 
   /** Test-only teardown hook (see {@link resetKbStatsStores}). */
@@ -131,6 +179,7 @@ export class KbStatsStore {
     this.disposed = true;
     this.stopPoll();
     this.clearGuard();
+    this.clearPinGuard();
     this.listeners.clear();
     this.refs = 0;
   }
@@ -184,10 +233,14 @@ export class KbStatsStore {
     // Real job now owns the spinner — hand off from the optimistic `pending`
     // in the SAME snapshot so `pending || indexing` never has a false/false gap.
     if (s.indexing) this.clearGuard();
+    this.clearPinGuard(); // admitted — the pin wait (if any) is over
     this.update({
       stats: s,
       error: null,
       loading: false,
+      denied: false,
+      deniedReason: null,
+      pinPending: false,
       ...(s.indexing ? { pending: false } : {}),
     });
     if (s.indexing) this.startPoll();
@@ -196,7 +249,11 @@ export class KbStatsStore {
 
   private onStatsError(epoch: number, e: unknown): void {
     if (this.disposed || epoch !== this.epoch) return; // stale / aborted
-    this.inFlight = false;
+    this.inFlight = false; // BEFORE the refusal branch, or revalidation wedges
+    if (codeOf(e) === "cwd_not_allowed") {
+      this.applyDenied(e); // definitive — never counts as a miss
+      return;
+    }
     this.misses += 1;
     if (this.misses >= MAX_POLL_MISSES) {
       // Genuine outage — give up and surface a persistent "stats unavailable".
@@ -210,6 +267,24 @@ export class KbStatsStore {
     this.startPoll();
   }
 
+  /** Cwd refusal: definitive. Clears both error channels + optimism; stops polling. */
+  private applyDenied(e: unknown): void {
+    this.stopPoll();
+    this.clearGuard();
+    this.clearPinGuard();
+    this.misses = 0;
+    const reason = (e as { reason?: unknown }).reason;
+    this.update({
+      denied: true,
+      deniedReason: typeof reason === "string" ? reason : null,
+      loading: false,
+      pending: false,
+      pinPending: false,
+      error: null,
+      reindexError: null,
+    });
+  }
+
   private startPoll(): void {
     if (this.poll || this.refs === 0 || this.disposed) return;
     this.poll = setInterval(() => this.startFetch("poll"), POLL_MS);
@@ -219,6 +294,12 @@ export class KbStatsStore {
     if (!this.poll) return;
     clearInterval(this.poll);
     this.poll = null;
+  }
+
+  private clearPinGuard(): void {
+    if (!this.pinGuard) return;
+    clearTimeout(this.pinGuard);
+    this.pinGuard = null;
   }
 
   private clearGuard(): void {
@@ -240,7 +321,10 @@ export class KbStatsStore {
       next.loading === prev.loading &&
       next.error === prev.error &&
       next.reindexError === prev.reindexError &&
-      next.pending === prev.pending
+      next.pending === prev.pending &&
+      next.denied === prev.denied &&
+      next.deniedReason === prev.deniedReason &&
+      next.pinPending === prev.pinPending
     ) {
       return;
     }
